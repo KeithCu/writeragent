@@ -41,14 +41,10 @@ _ACCEPT_URL = f"{EXTENSION_ID_WRITERAGENT}:writer.accept_change"
 _REJECT_URL = f"{EXTENSION_ID_WRITERAGENT}:writer.reject_change"
 
 _lock = threading.RLock()
-# Registered controllers, deduplicated by UNO object identity: PyUNO hands out a NEW proxy
-# object per call/event for the same underlying controller, so dedup by Python id() fails
-# (OnViewCreated + OnLoad would register the same view twice -> duplicated menu entries).
-# PyUNO proxies implement == via UNO identity, so a list + `in` is the reliable test.
-# Strong refs are kept for the office session; releasing them when a view is disposed is
-# follow-up work (one controller+interceptor pair lingers per closed document).
-_registered_controllers: list[Any] = []
-_interceptors: list[Any] = []  # keep strong refs so the Python objects outlive the call
+# PyUNO gives a new proxy per event, so dedup must use uno_same, not in/==;
+# one list of pairs means removal cannot desync the two lists.
+# Strong refs are kept so the Python objects outlive the registration calls.
+_registered: list[tuple[Any, Any]] = []  # (controller, interceptor); UNO-identity dedup
 _doc_listener: Any = None
 _interceptor_cls: Any = None
 
@@ -66,29 +62,29 @@ def _is_writer(model: Any) -> bool:
         return False
 
 
-def _build_menu(model: Any, event: Any) -> Any:
+def _build_menu(model: Any, event: Any, ignored: Any, continue_modified: Any) -> Any:
     """Append the Accept/Reject entries when the doc has tracked changes.
 
     EVERYTHING (imports included) stays inside the try: an exception escaping this callback
     causes LibreOffice to silently unregister the interceptor forever.
     """
     try:
-        from com.sun.star.ui.ContextMenuInterceptorAction import CONTINUE_MODIFIED, IGNORED
         from com.sun.star.ui import ActionTriggerSeparatorType
 
         from plugin.framework.i18n import _
         from plugin.writer.review_scan import agent_change_presence
 
         count, reliable = agent_change_presence(model, stop_at_first=True)
+        # Fail open when the scan is unreliable: show the menu rather than hide a real change.
         has = count > 0 or not reliable
         log.debug("change_context_menu: notifyContextMenuExecute (Writer), has_agent_changes=%s", has)
         if not has:
-            return IGNORED
+            return ignored
         container = event.ActionTriggerContainer
         # The container implements XMultiServiceFactory; call it directly on the proxy
         # (queryInterface with an imported interface class does not work in PyUNO).
         if container is None or not hasattr(container, "createInstance"):
-            return IGNORED
+            return ignored
 
         separator = container.createInstance("com.sun.star.ui.ActionTriggerSeparator")
         separator.setPropertyValue("SeparatorType", ActionTriggerSeparatorType.LINE)
@@ -103,26 +99,22 @@ def _build_menu(model: Any, event: Any) -> Any:
         # Bulk accept/reject ALL is intentionally NOT here -- it lives on the review toolbar (#2).
         # The right-click stays focused on the change under the cursor (the punctual action).
 
-        count = container.getCount()
-        container.insertByIndex(count, separator)
-        container.insertByIndex(count + 1, accept)
-        container.insertByIndex(count + 2, reject)
-        log.debug("change_context_menu: added review entries at index %d", count)
-        return CONTINUE_MODIFIED
+        insert_at = container.getCount()
+        container.insertByIndex(insert_at, separator)
+        container.insertByIndex(insert_at + 1, accept)
+        container.insertByIndex(insert_at + 2, reject)
+        log.debug("change_context_menu: added review entries at index %d", insert_at)
+        return continue_modified
     except Exception:
         log.exception("change_context_menu: building menu failed")
-        try:
-            from com.sun.star.ui.ContextMenuInterceptorAction import IGNORED
-
-            return IGNORED
-        except Exception:
-            return None
+        return ignored
 
 
 def _make_interceptor(model: Any) -> Any:
     global _interceptor_cls
     if _interceptor_cls is None:
         from com.sun.star.ui import XContextMenuInterceptor
+        from com.sun.star.ui.ContextMenuInterceptorAction import CONTINUE_MODIFIED, IGNORED
 
         class _ChangeContextMenuInterceptor(unohelper.Base, XContextMenuInterceptor):  # type: ignore[misc, valid-type]
             _model: Any
@@ -132,33 +124,59 @@ def _make_interceptor(model: Any) -> Any:
                 self._model = model
 
             def notifyContextMenuExecute(self, aEvent: Any) -> Any:  # noqa: N802, N803 -- UNO API
-                return _build_menu(self._model, aEvent)
+                return _build_menu(self._model, aEvent, IGNORED, CONTINUE_MODIFIED)
 
         _interceptor_cls = _ChangeContextMenuInterceptor
     return _interceptor_cls(model)
+
+
+def _controller_alive(controller: Any) -> bool:
+    try:
+        return controller.getModel() is not None
+    except Exception:
+        return False
 
 
 def _cleanup_disposed_controllers() -> None:
     """Passively remove any disposed controllers/interceptors from our tracking lists."""
     try:
         with _lock:
-            alive_controllers = []
-            alive_interceptors = []
-            for idx, ctrl in enumerate(_registered_controllers):
-                try:
-                    if ctrl.getModel() is not None:
-                        alive_controllers.append(ctrl)
-                        if idx < len(_interceptors):
-                            alive_interceptors.append(_interceptors[idx])
-                except Exception:  # noqa: S110 - disposed controller; getModel() failing is the liveness check
-                    pass
-            _registered_controllers[:] = alive_controllers
-            _interceptors[:] = alive_interceptors
+            _registered[:] = [pair for pair in _registered if _controller_alive(pair[0])]
 
         from plugin.writer import review_click_popup
         review_click_popup.cleanup_disposed_controllers()
     except Exception:
         log.debug("change_context_menu: cleanup failed", exc_info=True)
+
+
+def _unregister_model(model: Any) -> None:
+    """Remove registered interceptor for the given model on document unload.
+
+    The registry used to hold a strong ref for the whole session, so each closed
+    window leaked its document; OnUnload is the only place the last closed document
+    can be released.
+    """
+    if model is None:
+        return
+    from plugin.framework.uno_context import uno_same
+
+    with _lock:
+        keep: list[tuple[Any, Any]] = []
+        removed: list[tuple[Any, Any]] = []
+        for pair in _registered:
+            interceptor = pair[1]
+            interceptor_model = getattr(interceptor, "_model", None)
+            if uno_same(interceptor_model, model):
+                removed.append(pair)
+            else:
+                keep.append(pair)
+        _registered[:] = keep
+
+    for controller, interceptor in removed:
+        try:
+            controller.removeContextMenuInterceptor(interceptor)
+        except Exception:
+            log.debug("change_context_menu: removeContextMenuInterceptor failed", exc_info=True)
 
 
 def _register_controller(controller: Any) -> None:
@@ -167,8 +185,10 @@ def _register_controller(controller: Any) -> None:
         return
     _cleanup_disposed_controllers()
     try:
+        from plugin.framework.uno_context import uno_same
+
         with _lock:
-            if controller in _registered_controllers:  # UNO-identity equality, see above
+            if any(uno_same(controller, pair[0]) for pair in _registered):
                 return
         model = controller.getModel()
         if not _is_writer(model):
@@ -179,11 +199,10 @@ def _register_controller(controller: Any) -> None:
             return
         interceptor = _make_interceptor(model)
         with _lock:
-            if controller in _registered_controllers:
+            if any(uno_same(controller, pair[0]) for pair in _registered):
                 return
             controller.registerContextMenuInterceptor(interceptor)
-            _registered_controllers.append(controller)
-            _interceptors.append(interceptor)
+            _registered.append((controller, interceptor))
         log.debug("change_context_menu: registered on Writer controller")
         # Same controller, same lifecycle: also attach the click-to-review popup handler.
         try:
@@ -217,7 +236,12 @@ def _install_doc_event_listener(ctx: Any) -> None:
     with _lock:
         if _doc_listener is not None:
             return
-    listener = install_view_doc_listener(ctx, _register_controller, "change_context_menu")
+    listener = install_view_doc_listener(
+        ctx,
+        _register_controller,
+        "change_context_menu",
+        on_unload=_unregister_model,
+    )
     if listener is not None:
         with _lock:
             _doc_listener = listener

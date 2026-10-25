@@ -679,12 +679,31 @@ def install_view_doc_listener(
     ctx: Any,
     register_controller: Callable[[Any], None],
     log_label: str,
+    *,
+    on_unload: Callable[[Any], None] | None = None,
 ) -> Any:
-    """Attach a global listener that invokes register_controller on view/load events."""
+    """Attach a global listener that invokes register_controller on view/load events.
+
+    When on_unload is provided, OnUnload events pass the document model to that callback.
+    """
     try:
         class _NewDocListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
             def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
                 name = getattr(Event, "EventName", "") or ""
+                if name == "OnUnload":
+                    if on_unload is None:
+                        return
+                    controller = getattr(Event, "ViewController", None)
+                    model = None
+                    if controller is not None and hasattr(controller, "getModel"):
+                        try:
+                            model = controller.getModel()
+                        except Exception:
+                            model = None
+                    if model is None:
+                        model = getattr(Event, "Source", None)
+                    on_unload(model)
+                    return
                 if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew"):
                     return
                 # Prefer the event's own controller: it is guaranteed attached to the view
