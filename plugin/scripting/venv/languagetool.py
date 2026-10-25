@@ -11,6 +11,7 @@ from plugin.framework.grammar_rule_ids import (
     LANGUAGETOOL_RULE_PREFIX,
     grammar_match,
     make_rule_identifier,
+    normalize_detected_bcp47,
 )
 
 # Global cache of initialized LanguageTool clients to avoid JVM startup/restart overhead.
@@ -48,6 +49,13 @@ def _match_wrong_text(m: Any) -> str:
     return context[start : start + length]
 
 
+def _drop_cached_tool(key: str, tool: Any) -> None:
+    """Forget a failed client so the next call builds a fresh one."""
+    with _LT_CACHE_LOCK:
+        if _LT_CACHE.get(key) is tool:
+            _LT_CACHE.pop(key, None)
+
+
 def _cached_languagetool(bcp47_clean: str) -> Any:
     """Return the cached client, constructing at most one per locale."""
     try:
@@ -67,17 +75,19 @@ def _cached_languagetool(bcp47_clean: str) -> Any:
             tool = language_tool_python.LanguageTool(bcp47_clean)
         except Exception as e:
             raise RuntimeError(
-                f"Failed to initialize LanguageTool server for locale {bcp47_clean}. "
-                f"Ensure that Java (JRE) is installed and available in the system PATH. Error: {e}"
-            )
+                f"Failed to initialize LanguageTool for locale {bcp47_clean}. "
+                "Java 17+ is required by language-tool-python 3.x, and the first run "
+                f"downloads the LanguageTool distribution. Error: {e}"
+            ) from e
         _LT_CACHE[bcp47_clean] = tool
         return tool
 
 
 def run_languagetool_check(text: str, bcp47: str) -> dict[str, Any]:
     """Execute grammar check on text using language_tool_python in the venv."""
-    # Normalize locale code
-    bcp47_clean = bcp47.replace("_", "-")
+    # The action is public: "en", "en-us", and "en_US" are one LanguageTool
+    # language and used to start three JVMs.
+    bcp47_clean = normalize_detected_bcp47(bcp47) or bcp47.replace("_", "-")
     tool = _cached_languagetool(bcp47_clean)
 
     try:
@@ -101,4 +111,7 @@ def run_languagetool_check(text: str, bcp47: str) -> dict[str, Any]:
             )
         return {"errors": errors}
     except Exception as e:
-        raise RuntimeError(f"LanguageTool check failed: {e}")
+        # A cached client whose JVM exited used to be reused for every later
+        # sentence; forget it so the next check starts a fresh one.
+        _drop_cached_tool(bcp47_clean, tool)
+        raise RuntimeError(f"LanguageTool check failed for {bcp47_clean}: {e}") from e

@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from plugin.scripting.calc_functions_common import (
+    ANALYSIS_DATA_TABLE_ROWS,
     OPTIMIZE_HELPER_NAMES as HELPER_NAMES,
 )
 from plugin.scripting.venv.coerce import (
@@ -23,11 +24,19 @@ from plugin.scripting.venv.coerce import (
 from plugin.scripting.venv.trusted_dispatch import (
     dispatch_common_kwargs,
     error_result as _error_result,
+    missing_package_error as _missing_package_error,
     ok_result as _ok_result,
     run_trusted_spec,
 )
 
 log = logging.getLogger(__name__)
+
+# A typo in a param name used to be ignored and the helper auto-selected columns.
+_ALLOWED_PARAMS: dict[str, frozenset[str]] = {
+    "optimize_portfolio": frozenset({"returns_col", "target_return", "risk_free_rate"}),
+    "linear_programming": frozenset({"c_col", "a_cols", "b_col", "bounds", "maximize"}),
+    "solve_scheduling_problem": frozenset({"cost_cols"}),
+}
 
 
 def _is_bound_scalar(x: Any) -> bool:
@@ -101,18 +110,25 @@ def linear_programming(
     ``a_cols`` is one ``A_ub x <= b`` constraint across those variables.
     ``b`` must supply one bound per constraint column. A single constraint
     column may repeat that same bound on every row.
+    ``bounds`` may be one pair for every variable or one pair per original row;
+    pairs for rows dropped as non-numeric are ignored.
 
     Future: Consider pulp for more complex formulations.
     """
+    helper = "linear_programming"
     import numpy as np
     import pandas as pd
-    from scipy import optimize as scipy_optimize
+    try:
+        from scipy import optimize as scipy_optimize
+    except ImportError:
+        return _missing_package_error(helper, "scipy")
 
-    helper = "linear_programming"
     if not isinstance(c_col, str) or not c_col.strip():
         return _error_result("INVALID_PARAM", f"c_col must be a string, got {c_col!r}", helper=helper)
+    c_col = c_col.strip()
     if not isinstance(b_col, str) or not b_col.strip():
         return _error_result("INVALID_PARAM", f"b_col must be a string, got {b_col!r}", helper=helper)
+    b_col = b_col.strip()
 
     try:
         a_cols_list = coerce_str_list(a_cols, name="a_cols")
@@ -153,12 +169,11 @@ def linear_programming(
             helper=helper,
         )
 
-    # What was wrong: non-numeric text cells survived dropna and ndarray.astype(float)
-    # raised ValueError, causing OPTIMIZATION_FAILED in run_optimize or raising directly.
-    # How it happened: dropna only filtered nulls/NaNs, not text strings in numeric columns.
-    # Why this change fixes it: apply(pd.to_numeric, errors="coerce") turns text into NaN,
-    # and dropna() drops rows with invalid cells the same way blank rows are dropped.
-    clean_df = df[needed_cols].apply(pd.to_numeric, errors="coerce").dropna()
+    numeric_df = df[needed_cols].apply(pd.to_numeric, errors="coerce")
+    # Bounds may be one pair per original row; keep the mask that dropped
+    # non-numeric rows so the pairs stay aligned.
+    keep_mask = numeric_df.notna().all(axis=1)
+    clean_df = numeric_df[keep_mask]
     if clean_df.empty:
         return _error_result("INSUFFICIENT_DATA", "No data for linear programming", helper=helper)
 
@@ -192,6 +207,13 @@ def linear_programming(
             },
         )
 
+    if (
+        isinstance(bounds, (list, tuple))
+        and len(bounds) == len(keep_mask)
+        and all(isinstance(item, (list, tuple)) for item in bounds)
+    ):
+        bounds = [item for item, keep in zip(bounds, keep_mask) if bool(keep)]
+
     try:
         lp_bounds = _linprog_bounds(bounds, len(c))
     except ValueError as exc:
@@ -203,13 +225,14 @@ def linear_programming(
         return _error_result("OPTIMIZATION_FAILED", str(e), helper=helper)
 
     if not res.success:
-        return _error_result("OPTIMIZATION_FAILED", res.message, helper=helper)
+        code = {2: "INFEASIBLE", 3: "UNBOUNDED"}.get(int(res.status), "OPTIMIZATION_FAILED")
+        return _error_result(code, res.message, helper=helper, details={"solver_status": int(res.status)})
 
     solution_df = pd.DataFrame({
         "variable_index": range(len(res.x)),
         "optimal_value": np.round(res.x, 4)
     })
-    table = _table_from_df(solution_df, name="lp_solution")
+    table = _table_from_df(solution_df, name="lp_solution", max_rows=ANALYSIS_DATA_TABLE_ROWS)
 
     metrics = {
         "objective_value": float(-res.fun) if maximize_val else float(res.fun),
@@ -238,12 +261,14 @@ def optimize_portfolio(
     columns and monotonic unique integer columns are skipped, and each skip
     is a flags entry.
     """
+    helper = "optimize_portfolio"
     import math
     import numpy as np
     import pandas as pd
-    from scipy import optimize as scipy_optimize
-
-    helper = "optimize_portfolio"
+    try:
+        from scipy import optimize as scipy_optimize
+    except ImportError:
+        return _missing_package_error(helper, "scipy")
     try:
         returns_col_list = coerce_str_list(returns_col, name="returns_col")
     except ValueError as exc:
@@ -314,7 +339,25 @@ def optimize_portfolio(
         })
 
     bounds = tuple((0.0, 1.0) for _unused in range(num_assets))
+    min_mean = float(np.min(mean_returns))
+    max_mean = float(np.max(mean_returns))
     init_guess = np.array(num_assets * [1.0 / num_assets])
+    if target_return_val is not None:
+        if target_return_val < min_mean - 1e-12 or target_return_val > max_mean + 1e-12:
+            return _error_result(
+                "INFEASIBLE_TARGET",
+                f"target_return {target_return_val} is outside the achievable long-only "
+                f"range [{min_mean}, {max_mean}].",
+                helper=helper,
+                details={"min_mean_return": min_mean, "max_mean_return": max_mean},
+            )
+        # Equal weights violate the target equality. Two assets at the mean
+        # extremes sum to 1 and hit the target exactly, which is a feasible start.
+        if max_mean > min_mean:
+            top = min(1.0, max(0.0, (target_return_val - min_mean) / (max_mean - min_mean)))
+            init_guess = np.zeros(num_assets)
+            init_guess[int(np.argmax(mean_returns))] = top
+            init_guess[int(np.argmin(mean_returns))] += 1.0 - top
 
     # Portfolio objective: daily variances sit under SLSQP's default ftol,
     # so the equal-weight start is reported as optimal (nit == 1, about 34%
@@ -346,7 +389,7 @@ def optimize_portfolio(
         "asset": numeric_cols,
         "weight": np.round(raw_weights, 4)
     })
-    table = _table_from_df(weights_df, name="portfolio_weights")
+    table = _table_from_df(weights_df, name="portfolio_weights", max_rows=ANALYSIS_DATA_TABLE_ROWS)
 
     metrics = {
         "expected_return": float(expected_return),
@@ -378,10 +421,13 @@ def solve_scheduling_problem(
     When cost_cols is omitted, date-named columns and monotonic unique integer
     columns are skipped, and each skip is a flags entry.
     """
-    import pandas as pd
-    from scipy import optimize as scipy_optimize
-
     helper = "solve_scheduling_problem"
+    import pandas as pd
+    try:
+        from scipy import optimize as scipy_optimize
+    except ImportError:
+        return _missing_package_error(helper, "scipy")
+
     try:
         cost_cols_list = coerce_str_list(cost_cols, name="cost_cols")
     except ValueError as exc:
@@ -437,7 +483,7 @@ def solve_scheduling_problem(
         "cost": cost_matrix[row_ind, col_ind]
     })
 
-    table = _table_from_df(assignment_df, name="optimal_assignment")
+    table = _table_from_df(assignment_df, name="optimal_assignment", max_rows=ANALYSIS_DATA_TABLE_ROWS)
 
     metrics = {
         "total_cost": float(total_cost),
@@ -459,6 +505,16 @@ def solve_scheduling_problem(
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
     common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
+
+    allowed = _ALLOWED_PARAMS.get(name)
+    if allowed is not None:
+        unknown = sorted(set(params) - allowed)
+        if unknown:
+            return _error_result(
+                "INVALID_PARAM",
+                f"{name} does not accept {', '.join(unknown)}. Allowed: {', '.join(sorted(allowed))}.",
+                helper=name,
+            )
 
     if name == "optimize_portfolio":
         return optimize_portfolio(
