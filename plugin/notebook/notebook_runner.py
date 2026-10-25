@@ -89,13 +89,25 @@ class RunResult:
     cells_run: int = 0
 
 
-def _stop_event(busy_key: str) -> threading.Event:
+def _begin_run(busy_key: str) -> bool:
+    """Claim the per-document busy key and start its stop Event atomically.
+
+    Two PyUNO wrappers of one document (▶ and the menu) can reach this on
+    different threads; the check and the add must not interleave.
+    """
     with _stop_lock:
-        ev = _stop_flags.get(busy_key)
-        if ev is None:
-            ev = threading.Event()
-            _stop_flags[busy_key] = ev
-        return ev
+        if busy_key in _running_docs:
+            return False
+        _running_docs.add(busy_key)
+        _stop_flags[busy_key] = threading.Event()
+        return True
+
+
+def _end_run(busy_key: str) -> None:
+    """Drop the busy key and its stop Event; Stop while idle creates neither."""
+    with _stop_lock:
+        _running_docs.discard(busy_key)
+        _stop_flags.pop(busy_key, None)
 
 
 def _chat_stop_requested() -> bool:
@@ -120,27 +132,19 @@ def _is_stop_requested(busy_key: str) -> bool:
     return _chat_stop_requested()
 
 
-def _clear_stop(busy_key: str) -> None:
-    _stop_event(busy_key).clear()
-
-
 def request_stop(doc: Any | None) -> None:
     """Ask the in-flight cell / remaining Run All sequence to stop.
 
-    Must not check ``_running_docs`` — the busy guard skips a second ▶, but
-    Stop has to land while that key is held.
+    Must not check ``_running_docs`` as a busy guard — Stop has to land while
+    that key is held. Only active runs get a signal; Stop while idle must not
+    create state.
     """
-    if doc is not None:
-        _stop_event(_doc_key(doc)).set()
-    # Tip: the menu may hand us None or another wrapper of the doc, so flag
-    # every running batch; Run All checks its flag between cells.
-    for key in list(_running_docs):
-        _stop_event(key).set()
-
-
-def stop_for_doc(doc: Any | None) -> None:
-    """Menu/toolbar Stop. Never blocked by the busy guard."""
-    request_stop(doc)
+    keys = [_doc_key(doc)] if doc is not None else []
+    with _stop_lock:
+        keys.extend(k for k in _running_docs if k not in keys)
+        events = [_stop_flags[k] for k in keys if k in _stop_flags]
+    for ev in events:
+        ev.set()
 
 
 def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
@@ -753,9 +757,17 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
 
     def _fill(target: Any) -> None:
         target.gotoStartOfParagraph(False)
+        # Only a paragraph that already had text can be mashed onto the next
+        # cell's chrome. On an empty output slot everything after the 32k
+        # insert cap is still our stdout; splitting it restyled the tail as
+        # Heading 2, which then stopped the next clear at that heading.
+        had_text = bool(_paragraph_string(target).strip())
         _apply_para_style(target, output_style)
         text.insertString(target, display, False)
-        _split_if_stdout_mashed_onto_chrome(doc, text, target, display, output_style, notebook_in)
+        if had_text:
+            _split_if_stdout_mashed_onto_chrome(doc, text, target, display, output_style, notebook_in)
+        else:
+            _ensure_one_spacer_before_next_cell(text, target, notebook_in)
 
     def _finish() -> None:
         _reanchor_output_bookmark(doc, cell)
@@ -1020,34 +1032,32 @@ def run_cell(ctx: Any, doc: Any, cell_id: str) -> RunResult:
     with form_lookup.control_lookup_scope(doc):
         state = load_registry(doc)
         if state is None:
-            return RunResult("error", None, "No notebook registry on document.")
+            return RunResult("error", None, _("No notebook registry on document."))
         cell = next((c for c in state.code_cells if c.cell_id == cell_id), None)
         if cell is None:
-            return RunResult("error", None, "Unknown notebook cell.")
+            return RunResult("error", None, _("Unknown notebook cell."))
 
         code = form_lookup.read_code_from_field(doc, cell.code_field_name)
         if code is None:
             log.warning("notebook run: code field %r missing for cell %d", cell.code_field_name, cell.index)
-            return RunResult("error", None, "Code field is missing.")
+            return RunResult("error", None, _("Code field is missing."))
         if not code.strip():
-            return RunResult("error", None, "Code cell is empty.")
+            return RunResult("error", None, _("Code cell is empty."))
 
         # Shared kernel: one run per document. Without this, a second ▶ (or the
         # leftover double-wire we already hit on two PyUNO wrappers) interleaved
         # next_execution_count / clear_cell_output / apply_run_result.
         busy_key = _doc_key(doc)
-        if busy_key in _running_docs:
+        if not _begin_run(busy_key):
             log.info("notebook run skipped: a cell is already running on this document")
             return RunResult("busy", None, "A cell is already running.")
-        _running_docs.add(busy_key)
         try:
-            _clear_stop(busy_key)
             one = _execute_and_apply(ctx, doc, state, cell, code)
             if one.status == "fatal":
                 return RunResult("error", one.execution_count, one.message, cells_run=one.cells_run)
             return one
         finally:
-            _running_docs.discard(busy_key)
+            _end_run(busy_key)
 
 
 def run_cell_for_doc_hex(ctx: Any, doc: Any, hex_id: str) -> None:
@@ -1167,14 +1177,12 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
     with form_lookup.control_lookup_scope(doc):
         state = load_registry(doc)
         if state is None:
-            return RunResult("error", None, "No notebook registry on document.")
+            return RunResult("error", None, _("No notebook registry on document."))
 
         busy_key = _doc_key(doc)
-        if busy_key in _running_docs:
+        if not _begin_run(busy_key):
             log.info("notebook run skipped: a cell is already running on this document")
             return RunResult("busy", None, "A cell is already running.")
-        _running_docs.add(busy_key)
-        _clear_stop(busy_key)
         executed = 0
         last_count: int | None = None
         stopped = False
@@ -1225,9 +1233,7 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                 return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
             return RunResult("ok", last_count, cells_run=executed)
         finally:
-            with _stop_lock:
-                _stop_flags.pop(busy_key, None)
-            _running_docs.discard(busy_key)
+            _end_run(busy_key)
 
 
 def _notebook_doc_or_msgbox(ctx: Any, doc: Any) -> NotebookDocState | None:
@@ -1287,4 +1293,4 @@ def run_from_here_from_menu(ctx: Any | None = None, frame: Any | None = None) ->
 
 def stop_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
     doc = _doc_from_frame(ctx, frame)[1]
-    stop_for_doc(doc)
+    request_stop(doc)
