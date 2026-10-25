@@ -14,13 +14,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Navigation tools: nav_heading, nav_surroundings."""
+"""Navigation tools: nav_heading, nav_surroundings, nav_heading_children."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.errors import ToolExecutionError
+from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 
 from .specialized_base import ToolWriterStructuralBase, enum_param
 
@@ -28,11 +29,26 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 
+def _nav_result(tool: ToolWriterStructuralBase, call: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    """Map one navigation service call to the tool envelope (error dict and exception both become tool errors)."""
+    try:
+        result = call()
+    except (ValueError, ToolExecutionError) as e:
+        return tool._tool_error(str(e))
+    if "error" in result:
+        return tool._tool_error(result["error"])
+    return {"status": "ok", **result}
+
+
 class NavHeading(ToolWriterStructuralBase):
     name: str | None = "nav_heading"
     intent: str | None = "navigate"
     is_mutation: bool | None = False
-    description: str = "Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing."
+    description: str = (
+        "Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. "
+        "Returns the target heading with bookmark for stable addressing. "
+        + PARAGRAPH_INDEX_DIRECTIVE
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -45,19 +61,17 @@ class NavHeading(ToolWriterStructuralBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         prox_svc = ctx.services.writer_proximity
-        try:
-            result = prox_svc.navigate_heading(ctx.doc, kwargs["locator"], kwargs["direction"])
-            if "error" in result:
-                return self._tool_error(result["error"])
-            return {"status": "ok", **result}
-        except (ValueError, ToolExecutionError) as e:
-            return self._tool_error(str(e))
+        return _nav_result(self, lambda: prox_svc.navigate_heading(ctx.doc, kwargs["locator"], kwargs["direction"]))
 
 
 class NavSurroundings(ToolWriterStructuralBase):
     name: str | None = "nav_surroundings"
     intent: str | None = "navigate"
-    description: str = "Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments."
+    is_mutation: bool | None = False
+    description: str = (
+        "Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments. "
+        + PARAGRAPH_INDEX_DIRECTIVE
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -71,17 +85,17 @@ class NavSurroundings(ToolWriterStructuralBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         prox_svc = ctx.services.writer_proximity
-        try:
-            result = prox_svc.get_surroundings(ctx.doc, kwargs["locator"], radius=kwargs.get("radius", 10), include=kwargs.get("include"))
-            return {"status": "ok", **result}
-        except (ValueError, ToolExecutionError) as e:
-            return self._tool_error(str(e))
+        return _nav_result(self, lambda: prox_svc.get_surroundings(ctx.doc, kwargs["locator"], radius=kwargs.get("radius", 10), include=kwargs.get("include")))
 
 
 class NavHeadingChildren(ToolWriterStructuralBase):
     name: str | None = "nav_heading_children"
     intent: str | None = "navigate"
-    description: str = "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark. heading: is ordinal path among siblings, not Writer's chapter number. para_index values are INTERNAL — never cite paragraph numbers to the user; refer to a place by quoting the first words of its text."
+    is_mutation: bool | None = False
+    description: str = (
+        "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark (exactly one). heading: is ordinal path among siblings, not Writer's chapter number. "
+        + PARAGRAPH_INDEX_DIRECTIVE
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -100,8 +114,7 @@ class NavHeadingChildren(ToolWriterStructuralBase):
         para_index = kwargs.get("para_index")
         bookmark = kwargs.get("bookmark")
         strategy = kwargs.get("strategy", "first_lines")
-        try:
-            result = tree_svc.get_heading_children(ctx.doc, heading_para_index=para_index, heading_bookmark=bookmark, locator=kwargs.get("locator"), content_strategy=strategy, depth=kwargs.get("depth", 1))
-            return {"status": "ok", **result}
-        except (ValueError, ToolExecutionError) as e:
-            return self._tool_error(str(e))
+        provided = [name for name, value in (("locator", kwargs.get("locator")), ("para_index", para_index), ("bookmark", bookmark)) if value is not None]
+        if len(provided) > 1:
+            return self._tool_error("Provide only one of locator, para_index, bookmark (got: %s)" % ", ".join(provided))
+        return _nav_result(self, lambda: tree_svc.get_heading_children(ctx.doc, heading_para_index=para_index, heading_bookmark=bookmark, locator=kwargs.get("locator"), content_strategy=strategy, depth=kwargs.get("depth", 1)))
