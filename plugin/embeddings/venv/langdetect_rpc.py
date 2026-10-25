@@ -25,14 +25,7 @@ def _raw_lang_to_bcp47(raw: str | None) -> str | None:
         return None
 
     text = str(raw).strip()
-    if text == "zh-cn":
-        text = "zh-CN"
-    elif text == "zh-tw":
-        text = "zh-TW"
-    else:
-        parts = text.split("-")
-        if len(parts) == 2:
-            text = f"{parts[0]}-{parts[1].upper()}"
+    # Keep tags outside the grammar registry (sr, th): embeddings still needs them.
     return normalize_detected_bcp47(text) or text
 
 

@@ -33,9 +33,7 @@ from plugin.writer.locale.ai_grammar_proofreader import (
     SERVICE_NAME,
     WriterAgentAiGrammarProofreader,
 )
-from plugin.framework.grammar_rule_ids import (
-    normalize_uno_locale_to_bcp47,
-)
+from plugin.framework.grammar_rule_ids import normalize_detected_bcp47
 from plugin.writer.locale.grammar_proofread_locale import uno_locales_for_tags
 
 log = logging.getLogger("writeragent.grammar")
@@ -45,45 +43,20 @@ from plugin.writer.locale.harper import HARPER_LOCALE_TAGS
 
 IMPLEMENTATION_NAME = f"{EXTENSION_ID_LIBREHARPER}.comp.pyuno.HarperProofreader"
 SERVICE_DISPLAY_NAME = "LibreHarper"
-# One warning per unrecognized English tag. hasLocale is called per sentence.
-_HARPER_LOCALE_MISS_LOGGED: set[str] = set()
-
-
-def _is_english_locale_tag(language: str) -> bool:
-    lang = language.lower()
-    return lang == "en" or lang.startswith("en-") or lang.startswith("en_")
-
-
 def normalize_harper_locale_to_bcp47(a_locale: Any) -> str | None:
     """Preserve the regional English dialects understood by Harper."""
+    if a_locale is None:
+        return None
     language = str(getattr(a_locale, "Language", "") or "").strip()
-    country = str(getattr(a_locale, "Country", "") or "").strip().upper()
-
-    raw_language = language
-    if "-" in language and not country:
-        language, country = language.split("-", 1)
-        country = country.upper()
-    if language.lower() == "en":
-        tag = f"en-{country}" if country else "en-US"
-        if tag in HARPER_LOCALE_TAGS:
-            return tag
-
-    fallback_tag = normalize_uno_locale_to_bcp47(a_locale)
-    if fallback_tag is not None and fallback_tag in HARPER_LOCALE_TAGS:
-        return fallback_tag
-    # Language="en-NZ" is English, but the hyphen lives in Language so the
-    # shared normalizer returns None. That used to skip Harper with no log.
-    if _is_english_locale_tag(raw_language) or language.lower() == "en":
-        miss_key = f"{raw_language}|{country}"
-        if miss_key not in _HARPER_LOCALE_MISS_LOGGED:
-            _HARPER_LOCALE_MISS_LOGGED.add(miss_key)
-            log.warning(
-                "[grammar] LibreHarper unrecognized English locale language=%r country=%r fallback=%r",
-                raw_language,
-                country,
-                fallback_tag,
-            )
-    return None
+    country = str(getattr(a_locale, "Country", "") or "").strip()
+    tag = language
+    # Explicit Country wins over a plain Language; a Language that already
+    # carries a region ("en-GB", "en_GB") keeps it; normalize splits and
+    # upper-cases either form.
+    if country and language and "-" not in language and "_" not in language:
+        tag = f"{language}-{country}"
+    normalized = normalize_detected_bcp47(tag)
+    return normalized if normalized in HARPER_LOCALE_TAGS else None
 
 def _harper_locale_tuple() -> tuple[Any, ...]:
     return uno_locales_for_tags(HARPER_LOCALE_TAGS)

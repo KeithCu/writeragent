@@ -99,8 +99,33 @@ def test_bcp47_constants_and_tables() -> None:
     assert normalize_uno_locale_to_bcp47(SimpleNamespace(Language="no", Country="SE")) == "nb-NO"
 
 
+def test_raw_lang_to_bcp47_table() -> None:
+    table = [
+        ("fr", "fr-FR"),
+        ("ja", "ja-JP"),
+        ("EN", "en-US"),
+        ("en-gb", "en-GB"),
+        ("zh-cn", "zh-CN"),
+        ("zh-tw", "zh-TW"),
+        ("zh-hk", "zh-TW"),
+        ("pt", "pt-BR"),
+        ("pt-PT", "pt-BR"),
+        ("no", "nb-NO"),
+        ("nb", "nb-NO"),
+        ("nn", "nn-NO"),
+        ("de-AT", "de-DE"),
+        ("sr", "sr"),
+        ("th", "th"),
+        ("en-nz", "en-US"),
+        ("", None),
+        (None, None),
+    ]
+    for raw, expected in table:
+        assert rpc_mod._raw_lang_to_bcp47(raw) == expected
+
+
 def test_harper_locale_normalization_contract() -> None:
     from plugin.writer.locale.harper_proofreader import normalize_harper_locale_to_bcp47
 
-    assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en-NZ", Country="", Variant="")) is None
+    assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en-NZ", Country="", Variant="")) == "en-US"
     assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en", Country="NZ", Variant="")) == "en-US"
