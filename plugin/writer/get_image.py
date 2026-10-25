@@ -71,8 +71,7 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
     try:
         vc = doc.getCurrentController().getViewCursor()
     except Exception as e:
-        # Bugfix: Catching bare Exception converted document disposal into a render reason,
-        # hiding DOCUMENT_DISPOSED from execute_safe. Re-raise real disposal immediately.
+        # Disposal must reach execute_safe as DOCUMENT_DISPOSED, not a render reason.
         reraise_if_disposed(e)
         return None, "could not render page %d: no document view available (%s)" % (page, e)
 
@@ -203,9 +202,7 @@ class GetImage(ToolBase):
     uno_services: list[str] | None = [TEXT_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Bugfix: Validate arguments and make page, image, and selection exclusive.
-        # Previously, non-bools, negative numbers, or mixed arguments silently selected
-        # unexpected modes or raised TypeErrors.
+        # page, image, and selection are exclusive; bad types are errors, not a silent mode pick.
         doc = ctx.doc
         selection = kwargs.get("selection")
         if selection is not None and not isinstance(selection, bool):
