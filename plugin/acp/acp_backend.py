@@ -31,7 +31,7 @@ import threading
 from typing import Any, Optional, List, Tuple, Mapping
 
 from plugin.acp.base import AgentBackend
-from plugin.acp.acp_connection import ACPConnection
+from plugin.acp.acp_connection import ACPConnection, ACPTimeoutError
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 from plugin.framework.stream_batch import StreamQueueKind
@@ -50,7 +50,6 @@ _ALLOW_KINDS = ("allow_once", "allow_always")
 _REJECT_KINDS = ("reject_once", "reject_always")
 # tool_call_update statuses that carry a finished invocation. in_progress
 # is still tool activity, but it is not a result yet.
-_TERMINAL_TOOL_STATUSES = frozenset({"completed", "failed"})
 # shutil.which on Windows returns the PATHEXT hit (hermes.exe, hermes.cmd,
 # hermes.bat). Those stems are the same CLI as the POSIX basename.
 _WINDOWS_CLI_SUFFIXES = frozenset({".exe", ".cmd", ".bat"})
@@ -60,20 +59,53 @@ def _split_cli_args(args_str: str, *, posix: bool) -> list[str]:
     """Split settings args. Windows keeps backslashes, then drops wrapping quotes.
 
     ``posix=True`` treats ``\\`` as an escape, so ``C:\\new\\tmp`` becomes
-    ``C:newtmp``. ``posix=False`` keeps the backslashes and also keeps the
-    quote characters, so ``Popen`` would look for a file whose name contains
-    a literal quote.
+    ``C:newtmp``. ``posix=False`` keeps the backslashes and scans Windows-style
+    tokens without shlex.
     """
-    tokens = shlex.split(args_str, posix=posix)
     if posix:
-        return tokens
-    stripped: list[str] = []
-    for token in tokens:
-        if len(token) >= 2 and token[0] == token[-1] and token[0] in ('"', "'"):
-            stripped.append(token[1:-1])
+        return shlex.split(args_str, posix=True)
+
+    tokens: list[str] = []
+    token_chars: list[str] = []
+    has_token = False
+    in_quotes = False
+    i = 0
+    n = len(args_str)
+
+    while i < n:
+        c = args_str[i]
+        if c == "\\" and i + 1 < n and args_str[i + 1] == '"':
+            token_chars.append('"')
+            has_token = True
+            i += 2
+        elif c == '"':
+            in_quotes = not in_quotes
+            has_token = True
+            i += 1
+        elif c.isspace() and not in_quotes:
+            if has_token:
+                tok = "".join(token_chars)
+                if tok == "''":
+                    tok = ""
+                tokens.append(tok)
+                token_chars.clear()
+                has_token = False
+            i += 1
         else:
-            stripped.append(token)
-    return stripped
+            token_chars.append(c)
+            has_token = True
+            i += 1
+
+    if in_quotes:
+        raise ValueError("No closing quotation")
+
+    if has_token:
+        tok = "".join(token_chars)
+        if tok == "''":
+            tok = ""
+        tokens.append(tok)
+
+    return tokens
 
 
 def _directory_from_document_url(document_url: str | None) -> str | None:
@@ -127,6 +159,8 @@ _LIMIT_STOP_STATUS = {
 }
 # session/prompt dies after this long with no accepted stdout line.
 _PROMPT_IDLE_SEC = 600
+_INITIALIZE_TIMEOUT_SEC = 15
+_SESSION_NEW_TIMEOUT_SEC = 30
 # Stop sends session/cancel and keeps the CLI. If the prompt has not
 # returned by then, the agent ignored cancel and the tree is killed.
 _CANCEL_GRACE_SEC = 3.0
@@ -292,7 +326,9 @@ def _tool_stream_kind(update: dict[str, Any]) -> StreamQueueKind:
     status = update.get("status")
     if status in ("pending", "in_progress"):
         return StreamQueueKind.TOOL_CALL
-    if status in _TERMINAL_TOOL_STATUSES or "content" in update or "rawOutput" in update:
+    if status is not None:
+        return StreamQueueKind.TOOL_RESULT
+    if "content" in update or "rawOutput" in update:
         return StreamQueueKind.TOOL_RESULT
     return StreamQueueKind.TOOL_CALL
 
@@ -313,6 +349,7 @@ class ACPBackend(AgentBackend):
     _stop_turn: int
     _ready: bool
     _session_url: str | None
+    _session_mcp_url: str | None
     _session_prompted: bool
     _prompt_inflight: bool
     _prompt_done: threading.Event
@@ -321,6 +358,7 @@ class ACPBackend(AgentBackend):
         self._conn: ACPConnection | None = None
         self._session_id: str | None = None
         self._session_url = None
+        self._session_mcp_url = None
         self._session_prompted = False
         self._ready = False
         self._stop_requested = False
@@ -341,23 +379,38 @@ class ACPBackend(AgentBackend):
         self._state_lock = threading.Lock()
         self._send_lock = threading.Lock()
         self._pending_permissions = {}
+        self._binary_cache_key: tuple[str, str, str] | None = None
+        self._binary_cache_val: str | None = None
         self._load_config()
+
+    def _resolve_binary(self, path_setting: str, args_str: str) -> str | None:
+        """Resolve binary path with in-instance cache for PATH hits."""
+        if path_setting and os.path.isfile(path_setting):
+            return path_setting
+        if path_setting:
+            log.warning("ACP agent_backend.path is not a file (%s); searching PATH", path_setting)
+
+        key = (self.get_binary_name(), path_setting, args_str)
+        cached_key = getattr(self, "_binary_cache_key", None)
+        cached_val = getattr(self, "_binary_cache_val", None)
+        if cached_key == key and cached_val is not None:
+            if os.path.isfile(cached_val) and os.access(cached_val, os.X_OK):
+                return cached_val
+
+        found = self._find_binary()
+        if found is not None:
+            self._binary_cache_key = key
+            self._binary_cache_val = found
+        return found
 
     def _load_config(self) -> None:
         """Load configuration from WriterAgent settings."""
         from plugin.framework.config import get_config
 
         path = str(get_config("agent_backend.path") or "").strip()
-        if path and os.path.isfile(path):
-            self._binary_path = path
-        else:
-            # An empty setting means "search PATH". A path that is not a
-            # file is a typo, and falling through with no log hid it.
-            if path:
-                log.warning("ACP agent_backend.path is not a file (%s); searching PATH", path)
-            self._binary_path = self._find_binary()
-
         args_str = str(get_config("agent_backend.args") or "").strip()
+        self._binary_path = self._resolve_binary(path, args_str)
+
         # str.split() breaks a quoted path into several argv entries.
         # posix=False on Windows so backslashes in paths stay literal.
         try:
@@ -429,11 +482,31 @@ class ACPBackend(AgentBackend):
 
     def is_available(self, ctx: Any) -> bool:
         """Check if binary is installed."""
-        # _load_config already ran _find_binary, which searches PATH and the
-        # home install dirs. A second which() only ran when isfile() disagreed.
-        self._load_config()
-        if self._binary_path:
-            log.info("%s binary found: %s", self.display_name, self._binary_path)
+        from plugin.framework.config import get_config
+
+        path = str(get_config("agent_backend.path") or "").strip()
+        args_str = str(get_config("agent_backend.args") or "").strip()
+        binary = self._resolve_binary(path, args_str)
+
+        try:
+            extra = _split_cli_args(args_str, posix=(os.name != "nt")) if args_str else []
+        except ValueError as e:
+            raise ValueError(f"unbalanced quote: {e}") from e
+
+        if not extra and binary and self._binary_matches(binary):
+            defaults = self.get_default_extra_args()
+            if defaults:
+                extra = list(defaults)
+
+        if self._send_lock.acquire(blocking=False):
+            try:
+                self._binary_path = binary
+                self._extra_args = extra
+            finally:
+                self._send_lock.release()
+
+        if binary:
+            log.info("%s binary found: %s", self.display_name, binary)
             return True
         log.info("%s binary not found", self.display_name)
         return False
@@ -460,9 +533,9 @@ class ACPBackend(AgentBackend):
         for the handshake. A dead child is dropped here, not left on the slot.
         """
         existing = self._conn
-        if existing is not None and existing.is_alive and self._ready:
+        if existing is not None and existing.is_healthy and self._ready:
             return
-        if existing is not None and existing.is_alive:
+        if existing is not None and existing.is_healthy:
             conn = existing
         else:
             if existing is not None:
@@ -503,8 +576,14 @@ class ACPBackend(AgentBackend):
                     "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
                     "clientInfo": {"name": "WriterAgent", "version": EXTENSION_VERSION},
                 },
-                15,
+                _INITIALIZE_TIMEOUT_SEC,
             )
+            if isinstance(result, dict) and "protocolVersion" in result and result["protocolVersion"] != _ACP_PROTOCOL_VERSION:
+                log.warning(
+                    "ACP protocolVersion mismatch: server reported %s, expected %s",
+                    result["protocolVersion"],
+                    _ACP_PROTOCOL_VERSION,
+                )
             self._ready = True
             log.info(f"ACP initialized: {result}")
         except _TurnStopped:
@@ -527,8 +606,14 @@ class ACPBackend(AgentBackend):
         The same document URL reuses ``sessionId``. A different URL, including
         the first save, starts another session on this process.
         """
+        from plugin.framework.config import get_config
+        from plugin.framework.config_schema import as_bool
+
         url_key = document_url or ""
-        if self._session_id and self._session_url == url_key:
+        effective_mcp = mcp_url if mcp_url and as_bool(get_config("mcp.mcp_enabled")) else None
+
+        # The session keeps the mcpServers from session/new, so a new URL is a new session.
+        if self._session_id and self._session_url == url_key and self._session_mcp_url == effective_mcp:
             return
         # Read the connection slot once; raise if there is no process.
         conn = self._conn
@@ -536,25 +621,21 @@ class ACPBackend(AgentBackend):
             raise RuntimeError(f"{self.display_name} ACP process is not running.")
 
         # mcp_servers is required by the ACP schema
-        # Attach mcp_servers only when MCP is enabled. A disabled server must
-        # not be handed to session/new.
-        from plugin.framework.config import get_config
-        from plugin.framework.config_schema import as_bool
-
         mcp_servers = []
-        if mcp_url and as_bool(get_config("mcp.mcp_enabled")):
-            mcp_servers.append({"url": mcp_url, "name": "writeragent", "type": "http", "headers": []})
+        if effective_mcp is not None:
+            mcp_servers.append({"url": effective_mcp, "name": "writeragent", "type": "http", "headers": []})
 
         params = {"cwd": _session_cwd(document_url), "mcpServers": mcp_servers}
 
         try:
-            result = self._request(conn, "session/new", params, 30)
+            result = self._request(conn, "session/new", params, _SESSION_NEW_TIMEOUT_SEC)
             session_id = result.get("sessionId") if isinstance(result, dict) else None
             # An empty id used to be stored and sent on session/prompt.
             if not isinstance(session_id, str) or not session_id.strip():
                 raise RuntimeError(f"{self.display_name} ACP session/new returned no sessionId.")
             self._session_id = session_id
             self._session_url = url_key
+            self._session_mcp_url = effective_mcp
             self._session_prompted = False
             log.debug(f"ACP session created: {self._session_id}")
         except _TurnStopped:
@@ -564,7 +645,7 @@ class ACPBackend(AgentBackend):
         except Exception:
             log.exception("ACP session creation failed")
             # The process can retry session/new. Drop it only when it has died.
-            if self._conn is conn and not conn.is_alive:
+            if self._conn is conn and not conn.is_healthy:
                 self.shutdown()
             raise
 
@@ -754,6 +835,7 @@ class ACPBackend(AgentBackend):
         self._ready = False
         self._session_id = None
         self._session_url = None
+        self._session_mcp_url = None
         self._session_prompted = False
 
     def _cancel_pending_permissions(self) -> None:
@@ -816,14 +898,19 @@ class ACPBackend(AgentBackend):
 
     def _request(self, conn: ACPConnection, method: str, params: Any, timeout: float) -> Any:
         """send_request marked in flight so Stop can bound it."""
-        # The stop latch and inflight flag share _state_lock so Stop cannot slip between the check and send_request.
         with self._state_lock:
             if self._stop_requested and self._stop_turn == self._turn:
                 raise _TurnStopped()
             self._prompt_done.clear()
             self._prompt_inflight = True
+            try:
+                handle = conn.begin_request(method, params)
+            except Exception:
+                self._prompt_inflight = False
+                self._prompt_done.set()
+                raise
         try:
-            return conn.send_request(method, params, timeout=timeout)
+            return conn.await_response(handle, timeout)
         finally:
             with self._state_lock:
                 self._prompt_inflight = False
@@ -929,7 +1016,7 @@ class ACPBackend(AgentBackend):
 
                 except _TurnStopped:
                     self._finish_stopped(queue)
-                except TimeoutError:
+                except ACPTimeoutError:
                     # No accepted stdout for the idle window. The CLI is wedged.
                     self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} prompt timed out")))
                     if not self._stop_requested:
@@ -943,7 +1030,7 @@ class ACPBackend(AgentBackend):
                         # The exception can land before ``conn`` is known to be
                         # live. A dead child is dropped. A JSON-RPC error on a
                         # live child keeps the process for the next message.
-                        if conn is not None and not conn.is_alive:
+                        if conn is not None and not conn.is_healthy:
                             self.shutdown()
             finally:
                 # The process stays. Drop the callback so a late notification
@@ -952,6 +1039,7 @@ class ACPBackend(AgentBackend):
                 conn = self._conn
                 if conn is not None:
                     conn.set_notification_callback(None)
+                self._cancel_pending_permissions()
 
     def _finish_prompt_result(self, result: Any, queue: Any) -> None:
         """Queue the terminal event for a ``session/prompt`` result."""

@@ -34,6 +34,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
+
+
+class ACPTimeoutError(ToolExecutionError):
+    """An ACP request got no accepted stdout for its whole idle budget."""
 from plugin.framework.worker_pool import BackgroundHandle, StderrTail, run_in_background
 from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_tree
 
@@ -42,6 +46,7 @@ log = logging.getLogger(__name__)
 _JSONRPC_VERSION = "2.0"
 # send_request's idle wait polls this often so an inbound line can extend it.
 _IDLE_POLL_S = 0.05
+_STDOUT_LINE_MAX = 1024 * 1024
 # Not a JSON-RPC id. None is a valid id, so rejection cannot use None.
 _BAD_ID = object()
 
@@ -414,6 +419,13 @@ class ACPConnection:
         proc = self._proc
         return proc is not None and proc.poll() is None
 
+    @property
+    def is_healthy(self) -> bool:
+        # Reader exit clears _running and does not by itself reap a live child.
+        with self._lock:
+            running = self._running
+        return running and self.is_alive
+
     def stderr_text(self) -> str:
         """Stderr already captured by the live drain. Does not join that thread."""
         drain = self._stderr_drain
@@ -426,13 +438,20 @@ class ACPConnection:
             self._request_id += 1
             return self._request_id
 
-    def send_request(self, method: str, params: Any = None, timeout: float = 120) -> Any:
-        """Send a JSON-RPC request and wait for the response."""
+    def begin_request(self, method: str, params: Any = None) -> tuple[int, threading.Event, str]:
+        """Enqueue a JSON-RPC request without waiting for the response.
+
+        What was wrong: send_request enqueued after releasing state lock in the backend,
+        allowing stop() to inject session/cancel before the prompt reached stdin.
+        How it happened: request queuing and waiting were combined in a single blocking method.
+        Why this change fixes it: separates enqueueing from idle-awaiting so the backend
+        can hold its state lock across begin_request.
+        """
         if not self.is_alive:
             raise ToolExecutionError("ACP process is not running")
 
         req_id = self._next_id()
-        msg = {"jsonrpc": _JSONRPC_VERSION, "id": req_id, "method": method, "params": params or {}}
+        msg = {"jsonrpc": _JSONRPC_VERSION, "id": req_id, "method": method, "params": params if params is not None else {}}
 
         event = threading.Event()
         with self._lock:
@@ -458,11 +477,18 @@ class ACPConnection:
         # beside the queue. The writer thread performs the write. A closed
         # pipe fails this waiter instead of raising ValueError here.
         self._enqueue(_QueuedWrite(proc, line.encode("utf-8"), req_id))
+        return (req_id, event, method)
+
+    def await_response(self, handle: tuple[int, threading.Event, str] | tuple[int, threading.Event] | Any, timeout: float = 120) -> Any:
+        """Wait for an in-flight request response started with begin_request."""
+        req_id = handle[0]
+        event = handle[1]
+        method = handle[2] if len(handle) > 2 else ""
 
         if not self._wait_idle(event, timeout):
             with self._lock:
                 self._pending.pop(req_id, None)
-            raise TimeoutError(f"ACP request {method} timed out after {timeout}s")
+            raise ACPTimeoutError(f"ACP request {method} timed out after {timeout}s")
 
         with self._lock:
             entry = self._pending.pop(req_id, None)
@@ -475,6 +501,10 @@ class ACPConnection:
             raise ToolExecutionError(f"ACP error: {msg_str}")
 
         return resp.get("result") if resp else None
+
+    def send_request(self, method: str, params: Any = None, timeout: float = 120) -> Any:
+        """Send a JSON-RPC request and wait for the response."""
+        return self.await_response(self.begin_request(method, params), timeout)
 
     def _wait_idle(self, event: threading.Event, timeout: float) -> bool:
         """True when ``event`` is set before ``timeout`` seconds of silence.
@@ -497,7 +527,7 @@ class ACPConnection:
         proc = self._proc
         if proc is None or proc.poll() is not None:
             return
-        msg = {"jsonrpc": _JSONRPC_VERSION, "method": method, "params": params or {}}
+        msg = {"jsonrpc": _JSONRPC_VERSION, "method": method, "params": params if params is not None else {}}
         line = json.dumps(msg) + "\n"
         self._enqueue(_QueuedWrite(proc, line.encode("utf-8")))
 
@@ -552,9 +582,16 @@ class ACPConnection:
                 try:
                     if proc.stdout is None:
                         break
-                    raw = proc.stdout.readline()
+                    raw = proc.stdout.readline(_STDOUT_LINE_MAX)
                     if not raw:
                         break
+                    if len(raw) == _STDOUT_LINE_MAX and b"\n" not in raw:
+                        log.warning("ACP stdout line exceeded maximum length (%d bytes); discarding", _STDOUT_LINE_MAX)
+                        while True:
+                            chunk = proc.stdout.readline(_STDOUT_LINE_MAX)
+                            if not chunk or b"\n" in chunk:
+                                break
+                        continue
                     # Popen is binary. `raw` stays bytes; `line` is the decoded text
                     # `_accept_message` parses. Reusing one name left mypy on bytes.
                     line = raw.decode("utf-8", errors="replace").strip()
@@ -612,6 +649,11 @@ class ACPConnection:
             # replaced. Non-object JSON and objects with a non-JSON-RPC id
             # are skipped above and do not take this path.
             self._wake_pending("ACP process terminated")
+            # Reader exit clears _running but leaves poll() None. Kill the child
+            # tree so orphaned background processes do not linger.
+            proc = self._proc
+            if proc is not None and proc.poll() is None:
+                _kill_acp_tree(proc)
             # Live drain already collected stderr; log a bounded tail for debugging.
             drain = self._stderr_drain
             if drain is not None:
