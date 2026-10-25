@@ -14,7 +14,8 @@ Outside a script, wa.<domain> raises an AttributeError that names wa.scripts / w
 
 from typing import Any
 
-__all__ = ("scripts", "doc")  # noqa: F822
+# scripts/doc are attached at execute time, so they are not module globals here.
+__all__ = ("scripts", "doc")  # noqa: F822  # pyright: ignore[reportUnsupportedDunderAll]
 
 
 def __getattr__(name: str) -> Any:
