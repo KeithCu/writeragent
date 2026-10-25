@@ -50,8 +50,10 @@ class TestMcpUi:
                 return btn_ctrl
             return None
 
-        with patch("plugin.mcp.mcp_ui.get_optional", side_effect=optional_mock), patch(
-            "plugin.mcp.mcp_ui.get_control_text", return_value='{"test": 1}'
+        with (
+            patch("plugin.mcp.mcp_ui.get_optional", side_effect=optional_mock),
+            patch("plugin.mcp.mcp_ui.get_control_text", return_value='{"test": 1}'),
+            patch("plugin.mcp.mcp_ui.sync_mcp_config_snippet"),
         ):
             listener = CopyMcpConfigListener(ctx, dlg)
             listener.on_action_performed(MagicMock())
@@ -226,17 +228,96 @@ def test_refresh_rechecks_dialog_before_applying_snippet() -> None:
         mcp_ui.clear_active_settings_dialog(dlg)
 
 
-def test_snippet_refresh_uses_a_dedicated_thread() -> None:
-    """The URL poll must not occupy a shared background-pool worker."""
-    mcp_ui._mcp_snippet_refresh_scheduled = False
+def test_read_mcp_port_falls_back_to_text() -> None:
+    port_ctrl = MagicMock()
+    port_ctrl.getValue.side_effect = ValueError("invalid")
+    port_ctrl.getText.return_value = "19123"
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: port_ctrl if name == "mcp__mcp_port" else None
+    assert mcp_ui._read_mcp_port(dlg) == 19123
+
+
+def test_read_mcp_port_missing_control() -> None:
+    dlg = MagicMock()
+    dlg.getControl.return_value = None
+    assert mcp_ui._read_mcp_port(dlg) is None
+
+
+def test_read_tunnel_provider_defaults() -> None:
+    provider_ctrl = MagicMock()
+    provider_ctrl.getText.return_value = "   "
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: provider_ctrl if name == "mcp__tunnel_provider" else None
+    assert mcp_ui._read_tunnel_provider(dlg) == "cloudflare"
+
+
+def test_test_tunnel_listener_restores_button_when_probe_raises() -> None:
     dlg, _snippet = _snippet_dialog()
+    btn = MagicMock()
+    btn_model = MagicMock()
+    btn.getModel.return_value = btn_model
+    orig_side_effect = dlg.getControl.side_effect
+    dlg.getControl.side_effect = lambda name: btn if name == "mcp__test_tunnel" else orig_side_effect(name)
+
+    mcp_ui.set_active_settings_dialog(dlg)
+    recorded_kwargs: dict[str, Any] = {}
+
+    def fake_run_in_background(fn: Any, **kwargs: Any) -> None:
+        recorded_kwargs.update(kwargs)
+        fn()
+
+    ctx = MagicMock()
     try:
-        with patch("plugin.framework.worker_pool.run_in_background") as background:
-            mcp_ui._schedule_mcp_snippet_refresh(dlg)
-        assert background.call_args.kwargs.get("dedicated") is True
-        assert background.call_args.kwargs.get("name") == "mcp-snippet-refresh"
+        with (
+            patch("plugin.mcp.tunnel.test_tunnel_connectivity", side_effect=RuntimeError("boom")),
+            patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background),
+            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()),
+            patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
+        ):
+            listener = mcp_ui.TestTunnelListener(ctx, dlg)
+            listener.on_action_performed(MagicMock())
+
+        assert btn_model.Label == "Test Tunnel"
+        assert btn_model.Enabled is True
+        assert recorded_kwargs == {"name": "mcp-tunnel-test", "dedicated": True}
+        assert mock_msgbox.call_count == 1
+        assert "boom" in str(mock_msgbox.call_args)
     finally:
-        mcp_ui._mcp_snippet_refresh_scheduled = False
+        mcp_ui.clear_active_settings_dialog(dlg)
+
+
+def test_test_tunnel_listener_skips_apply_when_dialog_closed() -> None:
+    dlg, snippet = _snippet_dialog()
+    btn = MagicMock()
+    btn_model = MagicMock()
+    btn.getModel.return_value = btn_model
+    orig_side_effect = dlg.getControl.side_effect
+    dlg.getControl.side_effect = lambda name: btn if name == "mcp__test_tunnel" else orig_side_effect(name)
+
+    other_dlg = MagicMock()
+    mcp_ui.set_active_settings_dialog(other_dlg)
+
+    def fake_run_in_background(fn: Any, **kwargs: Any) -> None:
+        del kwargs
+        fn()
+
+    ctx = MagicMock()
+    try:
+        with (
+            patch("plugin.mcp.tunnel.test_tunnel_connectivity", return_value=(True, "ok", "https://x/mcp")),
+            patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background),
+            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()),
+            patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
+            patch("plugin.mcp.mcp_ui.set_checkbox_state") as mock_set_checkbox,
+        ):
+            listener = mcp_ui.TestTunnelListener(ctx, dlg)
+            listener.on_action_performed(MagicMock())
+
+        mock_set_checkbox.assert_not_called()
+        snippet.setText.assert_not_called()
+        mock_msgbox.assert_not_called()
+    finally:
+        mcp_ui.clear_active_settings_dialog(other_dlg)
 
 
 class _CountingLock:

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ItemEvent, TextEvent
 
 from plugin.framework.config import get_config_int_safe
+from plugin.framework.errors import suppress_disposed
 from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from plugin.chatbot.dialogs import copy_to_clipboard, get_checkbox_state, get_control_text, get_optional, set_checkbox_state, set_control_text
@@ -41,7 +42,6 @@ _tested_provider_tunnel_urls: dict[str, str] = {}
 # Providers whose cached public URL must not be shown. Set when the tunnel
 # stops, fails, or drops the URL; cleared by a fresh Test or a new connect.
 _retired_provider_tunnel_urls: set[str] = set()
-_mcp_snippet_refresh_scheduled = False
 
 _PROVIDER_DEFAULT_URLS = {"cloudflare": "https://<subdomain>.trycloudflare.com/mcp", "bore": "http://bore.pub:<remote-port>/mcp", "ngrok": "https://<domain>.ngrok-free.app/mcp", "tailscale": "https://<machine>.<tailnet>.ts.net/mcp"}
 
@@ -76,6 +76,31 @@ def build_mcp_config_snippet(port: int | None = None, url: str | None = None) ->
     return json.dumps({"mcpServers": {"libreoffice": {"url": url}}}, indent=2)
 
 
+def _read_mcp_port(dlg: Any) -> int | None:
+    """Port from the Settings field, or None when it is missing or not a number."""
+    port_ctrl = get_optional(dlg, "mcp__mcp_port")
+    if not port_ctrl:
+        return None
+    if hasattr(port_ctrl, "getValue"):
+        try:
+            return int(port_ctrl.getValue())
+        except (TypeError, ValueError):
+            log.debug("mcp snippet: port value parse failed", exc_info=True)
+    if hasattr(port_ctrl, "getText"):
+        try:
+            return int(str(port_ctrl.getText() or "").strip())
+        except (TypeError, ValueError):
+            log.debug("mcp snippet: port text parse failed", exc_info=True)
+    return None
+
+
+def _read_tunnel_provider(dlg: Any) -> str:
+    """Selected tunnel provider, defaulting to cloudflare."""
+    provider_ctrl = get_optional(dlg, "mcp__tunnel_provider")
+    provider = str(get_control_text(provider_ctrl) or "").strip().lower() if provider_ctrl else ""
+    return provider or "cloudflare"
+
+
 class CopyMcpConfigListener(BaseActionListener):
     """Settings → MCP: copy client JSON configuration snippet to clipboard."""
 
@@ -87,14 +112,14 @@ class CopyMcpConfigListener(BaseActionListener):
         self._dlg = dlg
 
     def on_action_performed(self, rEvent: Any) -> None:
+        # What was wrong: copy read the snippet control before sync, risking stale text,
+        # and re-implemented port parsing with an unguarded int(getValue()).
+        # Why: sync first to ensure freshness, and delegate to _read_mcp_port for fallback.
+        sync_mcp_config_snippet(self._dlg)
         snippet_ctrl = get_optional(self._dlg, "mcp__client_config_snippet")
         text = get_control_text(snippet_ctrl) if snippet_ctrl else ""
         if not text:
-            port_ctrl = get_optional(self._dlg, "mcp__mcp_port")
-            port_val = None
-            if port_ctrl and hasattr(port_ctrl, "getValue"):
-                port_val = int(port_ctrl.getValue())
-            text = build_mcp_config_snippet(port=port_val)
+            text = build_mcp_config_snippet(port=_read_mcp_port(self._dlg))
         if copy_to_clipboard(self._ctx, text):
             copy_btn = get_optional(self._dlg, "mcp__copy_config")
             if copy_btn:
@@ -159,54 +184,10 @@ def notify_tunnel_url_acquired(provider: str, url: str) -> None:
     _refresh_active_snippet()
 
 
-def _schedule_mcp_snippet_refresh(dlg: Any) -> None:
-    """Wait off the UI thread, then refresh the snippet once.
-
-    A running tunnel with no public URL yet used to make
-    ``sync_mcp_config_snippet`` sleep up to 1.2 seconds on the UI thread.
-    Settings open and the tunnel checkbox, provider, and port listeners all
-    call it there, so the dialog could not paint. The snippet is already
-    written; this posts one later refresh and does not schedule another.
-    """
-    global _mcp_snippet_refresh_scheduled
-    if _mcp_snippet_refresh_scheduled:
-        return
-    _mcp_snippet_refresh_scheduled = True
-
-    def _wait() -> None:
-        import time
-
-        from plugin.mcp import _shared_tunnel
-
-        deadline = time.time() + 1.2
-        while time.time() < deadline:
-            tunnel = _shared_tunnel
-            if tunnel is None or not getattr(tunnel, "is_running", False) or getattr(tunnel, "public_url", None):
-                break
-            time.sleep(0.1)
-
-        def _apply() -> None:
-            global _mcp_snippet_refresh_scheduled
-            _mcp_snippet_refresh_scheduled = False
-            sync_mcp_config_snippet(dlg, schedule_refresh=False)
-
-        from plugin.framework.queue_executor import post_to_main_thread
-
-        post_to_main_thread(_apply)
-
-    from plugin.framework.worker_pool import run_in_background
-
-    # This wait is up to 1.2s. The shared background pool would pin every
-    # worker if several Settings saves queued the poll. The job is short but
-    # must not take a pool slot.
-    run_in_background(_wait, name="mcp-snippet-refresh", dedicated=True)
-
-
 def sync_mcp_config_snippet(
     dlg: Any,
     custom_tunnel_url: str | None = None,
     custom_provider: str | None = None,
-    schedule_refresh: bool = True,
 ) -> None:
     """Synchronize MCP client config snippet according to port, tunnel_enabled, and provider."""
     if not dlg:
@@ -215,16 +196,9 @@ def sync_mcp_config_snippet(
     if not snippet_ctrl:
         return
 
-    port_ctrl = get_optional(dlg, "mcp__mcp_port")
-    port_val = None
-    if port_ctrl:
-        if hasattr(port_ctrl, "getValue"):
-            port_val = int(port_ctrl.getValue())
-        if port_val is None and hasattr(port_ctrl, "getText"):
-            try:
-                port_val = int(str(port_ctrl.getText() or "").strip())
-            except Exception:
-                log.debug("mcp snippet: port text parse failed", exc_info=True)
+    # What was wrong: port parsing was duplicated and int() on getValue() threw unhandled exceptions.
+    # Why: _read_mcp_port safely guards getValue/getText and falls back cleanly.
+    port_val = _read_mcp_port(dlg)
 
     tunnel_enabled_ctrl = get_optional(dlg, "mcp__tunnel_enabled")
     is_tunnel_enabled = get_checkbox_state(tunnel_enabled_ctrl) if tunnel_enabled_ctrl else False
@@ -234,10 +208,7 @@ def sync_mcp_config_snippet(
         set_control_text(snippet_ctrl, build_mcp_config_snippet(port=port_val))
         return
 
-    provider_ctrl = get_optional(dlg, "mcp__tunnel_provider")
-    selected_provider = str(get_control_text(provider_ctrl) or "").strip().lower() if provider_ctrl else "cloudflare"
-    if not selected_provider:
-        selected_provider = "cloudflare"
+    selected_provider = _read_tunnel_provider(dlg)
 
     if custom_tunnel_url and custom_provider:
         remember_tested_tunnel_url(custom_provider, custom_tunnel_url)
@@ -257,10 +228,13 @@ def sync_mcp_config_snippet(
 
         if _shared_tunnel and _shared_tunnel.is_running and getattr(_shared_tunnel, "provider", None) == selected_provider:
             active_url = _shared_tunnel.mcp_public_url()
+            # What was wrong: a 1.2s polling thread was scheduled if active_url was missing,
+            # holding a dialog reference off the UI thread and permanently disabling future polls
+            # if run_in_background failed.
+            # Why: NotifyUrlAcquiredEffect already notifies when the URL arrives; if not ready yet,
+            # we write the provider template immediately and wait for the event.
             if active_url:
                 remember_tested_tunnel_url(selected_provider, active_url)
-            elif schedule_refresh:
-                _schedule_mcp_snippet_refresh(dlg)
 
     if not active_url:
         # Fall back to provider default template
@@ -321,25 +295,14 @@ class TestTunnelListener(BaseActionListener):
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.chatbot.dialogs import msgbox
-        from plugin.framework.worker_pool import run_in_background
         from plugin.framework.queue_executor import post_to_main_thread
-        from plugin.mcp.tunnel import test_tunnel_connectivity, DEFAULT_PROVIDER
+        from plugin.framework.worker_pool import run_in_background
+        from plugin.mcp.tunnel import test_tunnel_connectivity
 
-        provider_ctrl = get_optional(self._dlg, "mcp__tunnel_provider")
-        provider = str(get_control_text(provider_ctrl) or "").strip().lower() if provider_ctrl else DEFAULT_PROVIDER
-        if not provider:
-            provider = DEFAULT_PROVIDER
-
-        port_ctrl = get_optional(self._dlg, "mcp__mcp_port")
-        port = 18765
-        if port_ctrl:
-            if hasattr(port_ctrl, "getValue"):
-                port = int(port_ctrl.getValue())
-            elif hasattr(port_ctrl, "getText"):
-                try:
-                    port = int(str(port_ctrl.getText() or "").strip())
-                except Exception:
-                    log.debug("mcp test tunnel: port text parse failed", exc_info=True)
+        provider = _read_tunnel_provider(self._dlg)
+        port = _read_mcp_port(self._dlg)
+        if port is None:
+            port = 18765
 
         btn = get_optional(self._dlg, "mcp__test_tunnel")
         if btn:
@@ -347,22 +310,31 @@ class TestTunnelListener(BaseActionListener):
             btn.getModel().Enabled = False
 
         def _worker() -> None:
-            _ok, msg, pub_url = test_tunnel_connectivity(provider=provider, port=port)
+            # What was wrong: if test_tunnel_connectivity raised, _apply never ran and the
+            # button was stuck on 'Testing…'. Also _apply could run on a disposed/closed dialog,
+            # and the probe ran on the shared pool rather than a dedicated thread.
+            # Why: catch unexpected probe exceptions to guarantee _apply runs, check dialog
+            # liveness via _current_settings_dialog() and suppress_disposed, and use dedicated=True.
+            try:
+                _ok, msg, pub_url = test_tunnel_connectivity(provider=provider, port=port)
+            except Exception as exc:
+                log.exception("MCP tunnel test failed for %s", provider)
+                msg, pub_url = str(exc), None
 
             def _apply() -> None:
-                if btn:
-                    try:
+                if _current_settings_dialog() is not self._dlg:
+                    return
+                with suppress_disposed("mcp tunnel test result", logger=log):
+                    if btn:
                         btn.getModel().Label = _("Test Tunnel")
                         btn.getModel().Enabled = True
-                    except Exception:
-                        log.debug("mcp test tunnel: restore button failed", exc_info=True)
-                if pub_url:
-                    tunnel_enabled_ctrl = get_optional(self._dlg, "mcp__tunnel_enabled")
-                    if tunnel_enabled_ctrl:
-                        set_checkbox_state(tunnel_enabled_ctrl, True)
-                    sync_mcp_config_snippet(self._dlg, custom_tunnel_url=pub_url, custom_provider=provider)
-                msgbox(self._ctx, _("MCP Tunnel Test"), msg)
+                    if pub_url:
+                        tunnel_enabled_ctrl = get_optional(self._dlg, "mcp__tunnel_enabled")
+                        if tunnel_enabled_ctrl:
+                            set_checkbox_state(tunnel_enabled_ctrl, True)
+                        sync_mcp_config_snippet(self._dlg, custom_tunnel_url=pub_url, custom_provider=provider)
+                    msgbox(self._ctx, _("MCP Tunnel Test"), msg)
 
             post_to_main_thread(_apply)
 
-        run_in_background(_worker)
+        run_in_background(_worker, name="mcp-tunnel-test", dedicated=True)
