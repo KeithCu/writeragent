@@ -48,10 +48,9 @@ does **not** move `CharacterCount`; freshness then depends on the document
 modify listener emitting `document:cache_invalidated`. Covered by
 `test_chapter_number_cache_refreshes_on_numbering_toggle_uno`.
 
-`ProximityService._flatten_tree` uses that same `CharacterCount` fingerprint,
-and it only reuses a flat list when the heading tree object it was just
-handed is the one it flattened. A programmatic edit the modify listener
-misses still rebuilds next/previous/sibling/parent navigation.
+TreeService's tree cache is the only navigation cache. ProximityService
+flattens the tree it is handed on each call, so a rebuilt tree cannot
+leave a stale flat list behind.
 
 ## Tests
 
