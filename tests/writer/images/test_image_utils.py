@@ -783,6 +783,16 @@ def test_resolve_generation_size_omitted_and_explicit():
     assert resolve_generation_size(64, "16:9") == (64, 64, "1:1")
 
 
+def test_fill_missing_dimension():
+    from plugin.writer.images.images import _fill_missing_dimension
+
+    assert _fill_missing_dimension(512, None, 16, 9) == (512, 288)
+    assert _fill_missing_dimension(None, 288, 16, 9) == (512, 288)
+    assert _fill_missing_dimension(7, 9, 16, 9) == (7, 9)
+    assert _fill_missing_dimension(None, None, 16, 9) == (16, 9)
+    assert _fill_missing_dimension(10, None, 0, 5) == (10, 5)
+
+
 def test_write_temp_image_and_suffix():
     from plugin.writer.images.image_utils import suffix_for_image_bytes, write_temp_image
 
