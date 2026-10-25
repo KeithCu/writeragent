@@ -1,14 +1,15 @@
-"""Proximity flat-list cache must follow the heading tree it is handed."""
+"""Local proximity navigation on Writer documents."""
 
 from unittest.mock import MagicMock
 
 import pytest
 
 from plugin.doc.document_helpers import DocumentService
-from plugin.framework.errors import ToolExecutionError
+from plugin.doc.paragraph_search import get_paragraph_ranges
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.tests.testing_utils import ElementStub, WriterDocStub
 from plugin.writer.navigation import NavHeading
-from plugin.writer.proximity import ProximityService
+from plugin.writer.proximity import ProximityService, _collect_anchored
 from plugin.writer.tree import TreeService
 
 
@@ -28,72 +29,33 @@ def _proximity(doc_key="uid:1"):
     return ProximityService(services)
 
 
-def test_same_tree_and_character_count_reuses_flat_list():
+def test_flatten_tree_links_parents_in_document_order():
     prox = _proximity()
-    doc = MagicMock()
-    doc.CharacterCount = 10
-    root = _root(("Alpha", 1), ("Beta", 3))
-    first = prox._flatten_tree(root, doc)
-    assert prox._flatten_tree(root, doc) is first
-    assert [entry["node"]["text"] for entry in first] == ["Alpha", "Beta"]
-
-
-def test_moved_character_count_rebuilds_flat_list():
-    prox = _proximity()
-    doc = MagicMock()
-    doc.CharacterCount = 10
-    old = _root(("Alpha", 1), ("Beta", 3))
-    first = prox._flatten_tree(old, doc)
-    doc.CharacterCount = 18
-    rebuilt = _root(("Alpha", 0), ("Gamma", 1), ("Beta", 2))
-    second = prox._flatten_tree(rebuilt, doc)
-    assert second is not first
-    assert [entry["node"]["para_index"] for entry in second] == [0, 1, 2]
-
-
-def test_new_tree_object_is_not_ignored_when_count_is_unchanged():
-    """A rebuilt root with the same CharacterCount still replaces the flat list."""
-    prox = _proximity()
-    doc = MagicMock()
-    doc.CharacterCount = 10
-    prox._flatten_tree(_root(("Alpha", 1)), doc)
-    second = prox._flatten_tree(_root(("Gamma", 4)), doc)
-    assert second[0]["node"]["text"] == "Gamma"
-    assert second[0]["node"]["para_index"] == 4
-
-
-def test_no_character_count_keeps_listener_cache_until_the_tree_object_changes():
-    prox = _proximity()
-    doc = MagicMock()
-    root = _root(("Alpha", 1))
-    first = prox._flatten_tree(root, doc)
-    assert prox._flatten_tree(root, doc) is first
-    second = prox._flatten_tree(_root(("Beta", 2)), doc)
-    assert second[0]["node"]["text"] == "Beta"
-
-
-def test_invalidate_by_key_drops_fingerprint_and_root():
-    prox = _proximity()
-    doc = MagicMock()
-    doc.CharacterCount = 10
-    prox._flatten_tree(_root(("Alpha", 1)), doc)
-    prox._on_cache_invalidated(key="uid:1")
-    assert prox._flat_cache == {}
-    assert prox._flat_fp == {}
-    assert prox._flat_root == {}
-    fresh = prox._flatten_tree(_root(("Beta", 5)), doc)
-    assert fresh[0]["node"]["para_index"] == 5
-
-
-def test_unknown_doc_key_is_not_cached():
-    from plugin.doc.document_helpers import UNKNOWN_DOC_KEY
-
-    prox = _proximity(UNKNOWN_DOC_KEY)
-    doc = MagicMock()
-    doc.CharacterCount = 4
-    flat = prox._flatten_tree(_root(("Alpha", 2)), doc)
-    assert flat[0]["node"]["para_index"] == 2
-    assert prox._flat_cache == {}
+    root = {
+        "children": [
+            {
+                "text": "A",
+                "para_index": 0,
+                "level": 1,
+                "children": [
+                    {"text": "A1", "para_index": 1, "level": 2, "children": []},
+                    {"text": "A2", "para_index": 2, "level": 2, "children": []},
+                ],
+            },
+            {
+                "text": "B",
+                "para_index": 3,
+                "level": 1,
+                "children": [],
+            },
+        ]
+    }
+    flat = prox._flatten_tree(root)
+    assert [e["node"]["text"] for e in flat] == ["A", "A1", "A2", "B"]
+    assert flat[0]["parent"] is None
+    assert flat[1]["parent"] is flat[0]
+    assert flat[2]["parent"] is flat[0]
+    assert flat[3]["parent"] is None
 
 
 def _nav_stack(elements):
@@ -205,3 +167,226 @@ def test_navigate_stale_bookmark_does_not_use_paragraph_zero():
     doc.getBookmarks = lambda: _Bookmarks()
     with pytest.raises(ToolExecutionError, match="Bookmark '_mcp_stale' anchor is not in the document"):
         prox.navigate_heading(doc, "bookmark:_mcp_stale", "next")
+
+
+def test_navigate_heading_rejects_negative_and_out_of_range_paragraph():
+    elements = [
+        ElementStub("Preamble"),
+        ElementStub("Alpha", outline_level=1),
+        ElementStub("body"),
+        ElementStub("Beta", outline_level=1),
+    ]
+    doc, prox = _nav_stack(elements)
+    with pytest.raises(ToolExecutionError, match="out of range"):
+        prox.navigate_heading(doc, "paragraph:-1", "next")
+    with pytest.raises(ToolExecutionError, match="out of range"):
+        prox.navigate_heading(doc, "paragraph:99", "next")
+
+
+def test_surroundings_rejects_negative_and_out_of_range_paragraph():
+    elements = [
+        ElementStub("Preamble"),
+        ElementStub("Alpha", outline_level=1),
+        ElementStub("body"),
+        ElementStub("Beta", outline_level=1),
+    ]
+    doc, prox = _nav_stack(elements)
+    with pytest.raises(ToolExecutionError, match="out of range"):
+        prox.get_surroundings(doc, "paragraph:-1", radius=2, include=["paragraphs"])
+    with pytest.raises(ToolExecutionError, match="out of range"):
+        prox.get_surroundings(doc, "paragraph:99", radius=2, include=["paragraphs"])
+
+
+def test_surroundings_radius_zero_returns_only_the_center_paragraph():
+    elements = [
+        ElementStub("First"),
+        ElementStub("Second"),
+        ElementStub("Third"),
+    ]
+    doc, prox = _nav_stack(elements)
+    result = prox.get_surroundings(doc, "paragraph:1", radius=0, include=["paragraphs"])
+    assert result["range"] == {"start": 1, "end": 1}
+    assert len(result["paragraphs"]) == 1
+    assert result["paragraphs"][0]["para_index"] == 1
+
+
+def test_collect_anchored_skips_anchor_not_in_body():
+    body_text = object()
+    other_text = object()
+
+    anchor_header = MagicMock()
+    anchor_header.getText.return_value = other_text
+    obj_header = MagicMock()
+    obj_header.getAnchor.return_value = anchor_header
+
+    anchor_body = MagicMock()
+    anchor_body.getText.return_value = body_text
+    obj_body = MagicMock()
+    obj_body.getAnchor.return_value = anchor_body
+
+    container = MagicMock()
+    container.getElementNames.return_value = ["header_img", "body_img"]
+    container.getByName.side_effect = lambda name: obj_header if name == "header_img" else obj_body
+
+    doc_svc = MagicMock()
+    doc_svc.find_paragraph_for_range.return_value = 1
+
+    def builder(_obj, name, pi):
+        return {"name": name, "pi": pi}
+
+    # Pass confirm_paragraph_index: since anchor.getStart() / para_ranges check might be called
+    # Let's see what confirm_paragraph_index does or mock para_ranges appropriately
+    # In proximity.py:
+    # pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+    # If text_obj is matched and para_ranges has element at 1:
+    para_range = MagicMock()
+    para_range.getStart.return_value = anchor_body.getStart.return_value
+    para_range.getEnd.return_value = anchor_body.getEnd.return_value
+    para_ranges = [MagicMock(), para_range]
+
+    items = _collect_anchored(
+        container=container,
+        doc_svc=doc_svc,
+        para_ranges=para_ranges,
+        text_obj=body_text,
+        entries=None,
+        start_idx=0,
+        end_idx=2,
+        builder=builder,
+    )
+    assert [item["name"] for item in items] == ["body_img"]
+
+
+def test_collect_anchored_reraises_disposed_anchor():
+    body_text = object()
+    obj = MagicMock()
+    obj.getAnchor.side_effect = DocumentDisposedError("disposed")
+
+    container = MagicMock()
+    container.getElementNames.return_value = ["img"]
+    container.getByName.return_value = obj
+
+    doc_svc = MagicMock()
+
+    with pytest.raises(DocumentDisposedError):
+        _collect_anchored(
+            container=container,
+            doc_svc=doc_svc,
+            para_ranges=[],
+            text_obj=body_text,
+            entries=None,
+            start_idx=0,
+            end_idx=2,
+            builder=lambda _o, n, pi: {"name": n},
+        )
+
+
+def test_surroundings_keeps_comments_after_one_unreadable_annotation():
+    doc = WriterDocStub([ElementStub("Para0"), ElementStub("Para1")])
+    body_text = doc.getText()
+    doc.getText = lambda: body_text
+
+    # First annotation raises RuntimeError on getPropertyValue("Content")
+    bad_field = MagicMock()
+    bad_field.supportsService.return_value = True
+    bad_anchor = MagicMock()
+    bad_anchor.getText.return_value = body_text
+    bad_field.getAnchor.return_value = bad_anchor
+
+    def bad_get_prop(prop):
+        if prop == "Content":
+            raise RuntimeError("unreadable content")
+        if prop == "Author":
+            return "Bad Author"
+        if prop == "Resolved":
+            return False
+        return None
+
+    bad_field.getPropertyValue.side_effect = bad_get_prop
+
+    # Second annotation is readable
+    good_field = MagicMock()
+    good_field.supportsService.return_value = True
+    good_anchor = MagicMock()
+    good_anchor.getText.return_value = body_text
+    good_field.getAnchor.return_value = good_anchor
+
+    def good_get_prop(prop):
+        if prop == "Content":
+            return "Good comment content"
+        if prop == "Author":
+            return "Good Author"
+        if prop == "Resolved":
+            return True
+        return None
+
+    good_field.getPropertyValue.side_effect = good_get_prop
+
+    class FieldEnum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self) -> bool:
+            return len(self._items) > 0
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    fields_obj = MagicMock()
+    fields_obj.createEnumeration.return_value = FieldEnum([bad_field, good_field])
+    doc.getTextFields = lambda: fields_obj
+
+    services = MagicMock()
+    doc_svc = MagicMock()
+    doc_svc.resolve_locator.return_value = {"para_index": 0}
+    doc_svc.get_paragraph_ranges.side_effect = get_paragraph_ranges
+    doc_svc.find_paragraph_for_range.return_value = 1
+    services.document = doc_svc
+    prox = ProximityService(services)
+
+    result = prox.get_surroundings(doc, "paragraph:0", radius=5, include=["comments"])
+    assert len(result["comments"]) == 1
+    c = result["comments"][0]
+    assert c["author"] == "Good Author"
+    assert c["content"] == "Good comment content"
+    assert c["paragraph_index"] == 1
+    assert c["resolved"] is True
+
+
+def test_surroundings_reraises_disposed_annotation():
+    doc = WriterDocStub([ElementStub("Para0"), ElementStub("Para1")])
+    body_text = doc.getText()
+    doc.getText = lambda: body_text
+
+    disposed_field = MagicMock()
+    disposed_field.supportsService.return_value = True
+    anchor = MagicMock()
+    anchor.getText.return_value = body_text
+    disposed_field.getAnchor.return_value = anchor
+    disposed_field.getPropertyValue.side_effect = DocumentDisposedError("disposed field")
+
+    class FieldEnum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self) -> bool:
+            return len(self._items) > 0
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    fields_obj = MagicMock()
+    fields_obj.createEnumeration.return_value = FieldEnum([disposed_field])
+    doc.getTextFields = lambda: fields_obj
+
+    services = MagicMock()
+    doc_svc = MagicMock()
+    doc_svc.resolve_locator.return_value = {"para_index": 0}
+    doc_svc.get_paragraph_ranges.side_effect = get_paragraph_ranges
+    doc_svc.find_paragraph_for_range.return_value = 1
+    services.document = doc_svc
+    prox = ProximityService(services)
+
+    with pytest.raises(DocumentDisposedError):
+        prox.get_surroundings(doc, "paragraph:0", radius=5, include=["comments"])
+
