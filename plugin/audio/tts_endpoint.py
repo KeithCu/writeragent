@@ -16,8 +16,8 @@ import urllib.parse
 from typing import Any, Callable
 
 from plugin.audio.tts_models import _notify_tts_status
-from plugin.audio.tts_voices import clean_voice_name, is_kokoro_voice_id
-from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE, KOKORO_OPENAI_ALIASES
+from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family
+from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE
 from plugin.framework.client.http_security import public_target
 from plugin.framework.i18n import _
 
@@ -306,17 +306,28 @@ def _default_endpoint_format() -> str:
     return "wav" if sys.platform == "win32" else "mp3"
 
 
-def _resolve_tts_voice(model: str, voice: str) -> str:
+def _resolve_tts_voice(model: str, voice: str, endpoint_url: str | None = None) -> str:
     """Ensure voice name is compatible with the target model."""
     voice = clean_voice_name(voice)
+    m_low = (model or "").lower()
+    is_kokoro = "kokoro" in m_low
+
     if not voice:
-        voice = "alloy"
-    if "kokoro" in model.lower():
-        v_low = voice.lower()
-        if is_kokoro_voice_id(v_low):
-            return voice
-        return KOKORO_OPENAI_ALIASES.get(v_low, KOKORO_FALLBACK_VOICE)
-    return voice
+        if is_kokoro:
+            return KOKORO_FALLBACK_VOICE
+        fam = get_voice_family("endpoint", model, endpoint_url)
+        if fam in ("openrouter", "together"):
+            return ""
+        return "alloy"
+
+    if is_kokoro:
+        family = "kokoro"
+    elif endpoint_url is not None:
+        family = get_voice_family("endpoint", model, endpoint_url)
+    else:
+        family = "openai"
+
+    return canonical_voice_id(family, voice)
 
 
 def _download_endpoint_speech(
@@ -352,7 +363,7 @@ def _download_endpoint_speech(
 
     url = _speech_url(endpoint_url)
 
-    eff_voice = _resolve_tts_voice(model, voice)
+    eff_voice = _resolve_tts_voice(model, voice, endpoint_url=endpoint_url)
     fmt_key = _tts_format_key(endpoint_url, model)
     response_format = cached_tts_response_format(fmt_key)
     if response_format not in ("mp3", "pcm", "wav"):
@@ -367,16 +378,17 @@ def _download_endpoint_speech(
 
     t0 = time.monotonic()
     for attempt in range(2):
-        payload = {
+        payload: dict[str, Any] = {
             "model": model or "hexgrad/Kokoro-82M",
             "input": text,
-            "voice": eff_voice,
             "speed": speed,
             "response_format": response_format,
         }
+        if eff_voice:
+            payload["voice"] = eff_voice
         log.info(
             "Requesting TTS from %s (model=%s, voice=%s, format=%s, text_len=%d)",
-            public_target(url), payload["model"], eff_voice, response_format, len(text),
+            public_target(url), payload["model"], payload.get("voice", ""), response_format, len(text),
         )
         audio_bytes, content_type, code, err_body = _post_audio_speech(
             url, headers, payload, stop_checker=stop_checker,
