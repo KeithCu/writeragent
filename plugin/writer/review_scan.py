@@ -180,10 +180,7 @@ def redline_identity_key(rl: Any) -> tuple[Any, ...]:
 
 
 def _redline_key_with_date(rl: Any) -> tuple[Any, ...]:
-    # Bugfix: RedlineDateTime read used to be swallowed into None, disabling split_piece
-    # detection and tagging the user's split-piece text as an agent change. Reading
-    # RedlineDateTime directly raises on failure so the caller's scan marks the snapshot/diff
-    # unreliable (fail closed).
+    # Tip: an unreadable RedlineDateTime must fail the scan (no split-piece check without it).
     key = redline_identity_key(rl)
     rl.getPropertyValue("RedlineDateTime")
     return key
@@ -200,7 +197,7 @@ def _stacked_on_someone_else(rl: Any) -> bool:
     try:
         below = rl.getPropertyValue("RedlineSuccessorData")
     except Exception:
-        # Bugfix: an unreadable layer must not enable tagging; fail closed by treating as stacked.
+        # Unreadable layer: fail closed (treat as stacked, so the redline is not tagged).
         return True
     if not isinstance(below, (tuple, list)) or not below:
         return False

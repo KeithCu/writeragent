@@ -107,9 +107,7 @@ def end(ctx: Any, prior: tuple[str, str] | None) -> None:
     try:
         access = _author_access(ctx)
         current = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
-        # Bugfix: end() used to write the captured prior unconditionally, so a name changed
-        # in User Data during a long edit was lost. If current matches prior or was changed
-        # outside this edit (doesn't match last author we wrote), leave it untouched.
+        # Tip: a name the user changed in User Data during the edit is not ours to overwrite.
         if current == prior:
             return
         if current[0] != last:
