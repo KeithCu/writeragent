@@ -1175,9 +1175,9 @@ class _HeadersFooterProxy:
         Args:
             page (required): 0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.
             is_master_page (optional): If True, update the master page linked to the slide at page. Defaults to False.
-            header (optional): Header text. Not available on a normal slide (notes page and handout master only). On an Impress master, written to the header shape.
-            footer (optional): The text for the footer.
-            date_time (optional): The fixed date/time text.
+            header (optional): Header text. Slide master only (written to the master's header shape); not available on a normal slide.
+            footer (optional): The text for the footer. Setting it enables footer_visible unless footer_visible is passed.
+            date_time (optional): The fixed date/time text. On a slide, setting it enables date_time_visible and date_time_fixed unless those are passed.
             header_visible (optional): Whether the header is visible.
             footer_visible (optional): Whether the footer is visible.
             page_number_visible (optional): Whether the slide number is visible.
@@ -1851,10 +1851,10 @@ class _ShapeProxy:
         return _rpc_call("distribute_shapes", page=page, indices=indices, axis=axis)
 
     def fill_draw_fields(self, fields: list[Any], *, page: int | None = None) -> dict[str, Any]:
-        """Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), draw-page index, or label_hint from get_draw_tree. Returns per-field ok/fail so you can recover. Not a PDF/AcroForm API.
+        """Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), draw-page index, path_index for group children, or label_hint from get_draw_tree. Returns per-field ok/fail so you can recover. Not a PDF/AcroForm API.
 
         Args:
-            fields (required): Fields to write. Each item needs a value plus name, index, or label_hint.
+            fields (required): Fields to write. Target precedence: name (preferred; disambiguated by path_index or index), path_index, index, or label_hint. Each item needs a value.
             page (optional): 0-based page index (active page if omitted).
         """
         return _rpc_call("fill_draw_fields", page=page, fields=fields)

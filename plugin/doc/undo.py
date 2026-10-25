@@ -92,9 +92,7 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> dict[str, Any] | No
                     "message": f"Could not close the undo context; the document may stay in one undo group ({exc}).",
                 }
         failed = error is not None or exc_cause is not None
-        if failed and left and before is not None and not (
-            exc_cause is not None and is_real_disposal(exc_cause)
-        ):
+        if failed and left and before is not None:
             try:
                 titles = tuple(mgr.getAllUndoActionTitles() or ())
                 if titles != before and titles and titles[0] == title:
@@ -140,10 +138,13 @@ def commit_or_rollback_mutation(
     except Exception as e:
         if is_real_disposal(e):
             raise
-        return tool._tool_error(
+        err = tool._tool_error(
             f"{rollback_msg} ({e}).",
             **extra_error,
         )
+        # _tool_error nests kwargs under details; callers also read them top-level.
+        err.update(extra_error)
+        return err
     return None
 
 
