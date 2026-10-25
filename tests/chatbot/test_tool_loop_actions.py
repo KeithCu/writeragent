@@ -1188,7 +1188,7 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
     """panel._append_response keeps the stop line and drops a later chunk."""
     import threading
 
-    from plugin.chatbot.send_state import SendButtonState
+    from plugin.chatbot.send_state import SendButtonState, SendMode
     from plugin.chatbot.sidebar_state import SidebarCompositeState
     from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn
 
@@ -1202,7 +1202,7 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
     send._scroll_response_to_bottom = MagicMock()
     send.queue_executor = MagicMock()
     send.sidebar_state = SidebarCompositeState(
-        send=SendButtonState(True, False, False, False, False),
+        send=SendButtonState(SendMode.BUSY, False, False, False),
         tool_loop=None,
     )
 

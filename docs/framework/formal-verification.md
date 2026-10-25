@@ -440,14 +440,14 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopStat
 
 **Reference implementation:** [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py) — see [`../scripting/serialization-verification.md`](../scripting/serialization-verification.md).
 
-**Status (partial):** `deal` on `send_state.next_state` (one `@deal.ensure(_send_ui_invariants)`: never busy and recording; an `UpdateUIEffect` does not enable Send while busy, does not enable Stop unless busy or recording, and does not enable both unless recording), `audio_recorder_state.next_state` (one `@deal.ensure(_audio_transition_invariants)`: valid status + error path), and `tool_loop_state.next_state` (one `@deal.ensure(_transition_invariants)`: STOP→`ExitLoopEffect`; **stopped-latched pending tools never spawn**; `is_stopped` sticky; pending length never shrinks while stopped; round bound). Pytest oracles + Hypothesis (light in `make verify`, deep in `make vhs`) + slow CrossHair hooks in [`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py). Strategies: [`tests/chatbot/fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py). Tracking: [`verification_status.json`](../verification_status.json). `next_state` stays `# crosshair: off`.
+**Status (partial):** `deal` on `send_state.next_state` (one `@deal.ensure(_send_ui_invariants)`: SendMode keeps busy and recording mutually exclusive; an `UpdateUIEffect` does not enable Send while busy, does not enable Stop unless busy or recording, and does not enable both unless recording), `audio_recorder_state.next_state` (one `@deal.ensure(_audio_transition_invariants)`: valid status + error path), and `tool_loop_state.next_state` (one `@deal.ensure(_transition_invariants)`: STOP→`ExitLoopEffect`; **stopped-latched pending tools never spawn**; `is_stopped` sticky; pending length never shrinks while stopped; round bound). Pytest oracles + Hypothesis (light in `make verify`, deep in `make vhs`) + slow CrossHair hooks in [`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py). Strategies: [`tests/chatbot/fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py). Tracking: [`verification_status.json`](../verification_status.json). `next_state` stays `# crosshair: off`.
 
 ### Step 1: Add Design by Contract to State Machines
 
 Contracts use `FsmTransition.state` / `.effects` (not tuple indexing):
 
 ```python
-@deal.ensure(lambda state, event, result: not (result.state.is_busy and result.state.is_recording))
+@deal.ensure(_send_ui_invariants)
 @deal.ensure(
     lambda state, event, result: event.kind != EventKind.STOP_REQUESTED
     or any(isinstance(e, ExitLoopEffect) for e in result.effects)

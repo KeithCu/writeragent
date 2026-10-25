@@ -93,7 +93,7 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
     from plugin.chatbot.panel import SendButtonListener
     from plugin.chatbot.panel_voice import PanelVoiceController
     from plugin.chatbot.record_gesture import RecordGesture
-    from plugin.chatbot.send_state import SendButtonState
+    from plugin.chatbot.send_state import SendButtonState, SendMode
     from plugin.chatbot.sidebar_state import SidebarCompositeState
 
     query_control = MagicMock()
@@ -109,8 +109,7 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
     )
 
     send_initial = SendButtonState(
-        is_busy=False,
-        is_recording=False,
+        mode=SendMode.IDLE,
         has_text=False,
         has_audio=False,
         audio_supported=True,

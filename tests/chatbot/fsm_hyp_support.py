@@ -17,7 +17,7 @@ from plugin.chatbot.audio_recorder_state import (
     StopRequestedEvent as AudioStopRequestedEvent,
     _VALID_AUDIO_STATUSES,
 )
-from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind
+from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, SendMode
 from plugin.chatbot.state_machine import (
     ErrorEvent,
     SendHandlerState,
@@ -55,14 +55,8 @@ def fsm_hypothesis_max_examples() -> dict[str, int]:
 
 @st.composite
 def send_button_states(draw):
-    # Avoid illegal busy+recording seeds; the transition must never produce that pair.
-    is_busy = draw(st.booleans())
-    is_recording = draw(st.booleans())
-    if is_busy and is_recording:
-        is_recording = False
     return SendButtonState(
-        is_busy=is_busy,
-        is_recording=is_recording,
+        mode=draw(st.sampled_from((SendMode.IDLE, SendMode.RECORDING, SendMode.BUSY))),
         has_text=draw(st.booleans()),
         has_audio=draw(st.booleans()),
         audio_supported=draw(st.booleans()),

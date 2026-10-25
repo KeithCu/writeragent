@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.panel_voice import PanelVoiceController, _stop_tts
 from plugin.chatbot.record_gesture import RecordGesture
-from plugin.chatbot.send_state import SendButtonState
+from plugin.chatbot.send_state import SendButtonState, SendMode
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 
 
@@ -16,8 +16,7 @@ class DummyPanel:
         self._stt_kill: Any = None
         self.audio_recorder: Any = None
         send_state = SendButtonState(
-            is_busy=False,
-            is_recording=False,
+            mode=SendMode.IDLE,
             has_text=False,
             has_audio=False,
             audio_supported=True,

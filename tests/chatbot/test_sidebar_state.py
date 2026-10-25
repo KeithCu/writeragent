@@ -1,11 +1,11 @@
 
-from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, next_state as send_next_state
+from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, SendMode, next_state as send_next_state
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.tool_loop_state import ToolLoopState
 
 
 def test_send_transition_replaces_send_and_leaves_tool_loop_same():
-    send_initial = SendButtonState(False, False, False, False, True)
+    send_initial = SendButtonState(SendMode.IDLE, False, False, True)
     tool_loop_initial = ToolLoopState(
         round_num=1,
         pending_tools=[],

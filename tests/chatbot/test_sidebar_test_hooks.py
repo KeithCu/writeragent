@@ -30,7 +30,7 @@ pytest.importorskip("plugin.chatbot.sidebar_test_hooks")
 pytestmark = pytest.mark.xdist_group("audio_recorder_control")
 
 from plugin.chatbot.audio_recorder_state import AudioRecorderState, AudioStatus
-from plugin.chatbot.send_state import ButtonAction, SendButtonState, SendEventKind
+from plugin.chatbot.send_state import ButtonAction, SendButtonState, SendEventKind, SendMode
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.rich_text_control import _debug_env_active
 from plugin.chatbot.sidebar_test_hooks import (
@@ -149,8 +149,7 @@ class _FakeListener:
         self._events = SimpleNamespace(_finish_inline_web_approval=self._finish_inline_web_approval)
         self.sidebar_state = SidebarCompositeState(
             send=SendButtonState(
-                is_busy=busy,
-                is_recording=False,
+                mode=SendMode.BUSY if busy else SendMode.IDLE,
                 has_text=False,
                 has_audio=False,
                 audio_supported=True,
