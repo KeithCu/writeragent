@@ -25,7 +25,7 @@ def test_collabora_getpy_rewrites_and_evaluates(ctx, doc):
     formula = str(cell.getFormula() or "").upper()
     assert "COLLABORAOFFICE" not in formula
     assert formula.startswith("=PY(") or "PYTHONFUNCTION.PY" in formula
-    doc.calculateAll()
+    # The rewrite recalculates so the cell value is updated on open.
     value = cell.getValue()
 
     # Query LibreOffice ServiceManager for the Calc add-in UNO service
