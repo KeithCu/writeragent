@@ -16,7 +16,7 @@ import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -27,6 +27,12 @@ from plugin.framework.constants import USER_AGENT
 from plugin.framework.errors import best_effort
 
 log = logging.getLogger("writeragent.grammar")
+
+
+def _fail(msg: str) -> NoReturn:
+    log.error("[harper] %s", msg)
+    raise RuntimeError(msg)
+
 
 _HARPER_RELEASES_API = "https://api.github.com/repos/Automattic/harper/releases/latest"
 _DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024
@@ -56,9 +62,7 @@ def _resolve_harper_asset(system: str, machine: str) -> str:
         return "harper-ls-aarch64-apple-darwin.tar.gz" if is_arm else "harper-ls-x86_64-apple-darwin.tar.gz"
     if system == "windows":
         return "harper-ls-x86_64-pc-windows-msvc.zip"
-    msg = f"Unsupported OS: {system}"
-    log.error("[harper] %s", msg)
-    raise RuntimeError(msg)
+    _fail(f"Unsupported OS: {system}")
 
 
 def _is_harper_member(name: str) -> bool:
@@ -70,16 +74,12 @@ def _pick_harper_member(paths: list[str]) -> str:
     for path in paths:
         if _is_harper_member(path):
             return path
-    msg = "harper-ls file not found inside archive"
-    log.error("[harper] %s", msg)
-    raise RuntimeError(msg)
+    _fail("harper-ls file not found inside archive")
 
 
 def _parse_github_digest(digest: str | None) -> str:
     if not digest or not digest.startswith("sha256:"):
-        msg = "Harper release asset is missing a sha256 digest"
-        log.error("[harper] %s", msg)
-        raise RuntimeError(msg)
+        _fail("Harper release asset is missing a sha256 digest")
     return digest.removeprefix("sha256:")
 
 
@@ -91,9 +91,7 @@ def _github_api_request(url: str) -> dict[str, Any]:
         body = response.read(1024 * 1024)
     payload = json.loads(body.decode("utf-8"))
     if not isinstance(payload, dict):
-        msg = "Unexpected Harper releases API response"
-        log.error("[harper] %s", msg)
-        raise RuntimeError(msg)
+        _fail("Unexpected Harper releases API response")
     return payload
 
 
@@ -155,32 +153,24 @@ def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path, *, 
         raise RuntimeError(f"Harper releases API request failed: {e}") from e
     tag_name = str(release.get("tag_name") or "").strip()
     if not tag_name:
-        msg = "Harper releases API returned no tag_name"
-        log.error("[harper] %s", msg)
-        raise RuntimeError(msg)
+        _fail("Harper releases API returned no tag_name")
     version = tag_name.lstrip("vV")
 
     assets = release.get("assets")
     if not isinstance(assets, list):
-        msg = "Harper releases API returned no assets"
-        log.error("[harper] %s", msg)
-        raise RuntimeError(msg)
+        _fail("Harper releases API returned no assets")
 
     for asset in assets:
         if not isinstance(asset, dict) or asset.get("name") != asset_name:
             continue
         download_url = str(asset.get("browser_download_url") or "").strip()
         if not download_url:
-            msg = f"Harper asset {asset_name} has no download URL"
-            log.error("[harper] %s", msg)
-            raise RuntimeError(msg)
+            _fail(f"Harper asset {asset_name} has no download URL")
         info = HarperReleaseAsset(version=version, asset_name=asset_name, download_url=download_url, sha256=_parse_github_digest(asset.get("digest")))
         _write_persisted_release(harper_dir, info)
         return info
 
-    msg = f"Harper asset {asset_name} not found in latest release {tag_name}"
-    log.error("[harper] %s", msg)
-    raise RuntimeError(msg)
+    _fail(f"Harper asset {asset_name} not found in latest release {tag_name}")
 
 
 def _read_installed_version(harper_dir: Path) -> str | None:
@@ -251,15 +241,11 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
             source = Path(_pick_harper_member(extracted))
             shutil.copy2(source, tmp_binary)
             os.chmod(tmp_binary, 0o755)  # nosec B103  # nosemgrep: insecure-file-permissions
+            # Temp lives beside dest so os.replace is an atomic same-fs swap;
+            # a cross-device move would copy over (truncate) a running harper-ls.
             os.replace(tmp_binary, dest_path)
             atomic_write_text(str(dest_path.parent / "harper-ls.version"), release.version)
             log.info("[harper] Binary v%s installed at %s", release.version, dest_path)
-            try:
-                if archive_path.is_file():
-                    archive_path.unlink()
-                    log.info("[harper] Removed downloaded archive %s", archive_path)
-            except Exception as cleanup_err:
-                log.warning("[harper] Could not remove downloaded archive %s: %s", archive_path, cleanup_err)
     except Exception as e:
         log.exception("[harper] Failed to download and extract binary")
         raise RuntimeError(f"Failed to auto-download Harper binary: {e}") from e
