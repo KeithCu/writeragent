@@ -253,3 +253,94 @@ def test_get_placeholder_miss_has_available_no_details():
     assert "available" in res["details"]
     assert "hint" not in res["details"]
 
+
+def test_shape_type_exact_map_title_not_body_and_plain_text_has_no_role():
+    class _Typed(_FakeShape):
+        def __init__(self, shape_type, text):
+            super().__init__(text=text)
+            self._shape_type = shape_type
+
+        def getShapeType(self):
+            return self._shape_type
+
+    page = _FakePage([
+        _Typed("com.sun.star.presentation.TitleTextShape", "T"),
+        _Typed("com.sun.star.drawing.TextShape", "plain"),
+    ])
+    assert _find_placeholder(page, "title")[1] == 0
+    assert _find_placeholder(page, "body") == (None, None)
+    listed = _list_placeholders(page)
+    assert listed[0]["class"] == "TitleTextShape"
+    assert "role" not in listed[1]
+
+
+class _CountingPage(_FakePage):
+    def __init__(self, shapes):
+        super().__init__(shapes)
+        self.count_calls = 0
+
+    def getCount(self):
+        self.count_calls += 1
+        return super().getCount()
+
+
+def test_role_miss_scans_page_once():
+    page = _CountingPage([])
+    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page):
+        SetPlaceholderText().execute(SimpleNamespace(doc=object(), active_page_index=0), text="x", role="title")
+    assert page.count_calls == 1
+
+
+def test_scan_skips_shape_whose_property_raises():
+    class _BadName:
+        @property
+        def Name(self):
+            raise RuntimeError("boom")
+
+        def getString(self):
+            return "bad"
+
+    page = _FakePage([_BadName(), _FakeShape(class_name="TitleTextShape", text="T")])
+    listed = _list_placeholders(page)
+    # The bad Name only loses the name; the shape is still listed, next to the good one.
+    assert [entry["text"] for entry in listed] == ["bad", "T"]
+    assert listed[1]["role"] == "title"
+
+
+def test_scan_skips_shape_whose_get_string_raises():
+    class _BadText(_FakeShape):
+        def getString(self):
+            raise RuntimeError("boom")
+
+    page = _FakePage([_BadText(class_name="TitleTextShape"), _FakeShape(class_name="OutlinerShape", text="B")])
+    assert [entry["role"] for entry in _list_placeholders(page)] == ["body"]
+
+
+def test_scan_re_raises_disposal_from_shape_property():
+    class DisposedException(Exception):
+        pass
+
+    class _Disposed:
+        @property
+        def Name(self):
+            raise DisposedException("gone")
+
+        def getString(self):
+            return ""
+
+    page = _FakePage([_Disposed()])
+    with pytest.raises(DisposedException):
+        _list_placeholders(page)
+
+
+def test_get_and_set_role_miss_payloads_match_on_empty_page():
+    ctx = SimpleNamespace(doc=object(), active_page_index=0)
+    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=_FakePage([])):
+        got = GetPlaceholderText().execute(ctx, role="title")
+        want = SetPlaceholderText().execute(ctx, text="x", role="title")
+    assert got["message"] == want["message"]
+    assert got["details"] == want["details"]
+    assert got["details"]["suggest_layout"] == "text"
+    assert got["details"]["hint"] == _EMPTY_PLACEHOLDER_HINT
+
+

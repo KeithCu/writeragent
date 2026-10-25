@@ -15,11 +15,21 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.draw.bridge import DrawBridge
+from plugin.framework.errors import uno_probe
 from plugin.framework.tool import ToolBase, ToolContext
 
+# XShape.getShapeType() is the authoritative service name. Exact short names;
+# never substring, so "title" cannot also match "subtitle".
+_ROLE_BY_TYPE = {
+    "TitleTextShape": "title",
+    "SubtitleShape": "subtitle",
+    "OutlinerShape": "body",
+    "OutlineShape": "body",
+    "NotesShape": "notes",
+}
+
 # Specific tokens first so matching is not shape-order / substring-any.
-# "Text" used to be a body pattern: "text" in "titletextshape" returned the
-# title as body. "title" is also a substring of "subtitle" — subtitle first.
+# Name tags, not class names. "title" is also a substring of "subtitle" — subtitle first.
 _ROLE_PRIORITY = (
     ("titletext", "title"),
     ("subtitle", "subtitle"),
@@ -30,9 +40,12 @@ _ROLE_PRIORITY = (
     ("notes", "notes"),
 )
 
+# (index, shape, short service type, role from type, Name, has getString)
+_ScanRow = tuple[int, Any, str, str, str, bool]
+
 
 def _role_from_label(label: Any) -> str | None:
-    """Map a ClassName or shape Name to a role. First matching token wins."""
+    """Map a shape Name tag to a role. First matching token wins."""
     if not label:
         return None
     lower = str(label).lower()
@@ -42,85 +55,66 @@ def _role_from_label(label: Any) -> str | None:
     return None
 
 
-def _shape_class_name(shape: Any) -> str:
-    from plugin.framework.errors import uno_probe
-
-    # ClassName is missing on text-layout placeholders (UnknownPropertyException).
-    # ShapeType below is the service name on that build.
-    class_name = uno_probe(lambda: getattr(shape, "ClassName", None), None)
-    if class_name:
-        return str(class_name)
-    prop = uno_probe(lambda: shape.getPropertyValue("ClassName"), None)
-    if prop:
-        return str(prop)
-    # A text layout's title is
-    # com.sun.star.presentation.TitleTextShape and the body is
-    # OutlinerShape. ClassName and PresObj raise
-    # UnknownPropertyException and Name is empty, so role lookup
-    # misses both and set_placeholder_text reports index 0 and 1
-    # with no role. ShapeType / getShapeType() is the service name
-    # on this build.
-    if hasattr(shape, "getShapeType"):
-        shape_type = shape.getShapeType()
-        if shape_type:
-            return str(shape_type)
-    shape_type = getattr(shape, "ShapeType", "")
-    if shape_type:
-        return str(shape_type)
-    return ""
+def _shape_type(shape: Any) -> str:
+    """Short UNO service name, e.g. ``TitleTextShape``."""
+    raw = uno_probe(lambda: shape.getShapeType(), "") or uno_probe(lambda: getattr(shape, "ClassName", ""), "")
+    return str(raw).rsplit(".", 1)[-1] if raw else ""
 
 
-def _scan_shapes(page: Any) -> list[tuple[int, Any, str, str, bool]]:
-    """Scan page shapes once, recording index, shape, class name, name, and has_text."""
+def _scan_shapes(page: Any) -> list[_ScanRow]:
+    """Read the page once. A broken shape is skipped; disposal still raises."""
     out = []
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
-        name = str(shape.Name) if hasattr(shape, "Name") and shape.Name else ""
-        class_name = _shape_class_name(shape)
-        has_text = hasattr(shape, "getString")
-        out.append((i, shape, class_name, name, has_text))
+        name = uno_probe(lambda: str(shape.Name), "") or ""
+        shape_type = _shape_type(shape)
+        role = _ROLE_BY_TYPE.get(shape_type) or _role_from_label(shape_type) or ""
+        has_text = uno_probe(lambda: hasattr(shape, "getString"), False)
+        out.append((i, shape, shape_type, role, name, has_text))
     return out
 
 
-def _find_placeholder(page: Any, role: str) -> tuple[Any | None, int | None]:
+def _find_placeholder(page: Any, role: str, scan: list[_ScanRow] | None = None) -> tuple[Any | None, int | None]:
     """Find a placeholder shape by role name.
 
     Tries multiple identification strategies:
-    1. ClassName via the priority class→role map (TitleText→title, …)
-    2. Shape Name via the same map
-
-    Untagged text boxes are not guessed by position.
+    1. exact getShapeType() map
+    2. shape Name tag. Never by position.
     """
     role_lower = role.lower()
-    scan = _scan_shapes(page)
+    if scan is None:
+        scan = _scan_shapes(page)
 
-    # Strategy 1: class → role (class hit beats name hit)
-    for i, shape, class_name, _name, _has_text in scan:
-        if _role_from_label(class_name) == role_lower:
+    # Strategy 1: exact getShapeType() map
+    for i, shape, _shape_type, type_role, _name, _has_text in scan:
+        if type_role == role_lower:
             return shape, i
 
     # Strategy 2: match by shape Name using the same map
-    for i, shape, _class_name, name, _has_text in scan:
+    for i, shape, _shape_type, _type_role, name, _has_text in scan:
         if name and _role_from_label(name) == role_lower:
             return shape, i
 
     return None, None
 
 
-def _list_placeholders(page: Any, scan: list[tuple[int, Any, str, str, bool]] | None = None) -> list[dict[str, Any]]:
+def _list_placeholders(page: Any, scan: list[_ScanRow] | None = None) -> list[dict[str, Any]]:
     """List all text-capable shapes on a page with role detection."""
     if scan is None:
         scan = _scan_shapes(page)
     result = []
-    for i, shape, class_name, name, has_text in scan:
+    for i, shape, class_name, type_role, name, has_text in scan:
         if not has_text:
             continue
-        entry: dict[str, Any] = {"index": i, "text": shape.getString()}
+        text = uno_probe(lambda: shape.getString(), None)
+        if text is None:
+            continue
+        entry: dict[str, Any] = {"index": i, "text": text}
         if name:
             entry["name"] = name
         if class_name:
             entry["class"] = class_name
-        role = _role_from_label(class_name) or _role_from_label(name)
+        role = type_role or _role_from_label(name)
         if role:
             entry["role"] = role
         result.append(entry)
@@ -133,7 +127,7 @@ def _list_placeholders(page: Any, scan: list[tuple[int, Any, str, str, bool]] | 
 _EMPTY_PLACEHOLDER_HINT = "Slide may lack a text layout. Delegate domain=slide_layouts with layout='text', then list_placeholders."
 
 
-def _role_miss_error_kwargs(page: Any, scan: list[tuple[int, Any, str, str, bool]] | None = None) -> dict[str, Any]:
+def _role_miss_error_kwargs(page: Any, scan: list[_ScanRow] | None = None) -> dict[str, Any]:
     """Details for set_placeholder_text when role lookup fails."""
     if scan is None:
         scan = _scan_shapes(page)
@@ -143,9 +137,9 @@ def _role_miss_error_kwargs(page: Any, scan: list[tuple[int, Any, str, str, bool
         return extra
     extra["hint"] = _EMPTY_PLACEHOLDER_HINT
     extra["suggest_layout"] = "text"
-    extra["shape_text_count"] = sum(1 for _, _, _, _, has_text in scan if has_text)
+    extra["shape_text_count"] = sum(1 for _, _, _, _, _, has_text in scan if has_text)
     fallback: list[dict[str, Any]] = []
-    for i, _shape, class_name, name, has_text in scan:
+    for i, _shape, class_name, _type_role, name, has_text in scan:
         if not has_text and (class_name or name):
             item: dict[str, Any] = {"index": i}
             if class_name:
@@ -158,13 +152,13 @@ def _role_miss_error_kwargs(page: Any, scan: list[tuple[int, Any, str, str, bool
     return extra
 
 
-def _locate(page: Any, role: str | None, index: int | None) -> tuple[Any | None, int | None, str | None]:
+def _locate(page: Any, role: str | None, index: int | None, scan: list[_ScanRow] | None = None) -> tuple[Any | None, int | None, str | None]:
     if index is not None:
         if index < 0 or index >= page.getCount():
             return None, None, "Shape index out of range."
         return page.getByIndex(index), index, None
     if role:
-        shape, shape_index = _find_placeholder(page, role)
+        shape, shape_index = _find_placeholder(page, role, scan)
         if shape is None:
             return None, None, "not_found"
         return shape, shape_index, None
@@ -183,7 +177,8 @@ class ListPlaceholders(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
-        placeholders = _list_placeholders(page)
+        scan = _scan_shapes(page)
+        placeholders = _list_placeholders(page, scan)
         return {"status": "ok", "page": page_idx, "placeholders": placeholders, "count": len(placeholders)}
 
 
@@ -205,10 +200,13 @@ class GetPlaceholderText(ToolBase):
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         role = kwargs.get("role")
         shape_index = kwargs.get("index")
+        scan = None if shape_index is not None else _scan_shapes(page)
 
-        shape, shape_index, err = _locate(page, role, shape_index)
+        shape, shape_index, err = _locate(page, role, shape_index, scan)
         if err == "not_found":
-            return self._tool_error("Placeholder '%s' not found." % role, available=_list_placeholders(page))
+            payload = self._tool_error("Placeholder '%s' not found on this slide." % role)
+            payload["details"] = _role_miss_error_kwargs(page, scan)
+            return payload
         if err or shape is None:
             return self._tool_error(err or "Shape not found.")
 
@@ -243,13 +241,14 @@ class SetPlaceholderText(ToolBase):
         text = kwargs["text"]
         role = kwargs.get("role")
         shape_index = kwargs.get("index")
+        scan = None if shape_index is not None else _scan_shapes(page)
 
-        shape, shape_index, err = _locate(page, role, shape_index)
+        shape, shape_index, err = _locate(page, role, shape_index, scan)
         if err == "not_found":
             # Named details dict (not **unpack) so mixed list/str values
             # do not collide with _tool_error's code= parameter.
             payload = self._tool_error("Placeholder '%s' not found on this slide." % role)
-            payload["details"] = _role_miss_error_kwargs(page)
+            payload["details"] = _role_miss_error_kwargs(page, scan)
             return payload
         if err or shape is None:
             return self._tool_error(err or "Shape not found.")
