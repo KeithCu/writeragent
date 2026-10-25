@@ -536,6 +536,47 @@ class TestWriterImageCursorConversion:
 
         host.removeTextContent.assert_called_once_with(frame)
 
+    def test_insert_frame_does_not_jump_to_page_start_when_insert_raises(self):
+        host = MagicMock()
+        host.insertTextContent.side_effect = RuntimeError("no selection")
+        view_cursor = MagicMock()
+        model = MagicMock()
+        model.CurrentController.ViewCursor = view_cursor
+        frame = MagicMock()
+        model.createInstance.return_value = frame
+        ctx = MagicMock()
+
+        with (
+            patch.object(image_tools, "_cursor_for_writer_view", return_value=(host, MagicMock())),
+            pytest.raises(RuntimeError, match="no selection"),
+        ):
+            image_tools._insert_frame(ctx, model, "/tmp/img.png", width=10, height=20, title="", description="")
+
+        view_cursor.jumpToStartOfPage.assert_not_called()
+
+    def test_insert_writer_graphic_restores_view_cursor_after_linked_insert(self):
+        ctx = MagicMock()
+        model = MagicMock()
+        view_cursor = MagicMock()
+        saved_start = MagicMock()
+        view_cursor.getStart.return_value = saved_start
+        model.CurrentController.ViewCursor = view_cursor
+        text_cursor = MagicMock()
+        graphic_mock = MagicMock()
+
+        with (
+            patch.object(image_tools, "_should_link_image_path", return_value=True),
+            patch.object(image_tools, "_place_view_cursor_at_text_range", return_value=True),
+            patch.object(image_tools, "_dispatch_insert_linked_graphic", return_value=graphic_mock),
+            patch.object(image_tools, "_apply_graphic_properties"),
+        ):
+            res = image_tools._insert_writer_graphic(
+                ctx, model, "/home/user/file.png", 100, 200, "t", "d", text_cursor=text_cursor,
+            )
+
+        assert res is graphic_mock
+        view_cursor.gotoRange.assert_called_once_with(saved_start, False)
+
     def test_insert_writer_graphic_embeds_when_view_cursor_move_fails(self):
         ctx = MagicMock()
         model = MagicMock()
@@ -712,6 +753,94 @@ class TestReplaceGraphicSource:
 
         assert not ok
 
+    def test_replace_with_title_keeps_anchor_type(self):
+        graphic = MagicMock()
+        psi = MagicMock()
+        psi.hasPropertyByName.return_value = True
+        graphic.getPropertySetInfo.return_value = psi
+        model = MagicMock()
+        ctx = MagicMock()
+
+        with (
+            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools, "_should_link_image_path", return_value=False),
+            patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
+            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+        ):
+            ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png", title="Edited")
+
+        assert ok
+        for call_args in graphic.setPropertyValue.call_args_list:
+            assert call_args[0][0] != "AnchorType"
+
+    def test_replace_without_size_leaves_size_alone(self):
+        graphic = MagicMock()
+        psi = MagicMock()
+        psi.hasPropertyByName.return_value = True
+        graphic.getPropertySetInfo.return_value = psi
+        model = MagicMock()
+        ctx = MagicMock()
+
+        with (
+            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools, "_should_link_image_path", return_value=False),
+            patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
+            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+        ):
+            ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
+
+        assert ok
+        graphic.getSize.assert_not_called()
+        for call_args in graphic.setPropertyValue.call_args_list:
+            assert call_args[0][0] not in ("Size", "Width", "Height")
+
+    def test_replace_clears_non_zero_crop(self):
+        crop = types.SimpleNamespace(Top=100, Bottom=0, Left=0, Right=0)
+        graphic = MagicMock()
+        psi = MagicMock()
+        psi.hasPropertyByName.return_value = True
+        graphic.getPropertySetInfo.return_value = psi
+        graphic.getPropertyValue.return_value = crop
+        model = MagicMock()
+        ctx = MagicMock()
+
+        with (
+            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools, "_should_link_image_path", return_value=False),
+            patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
+            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+        ):
+            ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
+
+        assert ok
+        graphic.setPropertyValue.assert_any_call("GraphicCrop", crop)
+        assert crop.Top == 0
+        assert crop.Bottom == 0
+        assert crop.Left == 0
+        assert crop.Right == 0
+
+    def test_replace_leaves_zero_crop_alone(self):
+        crop = types.SimpleNamespace(Top=0, Bottom=0, Left=0, Right=0)
+        graphic = MagicMock()
+        psi = MagicMock()
+        psi.hasPropertyByName.return_value = True
+        graphic.getPropertySetInfo.return_value = psi
+        graphic.getPropertyValue.return_value = crop
+        model = MagicMock()
+        ctx = MagicMock()
+
+        with (
+            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools, "_should_link_image_path", return_value=False),
+            patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
+            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+        ):
+            ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
+
+        assert ok
+        for call_args in graphic.setPropertyValue.call_args_list:
+            assert call_args[0][0] != "GraphicCrop"
+
 
 class TestImageCompoundUndo:
     def test_insert_image_groups_undo_before_gallery(self):
@@ -822,32 +951,6 @@ class TestDisplaySizeCap:
         assert (max(captured["width"], captured["height"])) <= (13500)
         raw_w, raw_h = visual_helpers.px_to_units(1024, 1024)
         assert (max(raw_w, raw_h)) > (13500)
-
-    def test_replace_image_in_place_caps_1024_to_135mm(self):
-        from plugin.doc import visual_helpers
-
-        graphic = MagicMock()
-        captured: dict[str, int] = {}
-
-        def _capture(_ctx, _model, _graphic, _path, width_units=None, height_units=None, *_args, **_kwargs):
-            captured["width"] = width_units
-            captured["height"] = height_units
-            return True
-
-        model = MagicMock()
-        ctx = MagicMock()
-        with (
-            patch.object(image_tools, "_get_selected_graphic_object", return_value=(graphic, "writer")),
-            patch.object(image_tools, "replace_graphic_source", side_effect=_capture),
-        ):
-            ok = image_tools.replace_image_in_place(
-                ctx, model, "/tmp/x.png", 1536, 768, add_to_gallery=False,
-            )
-
-        assert (ok)
-        expected = visual_helpers.px_to_display_units(1536, 768)
-        assert ((captured["width"], captured["height"])) == (expected)
-        assert (captured["width"]) == (13500)
 
 
 class TestDrawPageInsertPosition:
