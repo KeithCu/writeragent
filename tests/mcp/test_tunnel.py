@@ -141,6 +141,7 @@ def test_parse_ngrok_url_from_json():
     assert parse_ngrok_url(line) == "https://abc.ngrok-free.app"
     assert parse_ngrok_url('{"msg":"other"}') is None
     assert parse_ngrok_url("not json") is None
+    assert parse_ngrok_url("{bad json") is None
 
 
 def test_parse_tailscale_url():
@@ -351,6 +352,7 @@ def test_detect_tunnel_auth_error():
         "cloudflare tunnel token invalid or unauthorized"
     )
     assert detect_tunnel_auth_error("bore", "listening at bore.pub:1") is None
+    assert detect_tunnel_auth_error("ngrok", "{bad json") is None
 
 
 def test_start_sets_last_error_when_binary_missing(monkeypatch):
