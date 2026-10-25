@@ -421,8 +421,13 @@ def test_unit_conversions_match_existing_image_tool_assumptions():
     assert visual_helpers.mm_to_unit(12.7) == 1270
     assert visual_helpers.mm_to_unit(12.75) == 1275
     assert visual_helpers.mm_to_units(-1.2, 0) == (-120, 0)
-    assert visual_helpers.px_to_units(10, 20) == (264, 529)
+    assert visual_helpers.px_to_units(10, 20) == (265, 529)
     assert visual_helpers.units_to_px(2540, 1270) == (96, 48)
+
+
+def test_px_unit_round_trip():
+    assert visual_helpers.units_to_px(*visual_helpers.px_to_units(10, 20)) == (10, 20)
+    assert visual_helpers.units_to_px(*visual_helpers.px_to_units(1024, 768)) == (1024, 768)
 
 
 def test_px_to_display_units_caps_longer_edge_at_135mm():
@@ -778,5 +783,93 @@ def test_position_on_draw_page():
     pos_x_only = visual_helpers.position_on_draw_page(page, width=4000, height=2000, x_mm=10, y_mm=None)
     assert pos_x_only.X == visual_helpers.mm_to_unit(10)
     assert pos_x_only.Y == 0
+
+
+def test_is_graphic_object_checks_services_before_graphic_property():
+    class RecordingPropertyObject(FakePropertyObject):
+        def __init__(self, properties: dict[str, object], services: set[str] | None = None):
+            super().__init__(properties, services)
+            self.calls: list[str] = []
+
+        def supportsService(self, service: str) -> bool:
+            self.calls.append("supportsService")
+            return super().supportsService(service)
+
+        def getPropertyValue(self, name: str):
+            self.calls.append("getPropertyValue")
+            return super().getPropertyValue(name)
+
+    obj = RecordingPropertyObject({}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
+    assert visual_helpers.is_graphic_object(obj) is True
+    assert obj.calls == ["supportsService"]
+
+
+def test_safe_property_helpers_reraise_disposed():
+    from unittest.mock import MagicMock
+
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class DisposedPropertyObject(FakePropertyObject):
+        def setPropertyValue(self, name: str, value: object) -> None:
+            raise DisposedException("closed")
+
+    obj = DisposedPropertyObject({"GraphicURL": "old"})
+    with pytest.raises(DocumentDisposedError):
+        visual_helpers.safe_set_property(obj, "GraphicURL", "x")
+
+    closed = MagicMock()
+    closed.getPropertySetInfo.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        visual_helpers.has_uno_property(closed, "GraphicURL")
+
+
+def test_safe_try_method_reraise_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class DisposedRemovable:
+        def remove(self):
+            raise DisposedException("closed")
+
+    with pytest.raises(DocumentDisposedError):
+        visual_helpers.safe_try_method(DisposedRemovable(), "remove")
+
+
+def test_graphic_from_object_reraise_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class GraphicDisposedObject:
+        def getPropertyValue(self, name: str):
+            return None
+
+        @property
+        def Graphic(self):
+            raise DisposedException("closed")
+
+    with pytest.raises(DocumentDisposedError):
+        visual_helpers.graphic_from_object(GraphicDisposedObject())
+
+
+def test_graphic_objects_in_selection_reraise_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class DisposedWriterDoc(FakeWriterDoc):
+        def getCurrentController(self):
+            raise DisposedException("closed")
+
+    with pytest.raises(DocumentDisposedError):
+        visual_helpers.graphic_objects_in_selection(DisposedWriterDoc({}))
+
 
 
