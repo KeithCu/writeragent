@@ -173,3 +173,12 @@ Firefox deprecated CDP in favor of WebDriver BiDi (v129+).
 - Python clients include `marionette_driver` (Mozilla's maintained client) or the tiny `k0s/marionette_client`.
 
 *Phase 2 roadmap*: Connect to the user's running browser via PyCDP (Chrome) or Marionette (Firefox) when the AI needs to read complex, JS-heavy pages or deeply embedded SPAs. This acts as an opt-in power feature where the user runs a simple launch script.
+
+## 7. Document full-text index (`advanced_search`)
+
+`IndexService` ([`linguistic_index.py`](../../plugin/writer/locale/linguistic_index.py), service `writer_index`) backs the Writer `advanced_search` and `get_index_stats` tools.
+
+- Coverage is body paragraphs of the top-level text enumeration. A table keeps its slot as the literal text `"[Table]"` and its cell text is not indexed; text frames, headers/footers, and drawing shapes are not walked. Use `search_in_document` for text in those places.
+- Language: the document-level `CharLocale` wins; otherwise the first non-empty body paragraph with a usable locale (tables and blank paragraphs are skipped, `zxx` is ignored). The response reports `detected_language` (the tag as read), `language` (the Snowball algorithm actually used; still `english` when unsupported) and `stem_fallback: true` when the detected tag has no Snowball algorithm.
+- Stop words from [`stop_words.py`](../../plugin/writer/locale/stop_words.py) are normalized through the same tokenizer as document and query tokens, so accented and punctuated entries match.
+- Grammar: `AND` is the default, plus `OR`, `NOT`, and one `NEAR/N` per query. `NEAR/N` is *paragraph-index distance* (within N paragraphs), not word proximity. Mixed `AND`/`OR` and a second `NEAR/N` are rejected with an error.
