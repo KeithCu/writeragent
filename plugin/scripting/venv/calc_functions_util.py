@@ -314,9 +314,7 @@ def _scipy_stats() -> Any | None:
 
 
 def _to_float_a(val: Any) -> float:
-    """Helper for *A functions (AVERAGEA, STDEVA, etc.). Error tokens return NaN."""
-    if _is_calc_error(val):
-        return float("nan")
+    """Helper for *A functions (AVERAGEA, STDEVA, etc.)."""
     if is_missing_value(val):
         return 0.0
     if isinstance(val, (bool, np.bool_)):

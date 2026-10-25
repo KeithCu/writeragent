@@ -187,7 +187,7 @@ def broadcast_args(
 
     # Compare (nrows, ncols), not just length. Equal-shape grids are valid.
     # A 1×N vector zipped with an N×1 vector is an orientation mismatch.
-    primary_name, primary = vector_named[0]
+    primary = vector_named[0][1]
     target_shape = (primary.nrows, primary.ncols)
     target_length = primary.length
 
