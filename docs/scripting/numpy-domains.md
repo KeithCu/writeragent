@@ -569,7 +569,7 @@ Units helpers (`convert_quantity`, `parse_quantity`, `format_quantity`) accept e
 
 **Why:** Strengthens core Writer use case; overlaps with professional writers, legal, academic users.
 
-**Input sources (host):** Document text (whole or selection) is extracted on the host and sent to the venv worker.
+**Input sources (host):** Document text (whole or selection) is extracted on the host and sent to the venv worker. spaCy paths cap input at 1,000,000 characters (`nlp.max_length`); longer input is analyzed up to the cap and `result.truncated` carries `analyzed_chars` / `total_chars` (the dialog formatter does not show it yet).
 
 **High-quality spaCy features (multilingual):**
 
@@ -611,7 +611,7 @@ Insert report writes into the Writer document that is active when Insert is clic
 
 **Advanced scripting:** Run Python Script **Text Helpers** templates call `run_text_analytics(...)`. Edit the helper and `params` in that call; on Run the host injects `text` and `document_context` from the Writer document, then inserts results as a compact HTML table after the caret/selection.
 
-**Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives, transformers). For topics also install scikit-learn. Install hint: `uv pip install spacy textdescriptives transformers torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm`.
+**Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives, transformers). For topics also install scikit-learn. Install hint: `uv pip install spacy textdescriptives transformers torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm`. Packages are probed independently from package metadata, so torch is reported even when transformers is missing.
 
 **Requirements in the venv:** `spacy` + `textdescriptives` + at least one model for the spaCy features. `transformers` + `torch` (CPU) for the `sentiment` helper (multilingual XLM-RoBERTa default). `scikit-learn` for the `topics` helper. The document's `CharLocale` (if present) is passed to prefer a better model for spaCy. `xx_ent_wiki_sm` is only the last-resort model (NER, no parser or sentence boundaries). On that model key phrases are empty and sentence counts are 0; entities still run. Prefer `xx_sent_ud_sm` or a `*_core_*` model.
 
