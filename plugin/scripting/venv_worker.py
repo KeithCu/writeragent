@@ -134,13 +134,6 @@ class _NoTerminalFrame(Exception):
 _SHARED_WORKER_RESTART_HINT = " Shared Python process restarted (all workbooks)."
 
 
-def _clear_host_state_after_worker_death() -> None:
-    """IPC is desynced after a kill; drop add-in scalar cache so the next turn is cold."""
-    from plugin.calc.python.function import clear_python_addin_cache
-
-    clear_python_addin_cache()
-
-
 def _worker_error_message(exc: BaseException) -> str:
     """Build a short user-facing worker error without subprocess command paths."""
     if isinstance(exc, subprocess.TimeoutExpired):
@@ -162,7 +155,12 @@ def _maybe_dispatch_ppt_master_response(
     """Handle ppt-master intermediate worker frames; no-op when ppt_master is not bundled."""
     try:
         from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
-    except ImportError:
+    except ModuleNotFoundError as exc:
+        # Only "the ppt_master bundle is absent" is not-an-error. A missing
+        # dependency *inside* host_rpc (e.g. numpy) must stay visible.
+        name = exc.name or ""
+        if name != "plugin.ppt_master" and not name.startswith("plugin.ppt_master."):
+            raise
         return False
     return dispatch_worker_response(
         response,
@@ -422,6 +420,7 @@ class PythonWorkerManager:
 
     exe: str
     env: dict[str, str]
+    pool: str = WORKER_POOL_DEFAULT
     _io_lock: threading.Lock
     _primed: bool
     _retired: bool
@@ -432,10 +431,11 @@ class PythonWorkerManager:
     _spawn_ident: int | None
     _spawn_ready: threading.Event | None
 
-    def __init__(self, exe: str, env: dict[str, str]) -> None:
+    def __init__(self, exe: str, env: dict[str, str], *, pool: str = WORKER_POOL_DEFAULT) -> None:
         self.exe = exe
         self.env = dict(env)
         self.env["WRITERAGENT_IS_WORKER"] = "1"
+        self.pool = pool
         self._proc: subprocess.Popen[Any] | None = None
         self._io_lock = threading.Lock()
         # Same-thread owner -> WORKER_REENTRY; tool RPC in flight or UI thread while
@@ -458,12 +458,14 @@ class PythonWorkerManager:
         self._spawn_ready = None
 
     @contextlib.contextmanager
-    def _io_session(self) -> Iterator[None]:
+    def _io_session(self, stop_checker: Callable[[], bool] | None = None) -> Iterator[None]:
         """Hold the IO lock with a warm worker; raise ``_IoSessionUnavailable`` otherwise."""
-        reentry = self._acquire_io()
+        reentry = self._acquire_io(stop_checker)
         if reentry is not None:
             raise _IoSessionUnavailable(reentry)
         try:
+            if _stop_requested(stop_checker):
+                raise _IoSessionUnavailable(_worker_error("CANCELLED", "Python worker stopped by user"))
             warm_err = self._ensure_warmed_unlocked()
             if warm_err is not None:
                 raise _IoSessionUnavailable(warm_err)
@@ -471,10 +473,15 @@ class PythonWorkerManager:
         finally:
             self._release_io()
 
-    def _run_in_session(self, body: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    def _run_in_session(
+        self,
+        body: Callable[[], dict[str, Any]],
+        *,
+        stop_checker: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
         """Run *body* while this manager holds the pipe, or return the session error."""
         try:
-            with self._io_session():
+            with self._io_session(stop_checker):
                 return body()
         except _IoSessionUnavailable as e:
             return e.args[0]
@@ -495,7 +502,7 @@ class PythonWorkerManager:
                         stale.append(old)
             mgr = _instances.get(key)
             if mgr is None:
-                mgr = cls(exe, dict(env))
+                mgr = cls(exe, dict(env), pool=pool)
                 _instances[key] = mgr
             else:
                 # The live process keeps the env it was spawned with. The next
@@ -584,7 +591,9 @@ class PythonWorkerManager:
             return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         return None
 
-    def _acquire_io(self) -> dict[str, Any] | None:
+    def _acquire_io(self, stop_checker: Callable[[], bool] | None = None) -> dict[str, Any] | None:
+        if _stop_requested(stop_checker):
+            return _worker_error("CANCELLED", "Python worker stopped by user")
         err = self._reentry_error()
         if err is not None:
             return err
@@ -599,6 +608,8 @@ class PythonWorkerManager:
 
         deadline = time.monotonic() + _IO_LOCK_ACQUIRE_TIMEOUT_SEC
         while True:
+            if _stop_requested(stop_checker):
+                return _worker_error("CANCELLED", "Python worker stopped by user")
             if self._serving_tool_call:
                 return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
             remaining = deadline - time.monotonic()
@@ -626,6 +637,14 @@ class PythonWorkerManager:
         if err is not None:
             log.warning("Python worker warm failed: %s", err.get("message"))
 
+    def _clear_host_state_after_worker_death(self) -> None:
+        """IPC is desynced after a kill; only the default pool feeds the Calc cache."""
+        if getattr(self, "pool", WORKER_POOL_DEFAULT) != WORKER_POOL_DEFAULT:
+            return
+        from plugin.calc.python.function import clear_python_addin_cache
+
+        clear_python_addin_cache()
+
     def _fail_no_replay(self, code: str, message: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
         """Kill the desynced worker and return an error without resending the request.
 
@@ -633,7 +652,7 @@ class PythonWorkerManager:
         ``proc.wait``. The next ``_ensure_running`` joins it before spawn.
         """
         self._terminate_worker(wait=False)
-        _clear_host_state_after_worker_death()
+        self._clear_host_state_after_worker_death()
         return _worker_error(code, message, details=details if details is not None else {"exe": self.exe})
 
     def _fail_ipc_no_replay(self, exc: BaseException) -> dict[str, Any]:
@@ -743,6 +762,23 @@ class PythonWorkerManager:
         timeout_sec = req.timeout_sec
         if timeout_sec is None:
             raise RuntimeError("timeout_sec is required")
+        # Host-only preparation. A failure here must not reach the worker-kill
+        # handlers below: no request byte has been written yet.
+        try:
+            from plugin.scripting.host_rpc import resolve_allowed_tools
+
+            allowed_tools = resolve_allowed_tools(req.python_tool_domain)
+            # Pin wins over the kernel session id. Chat passes doc:… and
+            # leaves request session_id unset. RPS / =PY() / PPT-Master
+            # omit the pin and keep the request id.
+            resolved_script_session_id = host_script_session_id(wire.get("session_id"), req.script_session_id)
+        except Exception as exc:
+            log.warning("Python worker request preparation failed: %s", exc)
+            return _worker_error(
+                "WORKER_IPC_ERROR",
+                f"Failed to prepare request: {exc}",
+                details={"exe": self.exe},
+            )
         for attempt in range(2):
             try:
                 self._ensure_running()
@@ -754,17 +790,6 @@ class PythonWorkerManager:
                 stdin = proc.stdin
                 stdout = proc.stdout
                 write_timeout_sec = min(float(timeout_sec), float(VENV_IPC_WRITE_TIMEOUT_SEC))
-                # Resolve tools and session id before writing the request. These are
-                # host-only; if they fail after the write, the retry path would resend
-                # the same id to a new child (may_have_run is still false until the
-                # read starts).
-                from plugin.scripting.host_rpc import resolve_allowed_tools
-
-                allowed_tools = resolve_allowed_tools(req.python_tool_domain)
-                # Pin wins over the kernel session id. Chat passes doc:… and
-                # leaves request session_id unset. RPS / =PY() / PPT-Master
-                # omit the pin and keep the request id.
-                resolved_script_session_id = host_script_session_id(wire.get("session_id"), req.script_session_id)
                 # The host read timeout includes a grace buffer so the child's in-process
                 # signal/thread timeout fires first and returns a clean error frame without
                 # terminating the warm subprocess (preserving shared workbook sessions).
@@ -893,7 +918,7 @@ class PythonWorkerManager:
                 log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
                 if self._proc is not None:
                     self._terminate_worker(wait=False)
-                    _clear_host_state_after_worker_death()
+                    self._clear_host_state_after_worker_death()
                 if attempt == 0:
                     continue
                 return _worker_error(
@@ -907,7 +932,7 @@ class PythonWorkerManager:
                 # _ensure_running, which joins before Popen. The last attempt
                 # returns the error while the reap continues.
                 self._terminate_worker(wait=False)
-                _clear_host_state_after_worker_death()
+                self._clear_host_state_after_worker_death()
                 if attempt == 0:
                     continue
                 return _worker_error(
@@ -973,7 +998,8 @@ class PythonWorkerManager:
                     cancellation_scope=cancellation_scope,
                     sandbox_policy=sandbox_policy,
                 )
-            )
+            ),
+            stop_checker=stop_checker,
         )
 
     def execute_ppt_master_turn(
@@ -1015,7 +1041,8 @@ class PythonWorkerManager:
                     cancellation_scope=cancellation_scope,
                     caller="ppt_master_venv",
                 )
-            )
+            ),
+            stop_checker=stop_checker,
         )
         if raw.get("status") == "error":
             return raw
@@ -1058,7 +1085,7 @@ class PythonWorkerManager:
         except subprocess.TimeoutExpired as exc:
             log.warning("%s write timed out after %ss; terminating Python worker", label, timeout_sec)
             self._terminate_worker(wait=False)
-            _clear_host_state_after_worker_death()
+            self._clear_host_state_after_worker_death()
             raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec) from exc
 
     def _normalize_response(self, response: dict[str, Any]) -> dict[str, Any]:

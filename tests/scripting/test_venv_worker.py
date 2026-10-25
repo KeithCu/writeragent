@@ -2015,7 +2015,7 @@ def test_maybe_dispatch_ppt_master_skips_when_module_missing(monkeypatch):
         if name == "plugin.ppt_master.venv.host_rpc" or (
             name == "plugin.ppt_master" and fromlist and "venv" in fromlist
         ):
-            raise ImportError(f"No module named {name!r}")
+            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
         return real_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
@@ -2200,7 +2200,7 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
         if name == "plugin.ppt_master.venv.host_rpc" or (
             name == "plugin.ppt_master" and fromlist and "venv" in fromlist
         ):
-            raise ImportError(f"No module named {name!r}")
+            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
         return real_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
@@ -3396,8 +3396,7 @@ def test_resolve_allowed_tools_failure_does_not_write(monkeypatch: pytest.Monkey
     assert result["code"] == "WORKER_IPC_ERROR"
     assert "domain map failed" in result["message"]
     assert mgr._write_frame_with_timeout.call_count == 0
-    assert mgr._terminate_worker.call_count == 2
-    assert mgr._terminate_worker.call_args_list == [call(wait=False), call(wait=False)]
+    assert mgr._terminate_worker.call_count == 0
 
 
 def test_ensure_running_retired_during_reap_join_does_not_return_live_proc() -> None:
@@ -3666,5 +3665,90 @@ def test_parse_worker_stdout_frame_returns_empty_dict():
 def test_parse_worker_stdout_frame_empty_bytes_raise():
     with pytest.raises(ValueError):
         parse_worker_stdout_frame(b"")
+
+
+def test_acquire_io_stop_checker_returns_cancelled_promptly():
+    mgr = PythonWorkerManager("/tmp/python-test", {"PATH": "/usr/bin"})
+    mgr._io_lock.acquire()
+    try:
+        res = mgr._acquire_io(stop_checker=lambda: True)
+        assert res is not None
+        assert res["status"] == "error"
+        assert res["code"] == "CANCELLED"
+        assert "stopped by user" in res["message"]
+    finally:
+        mgr._io_lock.release()
+
+
+def test_run_in_session_does_not_warm_when_stopped():
+    mgr = PythonWorkerManager("/tmp/python-test", {"PATH": "/usr/bin"})
+    mock_warm = MagicMock()
+    mgr._ensure_warmed_unlocked = mock_warm  # type: ignore[method-assign]
+    res = mgr._run_in_session(lambda: {"status": "ok"}, stop_checker=lambda: True)
+    assert res["status"] == "error"
+    assert res["code"] == "CANCELLED"
+    mock_warm.assert_not_called()
+
+
+def test_host_preparation_failure_does_not_kill_worker(monkeypatch):
+    mgr = PythonWorkerManager("/tmp/python-host-prep", {"PATH": "/usr/bin"})
+    monkeypatch.setattr(
+        "plugin.scripting.host_rpc.resolve_allowed_tools",
+        MagicMock(side_effect=RuntimeError("boom")),
+    )
+    terminate_calls: list[Any] = []
+    monkeypatch.setattr(
+        mgr,
+        "_terminate_worker",
+        lambda *args, **kwargs: terminate_calls.append((args, kwargs)),
+    )
+    mgr._ensure_warmed_unlocked = lambda: None  # type: ignore[method-assign]
+    res = mgr.execute("result = 1", timeout_sec=5)
+    assert res["status"] == "error"
+    assert res["code"] == "WORKER_IPC_ERROR"
+    assert "boom" in res["message"]
+    assert len(terminate_calls) == 0
+
+
+def test_non_default_pool_failure_does_not_clear_calc_addin_cache(monkeypatch):
+    from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_DIAGNOSTICS
+
+    clear_calls: list[int] = []
+    monkeypatch.setattr(
+        "plugin.calc.python.function.clear_python_addin_cache",
+        lambda: clear_calls.append(1),
+    )
+
+    diag_mgr = PythonWorkerManager("/tmp/python-diag", {"PATH": "/usr/bin"}, pool=WORKER_POOL_DIAGNOSTICS)
+    monkeypatch.setattr(diag_mgr, "_terminate_worker", lambda *args, **kwargs: None)
+    diag_mgr._fail_no_replay("WORKER_IPC_ERROR", "x")
+    assert len(clear_calls) == 0
+
+    default_mgr = PythonWorkerManager("/tmp/python-default", {"PATH": "/usr/bin"}, pool=WORKER_POOL_DEFAULT)
+    monkeypatch.setattr(default_mgr, "_terminate_worker", lambda *args, **kwargs: None)
+    default_mgr._fail_no_replay("WORKER_IPC_ERROR", "x")
+    assert len(clear_calls) == 1
+
+
+def test_maybe_dispatch_ppt_master_missing_dependency_reraises(monkeypatch):
+    import builtins
+    from plugin.scripting.venv_worker import _maybe_dispatch_ppt_master_response
+
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "plugin.ppt_master.venv.host_rpc" or (
+            name == "plugin.ppt_master" and fromlist and "venv" in fromlist
+        ):
+            raise ModuleNotFoundError("No module named 'numpy'", name="numpy")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(ModuleNotFoundError) as exc_info:
+        _maybe_dispatch_ppt_master_response(
+            {"status": "ok", "result": 2},
+            stdin_write=MagicMock(),
+        )
+    assert exc_info.value.name == "numpy"
 
 

@@ -6,6 +6,8 @@
 
 from unittest.mock import MagicMock, call, patch
 
+import pytest
+
 from plugin.framework.i18n import _
 from plugin.scripting.venv_probe_ui import (
     ScriptingVenvTestListener,
@@ -197,7 +199,7 @@ def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
             log_area_texts.append(text)
 
     with (
-        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog", return_value=dlg),
+        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(dlg, None)),
         patch("plugin.scripting.venv_probe_ui.get_toolkit", return_value=toolkit),
         patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child", return_value="settings-peer"),
         patch("plugin.scripting.venv_probe_ui.run_in_background", side_effect=lambda fn, **kw: fn()),
@@ -240,7 +242,7 @@ def test_run_modal_probe_applies_result_titles_once() -> None:
         return progress, dlg, model, probe
 
     with (
-        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog") as mock_load,
+        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail") as mock_load,
         patch("plugin.scripting.venv_probe_ui.get_toolkit"),
         patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child"),
         patch("plugin.scripting.venv_probe_ui.run_in_background", side_effect=lambda fn, **kw: fn()),
@@ -252,12 +254,12 @@ def test_run_modal_probe_applies_result_titles_once() -> None:
         patch("plugin.scripting.venv_probe_ui._", side_effect=lambda msg: "T:" + msg),
     ):
         p1, dlg1, model1, probe1 = make_harness(False)
-        mock_load.return_value = dlg1
+        mock_load.return_value = (dlg1, None)
         p1.run_modal_probe(probe1, success_title="Venv OK", failure_title="Venv check failed")
         assert model1.Title == "T:Venv check failed"
 
         p2, dlg2, model2, probe2 = make_harness(True)
-        mock_load.return_value = dlg2
+        mock_load.return_value = (dlg2, None)
         p2.run_modal_probe(probe2, success_title="Venv OK", failure_title="Venv check failed")
         assert model2.Title == "T:Venv OK"
 
@@ -284,7 +286,7 @@ def test_run_modal_probe_appends_exception_text() -> None:
             log_area_texts.append(text)
 
     with (
-        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog", return_value=dlg),
+        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(dlg, None)),
         patch("plugin.scripting.venv_probe_ui.get_toolkit"),
         patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child"),
         patch("plugin.scripting.venv_probe_ui.run_in_background", side_effect=lambda fn, **kw: fn()),
@@ -308,7 +310,7 @@ def test_run_modal_probe_appends_exception_text() -> None:
 def test_run_modal_probe_skips_worker_when_dialog_missing() -> None:
     progress = VenvProbeProgressDialog(MagicMock())
     with (
-        patch.object(progress, "_create_dialog"),
+        patch.object(progress, "_create_dialog", return_value=False),
         patch("plugin.scripting.venv_probe_ui.run_in_background") as mock_worker,
     ):
         progress.run_modal_probe(MagicMock())
@@ -324,7 +326,7 @@ def test_create_dialog_skips_create_peer_when_peer_exists() -> None:
     dlg.getControl.side_effect = lambda name: btn_close if name == "BtnClose" else MagicMock()
 
     with (
-        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog", return_value=dlg),
+        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(dlg, None)),
         patch("plugin.scripting.venv_probe_ui.set_control_enabled") as mock_set_enabled,
     ):
         progress._create_dialog()
@@ -340,7 +342,7 @@ def test_create_peer_failure_still_returns_dialog() -> None:
     dlg.createPeer.side_effect = RuntimeError("peer error")
 
     with (
-        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog", return_value=dlg),
+        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(dlg, None)),
         patch("plugin.scripting.venv_probe_ui.get_toolkit", return_value=MagicMock()),
         patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child", return_value=None),
         patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
@@ -373,3 +375,97 @@ def test_dialog_parent_for_child_falls_back_to_frame() -> None:
 
     with patch("plugin.scripting.venv_probe_ui.get_desktop", side_effect=RuntimeError("no desktop")):
         assert _dialog_parent_for_child(MagicMock(), None) is None
+
+
+def test_create_dialog_missing_dialog_calls_msgbox_and_returns_false(caplog: pytest.LogCaptureFixture) -> None:
+    fake_ctx = MagicMock()
+    progress = VenvProbeProgressDialog(fake_ctx)
+    with (
+        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(None, "detail text")),
+        patch("plugin.scripting.venv_probe_ui.msgbox") as mock_msgbox,
+    ):
+        with caplog.at_level("WARNING"):
+            result = progress._create_dialog()
+
+    assert result is False
+    assert "detail text" in caplog.text
+    mock_msgbox.assert_called_once()
+
+
+def test_partial_creation_disposes() -> None:
+    progress = VenvProbeProgressDialog(MagicMock())
+    dlg = MagicMock()
+
+    def fake_create(**kwargs):
+        progress._dlg = dlg
+        raise RuntimeError("setup failed")
+
+    with patch.object(progress, "_create_dialog", side_effect=fake_create):
+        with pytest.raises(RuntimeError, match="setup failed"):
+            progress.run_modal_probe(MagicMock())
+
+    dlg.dispose.assert_called_once()
+
+
+def test_run_modal_probe_failure_without_display_writes_msg_to_log_area() -> None:
+    progress = VenvProbeProgressDialog(MagicMock())
+    dlg = MagicMock()
+    log_area = MagicMock()
+    dlg.getControl.side_effect = lambda name: log_area if name == "LogArea" else MagicMock()
+
+    def probe(on_display, on_status):
+        return False, "probe failed"
+
+    log_area_texts: list[str] = []
+
+    def fake_set_control_text(ctrl, text):
+        if ctrl is log_area:
+            log_area_texts.append(text)
+
+    with (
+        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(dlg, None)),
+        patch("plugin.scripting.venv_probe_ui.get_toolkit"),
+        patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child"),
+        patch("plugin.scripting.venv_probe_ui.run_in_background", side_effect=lambda fn, **kw: fn()),
+        patch("plugin.scripting.venv_probe_ui.post_to_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.scripting.venv_probe_ui.on_main_thread", return_value=True),
+        patch("plugin.scripting.venv_probe_ui.process_events_to_idle"),
+        patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
+        patch("plugin.scripting.venv_probe_ui.get_control_text", return_value=""),
+        patch("plugin.scripting.venv_probe_ui.set_control_text", side_effect=fake_set_control_text),
+    ):
+        progress.run_modal_probe(probe)
+
+    assert log_area_texts[-1] == "probe failed"
+
+
+def test_run_modal_probe_keyboard_interrupt_posted_and_reraised() -> None:
+    progress = VenvProbeProgressDialog(MagicMock())
+    dlg = MagicMock()
+    status_lbl = MagicMock()
+    dlg.getControl.side_effect = lambda name: status_lbl if name == "StatusLbl" else MagicMock()
+
+    def probe(on_display, on_status):
+        raise KeyboardInterrupt("stop")
+
+    status_texts: list[str] = []
+
+    def fake_set_control_text(ctrl, text):
+        if ctrl is status_lbl:
+            status_texts.append(text)
+
+    with (
+        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(dlg, None)),
+        patch("plugin.scripting.venv_probe_ui.get_toolkit"),
+        patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child"),
+        patch("plugin.scripting.venv_probe_ui.run_in_background", side_effect=lambda fn, **kw: fn()),
+        patch("plugin.scripting.venv_probe_ui.post_to_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.scripting.venv_probe_ui.on_main_thread", return_value=True),
+        patch("plugin.scripting.venv_probe_ui.process_events_to_idle"),
+        patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
+        patch("plugin.scripting.venv_probe_ui.set_control_text", side_effect=fake_set_control_text),
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            progress.run_modal_probe(probe)
+
+    assert _("Failed") in status_texts

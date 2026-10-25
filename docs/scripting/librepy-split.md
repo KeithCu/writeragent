@@ -757,7 +757,8 @@ Makefile
 | [`tests/scripting/test_venv_worker.py`](../../tests/scripting/test_venv_worker.py) | `run_code_in_user_venv`, warm worker |
 | [`tests/scripting/test_payload_codec.py`](../../tests/scripting/test_payload_codec.py) | `split_grid` codec |
 | [`tests/scripting/test_config_limits.py`](../../tests/scripting/test_config_limits.py) | Timeout / budget schema |
-| [`tests/scripting/test_venv_probe_progress.py`](../../tests/scripting/test_venv_probe_progress.py) | Venv Test UI progress |
+| [`tests/scripting/test_venv_probe_progress.py`](../../tests/scripting/test_venv_probe_progress.py) | Venv self-check group progress |
+| [`tests/scripting/test_venv_probe_ui.py`](../../tests/scripting/test_venv_probe_ui.py) | Settings → Python progress dialog |
 | [`tests/scripting/test_venv_diagnostics.py`](../../tests/scripting/test_venv_diagnostics.py) | Self-check probe groups |
 | [`tests/scripting/test_worker_harness_trusted_action.py`](../../tests/scripting/test_worker_harness_trusted_action.py) | Trusted RPC dispatch |
 | [`tests/scripting/test_python_runner_config.py`](../../tests/scripting/test_python_runner_config.py) | `last_python_script_name_*` keys |
