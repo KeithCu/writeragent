@@ -74,7 +74,7 @@ class DownloadOutcome(enum.Enum):
 
 class _DownloadSlot:
     def __init__(self) -> None:
-        self.done_event = threading.Event()
+        self.done_event: threading.Event = threading.Event()
         self.outcome: DownloadOutcome | None = None
 
 

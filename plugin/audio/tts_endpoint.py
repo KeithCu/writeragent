@@ -170,9 +170,10 @@ def _speech_url(endpoint_url: str) -> str:
 
 def _explicit_openrouter(endpoint_url: str) -> bool:
     """True when is_openrouter config flag matches the scheme, host, port, and path."""
+    from plugin.framework.errors import ConfigError
+
     try:
         from plugin.framework.config import get_config, get_current_endpoint
-        from plugin.framework.errors import ConfigError
 
         flag = bool(get_config("is_openrouter"))
         curr = get_current_endpoint() or ""
@@ -204,10 +205,10 @@ def _speech_headers(endpoint_url: str, api_key: str) -> dict[str, str]:
         "api_key": api_key,
         "is_openrouter": _explicit_openrouter(endpoint_url),
     }
-    try:
-        from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
-        from plugin.framework.errors import ConfigError
+    from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
+    from plugin.framework.errors import ConfigError
 
+    try:
         resolved = resolve_auth_for_config(mini)
         headers.update(build_auth_headers(resolved))
     except (AuthError, ConfigError):
