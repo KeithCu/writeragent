@@ -6,9 +6,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from plugin.calc.viz_auto_plot import helper_should_auto_plot
+from plugin.framework.errors import reraise_if_disposed
+
+log = logging.getLogger(__name__)
 
 AUTO_PLOT_FORECAST_HELPERS = frozenset({"forecast_time_series"})
 
@@ -138,30 +142,37 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         return None
     if not should_auto_plot(helper=forecast_helper, auto_plot=auto_plot, task_hint=task_hint):
         return None
-    request = build_viz_request(forecast_helper, forecast_result=forecast_result, forecast_params=forecast_params)
-    if request is None:
-        return None
-    viz_helper, viz_params = request
+    try:
+        request = build_viz_request(forecast_helper, forecast_result=forecast_result, forecast_params=forecast_params)
+        if request is None:
+            return {"status": "error", "message": f"No plot mapping for forecast helper {forecast_helper!r}"}
+        viz_helper, viz_params = request
 
-    from plugin.calc.calc_addin_data import _resolve_python_data
-    from plugin.framework.queue_executor import execute_on_main_thread
-    from plugin.framework.thread_guard import on_main_thread
+        from plugin.calc.calc_addin_data import _resolve_python_data
+        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.thread_guard import on_main_thread
 
-    def _read_history() -> tuple[Any, str | None]:
-        # Sheet read is UNO. Viz IPC (run_trusted_viz) stays on the caller.
-        return _resolve_python_data(doc, data_range=data_range, data=None)
+        def _read_history() -> tuple[Any, str | None]:
+            # Sheet read is UNO. Viz IPC (run_trusted_viz) stays on the caller.
+            return _resolve_python_data(doc, data_range=data_range, data=None)
 
-    if on_main_thread():
-        py_data, err = _read_history()
-    else:
-        py_data, err = execute_on_main_thread(_read_history)
-    if err or py_data is None:
-        return None
+        if on_main_thread():
+            py_data, err = _read_history()
+        else:
+            py_data, err = execute_on_main_thread(_read_history)
+        if err:
+            return {"status": "error", "message": f"Could not read forecast history: {err}"}
+        if py_data is None:
+            return {"status": "error", "message": "Could not read forecast history"}
 
-    merged = merge_forecast_plot_data(py_data, forecast_result, forecast_params)
-    if merged is None:
-        return None
+        merged = merge_forecast_plot_data(py_data, forecast_result, forecast_params)
+        if merged is None:
+            return {"status": "error", "message": "Could not merge forecast history with the forecast table"}
 
-    from plugin.scripting.viz import run_trusted_viz
+        from plugin.scripting.viz import run_trusted_viz
 
-    return run_trusted_viz(uno_ctx, doc, helper=viz_helper, params=viz_params, data=merged, data_range=None, task_hint=task_hint)
+        return run_trusted_viz(uno_ctx, doc, helper=viz_helper, params=viz_params, data=merged, data_range=None, task_hint=task_hint)
+    except Exception as exc:
+        reraise_if_disposed(exc, object_type="calc")
+        log.exception("Forecast auto-plot failed")
+        return {"status": "error", "message": f"Auto-plot failed: {exc}"}
