@@ -970,7 +970,7 @@ Implement in order; each tier is independently shippable behind a template param
 ```mermaid
 flowchart TD
   subgraph venv [Vision venv]
-    Docling[Docling convert for_structure=True]
+    Docling[Docling convert]
     Export[export_to_html OR layout builder]
     Sample[PIL/numpy color sample per bbox]
     Layout[vision_layout_html.py]
@@ -1022,7 +1022,7 @@ Do these **before** building layout HTML to avoid dead ends.
 
 **Objective:** Red banner, gray subheads, and white-on-color titles **approximately** match the image.
 
-1. **Collect blocks** from Docling after `_convert_image_bytes(..., for_structure=True)`:
+1. **Collect blocks** from Docling after `_convert_image_bytes(...)`:
    - Reuse [`_map_docling_document`](../../plugin/vision/venv/vision_docling.py) / provenance [`prov_bbox_to_xywh`](../../plugin/vision/venv/vision_docling.py).
    - Map `label` → HTML tag (`section_header` → `h2`, `text` → `p`, `list_item` → `li`, …).
 
@@ -1156,4 +1156,4 @@ Only if inline HTML + tables still collapse in Writer:
 
 ### 21.14 Suggested agent prompt (when starting Phase 4v)
 
-> Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(..., for_structure=True)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
+> Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(...)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.

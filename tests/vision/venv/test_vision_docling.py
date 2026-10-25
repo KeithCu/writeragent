@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -271,7 +272,6 @@ def test_build_pipeline_options_real_docling_layout_has_get_engine_config():
     _require_installed_od_docling()
     opts = docling_mod._build_pipeline_options(
         {"ocr_backend": "rapidocr", "layout_model": "heron"},
-        for_structure=True,
     )
     spec = opts.layout_options.model_spec
     assert hasattr(spec, "get_engine_config")
@@ -417,7 +417,7 @@ def test_apply_pipeline_params_does_not_swallow_layout_resolution_error():
 def test_converter_cache_keeps_only_the_latest():
     docling_mod._converter_cache.clear()
     docling_mod._converter_cache[("old",)] = object()
-    docling_mod._store_converter(("new",), object())
+    docling_mod._converter_cache.set(("new",), object())
     assert list(docling_mod._converter_cache) == [("new",)]
 
 
@@ -435,8 +435,8 @@ def test_text_score_zero_is_its_own_cache_key():
     assert missing == default == blank
     assert zero == zero_int == zero_str
     assert zero != default
-    assert docling_mod._text_score_for_cache({"text_score": 0.0}) == 0.0
-    assert docling_mod._text_score_for_cache({}) == 0.5
+    assert docling_mod.DoclingPipelineParams.from_params({"text_score": 0.0}).text_score == 0.0
+    assert docling_mod.DoclingPipelineParams.from_params({}).text_score == 0.5
 
 
 def test_converter_cache_does_not_reuse_default_for_text_score_zero():
@@ -444,8 +444,7 @@ def test_converter_cache_does_not_reuse_default_for_text_score_zero():
     built: list[float] = []
 
     def fake_build(params, *, input_format="image"):
-        del input_format
-        score = docling_mod._text_score_for_cache(params)
+        score = docling_mod.DoclingPipelineParams.from_params(params, input_format=input_format).text_score
         built.append(score)
         pipeline = MagicMock()
         pipeline.captured_text_score = score
@@ -472,7 +471,7 @@ def test_converter_cache_does_not_reuse_default_for_text_score_zero():
             return converter_mod
         raise ImportError(name)
 
-    with patch.object(docling_mod, "_import_docling"), patch.object(
+    with patch.object(
         docling_mod, "_build_pipeline_options", side_effect=fake_build
     ), patch.object(docling_mod.importlib, "import_module", side_effect=fake_import):
         first = docling_mod._get_docling_converter({"text_score": 0.5})
@@ -508,6 +507,8 @@ def test_cell_text_empty_returns_empty_string():
     # What was wrong: getattr(cell, "text", None) or cell fell through to cell when text was "",
     # evaluating truthy TableCell object and returning its pydantic repr string in tables and full_text.
     # Why this change: verify str(getattr(cell, "text", "") or "").strip() returns "" cleanly.
+    from plugin.vision import vision_common
+
     class FakeTableCell:
         text = ""
 
@@ -515,7 +516,7 @@ def test_cell_text_empty_returns_empty_string():
             return "TableCell(text='', start_row_offset_idx=0)"
 
     cell = FakeTableCell()
-    assert docling_mod._cell_text(cell) == ""
+    assert vision_common._cell_text(cell) == ""
 
 
 @patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="<p>Doc</p>")
@@ -583,3 +584,84 @@ def test_module_yaml_layout_models_supported_in_od_presets():
     layout_values = [opt["value"] for opt in options]
     for val in layout_values:
         assert val in docling_mod._OD_LAYOUT_PRESETS
+
+
+def test_from_params_parses_string_booleans():
+    p = docling_mod.DoclingPipelineParams.from_params(
+        {
+            "do_cell_matching": "false",
+            "create_orphan_clusters": "0",
+            "do_formula_enrichment": "off",
+            "force_full_page_ocr": "no",
+            "do_code_enrichment": "true",
+        }
+    )
+    assert (
+        p.do_cell_matching,
+        p.create_orphan_clusters,
+        p.do_formula_enrichment,
+        p.force_full_page_ocr,
+        p.do_code_enrichment,
+    ) == (False, False, False, False, True)
+
+    default_p = docling_mod.DoclingPipelineParams.from_params({})
+    assert default_p.do_cell_matching is True
+    assert default_p.force_full_page_ocr is True
+    assert default_p.do_formula_enrichment is False
+    assert default_p.do_code_enrichment is False
+
+
+@patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="<p>A</p>")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
+def test_provenance_bbox_page_height_flips_bottom_left_coords(mock_convert, _mock_html):
+    doc = _mock_document(
+        texts=[{"text": "A", "prov": [{"page_no": 1, "bbox": {"l": 0, "t": 790, "r": 40, "b": 750, "coord_origin": "BOTTOMLEFT"}}]}],
+    )
+    doc.pages = {1: SimpleNamespace(size=SimpleNamespace(height=800))}
+    mock_convert.return_value = doc
+
+    result = extract_text(b"png", {"ocr_backend": "rapidocr_paddle"})
+    assert result["regions"][0]["box"] == [0, 10, 40, 40]
+
+
+@patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="<table></table>")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
+def test_provenance_table_bbox_page_height_flips_bottom_left_coords(mock_convert, _mock_html):
+    doc = _mock_document(
+        texts=[],
+        tables=[
+            {
+                "prov": [{"page_no": 1, "bbox": {"l": 0, "t": 790, "r": 40, "b": 750, "coord_origin": "BOTTOMLEFT"}}],
+                "data": {"grid": [["A"], ["1"]]},
+            }
+        ],
+    )
+    doc.pages = {1: SimpleNamespace(size=SimpleNamespace(height=800))}
+    mock_convert.return_value = doc
+
+    result = extract_structure(b"png", {"ocr_backend": "rapidocr_paddle"})
+    table_blocks = [b for b in result["blocks"] if b.get("type") == "table"]
+    assert len(table_blocks) == 1
+    assert table_blocks[0]["box"] == [0, 10, 40, 40]
+
+
+@patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="<p>A</p>")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
+def test_provenance_bbox_bottom_left_without_page_height_degrades_to_zero(mock_convert, _mock_html):
+    doc = _mock_document(
+        texts=[{"text": "A", "prov": [{"page_no": 1, "bbox": {"l": 0, "t": 790, "r": 40, "b": 750, "coord_origin": "BOTTOMLEFT"}}]}],
+    )
+    doc.pages = {}
+    mock_convert.return_value = doc
+
+    result = extract_text(b"png", {"ocr_backend": "rapidocr_paddle"})
+    assert result["regions"][0]["box"] == [0, 0, 0, 0]
+
+
+@patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
+def test_unparsed_table_does_not_add_empty_block(mock_convert, _mock_html):
+    mock_convert.return_value = _mock_document(texts=[], tables=[{"prov": [], "data": {}}], markdown="")
+    result = extract_structure(b"png", {"ocr_backend": "rapidocr_paddle"})
+    assert result["metrics"]["block_count"] == 0
+    assert not any(b.get("type") == "table" for b in result["blocks"])
