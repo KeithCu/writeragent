@@ -348,7 +348,7 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | C7 | Logging discipline | Structured events, avoid duplicate levels, DEBUG vs INFO boundaries. |
 | C8 | ProofreadingResult helpers / hints | **Shipped:** Improved type annotations and structure creation in `ai_grammar_proofreader.py`. |
 | C9 | Avoid double sentence-split in `doProofreading` | **Shipped:** one BreakIterator pass; `active_spans_from_paragraph` (`n_start == 0` keeps all spans; else overlap-filter). |
-| C10 | Shared ignore-rule canonical keys | **Shipped:** `canonical_rule_keys` drives `is_rule_ignored` and `collect_ignored_reasons` (APIs stay separate). Bare ids match `normalize_reason` in the doc set. |
+| C10 | Shared ignore-rule canonical keys | **Shipped:** `canonical_rule_key` drives `is_rule_ignored` and `collect_ignored_reasons` (APIs stay separate). Bare ids match `normalize_reason` in the doc set. |
 | C11 | Harper GitHub release JSON read cap | `_github_api_request` reads 1 MB. Fine today; raise the cap or read fully if `json.loads` ever fails on truncated payload. |
 
 Also shipped with C9/C10: per-sentence `max_chars` truncation on the grammar path (`call_grammar_llm`); drain-worker stagger `sleep` no longer holds `GrammarWorkQueue._lock`. For an LLM identity, characters past the cap are not checked; the cache identity is the checked prefix; a tail-only edit does not miss that prefix and does not raise a new squiggle. Old rows stored under the full-sentence fingerprint miss once and are rewritten under the prefix. No migration.
