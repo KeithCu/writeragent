@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.draw.base import ToolDrawShapeBase
 from plugin.draw.tree import build_shape_tree, coerce_control_state, find_shape_on_page, is_control_shape_type
-from plugin.framework.errors import is_disposed_exception, uno_probe
+from plugin.framework.errors import is_real_disposal, uno_probe
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -50,21 +50,78 @@ def _pick_unique(hits: list[dict[str, Any]], missing: str, ambiguous: str) -> tu
     return None, ambiguous
 
 
-def resolve_field_node(tree: list[dict[str, Any]], *, name: str | None = None, index: int | None = None, label_hint: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
-    """Pick a tree node for a fill request. Name, then index, then label_hint."""
+def _node_address(node: dict[str, Any]) -> str:
+    if node.get("path_index") is not None:
+        return str(node["path_index"])
+    return str(node.get("index"))
+
+
+def _locate_shape(page: Any, node: dict[str, Any]) -> tuple[Any | None, str | None]:
+    """Return the page shape for a tree node; group children walk path_index."""
+    path_index = node.get("path_index")
+    if path_index is None:
+        _idx, shape, err = find_shape_on_page(page, index=node.get("index"))
+        return shape, err
+    shape = page
+    try:
+        for part in str(path_index).split("."):
+            shape = shape.getByIndex(int(part))
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
+        return None, "Could not read shape at path_index %s: %s" % (path_index, exc)
+    return shape, None
+
+
+def resolve_field_node(
+    tree: list[dict[str, Any]],
+    *,
+    name: str | None = None,
+    index: int | None = None,
+    path_index: str | None = None,
+    label_hint: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Pick a tree node for a fill request.
+
+    Precedence: name first (stable address; index/path_index only disambiguate
+    duplicate names), then path_index, then index, then label_hint.
+    """
     flat = _flatten_tree(tree)
     wanted_name = (name or "").strip()
     if wanted_name:
         name_hits = [n for n in flat if (n.get("name") or "") == wanted_name]
         if not name_hits:
             name_hits = [n for n in flat if isinstance(n.get("control"), dict) and (n["control"].get("name") or "") == wanted_name]
+        if len(name_hits) > 1:
+            narrowed: list[dict[str, Any]] = []
+            if path_index is not None:
+                p_wanted = str(path_index).strip()
+                narrowed = [n for n in name_hits if str(n.get("path_index")) == p_wanted]
+            if not narrowed and index is not None and not isinstance(index, bool):
+                try:
+                    idx = int(index)
+                    narrowed = [n for n in name_hits if n.get("index") == idx]
+                except (TypeError, ValueError):
+                    pass
+            if narrowed:
+                name_hits = narrowed
         return _pick_unique(
             name_hits,
             "No shape named %r on this page." % wanted_name,
-            "Several shapes named %r; pass index as well." % wanted_name,
+            "Several shapes named %r; pass path_index or index: %s."
+            % (wanted_name, ", ".join(_node_address(n) for n in name_hits)),
         )
 
+    if path_index is not None:
+        wanted_path = str(path_index).strip()
+        for node in flat:
+            if str(node.get("path_index")) == wanted_path:
+                return node, None
+        return None, "No shape at path_index %s on this page." % path_index
+
     if index is not None:
+        if isinstance(index, bool):
+            return None, "Invalid shape index: %s" % index
         try:
             idx = int(index)
         except (TypeError, ValueError):
@@ -80,10 +137,10 @@ def resolve_field_node(tree: list[dict[str, Any]], *, name: str | None = None, i
         return _pick_unique(
             hint_hits,
             "No fillable shape with label_hint %r." % label_hint,
-            "Several fillable shapes match label_hint %r; pass name or index." % label_hint,
+            "Several fillable shapes match label_hint %r; pass name, index, or path_index." % label_hint,
         )
 
-    return None, "Each field needs name, index, or label_hint."
+    return None, "Each field needs name, index, path_index, or label_hint."
 
 
 def _write(fn: Any, ok: str, fail: str) -> tuple[bool, str]:
@@ -91,7 +148,9 @@ def _write(fn: Any, ok: str, fail: str) -> tuple[bool, str]:
         fn()
         return True, ok
     except Exception as exc:
-        if is_disposed_exception(exc):
+        # is_disposed_exception matches bare RuntimeException on live documents,
+        # which would abort remaining fields; only real disposal escapes.
+        if is_real_disposal(exc):
             raise
         return False, fail % exc
 
@@ -113,7 +172,7 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
     try:
         model = shape.Control
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_real_disposal(exc):
             raise
         return False, "ControlShape has no model: %s" % exc
     if model is None:
@@ -147,8 +206,8 @@ class FillDrawFields(ToolDrawShapeBase):
         "Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page "
         "so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create "
         "new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), "
-        "draw-page index, or label_hint from get_draw_tree. Returns per-field ok/fail so you can recover. "
-        "Not a PDF/AcroForm API."
+        "draw-page index, path_index for group children, or label_hint from get_draw_tree. Returns per-field "
+        "ok/fail so you can recover. Not a PDF/AcroForm API."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -156,14 +215,27 @@ class FillDrawFields(ToolDrawShapeBase):
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)."},
             "fields": {
                 "type": "array",
-                "description": "Fields to write. Each item needs a value plus name, index, or label_hint.",
+                "description": (
+                    "Fields to write. Target precedence: name (preferred; disambiguated by path_index or index), "
+                    "path_index, index, or label_hint. Each item needs a value."
+                ),
                 "items": {
                     "type": "object",
                     "properties": {
                         "name": {"type": "string", "description": "Shape Name or Control.Name from get_draw_tree."},
-                        "index": {"type": "integer", "description": "0-based draw-page shape index (fragile when non-fields sit between boxes)."},
+                        "index": {
+                            "type": "integer",
+                            "description": "0-based draw-page shape index (fragile when non-fields sit between boxes; disambiguates duplicate names).",
+                        },
+                        "path_index": {
+                            "type": "string",
+                            "description": 'Dotted path from get_draw_tree for a shape inside a group (e.g. "2.0"); use when the group child has no name.',
+                        },
                         "label_hint": {"type": "string", "description": "Neighbor label from get_draw_tree (left/above heuristic)."},
-                        "value": {"type": "string", "description": "Text to write, or checkbox/radio State (0/1, yes/no, checked)."},
+                        "value": {
+                            "type": ["string", "number", "boolean", "null"],
+                            "description": "Value to write (text, or checkbox/radio State 0/1/yes/no). Explicit null clears a text box; omitting 'value' reports an error.",
+                        },
                     },
                     "required": ["value"],
                 },
@@ -178,7 +250,7 @@ class FillDrawFields(ToolDrawShapeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import resolve_shape_page
 
-        fields = kwargs["fields"]
+        fields = kwargs.get("fields")
         if not fields:
             return self._tool_error("fields must be a non-empty list of {name|index|label_hint, value}.")
 
@@ -194,19 +266,41 @@ class FillDrawFields(ToolDrawShapeBase):
             if not isinstance(raw, dict):
                 results.append({"ok": False, "error": "Field %s is not an object." % i})
                 continue
-            node, err = resolve_field_node(tree, name=raw.get("name"), index=raw.get("index"), label_hint=raw.get("label_hint"))
+            if "value" not in raw:
+                results.append({"ok": False, "error": "Field %s has no 'value' (use null to clear a text box)." % i})
+                continue
+            node, err = resolve_field_node(
+                tree,
+                name=raw.get("name"),
+                index=raw.get("index"),
+                path_index=raw.get("path_index"),
+                label_hint=raw.get("label_hint"),
+            )
             if err or node is None:
-                results.append({"ok": False, "error": err or "Could not resolve field.", "name": raw.get("name"), "index": raw.get("index"), "label_hint": raw.get("label_hint")})
+                results.append({
+                    "ok": False,
+                    "error": err or "Could not resolve field.",
+                    "name": raw.get("name"),
+                    "index": raw.get("index"),
+                    "path_index": raw.get("path_index"),
+                    "label_hint": raw.get("label_hint"),
+                })
                 continue
-            shape_idx, shape, find_err = find_shape_on_page(page, index=node.get("index"), name=node.get("name") or None)
+            shape, find_err = _locate_shape(page, node)
             if find_err or shape is None:
-                # Group children expose path_index only; fall back to name.
-                shape_idx, shape, find_err = find_shape_on_page(page, name=node.get("name") or None)
-            if find_err or shape is None:
-                results.append({"ok": False, "error": find_err or "Resolved tree node but the shape is gone.", "name": node.get("name"), "index": node.get("index")})
+                results.append({
+                    "ok": False,
+                    "error": find_err or "Resolved tree node but the shape is gone.",
+                    "name": node.get("name"),
+                    "index": node.get("index"),
+                })
                 continue
-            applied, detail = apply_fill_value(shape, raw.get("value"))
-            entry: dict[str, Any] = {"ok": applied, "index": shape_idx, "name": node.get("name") or "", "detail": detail}
+            applied, detail = apply_fill_value(shape, raw["value"])
+            entry: dict[str, Any] = {"ok": applied, "name": node.get("name") or "", "detail": detail}
+            if node.get("index") is not None:
+                entry["index"] = node["index"]
+            if node.get("path_index") is not None:
+                entry["path_index"] = node["path_index"]
             if node.get("label_hint"):
                 entry["label_hint"] = node["label_hint"]
             if not applied:
