@@ -10,6 +10,8 @@ import importlib.util
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.framework.uno_bootstrap import (
     _WRITERAGENT_API,
     register_alias_importer,
@@ -264,5 +266,31 @@ def test_sandboxed_code_writeragent_vision_as_module():
     response = run_sandboxed_code(code)
     assert response["status"] == "ok", response.get("message")
     assert response["result"] is True
+
+
+def test_namespace_stub_all_and_unknown_domain():
+    from plugin.scripting import writeragent_namespace as ns
+
+    assert ns.__all__ == ("scripts", "doc")
+    with pytest.raises(AttributeError, match="wa.scripts") as exc:
+        ns.writer
+    assert "writeragent_namespace" not in str(exc.value)
+
+
+def test_namespace_stub_unbound_scripts_message(monkeypatch: pytest.MonkeyPatch):
+    from plugin.scripting import writeragent_namespace as ns
+
+    monkeypatch.delattr(ns, "scripts", raising=False)
+    with pytest.raises(AttributeError, match="only available while a Python script is running"):
+        ns.scripts
+    assert getattr(ns, "scripts", None) is None
+
+
+def test_namespace_stub_dunder_passthrough():
+    from plugin.scripting import writeragent_namespace as ns
+
+    assert ns.__class__.__name__ == "module"
+    assert ns.__doc__
+    assert getattr(ns, "__wrapped__", None) is None
 
 

@@ -4,6 +4,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Viz helper templates, host RPC, and document egress (LO host).
 
+A viz result is ``{status, helper, title, image}``; the host inserts every image
+envelope found in it, not only a top-level ``image`` key. ``status="error"`` is
+raised with ``code``/``message``, never inserted.
+
 Compute is lazy-loaded from ``plugin.scripting.venv.viz`` via ``__getattr__``.
 """
 
@@ -16,13 +20,21 @@ from typing import Any, cast
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.scripting.client import run_viz as client_run_viz
-from plugin.scripting.payload_codec import is_image_payload, is_multi_data, find_image_payloads, write_image_payload_to_temp
+from plugin.scripting.payload_codec import (
+    find_image_payloads,
+    is_image_payload,
+    is_multi_data,
+    strip_image_payloads,
+    write_image_payload_to_temp,
+)
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
 from plugin.scripting.calc_functions_common import VIZ_HELPER_NAMES as HELPER_NAMES
+
+_DRAW_PLOT_SIZE = (400, 300)
 
 _SHIPPED_TEMPLATES = frozenset({"quick_plot", "correlation_heatmap", "time_series_plot"})
 
@@ -142,41 +154,36 @@ def insert_image_payload_for_doc(
         # the front window (MCP document_url, or a second open workbook).
         insert_image_result_on_sheet(ctx, payload, doc=doc)
         return
-    if is_writer(doc):
-        from plugin.writer.images.image_tools import insert_image_at_locator
-        from plugin.framework.uno_context import product_display_name
+    writer = is_writer(doc)
+    if not writer and not is_draw(doc):
+        raise ToolExecutionError(_("Unsupported document type for plot insertion."), code="VIZ_ERROR")
+    from plugin.framework.uno_context import product_display_name
+    from plugin.writer.images.image_tools import insert_image, insert_image_at_locator
 
-        path = write_image_payload_to_temp(payload)
-        try:
-            insert_image_at_locator(ctx, doc, path, title=title, description=f"{product_display_name(ctx)} plot")
-        finally:
-            _unlink_plot_temp(path)
-        return
-    if is_draw(doc):
-        from plugin.writer.images.image_tools import insert_image
-        from plugin.framework.uno_context import product_display_name
-
-        path = write_image_payload_to_temp(payload)
-        try:
-            insert_image(ctx, doc, path, 400, 300, title=title, description=f"{product_display_name(ctx)} plot", add_to_gallery=False)
-        finally:
-            _unlink_plot_temp(path)
-        return
-    raise ToolExecutionError(_("Unsupported document type for plot insertion."), code="VIZ_ERROR")
+    path = write_image_payload_to_temp(payload)
+    description = f"{product_display_name(ctx)} plot"
+    try:
+        if writer:
+            insert_image_at_locator(ctx, doc, path, title=title, description=description)
+        else:
+            insert_image(ctx, doc, path, *_DRAW_PLOT_SIZE, title=title, description=description, add_to_gallery=False)
+    finally:
+        _unlink_plot_temp(path)
 
 
 def insert_viz_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
-    """Insert a viz helper result (image nested under ``image`` key)."""
+    """Insert every image payload found in a viz helper result."""
     if result.get("status") == "error":
         code = str(result.get("code") or "VIZ_ERROR")
         message = str(result.get("message") or _("Viz helper failed."))
-        raise ToolExecutionError(message, code=code, details={"viz_result": result})
+        # details travel verbatim into the chat error envelope; keep image bytes out.
+        raise ToolExecutionError(message, code=code, details={"viz_result": strip_image_payloads(result)})
     images = find_image_payloads(result)
     if not images:
         raise ToolExecutionError(
             _("Viz helper returned no image payload."),
             code="VIZ_ERROR",
-            details={"viz_result": result},
+            details={"viz_result": strip_image_payloads(result)},
         )
     title = str(result.get("title") or result.get("helper") or "Plot")
     for img in images:
