@@ -26,7 +26,7 @@ _SPILL_RE = re.compile(r"^(.+)#$")
 # Sheet-qualified or bare ranges, including whole columns/rows: A:A, B:D, 1:10, Sheet!A:A
 _RANGE_RE = re.compile(
     r"^("
-    r"(?:'[^']+'|[A-Za-z_][\w.]*)!"  # optional sheet!
+    r"(?:'(?:[^']|'')+'|[A-Za-z_][\w.]*)!"  # optional sheet!
     r")?"
     r"("
     r"\$?[A-Za-z]+\$?\d+:\$?[A-Za-z]+\$?\d+"  # A1:B2

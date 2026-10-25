@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_ILLEGAL_XML_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_INVALID_XML_CHARS_RE = re.compile(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
 
 
 def _xlsx_formula_for_cell(cell: ConvertedCell) -> str:
@@ -333,12 +333,14 @@ class _WorksheetCellIndex:
                 self.sheet_data.append(row_el)
                 self.max_row = target_row
             else:
-                insert_row_idx = len(self.sheet_data)
+                # Insert after the last <row>, not at the end: sheetData may end with extLst.
+                insert_row_idx = 0
                 current_row_num = 0
                 for idx, r in enumerate(list(self.sheet_data)):
                     if local_name(r.tag) != "row":
                         self.has_non_row = True
                         continue
+                    insert_row_idx = idx + 1
                     r_attr = r.attrib.get("r")
                     if r_attr is not None:
                         try:
@@ -646,7 +648,6 @@ def _require_workbook_sheets(zin: zipfile.ZipFile) -> list[SheetInfo]:
 
 
 _PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
-_INVALID_XML_CHARS_RE = re.compile(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
 
 
 def _xml_text_escape(text: str) -> str:
@@ -921,7 +922,7 @@ def write_dag_formulas_xlsx(
                     if cell.array_ref:
                         _clear_spill_xml(root, cell.cell, cell.array_ref, index=ws_index)
                     formula = _xlsx_formula_for_cell(cell)
-                    if _ILLEGAL_XML_CHARS_RE.search(formula):
+                    if _INVALID_XML_CHARS_RE.search(formula):
                         raise ValueError(f"illegal XML character in formula: {formula!r}")
                     _set_cell_xlws_formula(root, cell.cell, formula, array_ref="", index=ws_index)
                 except Exception as exc:
@@ -1024,7 +1025,7 @@ def write_dag_formulas_xlsx(
 
             sorted_bank_entries = sorted(bank_entries.items(), key=lambda item: _a1_row_col(item[0]) or (0, 0))
             for a1, text in sorted_bank_entries:
-                if _ILLEGAL_XML_CHARS_RE.search(text):
+                if _INVALID_XML_CHARS_RE.search(text):
                     errors.append(f"{code_sheet}!{a1}: string contains illegal XML character")
                     continue
                 c_el = bank_index.ensure_cell(a1)
