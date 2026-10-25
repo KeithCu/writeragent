@@ -2300,6 +2300,23 @@ def test_strip_image_payloads() -> None:
     assert res_dict == {"a": None, "b": "<image>"}
 
 
+def test_strip_image_payloads_cycle_shared_subtree_and_colliding_keys() -> None:
+    """A cyclic result is bounded, not RecursionError; 1 vs '1' keys refuse to drop a value."""
+    from plugin.scripting.payload_codec import PAYLOAD_IMAGE, strip_image_payloads
+
+    image = {"__wa_payload__": PAYLOAD_IMAGE, "data": b"1", "format": "png"}
+    node: list = [{"img": image}]
+    node.append(node)
+    out = strip_image_payloads(node)
+    assert out[0] == {"img": "<image>"}
+
+    shared = {"a": image, "b": image}
+    assert strip_image_payloads(shared) == {"a": "<image>", "b": "<image>"}
+
+    with pytest.raises(ValueError):
+        strip_image_payloads({1: "a", "1": "b"})
+
+
 def test_write_image_payload_to_temp_unlinks_when_write_fails() -> None:
     """delete=False used to leave the file when data was not bytes."""
     import os
