@@ -21,9 +21,9 @@ Ported from core/calc_inspector.py for the plugin framework.
 """
 
 import logging
-from typing import Any
+from typing import Any, TypeAlias
 
-from plugin.calc.address_utils import index_to_column, split_sheet_prefix
+from plugin.calc.address_utils import format_address, index_to_column, split_sheet_prefix
 from plugin.calc.datetime_wire import (
     format_category_from_type,
     iso8601_from_serial,
@@ -37,6 +37,8 @@ from plugin.scripting.config_limits import configured_python_max_data_cells, pyt
 log = logging.getLogger("writeragent.calc")
 
 _CELL_FLAG_DATETIME = 2
+FormatSpan: TypeAlias = tuple[int, int, str, str | None]
+TemporalRows: TypeAlias = dict[int, list[FormatSpan]]
 
 
 class CellInspector:
@@ -84,6 +86,26 @@ class CellInspector:
             cache[key] = (category, str(format_code) if format_code is not None else None)
         return cache[key]
 
+    @staticmethod
+    def _temporal_fields(
+        value: Any, category: str, format_code: str | None, null_date: Any
+    ) -> dict[str, Any] | None:
+        """ISO wire fields for one serial, or None when the value is out of contract."""
+        # Negative duration serials are out of the wire contract, so one such cell must not fail the read.
+        try:
+            iso = (
+                iso_duration_from_serial(float(value))
+                if category == "duration"
+                else iso8601_from_serial(float(value), category, null_date)
+            )
+        except (TypeError, ValueError, AttributeError):
+            log.debug("Temporal enrichment skipped for serial %r", value)
+            return None
+        fields: dict[str, Any] = {"value": iso, "type": category, "format_category": category}
+        if format_code:
+            fields["format_code"] = format_code
+        return fields
+
     def _enrich_cell_format(self, info: dict[str, Any], cell: Any) -> None:
         """Rewrite LLM-facing date/time/duration cells to ISO in ``value``.
 
@@ -98,17 +120,12 @@ class CellInspector:
         category, format_code = self._format_meta(self._safe_prop(cell, "NumberFormat"), formats, {})
         if category is None:
             return
-        if category == "duration":
-            info["value"] = iso_duration_from_serial(float(value))
-        else:
-            null_date = doc.getNumberFormatSettings().getPropertyValue("NullDate")
-            info["value"] = iso8601_from_serial(float(value), category, null_date)
-        info["type"] = category
-        info["format_category"] = category
-        if format_code:
-            info["format_code"] = format_code
+        null_date = doc.getNumberFormatSettings().getPropertyValue("NullDate")
+        fields = self._temporal_fields(value, category, format_code, null_date)
+        if fields:
+            info.update(fields)
 
-    def _range_format_rows(self, cell_range: Any, formula_array: Any) -> tuple[dict[int, list[tuple[int, int, str, str | None]]], object | None]:
+    def _range_format_rows(self, cell_range: Any, formula_array: Any) -> tuple[TemporalRows, object | None]:
         """Return date/time column spans by row, or an empty map for the common fast path.
 
         Each span is ``(start_col, end_col, category, format_code)``.
@@ -134,21 +151,28 @@ class CellInspector:
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
         cache: dict[int, tuple[str | None, str | None]] = {}
-        rows: dict[int, list[tuple[int, int, str, str | None]]] = {}
+        rows: TemporalRows = {}
 
         # Calc dates are numeric VALUE cells, so the normal content type loses their
         # meaning. Grouping equal formats keeps this classification out of the per-cell
         # UNO loop while also covering formulas whose evaluated result is date-formatted.
         format_groups = cell_range.getUniqueCellFormatRanges()
         for group_idx in range(format_groups.getCount()):
-            group = format_groups.getByIndex(group_idx)
-            if group.getCount() == 0:
+            try:
+                group = format_groups.getByIndex(group_idx)
+                if group.getCount() == 0:
+                    continue
+                representative = group.getByIndex(0)
+                category, format_code = self._format_meta(self._safe_prop(representative, "NumberFormat"), formats, cache)
+                if category is None:
+                    continue
+                addresses = tuple(group.getRangeAddresses())
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+                log.debug("Skipping unreadable cell format group %d", group_idx, exc_info=True)
                 continue
-            representative = group.getByIndex(0)
-            category, format_code = self._format_meta(self._safe_prop(representative, "NumberFormat"), formats, cache)
-            if category is None:
-                continue
-            for address in group.getRangeAddresses():
+            for address in addresses:
                 for row in range(address.StartRow, address.EndRow + 1):
                     rows.setdefault(row, []).append((address.StartColumn, address.EndColumn, category, format_code))
 
@@ -158,27 +182,17 @@ class CellInspector:
         return rows, null_date
 
     @staticmethod
-    def _category_for_position(format_rows: dict[int, list[tuple[int, int, str, str | None]]], row: int, col: int) -> str | None:
-        for span in format_rows.get(row, ()):
-            start_col, end_col, category = span[0], span[1], span[2]
+    def _temporal_span(format_rows: TemporalRows, row: int, col: int) -> tuple[str, str | None] | None:
+        for start_col, end_col, category, format_code in format_rows.get(row, ()):
             if start_col <= col <= end_col:
-                return category
-        return None
-
-    @staticmethod
-    def _format_code_for_position(format_rows: dict[int, list[tuple[int, int, str, str | None]]], row: int, col: int) -> str | None:
-        for span in format_rows.get(row, ()):
-            if len(span) < 4:
-                continue
-            start_col, end_col, _category, format_code = span[0], span[1], span[2], span[3]
-            if start_col <= col <= end_col:
-                return format_code
+                return category, format_code
         return None
 
     # ── Public API ─────────────────────────────────────────────────────
 
     def _resolve_single_cell(self, address: str) -> tuple[Any, str, Any, str]:
         _unused, bare_address = split_sheet_prefix(address)
+        display_address = bare_address.upper()
         cell = self.bridge.resolve_range_or_address(address)
         if hasattr(cell, "getRangeAddress"):
             addr = cell.getRangeAddress()
@@ -186,9 +200,10 @@ class CellInspector:
                 raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
             if hasattr(cell, "getCellByPosition") and not hasattr(cell, "getType"):
                 cell = cell.getCellByPosition(0, 0)
+            display_address = format_address(addr.StartColumn, addr.StartRow)
 
         value, type_name = cell_value_and_type(cell)
-        return cell, bare_address, value, type_name
+        return cell, display_address, value, type_name
 
     def read_cell(self, address: str, *, include_format_info: bool = False) -> dict[str, Any]:
         """Read basic cell information.
@@ -293,7 +308,7 @@ class CellInspector:
 
             data_array = cell_range.getDataArray()
             formula_array = cell_range.getFormulaArray()
-            format_rows: dict[int, list[tuple[int, int, str, str | None]]] = {}
+            format_rows: TemporalRows = {}
             null_date = None
             if include_format_info:
                 try:
@@ -305,6 +320,7 @@ class CellInspector:
                     # Preserve the old raw response instead of failing read_cell_range.
                     log.exception("Date/time format enrichment failed for range %s; returning raw values", range_name)
 
+            col_letters = [index_to_column(c) for c in range(addr.StartColumn, addr.EndColumn + 1)]
             result = []
             for row_idx, row in enumerate(range(addr.StartRow, addr.EndRow + 1)):
                 row_data = []
@@ -328,23 +344,16 @@ class CellInspector:
                         cell_type = EMPTY
                         value = None
 
-                    col_letter = index_to_column(col)
-                    cell_address = f"{col_letter}{row + 1}"
+                    cell_address = f"{col_letters[col_idx]}{row + 1}"
 
                     cell_info = {"address": cell_address, "value": value, "formula": formula, "type": cell_type_name(cell_type)}
                     if null_date is not None and isinstance(value, (int, float)):
-                        category = self._category_for_position(format_rows, row, col)
-                        if category is not None:
-                            # LLM path: ISO in value for round-trips; raw serials stay on include_format_info=False.
-                            if category == "duration":
-                                cell_info["value"] = iso_duration_from_serial(float(value))
-                            else:
-                                cell_info["value"] = iso8601_from_serial(float(value), category, null_date)
-                            cell_info["type"] = category
-                            cell_info["format_category"] = category
-                            format_code = self._format_code_for_position(format_rows, row, col)
-                            if format_code:
-                                cell_info["format_code"] = format_code
+                        span = self._temporal_span(format_rows, row, col)
+                        if span is not None:
+                            category, format_code = span
+                            fields = self._temporal_fields(value, category, format_code, null_date)
+                            if fields:
+                                cell_info.update(fields)
                     row_data.append(cell_info)
                 result.append(row_data)
 
