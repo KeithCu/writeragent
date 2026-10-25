@@ -26,7 +26,7 @@ register_alias_importer()
 
 from typing import IO
 
-from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
+from plugin.scripting.audio_silence_detector import DEFAULT_SILENCE_STOP_MS, SilenceDetectorConfig
 from plugin.scripting.venv.audio_recorder import record_to_wav
 from plugin.scripting.ipc import claim_ipc_channel, get_child_ipc_stream, write_json_line
 
@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="WriterAgent venv audio recorder")
     parser.add_argument("--output", required=True, help="Path to write the WAV file")
-    parser.add_argument("--silence-stop-ms", type=int, default=3000)
+    parser.add_argument("--silence-stop-ms", type=int, default=DEFAULT_SILENCE_STOP_MS)
     args = parser.parse_args(argv)
     output_path = os.path.abspath(args.output)
     silence_config = SilenceDetectorConfig(silence_stop_ms=max(0, args.silence_stop_ms))
@@ -94,11 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     reader = threading.Thread(target=_stdin_stop_reader, args=(stop_event,), daemon=True)
     reader.start()
 
-    ready_emitted = threading.Event()
-
     def on_started() -> None:
         _emit({"status": "ready"})
-        ready_emitted.set()
 
     try:
         auto_stopped = record_to_wav(
@@ -108,9 +105,6 @@ def main(argv: list[str] | None = None) -> int:
             silence_config=silence_config,
             on_ipc_emit=_emit,
         )
-        if not ready_emitted.is_set():
-            _emit({"status": "error", "message": "Audio stream failed to start."})
-            return 1
         _emit({"status": "ok", "path": output_path, "auto_stopped": auto_stopped})
         return 0
     except RuntimeError as exc:

@@ -19,8 +19,10 @@ from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     is_status_helper_result,
     make_template_api,
+    parse_run_import_call_params,
 )
 
+from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
 
 _SHIPPED_TEMPLATES = frozenset({"convert_quantity", "parse_quantity", "check_dimensionality"})
@@ -97,8 +99,6 @@ def split_helper_params(params: dict[str, Any] | None) -> tuple[dict[str, Any], 
 
 def extract_units_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     """Extract units insertion kwargs (e.g. output_style) from script code."""
-    from plugin.scripting.helper_domain import parse_run_import_call_params
-
     body_params = parse_run_import_call_params(code, run_name="run_units")
     if body_params is not None:
         _unused, output_style = split_helper_params(body_params)
@@ -134,7 +134,6 @@ def format_units_for_calc(result: dict[str, Any], *, output_style: str | None = 
         return [[f"Units error ({code})"], [message]]
 
     if "values" in result and isinstance(result["values"], list):
-        from plugin.scripting.calc_range import ensure_rectangular_2d
         return ensure_rectangular_2d(result["values"])
 
     helper = str(result.get("helper") or "units")

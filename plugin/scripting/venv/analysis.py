@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from typing import Any, cast
 
 from plugin.scripting.venv.coerce import (
@@ -88,6 +89,14 @@ def _reject_non_numeric(df: Any, names: list[str], *, helper: str) -> dict[str, 
     bad = [n for n in names if n not in numeric_set]
     if bad:
         return _error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}", helper=helper)
+    return None
+
+
+def _reject_duplicate_columns(df: Any, *, helper: str) -> dict[str, Any] | None:
+    labels = [str(name) for name in df.columns]
+    dupes = sorted({name for name in labels if labels.count(name) > 1})
+    if dupes:
+        return _error_result("INVALID_PARAM", f"Duplicate column names: {', '.join(dupes)}", helper=helper)
     return None
 
 
@@ -181,6 +190,15 @@ def _describe_columns_from_profile(
     """Map YData Profiling variables JSON into our column summary contract."""
     column_summaries: list[dict[str, Any]] = []
     flags: list[str] = []
+    # One IQR pass. A per-column detect_outliers call copied the frame for every
+    # numeric column (1.84s vs 0.35s for 10 x 2000).
+    outlier_counts: dict[str, int] = {}
+    if include_outliers:
+        outlier_result = detect_outliers(limited, method="iqr")
+        outlier_counts = {
+            str(name): int(count)
+            for name, count in (outlier_result.get("metrics") or {}).get("per_column", {}).items()
+        }
     for col in limited.columns:
         col_name = str(col)
         var_info = variables.get(col_name, {})
@@ -194,8 +212,7 @@ def _describe_columns_from_profile(
             for out_key, in_key in _NUMERIC_PROFILE_KEYS:
                 summary[out_key] = _safe_float(var_info.get(in_key))
             if include_outliers:
-                outlier_result = detect_outliers(limited, columns=[col_name], method="iqr")
-                outlier_count = outlier_result.get("metrics", {}).get("outlier_count", 0)
+                outlier_count = outlier_counts.get(col_name, 0)
                 if outlier_count:
                     flags.append(f"{outlier_count} outliers in {col_name} (IQR)")
                     summary["outlier_count"] = outlier_count
@@ -232,6 +249,10 @@ def describe_data(
             flags=["Empty dataset"],
             metadata=coerced.metadata,
         )
+
+    rejected_dupes = _reject_duplicate_columns(df, helper="describe_data")
+    if rejected_dupes is not None:
+        return rejected_dupes
 
     cols = list(df.columns)[:max_cols_val]
     limited = df[cols].copy()
@@ -297,12 +318,13 @@ def describe_data(
 
 
 def _safe_float(value: Any) -> float | None:
-    # round(nan) is nan. Profile stats and regression errors store None instead.
+    # round() keeps nan and passes inf through. Profile stats and regression
+    # errors store None instead.
     try:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    if number != number:
+    if not math.isfinite(number):
         return None
     return round(number, 6)
 
@@ -340,7 +362,12 @@ def kpi_summary(
     if rejected is not None:
         return rejected
 
-    summary = df[coerced_metrics].agg(list(coerced_agg)).round(6)
+    aggs = [str(a).strip().lower() for a in coerced_agg]
+    unknown_aggs = [a for a in aggs if a not in _AGG_FUNCS]
+    if unknown_aggs:
+        return _error_result("INVALID_PARAM", f"Unknown aggregation(s): {', '.join(unknown_aggs)}", helper="kpi_summary")
+
+    summary = df[coerced_metrics].agg(aggs).round(6)
     table = _table_from_df(summary.reset_index().rename(columns={"index": "metric"}), name="kpi_summary")
     return _ok_result(
         "kpi_summary",
@@ -482,6 +509,9 @@ class QuickStats:
         self.record_count = int(len(self.df))
 
     def tooltip(self) -> dict[str, Any]:
+        rejected_dupes = _reject_duplicate_columns(self.df, helper="quick_stats")
+        if rejected_dupes is not None:
+            return rejected_dupes
         if self._requested_columns is not None:
             coerced_cols = _coerce_columns(self._requested_columns, "numeric_columns", "quick_stats")
             if isinstance(coerced_cols, dict):
@@ -555,6 +585,10 @@ def clean_and_prepare(
         return _error_result("INVALID_PARAM", f"fill_numeric must be a string, got {fill_numeric!r}", helper="clean_and_prepare")
     if not isinstance(fill_categorical, str):
         return _error_result("INVALID_PARAM", f"fill_categorical must be a string, got {fill_categorical!r}", helper="clean_and_prepare")
+    if fill_numeric not in ("median", "mean", "zero"):
+        return _error_result("INVALID_PARAM", f"fill_numeric must be median, mean, or zero, got {fill_numeric!r}", helper="clean_and_prepare")
+    if fill_categorical not in ("mode", "blank"):
+        return _error_result("INVALID_PARAM", f"fill_categorical must be mode or blank, got {fill_categorical!r}", helper="clean_and_prepare")
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df.copy()
@@ -886,9 +920,14 @@ def compare_periods(
     # already use. #1486 tightened period / calc / agg and left this line in place.
     df[date_col] = parse_date_column(df[date_col])
     df = df.dropna(subset=[date_col, value_col])
-    grouped = df.set_index(date_col).sort_index()[value_col].resample(freq).agg(agg_name).reset_index()
+    resampled = df.set_index(date_col).sort_index()[value_col].resample(freq)
+    # An empty period summed to 0 and pct_change then wrote inf for the next
+    # period. min_count leaves the empty bin empty.
+    series = resampled.sum(min_count=1) if agg_name == "sum" else resampled.agg(agg_name)
+    grouped = series.reset_index()
     if calc_lower == "pct_change":
-        grouped["change"] = grouped[value_col].pct_change()
+        # pandas pads empty bins by default and warns about it.
+        grouped["change"] = grouped[value_col].pct_change(fill_method=None)
     else:
         grouped["change"] = grouped[value_col].diff()
     table = _table_from_df(grouped, name="period_comparison", max_rows=DATA_TABLE_ROWS)
@@ -992,6 +1031,12 @@ def run_regression(
         if isinstance(coerced_features, dict):
             return coerced_features
         feature_cols = list(coerced_features or [])
+
+    if target in feature_cols:
+        return _error_result("INVALID_PARAM", f"features must not include target {target!r}", helper="run_regression")
+    repeated = [c for c in dict.fromkeys(feature_cols) if feature_cols.count(c) > 1]
+    if repeated:
+        return _error_result("INVALID_PARAM", f"Duplicate feature columns: {', '.join(repeated)}", helper="run_regression")
 
     if not feature_cols:
         return _error_result("NO_FEATURES", "No feature columns available.", helper="run_regression")
@@ -1111,7 +1156,15 @@ def cluster_numeric(
     if not numeric_cols:
         return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to cluster.", helper="cluster_numeric")
 
-    sample = df[numeric_cols].astype(float).fillna(df[numeric_cols].median())
+    numeric_df = df[numeric_cols].astype(float)
+    # fillna(median) leaves an all-NaN column all-NaN, and KMeans raised
+    # "Input X contains NaN".
+    numeric_df = numeric_df.dropna(axis=1, how="all")
+    empty_cols = [c for c in numeric_cols if c not in numeric_df.columns]
+    numeric_cols = list(numeric_df.columns)
+    if not numeric_cols:
+        return _error_result("INSUFFICIENT_DATA", "No numeric values to cluster.", helper="cluster_numeric")
+    sample = numeric_df.fillna(numeric_df.median())
     if sample.empty:
         return _error_result("INSUFFICIENT_DATA", "No rows available for clustering.", helper="cluster_numeric")
 
@@ -1173,6 +1226,7 @@ def cluster_numeric(
         "cluster_numeric",
         metrics=metrics,
         tables=[centroid_table, labels_table],
+        flags=[f"Dropped all-empty columns: {', '.join(map(str, empty_cols))}"] if empty_cols else [],
         metadata=coerced.metadata,
     )
 
