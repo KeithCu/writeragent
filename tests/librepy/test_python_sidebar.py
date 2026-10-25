@@ -960,7 +960,7 @@ def test_init_failure_in_wire_allows_safe_disposing():
 
 
 def test_control_ids_composition():
-    from plugin.librepy.python_sidebar import _CALC_ONLY_IDS, _CONTROL_IDS
+    from plugin.librepy.python_sidebar import _CALC_ONLY_IDS
 
     expected = (
         "btn_hdr_settings",

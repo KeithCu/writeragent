@@ -92,7 +92,7 @@ def _make_panel(combo: FiringCombo):
         _get_document_model=lambda: None,
         _update_backend_indicator=lambda root_window=None: None,
     )
-    panel._populate_model_combos = lambda *args, **kwargs: ChatPanelElement._populate_model_combos(cast(Any, panel), *args, **kwargs)
+    panel._populate_model_combos = lambda *args, **kwargs: ChatPanelElement._populate_model_combos(cast("Any", panel), *args, **kwargs)
     return panel
 
 

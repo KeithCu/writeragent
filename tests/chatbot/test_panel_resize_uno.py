@@ -10,9 +10,7 @@ from typing import Any
 
 from plugin.chatbot.dialogs import get_optional, load_writeragent_dialog
 from plugin.chatbot.panel_resize import (
-    _BOTTOM_CLUSTER,
     _PanelResizeListener,
-    column_right_margin,
     compute_chat_panel_layout,
 )
 from plugin.testing_runner import native_test
@@ -71,7 +69,6 @@ def test_chat_panel_resize_native(ctx: Any) -> None:
             snapshot[name] = (int(pos.X), int(pos.Y), int(pos.Width), int(pos.Height))
 
         layouts = compute_chat_panel_layout(w, cur_h, snapshot)
-        margin = column_right_margin(snapshot)
 
         # Assert no laid-out child's right edge passes the column
         for name, rect in layouts.items():

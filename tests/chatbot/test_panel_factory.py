@@ -1053,7 +1053,6 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
     from types import SimpleNamespace
     from unittest.mock import MagicMock, patch
 
-    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
     el = _thin_panel_element()
     el.ctx = MagicMock()
@@ -1121,7 +1120,7 @@ def test_minimal_width_is_pre_negotiation_constant() -> None:
     from typing import Any, cast
     from plugin.chatbot.panel_factory import ChatToolPanel, _PRE_NEGOTIATION_PANEL_WIDTH
 
-    assert ChatToolPanel.getMinimalWidth(cast(Any, object())) == _PRE_NEGOTIATION_PANEL_WIDTH == 320
+    assert ChatToolPanel.getMinimalWidth(cast("Any", object())) == _PRE_NEGOTIATION_PANEL_WIDTH == 320
 
 
 def test_refresh_controls_continues_after_model_read_failure():

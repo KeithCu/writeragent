@@ -217,7 +217,7 @@ def test_second_frame_click_does_not_restore_or_clear_the_first_panel():
     _install(session_a, query_a)
     _install(session_b, query_b)
 
-    handler_b = cast(Any, controller_b.added[0])
+    handler_b = cast("Any", controller_b.added[0])
     handler_b.mousePressed(None)
 
     session_a.restore_focus()
@@ -235,8 +235,8 @@ def test_listener_disposing_does_not_remove_listener():
     query = MagicMock()
     leave = MagicMock()
     _install(session, query, leave)
-    click = cast(Any, controller.added[0])
-    mouse = cast(Any, leave.addMouseListener.call_args[0][0])
+    click = cast("Any", controller.added[0])
+    mouse = cast("Any", leave.addMouseListener.call_args[0][0])
     click.disposing(None)
     mouse.disposing(None)
     assert controller.removed == []

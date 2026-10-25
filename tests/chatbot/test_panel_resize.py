@@ -548,7 +548,6 @@ def test_relayout_now_reentrant_bounded_and_extra_pass():
 
 
 def test_resize_logging_behavior():
-    import logging
     import plugin.chatbot.panel_resize as pr_mod
 
     snapshot = _xdl_snapshot()

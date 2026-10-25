@@ -404,7 +404,7 @@ class PythonSidebarController:
             try:
                 store.remove_listener(on_diag)
             except Exception:
-                pass
+                log.debug("sidebar diagnostics listener remove failed", exc_info=True)
         activation = getattr(self, "_activation_listener", None)
         self._activation_listener = None
         frame = getattr(self, "frame", None)
@@ -604,7 +604,6 @@ class PythonSidebarController:
             diag_lines = [_("(no diagnostics yet)")]
         _populate_listbox(diag_ctrl, diag_lines)
 
-        detail = self._ctrl("diag_detail")
         if self._diags:
             target_idx = 0
             if prev_entry is not None:

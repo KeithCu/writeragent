@@ -170,14 +170,12 @@ try:
 except ImportError:
     TOOLPANEL = 3  # Fallback
 
-from plugin.framework.sidebar_column import sidebar_column_width
 from plugin.framework.uno_listeners import BaseItemListener, BaseTextListener
 from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model, set_text_model
 from plugin.framework.i18n import _
 from plugin.framework.errors import UnoObjectError, best_effort, suppress_disposed
 from plugin.framework.prompts import get_chat_system_prompt_for_document
-from plugin.doc.doc_type import get_document_type
 from plugin.doc.udprops import get_document_property, set_document_property
 
 # Explicit name: LibreOffice loads this file as a UNO component, so __name__
@@ -675,7 +673,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             root = self.m_panelRootWindow
             if not root or not hasattr(root, "getControl"):
                 return
-            from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector
 
             def get_optional(name: str) -> Any:
                 return get_optional_control(root, name)
