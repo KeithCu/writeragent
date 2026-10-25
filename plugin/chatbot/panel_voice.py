@@ -133,11 +133,10 @@ class PanelVoiceController:
         return False
 
     def _kill_inflight_stt(self) -> None:
-        """Kill the Whisper child for the transcription that is running now.
+        """Kill the local Whisper child when the sidebar is disposed.
 
-        The scope hook covers Stop on the send that started STT. This covers
-        Stop after a second send replaced ``_send_cancellation``: that click
-        cancels the new scope, which does not own the first child.
+        Stop does not call this: STT runs to completion and ``_do_send`` puts the
+        transcript in the Ask box instead of sending it.
         """
         kill = self._panel._stt_kill
         if not callable(kill):
