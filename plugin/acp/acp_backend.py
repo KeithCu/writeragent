@@ -48,8 +48,6 @@ _ACP_PROTOCOL_VERSION = 1
 # choice so Approve does not permanently allow later tool calls.
 _ALLOW_KINDS = ("allow_once", "allow_always")
 _REJECT_KINDS = ("reject_once", "reject_always")
-# tool_call_update statuses that carry a finished invocation. in_progress
-# is still tool activity, but it is not a result yet.
 # shutil.which on Windows returns the PATHEXT hit (hermes.exe, hermes.cmd,
 # hermes.bat). Those stems are the same CLI as the POSIX basename.
 _WINDOWS_CLI_SUFFIXES = frozenset({".exe", ".cmd", ".bat"})
@@ -612,7 +610,7 @@ class ACPBackend(AgentBackend):
         url_key = document_url or ""
         effective_mcp = mcp_url if mcp_url and as_bool(get_config("mcp.mcp_enabled")) else None
 
-        # The session keeps the mcpServers from session/new, so a new URL is a new session.
+        # The session keeps the mcpServers from session/new, so a new MCP URL is a new session.
         if self._session_id and self._session_url == url_key and self._session_mcp_url == effective_mcp:
             return
         # Read the connection slot once; raise if there is no process.
@@ -620,7 +618,8 @@ class ACPBackend(AgentBackend):
         if conn is None:
             raise RuntimeError(f"{self.display_name} ACP process is not running.")
 
-        # mcp_servers is required by the ACP schema
+        # mcp_servers is required by the ACP schema. A disabled MCP server
+        # must not be handed to session/new (effective_mcp is None then).
         mcp_servers = []
         if effective_mcp is not None:
             mcp_servers.append({"url": effective_mcp, "name": "writeragent", "type": "http", "headers": []})
@@ -898,6 +897,7 @@ class ACPBackend(AgentBackend):
 
     def _request(self, conn: ACPConnection, method: str, params: Any, timeout: float) -> Any:
         """send_request marked in flight so Stop can bound it."""
+        # The stop latch and inflight flag share _state_lock so Stop cannot slip between the check and the enqueue.
         with self._state_lock:
             if self._stop_requested and self._stop_turn == self._turn:
                 raise _TurnStopped()

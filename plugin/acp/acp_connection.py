@@ -34,14 +34,15 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
-
-
-class ACPTimeoutError(ToolExecutionError):
-    """An ACP request got no accepted stdout for its whole idle budget."""
 from plugin.framework.worker_pool import BackgroundHandle, StderrTail, run_in_background
 from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_tree
 
 log = logging.getLogger(__name__)
+
+
+class ACPTimeoutError(ToolExecutionError):
+    """An ACP request got no accepted stdout for its whole idle budget."""
+
 
 _JSONRPC_VERSION = "2.0"
 # send_request's idle wait polls this often so an inbound line can extend it.
@@ -439,13 +440,10 @@ class ACPConnection:
             return self._request_id
 
     def begin_request(self, method: str, params: Any = None) -> tuple[int, threading.Event, str]:
-        """Enqueue a JSON-RPC request without waiting for the response.
+        """Enqueue a JSON-RPC request and return a handle for ``await_response``.
 
-        What was wrong: send_request enqueued after releasing state lock in the backend,
-        allowing stop() to inject session/cancel before the prompt reached stdin.
-        How it happened: request queuing and waiting were combined in a single blocking method.
-        Why this change fixes it: separates enqueueing from idle-awaiting so the backend
-        can hold its state lock across begin_request.
+        Split from the wait so the backend can enqueue while holding its state
+        lock; ``stop()`` then cannot queue ``session/cancel`` ahead of the request.
         """
         if not self.is_alive:
             raise ToolExecutionError("ACP process is not running")
@@ -479,11 +477,9 @@ class ACPConnection:
         self._enqueue(_QueuedWrite(proc, line.encode("utf-8"), req_id))
         return (req_id, event, method)
 
-    def await_response(self, handle: tuple[int, threading.Event, str] | tuple[int, threading.Event] | Any, timeout: float = 120) -> Any:
+    def await_response(self, handle: tuple[int, threading.Event, str], timeout: float = 120) -> Any:
         """Wait for an in-flight request response started with begin_request."""
-        req_id = handle[0]
-        event = handle[1]
-        method = handle[2] if len(handle) > 2 else ""
+        req_id, event, method = handle
 
         if not self._wait_idle(event, timeout):
             with self._lock:
