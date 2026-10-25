@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
-from plugin.calc.base import ToolCalcAnalysisBase, ToolCalcSheetBase
+from plugin.calc.base import ToolCalcSheetBase, ToolCalcSpecialBase
 from plugin.calc.sheets import ListSheets
 from plugin.calc.specialized import DelegateToSpecializedCalc
 from plugin.chatbot.smol_agent import SmolToolAdapter
@@ -28,8 +28,9 @@ from plugin.writer.specialized_base import DelegateToSpecializedWriter, ToolWrit
 from tests.framework.thread_safety import start_uno_thread_safety_session
 
 
-class _DummyAnalysisTool(ToolCalcAnalysisBase):
+class _DummyAnalysisTool(ToolCalcSpecialBase):
     specialized_domain = "analysis"
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary"])
     name = "dummy_analysis_tool"
     description = "test"
     parameters = {"type": "object", "properties": {}, "required": []}

@@ -415,7 +415,7 @@ Table rows capped at 50 (`MAX_TABLE_ROWS`). Errors use `code` + `message` (e.g. 
 Previously planned helpers (not yet separate tools):
 
 **Tool / domain surface (reuse existing machinery)**:
-- In `plugin/calc/analysis.py` (the existing file): Keep the solvers. Add a few high-level tools (`analyze_data`, `find_and_analyze_relevant_ranges`, `get_analysis_result_for_writer_cleanup`, etc.) that call the trusted helpers or fall back to the python domain. Register them under a `ToolCalcAnalysisBase` (or expand the "solvers" base + rename the domain to "analysis" for discoverability; see `base.py`).
+- In `plugin/calc/analysis.py` (the existing file): Keep the solvers. Add a few high-level tools (`analyze_data`, `find_and_analyze_relevant_ranges`, `get_analysis_result_for_writer_cleanup`, etc.) that call the trusted helpers or fall back to the python domain. Register them under a new base derived from ToolCalcSpecialBase (or expand the "solvers" base + rename the domain to "analysis" for discoverability; see `base.py`).
 - `plugin/calc/base.py`: Add the base class + domain definition (reuse the "intent = 'analyze'" pattern).
 - The delegation gateway (`specialized.py`) and smol sub-agent path (`specialized_base.py`) will automatically pick up the new tools when `domain="analysis"`.
 - For Calc callers: full power (high-level helpers preferred; raw python domain as escape hatch).
@@ -501,7 +501,7 @@ A critical architectural issue is how to pass large datasets to the analysis sub
    - *Pros:* Very close to how human analysts work in notebooks. The LLM gets immediate situational awareness from the summary.
    - *Cons:* Adds statefulness to the LLM interaction loop, which can be brittle.
 
-**Current enforcement (preferred path):** For the `analysis` domain, `ToolCalcAnalysisBase.required_core_tools` only pulls in `get_sheet_summary` (cheap structural metadata). `read_cell_range` is deliberately excluded so the sub-agent LLM never receives full cell values in its tool results / observations. Analysis tools (`analyze_data`, and `run_venv_python_script` for the python domain) accept `data_range` (A1 address); the host resolves + shapes via the existing main-thread + `calc_addin_data` + `payload_codec` path before the IPC hop to the venv. Tool descriptions and sub-agent hints were updated to guide toward addresses. This realizes Option 1 for Calc-resident data without new state or I/O.
+**Current enforcement (preferred path):** For the python/sql surface, `ToolCalcPythonSqlBase.required_core_tools` carries the "no read_cell_range" rule and only pulls in `get_sheet_summary` (cheap structural metadata). `read_cell_range` is deliberately excluded so the sub-agent LLM never receives full cell values in its tool results / observations. Analysis tools (`analyze_data`, and `run_venv_python_script` for the python domain) accept `data_range` (A1 address); the host resolves + shapes via the existing main-thread + `calc_addin_data` + `payload_codec` path before the IPC hop to the venv. Tool descriptions and sub-agent hints were updated to guide toward addresses. This realizes Option 1 for Calc-resident data without new state or I/O.
 
 ---
 

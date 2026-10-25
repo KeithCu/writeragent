@@ -438,7 +438,7 @@ Authoring: pass upstream ranges as data so Calc dirties the cell that re-registe
 | Trusted venv module | `plugin/scripting/venv/duckdb_sql.py` (mirror [`plugin/scripting/venv/analysis.py`](../../plugin/scripting/venv/analysis.py)) — supports preloaded + flat_files |
 | Host facade / client | `plugin/scripting/client.py` (`run_folder_sql`) + `plugin/calc/duckdb_tools.py` |
 | Sibling spreadsheet open | Reuse [`open_document_for_read`](../../plugin/doc/document_research.py) + `CellInspector` on the UI thread only; `run_folder_sql` stays on the worker; close hidden models after read — A+ |
-| Calc tool | `plugin/calc/duckdb_tools.py` (`QueryFolderSqlTool` on `ToolCalcAnalysisBase`) — `tables`, `files` (dict), `data_range` |
+| Calc tool | `plugin/calc/duckdb_tools.py` (`QueryFolderSqlTool` on `ToolCalcPythonSqlBase`) — `tables`, `files` (dict), `data_range` |
 | Run Python Script templates | `plugin/scripting/duckdb_sql.py` (host) + document_scripts (SQL Helpers) |
 | Settings probe | Extend venv self-check groups in [`venv_worker.py`](../../plugin/scripting/venv_worker.py) — A0 |
 | Tests | `tests/scripting/test_duckdb_sql.py`, `tests/calc/test_duckdb_tools.py` |

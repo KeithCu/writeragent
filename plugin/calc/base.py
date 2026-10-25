@@ -99,26 +99,12 @@ class ToolCalcShapeBase(ToolCalcSpecialBase):
 
 class ToolCalcRangeBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "ranges"
-    specialized_domain_description: ClassVar[str | None] = "Bulk operations on cell ranges (sort, advanced find/replace)."
+    specialized_domain_description: ClassVar[str | None] = "Sort a range and create, edit, list, or delete named ranges."
 
 
 class ToolCalcSearchBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "search"
     specialized_domain_description: ClassVar[str | None] = "Search for text or values or replace across the entire spreadsheet."
-
-
-class ToolCalcAnalysisBase(ToolCalcSpecialBase):
-    # Not a chat/MCP domain (tools are ToolBaseDummy). Keep the class for tests that
-    # register a local tool with specialized_domain = "analysis".
-    specialized_domain: ClassVar[str | None] = None
-    specialized_domain_description: ClassVar[str | None] = None
-    # Deliberately do NOT include "read_cell_range" here (unlike the general Calc special base).
-    # Analysis sub-agents must use data_range (A1 address strings) with analyze_data / run_venv_python_script.
-    # This keeps large data out-of-band: the host resolves the address on the main thread and hands
-    # shaped data to the venv via the optimized split_grid/payload_codec path. Passing full values
-    # through read_cell_range would materialize them into the sub-agent's observations / LLM context.
-    # get_sheet_summary provides cheap structural discovery (used range, headers, counts) without values.
-    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary"])
 
 
 class ToolCalcErrorBase(ToolCalcSpecialBase):
@@ -137,8 +123,9 @@ class ToolCalcPythonSqlBase(ToolCalcSpecialBase):
     """Read-only DuckDB SQL (query_folder_sql). Direct subclass so the discovery catalog lists it.
 
     Calc chat hides this domain (CALC_HIDDEN_SPECIALIZED_DOMAINS), same as python.
-    find_tools uses for_discovery and still offers it. required_core_tools matches
-    ToolCalcAnalysisBase: no read_cell_range on this sub-agent.
+    find_tools uses for_discovery and still offers it. Only get_sheet_summary
+    is required (no read_cell_range), keeping large data out-of-band through
+    data_range and split_grid/payload_codec instead of sub-agent observations.
     """
 
     specialized_domain: ClassVar[str | None] = "python/sql"
