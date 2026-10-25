@@ -734,7 +734,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modal_native():
             with patch.object(ui, "set_config") as mock_set:
-                with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 42"}):
+                with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 0"}):
                     with patch.object(ui, "save_user_script") as mock_save:
                         with patch.object(ui, "get_config_str", return_value=""):
                             scheduled = {}
@@ -751,7 +751,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
                                 def fake_execute_dialog():
                                     assert code_edit.setFocus.called
                                     for listener in listeners:
-                                        if "RunListener" in type(listener).__name__:
+                                        if listener.action_name == "BtnRun":
                                             listener.actionPerformed(MagicMock())
 
                                 dlg.execute.side_effect = fake_execute_dialog
@@ -830,7 +830,7 @@ def test_show_python_input_dialog_save_button():
                         with patch.object(ui, "get_config_str", return_value=""):
                             def fake_execute():
                                 for listener in listeners:
-                                    if "SaveListener" in type(listener).__name__:
+                                    if listener.action_name == "BtnSave":
                                         listener.actionPerformed(MagicMock())
                             dlg.execute.side_effect = fake_execute
 
@@ -951,7 +951,7 @@ def test_show_python_input_dialog_save_as_button():
                             with patch.object(ui, "show_new_script_dialog", return_value=("scriptk", False)) as mock_input:
                                 def fake_execute():
                                     for listener in listeners:
-                                        if "SaveAsListener" in type(listener).__name__:
+                                        if listener.action_name == "BtnSaveAs":
                                             listener.actionPerformed(MagicMock())
                                 dlg.execute.side_effect = fake_execute
 
@@ -1021,7 +1021,7 @@ def test_native_dialog_btn_new_action_creates_script():
                             with patch.object(ui, "show_new_script_dialog", return_value=("BrandNewScript", False)) as mock_new_dlg:
                                 def fake_execute():
                                     for listener in listeners:
-                                        if "NewListener" in type(listener).__name__:
+                                        if listener.action_name == "BtnNew":
                                             listener.actionPerformed(MagicMock())
 
                                 dlg.execute.side_effect = fake_execute
