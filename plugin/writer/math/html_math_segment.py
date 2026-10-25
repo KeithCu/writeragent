@@ -30,7 +30,8 @@ _HTML_NONTEXT_RE = re.compile(
     r"(?is)"
     r"<!--.*?-->"
     r"|<(script|style)\b[^>]*>(?:.*?</\1\s*>|.*\Z)"
-    r"|<(/?)([A-Za-z][^\s/>]*)(?:\"[^\"]*\"|'[^']*'|[^'\"$>])*>"
+    # No ``$`` in the tag name or unquoted body: in ``$x<y$ and <i>`` the ``<y$...>`` run is TeX, not a tag.
+    r"|<(/?)([A-Za-z][^\s/>$]*)(?:\"[^\"]*\"|'[^']*'|[^'\"$>])*>"
 )
 
 
