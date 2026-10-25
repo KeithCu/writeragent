@@ -40,7 +40,6 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.sidebar_state = SidebarCompositeState(
             send=SendButtonState(False, False, False, False, False),
             tool_loop=None,
-            audio=AudioRecorderState(status="idle"),
         )
         self.model_selector = None
         self.image_model_selector = None

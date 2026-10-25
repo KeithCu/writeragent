@@ -73,8 +73,8 @@ def send_button_states(draw):
 def send_events(draw):
     kind = draw(st.sampled_from(list(SendEventKind)))
     if kind == SendEventKind.TEXT_UPDATED:
-        return SendEvent(kind, {"has_text": draw(st.booleans())})
-    return SendEvent(kind, {})
+        return SendEvent(kind, has_text=draw(st.booleans()))
+    return SendEvent(kind)
 
 
 @st.composite
@@ -203,4 +203,4 @@ def send_handler_events(draw):
             model=None,
             doc_type_str=draw(st.sampled_from(("writer", "calc", ""))),
         )
-    return ErrorEvent(error=RuntimeError("boom"), context="hypothesis")
+    return ErrorEvent(error=RuntimeError("boom"))

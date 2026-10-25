@@ -561,10 +561,12 @@ def append_wav_as_input_audio(content_list: list[dict[str, Any]], wav_path: str)
 
 
 def clear_pending_audio_wav(host: Any) -> None:
-    """Delete the pending recording after a chat error that did not fall back to STT."""
+    """Clear and delete any un-sent audio recording."""
     if host.audio_wav_path:
         try:
             os.remove(host.audio_wav_path)
-        except OSError as rem_err:
-            log.debug("Failed to remove audio_wav_path during error handling: %s", rem_err)
+        except OSError as exc:
+            # On Windows the recorder subprocess still holds the WAV,
+            # so os.remove raises PermissionError.
+            log.debug("clear_pending_audio_wav: failed to remove %s: %s", host.audio_wav_path, exc)
         host.audio_wav_path = None

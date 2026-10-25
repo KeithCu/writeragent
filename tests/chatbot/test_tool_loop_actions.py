@@ -1205,7 +1205,6 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
     send.sidebar_state = SidebarCompositeState(
         send=SendButtonState(True, False, False, False, False),
         tool_loop=None,
-        audio=AudioRecorderState(status="idle"),
     )
 
     class Session:

@@ -122,8 +122,8 @@ class ToolLoopHost(Protocol):
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _set_status(self, text: str) -> None: ...
     def _get_document_model(self) -> Any: ...
-    def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None: ...
-    def _transcribe_audio(self, path: str, model_id: str) -> str: ...
+    _events: Any
+    _voice: Any
     def _get_mcp_url(self) -> str | None: ...
 
     @property
@@ -245,7 +245,13 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
     if (stt_model or local_stt) and retry_q is not None and getattr(turn, "active_client", None) is not None:
         host._append_response("\n[Model does not support audio. Falling back to STT...]\n")
         try:
-            transcript = host._transcribe_audio(host.audio_wav_path, stt_model)
+            if hasattr(host, "_transcribe_audio"):
+                transcribe_fn = host._transcribe_audio
+            elif hasattr(host, "_voice") and hasattr(host._voice, "_transcribe_audio"):
+                transcribe_fn = host._voice._transcribe_audio
+            else:
+                transcribe_fn = None
+            transcript = transcribe_fn(host.audio_wav_path, stt_model) if callable(transcribe_fn) else ""
             if getattr(host, "_terminal_status", None) == "Stopped":
                 # Stop during fallback STT. None ends the drain. Do not show
                 # "No speech detected" or spawn another chat worker.
@@ -1074,7 +1080,7 @@ class ToolCallingMixin:
         tool_name = item[2] if len(item) > 2 else ""
         event_obj = item[3] if len(item) > 3 else None
         if event_obj is not None:
-            self._panel.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
+            self._panel._events.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
         log.info("tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
     def _start_tool_calling_async(self: ToolLoopHost, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int | None = None, query_text: str | None = None) -> None:

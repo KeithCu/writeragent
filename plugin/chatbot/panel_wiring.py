@@ -245,7 +245,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     has_text = bool(get_control_text(query_ctrl).strip())
                     from plugin.chatbot.send_state import SendEvent, SendEventKind
 
-                    self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": has_text}))
+                    self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=has_text))
             else:
                 log.warning("No send_listener available for QueryTextListener setup")
         except Exception:

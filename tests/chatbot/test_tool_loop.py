@@ -73,7 +73,6 @@ class FakePanel(ToolCallingMixin):
                 False, False, False, False, False,
             ),
             tool_loop=None,
-            audio=AudioRecorderState(status="idle"),
         )
         self.stop_requested = False
         self._stop_requested_fallback = False

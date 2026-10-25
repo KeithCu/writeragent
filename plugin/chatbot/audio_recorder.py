@@ -22,6 +22,7 @@ import contextlib
 import json
 import logging
 import os
+import struct
 import tempfile
 import threading
 import time
@@ -32,6 +33,7 @@ from plugin.framework.errors import best_effort
 from plugin.chatbot.audio_recorder_state import (
     AudioRecorderEvent,
     AudioRecorderState,
+    AudioStatus,
     DeviceReadyEvent,
     ErrorOccurredEvent,
     InitializeDeviceEffect,
@@ -62,6 +64,38 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+WAV_HEADER_BYTES = 44
+
+# Matches plugin/scripting/venv/audio_recorder.py:19
+MAX_RECORDING_DURATION_SEC = 4 * 3600
+
+
+def finalize_wav_header(path: str | None) -> bool:
+    """Rewrite RIFF and data chunk sizes for a 44-byte PCM WAV header."""
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        size = os.path.getsize(path)
+        if size <= WAV_HEADER_BYTES:
+            return False
+        data_bytes = size - WAV_HEADER_BYTES
+        if data_bytes % 2 != 0:
+            return False
+        with open(path, "r+b") as f:
+            header = f.read(WAV_HEADER_BYTES)
+            if len(header) < WAV_HEADER_BYTES:
+                return False
+            if header[0:4] != b"RIFF" or header[8:12] != b"WAVE":
+                return False
+            f.seek(4)
+            f.write(struct.pack("<I", size - 8))
+            f.seek(40)
+            f.write(struct.pack("<I", data_bytes))
+        return True
+    except OSError:
+        return False
+
+
 def _wav_file_has_bytes(path: str | None) -> bool:
     """True when the capture child has already written a non-empty WAV.
 
@@ -77,37 +111,6 @@ def _wav_file_has_bytes(path: str | None) -> bool:
         return False
 
 
-def stub_recorder_control_path() -> str:
-    """Cross-process Packet G control file (URP tests vs soffice OXT)."""
-    return os.path.join(tempfile.gettempdir(), "writeragent_stub_recorder.json")
-
-
-def read_stub_recorder_control() -> dict[str, Any]:
-    path = stub_recorder_control_path()
-    if not os.path.isfile(path):
-        return {}
-    try:
-        with open(path, encoding="utf-8") as handle:
-            data = json.load(handle)
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def write_stub_recorder_control(**fields: Any) -> None:
-    path = stub_recorder_control_path()
-    data = read_stub_recorder_control()
-    data.update(fields)
-    data["skip"] = True
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(data, handle)
-
-
-def clear_stub_recorder_control() -> None:
-    with contextlib.suppress(OSError):
-        os.remove(stub_recorder_control_path())
-
-
 class AudioRecorder:
     fs: int = 16000
     channels: int = 1
@@ -116,10 +119,6 @@ class AudioRecorder:
     _auto_stop_notified: bool
     _wav_lock: threading.Lock
     state: AudioRecorderState
-    _test_skip_spawn: bool
-    _test_missing_wav: bool
-    _test_hang_ready: bool
-    _stub_start_count: int
 
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
@@ -139,14 +138,7 @@ class AudioRecorder:
         self._on_auto_stop: Callable[[], None] | None = None
         self._on_silence_progress: Callable[[int], None] | None = None
         self._on_recording_error: Callable[[str], None] | None = None
-        self.state = AudioRecorderState(status="idle")
-        # Packet G native tests: skip venv/PortAudio spawn and use inject_wav.
-        self._test_skip_spawn = False
-        self._test_inject_wav: str | bytes | None = None
-        self._test_fail_start: str | None = None
-        self._test_missing_wav = False
-        self._test_hang_ready = False
-        self._stub_start_count = 0
+        self.state = AudioRecorderState(status=AudioStatus.IDLE)
 
     def set_auto_stop_callbacks(
         self,
@@ -234,20 +226,23 @@ class AudioRecorder:
         self._delete_wav()
         self.temp_filename = make_temp_wav_path()
 
-    def _cleanup_failed_start(self) -> None:
-        terminate_recording_process(self._proc, monitor=self._stdout_monitor, handoff=self._stop_handoff)
+    def _teardown_capture(self) -> None:
+        """Idempotent teardown of child process, stream, and WAV file."""
+        if self._proc is not None:
+            terminate_recording_process(self._proc, monitor=self._stdout_monitor, handoff=self._stop_handoff)
         self._proc = None
         self._stdout_monitor = None
         self._stop_handoff = None
         self._auto_stopped_path = None
-        self._silence_detector = None
         if self.stream is not None:
             best_effort(self.stream.stop, "audio stream stop")
             best_effort(self.stream.close, "audio stream close")
             self.stream = None
-        if self.wav_file is not None:
-            best_effort(self.wav_file.close, "wav_file close")
-            self.wav_file = None
+        self._close_host_wav()
+        self._silence_detector = None
+
+    def _cleanup_failed_start(self) -> None:
+        self._teardown_capture()
         self._delete_wav()
 
     def _keep_recorded_wav_or_cleanup(
@@ -269,13 +264,15 @@ class AudioRecorder:
         the path before ``ok``.
         """
         if auto_path:
-            self.temp_filename = auto_path
-            terminate_recording_process(proc, monitor=monitor, handoff=handoff)
-            return
-        if _wav_file_has_bytes(self.temp_filename):
-            log.warning("Stop handshake failed; using WAV already on disk: %s", exc)
-            terminate_recording_process(proc, monitor=monitor, handoff=handoff)
-            return
+            if finalize_wav_header(auto_path):
+                self.temp_filename = auto_path
+                terminate_recording_process(proc, monitor=monitor, handoff=handoff)
+                return
+        elif _wav_file_has_bytes(self.temp_filename):
+            if finalize_wav_header(self.temp_filename):
+                log.warning("Stop handshake failed; using WAV already on disk: %s", exc)
+                terminate_recording_process(proc, monitor=monitor, handoff=handoff)
+                return
         log.debug("Failed to stop recording subprocess: %s", exc)
         # Cleanup terminates ``self._proc``. The stop effect already cleared it,
         # so put the child back or the mic process is leaked and the empty
@@ -285,89 +282,17 @@ class AudioRecorder:
         self._stop_handoff = handoff
         self._cleanup_failed_start()
 
-    def _write_injected_wav(self) -> None:
-        inject = self._test_inject_wav
-        dest = self.temp_filename
-        if not dest or inject is None:
-            return
-        if isinstance(inject, (bytes, bytearray)):
-            with open(dest, "wb") as handle:
-                handle.write(inject)
-            return
-        import shutil
-
-        shutil.copyfile(str(inject), dest)
-
     def _execute_effect(self, effect: object) -> None:
         import sys
         import wave
 
         if isinstance(effect, InitializeDeviceEffect):
             self._auto_stop_notified = False
-            # Bugfix: the control file lives at a predictable path under /tmp.
-            # Another local user can create it before this one does.
-            # {"skip": true, "wav": "..."} turned the microphone off and
-            # copied that file into the take that is sent to the model. Only
-            # a test soffice sets WRITERAGENT_TESTING.
-            ctrl: dict[str, Any] = {}
             if os.environ.get("WRITERAGENT_TESTING") == "1":
-                ctrl = read_stub_recorder_control()
-            if ctrl.get("skip"):
-                self._test_skip_spawn = True
-                # Always apply JSON (including null/false) so G12 fail_start / G14
-                # missing_wav cannot stick on the live recorder for later cases.
-                fail = ctrl.get("fail_start")
-                self._test_fail_start = str(fail) if fail else None
-                self._test_missing_wav = bool(ctrl.get("missing_wav"))
-                self._test_hang_ready = bool(ctrl.get("hang_ready"))
-                wav = ctrl.get("wav")
-                if wav:
-                    self._test_inject_wav = wav
-            if self._test_skip_spawn:
-                # Packet G: pretend the capture child said {"status":"ready"} without a mic.
-                self._stub_start_count += 1
-                self._auto_stopped_path = None
-                if self._test_fail_start:
-                    self._apply_event(ErrorOccurredEvent(self._test_fail_start))
-                    return
-                if self._test_hang_ready:
-                    # G21: child never emits ready. Do not wait the real 30s spawn timeout.
-                    timeout = ctrl.get("ready_timeout_sec")
-                    try:
-                        timeout_s = float(timeout) if timeout is not None else 0.0
-                    except (TypeError, ValueError):
-                        timeout_s = 0.0
-                    if timeout_s > 0:
-                        time.sleep(timeout_s)
-                    # Same wording as wait_for_recording_ready TimeoutExpired.
-                    shown = timeout_s if timeout_s > 0 else 30
-                    self._apply_event(
-                        ErrorOccurredEvent(f"Recording subprocess timed out after {shown:g} seconds.")
-                    )
-                    return
-                self._take_new_temp_wav()
-                self._proc = None
-                self._apply_event(DeviceReadyEvent())
-                if ctrl.get("auto_stop"):
-                    self._write_injected_wav()
-                    # One-shot: G4 must not leave auto_stop for G5–G15.
-                    write_stub_recorder_control(auto_stop=False)
-                    # Report auto-stop from a worker, matching the real silence
-                    # detector's stdout monitor thread. Firing it inside Record's
-                    # start transition posts STOP_REC_CLICKED inline under
-                    # WRITERAGENT_TESTING, so the send drain re-enters this
-                    # recorder mid-start on the URP Record click and wedges
-                    # soffice. The worker post lands on a later VCL tick after
-                    # Record has returned.
-                    from plugin.framework.worker_pool import run_in_background
+                from plugin.chatbot.sidebar_test_hooks import try_stub_initialize
 
-                    run_in_background(
-                        self._notify_auto_stop,
-                        self.temp_filename,
-                        name="audio-rec-stub-auto-stop",
-                        dedicated=True,
-                    )
-                return
+                if try_stub_initialize(self):
+                    return
             silence_config = load_silence_detector_config()
             self._auto_stopped_path = None
             exe, _err = resolve_recording_python(self.ctx)
@@ -405,9 +330,15 @@ class AudioRecorder:
                         silence_config.silence_stop_ms,
                     )
 
+                    self._host_stream_start_time = time.monotonic()
+
                     def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
                         if status:
-                            print(status, file=sys.stderr)
+                            log.debug("host recording status: %s", status)
+                        if time.monotonic() - getattr(self, "_host_stream_start_time", 0.0) > MAX_RECORDING_DURATION_SEC:
+                            self._notify_auto_stop(self.temp_filename)
+                            self._notify_recording_error("Recording stopped: recording too long")
+                            return
                         pcm = bytes(indata)
                         with self._wav_lock:
                             wav = self.wav_file
@@ -454,28 +385,13 @@ class AudioRecorder:
                     self._apply_event(ErrorOccurredEvent(f"Audio recording failed to start stream: {e}"))
 
         elif isinstance(effect, StopRecordingEffect):
-            if self._test_skip_spawn:
-                if self._test_missing_wav:
-                    if self.temp_filename:
-                        with contextlib.suppress(OSError):
-                            os.remove(self.temp_filename)
-                    self.temp_filename = None
-                else:
-                    self._write_injected_wav()
-                self._proc = None
-                self.stream = None
-                self.wav_file = None
-                self._silence_detector = None
-                return
-            if self.stream is not None:
-                best_effort(self.stream.stop, "Failed to stop stream on StopRecordingEffect")
-                best_effort(self.stream.close, "Failed to close stream on StopRecordingEffect")
-                self.stream = None
+            if os.environ.get("WRITERAGENT_TESTING") == "1":
+                from plugin.chatbot.sidebar_test_hooks import try_stub_stop
 
-            # stream.stop() returns only after the current callback does, and
-            # that callback no longer holds _wav_lock. Close after that.
-            self._close_host_wav()
-            self._silence_detector = None
+                if try_stub_stop(self):
+                    return
+            if self.stream is not None:
+                self._teardown_capture()
 
             proc = self._proc
             monitor = self._stdout_monitor
@@ -560,19 +476,7 @@ class AudioRecorder:
             try:
                 self._apply_event(StopRequestedEvent())
             except Exception:
-                # A failed Stop must not leave the host WAV open. The
-                # callback can still be inside writeframes, so stop the
-                # stream first (that waits for the callback) and close after.
-                terminate_recording_process(self._proc, monitor=self._stdout_monitor, handoff=self._stop_handoff)
-                self._proc = None
-                self._stdout_monitor = None
-                self._stop_handoff = None
-                if self.stream is not None:
-                    best_effort(self.stream.stop, "audio stream stop")
-                    best_effort(self.stream.close, "audio stream close")
-                    self.stream = None
-                self._close_host_wav()
-                self._silence_detector = None
+                self._teardown_capture()
         self._delete_wav()
 
     def _delete_wav(self) -> None:

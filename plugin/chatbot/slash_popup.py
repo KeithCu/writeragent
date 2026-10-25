@@ -670,7 +670,7 @@ class SlashPopupController:
         from plugin.chatbot.send_state import SendEvent, SendEventKind
 
         text = get_control_text(self.query_control) or ""
-        dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(str(text).strip())}))
+        dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(str(text).strip())))
 
     def on_query_text(self, text: str) -> None:
         """Open or narrow the popup from the current Ask-box contents."""

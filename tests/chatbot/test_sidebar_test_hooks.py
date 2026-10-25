@@ -29,8 +29,8 @@ pytest.importorskip("plugin.chatbot.sidebar_test_hooks")
 
 pytestmark = pytest.mark.xdist_group("audio_recorder_control")
 
-from plugin.chatbot.audio_recorder_state import AudioRecorderState
-from plugin.chatbot.send_state import SendButtonState, SendEventKind
+from plugin.chatbot.audio_recorder_state import AudioRecorderState, AudioStatus
+from plugin.chatbot.send_state import ButtonAction, SendButtonState, SendEventKind
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.rich_text_control import _debug_env_active
 from plugin.chatbot.sidebar_test_hooks import (
@@ -116,7 +116,24 @@ class _Btn:
         return self._model
 
 
+class _FakeAudioRecorder:
+    def __init__(self) -> None:
+        self.state = AudioRecorderState(status=AudioStatus.IDLE)
+        self.temp_filename: str | None = None
+        self._write_injected_wav = lambda: None
+        self._notify_auto_stop = lambda path: None
+
+
 class _FakeListener:
+    session: Any
+    slash_popup: Any
+    _apply_sidebar_mode_fn: Any
+    _record_gesture: Any
+    _auto_stop_path: Any
+    _last_compact_reason: Any
+    model_selector: Any
+    clear_listener: Any
+
     def __init__(self, *, busy: bool = False, approval: object | None = None) -> None:
         self.events: list = []
         self.query_control = _QueryControl()
@@ -127,6 +144,9 @@ class _FakeListener:
         self._approval_event = approval
         self._approval_query_for_engine = "cats"
         self.approval_finished: list[tuple] = []
+        self._button_action = ButtonAction.RECORD
+        self._voice = SimpleNamespace(_apply_record_gesture=lambda step: None)
+        self._events = SimpleNamespace(_finish_inline_web_approval=self._finish_inline_web_approval)
         self.sidebar_state = SidebarCompositeState(
             send=SendButtonState(
                 is_busy=busy,
@@ -136,27 +156,17 @@ class _FakeListener:
                 audio_supported=True,
             ),
             tool_loop=None,
-            audio=AudioRecorderState(status="idle"),
         )
 
-        self.audio_recorder = SimpleNamespace(
-            _test_skip_spawn=False,
-            _test_inject_wav=None,
-            _test_fail_start=None,
-            _test_missing_wav=False,
-            _stub_start_count=0,
-            temp_filename=None,
-            _write_injected_wav=lambda: None,
-            _notify_auto_stop=lambda path: setattr(self, "_auto_stop_path", path),
-        )
+        self.audio_recorder = _FakeAudioRecorder()
+        self.audio_recorder._notify_auto_stop = lambda path: setattr(self, "_auto_stop_path", path)
 
     def dispatch(self, event) -> None:
         self.events.append(event)
         if event.kind == SendEventKind.TEXT_UPDATED:
-            data = event.data or {}
             self.sidebar_state = dataclasses.replace(
                 self.sidebar_state,
-                send=dataclasses.replace(self.sidebar_state.send, has_text=bool(data.get("has_text"))),
+                send=dataclasses.replace(self.sidebar_state.send, has_text=bool(event.has_text)),
             )
 
     def on_action_performed(self, rEvent) -> None:
@@ -382,10 +392,10 @@ def test_handle_debug_sidebar_text_and_mode_commands(fake_listener: _FakeListene
     monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.send_listener", lambda frame=None: fake_listener)
 
     handle_debug_sidebar_command("chatbot.debug_sidebar.SET_TEXT_EMPTY")
-    assert any(e.kind == SendEventKind.TEXT_UPDATED and e.data.get("has_text") is False for e in fake_listener.events)
+    assert any(e.kind == SendEventKind.TEXT_UPDATED and e.has_text is False for e in fake_listener.events)
 
     handle_debug_sidebar_command("chatbot.debug_sidebar.SET_TEXT_NONEMPTY")
-    assert any(e.kind == SendEventKind.TEXT_UPDATED and e.data.get("has_text") is True for e in fake_listener.events)
+    assert any(e.kind == SendEventKind.TEXT_UPDATED and e.has_text is True for e in fake_listener.events)
 
     handle_debug_sidebar_command("chatbot.debug_sidebar.SET_CHAT_MODE")
     assert "chat" in applied_modes
@@ -404,17 +414,20 @@ def test_press_record_and_stop_rec_follow_the_button(fake_listener: _FakeListene
         if step.dispatch_record:
             fake_listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
 
-    fake_listener._apply_record_gesture = _apply
+    fake_listener._voice = SimpleNamespace(_apply_record_gesture=_apply)
+    fake_listener._button_action = ButtonAction.SEND
     fake_listener.send_control.getModel().Label = _("Send")
     press_record(listener=fake_listener)
     press_stop_rec(listener=fake_listener)
     assert fake_listener.events == []
 
+    fake_listener._button_action = ButtonAction.RECORD
     fake_listener.send_control.getModel().Label = _("Record")
     press_record(listener=fake_listener)
     assert [e.kind for e in fake_listener.events] == [SendEventKind.RECORD_CLICKED]
 
     fake_listener.events.clear()
+    fake_listener._button_action = ButtonAction.SEND
     fake_listener.send_control.getModel().Label = _("Stop Rec")
     press_stop_rec(listener=fake_listener)
     assert ("action", None, _("Stop Rec")) in fake_listener.events
@@ -430,17 +443,22 @@ def test_set_audio_supported_and_audio_status(fake_listener: _FakeListener) -> N
 
 
 def test_packet_g_stub_and_inject(fake_listener: _FakeListener, tmp_path) -> None:
-    from plugin.chatbot.audio_recorder import clear_stub_recorder_control, read_stub_recorder_control
+    from plugin.chatbot.sidebar_test_hooks import (
+        clear_stub_recorder_control,
+        read_stub_recorder_control,
+        _STUB_RECORDER_FLAGS,
+    )
 
     try:
         stub_recorder_child(listener=fake_listener, fail_start="boom", missing_wav=True)
         rec = fake_listener.audio_recorder
-        assert rec._test_skip_spawn is True
-        assert rec._test_fail_start == "boom"
-        assert rec._test_missing_wav is True
+        flags = _STUB_RECORDER_FLAGS.get(rec, {})
+        assert flags.get("skip") is True
+        assert flags.get("fail_start") == "boom"
+        assert flags.get("missing_wav") is True
         wav = str(tmp_path / "packet-g.wav")
         inject_wav(wav, listener=fake_listener)
-        assert rec._test_inject_wav == wav
+        assert flags.get("inject_wav") == wav
         fire_audio_auto_stop(listener=fake_listener)
         assert fake_listener._auto_stop_path is None
         assert read_stub_recorder_control().get("skip") is True
@@ -449,7 +467,7 @@ def test_packet_g_stub_and_inject(fake_listener: _FakeListener, tmp_path) -> Non
 
 
 def test_stub_recorder_child_replaces_control_file(fake_listener: _FakeListener) -> None:
-    from plugin.chatbot.audio_recorder import clear_stub_recorder_control, read_stub_recorder_control
+    from plugin.chatbot.sidebar_test_hooks import clear_stub_recorder_control, read_stub_recorder_control
 
     try:
         fire_audio_auto_stop(listener=fake_listener)
@@ -465,12 +483,16 @@ def test_stub_recorder_child_replaces_control_file(fake_listener: _FakeListener)
 
 
 def test_stub_recorder_child_hang_ready(fake_listener: _FakeListener) -> None:
-    from plugin.chatbot.audio_recorder import clear_stub_recorder_control, read_stub_recorder_control
+    from plugin.chatbot.sidebar_test_hooks import (
+        clear_stub_recorder_control,
+        read_stub_recorder_control,
+        _STUB_RECORDER_FLAGS,
+    )
 
     try:
         stub_recorder_child(listener=fake_listener, hang_ready=True)
         rec = fake_listener.audio_recorder
-        assert rec._test_hang_ready is True
+        assert _STUB_RECORDER_FLAGS.get(rec, {}).get("hang_ready") is True
         assert read_stub_recorder_control().get("hang_ready") is True
     finally:
         clear_stub_recorder_control()
@@ -632,8 +654,6 @@ def test_send_listener_for_uid_matches_registered_panel_uid(monkeypatch) -> None
 
 
 def test_adopt_and_iter_skip_torn_down_listeners(monkeypatch) -> None:
-    import gc
-
     from plugin.chatbot import sidebar_test_hooks as hooks
 
     class SendButtonListener:
@@ -644,8 +664,12 @@ def test_adopt_and_iter_skip_torn_down_listeners(monkeypatch) -> None:
 
     live = SendButtonListener(False)
     dead = SendButtonListener(True)
-    monkeypatch.setattr(gc, "get_objects", lambda: [live, dead])
-    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [])
+    panel_live = SimpleNamespace(send_listener=live)
+    panel_dead = SimpleNamespace(send_listener=dead)
+    monkeypatch.setattr(
+        "plugin.chatbot.panel_factory.iter_debug_live_chat_panels",
+        lambda: [panel_live, panel_dead],
+    )
     saved = list(hooks._LIVE_SEND_LISTENERS)
     hooks._LIVE_SEND_LISTENERS.clear()
     try:
@@ -1104,7 +1128,7 @@ class _StopCtrl:
 
 def test_wait_controls_send_finished_sees_new_transcript(monkeypatch) -> None:
     stop = _StopCtrl()
-    state = {"body": "old", "n": 0}
+    state: dict[str, Any] = {"body": "old", "n": 0}
 
     def transcript() -> str:
         state["n"] += 1
@@ -1213,7 +1237,7 @@ def test_open_calc_document_posts_open_calc_and_polls(monkeypatch) -> None:
     calc = SimpleNamespace(
         supportsService=lambda name: name == "com.sun.star.sheet.SpreadsheetDocument"
     )
-    calls = {"n": 0, "ops": []}
+    calls: dict[str, Any] = {"n": 0, "ops": []}
 
     def fake_find(_ctx):
         calls["n"] += 1
