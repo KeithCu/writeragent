@@ -172,8 +172,7 @@ def test_five_second_fixture_has_long_pause_then_auto_stop_after_speech():
         "hello-writeragent-5s.wav",
     )
     wav_path = os.path.abspath(wav_path)
-    if not os.path.isfile(wav_path):
-        return
+    assert os.path.isfile(wav_path), f"missing test fixture: {wav_path}"
     detector = SilenceDetector(SilenceDetectorConfig(silence_stop_ms=3000), sample_rate=16000)
     with wave.open(wav_path, "rb") as wf:
         assert wf.getframerate() == 16000
