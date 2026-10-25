@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 def chat_text_model_has_native_vision() -> bool:
@@ -20,6 +23,7 @@ def chat_text_model_has_native_vision() -> bool:
 
         return bool(has_native_vision(get_text_model(), get_current_endpoint(), allow_fetch=False, unknown_is_vision=True))
     except Exception:
+        log.debug("chat_text_model_has_native_vision: capability lookup failed", exc_info=True)
         return True
 
 

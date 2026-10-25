@@ -3,8 +3,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for get_image tool-list gating by text model vision capability."""
+import logging
+from typing import Any
 from unittest.mock import patch
 
+from plugin.framework.service import ServiceRegistry
+from plugin.framework.tool import ToolBase, ToolRegistry
+from tests.testing_utils import TestingFactory
 from plugin.vision.image_filter import (
     chat_text_model_has_native_vision,
     filter_get_image_for_text_only_model,
@@ -57,6 +62,15 @@ def test_chat_text_model_has_native_vision_fail_open():
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"), \
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="e"):
         assert chat_text_model_has_native_vision() is True
+
+
+def test_fail_open_logs_capability_error(caplog):
+    with caplog.at_level(logging.DEBUG, logger="plugin.vision.image_filter"):
+        with patch("plugin.framework.client.model_fetcher.has_native_vision", side_effect=RuntimeError("boom")), \
+             patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"), \
+             patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="e"):
+            assert chat_text_model_has_native_vision() is True
+    assert any("capability lookup failed" in r.getMessage() for r in caplog.records)
 
 
 def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
@@ -113,3 +127,24 @@ def test_stored_vision_false_drops_get_image_without_fetch():
         names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
         fetch.assert_not_called()
     assert "get_image" not in names
+
+
+class _GetImageTool(ToolBase):
+    name = "get_image"
+    description = "Fetch image from document"
+    parameters = {"type": "object", "properties": {}}
+    uno_services = ["com.sun.star.text.TextDocument"]
+
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"status": "ok"}
+
+
+def test_openai_hides_get_image_but_mcp_keeps_it():
+    reg = ToolRegistry(ServiceRegistry())
+    reg.register(_GetImageTool())
+    p1, p2, p3 = _patch(False)
+    with p1, p2, p3:
+        openai_schemas = reg.get_schemas("openai", doc=TestingFactory.create_doc(doc_type="writer"))
+        assert not any(schema["function"]["name"] == "get_image" for schema in openai_schemas)
+        mcp_schemas = reg.get_schemas("mcp", doc=TestingFactory.create_doc(doc_type="writer"))
+        assert any(schema["name"] == "get_image" for schema in mcp_schemas)
