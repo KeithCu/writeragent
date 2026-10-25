@@ -73,7 +73,7 @@ def _detected_language(mapping: Mapping[str, Any]) -> str | None:
 
 
 def _root_or_none(content: str, key: str) -> Mapping[str, Any] | None:
-    """Grammar reply root, or None when the reply body is empty (clean-sentence policy)."""
+    """Grammar reply root, or None when the reply is empty or ``{}`` (clean-sentence policy)."""
     root = _coerce_json_object(content)
     if root is None:
         if not content.strip():
@@ -82,6 +82,9 @@ def _root_or_none(content: str, key: str) -> Mapping[str, Any] | None:
         # worker's handler turns this into a failed status; the next
         # proofreading pass retries because no row was written.
         raise ValueError("grammar JSON reply did not parse")
+    if not root:
+        # Some models answer "no issues" with a bare {}; that is clean, not a failure.
+        return None
     if not isinstance(root.get(key), list):
         raise ValueError(f"grammar JSON reply has no {key} list")
     return root
