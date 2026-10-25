@@ -381,12 +381,6 @@ class QueueExecutor:
             item.exception = SendCancelled()
             item.event.set()
 
-    def _put_work_items(self, items: list[_WorkItem]) -> None:
-        """Put *items* under ``_claim_lock`` without poking."""
-        with self._claim_lock:
-            for item in items:
-                self._work_queue.put(item)
-
     def process_queue(self) -> None:
         """Process one item from queue (called from main thread via AsyncCallback)."""
         # Dequeue and the cancel check share ``_claim_lock``. ``scope.cancel()``
@@ -478,9 +472,9 @@ class QueueExecutor:
         only took ``_claim_lock`` after the drain had already seen an empty
         queue used to stay runnable too. The poke runs after both locks
         drop: a test handler re-enters ``process_queue``, and holding a
-        lock across that poke deadlocks. ``_put_work_items`` is not used
-        here because it acquires ``_claim_lock`` again (``Lock`` is not
-        re-entrant).
+        lock across that poke deadlocks. The puts below stay inline:
+        ``_enqueue_work`` re-takes ``_claim_lock``, which is not
+        re-entrant.
 
         A *scope* cancels only items enqueued under that send. Other items go
         back in order. Stop used to wipe MCP, grammar, and peer marshals that
@@ -529,7 +523,8 @@ class QueueExecutor:
         # ``process_queue`` may re-enter through the test poke handler, and
         # AsyncCallback is a UNO call.
         with self._order_lock:
-            self._put_work_items([item])
+            with self._claim_lock:
+                self._work_queue.put(item)
         if poke:
             self._poke_main_thread()
         return item
@@ -590,12 +585,6 @@ class QueueExecutor:
 
         return item.result
 
-    def _is_logical_main_thread(self) -> bool:
-        """True when the caller may run UNO work inline (real or designated main thread)."""
-        from plugin.framework.thread_guard import on_main_thread
-
-        return on_main_thread()
-
     def _may_run_marshal_inline(self) -> bool:
         """True only when the caller is the thread that may run UNO work inline.
 
@@ -632,7 +621,7 @@ class QueueExecutor:
         Raises TimeoutError if the main thread doesn't process the item in time.
         Re-raises any exception thrown by *fn*.
         """
-        from plugin.framework.thread_guard import get_background_task_name, in_sync_host_dispatch
+        from plugin.framework.thread_guard import get_background_task_name, in_sync_host_dispatch, on_main_thread
 
         fn_label = _fn_label(fn)
         bg_task = get_background_task_name()
@@ -648,7 +637,7 @@ class QueueExecutor:
 
         if bg_task:
             _log_marshal(logging.DEBUG, "marshal route=force_enqueue (background task %r) fn=%s %s", bg_task, fn_label, executor=self)
-        elif self._is_logical_main_thread():
+        elif on_main_thread():
             _log_marshal(logging.DEBUG, "marshal route=force_enqueue (logical main but not Python MainThread) fn=%s %s", fn_label, executor=self)
 
         # WRITERAGENT_TESTING inlines execute on any non-background thread,
