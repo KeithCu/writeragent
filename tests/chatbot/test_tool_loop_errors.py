@@ -943,6 +943,8 @@ def test_native_audio_stt_fallback_replaces_db_row():
     host.audio_wav_path = "/fake/a.wav"
     host._terminal_status = "Ready"
     host._turn.alive = True
+    host._turn.session = host.session
+    host._turn.same_messages.return_value = True
     host._turn.batcher = None
     host._turn.queue = MagicMock()
     host._turn.text_model = "chat-model"
@@ -991,6 +993,8 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
     host.audio_wav_path = "/fake/a.wav"
     host._terminal_status = "Ready"
     host._turn.alive = True
+    host._turn.session = host.session
+    host._turn.same_messages.return_value = True
     host._turn.batcher = None
     host._turn.queue = MagicMock()
     host._turn.text_model = "chat-model"
@@ -1032,6 +1036,8 @@ def test_native_audio_stt_fallback_uses_turn_model_on_mid_turn_change():
     host.audio_wav_path = "/fake/a.wav"
     host._terminal_status = "Ready"
     host._turn.alive = True
+    host._turn.session = host.session
+    host._turn.same_messages.return_value = True
     host._turn.batcher = None
     host._turn.queue = MagicMock()
     host._turn.text_model = "turn-captured-model"
@@ -1059,3 +1065,104 @@ def test_native_audio_stt_fallback_uses_turn_model_on_mid_turn_change():
 
     assert recovered is True
     mock_set_support.assert_called_once_with("turn-captured-model", "https://captured-endpoint", supported=False)
+
+
+def test_native_audio_stt_fallback_does_not_write_after_session_swap(test_instance):
+    from plugin.chatbot.tool_loop_actions import abort_turn, current_turn
+
+    test_instance.audio_wav_path = "/fake/path/audio.wav"
+    old_session = test_instance.session
+    audio_content = [{"type": "input_audio"}]
+    old_session.messages.append({"role": "user", "content": audio_content})
+
+    live = current_turn(test_instance)
+    live.queue = MagicMock()
+    live.batcher = None
+    live.active_client = MagicMock()
+    live.active_query_text = "hello"
+    test_instance._spawn_llm_worker = MagicMock()
+
+    new_session = MockSession()
+    new_snapshot = list(new_session.messages)
+
+    def _transcribe_side_effect(_path, _model):
+        test_instance.session = new_session
+        abort_turn(test_instance)
+        return "spoken words"
+
+    test_instance._transcribe_audio = MagicMock(side_effect=_transcribe_side_effect)
+
+    with (
+        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
+        patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
+        patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
+        patch("plugin.framework.client.model_fetcher.set_native_audio_support"),
+        patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
+        patch("plugin.chatbot.tool_loop.os.remove") as mock_remove,
+    ):
+        res = test_instance._handle_stream_error("unsupported modality: audio")
+
+    assert res is None
+    assert new_session.messages == new_snapshot
+    assert old_session.messages[-1]["content"] == audio_content
+    test_instance._spawn_llm_worker.assert_not_called()
+    mock_remove.assert_not_called()
+    assert test_instance.audio_wav_path == "/fake/path/audio.wav"
+
+
+def test_stream_error_image_strip_uses_turn_session(test_instance):
+    old_session = test_instance.session
+    old_image_msg = {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "describe the image"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        ],
+    }
+    old_session.messages.append(old_image_msg)
+    old_session.db = MagicMock()
+
+    new_session = MockSession()
+    new_image_msg = {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "new describe the image"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,BBBB"}},
+        ],
+    }
+    new_session.messages.append(new_image_msg)
+    new_session.db = MagicMock()
+
+    test_instance.session = new_session
+
+    with (
+        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="gpt-oss-20b:nitro"),
+        patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"),
+        patch("plugin.framework.client.model_fetcher.set_native_vision_support") as mock_set_vision,
+    ):
+        payload = {"message": "No endpoints found that support image input"}
+        recovered = test_instance._handle_stream_error(payload)
+
+    assert recovered is None
+    mock_set_vision.assert_called_once_with("gpt-oss-20b:nitro", "https://openrouter.ai/api", supported=False)
+    assert old_session.messages[-1]["content"] == "describe the image"
+    old_session.db.update_last_user_content.assert_called_once_with("describe the image")
+    assert isinstance(new_session.messages[-1]["content"], list)
+    new_session.db.update_last_user_content.assert_not_called()
+
+
+def test_do_send_skip_append_user_does_not_append_audio_row(test_instance, mock_get_tools):
+    mock_get_tools.get_schemas.return_value = []
+    test_instance._start_tool_calling_async = MagicMock()
+    test_instance.audio_wav_path = "/fake/path/audio.wav"
+    test_instance.session.refresh_document_context(MagicMock(), test_instance.ctx)
+
+    msg_count_before = len(test_instance.session.messages)
+    last_msg_before = dict(test_instance.session.messages[-1])
+
+    test_instance._do_send_chat_with_tools("peer body", MagicMock(), "writer", skip_append_user=True)
+
+    assert len(test_instance.session.messages) == msg_count_before
+    assert test_instance.session.messages[-1] == last_msg_before
+    assert not any("peer body" in r for r in test_instance.responses)
+    assert test_instance.audio_wav_path == "/fake/path/audio.wav"
