@@ -83,3 +83,26 @@ def test_impress_active_domain_includes_slide_specialized_tools(domain: str, exp
     names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=_impress_doc(), active_domain=domain)}
     assert "specialized_workflow_finished" in names
     assert expected_subset <= names
+
+
+def test_draw_gateway_description_names_real_domains() -> None:
+    from plugin.draw.specialized import DelegateToSpecializedDraw
+
+    desc = DelegateToSpecializedDraw.description or ""
+    assert "templates/design" not in desc
+    for domain in [
+        "shapes",
+        "tables",
+        "images",
+        "charts",
+        "forms",
+        "math",
+        "python",
+        "layouts",
+        "transitions",
+        "masters",
+        "notes",
+        "headers",
+    ]:
+        assert domain in desc
+
