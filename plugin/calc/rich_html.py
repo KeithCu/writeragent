@@ -25,7 +25,7 @@ from typing import Any
 
 from plugin.framework.errors import ToolExecutionError, best_effort, uno_probe
 from plugin.framework.scratch_writer import clear_writer_body
-from plugin.framework.uno_context import _read_runtime_uid, get_desktop
+from plugin.framework.uno_context import get_desktop
 from plugin.calc.address_utils import parse_address
 from plugin.calc.bridge import CalcBridge
 import plugin.writer.format as format_support
@@ -39,54 +39,23 @@ log = logging.getLogger("writeragent.calc")
 # frame-manager collision on the shared "_blank" target is still the
 # remaining hunch. CREATE|GLOBAL = FrameSearchFlag 8|55 — named target
 # with flags 0 can search instead of creating.
+# Low-priority research (B2-A18): a Writer-free HTML->cell insert (parse the
+# fragment and write text portions directly) would delete this hidden Writer,
+# its clipboard lifecycle, and the template-clear problem. Not planned.
 _HTML_WRITER_TARGET = "_wa_calc_html"
 _HTML_WRITER_SEARCH_FLAGS = 8 | 55
+# Only this module loads _wa_calc_html, so process state says whether the load
+# below handed back the keeper. Do not enumerate the desktop (getComponents
+# can hang on Windows after a paste): the UID bookkeeping was deleted for that.
+_keeper_loaded = False
 
 
-def _step(msg: str) -> None:
-    """log.info plus stderr flush so GHA names the last call on a hang."""
+def _step(name: str) -> str:
+    """log.info plus stderr flush so GHA names the last call on a hang; returns *name* for the error."""
+    msg = "insert_cell_html_rich: " + name
     log.info(msg)
     print(msg, file=sys.stderr, flush=True)
-
-
-def _writer_runtime_uid(doc: Any) -> str:
-    """Best-effort RuntimeUID so we can say keeper vs new frame without changing load."""
-    return _read_runtime_uid(doc) or "-"
-
-
-def _desktop_writer_uids(desktop: Any) -> list[str]:
-    """RuntimeUIDs of open Writer docs. Read-only; must not load or close anything.
-
-    Safe only **before** loading/closing the temp Writer on the insert path
-    (``writers_open=`` logging). On Windows, ``desktop.getComponents()`` can
-    block indefinitely **after** ``temp_doc.close()`` when Calc still holds a
-    live ``insertTransferable`` paste — GHA 33771766524 / 33772063173: the
-    in-function ``writers_after_close`` call returned in ~10ms, then teardown
-    ``getComponents`` ~450ms later hung forever. Do not call this after closing
-    a post-paste Writer; ``insert_cell_html_rich`` reuses ``_wa_calc_html``
-    instead of closing on success.
-    """
-    uids: list[str] = []
-    enum = uno_probe(lambda: desktop.getComponents().createEnumeration(), None)
-    if enum is None:
-        return uids
-    # ``is True``: MagicMock.hasMoreElements() is truthy and would loop.
-    n = 0
-    while n < 64:
-        try:
-            if enum.hasMoreElements() is not True:
-                break
-            component = enum.nextElement()
-        except Exception:
-            break
-        n += 1
-
-        def _is_writer(comp: Any = component) -> Any:
-            return comp.supportsService("com.sun.star.text.TextDocument")
-
-        if uno_probe(_is_writer, False):
-            uids.append(_writer_runtime_uid(component))
-    return uids
+    return name
 
 
 def _controller_get_transferable(controller: Any) -> Any:
@@ -164,7 +133,7 @@ def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> str:
         return "error:%s" % exc
 
 
-def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, *, config_svc: Any = None) -> None:
+def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) -> None:
     """Replace one cell's text with rich content parsed from *html* (active sheet).
 
     *uno_ctx* is the UNO component context (e.g. ``ToolContext.ctx``).
@@ -172,6 +141,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
     Imports HTML using the same StarWriter HTML filter as Writer, then pastes
     into the target cell. Images and embedded objects are not supported.
     """
+    global _keeper_loaded
     if not (html or "").strip():
         raise ToolExecutionError("HTML content is empty")
 
@@ -183,8 +153,8 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
     content = html_std.unescape(html)
     prepared = format_support._ensure_html_linebreaks(content)
 
+    step = "start"
     temp_doc = None
-    close_temp = True
     transferable: Any = None
     pasted = False
     try:
@@ -192,16 +162,12 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
         hidden = format_support.create_property_value("Hidden", True)
         # Do not import chatbot.create_hidden_html_writer — this module ships
         # in LibrePy without chatbot.
-        _step("insert_cell_html_rich: loadComponentFromURL start target=%s hidden=True flags=%s" % (_HTML_WRITER_TARGET, _HTML_WRITER_SEARCH_FLAGS))
-        writers_before = _desktop_writer_uids(desktop)
-        _step("insert_cell_html_rich: writers_open=%s uids=%s" % (len(writers_before), writers_before))
+        reused = _keeper_loaded
+        step = _step("load hidden Writer")
         temp_doc = desktop.loadComponentFromURL("private:factory/swriter", _HTML_WRITER_TARGET, _HTML_WRITER_SEARCH_FLAGS, (hidden,))
-        temp_uid = _writer_runtime_uid(temp_doc) if temp_doc is not None else "-"
-        reused_existing = bool(temp_uid != "-" and temp_uid in writers_before)
+        _keeper_loaded = temp_doc is not None
         # Never close the Windows keeper. After a successful paste we also
         # keep this Writer (see finally) — CREATE|GLOBAL reuses _wa_calc_html.
-        close_temp = not reused_existing
-        _step("insert_cell_html_rich: loadComponentFromURL done target=%s temp_uid=%s reused_existing=%s close_temp=%s" % (_HTML_WRITER_TARGET, temp_uid, reused_existing, close_temp))
         if temp_doc is None or not hasattr(temp_doc, "getText"):
             raise ToolExecutionError("Could not create temporary Writer document")
 
@@ -214,12 +180,13 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
         # template, and a successful paste keeps this Writer (CREATE|GLOBAL
         # reuses _wa_calc_html), so the first rich-HTML paste copies the
         # letterhead into the cell and later pastes append onto it.
-        clear_writer_body(temp_doc)
+        step = _step("clear hidden Writer")
+        if not clear_writer_body(temp_doc):
+            raise ToolExecutionError("Could not clear the hidden Writer before pasting HTML into the cell.")
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
-        _step("insert_cell_html_rich: HTML insert start")
-        format_support._insert_starwriter_html_at_cursor(temp_doc, cursor, prepared, config_svc=config_svc)
-        _step("insert_cell_html_rich: HTML insert done")
+        step = _step("insert HTML into hidden Writer")
+        format_support._insert_starwriter_html_at_cursor(temp_doc, cursor, prepared)
 
         # Hidden Writer docs must not use getViewCursor() — it can crash the
         # process (no real view). Select the whole body with a text cursor and
@@ -230,38 +197,34 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
         sel.gotoStart(False)
         sel.gotoEnd(True)
         w_ctrl.select(sel)
-        _step("insert_cell_html_rich: getTransferable start")
+        step = _step("get transferable")
         transferable = _controller_get_transferable(w_ctrl)
         # Do not snapshot SystemClipboard here. GHA 33771766524: getContents()
         # was empty on every call, but those queries still attach the Windows
         # OLE clipboard thread (CMtaOleClipboard) and the next desktop enum
         # then blocked. Release-if-ours below is the only clipboard touch.
-        _step("insert_cell_html_rich: getTransferable done xfer_id=%s" % id(transferable))
 
         cell.getText().setString("")
 
         c_ctrl = doc.getCurrentController()
-        _step("insert_cell_html_rich: select cell start")
+        step = _step("select cell")
         c_ctrl.select(cell)
-        _step("insert_cell_html_rich: select cell done")
-        _step("insert_cell_html_rich: insertTransferable start")
+        step = _step("insert transferable")
         _controller_insert_transferable(c_ctrl, transferable)
-        _step("insert_cell_html_rich: insertTransferable done")
         # SwXTextView.getTransferable builds a SwTransferable bound to this
         # Writer (PrepareForCopy). Keep the #572 rule: if SystemClipboard
         # still owns that object, drop it before any close. Do not gc.collect()
         # — GHA 33771769928 aborted in freeUnoInterfaceProxy → SdrObject dtor
         # → SfxItemPool::unregisterItemSet after #572 forced a full GC.
-        _step("insert_cell_html_rich: clipboard release start")
-        released = _release_clipboard_if_holds(uno_ctx, transferable)
+        step = _step("release clipboard")
+        _release_clipboard_if_holds(uno_ctx, transferable)
         transferable = None
         pasted = True
-        _step("insert_cell_html_rich: clipboard release done released=%s" % released)
     except ToolExecutionError:
         raise
     except Exception as e:
         log.debug("insert_cell_html_rich failed", exc_info=True)
-        raise ToolExecutionError(f"Failed to insert HTML into cell: {e}") from e
+        raise ToolExecutionError(f"Failed to insert HTML into cell at {step!r}: {e}") from e
     finally:
         if transferable is not None:
             _release_clipboard_if_holds(uno_ctx, transferable)
@@ -272,9 +235,9 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
         # forever while Calc holds the paste. Do not close on success; reuse
         # _wa_calc_html (CREATE|GLOBAL) and clear the body on the next call.
         # Keep #572: release SystemClipboard only when it owns our transferable.
-        if temp_doc is not None and close_temp and not pasted:
-            _step("insert_cell_html_rich: close start")
+        if temp_doc is not None and not reused and not pasted:
+            step = _step("close hidden Writer")
             best_effort(lambda: temp_doc.close(True), "temp Writer close failed")
-            _step("insert_cell_html_rich: close done")
+            _keeper_loaded = False
         elif temp_doc is not None:
-            _step("insert_cell_html_rich: close skipped pasted=%s reused_existing=%s" % (pasted, not close_temp))
+            log.debug("insert_cell_html_rich: keep hidden Writer reused=%s pasted=%s", reused, pasted)

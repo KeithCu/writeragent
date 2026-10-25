@@ -720,11 +720,7 @@ class InsertCellHtml(ToolBase):
         except ValueError as e:
             return self._tool_error(f"Invalid cell address: {e}")
 
-        config_svc = None
-        if ctx.services is not None and hasattr(ctx.services, "get"):
-            config_svc = ctx.services.get("config")
-
-        insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html, config_svc=config_svc)
+        insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html)
         return {"status": "ok", "message": f"Inserted rich HTML into cell {addr.upper()}."}
 
 
