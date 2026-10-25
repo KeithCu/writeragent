@@ -17,7 +17,6 @@ from typing import Any
 from plugin.framework.module_base import ModuleBase
 
 _TOOL_MODULES = (
-    "plugin.doc.diagnostics",
     "plugin.doc.document_research_tools",
     "plugin.doc.document_research_grep_tool",
     "plugin.embeddings.document_research_fts_tool",
@@ -25,7 +24,6 @@ _TOOL_MODULES = (
     "plugin.doc.find_tools_tool",
     "plugin.doc.python_domain_specialized",
     "plugin.doc.peer_message",
-    "plugin.doc.print_doc",
     "plugin.doc.undo",
 )
 

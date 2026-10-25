@@ -282,8 +282,8 @@ def get_document_context_for_chat(
                 tail_start = max(0, doc_len - end_chars)
                 start_excerpt = _text_helpers._read_writer_text_slice(model, 0, start_chars)
                 end_excerpt = _text_helpers._read_writer_text_slice(model, tail_start, end_chars)
-                start_excerpt = _inject_markers_into_excerpt(start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
-                end_excerpt = _inject_markers_into_excerpt(end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "\n[END DOCUMENT]")
+                start_excerpt = _inject_selection_markers(model, start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
+                end_excerpt = _inject_selection_markers(model, end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "\n[END DOCUMENT]")
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _with_math_ole_chat_hint(
                     model,
@@ -294,7 +294,7 @@ def get_document_context_for_chat(
             excerpt = _text_helpers._read_writer_text_slice(model, 0, take)
             if doc_len > max_context:
                 excerpt += "\n\n[... document truncated ...]"
-            excerpt = _inject_markers_into_excerpt(excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]")
+            excerpt = _inject_selection_markers(model, excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]")
             return _with_math_ole_chat_hint(
                 model,
                 "Document length: %d characters.\n\n%s" % (shown_len, excerpt),
@@ -312,6 +312,35 @@ def get_document_context_for_chat(
         except DocumentDisposedError:
             pass
         return "[Document content unavailable]"
+
+
+def _inject_selection_markers(
+    model: Any,
+    excerpt_text: str,
+    excerpt_start: int,
+    excerpt_end: int,
+    sel_start: int,
+    sel_end: int,
+    prefix: str,
+    suffix: str,
+) -> str:
+    """Insert selection markers at visible offsets in the excerpt."""
+    # Excerpt hides pending deletions and multi-step UNO objects (like
+    # fields/footnotes), so cursor-step offsets cannot index it directly;
+    # read the prefix slice to map into visible coordinates.
+    visible_len = len(excerpt_text)
+
+    def _visible(offset: int) -> int:
+        if offset <= excerpt_start:
+            return 0
+        if offset >= excerpt_end:
+            return visible_len
+        prefix_text = _text_helpers._read_writer_text_slice(model, excerpt_start, offset - excerpt_start)
+        return min(len(prefix_text), visible_len)
+
+    return _inject_markers_into_excerpt(
+        excerpt_text, 0, visible_len, _visible(sel_start), _visible(sel_end), prefix, suffix
+    )
 
 
 def _inject_markers_into_excerpt(
