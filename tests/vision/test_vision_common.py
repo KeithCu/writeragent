@@ -18,6 +18,7 @@ from plugin.vision.vision_common import (
     merge_vision_params,
     resolve_engine,
     resolve_vision_insert_mode,
+    table_from_span_cells,
     table_to_tsv_lines,
 )
 
@@ -92,3 +93,52 @@ def test_bbox_to_xywh_bottomleft_flip():
     docling_box = {"l": 10.0, "b": 20.0, "r": 50.0, "t": 60.0, "coord_origin": "BOTTOMLEFT"}
     box = bbox_to_xywh(docling_box, page_height=100.0)
     assert box == [10, 40, 40, 40]
+
+
+class _Box:
+    def __init__(self, l, t, r, b, coord_origin=""):  # noqa: E741
+        self.l, self.t, self.r, self.b = l, t, r, b
+        self.coord_origin = coord_origin
+
+
+class _NumpyRow:
+    """A 4-number box that is not a list/tuple, like a numpy rec_boxes row."""
+
+    def __init__(self, values):
+        self._values = values
+
+    def __len__(self):
+        return len(self._values)
+
+    def __getitem__(self, index):
+        return self._values[index]
+
+
+def test_bbox_to_xywh_sequence_forms():
+    quad = [[10, 10], [40, 10], [40, 20], [10, 20]]
+    assert bbox_to_xywh(quad) == [10, 10, 30, 10]
+    assert bbox_to_xywh([10, 10, 300, 200]) == [10, 10, 290, 190]
+    assert bbox_to_xywh(_NumpyRow([10, 10, 300, 200])) == [10, 10, 290, 190]
+    assert bbox_to_xywh([10, 10, 10, 20]) == [10, 10, 0, 10]
+    assert bbox_to_xywh([]) == [0, 0, 0, 0]
+    assert bbox_to_xywh(None) == [0, 0, 0, 0]
+    assert bbox_to_xywh([[10, 10]]) == [10, 10, 0, 0]
+    assert bbox_to_xywh([[10], [20]]) == [0, 0, 0, 0]
+
+
+def test_bbox_to_xywh_dict_and_object_forms():
+    assert bbox_to_xywh({"x": 1, "y": 2, "w": 3, "h": 4}) == [1, 2, 3, 4]
+    assert bbox_to_xywh({"l": 10, "t": 10, "r": 50, "b": 30}) == [10, 10, 40, 20]
+    assert bbox_to_xywh({"left": 10, "top": 10, "right": 50, "bottom": 30}) == [10, 10, 40, 20]
+    assert bbox_to_xywh(_Box(10, 10, 50, 30)) == [10, 10, 40, 20]
+    bottomleft = {"l": 10.0, "b": 20.0, "r": 50.0, "t": 60.0, "coord_origin": "BOTTOMLEFT"}
+    assert bbox_to_xywh(bottomleft, page_height=100.0) == [10, 40, 40, 40]
+    assert bbox_to_xywh(_Box(10.0, 60.0, 50.0, 20.0, "BOTTOMLEFT"), page_height=100.0) == [10, 40, 40, 40]
+    assert bbox_to_xywh({"l": "bad", "t": 1, "r": 2, "b": 3}) == [0, 0, 0, 0]
+
+
+def test_table_from_span_cells_falls_through_bad_alias():
+    cells = [{"start_row_offset_idx": "bad", "start_row": 1, "start_col": 0, "text": "A"}]
+    table = table_from_span_cells(cells, 2, 1, name="t")
+    assert table["rows"] == [["A"]]
+

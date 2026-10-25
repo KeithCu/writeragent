@@ -2,20 +2,16 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Gate LLM vision/OCR tools on Settings venv configuration (fast) or package probe (diagnostics)."""
+"""Gate LLM vision/OCR tools on Settings venv configuration (fast, no package probe)."""
 
 from __future__ import annotations
 
-import copy
 import logging
-import os
 from typing import Any
 
 from plugin.framework.config import get_config_str
 from plugin.framework.errors import ConfigError
-from plugin.scripting.config_limits import VISION_PROBE_TIMEOUT_SEC
 from plugin.scripting.sandbox import resolve_venv_python
-from plugin.scripting.venv_diagnostics import probe_vision_packages, vision_ocr_stack_ready
 
 log = logging.getLogger(__name__)
 
@@ -23,44 +19,12 @@ _VISION_DOMAIN = "vision"
 _VISION_TOOL_NAME = "extract_structure_from_image"
 _DELEGATE_GATEWAY_NAMES = frozenset({"delegate_to_specialized_writer_toolset", "delegate_to_specialized_calc_toolset", "delegate_to_specialized_draw_toolset"})
 
-# Package probe cache (Settings self-check / diagnostics only — not used on Send / get_schemas).
-_probe_cache: dict[tuple[str, float], bool] = {}
-
-
-def invalidate_vision_availability_cache() -> None:
-    """Drop cached vision probe results (e.g. after Settings venv path change)."""
-    _probe_cache.clear()
-
 
 def _resolve_vision_python_exe() -> str | None:
     venv_dir = get_config_str("scripting.python_venv_path").strip()
     if not venv_dir:
         return None
     return resolve_venv_python(venv_dir)
-
-
-def _probe_ready(python_exe: str) -> bool:
-    try:
-        mtime = os.path.getmtime(python_exe)
-    except OSError:
-        mtime = 0.0
-    cache_key = (python_exe, mtime)
-    if cache_key in _probe_cache:
-        return _probe_cache[cache_key]
-
-    probe, err = probe_vision_packages(python_exe, timeout=float(VISION_PROBE_TIMEOUT_SEC))
-    if err:
-        # What was wrong: a timeout cached ready=False under (exe, mtime).
-        # How: probe_vision_packages returns ({}, hint) and vision_ocr_stack_ready({})
-        # is False, and that False was stored until the interpreter file changed.
-        # Why: err means the probe did not run. Do not cache it. err is None
-        # for a finished probe, including a real not-ready stack, and that
-        # result stays cached.
-        log.debug("vision_packages_probe_ready: probe note: %s", err)
-        return False
-    ready = vision_ocr_stack_ready(probe)
-    _probe_cache[cache_key] = ready
-    return ready
 
 
 def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
@@ -94,17 +58,6 @@ def vision_venv_configured(ctx: Any = None) -> bool:
         return False
 
 
-def vision_packages_probe_ready(ctx: Any = None) -> bool:
-    """True when the venv subprocess probe finds a ready OCR stack (see vision_ocr_stack_ready).
-
-    For Settings diagnostics only — do not call from get_schemas or chat send setup.
-    """
-    python_exe = _resolve_vision_python_exe()
-    if not python_exe:
-        return False
-    return _probe_ready(python_exe)
-
-
 def filter_vision_specialized_tools(tools: list[Any], ctx: Any = None) -> list[Any]:
     """Omit extract_structure_from_image when no Settings venv is configured."""
     if vision_venv_configured(ctx):
@@ -121,15 +74,21 @@ def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = Non
 
     out: list[dict[str, Any]] = []
     for schema in schemas:
-        assert isinstance(schema, dict) and isinstance(schema.get("function"), dict), schema
-        fn = schema["function"]
-        if fn.get("name") not in _DELEGATE_GATEWAY_NAMES:
+        fn = schema.get("function") if isinstance(schema, dict) else None
+        if not isinstance(fn, dict) or fn.get("name") not in _DELEGATE_GATEWAY_NAMES:
             out.append(schema)
             continue
-        patched = copy.deepcopy(schema)
-        props = patched.get("function", {}).get("parameters", {}).get("properties", {})
+        params = fn.get("parameters")
+        props = params.get("properties") if isinstance(params, dict) else None
         domain_prop = props.get("domain") if isinstance(props, dict) else None
-        if isinstance(domain_prop, dict) and isinstance(domain_prop.get("enum"), list):
-            domain_prop["enum"] = [d for d in domain_prop["enum"] if d != _VISION_DOMAIN]
-        out.append(patched)
+        if not isinstance(params, dict) or not isinstance(props, dict):
+            out.append(schema)
+            continue
+        if not (isinstance(domain_prop, dict) and isinstance(domain_prop.get("enum"), list)):
+            out.append(schema)
+            continue
+        # Copy only the path being changed; deepcopy of the whole schema ran on
+        # every get_schemas call while the venv is unset.
+        new_domain = {**domain_prop, "enum": [d for d in domain_prop["enum"] if d != _VISION_DOMAIN]}
+        out.append({**schema, "function": {**fn, "parameters": {**params, "properties": {**props, "domain": new_domain}}}})
     return out

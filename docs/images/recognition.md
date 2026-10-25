@@ -890,7 +890,7 @@ Checklist for implementers / QA:
 | Domain | `delegate_to_specialized_writer_toolset` / `delegate_to_specialized_calc_toolset` with `domain="vision"` — **gateway shortcut** (runs OCR directly, no Smol sub-agent; same pattern as `web_research`; always inserts into document) |
 | Backend | [`run_trusted_vision`](../../plugin/vision/vision_runner.py) → [`run_vision`](../../plugin/scripting/client.py) |
 | Insert | [`insert_vision_result`](../../plugin/vision/vision_egress.py) when `insert_into_document=true` (default) |
-| Gating | [`vision_venv_configured`](../../plugin/vision/vision_availability.py) — schema/prompt gate: Settings venv path + resolvable `python` only (no import probe on Send). Package presence is validated at OCR runtime and in Settings → Python → Test ([`vision_packages_probe_ready`](../../plugin/vision/vision_availability.py)); domain/tool hidden when venv is not configured |
+| Gating | [`vision_venv_configured`](../../plugin/vision/vision_availability.py) — schema/prompt gate: Settings venv path + resolvable `python` only (no import probe on Send). Package presence is validated at OCR runtime and in Settings → Python → Test (which runs [`probe_vision_packages`](../../plugin/scripting/venv_diagnostics.py)); domain/tool hidden when venv is not configured |
 
 | Argument | Role |
 |----------|------|
