@@ -10,9 +10,11 @@ on the Writer view watches single left-clicks; when the caret lands inside an AG
 (identified by its wa-review session token -- the user's own redlines don't trigger it), a
 small popup menu opens at the click position with Accept / Reject for that whole change.
 
-The click itself is never consumed (the caret still moves normally), and the check runs as a
-posted main-thread follow-up so LibreOffice finishes its own click handling (caret placement)
-first. Registration mirrors change_context_menu: per controller, UNO-identity dedup.
+The click itself is never consumed (the caret still moves normally); a popup opens only for a
+plain click that leaves a collapsed caret (not a drag, Shift-click or word-select), and the click
+never changes the selection. The check runs as a posted main-thread follow-up so LibreOffice
+finishes its own click handling (caret placement) first. Registration mirrors change_context_menu:
+per controller, UNO-identity dedup.
 """
 
 from __future__ import annotations
@@ -25,11 +27,26 @@ import unohelper
 
 log = logging.getLogger(__name__)
 
+_CLICK_SLOP = 4
+
 _lock = threading.RLock()
-_registered_controllers: list[Any] = []  # UNO-identity dedup (PyUNO proxies: use ==, not id());
-# strong refs kept for the office session -- releasing on view dispose is follow-up work
-_handlers: list[Any] = []  # strong refs
+_attached: list[tuple[Any, Any]] = []  # (controller, handler); strong refs until the view is disposed
 _handler_cls: Any = None
+
+
+def _same_click_point(pressed: tuple[int, int] | None, x: int, y: int) -> bool:
+    if pressed is None:
+        return True
+    return abs(x - pressed[0]) <= _CLICK_SLOP and abs(y - pressed[1]) <= _CLICK_SLOP
+
+
+def _detach(handler: Any) -> Any | None:
+    with _lock:
+        for idx, (c, h) in enumerate(_attached):
+            if h is handler:
+                _attached.pop(idx)
+                return c
+    return None
 
 
 def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> None:
@@ -39,7 +56,6 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         from plugin.framework.uno_context import get_ctx
         from plugin.writer.inline_review import (
             cursor_in_agent_change,
-            goto_agent_change,
             resolve_change_at_cursor,
             scan_redline_view,
             show_review_message,
@@ -48,14 +64,24 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         ctx = get_ctx()
         if ctx is None:
             return
+
+        try:
+            cursor = model.getCurrentController().getViewCursor()
+            if not cursor.isCollapsed():
+                return
+        except Exception:
+            return
+
+        try:
+            if int(model.getRedlines().getCount()) == 0:
+                return
+        except Exception:  # noqa: S110 - fail open: unreadable count keeps full-scan path
+            pass
+
         view = scan_redline_view(model)
         token = cursor_in_agent_change(model, view=view)
         if token is None:
             return
-
-        # Select the whole edited region so it's highlighted while the user decides -- mirrors
-        # the native Manage Changes dialog, where picking a change selects it in the document.
-        goto_agent_change(model, token, view=view)
 
         from com.sun.star.awt import Rectangle
 
@@ -82,24 +108,34 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         log.warning("review_click_popup: popup failed", exc_info=True)
 
 
-def _make_handler(model: Any) -> Any:
+def _make_handler(model: Any, controller: Any) -> Any:
     global _handler_cls
     if _handler_cls is None:
         from com.sun.star.awt import XMouseClickHandler
 
         class _ClickReviewHandler(unohelper.Base, XMouseClickHandler):  # type: ignore[misc, valid-type]
             _model: Any
+            _controller: Any
+            _press: tuple[int, int] | None
 
-            def __init__(self, model: Any) -> None:
+            def __init__(self, model: Any, controller: Any) -> None:
                 super().__init__()
                 self._model = model
+                self._controller = controller
+                self._press = None
 
             def mousePressed(self, e: Any) -> bool:  # noqa: N802 -- UNO API
+                try:
+                    self._press = (e.X, e.Y)
+                except Exception:
+                    self._press = None
                 return False  # never consume
 
             def mouseReleased(self, e: Any) -> bool:  # noqa: N802 -- UNO API
                 try:
                     if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:  # plain left click
+                        if not _same_click_point(self._press, e.X, e.Y):
+                            return False
                         source = e.Source
                         x, y = e.X, e.Y
                         model = self._model
@@ -112,28 +148,31 @@ def _make_handler(model: Any) -> Any:
                 return False  # never consume
 
             def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO API
-                pass
+                controller = _detach(self)
+                if controller is None:
+                    return
+                try:
+                    if controller.getModel() is not None:
+                        controller.removeMouseClickHandler(self)
+                except Exception:  # noqa: S110 - best-effort cleanup on dispose
+                    pass
 
         _handler_cls = _ClickReviewHandler
-    return _handler_cls(model)
+    return _handler_cls(model, controller)
 
 
 def cleanup_disposed_controllers() -> None:
     """Passively remove any disposed controllers/handlers from tracking lists."""
     try:
         with _lock:
-            alive_controllers = []
-            alive_handlers = []
-            for idx, ctrl in enumerate(_registered_controllers):
+            alive: list[tuple[Any, Any]] = []
+            for ctrl, handler in _attached:
                 try:
                     if ctrl.getModel() is not None:
-                        alive_controllers.append(ctrl)
-                        if idx < len(_handlers):
-                            alive_handlers.append(_handlers[idx])
+                        alive.append((ctrl, handler))
                 except Exception:  # noqa: S110 - disposed controller; getModel() failing is the liveness check
                     pass
-            _registered_controllers[:] = alive_controllers
-            _handlers[:] = alive_handlers
+            _attached[:] = alive
     except Exception:
         log.debug("review_click_popup: cleanup failed", exc_info=True)
 
@@ -145,18 +184,17 @@ def register_click_review(controller: Any) -> None:
     cleanup_disposed_controllers()
     try:
         with _lock:
-            if controller in _registered_controllers:
+            if any(c == controller for c, _h in _attached):
                 return
         if not hasattr(controller, "addMouseClickHandler"):
             return
         model = controller.getModel()
-        handler = _make_handler(model)
+        handler = _make_handler(model, controller)
         with _lock:
-            if controller in _registered_controllers:
+            if any(c == controller for c, _h in _attached):
                 return
             controller.addMouseClickHandler(handler)
-            _registered_controllers.append(controller)
-            _handlers.append(handler)
+            _attached.append((controller, handler))
         log.debug("review_click_popup: registered on Writer controller")
     except Exception:
         log.warning("review_click_popup: register failed", exc_info=True)

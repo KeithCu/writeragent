@@ -83,6 +83,10 @@ class _FakeRl:
             if self._raise_comment:
                 raise RuntimeError("comment unreadable")
             return self.comment
+        if name == "RedlineDateTime":
+            return None
+        if name == "RedlineSuccessorData":
+            return ()
         assert name == "RedlineIdentifier"
         if self._rid is _RAISE:
             raise RuntimeError("identifier unreadable")

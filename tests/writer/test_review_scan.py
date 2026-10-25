@@ -24,6 +24,11 @@ def test_make_agent_token_and_prefix():
 
 def test_is_agent_token():
     assert is_agent_token("wa-review:s:0") is True
+    assert is_agent_token("wa-review: see notes") is False
+    assert is_agent_token("wa-review:s:0 trailing") is False
+    assert is_agent_token("wa-review:s") is False
+    assert is_agent_token("wa-review:s:x") is False
+    assert is_agent_token("wa-review:s:1:2") is False
     assert is_agent_token("user note") is False
     assert is_agent_token("") is False
     assert is_agent_token(None) is False
@@ -112,6 +117,8 @@ class _KeyedRl:
                        "RedlineDateTime": stamp, "RedlineComment": comment}
 
     def getPropertyValue(self, name):
+        if name == "RedlineSuccessorData":
+            return self._props.get("RedlineSuccessorData", ())
         return self._props[name]
 
 
@@ -186,6 +193,50 @@ def test_new_redlines_since_leaves_a_stack_on_a_user_change_untagged():
     assert ok and new == [on_agent]
 
 
+class _RaisingDateRl(_KeyedRl):
+    def getPropertyValue(self, name):
+        if name == "RedlineDateTime":
+            raise RuntimeError("date unreadable")
+        return super().getPropertyValue(name)
+
+
+class _RaisingSuccessorRl(_KeyedRl):
+    def getPropertyValue(self, name):
+        if name == "RedlineSuccessorData":
+            raise RuntimeError("successor unreadable")
+        return super().getPropertyValue(name)
+
+
+def test_redline_date_read_error_fails_closed():
+    from plugin.writer.review_scan import new_redlines_since
+
+    bad = _RaisingDateRl("1")
+    _ids, ok = snapshot_redline_ids(_KeyedDoc([bad]))
+    assert ok is False
+
+    new, ok = new_redlines_since(_KeyedDoc([bad]), set())
+    assert new == []
+    assert ok is False
+
+
+def test_genuinely_undated_new_redline_is_tagged():
+    from plugin.writer.review_scan import new_redlines_since
+
+    rl = _KeyedRl("1", stamp=None)
+    new, ok = new_redlines_since(_KeyedDoc([rl]), set())
+    assert ok is True
+    assert new == [rl]
+
+
+def test_successor_read_error_leaves_untagged_fail_closed():
+    from plugin.writer.review_scan import new_redlines_since
+
+    bad = _RaisingSuccessorRl("1")
+    new, ok = new_redlines_since(_KeyedDoc([bad]), set())
+    assert ok is True
+    assert new == []
+
+
 def test_agent_change_presence_stop_at_first():
     from plugin.writer.review_scan import agent_change_presence
 
@@ -242,6 +293,44 @@ def test_agent_change_presence_clean_document():
 
     count, reliable = agent_change_presence(_Doc())
     assert (count, reliable) == (0, True)
+
+
+def test_agent_change_presence_unreadable_comment():
+    from plugin.writer.review_scan import agent_change_presence
+
+    class _BadRl(_KeyedRl):
+        def getPropertyValue(self, name):
+            if name == "RedlineComment":
+                raise RuntimeError("comment unreadable")
+            return super().getPropertyValue(name)
+
+    class _Doc:
+        def getRedlines(self):
+            return _KeyedDoc([_BadRl("1")]).getRedlines()
+
+    count, reliable = agent_change_presence(_Doc())
+    assert (count, reliable) == (0, False)
+
+
+def test_agent_change_presence_unreadable_comment_after_agent_token():
+    from plugin.writer.review_scan import agent_change_presence
+
+    class _BadRl(_KeyedRl):
+        def getPropertyValue(self, name):
+            if name == "RedlineComment":
+                raise RuntimeError("comment unreadable")
+            return super().getPropertyValue(name)
+
+    class _Doc:
+        def getRedlines(self):
+            return _KeyedDoc([
+                _KeyedRl("1", comment=TOKEN_PREFIX + "s:0"),
+                _BadRl("2"),
+            ]).getRedlines()
+
+    count, reliable = agent_change_presence(_Doc())
+    assert reliable is False
+    assert count == 1
 
 
 def test_document_has_tracked_deletions():
