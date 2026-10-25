@@ -50,6 +50,82 @@ def test_get_draw_context_for_chat_summarizes_active_page():
     assert "Hello" in out
 
 
+def test_get_draw_context_for_chat_keeps_going_when_one_shape_cannot_be_read():
+    page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    bad_shape = MagicMock()
+    from plugin.framework.errors import UnoObjectError
+    bad_shape.getShapeType.side_effect = UnoObjectError("boom")
+    bad_shape.getPosition.side_effect = UnoObjectError("boom")
+    bad_shape.getSize.side_effect = UnoObjectError("boom")
+    bad_shape.getString.side_effect = UnoObjectError("boom")
+
+    good_shape = MagicMock()
+    good_shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    pos = MagicMock(X=10, Y=20)
+    size = MagicMock(Width=100, Height=50)
+    good_shape.getPosition.return_value = pos
+    good_shape.getSize.return_value = size
+    good_shape.getString.return_value = "Hello"
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+    model.getURL.return_value = "file:///tmp/demo.odg"
+
+    bridge = MagicMock()
+    bridge.get_pages.return_value = pages
+    bridge.get_active_page.return_value = page
+    bridge.get_shapes.return_value = [bad_shape, good_shape]
+
+    with (
+        patch("plugin.draw.bridge.check_disposed"),
+        patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
+        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+    ):
+        out = get_draw_context_for_chat(model, 8000)
+
+    assert "Hello" in out
+    assert "Unable to read Draw/Impress context" not in out
+    assert "- [0] Shape" in out
+
+
+def test_get_draw_context_for_chat_keeps_notes_when_shapes_exceed_budget():
+    page = _FalsyPage()
+    page.notes = _NotesPage(_NotesShape())
+
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    shape.getPosition.return_value = MagicMock(X=10, Y=20)
+    shape.getSize.return_value = MagicMock(Width=100, Height=50)
+    shape.getString.return_value = "H" * 5000
+
+    model = MagicMock()
+    model.supportsService.return_value = True
+    model.getURL.return_value = "file:///tmp/demo.odp"
+
+    bridge = MagicMock()
+    bridge.get_pages.return_value = pages
+    bridge.get_active_page.return_value = page
+    bridge.get_shapes.return_value = [shape]
+
+    with (
+        patch("plugin.draw.bridge.check_disposed"),
+        patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
+        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+    ):
+        out = get_draw_context_for_chat(model, 200)
+
+    assert "Speaker Notes:" in out
+    assert "Cue the blank slide" in out
+
+
 def test_get_draw_context_for_chat_truncates_to_max_context():
     page = MagicMock()
     pages = MagicMock()
@@ -223,29 +299,6 @@ def test_draw_bridge_writer_single_draw_page():
     pages = bridge.get_pages()
     assert pages.getCount() == 1
     assert pages.getByIndex(0) is page
-
-
-def test_draw_bridge_calc_active_sheet_draw_page():
-    from plugin.draw.bridge import DrawBridge
-
-    page = object()
-
-    class Sheet:
-        def getDrawPage(self):
-            return page
-
-    class CalcDoc:
-        def getSheets(self):
-            return MagicMock()
-
-        def getCurrentController(self):
-            ctrl = MagicMock()
-            ctrl.getActiveSheet.return_value = Sheet()
-            return ctrl
-
-    bridge = DrawBridge(CalcDoc())
-    assert bridge.get_pages().getCount() == 1
-    assert bridge.get_pages().getByIndex(0) is page
 
 
 def test_draw_bridge_rejects_document_without_draw_page():
@@ -805,24 +858,6 @@ def test_get_draw_context_for_chat_uses_uno_same_when_wrappers_differ():
     assert "Active Slide Index: 1" in out
     assert "Active Slide Index: -1" not in out
 
-def test_calc_bridge_targets_active_sheet():
-    from plugin.draw.bridge import DrawBridge
-    doc = MagicMock()
-    del doc.getDrawPages
-    del doc.getDrawPage
-    # It will hit CalcBridge, so we need to set it up such that it returns a sheet
-    sheets = MagicMock()
-    sheet = MagicMock()
-    page = MagicMock()
-    sheet.getDrawPage.return_value = page
-    sheets.getByIndex.return_value = sheet
-    doc.getSheets.return_value = sheets
-    doc.getCurrentController.return_value.getActiveSheet.return_value = sheet
-    doc.getCurrentController.return_value.ActiveSheet = sheet
-    del doc.getCurrentController.return_value.getCurrentPage
-    bridge = DrawBridge(doc)
-    assert bridge.get_active_page() is page
-
 
 def test_move_slide_raises_when_exchange_rollback_fails():
     from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
@@ -1029,12 +1064,12 @@ def test_draw_bridge_writer_disposed_get_draw_page_is_not_missing_page():
     assert isinstance(info.value.__cause__, DisposedException)
 
 
-def test_draw_bridge_calc_disposed_sheet_is_not_missing_page():
+def test_draw_bridge_disposed_get_draw_pages_is_document_disposed():
     class DisposedException(Exception):
         pass
 
-    doc = MagicMock(spec=["getSheets", "getCurrentController"])
-    doc.getCurrentController.side_effect = DisposedException("closed")
+    doc = MagicMock(spec=["getDrawPages"])
+    doc.getDrawPages.side_effect = DisposedException("closed")
 
     from plugin.draw.bridge import DrawBridge
 
