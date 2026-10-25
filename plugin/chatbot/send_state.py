@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, assert_never, cast
+from typing import Any, assert_never
 
 from plugin.framework.service import BaseState, FsmTransition
 from plugin.framework.deal_shim import deal
@@ -123,7 +123,7 @@ def _replace_state(state: SendButtonState, **changes: Any) -> SendButtonState:
 
 
 def _noop(state: SendButtonState) -> FsmTransition[SendButtonState]:
-    return FsmTransition(state, cast("list[Any]", ()))
+    return FsmTransition(state, [])
 
 
 # Helper to determine the button label

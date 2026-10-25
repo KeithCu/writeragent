@@ -400,7 +400,7 @@ class SendButtonListener(BaseActionListener):
         self._button_action = ButtonAction.RECORD
         self._stop_button_action = ButtonAction.IGNORE
         self._clear_button_action = ButtonAction.IGNORE
-        self._subscriptions: list[tuple[Any, str, Any]] = []
+        self._subscriptions = []
         self._sidebar_mode = SidebarModeController(self)
         self.panel = None
         self.client = None
@@ -417,9 +417,9 @@ class SendButtonListener(BaseActionListener):
         self._record_assistant_start = False
         self._assistant_stream_start_len: int | None = None
         self._approval_event = None
-        self._approval_ui_backup = None
-        self._approval_query_for_engine = None
-        self._dispatch_reenter = None
+        self._approval_ui_backup: dict[str, Any] | None = None
+        self._approval_query_for_engine: str | None = None
+        self._dispatch_reenter: list[SendEvent] | None = None
         self._extracted_peer_query = ""
         self._extracted_peer_already_appended = False
         self._stop_mouse_listener = None
@@ -1753,16 +1753,6 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
         log.exception("Stop mouse listener attach failed")
 
 
-def _send_button_label(send_listener: Any) -> str:
-    try:
-        model = send_listener.send_control.getModel()
-    except Exception:
-        return ""
-    if model is None:
-        return ""
-    return str(model.Label or "")
-
-
 def notify_record_mouse_pressed(send_listener: Any) -> None:
     """Record mousePressed: arm the 2s hold timer. Do not start capture yet."""
     if send_listener is None:
@@ -1865,10 +1855,11 @@ class ClearButtonListener(BaseActionListener):
         if self.send_listener is not None:
             self.send_listener._voice.exit_hands_free_record()
             self.send_listener._voice._release_open_microphone()
-        if getattr(self.send_listener, "_clear_button_action", None) == ButtonAction.REJECT or (
-            self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None
+        sl = self.send_listener
+        if sl is not None and (
+            getattr(sl, "_clear_button_action", None) == ButtonAction.REJECT or getattr(sl, "_approval_event", None) is not None
         ):
-            self.send_listener._events._finish_inline_web_approval(False)
+            sl._events._finish_inline_web_approval(False)
             return
         # Latch Stop before wiping messages. Clear on the UI thread while
         # a send drain is still active leaves the in-flight reply to append

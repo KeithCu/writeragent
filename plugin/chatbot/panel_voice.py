@@ -100,8 +100,8 @@ class PanelVoiceController:
         self._panel = panel
         self._sticky_restart_pending = False
         self._empty_take_count = 0
-        self._hold_waiter = _CancellableWaiter()
-        self._sticky_waiter = _CancellableWaiter()
+        self._hold_waiter: _CancellableWaiter = _CancellableWaiter()
+        self._sticky_waiter: _CancellableWaiter = _CancellableWaiter()
 
     def teardown(self) -> None:
         self._hold_waiter.cancel()

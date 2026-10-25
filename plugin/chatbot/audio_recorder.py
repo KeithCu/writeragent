@@ -132,6 +132,7 @@ class AudioRecorder:
         self.stream: Any = None
         self.wav_file: Any = None
         self._silence_detector: SilenceDetector | None = None
+        self._host_stream_start_time: float = 0.0
         self._on_auto_stop: Callable[[], None] | None = None
         self._on_silence_progress: Callable[[int], None] | None = None
         self._on_recording_error: Callable[[str], None] | None = None
@@ -331,7 +332,7 @@ class AudioRecorder:
                     def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
                         if status:
                             log.debug("host recording status: %s", status)
-                        if time.monotonic() - getattr(self, "_host_stream_start_time", 0.0) > MAX_RECORDING_DURATION_SEC:
+                        if time.monotonic() - self._host_stream_start_time > MAX_RECORDING_DURATION_SEC:
                             self._notify_auto_stop(self.temp_filename)
                             self._notify_recording_error("Recording stopped: recording too long")
                             return
