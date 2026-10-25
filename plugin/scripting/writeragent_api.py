@@ -1773,7 +1773,7 @@ class _SearchProxy:
             pattern (required): Search string or regex pattern.
             regex (optional): Use regular expression (default: false).
             case_sensitive (optional): Case-sensitive search (default: false).
-            max_results (optional): Maximum results to return (default: 50).
+            max_results (optional): Maximum results to return (default: 50). Must be a positive integer.
             sheet (optional): Sheet to search (active sheet if omitted).
             all_sheets (optional): Search all sheets (default: false).
         """
