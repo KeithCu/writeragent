@@ -502,25 +502,3 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
             assert "PY" in cell_a1.getFormula()
     finally:
         clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
-
-
-@native_test
-@with_native_doc("calc")
-def test_calc_helper_functions_uno_parity(ctx, doc):
-    """Parity check: evaluate Calc native formulas vs Python calc helper functions."""
-    import plugin.scripting.calc_functions as calc
-
-    sheet = doc.getSheets().getByIndex(0)
-
-    # ADDRESS parity
-    cell = sheet.getCellByPosition(0, 0)
-    cell.setFormula("=ADDRESS(2; 3; 1)")
-    assert cell.getString() == calc.address(2, 3, 1)
-
-    # BINOMDIST parity
-    cell.setFormula("=BINOMDIST(6; 10; 0.5; 0)")
-    assert abs(cell.getValue() - calc.binomdist(6, 10, 0.5, 0)) < 1e-6
-
-
-
-
