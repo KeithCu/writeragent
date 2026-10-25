@@ -118,6 +118,26 @@ def test_calc_only_insert_passes_document_then_context():
             assert seen["args"] == (ctx, doc, result), wiring.id
 
 
+def test_calc_only_insert_forwards_kwargs():
+    from plugin.scripting.domain_registry import build_rps_spec, WIRING_TABLE
+
+    wiring = next(w for w in WIRING_TABLE if w.post_venv_calc_only)
+    ctx, doc, result = object(), object(), {"helper": "x"}
+    seen: dict[str, object] = {}
+
+    def _record(*args: object, **kwargs: object) -> int:
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return 3
+
+    spec = build_rps_spec(wiring)
+    assert spec.insert is not None
+    with patch("plugin.scripting.domain_registry._resolve_fn", return_value=_record):
+        assert spec.insert(ctx, doc, result, start_col=4) == 3
+    assert seen["args"] == (doc, ctx, result)
+    assert seen["kwargs"] == {"start_col": 4}
+
+
 def test_vision_html_block_count_ignores_tag_prefixes():
     from plugin.scripting.domain_registry import build_rps_spec
 
