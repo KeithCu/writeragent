@@ -1065,7 +1065,7 @@ flowchart LR
 | [`plugin/calc/python/editor_context_menu.py`](../../plugin/calc/python/editor_context_menu.py) | Cell context menu |
 | [`plugin/calc/python/cell_discovery.py`](../../plugin/calc/python/cell_discovery.py) | Enumerate `=PY()` cells for sidebar |
 | [`plugin/calc/python/collabora_formula.py`](../../plugin/calc/python/collabora_formula.py) | On open, rewrite Collabora `GETPY` OriginalNames to `=PY()` |
-| [`plugin/calc/python/diagnostics.py`](../../plugin/calc/python/diagnostics.py) | Bounded stdout/error log for sidebar |
+| [`plugin/calc/python/diagnostics.py`](../../plugin/calc/python/diagnostics.py) | Bounded stdout/error log for sidebar (long fields clipped at record time; 16 workbooks max) |
 | [`plugin/calc/python/init_script_editor.py`](../../plugin/calc/python/init_script_editor.py) | Monaco editor for workbook INIT script |
 | [`plugin/librepy/panel_factory.py`](../../plugin/librepy/panel_factory.py) | LibrePy Calc sidebar UNO factory |
 | [`plugin/librepy/python_sidebar.py`](../../plugin/librepy/python_sidebar.py) | Sidebar controller (cells, diagnostics, actions; vertical stretch from XDL snapshot heights) |

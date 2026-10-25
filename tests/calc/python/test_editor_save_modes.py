@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from plugin.calc.python.editor import (
     _apply_cell_save,
     _resolve_code_ref_cell,
@@ -661,5 +663,103 @@ def test_get_active_calc_cell_bad_sheet_does_not_use_active_sheet():
     ctx2.ServiceManager = smgr2
 
     assert _get_active_calc_cell(ctx2) is None
+
+
+def test_follow_save_uses_one_undo_context():
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByIndex(0)
+    code_cell = sheet.getCellByPosition(0, 0)
+    formula_cell = sheet.getCellByPosition(1, 0)
+    code_cell.setString("result = 42")
+    formula_cell.setFormula("=PY($A$1; C1:C10)")
+    parts = parse_python_formula(formula_cell.getFormula())
+    assert parts is not None
+
+    calls: list[tuple[str, Any]] = []
+
+    class UndoManagerStub:
+        def enterUndoContext(self, title: str) -> None:
+            calls.append(("enter", title))
+
+        def leaveUndoContext(self) -> None:
+            calls.append(("leave", None))
+
+        def isInContext(self) -> bool:
+            return False
+
+        def isUndoEnabled(self) -> bool:
+            return True
+
+    um = UndoManagerStub()
+    doc.getUndoManager = lambda: um
+
+    result = _apply_cell_save(
+        doc,
+        formula_cell,
+        parsed_parts=parts,
+        new_code="result = 99",
+        save_as_plain=False,
+        data_binding_text="C1:C10",
+        code_cell=code_cell,
+        code_ref=parts.code,
+    )
+
+    assert result["ok"] is True
+    enters = [c for c in calls if c[0] == "enter"]
+    leaves = [c for c in calls if c[0] == "leave"]
+    assert len(enters) == 1
+    assert len(leaves) == 1
+    assert calls[-1][0] == "leave"
+    assert enters[0][1] and isinstance(enters[0][1], str)
+    assert code_cell.getString() == "result = 99"
+    assert formula_cell.getFormula().startswith("=PY(")
+
+
+def test_plain_save_reconciles_geometric_registry():
+    from unittest.mock import patch
+
+    doc = CalcDocStub()
+    cell = CalcCellStub()
+    with patch("plugin.calc.python.geometric_recalc.after_py_cell_save") as mock_after:
+        result = _apply_cell_save(
+            doc,
+            cell,
+            parsed_parts=None,
+            new_code="x = 10",
+            save_as_plain=True,
+        )
+        assert result["ok"] is True
+        mock_after.assert_called_once_with(doc, cell)
+
+
+def test_formula_save_skips_unparsed_probe_when_data_present():
+    from unittest.mock import patch
+    import plugin.calc.python.editor as pe
+
+    doc = CalcDocStub()
+    cell = CalcCellStub()
+
+    with patch.object(pe, "_cell_has_unparsed_python", return_value=False) as mock_probe:
+        result = _apply_cell_save(
+            doc,
+            cell,
+            parsed_parts=None,
+            new_code="x = 1",
+            save_as_plain=False,
+            data_binding_text="A1:A5",
+        )
+        assert result["ok"] is True
+        mock_probe.assert_not_called()
+
+        result2 = _apply_cell_save(
+            doc,
+            cell,
+            parsed_parts=None,
+            new_code="x = 2",
+            save_as_plain=False,
+            data_binding_text=None,
+        )
+        assert result2["ok"] is True
+        mock_probe.assert_called_once_with(cell)
 
 
