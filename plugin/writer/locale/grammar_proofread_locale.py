@@ -2,15 +2,16 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Locale-aware policy for the native AI grammar proofreader (DAG root for grammar code).
+"""Locale-aware policy for the native AI grammar proofreader.
 
 Shipped BCP-47 tags and UNO ``Locale`` ↔ canonical tag bridging live in ``plugin.framework.grammar_rule_ids``.
-This module holds English display names for prompts, **Unicode sentence-boundary**
-tables, scheduling thresholds, Thai/Lao/Khmer whitespace chunking, hashing/fingerprinting,
-LLM worker caps/prompt, and JSON wire parsing.
+This module holds **Unicode sentence-boundary** tables, scheduling thresholds,
+Thai/Lao/Khmer whitespace chunking, hashing/fingerprinting, and the LLM worker caps/prompts.
 
 Must not import sibling grammar-processing modules under ``plugin.writer.locale``
-(leaf data modules such as ``locale_abbrev`` are fine).
+(leaf data modules such as ``locale_abbrev`` are fine). ``grammar_max_in_flight`` is the
+one deliberate exception: it lazily imports ``grammar_worker`` because the worker imports
+this module (a top-level import would cycle).
 """
 
 from __future__ import annotations
@@ -52,7 +53,8 @@ MAX_CACHE_SIZE = 2048
 MAX_RECENT_INCOMPLETE_SCAN = 10
 
 # Worker LLM limits & timeout thresholds
-# The ceiling for pathological run-on or extremely long sentences before enqueuing.
+# Per-sentence ceiling applied when the LLM request / cache identity is built (checked_grammar_text);
+# text past the cap is intentionally not checked.
 # Rationale: Prevents sending massive chunks of text to the LLM which would inflate costs and latency.
 # Default: 8192 characters (approx 1200-1600 words)
 GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS = 8192
@@ -92,6 +94,7 @@ def grammar_max_in_flight(ctx: Any = None) -> int:
     Local providers (Harper, LanguageTool, Vale) always use 1 worker; parallel
     drain threads and HTTP slots apply only when the grammar provider is LLM.
     """
+    # Lazy: grammar_worker imports this module at top level, so importing it here would cycle.
     from plugin.writer.locale.grammar_worker import get_grammar_provider
 
     del ctx
@@ -121,37 +124,29 @@ def grammar_batch_sentences(ctx: Any = None) -> int:
 
 
 def grammar_max_tokens(ctx: Any = None) -> int:
-    """Return max output tokens for LLM grammar response, clamped to [256, 16384].
+    """Return the fixed max output tokens for an LLM grammar response.
 
+    Not user-configurable (there is no config key for it).
     This is the per-request cap (used for both single-sentence and batch requests,
     not multiplied by batch size).
     ``ctx`` unused; kept so call sites can pass the UNO context they already hold.
     """
     del ctx
-    return _clamped_int_config(
-        "doc.grammar_proofreader_max_tokens",
-        default=GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS,
-        lo=256,
-        hi=16384,
-    )
+    return GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
 
 
 def grammar_max_chars(ctx: Any = None) -> int:
-    """Return max sentence character limit, clamped to [512, 65536].
+    """Return the fixed max sentence character limit for LLM grammar checks.
 
-    ``ctx`` unused; kept so call sites can pass the UNO context they already hold.
+    Not user-configurable (there is no config key for it).
     For an LLM identity, characters past the cap are not checked; the cache identity
     is the checked prefix; a tail-only edit does not miss that prefix and does not raise
     a new squiggle. Old rows stored under the full-sentence fingerprint miss once and are
     rewritten under the prefix. No migration.
+    ``ctx`` unused; kept so call sites can pass the UNO context they already hold.
     """
     del ctx
-    return _clamped_int_config(
-        "doc.grammar_proofreader_max_chars",
-        default=GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,
-        lo=512,
-        hi=65536,
-    )
+    return GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS
 
 
 def checked_grammar_text(text: str, limit: int) -> str:
@@ -183,9 +178,6 @@ GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_PER_BATCH_ITEM = 150
 
 # The idle/quiet period wait time in seconds before sequential worker drains and executes partial sentences.
 # Complete sentences do not wait out this pause; they coalesce for GRAMMAR_COMPLETE_COALESCE_S.
-# Rationale: Aggregates rapid edits during active typing to avoid spamming the LLM on every single keystroke.
-# Default: 1.0 second
-# The idle/quiet period wait time in seconds before sequential worker drains and executes the queue.
 # Rationale: Aggregates rapid edits during active typing to avoid spamming the LLM on every single keystroke.
 # Default: 1.0 second
 GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
@@ -243,16 +235,14 @@ def fingerprint_for_text(text: str) -> str:
 
 def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:
     """Locales returned by ``getLocales`` as ``com.sun.star.lang.Locale`` structs."""
-    import importlib
-
     try:
-        uno_mod = importlib.import_module("uno")
+        import uno
     except ImportError:
         return ()
     out: list[Any] = []
     for tag in tags:
         la, ctry = bcp47_to_uno_lang_country(tag)
-        out.append(uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant=""))
+        out.append(uno.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant=""))
     return tuple(out)
 
 
@@ -262,7 +252,8 @@ def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:
 
 # Sentence-ending punctuation by script — single source for native grammar (proofreader
 # gating, worker partial prompts, and cache LRU incomplete-prefix eviction).
-# Matches Unicode 15.1 Sentence_Terminal (STerm); PropList.txt in Unicode UCD releases.
+# Common prose terminals (Unicode STerm-style) plus "." and the "…" prose ellipsis;
+# deliberately not the full Unicode STerm list (rare-script marks are omitted).
 # fmt: off
 GRAMMAR_SENTENCE_TERMINATORS: frozenset[str] = frozenset((
     "!", ".", "?",              # ASCII
@@ -302,12 +293,8 @@ GRAMMAR_SENTENCE_TERMINATORS: frozenset[str] = frozenset((
 
 # Characters skipped when scanning backward for the sentence end: brackets, closing quotes,
 # and similar trail the period.
-# Mostly Unicode closing punctuation (Pe/Pf); `"` `'` `>` added for prose that omits curly quotes.
-# Regenerate Pe/Pf subset after a Unicode update:
-#   import sys, unicodedata
-#   chars = sorted(chr(cp) for cp in range(sys.maxunicode + 1)
-#                  if unicodedata.category(chr(cp)) in ('Pe', 'Pf'))
-#   print(frozenset(chars) | frozenset('"\'>'))
+# Every Unicode Pe/Pf character, enforced by test_trailing_closers_cover_unicode_pe_pf;
+# `"` `'` `>` added for prose that omits curly quotes.
 
 GRAMMAR_TRAILING_CLOSERS: frozenset[str] = frozenset((
     # ASCII Pe
@@ -321,7 +308,7 @@ GRAMMAR_TRAILING_CLOSERS: frozenset[str] = frozenset((
     # Latin / misc Pe (Tibetan, Ogham, sub/superscript, math, ornamental)
     "༻", "༽", "᚜",
     "⁆", "⁾", "₎", "⌉", "⌋",
-    "❩", "❫", "❭", "❯", "❱", "❳", "❵",
+    "〉", "❩", "❫", "❭", "❯", "❱", "❳", "❵",
     "⟆", "⟧", "⟩", "⟫", "⟭", "⟯",
     "⦄", "⦆", "⦈", "⦊", "⦌", "⦎", "⦐", "⦒", "⦔", "⦖", "⦘",
     "⧙", "⧛", "⧽",
@@ -359,16 +346,16 @@ GRAMMAR_WHITESPACE_RUN_RE = re.compile(r"\s+")
 
 
 def is_whitespace_sentence_locale(locale_key: str) -> bool:
-    """True when ``locale_key`` uses whitespace runs as approximate sentence boundaries."""
-    return locale_key.startswith(GRAMMAR_WHITESPACE_SENTENCE_LOCALE_PREFIXES)
+    """True when the primary subtag of ``locale_key`` uses whitespace sentence boundaries."""
+    return locale_key.split("-", 1)[0].lower() in GRAMMAR_WHITESPACE_SENTENCE_LOCALE_PREFIXES
 
 
 def split_sentence_chunks_by_separator_regex(text: str, sep_re: re.Pattern[str]) -> list[tuple[int, str]]:
     """Split *text* into ``(start_offset, chunk_text)`` pairs using regex separator matches.
 
-    Shared by Thai/Lao/Khmer (``\\s+``) and the no-BreakIterator fallback (sentence-terminal
-    lookahead split). Each chunk includes its following separator span so Writer boundaries
-    stay aligned with the previous implementation.
+    Used for Thai/Lao/Khmer (``\\s+``) splitting by the grammar splitter and the embeddings
+    passage splitter. Each chunk includes its following separator span so Writer boundaries
+    stay aligned. Empty or whitespace-only ``text`` returns ``[]``.
     """
     result: list[tuple[int, str]] = []
     last = 0
@@ -381,7 +368,7 @@ def split_sentence_chunks_by_separator_regex(text: str, sep_re: re.Pattern[str])
     tail = text[last:]
     if tail:
         result.append((last, tail))
-    return result or [(0, text)]
+    return result
 
 _sterm_chars = "".join(sorted(GRAMMAR_SENTENCE_TERMINATORS))
 _sterm_escaped = re.escape(_sterm_chars)
@@ -404,10 +391,7 @@ def filter_sentence_spans_for_thresholds(spans: Sequence[tuple[int, int, str]]) 
     """Drop incomplete sentences shorter than ``GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS`` (conservative churn avoidance)."""
     out: list[tuple[int, int, str]] = []
     for s, e, txt in spans:
-        nonspace_len = count_nonspace_chars(txt)
-        complete_sentence = looks_complete_sentence(txt)
-        partial_allowed = nonspace_len >= GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
-        if not complete_sentence and not partial_allowed:
+        if not looks_complete_sentence(txt) and count_nonspace_chars(txt) < GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS:
             continue
         out.append((s, e, txt))
     return out
