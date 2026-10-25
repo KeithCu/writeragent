@@ -154,6 +154,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     prepared = format_support._ensure_html_linebreaks(content)
 
     step = "start"
+    reused = _keeper_loaded
     temp_doc = None
     transferable: Any = None
     pasted = False
@@ -162,7 +163,6 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         hidden = format_support.create_property_value("Hidden", True)
         # Do not import chatbot.create_hidden_html_writer — this module ships
         # in LibrePy without chatbot.
-        reused = _keeper_loaded
         step = _step("load hidden Writer")
         temp_doc = desktop.loadComponentFromURL("private:factory/swriter", _HTML_WRITER_TARGET, _HTML_WRITER_SEARCH_FLAGS, (hidden,))
         _keeper_loaded = temp_doc is not None
