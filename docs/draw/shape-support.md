@@ -49,7 +49,7 @@ For truly arbitrary shapes that don't fit into the predefined custom shape types
 These require specifying the `Polygon` or `PolyPolygon` properties, which expect an array of `com.sun.star.awt.Point` structures. *(Note: Support for these advanced arbitrary polygon creations via AI tool calls may be implemented as a separate API in the future to keep standard shape creation simple and distinct).*
 
 ## WriterAgent Shape Implementation
-The `CreateShape` tool unifies the simple and CustomShape UNO APIs into a single interface.
+The `shape_upsert` tool unifies the simple and CustomShape UNO APIs into a single interface.
 
 When the user requests a `shape_type`:
 1. **Base Aliases**: If it's a known simple alias (e.g., `"rectangle"`, `"ellipse"`), it maps to the corresponding base UNO shape (`RectangleShape`, `EllipseShape`).
