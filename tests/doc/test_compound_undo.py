@@ -1,5 +1,8 @@
 
+import pytest
+
 from plugin.doc.compound_undo import WriterCompoundUndo
+from plugin.framework.errors import DocumentDisposedError
 import plugin.writer.edit_review as edit_review
 
 
@@ -10,6 +13,10 @@ class _MockUndoManager:
         self.undone = False
         self.titles = []
         self.discard_empty_context = False
+        self.locked = False
+
+    def isLocked(self) -> bool:
+        return self.locked
 
     def enterUndoContext(self, title: str) -> None:
         self.entered = True
@@ -80,3 +87,60 @@ def test_writer_compound_undo_context_manager_closes_on_success_and_error():
     except RuntimeError:
         pass
     assert doc2.undo.left is True
+
+
+def test_writer_compound_undo_locked_manager_never_enters_or_leaves():
+    doc = _MockDoc()
+    doc.undo.locked = True
+    cu = WriterCompoundUndo(doc, "WriterAgent: locked")
+    assert cu.entered is False
+    assert doc.undo.entered is False
+    cu.close()
+    assert doc.undo.left is False
+
+
+class _DisposedException(Exception):
+    pass
+
+
+def test_writer_compound_undo_reraises_disposal_from_enter():
+    class _DisposedDoc:
+        def getUndoManager(self):
+            raise _DisposedException("gone")
+
+    with pytest.raises(DocumentDisposedError):
+        WriterCompoundUndo(_DisposedDoc(), "WriterAgent: disposed")
+
+
+def test_writer_compound_undo_reraises_disposal_from_leave():
+    doc = _MockDoc()
+
+    def _leave():
+        raise _DisposedException("gone")
+
+    setattr(doc.undo, "leaveUndoContext", _leave)
+    cu = WriterCompoundUndo(doc, "WriterAgent: disposed")
+    with pytest.raises(DocumentDisposedError):
+        cu.close()
+
+
+class _FlakyLeaveUndoManager(_MockUndoManager):
+    def __init__(self):
+        super().__init__()
+        self.fail_leave = 1
+
+    def leaveUndoContext(self):
+        if self.fail_leave:
+            self.fail_leave -= 1
+            raise RuntimeError("leave failed")
+        super().leaveUndoContext()
+
+
+def test_writer_compound_undo_close_can_retry_after_failed_leave():
+    doc = _MockDoc()
+    doc.undo = _FlakyLeaveUndoManager()
+    cu = WriterCompoundUndo(doc, "WriterAgent: flaky")
+    assert cu.close() is False
+    assert doc.undo.left is False
+    assert cu.close() is True
+    assert doc.undo.left is True
