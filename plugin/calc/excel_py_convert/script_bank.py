@@ -16,6 +16,7 @@ different long scripts. Raising Calc ``MAXSTRLEN`` later can retire the bank.
 from __future__ import annotations
 
 import ast
+import hashlib
 import logging
 import re
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
@@ -54,16 +55,18 @@ _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 def code_sheet_name_for(source_sheet: str) -> str:
     """Bank sheet name for *source_sheet* (``Pivots`` → ``py_code_Pivots``).
 
-    Sanitizes non-word characters and truncates to 31 chars. Callers like
-    ``collect_script_bank`` detect collisions when distinct source sheets
-    map to the same bank sheet name.
+    Titles that need sanitising or truncation get a short stable hash suffix,
+    so distinct source sheets cannot share a bank name. Note that renaming a
+    sheet (or changing this mapping) leaves an old bank sheet behind on
+    re-apply; only a bank with the computed name is reused.
     """
     raw = (source_sheet or "Sheet1").strip() or "Sheet1"
     safe = _SAFE_SHEET.sub("_", raw).strip("_") or "Sheet"
-    name = f"{CODE_SHEET_PREFIX}{safe}"
-    if len(name) > _CODE_SHEET_MAX_LEN:
-        name = name[:_CODE_SHEET_MAX_LEN]
-    return name
+    if safe == raw and len(f"{CODE_SHEET_PREFIX}{safe}") <= _CODE_SHEET_MAX_LEN:
+        return f"{CODE_SHEET_PREFIX}{safe}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:4]
+    budget = _CODE_SHEET_MAX_LEN - len(CODE_SHEET_PREFIX) - len(digest) - 1
+    return f"{CODE_SHEET_PREFIX}{safe[:budget]}_{digest}"
 
 
 def normalize_bank_a1(cell: str) -> str:
@@ -203,6 +206,9 @@ def collect_safety_warnings(code: str) -> list[str]:
     except SyntaxError as exc:
         warnings.append(f"syntax error: {exc.msg}")
         return warnings
+    except (ValueError, TypeError, MemoryError, RecursionError) as exc:
+        warnings.append(f"source is not parseable: {exc}")
+        return warnings
 
     try:
         from plugin.scripting.sandbox import build_sandbox_policy, import_authorized, policy_blocked_imports
@@ -211,7 +217,7 @@ def collect_safety_warnings(code: str) -> list[str]:
 
         def is_blocked(name: str) -> bool:
             return not import_authorized(name, (), blocked)
-    except ImportError:
+    except Exception:
         _FALLBACK_BLOCKED = (
             "subprocess",
             "socket",
@@ -244,10 +250,16 @@ def collect_safety_warnings(code: str) -> list[str]:
 def report_safety_warnings(report: ConversionReport) -> list[str]:
     """Flatten per-cell safety warnings for logging (does not fail conversion)."""
     out: list[str] = []
+    by_code: dict[str, list[str]] = {}
     for cell in report.cells:
         if not cell.converted or not cell.converted_code:
             continue
-        for w in collect_safety_warnings(cell.converted_code):
+        code = cell.converted_code
+        ws = by_code.get(code)
+        if ws is None:
+            ws = collect_safety_warnings(code)
+            by_code[code] = ws
+        for w in ws:
             out.append(f"{cell.sheet}!{cell.cell}: {w}")
     return out
 
