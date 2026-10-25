@@ -12,6 +12,7 @@ stays ``audio_binaries`` so existing installs keep working.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import logging
 import os
 import sys
@@ -392,6 +393,7 @@ def run_vec_pack_download(
         expected_sha256=_VEC_PACK_SHA256[pack_name],
     )
 
+    importlib.invalidate_caches()
     if bind_host:
         ensure_native_binaries_on_path()
         # Drop stale in-process module after replace so the next load binds the new inode.
@@ -475,6 +477,8 @@ def run_audio_download(
                 os.remove(zip_dest)
             except OSError:
                 pass
+
+    importlib.invalidate_caches()
 
     # Download CFFI binary
     cffi_url = f"{base_url}audio/{cffi_name}"
