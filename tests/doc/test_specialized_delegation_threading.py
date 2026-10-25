@@ -28,9 +28,15 @@ from plugin.writer.specialized_base import DelegateToSpecializedWriter, ToolWrit
 from tests.framework.thread_safety import start_uno_thread_safety_session
 
 
-class _DummyAnalysisTool(ToolCalcSpecialBase):
-    specialized_domain = "analysis"
+class _DummyAnalysisBase(ToolCalcSpecialBase):
+    # Domain-less intermediate base: a direct ToolCalcSpecialBase subclass with a
+    # domain would leak "analysis" into the discovery catalog for the whole test run.
+    specialized_domain: ClassVar[str | None] = None
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary"])
+
+
+class _DummyAnalysisTool(_DummyAnalysisBase):
+    specialized_domain = "analysis"
     name = "dummy_analysis_tool"
     description = "test"
     parameters = {"type": "object", "properties": {}, "required": []}
