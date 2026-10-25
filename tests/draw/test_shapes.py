@@ -18,6 +18,7 @@ from plugin.draw.shapes import (
     _ENHANCED_CUSTOM_SHAPE_ENGINE,
     _apply_shape_properties,
     _clamp_shape_text_autogrow,
+    _try_writer_anchor_shape_before_add,
     _try_writer_invalidate_and_pump,
 )
 
@@ -808,3 +809,43 @@ def test_upsert_shape_edit_text_only_does_not_set_text_fit_to_size():
         assert call[0][0] != "TextFitToSize"
 
 
+def test_apply_shape_properties_disposal_on_text_propagates():
+    shape = MagicMock()
+    shape.setString.side_effect = DisposedException("gone")
+    with pytest.raises(DisposedException):
+        _apply_shape_properties(shape, {"text": "x"})
+
+
+def test_apply_shape_properties_disposal_on_fill_color_propagates():
+    shape = MagicMock()
+    shape.setPropertyValue.side_effect = DisposedException("gone")
+    with pytest.raises(DisposedException):
+        _apply_shape_properties(shape, {"fill_color": "#FF0000"})
+
+
+def test_apply_shape_properties_non_disposal_still_warns():
+    shape = MagicMock()
+    shape.setString.side_effect = RuntimeError("boom")
+    assert _apply_shape_properties(shape, {"text": "x"}) == ["text"]
+
+
+def test_clamp_shape_text_autogrow_disposal_propagates():
+    shape = MagicMock()
+    shape.setPropertyValue.side_effect = DisposedException("gone")
+    with pytest.raises(DisposedException):
+        _clamp_shape_text_autogrow(shape)
+
+
+def test_writer_invalidate_disposal_propagates():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+    doc.getCurrentController.side_effect = DisposedException("gone")
+    with pytest.raises(DisposedException):
+        _try_writer_invalidate_and_pump(doc)
+
+
+def test_writer_anchor_disposal_propagates():
+    doc = MagicMock()
+    doc.supportsService.side_effect = DisposedException("gone")
+    with pytest.raises(DisposedException):
+        _try_writer_anchor_shape_before_add(doc, MagicMock())
