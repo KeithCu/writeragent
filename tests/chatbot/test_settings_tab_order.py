@@ -54,3 +54,13 @@ def test_settings_tab_and_field_modules_with_synthetic_manifests() -> None:
 
     field_names = [m["name"] for m in iter_settings_field_modules(modules)]
     assert field_names == ["audio", "child"]
+
+
+def test_inline_children_make_their_target_a_tab_and_keep_manifest_order() -> None:
+    modules = [
+        {"name": "host", "title": "Host", "config": {}},
+        {"name": "z_child", "config_inline": "host", "config": {"z": {"type": "bool"}}},
+        {"name": "a_child", "config_inline": "host", "config": {"a": {"type": "bool"}}},
+    ]
+    assert [m["name"] for m in iter_settings_tab_modules(modules)] == ["host"]
+    assert [m["name"] for m in iter_settings_field_modules(modules)] == ["host", "z_child", "a_child"]

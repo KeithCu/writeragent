@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from plugin.framework.i18n import _
+from plugin.framework.i18n import N_, _
 
 log = logging.getLogger("writeragent.slash_commands")
 
@@ -44,15 +44,15 @@ class SlashCommand:
 # Wired: /help /clear /stop. The rest exist so prefix + LRU tests do not
 # depend on future product commands. Consider-list names are tagged mock.
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
-    SlashCommand("help", _("Print the command list"), "wired"),
-    SlashCommand("clear", _("Start a new chat"), "wired"),
-    SlashCommand("stop", _("Cancel the in-flight send"), "wired"),
-    SlashCommand("mock-alpha", _("Mock command (echo only)"), "mock"),
-    SlashCommand("mock-bravo", _("Mock command (echo only)"), "mock"),
-    SlashCommand("mock-charlie", _("Mock command (echo only)"), "mock"),
-    SlashCommand("apply", _("Apply last draft (mock)"), "mock"),
-    SlashCommand("web", _("Web research (mock)"), "mock"),
-    SlashCommand("model", _("Switch model (mock)"), "mock"),
+    SlashCommand("help", N_("Print the command list"), "wired"),
+    SlashCommand("clear", N_("Start a new chat"), "wired"),
+    SlashCommand("stop", N_("Cancel the in-flight send"), "wired"),
+    SlashCommand("mock-alpha", N_("Mock command (echo only)"), "mock"),
+    SlashCommand("mock-bravo", N_("Mock command (echo only)"), "mock"),
+    SlashCommand("mock-charlie", N_("Mock command (echo only)"), "mock"),
+    SlashCommand("apply", N_("Apply last draft (mock)"), "mock"),
+    SlashCommand("web", N_("Web research (mock)"), "mock"),
+    SlashCommand("model", N_("Switch model (mock)"), "mock"),
 )
 
 
@@ -118,7 +118,7 @@ def classify_slash_key(key_code: int, modifiers: int = 0) -> str | None:
 
 def format_slash_item(cmd: SlashCommand) -> str:
     tag = " [mock]" if cmd.kind == "mock" else ""
-    return "/%s%s — %s" % (cmd.name, tag, cmd.description)
+    return "/%s%s — %s" % (cmd.name, tag, _(cmd.description))
 
 
 def format_help_text(commands: Sequence[SlashCommand] | None = None) -> str:

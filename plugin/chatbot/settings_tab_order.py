@@ -34,27 +34,16 @@ SETTINGS_TAB_MODULE_ORDER = (
 
 def _build_inline_maps(modules: list[dict[str, Any]]) -> tuple[set[str], dict[str, list[tuple[dict[str, Any], dict[str, Any]]]]]:
     """Return inline_set and inline_map matching generate_settings_dialog_tabs."""
-    inline_targets: dict[str, str] = {}
-    for m in modules:
-        inline_val = m.get("config_inline")
-        if not inline_val:
-            continue
-        target = inline_val if isinstance(inline_val, str) else (m["name"].rsplit(".", 1)[0] if "." in m["name"] else None)
-        if target:
-            inline_targets[m["name"]] = target
-
+    # generate_manifest rejects a non-string target, a self-inline, and a
+    # chained config_inline, so every child's target is a real tab module.
     inline_set: set[str] = set()
-    for name, target in inline_targets.items():
-        if target not in inline_targets:
-            inline_set.add(name)
-
-    by_name = {m["name"]: m for m in modules}
     inline_map: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
-    for name in inline_targets:
-        if name in inline_set:
-            target = inline_targets[name]
-            inline_map.setdefault(target, []).append((by_name[name], by_name[name].get("config", {})))
-
+    for m in modules:
+        target = m.get("config_inline")
+        if not target:
+            continue
+        inline_set.add(m["name"])
+        inline_map.setdefault(target, []).append((m, m.get("config", {})))
     return inline_set, inline_map
 
 
