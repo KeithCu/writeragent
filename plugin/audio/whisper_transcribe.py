@@ -44,7 +44,7 @@ def transcribe_wav(wav_path: str, model_name: str) -> str:
     # cache (HF_HUB_CACHE, else HF_HOME, else ~/.cache/huggingface). Passing a
     # path would ignore a user HF_HOME or pin weights to a WriterAgent-only tree.
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
-    segments, _info = model.transcribe(wav_path)
+    segments, _info = model.transcribe(wav_path, vad_filter=True, condition_on_previous_text=False)
     parts: list[str] = []
     for segment in segments:
         text = getattr(segment, "text", "")

@@ -424,6 +424,11 @@ def verify_bundle_manifest(bundle_path: str, *, require_addons: bool = True) -> 
     if not os.path.isfile(manifest_py):
         raise RuntimeError(f"Bundle missing required plugin/_manifest.py: {bundle_path}")
 
+    audio_dir = os.path.join(bundle_path, "plugin", "audio")
+    audio_catalog = os.path.join(audio_dir, "data", "voice_catalog.json")
+    if os.path.isdir(audio_dir) and not os.path.isfile(audio_catalog):
+        raise RuntimeError(f"Bundle missing required audio catalog: {audio_catalog}")
+
     if require_addons:
         addons_xcu = os.path.join(bundle_path, "Addons.xcu")
         if not os.path.isfile(addons_xcu):

@@ -330,15 +330,23 @@ def test_voice_catalog_asset_drives_runtime_maps():
     import json
     import os
 
+    from plugin.audio.voice_catalog import _parse_catalog
+
     assert os.path.isfile(CATALOG_PATH)
     with open(CATALOG_PATH, encoding="utf-8") as handle:
         raw = json.load(handle)
+
+    parsed = _parse_catalog(raw)
+    assert len(parsed.kokoro) == 54
 
     piper_ids = [row["id"] for row in raw["piper"]["voices"]]
     assert list(_PIPER_VOICE_MODELS) == piper_ids
     assert [item["value"] for item in VOICE_CATALOGS["piper"]] == piper_ids
     kokoro_ids = [row["id"] for row in raw["kokoro"]["voices"]]
+    assert len(kokoro_ids) == 54
     assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == kokoro_ids
+    for vid in ("af_alloy", "am_puck", "bm_fable", "jf_tebukuro", "zf_xiaoyi", "zm_yunyang", "pm_santa"):
+        assert vid in kokoro_ids
     assert "af_sky" in kokoro_ids
     assert "af_bella" in kokoro_ids
     assert raw["kokoro"]["fallback_voice"] == "af_sky"
