@@ -224,4 +224,170 @@ class TestAccessorsAndCollector:
         }
 
 
+class _FakeShape:
+    def __init__(self, shape_type, props=None):
+        self.ShapeType = shape_type
+        self.text = ""
+        self.props = dict(props or {})
+
+    def getString(self):
+        return self.text
+
+    def setString(self, value):
+        self.text = value
+
+    def getPropertyValue(self, name):
+        return self.props[name]
+
+    def setPropertyValue(self, name, value):
+        self.props[name] = value
+
+
+class _FakePage:
+    def __init__(self, shapes=()):
+        self.shapes = list(shapes)
+        self.props = {}
+
+    def getCount(self):
+        return len(self.shapes)
+
+    def getByIndex(self, index):
+        return self.shapes[index]
+
+    def getPropertyValue(self, name):
+        return self.props[name]
+
+    def setPropertyValue(self, name, value):
+        self.props[name] = value
+
+
+class _FakePages:
+    def __init__(self, slides=()):
+        self.slides = list(slides)
+
+    def getCount(self):
+        return len(self.slides)
+
+    def getByIndex(self, index):
+        return self.slides[index]
+
+
+class _FakeSlide:
+    def __init__(self, master=None):
+        self.MasterPage = master
+
+
+class _FakeDoc:
+    def supportsService(self, name):
+        return name == "com.sun.star.presentation.PresentationDocument"
+
+
+def _run_set(pages, **args):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from plugin.draw.headers_footers import SetHeadersFooters
+
+    ctx = SimpleNamespace(doc=_FakeDoc())
+    with patch("plugin.draw.headers_footers.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value = pages
+        return SetHeadersFooters().execute(ctx, **args)
+
+
+def test_field_table_matches_set_schema():
+    from plugin.draw.headers_footers import _FIELDS, SetHeadersFooters
+
+    assert {f[0] for f in _FIELDS} == set(SetHeadersFooters.parameters["properties"]) - {"page", "is_master_page"}
+
+
+def test_set_slide_footer_text_implies_visible():
+    page = _FakePage()
+    res = _run_set(_FakePages([page]), page=0, footer="X")
+    assert res["status"] == "ok"
+    assert res["updated_properties"] == 2
+    assert page.props == {"FooterText": "X", "IsFooterVisible": True}
+
+
+def test_set_slide_explicit_false_wins():
+    page = _FakePage()
+    res = _run_set(_FakePages([page]), page=0, footer="X", footer_visible=False)
+    assert res["status"] == "ok"
+    assert page.props["FooterText"] == "X"
+    assert page.props["IsFooterVisible"] is False
+
+
+def test_set_slide_date_time_implies_fixed_and_visible():
+    page = _FakePage()
+    res = _run_set(_FakePages([page]), page=0, date_time="2024-01-01")
+    assert res["status"] == "ok"
+    assert res["updated_properties"] == 3
+    assert page.props["DateTimeText"] == "2024-01-01"
+    assert page.props["IsDateTimeVisible"] is True
+    assert page.props["IsDateTimeFixed"] is True
+
+
+def test_set_slide_rejects_header():
+    page = _FakePage()
+    res = _run_set(_FakePages([page]), page=0, header="H")
+    assert res["status"] == "error"
+    assert "header" in res["message"]
+    assert page.props == {}
+
+
+def test_set_slide_write_failure_names_key():
+    class ExplodingPage(_FakePage):
+        def setPropertyValue(self, name, value):
+            if name == "FooterText":
+                raise RuntimeError("write failed")
+            super().setPropertyValue(name, value)
+
+    page = ExplodingPage()
+    res = _run_set(_FakePages([page]), page=0, footer="X")
+    assert res["status"] == "error"
+    assert "footer" in res["message"]
+    assert res.get("updated_properties", res.get("details", {}).get("updated_properties")) == 1
+
+
+def test_set_master_footer_text_and_visibility():
+    master = _FakePage([_FakeShape("com.sun.star.presentation.FooterShape")])
+    res = _run_set(_FakePages([_FakeSlide(master)]), page=0, is_master_page=True, footer="Master Footer")
+    assert res["status"] == "ok"
+    assert res["updated_properties"] == 2
+    shape = master.getByIndex(0)
+    assert shape.text == "Master Footer"
+    assert shape.props["Visible"] is True
+
+
+def test_set_master_missing_shape_reports_keys():
+    master = _FakePage([])
+    res = _run_set(_FakePages([_FakeSlide(master)]), page=0, is_master_page=True, footer="Master Footer")
+    assert res["status"] == "error"
+    assert "footer" in res["message"]
+    assert res.get("updated_properties", res.get("details", {}).get("updated_properties")) == 0
+
+
+def test_set_master_rejects_date_time_fixed():
+    master = _FakePage([_FakeShape("com.sun.star.presentation.FooterShape")])
+    res = _run_set(_FakePages([_FakeSlide(master)]), page=0, is_master_page=True, footer="Footer", date_time_fixed=True)
+    assert res["status"] == "error"
+    assert "date_time_fixed" in res["message"]
+    shape = master.getByIndex(0)
+    assert shape.text == ""
+
+
+def test_get_page_empty_deck_message():
+    import pytest
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from plugin.draw.headers_footers import _get_page
+    from plugin.framework.errors import WriterAgentException
+
+    ctx = SimpleNamespace(doc=_FakeDoc())
+    with patch("plugin.draw.headers_footers.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value = _FakePages([])
+        with pytest.raises(WriterAgentException) as exc_info:
+            _get_page(ctx, 0, is_master_page=False)
+        assert exc_info.value.code == "INVALID_INDEX"
+        assert "no slides" in str(exc_info.value)
+
+
 

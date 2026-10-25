@@ -56,9 +56,11 @@ def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
     """
     bridge = DrawBridge(ctx.doc)
     pages = bridge.get_pages()
-    # Pass code keyword-only; the second positional argument was stored as code, inverting the chat payload.
-    if page_index < 0 or page_index >= pages.getCount():
-        raise WriterAgentException(f"Slide index {page_index} is out of bounds. Must be between 0 and {pages.getCount() - 1}", code="INVALID_INDEX")
+    count = pages.getCount()
+    if page_index < 0 or page_index >= count:
+        if count == 0:
+            raise WriterAgentException("This presentation has no slides.", code="INVALID_INDEX")
+        raise WriterAgentException(f"Slide index {page_index} is out of bounds. Must be between 0 and {count - 1}", code="INVALID_INDEX")
     slide = pages.getByIndex(page_index)
     if is_master_page:
         try:
@@ -269,28 +271,20 @@ def _read_impress_master_hf_shapes(page: Any, out: Dict[str, Any]) -> None:
         out["DateTimeFormat"] = 0
 
 
-def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> int:
+def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> tuple[int, list[str]]:
     shapes = _collect_hf_shapes(page)
-    h = shapes.get(_SVC_HEADER)
-    f = shapes.get(_SVC_FOOTER)
-
-    if "footer" in kwargs and "footer_visible" not in kwargs:
-        _set_visible(f, True)
-    if "header" in kwargs and "header_visible" not in kwargs:
-        _set_visible(h, True)
-
     updated = 0
+    failed: list[str] = []
     for schema_key, _uno_prop, svc, kind in _FIELDS:
-        if schema_key not in kwargs or kind == "fixed" or not svc:
+        if schema_key not in kwargs or not svc:
             continue
         shape = shapes.get(svc)
-        if kind == "text":
-            if _set_text(shape, str(kwargs[schema_key])):
-                updated += 1
-        elif kind == "visible":
-            if _set_visible(shape, _coerce_bool_arg(kwargs, schema_key, False)):
-                updated += 1
-    return updated
+        ok = _set_text(shape, str(kwargs[schema_key])) if kind == "text" else _set_visible(shape, _coerce_bool_arg(kwargs, schema_key, False))
+        if ok:
+            updated += 1
+        else:
+            failed.append(schema_key)
+    return updated, failed
 
 
 def _resolve_hf_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[int, bool, Any]:
@@ -344,9 +338,9 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
         "properties": {
             "page": {"type": "integer", "description": ("0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.")},
             "is_master_page": {"type": "boolean", "description": "If True, update the master page linked to the slide at page. Defaults to False."},
-            "header": {"type": "string", "description": "Header text. Not available on a normal slide (notes page and handout master only). On an Impress master, written to the header shape."},
-            "footer": {"type": "string", "description": "The text for the footer."},
-            "date_time": {"type": "string", "description": "The fixed date/time text."},
+            "header": {"type": "string", "description": "Header text. Slide master only (written to the master's header shape); not available on a normal slide."},
+            "footer": {"type": "string", "description": "The text for the footer. Setting it enables footer_visible unless footer_visible is passed."},
+            "date_time": {"type": "string", "description": "The fixed date/time text. On a slide, setting it enables date_time_visible and date_time_fixed unless those are passed."},
             "header_visible": {"type": "boolean", "description": "Whether the header is visible."},
             "footer_visible": {"type": "boolean", "description": "Whether the footer is visible."},
             "page_number_visible": {"type": "boolean", "description": "Whether the slide number is visible."},
@@ -358,55 +352,43 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> Dict[str, Any]:
         page_index, is_master_page, page = _resolve_hf_page(ctx, kwargs)
+        use_shapes = _impress_master_hf_use_shapes(ctx.doc, is_master_page)
 
-        if _impress_master_hf_use_shapes(ctx.doc, is_master_page):
-            if "date_time_fixed" in kwargs:
-                # DateTimeShape has no IsFixed. IsDateTimeFixed is a page
-                # property, and a normal master does not publish it
-                # (unoobj.cxx IMPRESS_MAP_ENTRIES). Writing it used to fail
-                # and still return status ok.
-                return self._tool_error("date_time_fixed is not available on a master page. Set it on the slide.")
-            updated_count = _write_impress_master_hf_shapes(page, kwargs)
-            requested = sum(1 for key, _, _, kind in _FIELDS if kind != "fixed" and key in kwargs)
-            if requested and updated_count < requested:
-                return self._tool_error("Could not update every requested master header/footer field.", updated_properties=updated_count)
+        if not is_master_page and ("header" in kwargs or "header_visible" in kwargs):
+            # A normal slide's property map has FooterText / DateTimeText and no
+            # HeaderText (sd unopage.cxx aDrawPagePropertyMap_Impl).
+            return self._tool_error("header/header_visible is not available on a normal slide; set it on the slide master (is_master_page=true).")
+        if use_shapes and "date_time_fixed" in kwargs:
+            # DateTimeShape has no IsFixed, and a normal master does not publish the
+            # page property either (sd unoobj.cxx IMPRESS_MAP_ENTRIES).
+            return self._tool_error("date_time_fixed is not available on a master page. Set it on the slide.")
+
+        # Writing text implies the matching flag; a flag the caller passed (true or
+        # false) always wins.
+        for text_key, flag in (("header", "header_visible"), ("footer", "footer_visible"), ("date_time", "date_time_visible")):
+            if text_key in kwargs and flag not in kwargs:
+                kwargs[flag] = True
+        if not use_shapes and "date_time" in kwargs and "date_time_fixed" not in kwargs:
+            kwargs["date_time_fixed"] = True
+
+        updated_count = 0
+        failed: list[str] = []
+        if use_shapes:
+            updated_count, failed = _write_impress_master_hf_shapes(page, kwargs)
         else:
-            if not is_master_page and ("header" in kwargs or "header_visible" in kwargs):
-                # A normal slide's property map has FooterText / DateTimeText
-                # and no HeaderText (unopage.cxx aDrawPagePropertyMap_Impl).
-                # HeaderText is on notes pages and the handout master.
-                return self._tool_error("header is not a property of a normal slide. Notes pages and the handout master expose it.")
-            # Draw / non-Impress masters: UNO exposes HeaderText/FooterText on the page.
-            if is_master_page:
-                if "footer" in kwargs and "footer_visible" not in kwargs:
-                    try:
-                        page.setPropertyValue("IsFooterVisible", True)
-                    except Exception as e:
-                        if is_disposed_exception(e):
-                            raise
-                        log.debug("Could not enable IsFooterVisible on master: %s", e)
-                if "header" in kwargs and "header_visible" not in kwargs:
-                    try:
-                        page.setPropertyValue("IsHeaderVisible", True)
-                    except Exception as e:
-                        if is_disposed_exception(e):
-                            raise
-                        log.debug("Could not enable IsHeaderVisible on master: %s", e)
+            for schema_key, prop_name, _, kind in _FIELDS:
+                if schema_key not in kwargs:
+                    continue
+                val = kwargs[schema_key] if kind == "text" else _coerce_bool_arg(kwargs, schema_key, False)
+                try:
+                    page.setPropertyValue(prop_name, val)
+                    updated_count += 1
+                except Exception as e:
+                    if is_disposed_exception(e):
+                        raise
+                    log.debug("Could not set property %s: %s", prop_name, e)
+                    failed.append(schema_key)
 
-            updated_count = 0
-            failed: list[str] = []
-            for schema_key, prop_name, _, _ in _FIELDS:
-                if schema_key in kwargs:
-                    val = _coerce_bool_arg(kwargs, schema_key, False) if schema_key.endswith("_visible") or schema_key.endswith("_fixed") else kwargs[schema_key]
-                    try:
-                        page.setPropertyValue(prop_name, val)
-                        updated_count += 1
-                    except Exception as e:
-                        if is_disposed_exception(e):
-                            raise
-                        log.debug("Could not set property %s: %s", prop_name, e)
-                        failed.append(prop_name)
-            if failed:
-                return self._tool_error("Could not set %s." % ", ".join(failed), updated_properties=updated_count)
-
+        if failed:
+            return self._tool_error("Could not set %s." % ", ".join(failed), updated_properties=updated_count)
         return {"status": "ok", "updated_properties": updated_count, "message": f"Successfully updated {updated_count} header/footer properties on {'master page' if is_master_page else 'slide'} {page_index}."}
