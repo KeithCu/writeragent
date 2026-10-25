@@ -255,11 +255,11 @@ Same idea as `filter_vision_delegate_schemas`: filter at schema time, not only a
 
 ### 4.3 Live panel, busy, queue, deck
 
-**Live panel map (v1):** process-wide weak map keyed by `get_runtime_uid(model)` for Writer, Calc, Draw, and Impress. **Not** the debug `WeakSet` (gated / stripped in release).
+**Live panel map (v1):** process-wide registry of weak panel references keyed by `get_runtime_uid(model)` for Writer, Calc, Draw, and Impress. **Not** the debug `WeakSet` (gated / stripped in release).
 
 - Leaf module, e.g. [`plugin/doc/live_panels.py`](../../plugin/doc/live_panels.py) (name illustrative). `panel_factory` **registers** after `_wire_buttons` (need `send_listener`). The tool **reads** the map. Do not import `panel_factory` or `panel` from the tool module (cycle: `CommonModule` → tool → `panel` → `get_tools()`). Chatbot AGENTS.md: send / `tool_loop` must not import `panel_factory`.
 - Skip register when uid is `""`.
-- Value: `ChatPanelElement` (has `send_listener`, frame, session) or a small handle with those. Two windows of the same model → **last-write-wins** (one uid). Accept for v1.
+- Value: ChatPanelElement (has send_listener, frame, session) or a small handle with those. One uid can have several panels (two windows on one model). register_live_panel appends, get_live_panel returns the newest live panel, and releasing one window falls back to the older panel that is still open.
 - `disposing` is unreliable; rely on weak values.
 
 **Deck not built:** LibreOffice may not construct the Calc/Draw (or Writer) deck until the user opens it. Open doc ≠ live panel. **Error** (clear, user-facing): open the peer sidebar once. **No silent A2 fallback** in v1.

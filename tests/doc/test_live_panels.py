@@ -46,7 +46,7 @@ def test_last_write_wins():
 def test_unregister():
     panel = _Panel("a")
     register_live_panel("uid-1", panel)
-    unregister_live_panel("uid-1")
+    unregister_live_panel("uid-1", panel)
     assert get_live_panel("uid-1") is None
 
 
@@ -59,6 +59,37 @@ def test_unregister_leaves_a_newer_panel():
     assert get_live_panel("uid-1") is second
     unregister_live_panel("uid-1", second)
     assert get_live_panel("uid-1") is None
+
+
+def test_unregister_newer_panel_falls_back_to_older_panel():
+    panel_a = _Panel("a")
+    panel_b = _Panel("b")
+    register_live_panel("uid-1", panel_a)
+    register_live_panel("uid-1", panel_b)
+    assert get_live_panel("uid-1") is panel_b
+    unregister_live_panel("uid-1", panel_b)
+    assert get_live_panel("uid-1") is panel_a
+    unregister_live_panel("uid-1", panel_a)
+    assert get_live_panel("uid-1") is None
+
+
+def test_register_same_panel_twice_leaves_one_entry():
+    panel = _Panel("single")
+    register_live_panel("uid-1", panel)
+    register_live_panel("uid-1", panel)
+    assert get_live_panel("uid-1") is panel
+    unregister_live_panel("uid-1", panel)
+    assert get_live_panel("uid-1") is None
+
+
+def test_dead_sibling_ref_does_not_hide_live_panel():
+    live = _Panel("live")
+    temp = _Panel("temp")
+    register_live_panel("uid-1", live)
+    register_live_panel("uid-1", temp)
+    del temp
+    assert get_live_panel("uid-1") is live
+    assert "uid-1" in iter_live_panel_uids()
 
 
 def test_weak_value_drops_when_unreferenced():
