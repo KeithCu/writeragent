@@ -137,6 +137,8 @@ class GetDocumentContent(ToolBase):
             not isinstance(max_chars, int) or isinstance(max_chars, bool) or max_chars < 1
         ):
             return self._tool_error("max_chars must be a positive integer.")
+        range_start: int | None = None
+        range_end: int | None = None
         if scope == "range":
             try:
                 range_start = int(kwargs["start"])
@@ -145,8 +147,6 @@ class GetDocumentContent(ToolBase):
                 return self._tool_error("scope 'range' requires integer start and end.")
             if range_start < 0 or range_end <= range_start:
                 return self._tool_error("scope 'range' requires 0 <= start < end.")
-        else:
-            range_start = range_end = None
 
         include_images = bool(kwargs.get("include_images", False))
         walk_warnings: list[str] = []
