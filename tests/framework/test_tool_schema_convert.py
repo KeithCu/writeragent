@@ -263,6 +263,18 @@ def test_to_mcp_schema_delegate_calc_domain_list_omits_analysis_and_python():
     assert "python:" not in domain_desc
 
 
+def test_calc_gateway_description_lists_every_domain():
+    from plugin.calc.specialized import DelegateToSpecializedCalc
+
+    tool = DelegateToSpecializedCalc()
+    params = tool.parameters or {}
+    enum = [d for d in params["properties"]["domain"]["enum"] if d != "forms"]
+    desc = tool.get_description()
+    for domain in enum:
+        assert domain in desc
+    assert "forms" not in desc
+
+
 def test_update_style_schema_emits_no_additional_properties_keyword():
     """xAI/OpenRouter reject nested additionalProperties; StyleUpdate uses exhaustive properties only."""
     from plugin.writer.styles import StyleUpdate

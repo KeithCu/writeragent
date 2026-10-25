@@ -36,7 +36,7 @@ class DelegateToSpecializedCalc(DelegateToSpecializedBase):
     """
 
     name: str | None = "delegate_to_specialized_calc_toolset"
-    description: str = f"Delegates a specialized Calc task. document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. Also: images, shapes, vision (extract text and structure from images when configured), pivot, sheets, forms, tracking, etc."
+    description: str = f"Delegates a specialized Calc task. document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. Also: images, vision (extract text and structure from images when configured), sheets, ranges, search, charts, shapes, pivot_tables, comments, conditional_formatting, errors, tracking."
 
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     _special_base_class: ClassVar[Type[ToolBase]] = ToolCalcSpecialBase  # type: ignore[type-abstract]
