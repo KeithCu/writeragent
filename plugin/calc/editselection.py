@@ -19,7 +19,7 @@
 
 from typing import Any
 
-from plugin.calc.calc_utils import FORMULA, TEXT
+from plugin.calc.calc_utils import TEXT
 from plugin.chatbot.dialogs import msgbox
 from plugin.chatbot.selection import ApplyChunkFn, ErrorFn, StreamCompletionTask, create_validated_client, prompt_for_edit_instructions, stream_completion_tasks
 from plugin.framework.config import get_config_int, get_config_str
@@ -133,10 +133,12 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
                 accumulated_text[0] += chunk_text
-                if cell_kind == FORMULA:
-                    cell.setFormula(accumulated_text[0])
-                else:
+                # Only a text cell stays text; numbers and formulas go through setFormula
+                # so an edited 42 -> 43 stays numeric.
+                if cell_kind == TEXT:
                     cell.setString(accumulated_text[0])
+                else:
+                    cell.setFormula(accumulated_text[0])
 
         def on_error(e: BaseException) -> None:
             if original is not None:

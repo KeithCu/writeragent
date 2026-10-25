@@ -94,7 +94,7 @@ def test_explain_error_precedent_probe_fallback():
 
     # A1 succeeds, B1 raises non-disposal Exception (e.g. read error)
     def fake_read_cell(addr: str) -> dict[str, str]:
-        if addr == "A1":
+        if addr.rsplit(".", 1)[-1] == "A1":
             return {"address": "A1", "value": "10", "type": "number"}
         raise RuntimeError("cannot read cell")
 
@@ -184,6 +184,7 @@ def test_explain_error_reads_the_named_sheet():
 
     assert res["address"] == "Sheet2.A1"
     active_sheet.getCellByPosition.assert_not_called()
+    inspector.read_cell.assert_called_once_with("Sheet2.B1")
 
 
 def test_detect_and_explain_caps_explanations():
