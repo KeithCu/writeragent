@@ -91,7 +91,7 @@ _CELL_LINK_ANCHOR_RE = re.compile(
 
 def extract_cell_links_from_html(html: str) -> list[tuple[str, str]]:
     """Return ``(label, address)`` pairs from HTML ``cell://`` anchors in document order."""
-    if not html or "cell://" not in html.lower() and WRITERAGENT_CELL_URL_PREFIX not in html.lower():
+    if not html or "cell://" not in html.lower():
         return []
     links: list[tuple[str, str]] = []
     for match in _CELL_LINK_ANCHOR_RE.finditer(html):
@@ -473,8 +473,6 @@ def _visible_message_text(content: Any) -> str:
 
 def plain_transcript_text(session: Any, greeting: str = "") -> str:
     """Plain sidebar text for ``session.messages``. The control is this string."""
-    from plugin.framework.i18n import _
-
     # The plain box is a text field. Panel wiring paints history before the
     # rich control is ready, and writing stored HTML answers verbatim shows
     # "Assistant <p>done</p>" after File > Reload until the rich control
@@ -667,7 +665,6 @@ def paint_message_items(
             ctx,
             role="assistant",
             style_window=style_window,
-            auto_scroll=False,
             cell_link_targets=links,
             restore=restore,
             restore_focus=restore_focus,
@@ -706,7 +703,6 @@ def _copy_formatted_from_hidden_doc_to_control(
     ctx: Any,
     role: str = "assistant",
     style_window: Any = None,
-    auto_scroll: bool = True,
     cell_link_targets: list[tuple[str, str]] | None = None,
     *,
     restore: Any = None,
@@ -718,7 +714,6 @@ def _copy_formatted_from_hidden_doc_to_control(
     """
     model = control.getModel()
     if model is None or not hasattr(model, "createTextCursor"):
-        log.warning("_copy_formatted_from_hidden_doc_to_control: failed reason=model_no_createTextCursor role=%s", role)
         return False, "model_no_createTextCursor"
 
     inserted = False
@@ -728,8 +723,6 @@ def _copy_formatted_from_hidden_doc_to_control(
     def _do_copy() -> None:
         nonlocal inserted, copy_failed_with_exception, element_skipped
         try:
-            if auto_scroll:
-                process_events_to_idle(ctx)
             theme = ChatTheme.resolve(style_window=style_window)
             current_role = role
             default_color = theme.user_color if current_role == "user" else theme.assistant_color
@@ -830,7 +823,8 @@ def _copy_formatted_from_hidden_doc_to_control(
                         _apply_cursor_char_props(dest_cursor, portion, char_color=portion_color, bg_color=fill_color)
                         href = portion_cell_href(portion)
                         is_pending = bool(pending_links and pending_link_idx < len(pending_links) and pending_links[pending_link_idx][0] == txt)
-                        maybe_link = bool(href or is_pending or portion_looks_like_cell_link(portion, txt))
+                        looks_like_cell_link = portion_looks_like_cell_link(portion, txt)
+                        maybe_link = bool(href or is_pending or looks_like_cell_link)
                         before_len = control_len
                         txt_units = _utf16_units(txt)
                         _insert_string_at_rich_cursor(model, dest_cursor, txt, portion_color)
@@ -847,7 +841,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                                 pending_link_idx += 1
                                 if not addr:
                                     addr = pending_addr
-                            elif not addr and portion_looks_like_cell_link(portion, txt):
+                            elif not addr and looks_like_cell_link:
                                 addr = normalize_cell_address(txt.strip())
                             if addr and isinstance(before_len, int) and isinstance(after_len, int):
                                 register_cell_link_span(control, before_len, after_len, addr)
@@ -901,9 +895,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                             break
 
             if inserted and not element_skipped:
-                if auto_scroll:
-                    _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
-                log_rich_scroll("copy_done", control=control, role=role, auto_scroll=int(auto_scroll))
+                log_rich_scroll("copy_done", control=control, role=role)
                 log.info(
                     "_copy_formatted_from_hidden_doc_to_control: ok role=%s",
                     role,
@@ -922,7 +914,6 @@ def _copy_formatted_from_hidden_doc_to_control(
     reason = "element_skipped" if element_skipped else (
         "exception" if copy_failed_with_exception else "no_content_inserted"
     )
-    log.warning("_copy_formatted_from_hidden_doc_to_control: failed reason=%s role=%s", reason, role)
     return False, reason
 
 
@@ -934,14 +925,7 @@ def _plain_fallback_text(text: str) -> str:
     with the chat stream stripper. Use that stripper (it also unescapes
     entities).
     """
-    from plugin.framework.html_stripper import strip_html_tags
-
     return strip_html_tags(text or "")
-
-
-def _plain_role_prefix(role: str) -> str:
-    """Same ``You:`` / ``Assistant:`` label ``append_rich_text`` writes on the formatted path."""
-    return _role_prefix(role)
 
 
 def _row_separator_suffix(text: str | None) -> str:
@@ -981,7 +965,7 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
         _apply_sidebar_para_margins(cursor)
 
         color = theme.user_color if role == "user" else theme.assistant_color
-        prefix = _plain_role_prefix(role)
+        prefix = _role_prefix(role)
         _insert_string_at_rich_cursor(model, cursor, prefix, char_color=color, bold=True)
         cursor.gotoEnd(False)
         _apply_sidebar_para_margins(cursor)
@@ -1067,7 +1051,6 @@ def append_formatted_rows(
             ctx,
             role="assistant",
             style_window=style_window,
-            auto_scroll=False,
             cell_link_targets=batch_links,
             restore=restore,
             restore_focus=restore_focus,
@@ -1236,7 +1219,6 @@ def append_formatted_row(
             ctx,
             role=role,
             style_window=style_window,
-            auto_scroll=False,
             cell_link_targets=cell_link_targets,
             restore=restore,
             restore_focus=restore_focus,
