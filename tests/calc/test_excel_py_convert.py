@@ -396,6 +396,7 @@ def test_resolve_table_and_anchor():
     )
     t = resolve_dep("Table1[#All]", model)
     assert t.a1 == "Data!A3:F23" and t.kind == "table_snapshot"
+    assert resolve_dep("TABLE1[#All]", model).a1 == "Data!A3:F23"
     a = resolve_dep("_xlfn.ANCHORARRAY(A6)", model)
     assert a.a1 == "A6:B20" and a.kind == "anchor_snapshot"
 

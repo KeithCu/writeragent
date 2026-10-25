@@ -201,6 +201,9 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
         if m_table:
             name = m_table.group(1)
             ref = model.tables.get(name)
+            if not ref:
+                folded = name.lower()
+                ref = next((value for table_name, value in model.tables.items() if table_name.lower() == folded), None)
             if ref:
                 return ResolvedDep(original=raw, a1=ref.replace("$", ""), kind="table_snapshot", note=f"{name}[#All] → {ref}")
             return _unresolved(raw, note=f"unknown table {name!r}")
