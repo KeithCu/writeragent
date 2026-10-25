@@ -51,7 +51,6 @@ class WriterModule(ModuleBase):
         # Register tools automatically for the entire package
         services.tools.auto_discover_package(__name__)
         # Register tools in subpackages
-        services.tools.auto_discover_package(f"{__name__}.locale")
-        services.tools.auto_discover_package(f"{__name__}.math")
+        # locale/ and math/ define no tools, so there is no discovery call here.
         services.tools.auto_discover_package(f"{__name__}.images")
         services.tools.auto_discover_package(f"{__name__}.specialized")
