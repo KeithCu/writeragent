@@ -394,6 +394,44 @@ def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
+def test_ensure_empty_absorb_inserts_break_for_image_only_paragraph():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    para = MagicMock()
+    para.getString.return_value = ""
+
+    portion = MagicMock()
+    portion.getString.return_value = ""
+    portion.getPropertyValue.return_value = "TextContent"
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+            self._idx = 0
+
+        def hasMoreElements(self):
+            return self._idx < len(self._items)
+
+        def nextElement(self):
+            item = self._items[self._idx]
+            self._idx += 1
+            return item
+
+    para.createEnumeration.return_value = _Enum([portion])
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = para
+    cursor.getText.return_value = text_obj
+    cursor.getStart.return_value = MagicMock()
+
+    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+    assert out is cursor
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+
+
 def test_ensure_empty_absorb_skips_break_when_end_para_empty():
     from unittest.mock import MagicMock
 
@@ -916,6 +954,54 @@ def test_replace_preserving_format_equal_run_go_right_false_raises():
     with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
         with pytest.raises(ToolExecutionError, match="did not advance"):
             hi.replace_preserving_format(MagicMock(), _Range(), "AAAAAY")
+
+    assert writes == []
+
+
+def test_replace_preserving_format_shrink_go_right_false_raises():
+    import pytest
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import as hi, image_placeholders
+
+    writes = []
+
+    class _Cursor:
+        def goRight(self, n, expand):
+            if expand:
+                # Deletion advance
+                return False
+            # Equal-run advance
+            return True
+
+        def setString(self, value):
+            writes.append(value)
+
+        def gotoRange(self, _end, _expand):
+            return None
+
+        def getEnd(self):
+            return object()
+
+    cursor = _Cursor()
+
+    class _Text:
+        def createTextCursorByRange(self, _r):
+            return cursor
+
+    class _Range:
+        def getText(self):
+            return _Text()
+
+        def getString(self):
+            return "ABCD"
+
+        def getStart(self):
+            return object()
+
+    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
+        with pytest.raises(ToolExecutionError, match="did not advance"):
+            hi.replace_preserving_format(MagicMock(), _Range(), "AB")
 
     assert writes == []
 
