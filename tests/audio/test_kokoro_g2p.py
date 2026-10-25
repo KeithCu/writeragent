@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import types
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from plugin.audio.kokoro_g2p import (
-    KOKORO_ONNX_SCRIPT,
     KOKORO_PIP_INSTALL,
+    KOKORO_VOICE_PREFIX_TO_LANG,
     TTS_INSTALL_CMD,
     _kokoro_lang_for_voice,
+    clear_kokoro_misaki_probe_cache,
     ensure_kokoro_misaki,
     kokoro_g2p_lang,
     kokoro_lang_uses_misaki,
@@ -22,11 +25,16 @@ from plugin.audio.kokoro_g2p import (
     kokoro_misaki_probe_code,
     misaki_frontend,
 )
+from plugin.audio.voice_catalog import KOKORO_CATALOG_ITEMS
 
 
-def test_kokoro_script_compiles():
-    compile(KOKORO_ONNX_SCRIPT, "<kokoro_onnx_script>", "exec")
-    assert "version=" not in KOKORO_ONNX_SCRIPT
+@pytest.fixture(autouse=True)
+def _reset_probe_cache():
+    clear_kokoro_misaki_probe_cache()
+    try:
+        yield
+    finally:
+        clear_kokoro_misaki_probe_cache()
 
 
 @pytest.mark.parametrize(
@@ -59,20 +67,155 @@ def test_misaki_lang_properties(lang: str, uses_misaki: bool, expected_pkgs: tup
                 calls.append(kwargs)
 
             def __call__(self, text):
-                pass
+                return ("ok", None)
 
-        fake_ja = types.ModuleType("misaki.ja")
+        fake_ja: Any = types.ModuleType("misaki.ja")
         fake_ja.JAG2P = FakeG2P
-        fake_zh = types.ModuleType("misaki.zh")
+        fake_zh: Any = types.ModuleType("misaki.zh")
         fake_zh.ZHG2P = FakeG2P
-        fake_espeak = types.ModuleType("misaki.espeak")
+        fake_espeak: Any = types.ModuleType("misaki.espeak")
         fake_espeak.EspeakG2P = FakeG2P
         with patch.dict(
             sys.modules,
             {"misaki.ja": fake_ja, "misaki.zh": fake_zh, "misaki.espeak": fake_espeak},
         ):
-            exec(compile(code, "<probe>", "exec"), {})
+            with pytest.raises(SystemExit) as excinfo:
+                exec(compile(code, "<probe>", "exec"), {})
+            assert excinfo.value.code == 0
         assert len(calls) == 1
+
+
+def test_misaki_probe_code_empty_phonemes_fails():
+    code = kokoro_misaki_probe_code("ja")
+    assert code
+
+    class EmptyFakeG2P:
+        def __init__(self, **kwargs):
+            pass
+
+        def __call__(self, text):
+            return ("", None)
+
+    fake_ja: Any = types.ModuleType("misaki.ja")
+    fake_ja.JAG2P = EmptyFakeG2P
+    with patch.dict(sys.modules, {"misaki.ja": fake_ja}):
+        with pytest.raises(SystemExit) as excinfo:
+            exec(compile(code, "<probe>", "exec"), {})
+        assert excinfo.value.code == 1
+
+    class NoneFakeG2P:
+        def __init__(self, **kwargs):
+            pass
+
+        def __call__(self, text):
+            return (None, None)
+
+    fake_ja.JAG2P = NoneFakeG2P
+    with patch.dict(sys.modules, {"misaki.ja": fake_ja}):
+        with pytest.raises(SystemExit) as excinfo:
+            exec(compile(code, "<probe>", "exec"), {})
+        assert excinfo.value.code == 1
+
+
+def test_kokoro_unknown_voice_prefix_logs_once(caplog):
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="plugin.audio.kokoro_g2p")
+    assert kokoro_g2p_lang("hi", "qf_nobody") == "en-us"
+    records = [
+        r for r in caplog.records
+        if r.name == "plugin.audio.kokoro_g2p" and "no G2P prefix" in r.getMessage()
+    ]
+    assert len(records) == 1
+    assert "qf_nobody" in records[0].getMessage()
+
+    assert kokoro_g2p_lang("hi", "qf_nobody") == "en-us"
+    records = [
+        r for r in caplog.records
+        if r.name == "plugin.audio.kokoro_g2p" and "no G2P prefix" in r.getMessage()
+    ]
+    assert len(records) == 1
+
+
+def test_kokoro_catalog_prefixes_match_g2p():
+    pattern = re.compile(r"^[abefhijpz][fm]_")
+    lang_map = {
+        "en": {"en-us", "en-gb"},
+        "es": {"es"},
+        "fr": {"fr-fr"},
+        "it": {"it"},
+        "ja": {"ja"},
+        "zh": {"zh"},
+        "hi": {"hi"},
+        "pt": {"pt-br"},
+    }
+    for item in KOKORO_CATALOG_ITEMS:
+        voice_id = item["value"]
+        prefix = voice_id[:1]
+        assert prefix in KOKORO_VOICE_PREFIX_TO_LANG
+        assert pattern.match(voice_id)
+        mapped = KOKORO_VOICE_PREFIX_TO_LANG[prefix]
+        assert mapped in lang_map[item["lang"]]
+        assert mapped in ("en-us", "en-gb") or kokoro_lang_uses_misaki(mapped)
+
+
+def test_ensure_kokoro_misaki_probe_cache_success():
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, timeout):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    assert ensure_kokoro_misaki("/venv/bin/python", "ja", run_cmd=fake_run) is True
+    assert len(calls) == 1
+
+    assert ensure_kokoro_misaki("/venv/bin/python", "ja", run_cmd=fake_run) is True
+    assert len(calls) == 1
+
+
+def test_ensure_kokoro_misaki_probe_cache_failed_not_remembered():
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, timeout):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 1, "", "error")
+
+    assert ensure_kokoro_misaki("/venv/bin/python", "es", run_cmd=fake_run) is False
+    c_invocations_1 = sum(1 for c in calls if "-c" in c)
+    assert c_invocations_1 == 1
+
+    assert ensure_kokoro_misaki("/venv/bin/python", "es", run_cmd=fake_run) is False
+    c_invocations_2 = sum(1 for c in calls if "-c" in c)
+    assert c_invocations_2 == 2
+
+
+def test_ensure_kokoro_misaki_probe_cache_different_venvs():
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, timeout):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    assert ensure_kokoro_misaki("/venv/bin/python", "ja", run_cmd=fake_run) is True
+    assert ensure_kokoro_misaki("/other/bin/python", "ja", run_cmd=fake_run) is True
+    assert len(calls) == 2
+
+
+def test_ensure_kokoro_misaki_cached_success_cancelled():
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, timeout):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    assert ensure_kokoro_misaki("/venv/bin/python", "ja", run_cmd=fake_run) is True
+    assert len(calls) == 1
+
+    res = ensure_kokoro_misaki(
+        "/venv/bin/python", "ja", cancelled=lambda: True, run_cmd=fake_run
+    )
+    assert res is None
+    assert len(calls) == 1
 
 
 def test_kokoro_misaki_install_hints_and_requirements():
@@ -85,22 +228,6 @@ def test_kokoro_misaki_install_hints_and_requirements():
     assert "piper-tts" not in KOKORO_PIP_INSTALL
 
     assert TTS_INSTALL_CMD == KOKORO_PIP_INSTALL.replace("soundfile", "soundfile piper-tts")
-
-
-def _exec_kokoro_script(argv: list[str], modules: dict[str, types.ModuleType]) -> None:
-    saved_modules = {name: sys.modules.get(name) for name in modules}
-    old_argv = sys.argv
-    try:
-        sys.argv = argv
-        sys.modules.update(modules)
-        exec(compile(KOKORO_ONNX_SCRIPT, "<kokoro_onnx_script>", "exec"), {"__name__": "__main__"})
-    finally:
-        sys.argv = old_argv
-        for name, previous in saved_modules.items():
-            if previous is None:
-                sys.modules.pop(name, None)
-            else:
-                sys.modules[name] = previous
 
 
 def _fake_stack(g2p_calls: list, create_calls: list, voices: dict[str, int]):
@@ -141,17 +268,17 @@ def _fake_stack(g2p_calls: list, create_calls: list, voices: dict[str, int]):
             )
             return [0.0], 24000
 
-    misaki = types.ModuleType("misaki")
+    misaki: Any = types.ModuleType("misaki")
     misaki.__path__ = []  # type: ignore[attr-defined]
-    ja = types.ModuleType("misaki.ja")
+    ja: Any = types.ModuleType("misaki.ja")
     ja.JAG2P = JAG2P
-    zh = types.ModuleType("misaki.zh")
+    zh: Any = types.ModuleType("misaki.zh")
     zh.ZHG2P = ZHG2P
-    espeak = types.ModuleType("misaki.espeak")
+    espeak: Any = types.ModuleType("misaki.espeak")
     espeak.EspeakG2P = EspeakG2P
-    ko = types.ModuleType("kokoro_onnx")
+    ko: Any = types.ModuleType("kokoro_onnx")
     ko.Kokoro = Kokoro
-    sf = types.ModuleType("soundfile")
+    sf: Any = types.ModuleType("soundfile")
     sf.write = lambda path, samples, rate: None
     return {
         "misaki": misaki,
@@ -161,25 +288,6 @@ def _fake_stack(g2p_calls: list, create_calls: list, voices: dict[str, int]):
         "kokoro_onnx": ko,
         "soundfile": sf,
     }
-
-
-def _run(lang: str, voice: str, text: str, voices: dict[str, int] | None = None):
-    g2p_calls: list = []
-    create_calls: list = []
-    catalog = voices if voices is not None else {
-        "jf_alpha": 1,
-        "ff_siwis": 1,
-        "ef_dora": 1,
-        "zf_xiaobei": 1,
-        "af_bella": 1,
-    }
-    modules = _fake_stack(g2p_calls, create_calls, catalog)
-    _exec_kokoro_script(
-        ["kokoro", text, voice, "1.0", "/tmp/out.wav", "model.onnx", "voices.bin", lang],
-        modules,
-    )
-    assert len(create_calls) == 1
-    return g2p_calls, create_calls[0]
 
 
 def test_misaki_phonemes_helper_uses_the_same_snippets(monkeypatch):
@@ -230,12 +338,12 @@ def test_misaki_phonemes_caches_g2p_per_lang(monkeypatch):
             def __call__(self, text: str):
                 return "P:" + text, None
 
-        misaki = types.ModuleType("misaki")
-        ja = types.ModuleType("misaki.ja")
+        misaki: Any = types.ModuleType("misaki")
+        ja: Any = types.ModuleType("misaki.ja")
         ja.JAG2P = FakeJAG2P
-        zh = types.ModuleType("misaki.zh")
+        zh: Any = types.ModuleType("misaki.zh")
         zh.ZHG2P = FakeZHG2P
-        espeak = types.ModuleType("misaki.espeak")
+        espeak: Any = types.ModuleType("misaki.espeak")
         espeak.EspeakG2P = FakeEspeakG2P
 
         monkeypatch.setitem(sys.modules, "misaki", misaki)
@@ -268,8 +376,8 @@ def test_misaki_phonemes_does_not_cache_a_failed_construct(monkeypatch):
             def __init__(self) -> None:
                 raise RuntimeError("no dict")
 
-        misaki = types.ModuleType("misaki")
-        ja = types.ModuleType("misaki.ja")
+        misaki: Any = types.ModuleType("misaki")
+        ja: Any = types.ModuleType("misaki.ja")
         ja.JAG2P = BrokenJAG2P
         monkeypatch.setitem(sys.modules, "misaki", misaki)
         monkeypatch.setitem(sys.modules, "misaki.ja", ja)
@@ -283,76 +391,6 @@ def test_misaki_phonemes_does_not_cache_a_failed_construct(monkeypatch):
         assert "ja" not in _g2p_cache
     finally:
         _g2p_cache.clear()
-
-
-def test_script_japanese_french_spanish_use_misaki_phonemes():
-    g2p, created = _run("ja", "jf_alpha", "非常に強力")
-    assert g2p == [("ja", "非常に強力")]
-    assert created["is_phonemes"] is True
-    assert created["text"] == "JA:非常に強力"
-    assert created["voice"] == "jf_alpha"
-    assert created["lang"] == "ja"
-
-    g2p, created = _run("fr-fr", "ff_siwis", "Bonjour")
-    assert g2p == [("fr-fr", "Bonjour")]
-    assert created["is_phonemes"] is True
-    assert created["text"] == "ES:Bonjour"
-    assert created["voice"] == "ff_siwis"
-
-    g2p, created = _run("es", "ef_dora", "Hola")
-    assert g2p == [("es", "Hola")]
-    assert created["is_phonemes"] is True
-    assert created["text"] == "ES:Hola"
-    assert created["voice"] == "ef_dora"
-
-
-def test_script_chinese_uses_legacy_zh_g2p():
-    g2p, created = _run("zh", "zf_xiaobei", "你好")
-    assert g2p == [("zh-init", None), ("zh", "你好")]
-    assert created["is_phonemes"] is True
-    assert created["text"] == "ZH:你好"
-
-
-def test_script_english_does_not_call_misaki():
-    g2p, created = _run("en-us", "af_bella", "Hello")
-    assert g2p == []
-    assert created["is_phonemes"] is False
-    assert created["text"] == "Hello"
-    assert created["voice"] == "af_bella"
-    assert created["lang"] == "en-us"
-
-    g2p, created = _run("en-gb", "bf_emma", "Hello")
-    assert g2p == []
-    assert created["is_phonemes"] is False
-    assert created["text"] == "Hello"
-
-
-def test_script_misaki_failure_falls_back_to_raw_text():
-    g2p_calls: list = []
-    create_calls: list = []
-
-    class JAG2P:
-        def __call__(self, text: str):
-            raise RuntimeError("dictionary missing")
-
-    modules = _fake_stack(g2p_calls, create_calls, {"jf_alpha": 1, "af_bella": 1})
-    modules["misaki.ja"].JAG2P = JAG2P
-    _exec_kokoro_script(
-        ["kokoro", "非常に強力", "jf_alpha", "1.0", "/tmp/out.wav", "m", "v", "ja"],
-        modules,
-    )
-    assert create_calls[0]["is_phonemes"] is False
-    assert create_calls[0]["text"] == "非常に強力"
-    assert create_calls[0]["lang"] == "ja"
-
-
-def test_script_missing_voice_uses_af_sky():
-    # Bella is listed first so a names[0] fallback would pick it. Sky is the
-    # preferred substitute when the requested id is missing from the pack.
-    g2p, created = _run("ja", "jf_alpha", "あ", voices={"af_bella": 1, "af_sky": 1})
-    assert created["voice"] == "af_sky"
-    assert created["is_phonemes"] is True
-    assert g2p == [("ja", "あ")]
 
 
 def test_ensure_kokoro_misaki_installs_ja_when_probe_fails():

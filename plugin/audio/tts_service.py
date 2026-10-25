@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import re
@@ -20,7 +21,6 @@ from typing import Any, Callable, ClassVar, cast
 
 from plugin.audio.kokoro_g2p import (
     G2P_FAILED_MARK,
-    KOKORO_ONNX_SCRIPT,
     KOKORO_PIP_INSTALL,
     ensure_kokoro_misaki,
     kokoro_g2p_lang,
@@ -371,8 +371,8 @@ def stop_speech() -> None:
         _tracked_temps.clear()
         _reply_misaki_ready.clear()
         clear_generation_downloads(_speech_generation - 1)
-
-    cancel_token = get_kokoro_inflight_token()
+        # The token is the job that was in flight during this Stop; reading it after the lock lets the next utterance publish a new token.
+        cancel_token = get_kokoro_inflight_token()
 
     # Non-blocking signal/kill on current thread
     stop_spd = _proc_running(play) and _is_spd_say(play)
@@ -820,15 +820,21 @@ def _venv_python() -> str | None:
 
 
 def _notify_kokoro_g2p_fallback(
-    stderr_text: str,
+    warning: str,
     misaki_ready: bool | None,
     on_status: Callable[[str], None] | None,
+    *,
+    g2p: str | None = None,
 ) -> None:
     """Surface Misaki fallback to the chat panel."""
-    if misaki_ready is False and on_status is not None:
-        _notify_tts_status(_("Misaki not found; Kokoro used English phonemes"), on_status)
-    elif G2P_FAILED_MARK in stderr_text and on_status is not None:
+    if on_status is None:
+        return
+    if g2p == "misaki":
+        return
+    if G2P_FAILED_MARK in warning:
         _notify_tts_status(_("Kokoro used English phonemes for non-English voice"), on_status)
+    elif misaki_ready is False:
+        _notify_tts_status(_("Misaki not found; Kokoro used English phonemes"), on_status)
 
 
 def _remember_misaki_ready(generation: int | None, lang: str, ready: bool) -> None:
@@ -1049,7 +1055,12 @@ def _kokoro_warm_to_file(
     ):
         warning = result.get("warning") or ""
         if isinstance(warning, str) and warning.strip():
-            _notify_kokoro_g2p_fallback(warning, misaki_ready, on_status)
+            _notify_kokoro_g2p_fallback(
+                warning,
+                misaki_ready,
+                on_status,
+                g2p=result.get("g2p") if isinstance(result.get("g2p"), str) else None,
+            )
         return tmp_wav, False
     err = result.get("error") if isinstance(result, dict) else result
     log.warning("Warm Kokoro worker failed (%s); falling back to one-shot synthesis", err)
@@ -1068,26 +1079,63 @@ def _kokoro_oneshot_to_file(
     on_status: Callable[[str], None] | None = None,
     misaki_ready: bool | None = True,
 ) -> str | None:
-    """Cold python -c Kokoro load. Used when the warm worker cannot start."""
+    """Cold Kokoro load. Used when the warm worker cannot start."""
     if _playback_blocked(generation):
         return None
     tmp_wav = _new_speech_temp(".wav", generation)
     if tmp_wav is None:
         return None
     lang = kokoro_g2p_lang(text, voice)
-    # Pass '-' for text argument and feed text via stdin to avoid argv limits.
-    # communicate used to wait with no timeout, so a hung child blocked the
-    # speech thread until something else called stop.
-    cmd = [py_exe, "-c", KOKORO_ONNX_SCRIPT, "-", voice, str(speed), tmp_wav, model_path, voices_path, lang]
-    wav_path, stderr = _run_synth_to_temp(
-        tmp_wav, cmd, generation, label="Venv Kokoro", stdin_text=text,
-        timeout=_kokoro_synth_timeout(text),
-    )
-    stderr_text = stderr.strip()
-    if stderr_text:
-        log.warning("Kokoro: %s", stderr_text)
-        _notify_kokoro_g2p_fallback(stderr_text, misaki_ready, on_status)
-    return wav_path
+    worker_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kokoro_worker.py")
+    cmd = [py_exe, worker_py, "--once", "-", voice, str(speed), tmp_wav, model_path, voices_path, lang]
+    ok = False
+    try:
+        synth_res = _run_synth(
+            cmd,
+            generation,
+            stdin_text=text,
+            timeout=_kokoro_synth_timeout(text),
+            capture_stdout=True,
+        )
+        if synth_res is None:
+            return None
+        code, stdout, stderr = synth_res
+        if code != 0:
+            log.warning("Venv Kokoro failed (code %d): %s", code, stderr.strip())
+            return None
+
+        if not (os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0):
+            log.warning("Venv Kokoro produced empty audio")
+            return None
+
+        g2p: str | None = None
+        warning = ""
+        out_str = stdout.strip()
+        if out_str:
+            try:
+                data = json.loads(out_str)
+                if isinstance(data, dict):
+                    if isinstance(data.get("g2p"), str):
+                        g2p = data["g2p"]
+                    if isinstance(data.get("warning"), str):
+                        warning = data["warning"]
+            except Exception:
+                log.debug("Kokoro once stdout was not JSON: %s", out_str)
+
+        if warning.strip():
+            log.warning("Kokoro: %s", warning.strip())
+
+        if warning.strip() or (misaki_ready is False and g2p != "misaki"):
+            _notify_kokoro_g2p_fallback(warning, misaki_ready, on_status, g2p=g2p)
+
+        ok = True
+        return tmp_wav
+    except Exception as exc:
+        log.warning("Venv Kokoro execution error: %s", exc)
+        return None
+    finally:
+        if not ok:
+            _release_temp(tmp_wav)
 
 
 def _kokoro_cli_to_file(
