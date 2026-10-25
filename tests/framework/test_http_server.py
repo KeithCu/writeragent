@@ -174,6 +174,18 @@ def test_wrap_accepted_socket_sets_tcp_nodelay() -> None:
     conn.setsockopt.assert_any_call(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
 
+def test_wrap_accepted_socket_setsockopt_oserror_returns_socket() -> None:
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
+    conn = MagicMock()
+    conn.setsockopt.side_effect = OSError("Connection reset by peer")
+    try:
+        wrapped, addr = server._wrap_accepted_socket(conn, ("127.0.0.1", 1))
+    finally:
+        server.server_close()
+    assert wrapped is conn
+    assert addr == ("127.0.0.1", 1)
+
+
 def test_server_close_closes_queued_socket_without_running_handler() -> None:
     ran: list[object] = []
 

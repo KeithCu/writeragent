@@ -516,7 +516,16 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     def _wrap_accepted_socket(self, conn: Socket, addr: Any) -> tuple[Socket, Any]:
         """Optional TLS wrap of an accepted socket."""
-        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Tip: small JSON/SSE replies must not wait on Nagle.
+        # What was wrong: conn.setsockopt was unguarded. If the client reset the
+        # connection between accept() and this call, setsockopt raised OSError and broke
+        # the accept path.
+        # How: setsockopt was called directly without catching OSError.
+        # Why: wrap in try/except OSError: pass so early client disconnects or socket
+        # resets do not crash the accept path.
+        try:
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Tip: small JSON/SSE replies must not wait on Nagle.
+        except OSError:
+            pass
         if self.ssl_ctx is not None:
             conn = self.ssl_ctx.wrap_socket(conn, server_side=True, do_handshake_on_connect=False)
         return conn, addr

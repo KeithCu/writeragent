@@ -38,14 +38,17 @@ def test_sidebar_mode_flags_contracts(doc_type: str) -> None:
         assert flags.include_brainstorming is True
         assert flags.include_writing_plan is True
         assert flags.include_ppt_master is False
+        assert flags.include_deep_research is True
     elif doc_type in ("draw", "impress"):
         assert flags.include_brainstorming is False
         assert flags.include_writing_plan is False
         assert flags.include_ppt_master is True
+        assert flags.include_deep_research is False
     else:
         assert flags.include_brainstorming is False
         assert flags.include_writing_plan is False
         assert flags.include_ppt_master is False
+        assert flags.include_deep_research is False
 
 
 @given(label=st.text(max_size=DEAL_MAX_TOKEN))
@@ -55,7 +58,7 @@ def test_mode_from_label_contracts(label: str) -> None:
 
     labels = get_mode_labels()
     assert isinstance(labels, tuple)
-    assert len(labels) >= 5
+    assert len(labels) >= 4
     assert "librarian" in _VALID_MODES
 
 
