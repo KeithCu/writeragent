@@ -7,7 +7,13 @@
 
 from unittest.mock import MagicMock
 
-from plugin.calc.bridge import CalcBridge, calc_selection_to_a1
+from plugin.calc.bridge import (
+    CalcBridge,
+    calc_selection_to_a1,
+    filter_agent_sheet_names,
+    find_named_range,
+    is_agent_visible_sheet,
+)
 from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 import pytest
 
@@ -109,8 +115,6 @@ def test_resolve_range_or_address_unqualified_name_prefers_sheet_local():
 
 
 def test_get_sheet_error_omits_leading_underscore_sheets():
-    from plugin.calc.bridge import is_agent_visible_sheet
-
     doc = MagicMock()
     sheets = MagicMock()
     sheets.hasByName.return_value = False
@@ -300,5 +304,84 @@ def test_calc_selection_to_a1_valid():
     calc_doc.getSheets.return_value = MagicMock()
 
     assert calc_selection_to_a1(calc_doc) == "Sheet1.A1:C6"
+
+
+def test_find_named_range_range_with_colon_skips_uno():
+    doc = MagicMock()
+    doc.getSheets.side_effect = AssertionError("no sheet scan")
+    doc.getCurrentController.side_effect = AssertionError("no controller")
+    assert find_named_range(doc, "A1:B2") is None
+    assert find_named_range(doc, "Sheet1.A1:B2") is None
+
+
+def test_find_named_range_beyond_xfd_name_still_found():
+    doc = MagicMock()
+    doc.NamedRanges.hasByName.side_effect = lambda n: n == "TAX2024"
+    global_named = MagicMock()
+    doc.NamedRanges.getByName.return_value = global_named
+    active = _sheet("Sheet1")
+    active.NamedRanges.hasByName.return_value = False
+    doc.getCurrentController.return_value.getActiveSheet.return_value = active
+    sheets = MagicMock()
+    sheets.getCount.return_value = 0
+    sheets.hasByName.return_value = False
+    doc.getSheets.return_value = sheets
+
+    hit = find_named_range(doc, "TAX2024")
+    assert hit is not None
+    assert hit.scope == "global"
+    assert hit.named_range is global_named
+
+
+def test_get_active_sheet_not_a_spreadsheet_raises_uno_object_error():
+    bridge = CalcBridge(MagicMock(spec=[]))
+    with pytest.raises(UnoObjectError, match="Active document is not a spreadsheet"):
+        bridge.get_active_sheet()
+
+
+def test_get_active_sheet_missing_sheet_raises_uno_object_error():
+    doc = MagicMock()
+    doc.getCurrentController.return_value.getActiveSheet.return_value = None
+    bridge = CalcBridge(doc)
+    with pytest.raises(UnoObjectError, match="No active sheet found"):
+        bridge.get_active_sheet()
+
+
+def test_resolve_range_or_address_named_expression_falls_through():
+    doc = MagicMock()
+    named = MagicMock()
+    named.getReferredCells.return_value = None
+    doc.NamedRanges.hasByName.side_effect = lambda n: n == "Total"
+    doc.NamedRanges.getByName.return_value = named
+
+    active = _sheet("Sheet1")
+    active.NamedRanges.hasByName.return_value = False
+    doc.getCurrentController.return_value.getActiveSheet.return_value = active
+    sheets = MagicMock()
+    sheets.getCount.return_value = 0
+    doc.getSheets.return_value = sheets
+
+    sentinel = object()
+    active.getCellRangeByName.return_value = sentinel
+
+    assert CalcBridge(doc).resolve_range_or_address("Total") is sentinel
+
+
+def test_resolve_range_or_address_unknown_sheet_prefix_on_range_raises():
+    doc = MagicMock()
+    sheets = MagicMock()
+    sheets.hasByName.return_value = False
+    sheets.getElementNames.return_value = ("Sheet1",)
+    doc.getSheets.return_value = sheets
+
+    with pytest.raises(UnoObjectError) as exc_info:
+        CalcBridge(doc).resolve_range_or_address("NoSuch.A1:B2")
+    assert "No sheet named 'NoSuch'" in str(exc_info.value)
+
+
+def test_filter_agent_sheet_names_empty_and_hidden_only():
+    assert filter_agent_sheet_names([]) == []
+    assert filter_agent_sheet_names(["_a", "__Anonymous_Sheet_DB__0"]) == []
+
 
 

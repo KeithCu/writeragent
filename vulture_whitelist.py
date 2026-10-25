@@ -310,7 +310,6 @@ _.TableGetCells  # class: plugin/writer/specialized/tables.py:511
 _.TableInsert  # class: plugin/writer/specialized/tables.py:773
 _.TableList  # class: plugin/writer/specialized/tables.py:461
 _.TableSetCell  # class: plugin/writer/specialized/tables.py:620
-_.ToolCalcAnalysisBase  # class: plugin/calc/base.py:110
 _.ToolCalcDocumentResearchBase  # class: plugin/calc/base.py:61
 _.ToolCalcImageBase  # class: plugin/calc/base.py:45
 _.ToolCalcWebResearchBase  # class: plugin/calc/base.py:56
