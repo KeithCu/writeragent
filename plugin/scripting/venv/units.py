@@ -28,10 +28,6 @@ _PINT: Any | None = None
 _PINT_TRIED = False
 
 
-class _PintMissing(Exception):
-    """Pint is not installed. Not a ValueError, so it is not a parse error."""
-
-
 class _FormatSpecError(Exception):
     """Invalid format specifier passed to format_quantity."""
 
@@ -87,9 +83,15 @@ def _get_ureg() -> Any:
     if _UREG is None:
         pint = _require_pint()
         if pint is None:
-            raise _PintMissing("pint is required")
+            raise RuntimeError("pint is required")
         _UREG = pint.UnitRegistry()
     return _UREG
+
+
+def _require_finite(num: float, message: str) -> float:
+    if not math.isfinite(num):
+        raise ValueError(message)
+    return num
 
 
 def _format_qty(qty: Any, spec: str = "") -> str:
@@ -192,9 +194,7 @@ def _finite_magnitude(value: Any, *, empty_message: str) -> float:
             # Map TypeError from float({}) or float(object()) to ValueError so _guarded
             # routes it to PARSE_ERROR; ValueError already propagates directly.
             raise ValueError(str(exc)) from exc
-    if not math.isfinite(num):
-        raise ValueError("magnitude must be finite")
-    return num
+    return _require_finite(num, "magnitude must be finite")
 
 
 def _required_unit_text(unit_text: Any) -> str:
@@ -226,7 +226,8 @@ def _convert_to(qty: Any, to_text: Any) -> Any:
     except Exception as exc:
         # A dimension mismatch parsed both units. Keep it as UNITS_ERROR.
         # An unknown target unit is a parse error, same as an unknown source.
-        if type(exc).__name__ == "DimensionalityError":
+        pint = _require_pint()
+        if pint is not None and isinstance(exc, pint.errors.DimensionalityError):
             raise
         raise ValueError(str(exc)) from exc
 
@@ -234,7 +235,9 @@ def _convert_to(qty: Any, to_text: Any) -> Any:
 def _converted_quantity(val: Any, from_u: Any, to_u: Any) -> Any:
     num = _finite_magnitude(val, empty_message="empty value")
     ureg = _get_ureg()
-    return _convert_to(_unit_quantity(ureg, num, from_u), to_u)
+    qty = _convert_to(_unit_quantity(ureg, num, from_u), to_u)
+    _require_finite(float(qty.magnitude), "converted magnitude must be finite")
+    return qty
 
 
 def _parse_quantity_value(ureg: Any, text: str) -> Any:
@@ -300,7 +303,7 @@ def _scalar_parse(quantity: Any) -> float:
     """Parse one quantity string into its numeric magnitude."""
     ureg = _get_ureg()
     qty = _parse_quantity_value(ureg, str(quantity if quantity is not None else ""))
-    return float(qty.magnitude)
+    return _require_finite(float(qty.magnitude), "magnitude must be finite")
 
 
 def parse_quantity(*, quantity: Any = "", **kwargs: Any) -> Any:
@@ -360,15 +363,19 @@ def check_dimensionality(
     helper = "check_dimensionality"
     if _require_pint() is None:
         return _missing_package(helper)
-    left = str(quantity_a or unit_a or "").strip()
-    right = str(quantity_b or unit_b or "").strip()
-    if not left or not right:
+    left, left_conflict = _resolve_unit_alias(quantity_a, unit_a)
+    right, right_conflict = _resolve_unit_alias(quantity_b, unit_b)
+    if left_conflict or right_conflict:
+        return _error_result("INVALID_SPEC", "quantity and unit aliases disagree", helper=helper)
+    left_text = str(left or "").strip()
+    right_text = str(right or "").strip()
+    if not left_text or not right_text:
         return _error_result("MISSING_PARAM", "quantity_a/quantity_b or unit_a/unit_b are required", helper=helper)
 
     def _run() -> dict[str, Any]:
         ureg = _get_ureg()
-        qty_a = _parse_unit_or_quantity(ureg, left, param="quantity_a")
-        qty_b = _parse_unit_or_quantity(ureg, right, param="quantity_b")
+        qty_a = _parse_unit_or_quantity(ureg, left_text, param="quantity_a")
+        qty_b = _parse_unit_or_quantity(ureg, right_text, param="quantity_b")
         compatible = qty_a.dimensionality == qty_b.dimensionality
         text = "compatible" if compatible else "incompatible"
         return _ok_result(
@@ -390,8 +397,6 @@ def _guarded(helper: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     """
     try:
         return fn()
-    except _PintMissing:
-        return _missing_package(helper)
     except _FormatSpecError as exc:
         return _error_result("INVALID_SPEC", str(exc), helper=helper)
     except ValueError as exc:
@@ -535,6 +540,7 @@ def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
             cell = _scalar_cell(raw_qty)
             ureg = _get_ureg()
             qty = _parse_quantity_value(ureg, "" if cell is None else str(cell))
+            _require_finite(float(qty.magnitude), "magnitude must be finite")
             return _quantity_payload(qty, helper=name)
 
         return _guarded(name, _run)
@@ -611,14 +617,14 @@ def run_units(
 ) -> dict[str, Any]:
     """Spec-driven dispatcher for trusted units helpers."""
     del data
-    res = resolve_spec_helper(spec, helper_names=HELPER_NAMES, missing_code="MISSING_PARAM")
+    res = resolve_spec_helper(spec, helper_names=HELPER_NAMES)
     if isinstance(res, dict):
         return res
     helper, spec_dict = res
 
     params = spec_dict.get("params")
     if params is None:
-        params = {k: v for k, v in spec_dict.items() if k != "helper"}
+        params = {k: v for k, v in spec_dict.items() if k not in ("helper", "params", "headers", "header_row")}
     if not isinstance(params, dict):
         # A list or string used to become {}. The helper then reported
         # MISSING_PARAM ("from and to units are required") instead of a bad spec.

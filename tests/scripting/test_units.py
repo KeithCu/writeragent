@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -278,6 +279,14 @@ def test_unknown_unit_is_parse_error_and_mismatch_is_units_error():
     assert mismatch["status"] == "error"
     assert mismatch["code"] == "UNITS_ERROR"
 
+    degc_mismatch = run_units(
+        {"helper": "convert_quantity", "params": {"value": "1", "from": "degC", "to": "m"}},
+        None,
+        {},
+    )
+    assert degc_mismatch["status"] == "error"
+    assert degc_mismatch["code"] == "UNITS_ERROR"
+
     # A shape mismatch must stay UNITS_ERROR. It is not a quantity parse failure.
     shape = run_units(
         {"helper": "convert_quantity", "params": {"value": [1, 2], "from": ["m", "cm", "km"], "to": "m"}},
@@ -294,6 +303,70 @@ def test_run_units_rejects_non_dict_params():
     assert result["status"] == "error"
     assert result["code"] == "INVALID_SPEC"
     assert "dict" in result["message"]
+
+
+def test_convert_overflow_after_conversion_is_rejected():
+    assert convert_quantity(1e308, "m", "mm") == "#VALUE!"
+    result = run_units(
+        {"helper": "convert_quantity", "params": {"value": 1e308, "from": "m", "to": "mm"}},
+        None,
+        {},
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "PARSE_ERROR"
+    assert "finite" in result["message"]
+
+
+def test_parse_rejects_non_finite_quantity():
+    assert parse_quantity(quantity="nan m") == "#VALUE!"
+    result = run_units({"helper": "parse_quantity", "params": {"quantity": "inf m"}}, None, {})
+    assert result["status"] == "error"
+    assert result["code"] == "PARSE_ERROR"
+    assert "finite" in result["message"]
+
+
+def test_run_units_missing_helper_is_missing_helper():
+    res1 = run_units({}, None, {})
+    assert res1["code"] == "MISSING_HELPER"
+    res2 = run_units({"helper": "   "}, None, {})
+    assert res2["code"] == "MISSING_HELPER"
+
+
+def test_run_units_spec_fallback_ignores_non_param_keys(monkeypatch: pytest.MonkeyPatch):
+    from plugin.scripting.venv import units as units_venv
+
+    captured: dict[str, Any] = {}
+
+    def capture(params: dict[str, Any]) -> dict[str, Any]:
+        captured.update(params)
+        return {"status": "ok", "helper": "parse_quantity"}
+
+    monkeypatch.setitem(units_venv._DISPATCH, "parse_quantity", capture)
+    res = run_units(
+        {"helper": "parse_quantity", "quantity": "5 km/h", "params": None, "headers": True, "header_row": 1},
+        None,
+        {},
+    )
+    assert res["status"] == "ok"
+    assert captured == {"quantity": "5 km/h"}
+
+
+def test_check_dimensionality_alias_conflict_is_invalid_spec():
+    res = run_units(
+        {"helper": "check_dimensionality", "params": {"quantity_a": "10 m", "unit_a": "s", "quantity_b": "5 m"}},
+        None,
+        {},
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_SPEC"
+
+    res_ok = run_units(
+        {"helper": "check_dimensionality", "params": {"quantity_a": "10 m", "unit_a": "10 m", "quantity_b": "5 m"}},
+        None,
+        {},
+    )
+    assert res_ok["status"] == "ok"
+    assert res_ok["compatible"] is True
 
 
 def test_convert_quantity_none_unit_is_missing_param():
