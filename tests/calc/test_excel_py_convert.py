@@ -1235,25 +1235,14 @@ def test_cli_excel_write_xlsx(tmp_path: Path):
     assert has_excel_python_xlsx(out)
 
 
-def test_single_line_package_files_survive_strip(tmp_path: Path):
-    """Single-line [Content_Types].xml and .rels from Excel/LO must survive _strip_python_in_excel_parts."""
+def test_single_line_rels_survive_strip():
+    """Single-line .rels from Excel/LO must survive _strip_rels_python."""
     from xml.etree import ElementTree as ET
-    from plugin.calc.excel_py_convert.xlsx_write import _strip_python_in_excel_parts
+    from plugin.calc.excel_py_convert.xlsx_write import _strip_rels_python
 
-    ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
     rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
 
-    # Minified single-line content types and rels as emitted by Excel / LibreOffice
-    single_line_ct = (
-        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        f'<Types xmlns="{ct_ns}">'
-        f'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-        f'<Default Extension="xml" ContentType="application/xml"/>'
-        f'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-        f'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-        f'<Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>'
-        f'</Types>'
-    )
+    # Minified single-line rels as emitted by Excel / LibreOffice
     single_line_rels = (
         f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f'<Relationships xmlns="{rel_ns}">'
@@ -1262,43 +1251,15 @@ def test_single_line_package_files_survive_strip(tmp_path: Path):
         f'</Relationships>'
     )
 
-    xlsx = tmp_path / "single_line_strip.xlsx"
-    with zipfile.ZipFile(xlsx, "w") as zf:
-        zf.writestr("[Content_Types].xml", single_line_ct)
-        zf.writestr("xl/_rels/workbook.xml.rels", single_line_rels)
-        zf.writestr("xl/pythonScripts.xml", "<pythonScripts/>")
-        zf.writestr("xl/worksheets/sheet1.xml", "<worksheet/>")
-        zf.writestr("xl/workbook.xml", "<workbook/>")
-
-    _strip_python_in_excel_parts(xlsx)
-
-    with zipfile.ZipFile(xlsx, "r") as zf:
-        assert "xl/pythonScripts.xml" not in zf.namelist()
-        ct_root = ET.fromstring(zf.read("[Content_Types].xml"))
-        ct_overrides = [
-            c.attrib.get("PartName")
-            for c in ct_root
-            if c.tag.endswith("Override")
-        ]
-        assert "/xl/workbook.xml" in ct_overrides
-        assert "/xl/worksheets/sheet1.xml" in ct_overrides
-        assert "/xl/pythonScripts.xml" not in ct_overrides
-        defaults = [
-            c.attrib.get("Extension")
-            for c in ct_root
-            if c.tag.endswith("Default")
-        ]
-        assert "rels" in defaults
-        assert "xml" in defaults
-
-        rels_root = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
-        rel_targets = [
-            c.attrib.get("Target")
-            for c in rels_root
-            if c.tag.endswith("Relationship")
-        ]
-        assert "worksheets/sheet1.xml" in rel_targets
-        assert "pythonScripts.xml" not in rel_targets
+    res = _strip_rels_python(single_line_rels.encode("utf-8"))
+    rels_root = ET.fromstring(res)
+    rel_targets = [
+        c.attrib.get("Target")
+        for c in rels_root
+        if c.tag.endswith("Relationship")
+    ]
+    assert "worksheets/sheet1.xml" in rel_targets
+    assert "pythonScripts.xml" not in rel_targets
 
 
 def test_write_excel_python_xlsx_single_line_content_types(tmp_path: Path):
@@ -1646,25 +1607,14 @@ def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
 
 
 def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
-    """Temporary files (.tmpstrip, .tmprewrite, .tmpexcelpy) must be cleaned up on exception."""
+    """Temporary files (.tmprewrite, .tmpexcelpy) must be cleaned up on exception."""
     from plugin.calc.excel_py_convert.convert import write_excel_python_xlsx
-    from plugin.calc.excel_py_convert.xlsx_write import _strip_python_in_excel_parts
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
     src = tmp_path / "temp_clean_src.xlsx"
     src.write_bytes(_dag_xlsx_bytes())
 
-    # 1. Test .tmpstrip cleanup
-    def fail_writestr(*_args, **_kwargs):
-        raise RuntimeError("simulated write error")
-
-    monkeypatch.setattr(zipfile.ZipFile, "writestr", fail_writestr)
-
-    with pytest.raises(RuntimeError):
-        _strip_python_in_excel_parts(src)
-    assert not (src.with_suffix(src.suffix + ".tmpstrip")).exists()
-
-    # 2. Test rewrite_zip cleanup
+    # 1. Test rewrite_zip cleanup
     from plugin.calc.excel_py_convert.ooxml_util import rewrite_zip
 
     def fail_transform(zin, zout):
@@ -1674,8 +1624,10 @@ def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
         rewrite_zip(src, src.with_suffix(src.suffix + ".out"), fail_transform, temp_suffix=".tmprewrite")
     assert not (src.with_suffix(src.suffix + ".out.tmprewrite")).exists()
 
-    # 3. Test .tmpexcelpy cleanup
-    monkeypatch.undo()
+    # 2. Test .tmpexcelpy cleanup
+    def fail_writestr(*_args, **_kwargs):
+        raise RuntimeError("simulated write error")
+
     cell = ConvertedCell(
         sheet="Sheet1",
         cell="A1",
@@ -1756,19 +1708,21 @@ def test_single_line_content_types_with_mc_ignorable():
         b'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
         b'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
         b'<Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>'
+        b'<Override PartName="/xl/pythonScripts/script1.py" ContentType="application/xml"/>'
         b'</Types>'
     )
-    from plugin.calc.excel_py_convert.xlsx_write import _patch_content_types, _strip_content_types_python
+    from plugin.calc.excel_py_convert.xlsx_write import _patch_content_types
 
     # 1. Test stripping python parts
-    stripped = _strip_content_types_python(ct_data)
+    stripped = _patch_content_types(ct_data, strip_python=True)
     assert b"pythonScripts.xml" not in stripped
+    assert b"pythonScripts/script1.py" not in stripped
     assert b'mc:Ignorable="x14ac xr"' in stripped
     assert b'xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"' in stripped
     assert b'xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision"' in stripped
 
     # 2. Test patching python parts
-    patched = _patch_content_types(stripped)
+    patched = _patch_content_types(stripped, ensure_python_scripts=True)
     assert b"pythonScripts.xml" in patched
     assert b'mc:Ignorable="x14ac xr"' in patched
     assert b'xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"' in patched
@@ -2715,10 +2669,10 @@ def test_worksheet_cell_index_no_r_attribute():
 
 def test_bad_package_xml_raises_value_error():
     """Malformed [Content_Types].xml or .rels raises ValueError with part name."""
-    from plugin.calc.excel_py_convert.xlsx_write import _strip_content_types_python, _strip_rels_python
+    from plugin.calc.excel_py_convert.xlsx_write import _patch_content_types, _strip_rels_python
 
     with pytest.raises(ValueError, match=r"\[Content_Types\]\.xml"):
-        _strip_content_types_python(b"<malformed XML")
+        _patch_content_types(b"<malformed XML", strip_python=True)
     with pytest.raises(ValueError, match=r"\.rels"):
         _strip_rels_python(b"<malformed XML")
 
@@ -2738,6 +2692,22 @@ def test_strip_rels_preserves_python_notes():
     assert "rId2" not in res
     assert "rId3" in res
     assert "python_notes.xml" in res
+
+
+def test_strip_rels_keeps_python_when_not_stripping():
+    from plugin.calc.excel_py_convert.xlsx_write import _strip_rels_python
+
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain" Target="calcChain.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.microsoft.com/office/2022/relationships/pythonScript" Target="pythonScripts.xml"/>
+</Relationships>"""
+    res = _strip_rels_python(xml, strip_python=False).decode("utf-8")
+    assert "rId1" in res
+    assert "rId2" not in res
+    assert "rId3" in res
+    assert "pythonScripts.xml" in res
 
 
 def test_xml_namespace_lock_thread_safety():
@@ -3103,27 +3073,6 @@ def test_clear_spill_xml_touches_stored_cells_only():
     # Out-of-range cell kept
     v_o_found = c_outside.find("v")
     assert v_o_found is not None and v_o_found.text == "outside"
-
-
-def test_strip_python_in_excel_parts_preserves_python_notes(tmp_path: Path):
-    from plugin.calc.excel_py_convert.xlsx_write import _strip_python_in_excel_parts
-
-    src = tmp_path / "notes_test.xlsx"
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("[Content_Types].xml", """<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>""")
-        zf.writestr("xl/pythonScripts.xml", "<scripts/>")
-        zf.writestr("xl/pythonScripts/script1.py", "x = 1")
-        zf.writestr("xl/python_notes.xml", "<notes/>")
-    src.write_bytes(buf.getvalue())
-
-    _strip_python_in_excel_parts(src)
-
-    with zipfile.ZipFile(src, "r") as zf:
-        names = zf.namelist()
-        assert "xl/python_notes.xml" in names
-        assert "xl/pythonScripts.xml" not in names
-        assert "xl/pythonScripts/script1.py" not in names
 
 
 def test_drop_py_code_sheets_sets_full_calc_on_load():
