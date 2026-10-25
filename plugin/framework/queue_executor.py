@@ -42,10 +42,16 @@ import sys
 import threading
 import time
 import uuid
-from typing import Any, Callable, ClassVar, cast, TYPE_CHECKING
+from typing import Any, Callable, ClassVar, cast
 
-if TYPE_CHECKING:
-    from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import (
+    SendCancelled,
+    SendCancellation,
+    _resolve_bound_scope,
+    _SCOPE_UNSET,
+    _ScopeUnset,
+    is_agent_active,
+)
 
 log = logging.getLogger("writeragent.framework.queue_executor")
 
@@ -75,18 +81,8 @@ def set_test_poke_handler(handler: Callable[["QueueExecutor"], None] | None) -> 
     _test_poke_handler = handler
 
 
-class _ScopeUnset:
-    """Marker: enqueue reads the current send instead of a caller-supplied scope."""
-
-
-# ``_enqueue_work`` reads the current send unless the caller passes the scope
-# that was current when a pending post was stored.
-_SCOPE_UNSET = _ScopeUnset()
-
-
 def _marshal_thread_tag(executor: "QueueExecutor | None" = None) -> str:
     """One-line thread context for marshal/deadlock diagnosis (writeragent_debug.log)."""
-    from plugin.framework.send_cancellation import is_agent_active
     from plugin.framework.thread_guard import get_background_task_name, on_main_thread
 
     cur = threading.current_thread()
@@ -380,8 +376,6 @@ class QueueExecutor:
 
     def _abandon_unstarted(self, item: _WorkItem) -> None:
         """Mark an item that has not entered ``fn`` and wake a blocking waiter."""
-        from plugin.framework.send_cancellation import SendCancelled
-
         item.cancelled = True
         if item.blocking and item.event and not item.event.is_set():
             item.exception = SendCancelled()
@@ -524,8 +518,6 @@ class QueueExecutor:
 
     def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, poke: bool = True) -> _WorkItem:
         """Add work item to queue. *poke* False lets a batch caller poke once."""
-        from plugin.framework.send_cancellation import _resolve_bound_scope
-
         scope = _resolve_bound_scope(bound_scope)
         if scope is not None:
             scope.bind_executor(self)
@@ -694,7 +686,6 @@ class QueueExecutor:
         AsyncCallback is already known missing, a full list raises that
         TimeoutError immediately and does not store the callable.
         """
-        from plugin.framework.send_cancellation import _resolve_bound_scope
         from plugin.framework.thread_guard import get_background_task_name
 
         fn_label = _fn_label(fn)
@@ -870,6 +861,10 @@ def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecu
         owner_may_pump_vcl,
     )
     from plugin.framework.vcl_pumping import pump_vcl_events
+    from plugin.framework.thread_guard import on_main_thread
+
+    if not on_main_thread():
+        return
 
     pump_main_thread_work_queue(max_items=max_queue_items, executor=executor)
     # owner_may_pump_vcl (depth > 1) notes the suppression and skips VCL.
