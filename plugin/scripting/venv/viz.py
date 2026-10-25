@@ -409,12 +409,10 @@ def time_series_plot(
         series = series.iloc[order]
         dates_all = dates_all.iloc[order]
 
-    if series[hist_col].notna().any():
-        rejected = _non_numeric_column(df, hist_col, helper="time_series_plot")
-        if rejected is not None:
-            return rejected
-
     hist_values = cast(pd.Series, pd.to_numeric(series[hist_col], errors="coerce"))
+    # Only an all-text value column is an error; a stray text cell is skipped like a blank.
+    if series[hist_col].notna().any() and hist_values.isna().all():
+        return _error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {hist_col}", helper="time_series_plot")
     hist_mask = dates_all.notna() & hist_values.notna()
 
     forecast_values: pd.Series | None = None

@@ -638,6 +638,25 @@ def test_time_series_insufficient_data_does_not_open_figure(mock_plt):
 
 @patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
 @patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_stray_text_cell_is_skipped(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"date": ["2024-01-01", "2024-02-01", "2024-03-01"], "Value": [1.0, "n/a", 3.0]})
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {"date_col": "date", "value_col": "Value"},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "ok"
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
 def test_time_series_non_numeric_value_is_non_numeric_column(mock_plt, _mock_payload):
     plt_mod = _mock_plt_module()
     mock_plt.return_value = plt_mod
