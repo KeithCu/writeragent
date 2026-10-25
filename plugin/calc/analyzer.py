@@ -15,7 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Sheet analyzer — analyses the structure and statistics of Calc sheets.
+"""Sheet analyzer — summarizes the structure of Calc sheets.
 
 Ported from core/calc_sheet_analyzer.py for the plugin framework.
 """
@@ -70,6 +70,7 @@ class _VisibleSheet:
     summary: dict[str, Any] | None
     active_is_visible: bool
     bridge: CalcBridge
+    active_name: str
 
 
 def _resolve_visible_sheet(model: Any) -> _VisibleSheet:
@@ -91,7 +92,7 @@ def _resolve_visible_sheet(model: Any) -> _VisibleSheet:
         if target is not None
         else None
     )
-    return _VisibleSheet(names, target, summary, active_is_visible, bridge)
+    return _VisibleSheet(names, target, summary, active_is_visible, bridge, active_name)
 
 
 
@@ -144,7 +145,12 @@ class SheetAnalyzer:
             header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
             header_data = header_range.getDataArray()
 
-            headers = [_header_text(val) for val in header_data[0]] if header_data else []
+            headers: list[str | None] = []
+            for offset, val in enumerate(header_data[0] if header_data else ()):
+                if val is not None and not isinstance(val, str):
+                    # getDataArray gives raw serials; getString is the displayed text (e.g. dates).
+                    val = header_range.getCellByPosition(offset, 0).getString()
+                headers.append(_header_text(val))
 
             result: dict[str, Any] = {
                 "sheet_name": sheet.getName(),
@@ -197,7 +203,12 @@ def get_calc_context_for_chat(
             return truncate_chat_context(ctx_str + "No user-visible sheets.\n", max_context)
 
         summary = vs.summary
-        ctx_str += f"Active Sheet: {summary['sheet_name']}\n"
+        if vs.active_is_visible:
+            ctx_str += f"Active Sheet: {summary['sheet_name']}\n"
+        else:
+            ctx_str += f"Active Tab: {vs.active_name} (internal; not summarized)\n"
+            ctx_str += f"Inspected Sheet: {summary['sheet_name']}\n"
+            ctx_str += f'Pass sheet="{summary["sheet_name"]}" to sheet and range tools to read or write it.\n'
         ctx_str += f"Used Range: {summary['used_range']} ({summary['row_count']} rows x {summary['col_count']} columns)\n"
         ctx_str += f"Columns: {_format_columns(summary['headers'])}\n"
 
@@ -230,7 +241,7 @@ def get_calc_context_for_chat(
                     raise DocumentDisposedError("Calc document disposed during selection read", object_type="calc") from exc
                 log.debug("Failed to read Calc selection context: %s", exc)
         else:
-            ctx_str += "Selection omitted: active tab is an internal sheet.\n"
+            ctx_str += "Selection omitted: the selection belongs to the internal active tab, not the inspected sheet.\n"
 
         return truncate_chat_context(ctx_str, max_context)
     except DocumentDisposedError:
@@ -255,7 +266,13 @@ def get_full_calc_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CH
     if vs.target is None or vs.summary is None:
         return truncate_chat_context("No user-visible sheets.\n", max_chars)
     summary = vs.summary
-    text = f"Sheet: {summary['sheet_name']}\nUsed Range: {summary['used_range']}\n"
+    if vs.active_is_visible:
+        text = f"Sheet: {summary['sheet_name']}\n"
+    else:
+        text = f"Active Tab: {vs.active_name} (internal; not summarized)\n"
+        text += f"Inspected Sheet: {summary['sheet_name']}\n"
+        text += f'Pass sheet="{summary["sheet_name"]}" to sheet and range tools to read or write it.\n'
+    text += f"Used Range: {summary['used_range']}\n"
     text += f"Columns: {_format_columns(summary['headers'])}\n"
     return truncate_chat_context(text, max_chars)
 
