@@ -88,7 +88,8 @@ class TestPythonRunnerConfig:
 
         prepared = {
             "ctx": MagicMock(),
-            "exec_code": "result = 42",
+            "code": "result = 42",
+            "bindings": None,
             "py_data": None,
             "session_id": "rps:sid",
             "script_session_id": "doc:pin",
