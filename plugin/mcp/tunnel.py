@@ -31,6 +31,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from plugin.framework.worker_pool import get_subprocess_creationflags
@@ -680,7 +681,7 @@ class TunnelManager:
                 url = parse_line(line)
                 if url:
                     log.info("MCP tunnel URL (%s): %s", provider, url)
-                    self._dispatch_unlocked(TunnelEvent(TunnelEventKind.URL_ACQUIRED, {"url": url}))
+                    self._dispatch_unlocked(TunnelEvent(TunnelEventKind.URL_ACQUIRED, {"url": url, "now": time.monotonic()}))
 
         def _on_exit(rc: int) -> None:
             log.info("MCP tunnel process (%s) exited with code %s", provider, rc)
@@ -695,7 +696,7 @@ class TunnelManager:
                     log.info("Ignoring stale MCP tunnel exit (%s, code %s)", provider, rc)
                     return
                 self._process = None
-                self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": rc}))
+                self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": rc, "now": time.monotonic()}))
 
         # Record the arm before start() returns. A kill in that window still
         # leaves the marker. If the CLI never starts, clear it in the handlers
