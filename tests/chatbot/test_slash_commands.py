@@ -229,3 +229,13 @@ def test_run_stop_during_inline_approval_opens_change_dialog_without_clearing_as
     events_mock._open_web_search_change_dialog.assert_called_once_with()
     events_mock._finish_inline_web_approval.assert_not_called()
     host.dispatch.assert_not_called()
+
+
+def test_slash_descriptions_are_translated_at_display_time(monkeypatch):
+    import plugin.chatbot.slash_commands as slash
+
+    assert slash.SLASH_COMMANDS[0].description == "Print the command list"
+    monkeypatch.setattr(slash, "_", lambda msg: "T:" + msg)
+    assert slash.format_slash_item(slash.SLASH_COMMANDS[0]) == "/help — T:Print the command list"
+    assert "/help — T:Print the command list" in slash.format_help_text()
+
