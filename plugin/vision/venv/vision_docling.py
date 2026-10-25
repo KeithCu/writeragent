@@ -250,6 +250,7 @@ def _resolve_layout_model_spec(layout_key: str) -> Any:
     mapping = {
         "heron": layout_specs.DOCLING_LAYOUT_HERON,
         "egret": layout_specs.DOCLING_LAYOUT_EGRET,
+        "egret_large": layout_specs.DOCLING_LAYOUT_EGRET_LARGE,
         "egret_xlarge": layout_specs.DOCLING_LAYOUT_EGRET_XLARGE,
         "v2": layout_specs.DOCLING_LAYOUT_V2,
     }
@@ -264,6 +265,7 @@ def _resolve_layout_model_spec(layout_key: str) -> Any:
 _OD_LAYOUT_PRESETS: dict[str, tuple[str, str]] = {
     "heron": ("layout_heron", "OBJECT_DETECTION_LAYOUT_HERON"),
     "egret": ("layout_egret", "OBJECT_DETECTION_LAYOUT_EGRET"),
+    "egret_large": ("layout_egret_large", "OBJECT_DETECTION_LAYOUT_EGRET_LARGE"),
     "egret_xlarge": ("layout_egret_xlarge", "OBJECT_DETECTION_LAYOUT_EGRET_XLARGE"),
     "v2": ("layout_v2", "OBJECT_DETECTION_LAYOUT_V2"),
 }

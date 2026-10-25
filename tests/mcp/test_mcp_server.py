@@ -755,3 +755,58 @@ def test_http_server_stop_joins_threads_within_deadline():
     elapsed = time.monotonic() - start
     assert elapsed < 2.5
 
+
+def test_dispatch_resets_response_started_for_subsequent_requests():
+    from http.client import HTTPMessage
+    from plugin.mcp.routes import HttpRouteRegistry
+    from plugin.mcp.server import GenericRequestHandler
+
+    registry = HttpRouteRegistry()
+    calls = []
+
+    def _handler(body, headers, query):
+        del body, headers, query
+        calls.append(True)
+        if len(calls) == 1:
+            return 200, {"status": "first"}
+        raise RuntimeError("second request failure")
+
+    registry.add("POST", "/test", _handler)
+    server = MagicMock()
+    server.route_registry = registry
+
+    handler = GenericRequestHandler.__new__(GenericRequestHandler)
+    handler.server = server
+    handler.client_address = ("127.0.0.1", 12345)
+    handler.request_version = "HTTP/1.1"
+
+    def _make_headers():
+        msg = HTTPMessage()
+        msg.add_header("Host", "127.0.0.1")
+        msg.add_header("Content-Length", "2")
+        return msg
+
+    # First request succeeds
+    handler.path = "/test"
+    handler.requestline = "POST /test HTTP/1.1"
+    handler.headers = _make_headers()
+    handler.rfile = BytesIO(b"{}")
+    handler.wfile = BytesIO()
+    handler._dispatch("POST")
+    assert handler._response_started is True
+    status1, body1 = _response_json(handler)
+    assert status1 == 200
+    assert body1 == {"status": "first"}
+
+    # Second request on the same handler fails; error response must be sent
+    handler.path = "/test"
+    handler.requestline = "POST /test HTTP/1.1"
+    handler.headers = _make_headers()
+    handler.rfile = BytesIO(b"{}")
+    handler.wfile = BytesIO()
+    handler._dispatch("POST")
+    assert handler._response_started is True
+    status2, body2 = _response_json(handler)
+    assert status2 == 500
+    assert "second request failure" in str(body2)
+

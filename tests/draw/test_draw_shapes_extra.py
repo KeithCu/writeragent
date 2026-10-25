@@ -81,6 +81,7 @@ def test_create_diagram_reuses_upsert(tmp_path=None):
                 connections=[{"from": "a", "to": "b"}],
             )
     assert out["status"] == "ok"
+    assert out["layout"] == "horizontal_flow"
     assert out["id_to_index"] == {"a": 0, "b": 1}
     assert len(out["connections"]) == 1
 

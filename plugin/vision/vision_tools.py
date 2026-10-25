@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcVisionBase
+from plugin.framework.config_schema import as_bool
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.vision.vision_runner import run_and_insert_vision_for_selection
@@ -54,7 +55,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
             return self._tool_error(_("Vision OCR requires a Writer or Calc document."), code="VISION_ERROR")
 
         doc = ctx.doc
-        insert_into_document = bool(kwargs.get("insert_into_document", True))
+        insert_into_document = as_bool(kwargs.get("insert_into_document", True))
         params_raw = kwargs.get("params")
         params_dict: dict[str, Any] = dict(params_raw) if params_raw is not None else {}
         image_name = str(kwargs.get("image_name") or "").strip()

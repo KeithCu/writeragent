@@ -290,7 +290,7 @@ def verify_librepy_archive(archive_path: str, *, with_tests: bool = False) -> No
 
         ver_elem = None
         for el in d_root.iter():
-            if el.tag.endswith("version"):
+            if el.tag.rsplit("}", 1)[-1] == "version":
                 ver_elem = el
                 break
         ver_val = ver_elem.attrib.get("value") if ver_elem is not None else None
