@@ -248,37 +248,11 @@ def test_delegate_status_user_stopped_left_unchanged(
     assert result["error"] == "Task stopped by user."
 
 
-def test_draw_gateway_enum_filters_presentation_only_domains_by_doc_type() -> None:
-    import plugin.draw.headers_footers  # noqa: F401
-    import plugin.draw.notes  # noqa: F401
-    from plugin.draw.specialized import DelegateToSpecializedDraw
-
-    gateway = DelegateToSpecializedDraw()
-    assert gateway.parameters is not None
-    assert "headers_footers" in gateway.parameters["properties"]["domain"]["enum"]
-    assert "speaker_notes" in gateway.parameters["properties"]["domain"]["enum"]
-
-    draw_params = gateway.get_parameters("draw")
-    assert draw_params is not None
-    assert "headers_footers" not in draw_params["properties"]["domain"]["enum"]
-    assert "speaker_notes" not in draw_params["properties"]["domain"]["enum"]
-
-    impress_params = gateway.get_parameters("impress")
-    assert impress_params is not None
-    assert "headers_footers" in impress_params["properties"]["domain"]["enum"]
-    assert "speaker_notes" in impress_params["properties"]["domain"]["enum"]
-
-    assert "headers_footers" in gateway.parameters["properties"]["domain"]["enum"]
-
-
 def test_gateway_enum_is_sorted_and_unique(writer_gateway: DelegateToSpecializedWriter) -> None:
     assert writer_gateway.parameters is not None
     enum = writer_gateway.parameters["properties"]["domain"]["enum"]
     assert enum == sorted(enum)
     assert len(enum) == len(set(enum))
-    assert writer_gateway.get_parameters(None) is writer_gateway.parameters
-    assert writer_gateway.get_parameters("writer") == writer_gateway.parameters
-    assert writer_gateway.get_parameters(MagicMock()) is writer_gateway.parameters
 
 
 def test_delegate_completed_message_uses_static_msgid(

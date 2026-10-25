@@ -18,13 +18,11 @@
 
 from __future__ import annotations
 
-import copy
 import logging
 from typing import Any, cast, Type, ClassVar
 
-from plugin.doc.doc_type import IMPRESS_DOCUMENT_SERVICE, uno_services_for_doc_type_label
 from plugin.framework.errors import is_real_disposal
-from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
+from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
@@ -110,50 +108,25 @@ class DelegateToSpecializedBase(ToolBase):
     long_running: bool = True
     parameters: dict[str, Any] | None
 
-    def _domains_for(self, doc_type: str | None = None) -> list[str]:
-        """Sorted domains whose base class can serve *doc_type* (no document needed).
-
-        Bugfix: the enum ignored the document type, so a Draw (not Impress)
-        document offered presentation-only domains (headers_footers,
-        speaker_notes, slide_*); picking one returned "No specialized tools
-        found". Recomputing here (not only in __init__) also frees the list
-        from module import order.
-        """
-        classes: dict[str, list[Any]] = {}
-        for cls in self._special_base_class.__subclasses__():
-            domain = getattr(cls, "specialized_domain", None)
-            if not domain:
-                continue
-            if self._agent_label == "Calc" and domain in CALC_HIDDEN_SPECIALIZED_DOMAINS:
-                continue
-            if self._agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
-                continue
-            if self._agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
-                continue
-            classes.setdefault(str(domain), []).append(cls)
-        services = uno_services_for_doc_type_label(doc_type) if isinstance(doc_type, str) else frozenset()
-        if doc_type == "draw":
-            # Distinct label "draw" is a DrawingDocument (not Impress PresentationDocument).
-            # uno_services_for_doc_type_label("draw") includes both for family fallback.
-            services = services - {IMPRESS_DOCUMENT_SERVICE}
-        return sorted(
-            domain
-            for domain, cls_list in classes.items()
-            if not services
-            or any(
-                tool_supports_document(cast("ToolBase", cls), doc_type=doc_type, uno_services_supported=services)
-                for cls in cls_list
-            )
-        )
-
     def __init__(self) -> None:
         super().__init__()
-        domains = self._domains_for()
+        domains: set[str] = set()
+        # Find all domains by scanning subclasses of the specialized base
+        for cls in self._special_base_class.__subclasses__():
+            domain = getattr(cls, "specialized_domain", None)
+            if domain:
+                if self._agent_label == "Calc" and domain in CALC_HIDDEN_SPECIALIZED_DOMAINS:
+                    continue
+                if self._agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
+                    continue
+                if self._agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
+                    continue
+                domains.add(str(domain))
 
         self.parameters = {
             "type": "object",
             "properties": {
-                "domain": {"type": "string", "enum": domains, "description": "The specialized domain to activate."},
+                "domain": {"type": "string", "enum": sorted(domains), "description": "The specialized domain to activate."},
                 # Left commented on purpose. Domain access for the python specialized
                 # agent is delegate_tool_domains (domains + task → inner agent in
                 # plugin/doc/python_domain_specialized.py). This single-string name is
@@ -170,20 +143,6 @@ class DelegateToSpecializedBase(ToolBase):
             },
             "required": ["domain", "task"],
         }
-
-    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        # Only a real doc-type label narrows the enum; MCP/no-doc keeps every domain.
-        if not isinstance(doc_type, str) or not uno_services_for_doc_type_label(doc_type):
-            return self.parameters
-        domains = self._domains_for(doc_type)
-        assert self.parameters is not None
-        params = copy.deepcopy(self.parameters)
-        props = params.get("properties")
-        assert isinstance(props, dict)
-        domain_schema = props.get("domain")
-        assert isinstance(domain_schema, dict)
-        domain_schema["enum"] = domains
-        return params
 
     def is_async(self) -> bool:
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
