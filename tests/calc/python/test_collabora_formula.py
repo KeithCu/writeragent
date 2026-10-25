@@ -141,7 +141,7 @@ def test_maybe_rewrite_restores_is_modified():
                 def getRangeAddress(self):
                     return _Addr()
 
-                def getFormulas(self):
+                def getFormulaArray(self):
                     return ((doc.formula,),)
 
             class _Cells:
@@ -224,7 +224,7 @@ def test_maybe_rewrite_partial_failure_restores_is_modified():
                 def getRangeAddress(self):
                     return _Addr()
 
-                def getFormulas(self):
+                def getFormulaArray(self):
                     return ((doc.formula,),)
 
             class _Cells:
@@ -304,7 +304,7 @@ def test_maybe_rewrite_disposal_reraises_document_disposed():
                     def getRangeAddress(self):
                         return _Addr()
 
-                    def getFormulas(self):
+                    def getFormulaArray(self):
                         f = doc.formula1 if is_sheet_1 else doc.formula0
                         return ((f,),)
 
