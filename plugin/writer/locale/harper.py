@@ -191,8 +191,9 @@ class HarperLSClient:
                 label="harper-ls",
             )
             managed.start()
+            assert managed.popen is not None
             self.proc = managed.popen
-            self.stdout_thread = threading.Thread(target=self._read_loop, args=(out_queue,), daemon=True)  # nosemgrep: raw-uno-thread-ban
+            self.stdout_thread = threading.Thread(target=self._read_loop, args=(out_queue, managed.popen.stdout), daemon=True)  # nosemgrep: raw-uno-thread-ban
             self.stdout_thread.start()
 
             init_params = dict(_INIT_PARAMS)
@@ -206,15 +207,15 @@ class HarperLSClient:
             log.exception("[harper] Failed to start/initialize harper-ls")
             raise RuntimeError(f"Failed to start/initialize harper-ls: {e}") from e
 
-    def _read_loop(self, out_queue: queue.Queue[dict[str, Any] | None]) -> None:
-        """Read LSP frames into the queue this thread was started with.
+    def _read_loop(self, out_queue: queue.Queue[dict[str, Any] | None], stdout: Any) -> None:
+        """Read LSP frames from the stream this thread was started with.
 
-        Binding the queue here (instead of ``self.stdout_queue`` at ``put``
-        time) keeps a superseded reader from pushing EOF onto the new client.
+        Binding the queue and stream here keeps a superseded reader from
+        pushing EOF onto the new client or consuming frames from the replacement.
         """
         try:
-            while self.proc and self.proc.stdout:
-                msg = json_rpc_framing.read_frame(cast("BinaryIO", self.proc.stdout))
+            while stdout:
+                msg = json_rpc_framing.read_frame(cast("BinaryIO", stdout))
                 if msg is None:
                     break
                 out_queue.put(msg)
@@ -254,19 +255,16 @@ class HarperLSClient:
         self._write(_lsp_response(req_id, [self._lsp_settings]))
 
     def _read_and_handle(self, deadline: float) -> dict[str, Any] | None:
-        msg = self._read(deadline)
-        if not msg:
-            return None
-
-        if "id" in msg and "method" in msg:
-            method = msg["method"]
-            if method == "workspace/configuration":
+        while True:
+            msg = self._read(deadline)
+            if not msg:
+                return None
+            if "id" not in msg or "method" not in msg:
+                return msg
+            if msg["method"] == "workspace/configuration":
                 self._reply_workspace_configuration(msg["id"])
             else:
                 self._write(_lsp_response(msg["id"], None))
-            return self._read_and_handle(deadline)
-
-        return msg
 
     def _send_request(self, method: str, params: dict[str, Any], *, deadline: float) -> dict[str, Any] | None:
         self.request_id += 1
@@ -355,8 +353,7 @@ class HarperLSClient:
         cancel_event: threading.Event | None = None,
     ) -> list[Any]:
         # One lint at a time: venv worker IPC is serialized; grammar uses a single drain thread for Harper.
-        if heartbeat_fn is not None:
-            self._heartbeat_fn = heartbeat_fn
+        self._heartbeat_fn = heartbeat_fn
         if deadline is None:
             deadline = time.monotonic() + _LINT_BUDGET_SEC
         previous_cancel = self._lint_cancel
@@ -535,8 +532,13 @@ def _can_start_ensure_locked() -> bool:
 
 def harper_runtime_is_ready() -> bool:
     """True when harper-ls is in-process and the runtime state is READY."""
-    with _HARPER_LOCK:
+    if not _HARPER_LOCK.acquire(blocking=False):
+        # A queue lint owns the lock; an atomic state snapshot is enough for this advisory call.
+        return _HARPER_STATE is HarperRuntimeState.READY
+    try:
         return _HARPER_STATE is HarperRuntimeState.READY and _alive_client() is not None
+    finally:
+        _HARPER_LOCK.release()
 
 
 def _broadcast_proofread_again() -> None:
@@ -601,10 +603,14 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
 
 def harper_ensure_ready_async(user_config_dir: str, bcp47: str = "en-US") -> bool:
     """Start at most one download/start job. Returns True if a job was submitted."""
-    with _HARPER_LOCK:
+    if not _HARPER_LOCK.acquire(blocking=False):
+        return False
+    try:
         if not _can_start_ensure_locked():
             return False
         _set_state(HarperRuntimeState.RESOLVING)
+    finally:
+        _HARPER_LOCK.release()
     from plugin.framework.worker_pool import run_in_background
 
     try:
@@ -693,7 +699,10 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
         return None
     none_reason = "not_ready"
     client: HarperLSClient | None = None
-    with _HARPER_LOCK:
+    if not _HARPER_LOCK.acquire(blocking=False):
+        grammar_obs("harper_try_lint_none", reason="lock_busy", ensure_submitted=False)
+        return None
+    try:
         client = _alive_client()
         if client is not None:
             _set_state(HarperRuntimeState.READY)
@@ -703,9 +712,11 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
             none_reason = "dead_client"
         else:
             none_reason = f"state_{_HARPER_STATE.value}"
+    finally:
+        _HARPER_LOCK.release()
     if client is None:
         submitted = harper_ensure_ready_async(user_config_dir, bcp47)
-        if none_reason in ("lint_exception", "dead_client"):
+        if none_reason == "dead_client":
             return None
         grammar_obs("harper_try_lint_none", reason=none_reason, ensure_submitted=submitted)
         return None

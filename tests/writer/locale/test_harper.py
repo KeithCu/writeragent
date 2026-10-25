@@ -16,7 +16,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 import pytest
 
 from plugin.contrib.lsp.json_rpc_framing import read_exactly
@@ -1355,6 +1355,18 @@ def test_harper_runtime_is_ready_requires_alive_client() -> None:
     assert harper_runtime_is_ready() is False
 
 
+def test_advisory_harper_calls_fail_soft_when_lint_lock_is_held() -> None:
+    harper_module._HARPER_LOCK.acquire()
+    try:
+        t0 = time.monotonic()
+        assert harper_runtime_is_ready() is False
+        assert harper_module.harper_ensure_ready_async("/tmp") is False
+        assert harper_try_lint("Hello.", "/tmp") is None
+        assert time.monotonic() - t0 < 0.5
+    finally:
+        harper_module._HARPER_LOCK.release()
+
+
 def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
     """READY + PROOFREAD_AGAIN with no listeners must still re-walk once a listener hooks."""
     from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
@@ -1642,7 +1654,7 @@ def test_reader_sentinel_stays_on_captured_queue() -> None:
     captured: queue.Queue[dict | None] = queue.Queue()
     replacement: queue.Queue[dict | None] = queue.Queue()
     client.stdout_queue = replacement
-    client._read_loop(captured)
+    client._read_loop(captured, cast("Any", client.proc).stdout)
     assert captured.get_nowait() is None
     assert replacement.empty()
 
@@ -1650,12 +1662,12 @@ def test_reader_sentinel_stays_on_captured_queue() -> None:
 def test_reader_crash_sentinel_is_not_a_clean_sentence() -> None:
     """A crashed reader still fences its sentinel, and that sentinel is not a publish."""
     client = _bare_harper_client()
-    client.proc.stdout = BytesIO(b"")
+    cast("Any", client.proc).stdout = BytesIO(b"")
     captured: queue.Queue[dict | None] = queue.Queue()
     replacement: queue.Queue[dict | None] = queue.Queue()
     client.stdout_queue = replacement
     with patch("plugin.writer.locale.harper.json_rpc_framing.read_frame", side_effect=OSError("reader crashed")):
-        client._read_loop(captured)
+        client._read_loop(captured, cast("Any", client.proc).stdout)
     assert captured.qsize() == 1
     assert replacement.empty()
     client.stdout_queue = captured
@@ -1695,8 +1707,8 @@ def test_initialize_joins_old_reader_before_new_queue() -> None:
         released.set()
         HarperLSClient._join_stdout_thread(client, thread)
 
-    def fake_read_loop(out_queue: queue.Queue[dict | None]) -> None:
-        del out_queue
+    def fake_read_loop(out_queue: queue.Queue[dict | None], stdout: Any) -> None:
+        del out_queue, stdout
         order.append("new-reader")
 
     fake_proc = MagicMock()
@@ -1722,6 +1734,31 @@ def test_initialize_joins_old_reader_before_new_queue() -> None:
         old_thread.join(timeout=1.0)
         if client.stdout_thread is not None and client.stdout_thread.is_alive():
             client.stdout_thread.join(timeout=1.0)
+
+
+def test_read_loop_uses_captured_stream_not_current_proc() -> None:
+    client = HarperLSClient.__new__(HarperLSClient)
+    client.proc = MagicMock()
+    client.proc.stdout = BytesIO(b"")
+    old_stream = BytesIO(b"")
+    out_queue: queue.Queue[dict | None] = queue.Queue()
+    frame = {"jsonrpc": "2.0", "method": "test"}
+    calls: list[Any] = []
+
+    def mock_read_frame(stream: Any) -> dict[str, Any] | None:
+        calls.append(stream)
+        if len(calls) == 1:
+            return frame
+        return None
+
+    with patch("plugin.writer.locale.harper.json_rpc_framing.read_frame", side_effect=mock_read_frame):
+        client._read_loop(out_queue, old_stream)
+
+    assert len(calls) == 2
+    assert all(stream is old_stream for stream in calls)
+    assert not any(stream is client.proc.stdout for stream in calls)
+    assert out_queue.get_nowait() == frame
+    assert out_queue.get_nowait() is None
 
 
 def test_read_cancel_does_not_wait_for_lint_budget() -> None:
@@ -2149,4 +2186,28 @@ def test_harper_close_swallows_pipe_close_errors() -> None:
     mock_stdin.close.assert_called_once()
     mock_stdout.close.assert_called_once()
     mock_proc.terminate.assert_called_once()
+
+
+def test_lint_clears_previous_heartbeat_when_none() -> None:
+    client = _bare_harper_client()
+    client._heartbeat_fn = lambda _p: None
+    with (
+        patch.object(client, "_sync_document"),
+        patch.object(client, "_collect_diagnostics", return_value=[]),
+        patch.object(client, "_suggestions_for_diagnostic"),
+    ):
+        client.lint("Hi.", bcp47="en-US", heartbeat_fn=None)
+    assert client._heartbeat_fn is None
+
+
+def test_read_and_handle_answers_multiple_server_requests() -> None:
+    client = _bare_harper_client()
+    written: list[dict[str, Any]] = []
+    client.stdout_queue.put({"id": 1, "method": "workspace/configuration"})
+    client.stdout_queue.put({"id": 2, "method": "window/workDoneProgress/create"})
+    client.stdout_queue.put({"id": 99, "result": {}})
+    with patch.object(client, "_write", side_effect=written.append):
+        msg = client._read_and_handle(time.monotonic() + 1.0)
+    assert msg == {"id": 99, "result": {}}
+    assert len(written) == 2
 

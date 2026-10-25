@@ -213,11 +213,16 @@ class GrammarRegistry:
 
     def remove_persistence_if(self, doc_id: str, instance: "DocumentPersistence") -> bool:
         with self.lock:
-            if self.doc_persistence_instances.get(doc_id) is instance:
+            removed = self.doc_persistence_instances.get(doc_id) is instance
+            if removed:
                 self.doc_persistence_instances.pop(doc_id, None)
                 self.doc_locales.pop(doc_id, None)
-                return True
-            return False
+        if removed:
+            # Outside self.lock: enqueue() holds the queue lock while taking self.lock.
+            from .grammar_work_queue import grammar_queue
+
+            grammar_queue.forget_document(doc_id)
+        return removed
 
     def clear_for_doc(self, doc_id: str) -> None:
         with self.lock:
