@@ -990,12 +990,12 @@ def _shape_summary_line(index: int, shape: Any) -> str:
     def read_pos_size() -> str:
         pos = shape.getPosition()
         size = shape.getSize()
-        return " pos(%d, %d) size(%dx%d)" % (pos.X, pos.Y, size.Width, size.Height)
+        return ": pos(%d, %d) size(%dx%d)" % (pos.X, pos.Y, size.Width, size.Height)
 
     line += uno_probe(read_pos_size, "")
     get_string = getattr(shape, "getString", None)
     if callable(get_string):
-        text = uno_probe(lambda: _text_helpers.normalize_linebreaks(get_string()), "")
+        text = uno_probe(lambda: _text_helpers.normalize_linebreaks(str(get_string() or "")), "")
         if text:
             line += ' text: "%s"' % text[:200]
     return line
