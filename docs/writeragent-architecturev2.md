@@ -181,7 +181,7 @@ Errors flow through a typed `WriterAgentException` hierarchy (24+ codes, from `C
 
 #### Automated Localization
 
-A gettext pipeline (`i18n.py`, `_()`) serves **35 locale catalogs**. String extraction is automated (Python + XDL + module YAML), and an AI-assisted translation script (`scripts/translate_missing.py`) fills missing/empty/fuzzy `.po` entries against an OpenAI-compatible API. It is genuinely **multi-threaded**: a `ThreadPoolExecutor` (default 5 workers, `--jobs`, staggered by `--delay` between starts) fans translation batches — and the `--review` pass's per-entry critiques — across all languages concurrently, preserving whitespace and parsing results with `safe_json_loads`. System prompts stay English; the model is instructed to match the user's language in free-form chat.
+A gettext pipeline (`i18n.py`, `_()`) serves **34 locale catalogs**. String extraction is automated (Python + XDL + module YAML), and an AI-assisted translation script (`scripts/translate_missing.py`) fills missing/empty/fuzzy `.po` entries against an OpenAI-compatible API. It is genuinely **multi-threaded**: a `ThreadPoolExecutor` (default 5 workers, `--jobs`, staggered by `--delay` between starts) fans translation batches — and the `--review` pass's per-entry critiques — across all languages concurrently, preserving whitespace and parsing results with `safe_json_loads`. System prompts stay English; the model is instructed to match the user's language in free-form chat.
 
 #### Beyond UI Strings: Deep Linguistic Infrastructure
 

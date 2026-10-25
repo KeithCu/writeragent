@@ -321,7 +321,7 @@ class TestI18n:
         assert (type(translation)) is not (NullTranslations)
 
     def test_days_ago_translation_across_all_locales(self):
-        """Verify that all 35 compiled locales contain a valid translation for '{0}d ago'."""
+        """Verify that all 34 compiled locales contain a valid translation for '{0}d ago'."""
         import os
         from plugin.framework.i18n import get_locales_dir
 
@@ -330,15 +330,14 @@ class TestI18n:
             d for d in os.listdir(localedir)
             if os.path.isdir(os.path.join(localedir, d, "LC_MESSAGES"))
         ]
-        assert (len(locale_dirs)) >= (35)
+        assert (len(locale_dirs)) >= (34)
 
         for lang in locale_dirs:
             lang_localedir = self._ensure_mo(lang)
             translation = i18n_module.load_translation([lang], lang_localedir, fallback=False)
             translated = translation.gettext("{0}d ago")
             assert (translated), f"Empty translation for {lang}"
-            if lang != "en_US.UTF-8":
-                assert (translated) != ("{0}d ago"), f"Locale {lang} missing translation for '{{0}}d ago'"
+            assert (translated) != ("{0}d ago"), f"Locale {lang} missing translation for '{{0}}d ago'"
 
         # Spot-check specific languages
         es_trans = i18n_module.load_translation(["es"], self._ensure_mo("es"), fallback=False)
