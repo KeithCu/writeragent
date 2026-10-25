@@ -130,7 +130,6 @@ KEEP_RECENT_FRACTION = 0.30
 KEEP_RECENT_FLOOR = 2048
 KEEP_RECENT_CAP = 20_000
 MIN_TAIL_TOKENS = 256
-MAX_SUMMARY_CHARS = 16_000
 IMAGE_BLOCK_TOKENS = 2000
 AUDIO_BLOCK_TOKENS = 2000
 PRUNE_MIN_CHARS = 200
@@ -144,8 +143,6 @@ MAX_TOOL_CALL_ARGS_CHARS = 4000
 class CompactionState:
     summary: str
     first_kept_index: int              # index into session.messages (>= 1); dropped if out of range or anchored row drifted
-    tokens_before: int
-    window: int
     stubbed_tool_call_ids: tuple = ()  # view-only tail-pressure stubs
     kept_message_id: int | None = None # id() of session.messages[first_kept_index] at publish
 
@@ -159,7 +156,7 @@ class CompactResult:
 
 ### 3. Cached View Model (`messages_for_llm`)
 
-WriterAgent does not mutate `session.messages` in-place and does not rewrite SQLite history. Instead, `messages_for_llm(session, tools)` constructs the exact model-facing payload on the fly:
+WriterAgent does not mutate `session.messages` in-place and does not rewrite SQLite history. Instead, `messages_for_llm(session)` constructs the exact model-facing payload on the fly:
 
 ```
 [session.messages[0]]                       # Always live system + DOCUMENT CONTENT

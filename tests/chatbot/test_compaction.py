@@ -1273,8 +1273,6 @@ def test_compaction_cut_on_assistant_omits_ack():
     session.compaction = C.CompactionState(
         summary="Test Summary",
         first_kept_index=cut,
-        tokens_before=100,
-        window=4096,
         kept_message_id=id(messages[cut]),
     )
     view = C.messages_for_llm(session)
@@ -1307,8 +1305,6 @@ def test_compaction_cut_on_user_includes_ack():
     session.compaction = C.CompactionState(
         summary="Test Summary",
         first_kept_index=cut,
-        tokens_before=100,
-        window=4096,
         kept_message_id=id(messages[cut]),
     )
     view = C.messages_for_llm(session)
@@ -1324,8 +1320,6 @@ def test_stale_first_kept_index_past_len_drops_compaction():
     session.compaction = C.CompactionState(
         summary="OLD CHAT",
         first_kept_index=50,
-        tokens_before=100,
-        window=4096,
         kept_message_id=None,
     )
     view = C.messages_for_llm(session)
@@ -1341,8 +1335,6 @@ def test_stale_anchor_mismatch_drops_compaction_and_resummarizes():
     session.compaction = C.CompactionState(
         summary="OLD CHAT",
         first_kept_index=cut,
-        tokens_before=100,
-        window=4096,
         kept_message_id=id(session.messages[cut]),
     )
     # Insert new system row at 0, moving the row that index names
@@ -1369,8 +1361,6 @@ def test_matched_anchor_keeps_compaction():
     session.compaction = C.CompactionState(
         summary="VALID SUMMARY",
         first_kept_index=cut,
-        tokens_before=100,
-        window=4096,
         kept_message_id=id(messages[cut]),
     )
     view = C.messages_for_llm(session)
