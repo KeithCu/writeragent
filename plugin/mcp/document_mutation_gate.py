@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
+from weakref import WeakValueDictionary
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -42,13 +44,15 @@ __all__ = [
 
 log = logging.getLogger("writeragent.mcp.protocol")
 
-_doc_gates: dict[str, threading.Lock] = {}
+_GATE_TIMEOUT_MESSAGE = "Timed out waiting for another edit to this document. Retry in a moment."
+
+_doc_gates: WeakValueDictionary[str, threading.Lock] = WeakValueDictionary()
 _doc_gates_guard = threading.Lock()
 
 
 def _get_document_mutation_gate(doc_key: str) -> threading.Lock:
-    # Future: prune _doc_gates[doc_key] on document OnUnload if a long-lived MCP server
-    # opens enough unique URLs that this dict becomes measurable overhead.
+    # Callers hold a strong local reference for the whole acquire/release;
+    # a gate no caller holds may be collected.
     with _doc_gates_guard:
         gate = _doc_gates.get(doc_key)
         if gate is None:
@@ -72,10 +76,11 @@ def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.
         yield
         return
     gate = _get_document_mutation_gate(doc_key)
+    started = time.monotonic()
     acquired = gate.acquire(timeout=timeout)
     if not acquired:
-        log.warning("MCP _document_mutation_gate timed out after %ss waiting for %s", timeout, doc_key)
-        raise BusyError(f"Timed out waiting for document mutation lock ({doc_key})")
+        log.warning("MCP _document_mutation_gate timed out after %.2fs waiting for %s", time.monotonic() - started, doc_key)
+        raise BusyError(_GATE_TIMEOUT_MESSAGE)
     try:
         yield
     finally:
@@ -83,6 +88,6 @@ def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.
 
 
 class BusyError(WriterAgentException):
-    """The VCL main thread is already processing another tool call."""
+    """A tool run is already in progress (global or per-document lock)."""
 
     code: str = "SERVER_BUSY"
