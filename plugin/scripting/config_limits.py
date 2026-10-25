@@ -9,10 +9,9 @@
 
 from __future__ import annotations
 
-import functools
-from typing import Any
+from typing import Callable
 
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
+from plugin.framework.deal_shim import deal
 
 _TIMEOUT_CONFIG_KEY = "scripting.python_exec_timeout"
 # Fallbacks duplicate module.yaml so an OXT can import without plugin._manifest.
@@ -66,47 +65,25 @@ VECTOR_SEARCH_PROBE_TIMEOUT_SEC = 30
 _DATA_CELLS_CONFIG_KEY = "scripting.python_max_data_cells"
 
 
-@functools.cache
-def _scripting_schema_field(field_name: str, *, required: bool = False) -> dict[str, Any] | None:
-    try:
-        from plugin._manifest import MODULES
-    except ImportError:
-        MODULES = []
-    for m in MODULES:
-        if not isinstance(m, dict):
-            continue
-        if m.get("name") != "scripting":
-            continue
-        config = m.get("config", {})
-        if isinstance(config, dict):
-            field = config.get(field_name)
-            if isinstance(field, dict):
-                return field
-    if required:
-        raise RuntimeError(
-            f"{field_name} missing from manifest; run make manifest "
-            "(plugin/scripting/module.yaml must define the field)."
-        )
-    return None
-
-
-@functools.cache
 def _schema_int(field_name: str, name: str, *, fallback: int | None = None, required: bool = False) -> int:
-    field = _scripting_schema_field(field_name, required=required)
-    if not field:
-        if fallback is not None:
-            return fallback
-        raise RuntimeError(f"{field_name}.{name} must be int in module.yaml/manifest")
+    """One scripting schema field. Fallbacks cover trees without plugin._manifest."""
+    from plugin.framework.config_schema import get_config_schema
+
+    field = get_config_schema(f"scripting.{field_name}")
+    if field is None:
+        if required:
+            raise RuntimeError(
+                f"scripting.{field_name} missing from module.yaml/manifest; run make manifest"
+            )
+        assert fallback is not None
+        return fallback
     val = field.get(name)
-    # bool is an int subclass. isinstance(True, int) is True, so a module.yaml
-    # true/false was returned as bool and later passed isinstance(..., int)
-    # posts. type(val) is int matches _timeout_int_ok. Non-ints keep the
-    # fallback-or-RuntimeError path below.
+    # bool is an int subclass, so a module.yaml true/false must not pass.
     if type(val) is int:
         return val
     if fallback is not None:
         return fallback
-    raise RuntimeError(f"{field_name}.{name} must be int in module.yaml/manifest")
+    raise RuntimeError(f"scripting.{field_name}.{name} must be int in module.yaml/manifest")
 
 
 # --- python_exec_timeout ---
@@ -124,51 +101,6 @@ def python_exec_timeout_max() -> int:
     return _schema_int("python_exec_timeout", "max", fallback=_TIMEOUT_FALLBACK_MAX)
 
 
-# bool is an int subclass. ``isinstance(x, bool) is False`` uses object identity,
-# so CrossHair's SymbolicBool never matches False and the pre never holds for
-# symbolic ints. ``type(x) is int`` rejects bools the same way for
-# real values and is CrossHair-friendly.
-def _timeout_int_ok_pytest(value: object) -> bool:
-    # A hand-edited timeout past DEAL_MAX_ARGV (86400 is one day; the schema
-    # max is 600) raised PreContractError before _clamp_timeout could clamp.
-    # bool stays out: type(True) is not int. CrossHair keeps the abs cap.
-    return type(value) is int
-
-
-def _timeout_int_ok_crosshair(value: object) -> bool:
-    return type(value) is int and abs(value) <= DEAL_MAX_ARGV
-
-
-_timeout_int_ok = _timeout_int_ok_crosshair if UNDER_CROSSHAIR else _timeout_int_ok_pytest
-
-
-def _timeout_sec_ok(timeout_sec: object) -> bool:
-    """Domain for resolve_python_exec_timeout that cannot nested-fail _clamp_timeout.
-
-    Numeric strings take the parse → _clamp_timeout path. Length-only
-    ``str_bounded`` still allowed CrossHair's ``'100'`` (DEAL_MAX_ARGV=32)
-    after the bool-identity fix.
-    """
-    if timeout_sec is None:
-        return True
-    if _timeout_int_ok(timeout_sec):
-        return True
-    if isinstance(timeout_sec, float) and abs(timeout_sec) <= DEAL_MAX_ARGV:
-        return True
-    if isinstance(timeout_sec, str) and str_bounded(timeout_sec, DEAL_MAX_TOKEN):
-        try:
-            parsed = int(float(timeout_sec))
-        except (TypeError, ValueError, OverflowError):
-            return True
-        return _timeout_int_ok(parsed)
-    return False
-
-
-def _timeout_configured_ok(configured: object) -> bool:
-    return configured is None or _timeout_int_ok(configured)
-
-
-@deal.pre(lambda value: _timeout_int_ok(value))
 @deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
 def _clamp_timeout(value: int) -> int:
     lo = python_exec_timeout_min()
@@ -176,44 +108,42 @@ def _clamp_timeout(value: int) -> int:
     return max(lo, min(hi, value))
 
 
-@deal.pre(lambda timeout_sec, configured=None: _timeout_sec_ok(timeout_sec))
-# Without this, a real bool (int subclass) or an int outside DEAL_MAX_ARGV leaks
-# into _clamp_timeout and CrossHair reports a nested PreconditionFailed.
-@deal.pre(lambda timeout_sec, configured=None: _timeout_configured_ok(configured))
+def _timeout_int(value: object, fallback: int) -> int:
+    """User/config timeout; anything unparseable uses *fallback*."""
+    from plugin.framework.config_schema import parse_int_robust
+
+    try:
+        return parse_int_robust(value)
+    except (ValueError, TypeError, OverflowError):
+        return fallback
+
+
 @deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
 def resolve_python_exec_timeout(
-    timeout_sec: int | float | str | None,
+    timeout_sec: object,
     *,
-    configured: int | None = None,
+    configured: object = None,
 ) -> int:
     """Clamp *timeout_sec* to schema min/max; invalid values use *configured* or schema default."""
-    base = configured if configured is not None else python_exec_timeout_default()
-    if timeout_sec is None:
-        return _clamp_timeout(base)
+    base = python_exec_timeout_default()
+    if configured is not None:
+        base = _timeout_int(configured, base)
+    return _clamp_timeout(_timeout_int(timeout_sec, base))
+
+
+def _configured_int(key: str, fallback: Callable[[], int]) -> int:
+    """Read one settings int; a failed read uses the schema default, not the clamp floor."""
+    from plugin.framework.config import get_config_int
+
     try:
-        parsed = int(float(timeout_sec))
-    except (TypeError, ValueError, OverflowError):
-        return _clamp_timeout(base)
-    return _clamp_timeout(parsed)
+        return get_config_int(key)
+    except Exception:
+        return fallback()
 
 
 def configured_python_exec_timeout() -> int:
     """Read Settings value for scripting.python_exec_timeout and clamp to schema bounds."""
-    # What was wrong: a failed read clamped to 1s (schema min), not the 10s default.
-    # How it happened: get_config_int_safe returns 0 when get_config_int and
-    # _resolve_default both fail (no plugin._manifest, and this key is not a
-    # WriterAgentConfig field). _clamp_timeout(0) is python_exec_timeout_min().
-    # Why this change fixes it: on get_config_int failure, use
-    # python_exec_timeout_default() (manifest default, or _TIMEOUT_FALLBACK_DEFAULT)
-    # and then clamp. A stored 0 still returns from get_config_int and clamps
-    # to the min. Do not treat 0 as a failed read.
-    from plugin.framework.config import get_config_int
-
-    try:
-        value = get_config_int(_TIMEOUT_CONFIG_KEY)
-    except Exception:
-        value = python_exec_timeout_default()
-    return _clamp_timeout(value)
+    return _clamp_timeout(_configured_int(_TIMEOUT_CONFIG_KEY, python_exec_timeout_default))
 
 
 def embeddings_worker_timeout_sec() -> int:
@@ -244,6 +174,4 @@ def _clamp_max_data_cells(value: int) -> int:
 
 def configured_python_max_data_cells() -> int:
     """Read Settings value for scripting.python_max_data_cells and clamp to schema bounds."""
-    from plugin.framework.config import get_config_int_safe
-
-    return _clamp_max_data_cells(get_config_int_safe(_DATA_CELLS_CONFIG_KEY))
+    return _clamp_max_data_cells(_configured_int(_DATA_CELLS_CONFIG_KEY, python_max_data_cells_default))

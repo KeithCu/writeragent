@@ -7,13 +7,10 @@
 
 from __future__ import annotations
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-import deal
 from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
-from tests.harness.strip_bundle import deal_pre_present
 
 from plugin.scripting.import_policy import (
     PYTHON_VENV_SANDBOX_CONTEXT_PREFIX,
@@ -26,7 +23,6 @@ from plugin.scripting.config_limits import (
     python_exec_timeout_max,
     resolve_python_exec_timeout,
     _clamp_timeout,
-    _timeout_sec_ok,
 )
 from plugin.scripting.calc_range import (
     ensure_rectangular_2d,
@@ -48,16 +44,15 @@ def test_import_policy_contracts() -> None:
     assert prompt.startswith(PYTHON_VENV_SANDBOX_CONTEXT_PREFIX)
 
 
-@given(
-    val=st.one_of(
-        st.integers(min_value=-DEAL_MAX_ARGV, max_value=DEAL_MAX_ARGV),
-        st.floats(min_value=-float(DEAL_MAX_ARGV), max_value=float(DEAL_MAX_ARGV), allow_nan=False, allow_infinity=False),
-        st.text(max_size=DEAL_MAX_TOKEN),
-        st.none(),
-    ).filter(_timeout_sec_ok)
-)
+@given(val=st.one_of(
+    st.none(), st.booleans(), st.integers(),
+    st.floats(allow_nan=True, allow_infinity=True),
+    st.text(max_size=DEAL_MAX_TOKEN),
+    st.lists(st.integers(), max_size=3),
+    st.dictionaries(st.text(max_size=5), st.integers(), max_size=3),
+))
 @settings(max_examples=100)
-def test_resolve_python_exec_timeout_clamping(val: float | int | str | None) -> None:
+def test_resolve_python_exec_timeout_clamping(val) -> None:
     timeout = resolve_python_exec_timeout(val)
     assert isinstance(timeout, int)
     assert python_exec_timeout_min() <= timeout <= python_exec_timeout_max()
@@ -69,28 +64,12 @@ def test_clamp_timeout_overflow_clamps() -> None:
     assert python_exec_timeout_min() <= _clamp_timeout(1) <= python_exec_timeout_max()
 
 
-def test_clamp_timeout_rejects_bool() -> None:
-    """bool is an int subclass; type(x) is int must still reject True/False."""
-    if not deal_pre_present(_clamp_timeout):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        _clamp_timeout(True)
-    with pytest.raises(deal.PreContractError):
-        _clamp_timeout(False)
-
-
-def test_resolve_python_exec_timeout_rejects_bool_timeout_and_configured() -> None:
-    """timeout_sec and configured both reject bool so it cannot leak into _clamp_timeout."""
-    if not deal_pre_present(resolve_python_exec_timeout):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        resolve_python_exec_timeout(True)
-    with pytest.raises(deal.PreContractError):
-        resolve_python_exec_timeout(False)
-    with pytest.raises(deal.PreContractError):
-        resolve_python_exec_timeout(None, configured=True)
-    with pytest.raises(deal.PreContractError):
-        resolve_python_exec_timeout(None, configured=False)
+def test_resolve_python_exec_timeout_is_total() -> None:
+    assert resolve_python_exec_timeout(True) == 1
+    assert resolve_python_exec_timeout(False) == 1
+    assert resolve_python_exec_timeout(None, configured=True) == 1
+    assert resolve_python_exec_timeout(None, configured="20") == 20
+    assert resolve_python_exec_timeout(None, configured=float("nan")) == python_exec_timeout_default()
     assert resolve_python_exec_timeout(None, configured=DEAL_MAX_ARGV + 1) == python_exec_timeout_max()
     assert resolve_python_exec_timeout(None, configured=33) == 33
     assert resolve_python_exec_timeout(None, configured=None) == python_exec_timeout_default()

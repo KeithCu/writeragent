@@ -295,7 +295,6 @@
         "priority": "high",
         "tool": "deal+hypothesis",
         "functions_contracted": [
-          "_clamp_timeout",
           "resolve_python_exec_timeout"
         ],
         "ci_integration": true
