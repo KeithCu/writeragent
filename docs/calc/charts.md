@@ -7,7 +7,7 @@ WriterAgent provides unified chart management through the `manage_charts` tool a
 Charts live in different container structures depending on the host application:
 
 - **Calc sheets (`calc_sheet`)**: Charts are embedded table charts (`ScChartObj`) belonging to an individual sheet's `XTableCharts` collection. Deletion is performed via `sheet.getCharts().removeByName(name)`.
-- **Writer body text (`writer_embed`)**: Charts inserted into Writer documents are inline `TextEmbeddedObject` instances in the text body. Deletion removes the text content from the document text via `doc.getText().removeTextContent(host)`.
+- **Writer body text (`writer_embed`)**: Charts inserted into Writer documents are inline `TextEmbeddedObject` instances in the text body. Deletion removes the text content from the text that anchors it via `host.getAnchor().getText().removeTextContent(host)` (body, frame, or table cell), with the embedded-objects container as the fallback.
 - **Writer and Draw draw pages (`writer_draw_page`, `draw_page`)**: OLE2 shape charts on draw pages are removed from their immediate parent via `parent.remove(shape)` (the draw page or the `GroupShape` containing the chart). Page scans descend `GroupShape`.
 
 ## Draw and Impress Page Scope
