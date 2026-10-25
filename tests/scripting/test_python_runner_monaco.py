@@ -666,7 +666,7 @@ def test_run_python_monaco_on_save_builtin_still_runs():
 
 def test_execute_and_insert_result_returns_error_on_failure():
     ctx = MagicMock()
-    with patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "exec_code": "bad()", "t0": 0.0, "py_data": None, "bindings": None, "doc": MagicMock(), "ctx": ctx, "code": "bad()"}):
+    with patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "t0": 0.0, "py_data": None, "bindings": None, "doc": MagicMock(), "ctx": ctx, "code": "bad()"}):
         with patch.object(pr, "_run_prepared_rps", return_value={"status": "error", "message": "boom"}):
             outcome = pr.execute_and_insert_result(ctx, MagicMock(), "bad()")
     assert outcome["ok"] is False
@@ -1191,4 +1191,18 @@ def test_run_python_monaco_on_save_reports_save_user_script_failure():
 
     assert res["type"] == "error"
     assert "Permission denied" in res["message"]
+
+
+def test_monaco_run_document_key_unrelated_docs_without_uid_differ():
+    with patch.object(pr, "get_runtime_uid", return_value=""):
+        first, second = object(), object()
+        assert pr._monaco_run_document_key(first) != pr._monaco_run_document_key(second)
+        assert pr._monaco_run_document_key(first) == pr._monaco_run_document_key(first)
+
+
+def test_monaco_editor_run_payload_reports_printed_lines():
+    payload = pr._monaco_editor_run_payload({"ok": True, "status_ok_text": "done", "stdout": "a\nb\n"}, "ok")
+    assert payload["type"] == "saved" and payload["ok"] is True
+    assert "2 line(s) printed" in payload["status_ok_text"]
+
 

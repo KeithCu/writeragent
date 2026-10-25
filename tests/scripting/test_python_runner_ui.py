@@ -203,7 +203,7 @@ def test_start_native_script_run_worker_splits_main_and_venv():
     order = []
     seen = []
 
-    def _prepare(passed_ctx, passed_doc, code, *, data_range=None):
+    def _prepare(passed_ctx, passed_doc, code, *, data_range=None, pin_token=None):
         order.append("prepare")
         assert passed_ctx is ctx
         assert passed_doc is doc
@@ -214,7 +214,6 @@ def test_start_native_script_run_worker_splits_main_and_venv():
             "doc": passed_doc,
             "code": code,
             "t0": 0.0,
-            "exec_code": code,
             "py_data": None,
             "bindings": None,
             "session_id": "rps:doc",
@@ -222,7 +221,7 @@ def test_start_native_script_run_worker_splits_main_and_venv():
 
     def _run(prepared):
         order.append("venv")
-        assert prepared["exec_code"] == "result = 1"
+        assert prepared["code"] == "result = 1" and prepared["bindings"] is None
         return {"status": "ok", "result": 1, "stdout": ""}
 
     def _finish(prepared, response):
@@ -253,7 +252,7 @@ def test_start_native_script_run_forwards_data_range():
     doc = MagicMock()
     seen = []
 
-    def _prepare(passed_ctx, passed_doc, code, *, data_range=None):
+    def _prepare(passed_ctx, passed_doc, code, *, data_range=None, pin_token=None):
         assert passed_ctx is ctx
         assert passed_doc is doc
         assert code == "result = 1"
@@ -283,14 +282,13 @@ def test_start_native_script_run_reports_venv_failure():
     doc = MagicMock()
     seen = []
 
-    def _prepare(passed_ctx, passed_doc, code, *, data_range=None):
+    def _prepare(passed_ctx, passed_doc, code, *, data_range=None, pin_token=None):
         return {
             "early_outcome": None,
             "ctx": passed_ctx,
             "doc": passed_doc,
             "code": code,
             "t0": 0.0,
-            "exec_code": code,
             "py_data": None,
             "bindings": None,
             "session_id": None,
@@ -343,6 +341,7 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
     with (
         _deliver_posted_native_run(),
         patch.object(pr, "run_in_background", side_effect=_inline),
+        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:leak"),
         patch(
             "plugin.framework.queue_executor.execute_on_main_thread",
             side_effect=[
@@ -360,7 +359,7 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
     assert "timed out" in seen[0]["message"]
 
 
-def test_start_native_script_run_prepare_timeout_does_not_release():
+def test_start_native_script_run_prepare_timeout_releases_pin():
     ctx = MagicMock()
     doc = MagicMock()
     seen = []
@@ -372,12 +371,13 @@ def test_start_native_script_run_prepare_timeout_does_not_release():
     with (
         _deliver_posted_native_run(),
         patch.object(pr, "run_in_background", side_effect=_inline),
+        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=TimeoutError("prepare")),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
     ):
         pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 
-    mock_release.assert_not_called()
+    mock_release.assert_called_once_with("doc:tok")
     assert seen and seen[0]["ok"] is False
 
 
@@ -393,12 +393,13 @@ def test_start_native_script_run_nondict_prepare_delivers_error():
     with (
         _deliver_posted_native_run(),
         patch.object(pr, "run_in_background", side_effect=_inline),
+        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
         patch("plugin.framework.queue_executor.execute_on_main_thread", return_value=None),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
     ):
         pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 
-    mock_release.assert_not_called()
+    mock_release.assert_called_once_with("doc:tok")
     assert len(seen) == 1
     assert seen[0]["ok"] is False
     assert seen[0]["message"] == "Script preparation failed."

@@ -6,8 +6,12 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 import pytest
 
+from plugin.framework.errors import DocumentDisposedError
+from plugin.scripting import python_runner as pr
 from plugin.scripting.python_runner import format_result_for_writer, format_elapsed_time, is_shape_tool_status_result
 
 class TestPythonRunnerFormatting:
@@ -280,4 +284,54 @@ def test_insert_result_into_calc_skips_shape_status_dict():
             },
         )
     rich.assert_not_called()
+
+
+class _DisposedException(Exception):
+    pass
+
+
+def _egress_spec(insert):
+    return SimpleNamespace(
+        post_venv_calc_only=False,
+        is_result=lambda value: True,
+        insert_kwargs_fn=None,
+        insert=insert,
+        format_ok=lambda **k: {},
+    )
+
+
+def test_try_rps_post_venv_reraises_document_disposed():
+    with pytest.raises(DocumentDisposedError):
+        pr.try_rps_post_venv(
+            _egress_spec(MagicMock(side_effect=_DisposedException("gone"))),
+            ctx=MagicMock(),
+            doc=MagicMock(),
+            result_data={"a": 1},
+            t0=0.0,
+            stdout=None,
+        )
+
+
+def test_try_rps_post_venv_reports_ordinary_insert_error():
+    out = pr.try_rps_post_venv(
+        _egress_spec(MagicMock(side_effect=RuntimeError("boom"))),
+        ctx=MagicMock(),
+        doc=MagicMock(),
+        result_data={"a": 1},
+        t0=0.0,
+        stdout=None,
+    )
+    assert out["ok"] is False
+    assert "Failed to insert result" in out["message"]
+
+
+def test_finish_script_execution_reraises_document_disposed():
+    prepared = {"ctx": MagicMock(), "doc": MagicMock(), "code": "x", "t0": 0.0}
+    with (
+        patch.object(pr, "is_calc", return_value=True),
+        patch.object(pr, "insert_result_into_calc", side_effect=_DisposedException("gone")),
+    ):
+        with pytest.raises(DocumentDisposedError):
+            pr._finish_script_execution(prepared, {"status": "ok", "result": "hi"})
+
 

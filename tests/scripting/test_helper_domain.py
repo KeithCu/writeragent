@@ -19,10 +19,7 @@ from plugin.scripting.helper_domain import (
     script_header_needs_data_binding,
     supports_calc_or_writer_manual,
 )
-from plugin.scripting.python_runner import (
-    prepend_run_import_document_bindings,
-    script_uses_run_import,
-)
+from plugin.scripting.python_runner import script_uses_run_import
 import pytest
 
 
@@ -215,14 +212,6 @@ def test_format_elapsed_time_buckets():
     assert "m" in format_elapsed_time(65)
 
 
-def test_prepend_run_import_document_bindings_uses_generic_comment():
-    out = prepend_run_import_document_bindings("result = 1\n", bindings={"text": "hi"})
-    assert out.startswith("# Document inputs injected below")
-    assert "WriterAgent" not in out
-    assert 'text = "hi"' in out
-    assert out.endswith("result = 1\n")
-
-
 def test_parse_run_import_call_params_nested_unary():
     code = (
         'result = run_units({"helper": "h", "params": {"n": -5, "items": [-1, 2], '
@@ -270,58 +259,6 @@ def test_script_uses_run_import_in_comment_not_matched():
     # Why this change: AST parsing ensures run_name is an actual function call, not comment text.
     code = "# run_vision(data)\nresult = 42\n"
     assert script_uses_run_import(code, run_name="run_vision") is False
-
-
-def test_prepend_run_import_document_bindings_after_shebang_and_future():
-    # What was wrong: Injected bindings prepended at index 0 broke Python shebangs,
-    # encoding declarations, and __future__ imports (which must precede other code).
-    # Why this change: _find_binding_insertion_line inserts after shebang, encoding, and __future__.
-    code = (
-        "#!/usr/bin/env python3\n"
-        "# -*- coding: utf-8 -*-\n"
-        "from __future__ import annotations\n"
-        "result = 1\n"
-    )
-    res = prepend_run_import_document_bindings(code, bindings={"val": None, "active": True})
-    lines = res.splitlines()
-    assert lines[0] == "#!/usr/bin/env python3"
-    assert lines[1] == "# -*- coding: utf-8 -*-"
-    assert lines[2] == "from __future__ import annotations"
-    assert lines[3].startswith("# Document inputs injected below")
-    assert "val = None" in res
-    assert "active = True" in res
-
-
-def test_prepend_run_import_document_bindings_docstring_order():
-    code1 = '"""Module doc."""\nresult = 1\n'
-    res1 = prepend_run_import_document_bindings(code1, bindings={"text": "hi"})
-    lines1 = res1.splitlines()
-    assert lines1[0] == '"""Module doc."""'
-    assert lines1[1].startswith("# Document inputs injected below")
-    assert lines1[-1] == "result = 1"
-
-    code2 = '"""Line one.\n\nLine two.\n"""\nresult = 1\n'
-    res2 = prepend_run_import_document_bindings(code2, bindings={"text": "hi"})
-    lines2 = res2.splitlines()
-    assert lines2[3] == '"""'
-    assert lines2[4].startswith("# Document inputs injected below")
-    assert lines2[-1] == "result = 1"
-
-    code3 = '#!/usr/bin/env python3\n"""doc"""\nx = 1\n'
-    res3 = prepend_run_import_document_bindings(code3, bindings={"text": "hi"})
-    lines3 = res3.splitlines()
-    assert lines3[0] == "#!/usr/bin/env python3"
-    assert lines3[1] == '"""doc"""'
-    assert lines3[2].startswith("# Document inputs injected below")
-    assert lines3[-1] == "x = 1"
-
-    code4 = '"""doc"""\nfrom __future__ import annotations\nx = 1\n'
-    res4 = prepend_run_import_document_bindings(code4, bindings={"text": "hi"})
-    lines4 = res4.splitlines()
-    assert lines4[0] == '"""doc"""'
-    assert lines4[1] == "from __future__ import annotations"
-    assert lines4[2].startswith("# Document inputs injected below")
-    assert lines4[-1] == "x = 1"
 
 
 def test_build_helper_script_template_bare_data_only_for_injected_data():
