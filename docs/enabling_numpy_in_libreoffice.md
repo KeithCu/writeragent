@@ -456,6 +456,8 @@ Excel’s *saved* static bridges already put ranges on `_xlws.PY` trailing args 
 
 Workbook initialization scripts can be defined via **Edit Initialization Script…** (Calc only). This stores a workbook startup script in document properties (`calc:…:init`). It runs once per workbook session even when the session mode is **Isolated**, making its imports and helper functions available to all `=PY()` cells.
 
+Saving in the init editor only updates the document property. The new script takes effect on the next `=PY()` evaluation, when the worker sees the new script hash and re-seeds; saving does not reset the workbook session.
+
 In the worker sandbox:
 - Functions and variables defined in the init script are executed in the companion `calc:…:init` session and snapshot into cell executors.
 - The init executor does not receive data, ranges, xl, host bindings, scoped_dir, or the injected names session_duckdb, run_sql, and invalidate_session_tables. Those are applied to the cell after the snapshot is copied. An init assignment to one of those names is not copied into the cell.

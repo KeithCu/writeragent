@@ -10,7 +10,7 @@ from typing import Any
 
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.config import get_config
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import is_disposed_exception
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.scripting.document_scripts import (
@@ -21,7 +21,6 @@ from plugin.scripting.document_scripts import (
 )
 from plugin.scripting.editor_errors import failure_message
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available, probe_webview_import, resolve_editor_python
-from plugin.scripting.session_manager import reset_workbook_python_session
 
 
 @main_thread_only
@@ -49,14 +48,32 @@ def open_init_script_editor(ctx: Any) -> None:
             return
 
     assert exe is not None
-    initial = get_calc_init_script(doc)
+    closed_message = _("The spreadsheet is no longer open. Reopen it and try again.")
+    try:
+        initial = get_calc_init_script(doc)
+    except Exception as exc:
+        if not is_disposed_exception(exc):
+            raise
+        msgbox(ctx, title, closed_message, box_type=3)
+        return
 
     def on_save(code: str, _save_as_plain: bool, _data_binding: str | None, action: str) -> dict[str, Any]:
-        err = set_calc_init_script(doc, code or "")
-        if err:
+        nonlocal initial
+        new_code = code or ""
+        if new_code == initial:
+            return {"type": "saved", "ok": True, "status_ok_text": _("Initialization script saved.")}
+        try:
+            err = set_calc_init_script(doc, new_code)
+        except Exception as exc:
+            if not is_disposed_exception(exc):
+                raise
+            return {"type": "error", "message": closed_message}
+        if err is not None:
             return {"type": "error", "message": err}
-        # Init script hash change should re-seed; reset so next =PY() picks up new INIT.
-        best_effort(lambda: reset_workbook_python_session(ctx), "init_script_editor: reset after save")
+        initial = new_code
+        from plugin.calc.python.function import clear_python_addin_cache
+
+        clear_python_addin_cache()
         return {"type": "saved", "ok": True, "status_ok_text": _("Initialization script saved.")}
 
     load_msg: dict[str, Any] = {

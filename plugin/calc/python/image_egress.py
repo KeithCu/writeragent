@@ -72,6 +72,7 @@ def _plot_slot_index(name: str) -> int | None:
 
 
 _SVG_UNIT_TO_MM = {
+    "px": 25.4 / 96.0,
     "pt": 0.3528,
     "in": 25.4,
     "cm": 10.0,
@@ -85,8 +86,7 @@ def _parse_svg_dimension(val_str: str) -> float | None:
         return None
     num = float(m.group(1))
     unit = m.group(2) or "px"
-    scale = _SVG_UNIT_TO_MM.get(unit)
-    return num * scale if scale is not None else num
+    return num * _SVG_UNIT_TO_MM[unit]
 
 
 def _intrinsic_aspect(data: bytes) -> tuple[int, int] | None:
@@ -171,7 +171,7 @@ def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> b
     if tmp_path and os.path.isfile(tmp_path):
         try:
             with open(tmp_path, "rb") as f:
-                return f.read()
+                return f.read(8192)
         except OSError:
             pass
     if payload and isinstance(payload, dict):
@@ -197,7 +197,7 @@ def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_messa
     located = _located_image_cell(ctx, doc, code)
     if located is None:
         return
-    sheet, cell, (row, col) = located
+    sheet, cell, _unused = located
     try:
         text = f"{_IMAGE_ANNOTATION_PREFIX}{error_message}"
         ann = cell.getAnnotation() if hasattr(cell, "getAnnotation") else None
@@ -233,16 +233,8 @@ def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_messa
 
         if hasattr(sheet, "getAnnotations"):
             annotations = sheet.getAnnotations()
-            if hasattr(annotations, "insertNew"):
-                addr: Any = None
-                if hasattr(cell, "getCellAddress"):
-                    addr = cell.getCellAddress()
-                if addr is None:
-                    sheet_idx = getattr(sheet.getRangeAddress(), "Sheet", 0) if hasattr(sheet, "getRangeAddress") else 0
-                    from com.sun.star.table import CellAddress
-
-                    addr = CellAddress(Sheet=sheet_idx, Column=col, Row=row)
-                annotations.insertNew(addr, text)
+            if hasattr(annotations, "insertNew") and hasattr(cell, "getCellAddress"):
+                annotations.insertNew(cell.getCellAddress(), text)
     except Exception:
         log.debug("_set_image_cell_annotation failed", exc_info=True)
 
@@ -387,12 +379,12 @@ def insert_image_result_on_sheet(
 
     Raises:
         ImageEgressError: the synchronous (main-thread) insert did not place a graphic.
-            Off-main, this function posts and returns. The posted call raises on the main
-            thread when notify_cell is false. When notify_cell is true, a posted
-            ImageEgressError is written to the formula cell's note only if that note is
-            empty or already starts with "WriterAgent image: "; any other note is left
-            unchanged and the exception is not raised. post_to_main_thread can still raise
-            TimeoutError or RuntimeError to this caller.
+            Off-main, this function posts and returns; the posted call's exception is
+            caught and logged by QueueExecutor.process_queue when notify_cell is false.
+            When notify_cell is true, a posted ImageEgressError is written to the formula
+            cell's note only if that note is empty or already starts with
+            "WriterAgent image: "; any other note is left unchanged. post_to_main_thread
+            can still raise TimeoutError or RuntimeError to this caller.
     """
     from plugin.framework.queue_executor import post_to_main_thread
     from plugin.framework.thread_guard import on_main_thread
@@ -531,14 +523,6 @@ def _insert_image_result_on_sheet_impl(
             except Exception:
                 log.debug("insert_image_result_on_sheet: selection fallback failed", exc_info=True)
 
-        # Only a caller that passes image_count owns the slot family. =PY() and
-        # run_venv_python_script pass it and enumerate image_index from 0, so the
-        # sweep runs once on index 0. Omitting image_count (chat plot_data / viz)
-        # must not remove sibling WriterAgentPlot_N shapes; they may belong to a
-        # formula on the selected cell.
-        if image_count is not None and image_index == 0 and target_cell is not None:
-            _drop_extra_plot_slots(draw_page, target_cell, image_count)
-
         we_created_temp = False
         if image_path:
             tmp_path = image_path
@@ -622,6 +606,14 @@ def _insert_image_result_on_sheet_impl(
                         best_effort(lambda: draw_page.remove(shape), "insert_image_result_on_sheet: failed to remove failed shape")
                     raise ImageEgressError("could not anchor plot to the formula cell")
                 log.warning("insert_image_result_on_sheet: could not anchor to cell", exc_info=True)
+
+        # Only a caller that passes image_count owns the slot family. =PY() and
+        # run_venv_python_script pass it and enumerate image_index from 0, so the
+        # sweep runs once on index 0. Omitting image_count (chat plot_data / viz)
+        # must not remove sibling WriterAgentPlot_N shapes; they may belong to a
+        # formula on the selected cell.
+        if image_count is not None and image_index == 0 and target_cell is not None:
+            _drop_extra_plot_slots(draw_page, target_cell, image_count)
     except ImageEgressError:
         raise
     except Exception as exc:
