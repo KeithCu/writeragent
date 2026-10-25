@@ -248,6 +248,33 @@ def test_automatic_gc_suspended_restores_on_error(gc_enabled_restored):
     assert gc.isenabled()
 
 
+def test_automatic_gc_suspended_stays_off_while_another_wait_is_active(gc_enabled_restored):
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    def second_waiter() -> None:
+        try:
+            with automatic_gc_suspended():
+                entered.set()
+                release.wait(timeout=5)
+        finally:
+            finished.set()
+
+    with automatic_gc_suspended():
+        waiter = threading.Thread(target=second_waiter, daemon=True)
+        waiter.start()
+        assert entered.wait(timeout=5), "second waiter never entered"
+        # This wait exits first; the second one still holds the suspension.
+    try:
+        assert not gc.isenabled(), "an exiting wait re-enabled GC while another wait was active"
+    finally:
+        release.set()
+        waiter.join(timeout=5)
+    assert finished.is_set()
+    assert gc.isenabled()
+
+
 def test_pump_idle_false_worker_runs_with_gc_off_and_nested_call_does_not_reenable(gc_enabled_restored):
     ctx = MagicMock()
     seen: list[tuple[str, bool]] = []

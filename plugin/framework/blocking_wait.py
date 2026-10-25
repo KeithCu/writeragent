@@ -29,6 +29,7 @@ import contextlib
 import gc
 import logging
 import queue
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
@@ -36,6 +37,10 @@ from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
+
+_gc_suspend_lock = threading.Lock()
+_gc_suspend_depth = 0
+_gc_suspend_was_enabled = False
 
 
 @dataclass(slots=True)
@@ -56,17 +61,28 @@ def automatic_gc_suspended() -> Iterator[None]:
     drain. Refcount frees are unaffected; deferred collections run here on
     the caller thread, where SolarMutex is recursive.
 
-    Only the call that found GC enabled turns it back on, so a nested call
-    never re-enables it while the outer one is still waiting, and GC ends in
-    the state it started in.
+    A module-level lock and depth counter own this state: only the caller that
+    takes the depth from 0 disables GC, and only the caller that returns it to
+    0 re-enables it. A nested or concurrent call never re-enables GC while
+    another wait is still running, and GC ends in the state it started in.
     """
-    was_enabled = gc.isenabled()
-    gc.disable()
+    global _gc_suspend_depth, _gc_suspend_was_enabled
+    with _gc_suspend_lock:
+        if _gc_suspend_depth == 0:
+            _gc_suspend_was_enabled = gc.isenabled()
+            gc.disable()
+        _gc_suspend_depth += 1
     try:
         yield
     finally:
-        if was_enabled:
-            gc.enable()
+        with _gc_suspend_lock:
+            _gc_suspend_depth -= 1
+            restore = _gc_suspend_depth == 0 and _gc_suspend_was_enabled
+            if restore:
+                # Enable under the lock: a caller entering right after the depth hits 0
+                # must see GC already on, or it records was_enabled=False and GC stays off.
+                gc.enable()
+        if restore:
             gc.collect()
 
 
