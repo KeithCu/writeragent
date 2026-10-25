@@ -743,6 +743,21 @@ def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
         _swap_image_placeholders(_graphics_doc(), '<p>Novo <img src=""/> texto</p>')
 
 
+@pytest.mark.parametrize("markup", [
+    "<p>Novo <img src=''/> texto</p>",
+    '<p>Novo <img src = ""> texto</p>',
+    '<span id="Selo"><img src=\'\'/></span>',
+])
+def test_swap_image_placeholders_refuses_non_canonical_empty_src(markup):
+    import pytest
+
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.image_placeholders import _swap_image_placeholders
+
+    with pytest.raises(ToolExecutionError, match="without its data"):
+        _swap_image_placeholders(_graphics_doc("Selo"), markup)
+
+
 def test_swap_image_placeholders_leaves_other_content_alone():
     from unittest.mock import MagicMock
 
@@ -818,6 +833,22 @@ def test_restore_image_placeholders_missing_marker_for_kept_original_does_not_ra
     model.createInstance.assert_not_called()
 
 
+def test_restore_image_placeholders_missing_marker_resolves_before_mutation():
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import image_placeholders
+
+    model = MagicMock()
+    found1 = MagicMock()
+    model.findFirst.side_effect = [found1, None]
+    kept = [_kept("AT_PARAGRAPH"), _kept("AT_PARAGRAPH")]
+    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True):
+        with pytest.raises(ToolExecutionError, match="'Assinatura'"):
+            image_placeholders._restore_image_placeholders(model, kept)
+    model.createInstance.assert_not_called()
+    found1.setString.assert_not_called()
+
+
 def test_deleted_by_the_edit():
     from types import SimpleNamespace
     from unittest.mock import MagicMock
@@ -826,11 +857,11 @@ def test_deleted_by_the_edit():
 
     gone = MagicMock()
     gone.getAnchor.side_effect = RuntimeError("disposed")
-    assert image_placeholders._deleted_by_the_edit(MagicMock(), gone) is True
+    assert image_placeholders._deleted_by_the_edit(MagicMock(), gone, "Picture 1") is True
 
     model = MagicMock()
     model.getPropertyValue.return_value = False  # review off: alive means still there
-    assert image_placeholders._deleted_by_the_edit(model, MagicMock()) is False
+    assert image_placeholders._deleted_by_the_edit(model, MagicMock(), "Picture 1") is False
 
     # Review on: an inline picture whose anchor sits inside a pending Delete went with it.
     model = MagicMock()
@@ -847,7 +878,7 @@ def test_deleted_by_the_edit():
     enum = model.getRedlines.return_value.createEnumeration.return_value
     enum.hasMoreElements.side_effect = [True, False]
     enum.nextElement.side_effect = [delete]
-    assert image_placeholders._deleted_by_the_edit(model, original) is True
+    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
 
 
 def test_deleted_by_the_edit_name_guard(caplog):
