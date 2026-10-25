@@ -9,7 +9,7 @@ from plugin.framework.stream_batch import StreamQueueKind
 from plugin.chatbot.tool_loop_actions import build_tool_execute_fn, current_turn, take_stop_partial
 from plugin.chatbot.tool_loop import ToolCallingMixin
 from plugin.chatbot.tool_loop_state import ToolLoopState
-from plugin.chatbot.send_state import SendButtonState
+from plugin.chatbot.send_state import SendButtonState, SendMode
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 
 class MockSession:
@@ -37,7 +37,7 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.ctx = MagicMock()
         self.session = MockSession()
         self.sidebar_state = SidebarCompositeState(
-            send=SendButtonState(False, False, False, False, False),
+            send=SendButtonState(SendMode.IDLE, False, False, False),
             tool_loop=None,
         )
         self.model_selector = None

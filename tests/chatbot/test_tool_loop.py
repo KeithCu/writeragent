@@ -29,7 +29,7 @@ from plugin.framework.stream_batch import StreamQueueKind  # noqa: E402
 
 # Now import the actual ToolCallingMixin class from the module
 from plugin.chatbot.tool_loop import CHAT_STREAM_BATCH_INTERVAL, ToolCallingMixin  # noqa: E402
-from plugin.chatbot.send_state import SendButtonState  # noqa: E402
+from plugin.chatbot.send_state import SendButtonState, SendMode  # noqa: E402
 from plugin.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
 
 class MockSession:
@@ -69,7 +69,7 @@ class FakePanel(ToolCallingMixin):
         self.session = session
         self.sidebar_state = SidebarCompositeState(
             send=SendButtonState(
-                False, False, False, False, False,
+                SendMode.IDLE, False, False, False,
             ),
             tool_loop=None,
         )

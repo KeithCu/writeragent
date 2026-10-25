@@ -22,16 +22,29 @@ class ButtonAction(Enum):
     IGNORE = auto()
 
 
+class SendMode(Enum):
+    IDLE = auto()
+    RECORDING = auto()
+    BUSY = auto()
+
+
 # --- State ---
 
 
 @dataclass(frozen=True)
 class SendButtonState(BaseState):
-    is_busy: bool  # True when AI is generating (or transcribing)
-    is_recording: bool  # True when audio is actively being recorded
+    mode: SendMode
     has_text: bool  # True when the query text area is non-empty
     has_audio: bool  # Stop Rec committed a take to send. Not proof a WAV exists; the panel's audio_wav_path is the file. A missing file ends the send as ERROR_OCCURRED, which clears this flag.
     audio_supported: bool  # True if audio recording feature is available on the platform
+
+    @property
+    def is_busy(self) -> bool:
+        return self.mode == SendMode.BUSY
+
+    @property
+    def is_recording(self) -> bool:
+        return self.mode == SendMode.RECORDING
 
 
 # --- Events ---
@@ -147,8 +160,7 @@ def _return_idle(
     status text, clearing typed text, and deleting the take stay arguments.
     """
     changes: dict[str, Any] = {
-        "is_busy": False,
-        "is_recording": False,
+        "mode": SendMode.IDLE,
         "has_audio": False,
     }
     if clear_text:
@@ -183,8 +195,6 @@ def _send_ui_invariants(
     cannot drift.
     """
     # crosshair: off
-    if result.state.is_busy and result.state.is_recording:
-        return False
     for effect in result.effects:
         if isinstance(effect, UpdateUIEffect):
             if effect.send_enabled and effect.stop_enabled and not result.state.is_recording:
@@ -203,8 +213,6 @@ def _send_ui_invariants(
 # Stop off during every take, a hands-free loop has no exit between turns
 # (Stop Rec sends and keeps the lock). The contracts below allow exactly
 # that state and nothing else.
-# Pre rejects the illegal pair so CrossHair cannot start from (busy and recording).
-@deal.pre(lambda state, event: not (state.is_busy and state.is_recording))
 @deal.ensure(_send_ui_invariants)
 def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendButtonState]:
     """Pure state transition for the Send button."""
@@ -238,7 +246,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             # Idle + has_audio is a legal cold-send state; leaving the flag set on
             # a new take made a later cancel/error treat an empty box as a committed
             # take (_get_send_label returns Send). A new capture is not that commit.
-            new_state = _replace_state(state, is_busy=False, is_recording=True, has_audio=False)
+            new_state = _replace_state(state, mode=SendMode.RECORDING, has_audio=False)
             effects: list[SendEffects] = [
                 StartCaptureEffect(),
                 UpdateUIEffect(
@@ -257,8 +265,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
 
             new_state = _replace_state(
                 state,
-                is_busy=True,
-                is_recording=False,
+                mode=SendMode.BUSY,
                 has_audio=True,  # Commit the take. The WAV is not known in this function.
             )
             effects = [
@@ -274,7 +281,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             if not state.has_text and not state.has_audio:
                 return _noop(state)
 
-            new_state = _replace_state(state, is_busy=True, is_recording=False)
+            new_state = _replace_state(state, mode=SendMode.BUSY)
             effects = [
                 BUSY_STARTING_EFFECT,
                 StartSendEffect(),
@@ -285,7 +292,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             # Peer inject: set busy without StartSendEffect (that posts _do_send / Ask-box).
             if state.is_busy or state.is_recording:
                 return _noop(state)
-            new_state = _replace_state(state, is_busy=True, is_recording=False)
+            new_state = _replace_state(state, mode=SendMode.BUSY)
             effects = [
                 BUSY_STARTING_EFFECT,
             ]
@@ -295,15 +302,9 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             if not state.is_busy:
                 return _noop(state)
 
-            # Keep is_busy until SEND_COMPLETED or ERROR_OCCURRED. Force is_recording
-            # False so a Stop Rec label cannot be echoed. @deal.pre rejects (busy and
-            # recording) when deal is installed; release OXTs strip it and LibreOffice's
-            # deal_shim is a no-op, so this assignment is the runtime copy of that invariant.
-            new_state = _replace_state(
-                state,
-                is_busy=True,
-                is_recording=False,
-            )
+            # Keep BUSY until SEND_COMPLETED or ERROR_OCCURRED; the guard above
+            # means there is no recording flag to clear.
+            new_state = state
             effects = [
                 StopSendEffect(),
                 UpdateUIEffect(

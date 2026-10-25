@@ -97,7 +97,7 @@ We attach an `XTextListener` (`QueryTextListener` in `panel.py`) to the text inp
 
 ### Hands-free (sticky) Record
 
-Sticky is a panel flag on `SendButtonListener`, not a send-FSM state. `send_state.next_state` still forbids `is_busy and is_recording`.
+Sticky is a panel flag on `SendButtonListener`, not a send-FSM state. `SendButtonState.mode` keeps busy and recording mutually exclusive; `is_busy` and `is_recording` are read-only properties.
 
 | Gesture | Result |
 |---------|--------|
