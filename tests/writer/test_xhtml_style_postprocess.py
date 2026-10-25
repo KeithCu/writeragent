@@ -253,6 +253,17 @@ def test_quoted_font_name_emits_well_formed_data_lo_para():
     assert parser.para == 'font-family:Times "Special"', parser.para
 
 
+def test_quoted_style_name_emits_well_formed_data_lo_style():
+    inp = (
+        "<html><head><style>.paragraph-A_22_B_22_{font-style:italic;}</style></head>"
+        '<body><p class="paragraph-A_22_B_22_">x</p></body></html>'
+    )
+    out = xhtml_to_semantic_html(inp)
+    assert 'data-lo-style="A&quot;B&quot;"' in out
+    from plugin.writer.html_import_styles import _extract_block_lo_styles
+    assert _extract_block_lo_styles(out)[1] == ['A"B"']
+
+
 # --- Issue 2: token collision (two styles compacting to the same token) -------
 
 _COLLISION_XHTML = """<html><head><style>

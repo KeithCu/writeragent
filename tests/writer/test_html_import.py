@@ -600,6 +600,31 @@ def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
     assert apply.call_args.args[2] == "Standard"
 
 
+def test_apply_block_lo_styles_skips_when_style_already_matches():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import_styles
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 1", "Standard"]
+    fam.hasByName.return_value = True
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = "Heading 1"
+    walk_cur.gotoNextParagraph.return_value = False
+    text.createTextCursorByRange.return_value = walk_cur
+
+    from plugin.writer import format as format_mod
+    with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
+        html_import_styles._apply_block_lo_styles(
+            model, text, MagicMock(), ["Heading1"],
+        )
+    apply.assert_not_called()
+    walk_cur.gotoNextParagraph.assert_called_once_with(False)
+
+
 def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     """Imported at the start of the deleted text, the new paragraphs took its character formatting
     (an 18pt bold opening heading spread over the whole document)."""
@@ -1147,24 +1172,30 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     assert _resolve_paragraph_style_token(MagicMock(), fam, "Heading1") == "Heading 1"
 
 
-def test_resolve_style_name():
+def test_resolve_paragraph_style_token_fallback_and_disposal():
     from unittest.mock import MagicMock
-    from plugin.writer.html_import_styles import _resolve_style_name
+    import pytest
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.html_import_styles import _resolve_paragraph_style_token
 
+    class DisposedException(Exception):
+        pass
+
+    # (i) Case-insensitive fallback
     fam = MagicMock()
-    fam.hasByName.side_effect = lambda name: name == "Heading 1"
     fam.getElementNames.return_value = ("Heading 1", "Standard")
-    families = MagicMock()
-    families.getByName.return_value = fam
-    model = MagicMock()
-    model.getStyleFamilies.return_value = families
+    fam.hasByName.return_value = True
+    assert _resolve_paragraph_style_token(MagicMock(), fam, "heading 1") == "Heading 1"
 
-    # Exact match
-    assert _resolve_style_name(model, "Heading 1") == "Heading 1"
-    # Case-insensitive match
-    assert _resolve_style_name(model, "heading 1") == "Heading 1"
-    # Fallback to input string on unknown style
-    assert _resolve_style_name(model, "UnknownStyle") == "UnknownStyle"
+    # (ii) Unknown fallback
+    fam.hasByName.return_value = False
+    assert _resolve_paragraph_style_token(MagicMock(), fam, "heading 1") == "Standard"
+
+    # (iii) DisposedException on hasByName
+    fam.getElementNames.return_value = []
+    fam.hasByName.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        _resolve_paragraph_style_token(MagicMock(), fam, "heading 1")
 
 
 def test_styled_math_insert_styles_from_paragraph_before_insert():
@@ -1205,6 +1236,10 @@ def test_content_has_block_markup_whitespace_and_inline_tags():
     assert _content_has_block_markup("<span>") is False
     assert _content_has_block_markup("<param>") is False
     assert _content_has_block_markup("List<String>") is False
+    assert _content_has_block_markup("<dl><dt>x</dt></dl>") is True
+    assert _content_has_block_markup("<figure></figure>") is True
+    assert _content_has_block_markup("<header>h</header>") is True
+    assert _content_has_block_markup("<span>a<br>b</span>") is False
 
 
 def test_collect_range_portions_magic_mock_returns_immediately():
