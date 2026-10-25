@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, ClassVar
 
 from plugin.draw.base import ToolDrawSpecialBase
@@ -17,6 +18,14 @@ log = logging.getLogger("writeragent.draw")
 
 _MIN_W_HMM, _MIN_H_HMM = 500, 400
 _MAX_W_HMM, _MAX_H_HMM = 120_000, 80_000
+
+_DISPLAY_BLOCK_RE = re.compile(
+    r"\\(?:displaystyle|int|iint|iiint|oint)(?![A-Za-z])"
+)
+
+
+def _latex_is_display_block(latex: str) -> bool:
+    return bool(_DISPLAY_BLOCK_RE.search(latex))
 
 
 # com.sun.star.embed.EmbedMapUnits (offapi/.../embed/EmbedMapUnits.idl).
@@ -165,7 +174,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "math"
 
     def execute(self, ctx: Any, **kwargs: Any) -> Any:
-        from plugin.draw.bridge import DrawBridge
+        from plugin.draw.bridge import resolve_shape_page
         from com.sun.star.awt import Size, Point
 
         formula_type = kwargs["formula_type"]
@@ -177,7 +186,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
 
         if formula_type == "latex":
             fstrip = formula.strip()
-            display_block = "\\displaystyle" in fstrip.lower() or "\\int" in fstrip or "\\iint" in fstrip or "\\iiint" in fstrip or "\\oint" in fstrip
+            display_block = _latex_is_display_block(fstrip)
             res = convert_latex_to_starmath(uno_ctx, fstrip, display_block=display_block)
         elif formula_type == "mathml":
             res = convert_mathml_to_starmath(uno_ctx, formula.strip())
@@ -188,15 +197,13 @@ class InsertMathDraw(ToolDrawSpecialBase):
             detail = (res.error_message or "").strip() or "unknown_error"
             return self._tool_error(f"Failed to convert math expression: {detail}", conversion_detail=detail)
 
-        page_index = kwargs["page"]
         x = kwargs["x"]
         y = kwargs["y"]
 
-        bridge = DrawBridge(ctx.doc)
-        pages = bridge.get_pages()
-        if page_index < 0 or page_index >= pages.getCount():
-            return self._tool_error("Invalid page.")
-        page = pages.getByIndex(page_index)
+        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
+        if err:
+            return self._tool_error(err)
+        assert page is not None
 
         shape = None
         added = False
@@ -232,4 +239,4 @@ class InsertMathDraw(ToolDrawSpecialBase):
                 raise
             return self._tool_error(f"Failed to insert math shape: {exc}")
 
-        return {"status": "ok", "message": "Math formula inserted successfully", "index": page.getCount() - 1, "page": page_index}
+        return {"status": "ok", "message": "Math formula inserted successfully", "index": page.getCount() - 1, "page": actual_idx}
