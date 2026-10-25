@@ -454,35 +454,6 @@ def _harper_wait_snapshot() -> tuple[float | None, str]:
         return _HARPER_WAIT_STARTED, _HARPER_WAIT_THREAD
 
 
-def _log_harper_wait_reenter() -> None:
-    """One WARN + obs when PE2I / another walk nests during an active Harper wait."""
-    from plugin.writer.locale.grammar_obs import grammar_obs
-
-    started, wait_thread = _harper_wait_snapshot()
-    wait_age_ms = int((time.monotonic() - started) * 1000) if started is not None else 0
-    try:
-        from plugin.writer.locale.grammar_worker import get_grammar_provider
-
-        provider = get_grammar_provider() or "harper"
-    except Exception:
-        provider = "harper"
-    thread_name = threading.current_thread().name
-    log.warning(
-        "[harper] harper_wait_reenter thread=%s wait_thread=%s wait_age_ms=%s provider=%s",
-        thread_name,
-        wait_thread,
-        wait_age_ms,
-        provider,
-    )
-    grammar_obs(
-        "harper_wait_reenter",
-        thread=thread_name,
-        wait_thread=wait_thread,
-        wait_age_ms=wait_age_ms,
-        provider=provider,
-    )
-
-
 def shutdown_harper_runtime() -> None:
     """Close every cached harper-ls client. Safe from tests and extension teardown."""
     _end_harper_wait()
@@ -701,8 +672,9 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     alive. Writer runs ``doProofreading`` on a linguistic worker (``Dummy-*``),
     not VCL: the helper posts PE2I to the main thread instead of pumping on
     this stack (in-loop PE2I there was a thread-violation dialog). Nested
-    ``doProofreading`` / ``harper_try_lint`` while that wait is active fail
-    soft (``None``) and log ``harper_wait_reenter``. Missing ``ctx`` falls
+    ``doProofreading`` / ``harper_try_lint`` while that wait is active cannot
+    happen (pumping runs on main; ``doProofreading`` on the linguistic
+    thread) and is asserted against. Missing ``ctx`` falls
     back to a blocking wait (no pump). Grammar-queue ``run_harper_check``
     does not pass ``ctx``: that thread is already a worker and paints status
     via ``_pump_grammar_status_ui``.
@@ -712,11 +684,10 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     if not user_config_dir:
         log.error("[harper] lint skipped: empty user config dir")
         return None
-    # Fail soft before ``_HARPER_LOCK``: PE2I can re-enter this function on
-    # the linguistic thread; waiting on a lock the parent still needs deadlocks.
-    if _harper_wait_snapshot()[0] is not None:
-        _log_harper_wait_reenter()
-        return None
+    # Pumping runs on main and doProofreading on the linguistic thread, so a
+    # nested call during an active wait would be a bug (and would deadlock on
+    # ``_HARPER_LOCK``).
+    assert _harper_wait_snapshot()[0] is None, "harper_try_lint re-entered during pumped wait"
     none_reason = "not_ready"
     client: HarperLSClient | None = None
     # Block (pumping UI events) rather than skip: every sentence must be checked,
@@ -742,9 +713,8 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
             return None
         grammar_obs("harper_try_lint_none", reason=none_reason, ensure_submitted=submitted)
         return None
-    if not _try_begin_harper_wait():
-        _log_harper_wait_reenter()
-        return None
+    began_wait = _try_begin_harper_wait()
+    assert began_wait, "harper_try_lint re-entered during pumped wait"
     try:
         return _lint_ready_client(client, text, bcp47=bcp47, ctx=ctx)
     except Exception:
