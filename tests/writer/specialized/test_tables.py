@@ -20,6 +20,7 @@ from plugin.writer.specialized.tables import (
     TableSetCell,
     _hosted_in_band,
     _unknown_cell_message,
+    record_table_deletions,
 )
 from plugin.writer.range_copy import (
     _writer_cell_position,
@@ -396,6 +397,120 @@ def test_get_table_cells_reports_top_level_table_as_not_nested():
         "parent_cell": None,
     }
     assert res["nested_in_cells"] == {}
+
+
+def test_nesting_top_level_table_does_not_walk_other_tables():
+    body = FakeBodyText()
+    target = FakeTable(2, 2, cells={"A1": "val"}, name="T", anchor_text=body)
+    called = []
+
+    def explode(name):
+        called.append(name)
+        raise AssertionError("unexpected cell scan")
+
+    exploding = FakeTable(2, 2, name="Other")
+    exploding.getCellByName = explode
+    doc = SimpleNamespace(
+        getTextTables=lambda: FakeTables({"T": target, "Other": exploding}),
+        getText=lambda: body,
+    )
+    ctx = SimpleNamespace(doc=doc)
+    res = TableGetCells().execute(ctx, name="T", cell="A1")
+    assert res["status"] == "ok"
+    assert res["cells"] == {"A1": "val"}
+    assert res["nesting"]["is_nested"] is False
+    assert called == []
+
+
+def test_delete_top_level_table_does_not_walk_other_tables():
+    body = FakeBodyText()
+    target = FakeTable(2, 2, name="T", anchor_text=body)
+    called = []
+
+    def explode(name):
+        called.append(name)
+        raise AssertionError("unexpected cell scan")
+
+    exploding = FakeTable(2, 2, name="Other")
+    exploding.getCellByName = explode
+    doc = FakeWriterDoc({"T": target, "Other": exploding}, body=body)
+    ctx = SimpleNamespace(doc=doc)
+    res = TableDelete().execute(ctx, name="T")
+    assert res["status"] == "ok"
+    assert res["nesting"]["is_nested"] is False
+    assert body.removed == [target]
+    assert called == []
+
+
+def test_nesting_falls_back_to_scan_when_anchor_is_not_body():
+    body = FakeBodyText()
+    child = FakeTable(1, 1, cells={"A1": "nested-alpha"}, name="Child", anchor_text=SimpleNamespace())
+    parent = FakeParentTable(
+        2,
+        2,
+        nested_by_cell={"B2": [FakeTextTableElement("Child")]},
+        name="Parent",
+    )
+    doc = SimpleNamespace(
+        getTextTables=lambda: FakeTables({"Parent": parent, "Child": child}),
+        getText=lambda: body,
+    )
+    res = TableGetCells().execute(SimpleNamespace(doc=doc), name="Child")
+    assert res["cells"] == {"A1": "nested-alpha"}
+    assert res["nesting"] == {
+        "is_nested": True,
+        "parent_table": "Parent",
+        "parent_cell": "B2",
+    }
+
+
+def test_get_table_cells_optional_cell_reads_only_that_cell():
+    body = FakeBodyText()
+    target = FakeTable(3, 3, cells={"C3": "z"}, name="T", anchor_text=body)
+    calls = []
+    real_get_cell = target.getCellByName
+
+    def tracking_get_cell(cell_name):
+        calls.append(cell_name)
+        return real_get_cell(cell_name)
+
+    target.getCellByName = tracking_get_cell
+    doc = SimpleNamespace(getTextTables=lambda: FakeTables({"T": target}), getText=lambda: body)
+    res = TableGetCells().execute(SimpleNamespace(doc=doc), name="T", cell="C3")
+    assert res["status"] == "ok"
+    assert res["cells"] == {"C3": "z"}
+    assert res["cell"] == "C3"
+    assert calls == ["C3"]
+
+
+def test_get_table_cells_optional_cell_on_host_cell():
+    child = FakeTable(1, 1, cells={"A1": "INNER"}, name="Child")
+    parent = FakeParentTable(
+        2,
+        2,
+        cells={"B2": "CAPTIONINNER"},
+        nested_by_cell={"B2": [FakeParagraph("CAPTION"), FakeTextTableElement("Child")]},
+        name="Parent",
+    )
+    res = TableGetCells().execute(_ctx({"Parent": parent, "Child": child}), name="Parent", cell="B2")
+    assert res["status"] == "ok"
+    assert res["cells"] == {"B2": "CAPTION"}
+    assert res["nested_in_cells"] == {"B2": ["Child"]}
+    assert res["cell"] == "B2"
+
+
+def test_get_table_cells_optional_cell_unreadable_is_error():
+    table = FakeTable(2, 2, name="T")
+
+    def fail_b1(name):
+        if name == "B1":
+            raise RuntimeError("disk error")
+        return SimpleNamespace(getString=lambda: "")
+
+    table.getCellByName = fail_b1
+    res = TableGetCells().execute(_ctx({"T": table}), name="T", cell="B1")
+    assert res["status"] == "error"
+    assert "Could not read cell 'B1'" in res["message"]
 
 
 def test_list_tables_reports_nesting_and_nested_in_cells():
@@ -1135,6 +1250,68 @@ def test_tracked_delete_reports_an_untracked_removal():
     doc = _TrackingDoc({"T": table}, redlines_per_delete=0, keep_table=False)
     res = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
     assert res["status"] == "error" and "no tracked change" in res["message"]
+
+
+def test_tracked_delete_restores_selection_when_dispatch_fails():
+    def fail_dispatch(name, ctx):
+        raise RuntimeError("no dispatch")
+
+    failing_uno_ctx = SimpleNamespace(
+        ServiceManager=SimpleNamespace(createInstanceWithContext=fail_dispatch)
+    )
+    table = _TrackingTable(2, 2, cells={"A1": "Item"}, name="T", anchor_text=FakeBodyText())
+    doc = _TrackingDoc({"T": table})
+    res = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=failing_uno_ctx), name="T")
+    assert res["status"] == "error"
+    assert "no dispatch" in res["message"]
+    assert doc.selected[-1] is doc.previous_selection
+
+
+def test_tracked_delete_fails_closed_when_anchor_cleanup_records_nothing():
+    table = _TrackingTable(2, 1, cells={"A1": "Item"}, name="T")
+    doc = _TrackingDoc({"T": table}, redlines_per_delete=0)
+    res = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
+    assert res["status"] == "error"
+    assert "left in place" in res["message"]
+
+
+def test_record_table_deletions_accepts_a_bare_context():
+    session = SimpleNamespace(record_mutation=lambda fn: fn())
+    ctx = SimpleNamespace()
+    body = FakeBodyText()
+    table = FakeTable(2, 2, name="T", anchor_text=body)
+    doc = FakeWriterDoc({"T": table}, body=body)
+    res = record_table_deletions(session, doc, ctx, [(table, "T")])
+    assert res is False
+    assert body.removed == [table]
+
+
+def test_record_table_deletions_precomputes_nesting():
+    body = FakeBodyText()
+    child = FakeTable(1, 1, name="Child")  # getAnchor raises
+    parent = FakeParentTable(
+        2, 2, nested_by_cell={"B2": [FakeTextTableElement("Child")]}, name="Parent"
+    )
+    orig_remove = body.removeTextContent
+
+    def body_remove(t):
+        orig_remove(t)
+        if t is parent:
+            parent._nested_by_cell.clear()
+
+    body.removeTextContent = body_remove
+
+    doc = FakeWriterDoc({"Parent": parent, "Child": child}, body=body)
+    session = SimpleNamespace(record_mutation=lambda fn: fn())
+    ctx = SimpleNamespace()
+    res = record_table_deletions(session, doc, ctx, [(parent, "Parent"), (child, "Child")])
+    assert res is False
+    assert (
+        parent.cell_removes
+        and parent.cell_removes[-1][0] == "B2"
+        and parent.cell_removes[-1][1] is child
+    )
+    assert child not in body.removed
 
 
 def test_cell_matrix_text_hides_tracked_deletions():

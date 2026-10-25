@@ -319,9 +319,9 @@ The gateway parameter `python_tool_domain` on `delegate_to_specialized_*` stays 
 For Writer text tables, `table_list` and `table_get_cells` report `nesting` (direct
 cell sibling only: direct parent table/cell; a table inside a frame inside a cell
 stays not nested, and top-level tables return null parent fields) and `nested_in_cells`
-(this table's host cells that contain nested tables). Single-table nesting resolution
-uses `table.getAnchor().getText()` to inspect the host cell and parent table directly
-without scanning every cell in the document. `table_list` also reports `cell_count`
+(this table's host cells that contain nested tables). Single-table nesting resolution first compares `table.getAnchor().getText()` with the
+document body, so a top-level table is answered without walking any cell; a nested table
+falls back to walking its host cells to name the direct parent. `table_list` also reports `cell_count`
 (`len(getCellNames())`); if that is not `rows * cols`, the table is not a rectangle — read
 `table_get_cells` `cells`. Writer `table_get_cells` returns `cells` and `cell_names` (no
 `matrix`); empty string is an empty cell and a missing name is not a cell. A failed Draw/Impress cell read is a tool error, not "". Optional `cell=`
