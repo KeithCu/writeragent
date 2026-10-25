@@ -76,6 +76,38 @@ def test_extract_library_source_keeps_lambda_body_calls():
     src = extract_library_source("helper = lambda x: transform(x)\n")
     assert "lambda" in src
     assert "transform" in src
+    src2 = extract_library_source("helper = lambda: transform()\n")
+    assert "lambda" in src2
+    assert "transform" in src2
+
+
+def test_extract_library_source_rejects_calls_in_lambda_defaults():
+    for code in (
+        "helper = lambda x=wa.read(): x\n",
+        "def f(x=lambda y=wa.read(): y):\n    pass\n",
+        "class C:\n    F = lambda x=wa.read(): x\n",
+        "class C(metaclass=lambda x=wa.read(): x):\n    pass\n",
+        "helper = lambda x=(n := wa.read()): x\n",
+    ):
+        with pytest.raises(ValueError, match="not library definitions"):
+            extract_library_source(code)
+
+    assert "transform" in extract_library_source("helper = lambda x: transform(x)\n")
+    assert "transform" in extract_library_source("helper = lambda: transform()\n")
+
+    from plugin.scripting.named_scripts import _eval_library
+    from plugin.scripting.venv.venv_sandbox import _new_executor
+
+    recorded = []
+
+    def record():
+        recorded.append(1)
+
+    exe = _new_executor(10)
+    exe.custom_tools["evil"] = record
+    with pytest.raises(ValueError, match="not library definitions"):
+        _eval_library(exe, "helper = lambda x=evil(): x\n", "Evil")
+    assert not recorded
 
 
 def test_extract_library_source_rejects_class_import_time_calls():
@@ -792,6 +824,20 @@ def test_extract_library_source_empty_expression_library_is_an_error():
     assert extract_library_source("pass\n") == ""
     assert extract_library_source("") == ""
     assert extract_library_source("# c\n") == ""
+
+
+def test_extract_library_source_wraps_parse_failures():
+    with patch("plugin.scripting.named_scripts.ast.parse", side_effect=RecursionError("deep")):
+        with pytest.raises(ValueError, match="deeply nested"):
+            extract_library_source("def f():\n    pass\n")
+
+    with patch("plugin.scripting.named_scripts.ast.parse", side_effect=ValueError("null bytes")):
+        with pytest.raises(ValueError, match="not valid Python"):
+            extract_library_source("def f():\n    pass\n")
+
+    with patch("plugin.scripting.named_scripts.ast.unparse", side_effect=RecursionError("deep")):
+        with pytest.raises(ValueError, match="deeply nested"):
+            extract_library_source("def f():\n    pass\n")
 
 
 def test_eval_library_binds_unpack_and_class_docstring():

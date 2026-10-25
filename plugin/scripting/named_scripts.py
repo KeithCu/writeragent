@@ -65,18 +65,23 @@ def script_body_hash(code: str) -> str:
 
 
 # Bodies of these nodes do not run while the library statement is loading.
-_NESTED_SCOPES = (ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+_NESTED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
 
 def _import_time_has(node: ast.AST, kinds: tuple[type[ast.AST], ...]) -> bool:
-    """True when *node* contains *kinds* outside nested function/class/lambda bodies.
+    """True when *node* contains *kinds* outside nested function/class bodies and lambda bodies.
 
+    Lambda defaults run while the library loads and are scanned; lambda bodies stay deferred.
     ``ast.walk`` used to enter ``lambda x: transform(x)`` and reject a binding
     that does not call ``transform`` until the lambda runs.
     """
     pending: list[ast.AST] = [node]
     while pending:
         current = pending.pop()
+        if isinstance(current, ast.Lambda):
+            pending.extend(current.args.defaults)
+            pending.extend(d for d in current.args.kw_defaults if d is not None)
+            continue
         if isinstance(current, _NESTED_SCOPES):
             continue
         if isinstance(current, kinds):
@@ -161,9 +166,7 @@ def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
         _record_load_time_expr(lines, kw.value)
     for stmt in node.body:
         if isinstance(stmt, ast.FunctionDef):
-            for ln in _function_import_time_call_lines(stmt):
-                if ln not in lines:
-                    lines.append(ln)
+            lines.extend(_function_import_time_call_lines(stmt))
         elif isinstance(stmt, ast.AnnAssign):
             if isinstance(stmt.target, (ast.Name, ast.Attribute, ast.Subscript)):
                 _record_load_time_expr(lines, stmt.value)
@@ -206,14 +209,17 @@ def extract_library_source(code: str) -> str:
     class-body unpack or subscript assignment, a class-body string that is not
     the first statement, and any call or := that runs while the library loads
     (defaults, annotations, bases, class-body values, class-body assignment
-    targets). Calls and := inside defs and lambdas stay. Omit other module-level
-    expressions when a definition remains; raise when those expressions are the
-    whole library. pass and an empty body return an empty string.
+    targets). Calls and := inside def bodies and lambda bodies stay; lambda
+    defaults run while the library loads. Omit other module-level expressions
+    when a definition remains; raise when those expressions are the whole
+    library. pass and an empty body return an empty string.
     """
     try:
         tree = ast.parse(code or "")
-    except SyntaxError as exc:
+    except (SyntaxError, ValueError) as exc:
         raise ValueError(f"Named script is not valid Python: {exc}") from exc
+    except RecursionError as exc:
+        raise ValueError("Named script is too deeply nested to load as a library") from exc
 
     keep: list[ast.stmt] = []
     dropped: list[int] = []
@@ -234,21 +240,15 @@ def extract_library_source(code: str) -> str:
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             call_lines = _class_import_time_call_lines(node)
-            if call_lines:
-                for ln in call_lines:
-                    if ln not in dropped:
-                        dropped.append(ln)
-            else:
+            dropped.extend(call_lines)
+            if not call_lines:
                 keep.append(node)
         elif isinstance(node, ast.AsyncFunctionDef):
             _record_line(dropped, node)
         elif isinstance(node, ast.FunctionDef):
             call_lines = _function_import_time_call_lines(node)
-            if call_lines:
-                for ln in call_lines:
-                    if ln not in dropped:
-                        dropped.append(ln)
-            else:
+            dropped.extend(call_lines)
+            if not call_lines:
                 keep.append(node)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             keep.append(node)
@@ -284,7 +284,10 @@ def extract_library_source(code: str) -> str:
         if omitted:
             _raise_not_library(omitted)
         return ""
-    return ast.unparse(ast.Module(body=keep, type_ignores=[]))
+    try:
+        return ast.unparse(ast.Module(body=keep, type_ignores=[]))
+    except RecursionError as exc:
+        raise ValueError("Named script is too deeply nested to load as a library") from exc
 
 
 def _rpc_named(tool_name: str, **kwargs: Any) -> Any:
