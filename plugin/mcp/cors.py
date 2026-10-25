@@ -330,6 +330,16 @@ def _drain_request_body(handler: Any) -> None:
         pass
 
 
+def _write_forbidden(handler: Any) -> None:
+    """Write the empty 403 shared by the Host and Origin rejections."""
+    handler._response_started = True
+    handler.send_response(403)
+    handler.send_header("Content-Length", "0")
+    handler.send_header("Connection", "close")
+    handler.end_headers()
+    setattr(handler, "close_connection", True)
+
+
 def reject_forbidden_origin(handler: Any) -> bool:
     """If Origin is present and unsafe, write 403 and return True.
 
@@ -347,14 +357,8 @@ def reject_forbidden_origin(handler: Any) -> bool:
     log_forbidden_origin(handler)
     _drain_request_body(handler)
     # No Access-Control-* — a reflected ACAO would let the browser read the 403.
-    handler._response_started = True
-    handler.send_response(403)
-    handler.send_header("Content-Length", "0")
-    handler.send_header("Connection", "close")
-    handler.end_headers()
-    setattr(handler, "close_connection", True)
+    _write_forbidden(handler)
     return True
-
 
 
 def get_configured_tunnel_host() -> str | None:
@@ -427,12 +431,7 @@ def reject_forbidden_host(handler: Any) -> bool:
         return False
     log.warning("Rejecting request with forbidden Host header: %r", host_header)
     _drain_request_body(handler)
-    handler._response_started = True
-    handler.send_response(403)
-    handler.send_header("Content-Length", "0")
-    handler.send_header("Connection", "close")
-    handler.end_headers()
-    setattr(handler, "close_connection", True)
+    _write_forbidden(handler)
     return True
 
 

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import threading
 import time
@@ -140,10 +141,20 @@ def test_document_mutation_gate_timeout_raises_busy_error_and_logs(caplog: pytes
                     pass
 
         assert exc_info.value.code == "SERVER_BUSY"
-        assert key in str(exc_info.value)
+        assert key not in str(exc_info.value)
         assert any(
             "MCP _document_mutation_gate timed out" in record.message and key in record.message
             for record in caplog.records
         )
     finally:
         gate.release()
+
+
+def test_doc_gates_are_weakly_held() -> None:
+    key = f"test_doc_{uuid.uuid4().hex}"
+    gate = _get_document_mutation_gate(key)
+    assert _doc_gates.get(key) is gate
+    del gate
+    gc.collect()
+    assert key not in _doc_gates
+

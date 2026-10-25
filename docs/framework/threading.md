@@ -68,7 +68,7 @@ A mutating backpressure call holds `_tool_semaphore` for prepare, releases it be
 
 **Not covered by MCP gates (different models):**
 *   **Sidebar chat** ([`tool_loop.py`](../../plugin/chatbot/tool_loop.py)) — one tool per LLM round; async tools run on worker threads but the loop waits for `TOOL_RESULT` before spawning the next.
-*   **Gate dict lifetime** — `_doc_gates` entries are not pruned on document close (fine for typical sessions).
+*   **Gate dict lifetime** — `_doc_gates` holds weak references: a gate is dropped once no caller holds it, so the dict does not grow with opened documents.
 *   **Save-as key migration** — after Save As, old and new URLs may map to different gate keys briefly.
 
 **Related docs:** [MCP protocol — Concurrency](../mcp-protocol.md#concurrency-and-parallel-toolscall) (integrator-facing); [ROADMAP](../ROADMAP.md) §14 (specialized tool MCP exposure).

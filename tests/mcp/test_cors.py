@@ -115,6 +115,8 @@ def test_reject_forbidden_host():
     assert reject_forbidden_host(forbidden)
     assert forbidden.sent_responses == [403]
     assert forbidden._response_started is True
+    assert ("Content-Length", "0") in forbidden.sent_headers
+    assert ("Connection", "close") in forbidden.sent_headers
 
     missing = DummyHandler({})
     assert reject_forbidden_host(missing)
