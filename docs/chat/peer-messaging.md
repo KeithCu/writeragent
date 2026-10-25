@@ -215,7 +215,7 @@ Reviewed against the current send/drain code. Not v1; do not delete — we may r
 Compute Q4 revenue by region and reply with an HTML table.
 ```
 
-Layout: `[Peer work from: Name | uid=… | url=…]` for `send_peer_work` (gateway appends a fixed delivery footer: after local work, Do `domain="document_research"` to deliver via `send_peer_result` with the asker's uid/url from the header); `[Peer result from: Name | uid=… | url=…]` for `send_peer_result` (body only — no footer). No correlation id. Body is `message` after a blank line. The wrapper is not model-written.
+Layout: `[Peer work from: Name | uid=… | url=…]` for `send_peer_work` (gateway appends a fixed delivery footer: after local work, Do `domain="document_research"` to deliver via `send_peer_result` with the asker's uid/url from the header); `[Peer result from: Name | uid=… | url=…]` for `send_peer_result` (body only — no footer). No correlation id. Body is `message` after a blank line. The wrapper is not model-written. Name / uid / url are flattened before they enter the header or the catalog: control characters (including newlines and tabs), `|`, `[` and `]` become spaces, and each field is capped at 200 characters, so a document title cannot forge a second envelope header.
 
 **Outbound `execute` (immediate, RED, `is_async=False`):**
 
