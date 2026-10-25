@@ -79,6 +79,15 @@ def test_filter_document_research_discovery_tools_respects_config():
     assert "grep_nearby_files" not in names
 
 
+def test_document_research_domain_still_has_its_tools_after_legacy_search_delete():
+    r = ToolRegistry(services={})
+    for tool in (ListNearbyFiles(), GrepNearbyFiles(), SearchNearbyFiles(), DelegateReadDocument()):
+        r.register(tool)
+    names = {t.name for t in r.get_tools(doc=MagicMock(), active_domain="document_research", exclude_tiers=())}
+    assert {"list_nearby_files", "grep_nearby_files", "search_nearby_files", "delegate_read_document"} <= names
+    assert "search_embeddings" not in names
+
+
 def test_document_research_workflow_hint_off():
     from plugin.framework.prompts import get_document_research_workflow_hint
 

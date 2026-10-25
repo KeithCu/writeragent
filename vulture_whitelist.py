@@ -274,7 +274,6 @@ _.RunVenvPythonScript  # class: plugin/calc/python/venv.py:131
 _.SaveAsSingleFile  # attribute: plugin/writer/specialized/mail_merge.py:547
 _.SaveDesignSpec  # class: plugin/chatbot/brainstorming.py:84
 _.SaveFilter  # attribute: plugin/writer/specialized/mail_merge.py:553
-_.SearchEmbeddings  # class: plugin/embeddings/document_research_search_tool.py:23
 _.SearchInDocument  # class: plugin/writer/search.py:956
 _.SearchInSpreadsheet  # class: plugin/calc/search.py:31
 _.SearchNearbyFiles  # class: plugin/embeddings/document_research_fts_tool.py:21
