@@ -278,11 +278,17 @@ payload = {
 Host obtains bytes via new `get_selected_image_bytes(ctx, doc)`:
 
 ```python
-import base64
-b64 = get_selected_image_base64(doc, ctx)
-if not b64:
-    raise ToolExecutionError(..., code="NO_IMAGE_SELECTED")
-png_bytes = base64.b64decode(b64)
+try:
+    graphic_obj = selected_graphic_object(doc)
+    png_bytes = export_graphic_object_to_bytes(ctx, graphic_obj) if graphic_obj is not None else None
+except Exception as exc:
+    raise ToolExecutionError(
+        _("Could not export the selected image: {error}").format(error=exc),
+        code="IMAGE_EXPORT_FAILED",
+    ) from exc
+if not png_bytes:
+    raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
+return png_bytes
 ```
 
 ### 4.5 PaddleOCR in `vision.py`
@@ -378,7 +384,7 @@ Extended [`test_vision.py`](../../tests/vision/venv/test_vision.py), [`test_visi
 
 | Capability | Entry point |
 |------------|-------------|
-| Export selection to PNG | [`get_selected_image_base64`](../../plugin/writer/images/image_tools.py) / [`resolve_vision_image_bytes`](../../plugin/vision/vision_runner.py) |
+| Export selection to PNG | [`get_selected_image_bytes`](../../plugin/vision/vision_runner.py) / [`resolve_vision_image_bytes`](../../plugin/vision/vision_runner.py) |
 | Export by graphic name | [`resolve_vision_image_bytes`](plugin/vision/vision_runner.py) + [`_get_graphic_object`](plugin/writer/images/images.py) |
 | List in-document graphics | [`image_list`](../../plugin/writer/images/images.py) |
 | Metadata | [`image_get_info`](../../plugin/writer/images/images.py) |
