@@ -145,7 +145,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
             data = kwargs.get("data")
             py_data, err = resolve_python_data_on_main_thread(ctx.doc, data_range=data_range, data=data)
             if err:
-                return {"status": "error", "message": err}
+                return self._tool_error(err, code="DATA_RESOLUTION_ERROR")
         else:
             if kwargs.get("data_range") is not None or kwargs.get("data") is not None:
                 log.debug("run_venv_python_script: ignoring data/data_range on doc_type=%s", ctx.doc_type)
@@ -222,7 +222,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     # silent return was treated as success.
                     inserted = 0
                     failure: Exception | None = None
-                    for i, (img, path) in enumerate(zip(images, img_paths)):
+                    for i, (img, path) in enumerate(zip(images, img_paths, strict=True)):
                         try:
                             execute_on_main_thread(
                                 insert_image_result_on_sheet,
@@ -238,6 +238,21 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                             failure = exc
                             break
                         inserted += 1
+                    # Only embedded plots lose their temp file; a path is handed back
+                    # when its plot was not inserted. Partial failure used to keep
+                    # every file, including the embedded bitmaps.
+                    for p in img_paths[:inserted]:
+                        try:
+                            os.unlink(p)
+                        except OSError:
+                            log.debug("run_venv_python_script: temp image cleanup failed for %s", p, exc_info=True)
+                    remaining = img_paths[inserted:]
+                    if remaining:
+                        out["image_paths"] = remaining
+                        out["image_path"] = remaining[0] if len(remaining) == 1 else remaining
+                    else:
+                        out.pop("image_path", None)
+                        out.pop("image_paths", None)
                     if failure is not None and inserted == 0:
                         out["status"] = "error"
                         out["image_inserted"] = False
@@ -250,15 +265,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     else:
                         out["message"] = f"{len(images)} plot(s) inserted on active sheet"
                         out["image_inserted"] = True
-                        # After a successful Calc embed, the bitmap is embedded on the shape.
-                        # Remove the temp file(s) and omit image_path/image_paths.
-                        for p in img_paths:
-                            try:
-                                os.unlink(p)
-                            except OSError:
-                                pass
-                        out.pop("image_path", None)
-                        out.pop("image_paths", None)
                 return out
 
         return res

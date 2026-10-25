@@ -1038,3 +1038,39 @@ def test_temp_images_unlinked_when_a_later_write_fails():
     mock_unlink.assert_called_once_with("/tmp/plot0.svg")
     mock_insert.assert_not_called()
 
+
+def test_partial_insert_failure_unlinks_only_embedded_temps():
+    tool = RunVenvPythonScript()
+    ctx = MagicMock()
+    ctx.doc_type = "calc"
+    ctx.ctx = MagicMock()
+    target = MagicMock(name="target_doc")
+    ctx.doc = target
+
+    img1 = dict(_IMAGE_PAYLOAD)
+    img2 = dict(_IMAGE_PAYLOAD)
+
+    with (
+        patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": [img1, img2]}),
+        patch("plugin.calc.python.venv.write_image_payload_to_temp", side_effect=["/tmp/plot0.svg", "/tmp/plot1.svg"]),
+        patch(
+            "plugin.framework.queue_executor.execute_on_main_thread",
+            side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+        ),
+        patch(
+            "plugin.calc.python.image_egress.insert_image_result_on_sheet",
+            side_effect=[None, ImageEgressError("second insert failed")],
+        ),
+        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("os.unlink") as mock_unlink,
+    ):
+        out = tool.execute(ctx, code="plt.plot([1]); plt.plot([2])")
+
+    assert out["status"] == "ok"
+    assert out.get("image_inserted") is True
+    assert "1 of 2" in out["message"]
+    mock_unlink.assert_called_once_with("/tmp/plot0.svg")
+    assert out["image_paths"] == ["/tmp/plot1.svg"]
+    assert out["image_path"] == "/tmp/plot1.svg"
+
+

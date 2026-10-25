@@ -168,3 +168,14 @@ def test_strip_image_payloads():
     # { "a": None, "b": image } keeps both keys
     res_dict = strip_image_payloads({"a": None, "b": image})
     assert res_dict == {"a": None, "b": "<image>"}
+
+
+def test_execute_data_resolution_error_has_tool_error_code():
+    tool = RunVenvPythonScript()
+    ctx = TestingFactory.create_context(doc_type="calc")
+    with patch("plugin.calc.python.venv.resolve_python_data_on_main_thread", return_value=(None, "no such sheet")):
+        out = tool.execute(ctx, code="result = 1", data_range="Nope.A1")
+    assert out["status"] == "error"
+    assert out["code"] == "DATA_RESOLUTION_ERROR"
+    assert out["message"] == "no such sheet"
+
