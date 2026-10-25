@@ -73,9 +73,7 @@ class PlotDataTool(ToolBaseDummy):
         from plugin.scripting.payload_codec import extract_image_payload, write_image_payload_to_temp
 
         try:
-            # Pass ToolContext (not ctx.ctx) so run_trusted_worker_action reads
-            # stop_checker / send_cancellation; the UNO context has neither.
-            result = run_trusted_viz(ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=kwargs.get("data"), headers=headers, task_hint=task_hint)
+            result = run_trusted_viz(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=kwargs.get("data"), headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "VIZ_ERROR"))
         except Exception as exc:

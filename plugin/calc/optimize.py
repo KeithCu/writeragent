@@ -60,9 +60,7 @@ class OptimizeDataTool(ToolBaseDummy):
         # and blocks in the optimize client, so execute_on_main_thread would
         # put that IPC on the UI thread and freeze Calc. The helper marshals
         # only the UNO read; the sheet write below stays on the main thread.
-        # Pass ToolContext (not ctx.ctx) so run_trusted_worker_action reads
-        # stop_checker / send_cancellation; the UNO context has neither.
-        result = run_trusted_optimize(ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
+        result = run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
 
         if output_range and result.get("status") == "ok":
             result = write_anchor_result(ctx, result, output_range, insert_optimize_result_into_calc)
