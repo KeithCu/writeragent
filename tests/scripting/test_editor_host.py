@@ -2052,3 +2052,15 @@ def test_picker_known_session_still_dispatches():
         pe.send.assert_called_once_with({"type": "scripts_list"}, session=live_state)
 
 
+def test_error_frame():
+    from plugin.scripting.editor_host import error_frame
+
+    frame = error_frame("test error")
+    assert frame == {"type": "error", "message": "test error"}
+
+    exc = ValueError("boom")
+    frame_with_exc = error_frame("test error with exc", exc)
+    assert frame_with_exc["type"] == "error"
+    assert frame_with_exc["message"] == "test error with exc"
+    assert "ValueError: boom" in frame_with_exc["traceback"]
+

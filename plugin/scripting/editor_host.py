@@ -224,6 +224,14 @@ _EditorDeliver = Callable[[dict[str, Any]], None]
 _EditorStart = Callable[[_EditorDeliver], None]
 
 
+def error_frame(message: str, exc: BaseException | None = None) -> dict[str, Any]:
+    """Build an editor ``error`` frame, with a traceback when *exc* is given."""
+    frame: dict[str, Any] = {"type": "error", "message": message}
+    if exc is not None:
+        frame["traceback"] = exception_traceback(exc)
+    return frame
+
+
 class DeferredEditorResult:
     """A save whose Monaco frame is delivered later, on the main thread.
 
@@ -628,6 +636,15 @@ class PersistentEditor:
 
         return float(configured_python_exec_timeout()) + 5.0
 
+    def _run_on_main(self, fn: Callable[[], None], label: str) -> Exception | None:
+        """Queue *fn* on the UI thread. Return the marshal failure, else None."""
+        try:
+            self.executor.execute(fn, timeout=self._marshal_timeout(), bound_scope=None)
+        except Exception as exc:
+            log.exception("%s timed out" if isinstance(exc, TimeoutError) else "%s marshal failed", label)
+            return exc
+        return None
+
     def set_run_script_document(self, doc: Any | None) -> None:
         from plugin.scripting.document_scripts import document_scripts_identity
 
@@ -656,25 +673,20 @@ class PersistentEditor:
             except Exception as e:
                 log.exception("Editor script picker failed")
                 try:
-                    _picker_send({"type": "error", "message": str(e), "traceback": exception_traceback(e)})
+                    _picker_send(error_frame(str(e), e))
                 except Exception:
                     log.exception("Editor script picker could not send the error frame")
 
-        try:
-            self.executor.execute(_handle_picker, timeout=self._marshal_timeout(), bound_scope=None)
-        except Exception as exc:
+        exc = self._run_on_main(_handle_picker, "Editor script picker")
+        if exc is not None:
             timed_out = isinstance(exc, TimeoutError)
-            if timed_out:
-                log.exception("Editor script picker timed out")
-            else:
-                log.exception("Editor script picker marshal failed")
             message = (
                 _("The script list update timed out.")
                 if timed_out
                 else _("The script list update failed.")
             )
             try:
-                _picker_send({"type": "error", "message": message})
+                _picker_send(error_frame(message))
             except Exception:
                 log.warning(
                     "Editor script picker could not send timeout error frame"
@@ -736,7 +748,7 @@ class PersistentEditor:
                 if isinstance(result, DeferredEditorResult):
                     def deliver(payload: dict[str, Any]) -> None:
                         if not isinstance(payload, dict):
-                            payload = {"type": "error", "message": _("Script execution failed.")}
+                            payload = error_frame(_("Script execution failed."))
                         try:
                             _send_save(payload)
                         except Exception:
@@ -746,9 +758,7 @@ class PersistentEditor:
                         result.start(deliver)
                     except Exception as e:
                         log.exception("Editor run failed to start")
-                        _send_save(
-                            {"type": "error", "message": str(e), "traceback": exception_traceback(e)},
-                        )
+                        _send_save(error_frame(str(e), e))
                     # This path is Monaco Run (action="run"). pending_load is applied
                     # only by the synchronous success path below, which is what request_save
                     # hits (#btn-save → action="save"). Applying the queued load from
@@ -772,20 +782,13 @@ class PersistentEditor:
             except Exception as e:
                 log.exception("Editor save handler failed")
                 try:
-                    _send_save(
-                        {"type": "error", "message": str(e), "traceback": exception_traceback(e)},
-                    )
+                    _send_save(error_frame(str(e), e))
                 except Exception:
                     log.exception("Editor save handler could not send the error frame")
 
-        try:
-            self.executor.execute(_handle_save, timeout=self._marshal_timeout(), bound_scope=None)
-        except Exception as exc:
+        exc = self._run_on_main(_handle_save, "Editor save handler")
+        if exc is not None:
             timed_out = isinstance(exc, TimeoutError)
-            if timed_out:
-                log.exception("Editor save handler timed out")
-            else:
-                log.exception("Editor save handler marshal failed")
             with self._save_lock:
                 self._save_token = None
                 captured.save_token = None
@@ -799,7 +802,7 @@ class PersistentEditor:
             )
             try:
                 self.send(
-                    {"type": "error", "message": message},
+                    error_frame(message),
                     session=captured,
                 )
             except Exception:
@@ -830,16 +833,7 @@ class PersistentEditor:
                 if not self.sessions:
                     set_active_session(None)
 
-        self._execute_close_handler(_handle_close, "Editor close handler")
-
-    def _execute_close_handler(self, handler: Callable[[], None], error_prefix: str) -> None:
-        try:
-            self.executor.execute(handler, timeout=self._marshal_timeout(), bound_scope=None)
-        except Exception as exc:
-            if isinstance(exc, TimeoutError):
-                log.exception("%s timed out", error_prefix)
-            else:
-                log.exception("%s marshal failed", error_prefix)
+        self._run_on_main(_handle_close, "Editor close handler")
 
     def _dispatch_incoming(self, msg: dict[str, Any]) -> None:
         try:
@@ -881,7 +875,7 @@ class PersistentEditor:
                 if not self.sessions:
                     set_active_session(None)
 
-        self._execute_close_handler(_handle_close, "Editor disconnect handler")
+        self._run_on_main(_handle_close, "Editor disconnect handler")
 
 
 _PERSISTENT_EDITOR = PersistentEditor()
