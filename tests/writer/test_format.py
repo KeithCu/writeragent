@@ -1574,3 +1574,108 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
     with pytest.raises(DocumentDisposedError):
         fmt.apply_paragraph_style_preserving_direct_char(doc, cursor_disp, "Heading 1")
 
+
+def test_apply_paragraph_style_restore_failure_is_not_capture_incomplete():
+    from unittest.mock import MagicMock
+    from plugin.writer import format as fmt
+
+    doc = MagicMock()
+    para_styles = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+    style.getPropertyValue.return_value = 100
+
+    prop = MagicMock()
+    prop.Name = "CharWeight"
+    prop.Attributes = 0
+    info = MagicMock()
+    info.getProperties.return_value = [prop]
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
+    portion.getPropertySetInfo.return_value = info
+
+    restore_cursor = MagicMock()
+    restore_cursor.setPropertyValue.side_effect = RuntimeError("read-only")
+    portion.getText.return_value.createTextCursorByRange.return_value = restore_cursor
+
+    para = MagicMock()
+    para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para_enum = MagicMock()
+    para_enum.hasMoreElements.side_effect = [True, False]
+    para_enum.nextElement.side_effect = [portion]
+    para.createEnumeration.return_value = para_enum
+
+    cursor = MagicMock()
+    doc_enum = MagicMock()
+    doc_enum.hasMoreElements.side_effect = [True, False]
+    doc_enum.nextElement.side_effect = [para]
+    cursor.getText.return_value.createTextCursorByRange.return_value = cursor
+    cursor.createEnumeration.return_value = doc_enum
+
+    rep = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor, "Heading 1", clear_direct="none")
+    assert rep.get("capture_incomplete") is not True
+    assert "could not be re-applied" in rep["warning"]
+    assert "could not be read" not in rep["warning"]
+    assert rep["preserved_char_overrides"]["CharWeight"] == 150
+
+
+def test_apply_paragraph_style_negative_caches_failed_property_set_info():
+    from unittest.mock import MagicMock
+    from plugin.writer import format as fmt
+
+    doc = MagicMock()
+    para_styles = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else 150
+    portion.getPropertySetInfo.return_value = None
+
+    # Call 1: own paragraph and cursor mocks
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para1.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para1_enum = MagicMock()
+    para1_enum.hasMoreElements.side_effect = [True, False]
+    para1_enum.nextElement.side_effect = [portion]
+    para1.createEnumeration.return_value = para1_enum
+
+    cursor1 = MagicMock()
+    doc_enum1 = MagicMock()
+    doc_enum1.hasMoreElements.side_effect = [True, False]
+    doc_enum1.nextElement.side_effect = [para1]
+    cursor1.getText.return_value.createTextCursorByRange.return_value = cursor1
+    cursor1.createEnumeration.return_value = doc_enum1
+
+    style_cache = {}
+    rep1 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor1, "Heading 1", style_cache=style_cache)
+
+    # Call 2: own paragraph and cursor mocks, reuse portion
+    para2 = MagicMock()
+    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para2.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para2_enum = MagicMock()
+    para2_enum.hasMoreElements.side_effect = [True, False]
+    para2_enum.nextElement.side_effect = [portion]
+    para2.createEnumeration.return_value = para2_enum
+
+    cursor2 = MagicMock()
+    doc_enum2 = MagicMock()
+    doc_enum2.hasMoreElements.side_effect = [True, False]
+    doc_enum2.nextElement.side_effect = [para2]
+    cursor2.getText.return_value.createTextCursorByRange.return_value = cursor2
+    cursor2.createEnumeration.return_value = doc_enum2
+
+    rep2 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor2, "Heading 1", style_cache=style_cache)
+
+    assert portion.getPropertySetInfo.call_count == 1
+    assert rep1.get("capture_incomplete") is True
+    assert rep2.get("capture_incomplete") is True
+    assert "preserved_char_overrides" not in rep1
+    assert "preserved_char_overrides" not in rep2
+
