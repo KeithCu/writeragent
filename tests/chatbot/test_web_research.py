@@ -1155,6 +1155,44 @@ def test_web_research_caching_write(tmp_path):
         assert "execute" in cache_chat
 
 
+@pytest.mark.parametrize("agent_result", [None, "   "])
+def test_web_research_empty_agent_result_is_an_error(tmp_path, agent_result):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    setattr(ctx.ctx, "getServiceManager", MagicMock())
+
+    def _cfg_int(key):
+        if key == "web_cache_validity_days":
+            return 30
+        if key == "web_research_cache_jaccard_percent":
+            return 40
+        if key == "web_research_cache_min_overlap":
+            return 8
+        return 50
+
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
+         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research._write_research_cache") as mock_write_cache, \
+         patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
+
+        mock_exec.return_value.execute_safe.return_value = agent_result
+
+        tool = WebResearchTool()
+        res = tool.execute(ctx, query="Execute a new search query")
+        assert res["status"] == "error"
+        assert res["code"] == "WEB_RESEARCH_EMPTY_RESULT"
+        mock_write_cache.assert_not_called()
+
+
 def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     """A shallow row must not satisfy deep=True, and a deep row must not satisfy ordinary research."""
     from plugin.chatbot.web_research import WebResearchTool, _get_unique_words_key

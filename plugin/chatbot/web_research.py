@@ -139,7 +139,6 @@ def _research_cache_result_fields(
     event: str,
     cache_key: str,
     cache_path: str | None,
-    max_age_days: int,
     *,
     stem_lang: str | None = None,
     matched_key: str | None = None,
@@ -181,7 +180,7 @@ def _write_research_cache(
     if embedding_text:
         enqueue_research_cache_embedding_for_row(getattr(ctx, "ctx", ctx), cache_path, storage_key, embedding_text)
     enqueue_research_cache_embedding_backfill(getattr(ctx, "ctx", ctx), cache_path, max_age_days)
-    return _research_cache_result_fields("saved", unique_key, cache_path, max_age_days, stem_lang=stem_lang)
+    return _research_cache_result_fields("saved", unique_key, cache_path, stem_lang=stem_lang)
 
 
 from plugin.contrib.smolagents.tools import Tool
@@ -228,25 +227,22 @@ class _VisitWebpageDedupTool(Tool):
 
     def forward(self, url: str) -> str:
         key = _normalize_visit_url(url)
-        lock = self._visited_urls_lock if key and self._visited_urls is not None else None
-        if key and self._visited_urls is not None:
-            if lock:
-                with lock:
-                    if key in self._visited_urls:
-                        return f"(Already visited in this research run: {key})"
-            elif key in self._visited_urls:
+        visited = self._visited_urls
+        if not key or visited is None:
+            return self._inner.forward(url)
+        lock = self._visited_urls_lock
+        assert lock is not None, "visited set supplied without its lock"
+        with lock:
+            if key in visited:
                 return f"(Already visited in this research run: {key})"
         text = self._inner.forward(url)
         # Record the URL only after non-empty, non-error text, under the
         # same lock as the check. Inserting it before the fetch returns
         # keeps a CDP/HTTP error or a blank page in the set, and later
         # sub-queries get "Already visited" instead of a retry.
-        if key and self._visited_urls is not None and _visit_result_has_page_text(text):
-            if lock:
-                with lock:
-                    self._visited_urls.add(key)
-            else:
-                self._visited_urls.add(key)
+        if _visit_result_has_page_text(text):
+            with lock:
+                visited.add(key)
         return text
 
 
@@ -777,7 +773,6 @@ class WebResearchTool(ToolBase):
                         event,
                         display_key,
                         cache_path,
-                        cache_max_age_days,
                         stem_lang=stem_lang,
                         matched_key=matched_raw_key if event in ("hit_fuzzy", "hit_embedding") else None,
                         score=score if event in ("hit_fuzzy", "hit_embedding") else None,
@@ -891,7 +886,14 @@ class WebResearchTool(ToolBase):
                     return {**final_ans, **cache_fields}
                 return final_ans
 
-            result_str = str(final_ans)
+            # Sub-agent execution can return None or empty string when it finishes
+            # without a final answer. Previously str(final_ans) became literal "None",
+            # returning status: ok and caching a blank result.
+            result_str = str(final_ans or "")
+            if not result_str.strip():
+                return format_error_payload(
+                    ToolExecutionError("Web research finished without a result.", code="WEB_RESEARCH_EMPTY_RESULT")
+                )
             if cache_enabled and cache_path and unique_key and result_str.strip():
                 try:
                     cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text, mode=cache_mode)

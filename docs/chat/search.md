@@ -110,7 +110,7 @@ Completed `web_research` / delegate `web_research` reports can be cached in the 
 
 - New cache writes enqueue embedding generation in a background worker after the report is saved, using normalized query terms in their original order.
 - Old `kind="research"` rows are backfilled in the same background path. Their original prompt order is not recoverable, so backfill uses the stored normalized word key.
-- Lookup only attempts embedding search when stored vectors already exist, and uses a short timeout for the query vector. Missing dependencies, unsupported providers, model downloads, or worker errors silently fall back to the old stem/Jaccard path.
+- Lookup only attempts embedding search when stored vectors already exist, and uses the embeddings worker timeout for the query vector. Missing dependencies, unsupported providers, model downloads, or worker errors silently fall back to the old stem/Jaccard path.
 - Embedding hits use **Research Cache Embedding Match (%)** (default 75) as their cosine threshold.
 - Cosine search runs in LibreOffice Python over JSON vectors stored in SQLite; only embedding generation runs in the user venv.
 

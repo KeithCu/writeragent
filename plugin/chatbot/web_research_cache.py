@@ -3,7 +3,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # Fuzzy web-research cache matching: locale-aware Snowball stems + Jaccard similarity.
-"""Pure helpers for fuzzy web research cache keys (stem + Jaccard lookup)."""
+"""Web research cache: query fluff plus Snowball/Jaccard matching, and the SQLite/embedding lookups over the shared web_cache table."""
 
 
 # crosshair: off
@@ -155,7 +155,7 @@ def clear_research_fluff_words_cache() -> None:
 
 
 def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
-    """Instruction fluff from _('…') (active LO locale) plus grammar stop words."""
+    """Instruction fluff from _('…') (gettext catalog locale) plus grammar stop words, normalized like query tokens."""
     from plugin.framework.i18n import get_active_locale
 
     cache_key = (get_active_locale(), snowball_lang)
@@ -170,7 +170,11 @@ def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
     fluff: set[str] = set()
     for phrase in translated_research_cache_fluff():
         fluff.update(_raw_tokens(phrase))
-    fluff.update(stop_words_for_snowball(snowball_lang))
+    # Stop words are stored with their accents ("até", "chère"); query tokens
+    # come from _raw_tokens, which lowercases and deaccents, so union the
+    # normalized form or accented stop words never filter.
+    for stop_word in stop_words_for_snowball(snowball_lang):
+        fluff.update(_raw_tokens(stop_word))
     result = frozenset(fluff)
     _FLUFF_WORDS_CACHE[cache_key] = result
     return result
@@ -184,7 +188,7 @@ def ordered_unique_query_words(query: str, *, snowball_lang: str) -> list[str]: 
     seen: set[str] = set()
     ordered: list[str] = []
     for token in tokenize_query_words(query):
-        if token in fluff or len(token) < 3 or token in seen:
+        if token in fluff or len(token) < _MIN_TOKEN_LEN or token in seen:
             continue
         seen.add(token)
         ordered.append(token)
