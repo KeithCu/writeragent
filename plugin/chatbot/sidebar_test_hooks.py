@@ -330,9 +330,16 @@ def _write_stub_injected_wav(recorder: Any, inject: str | None) -> None:
 
 
 def try_stub_initialize(recorder: Any) -> bool:
+    # Bugfix: the control file lives at a predictable path under /tmp.
+    # Another local user can create it before this one does.
+    # {"skip": true, "wav": "..."} turned the microphone off and
+    # copied that file into the take that is sent to the model. Only
+    # a test soffice sets WRITERAGENT_TESTING.
     ctrl = read_stub_recorder_control()
     if not ctrl.get("skip"):
         return False
+    # Always apply JSON (including null/false) so G12 fail_start / G14
+    # missing_wav cannot stick on the live recorder for later cases.
     flags = _STUB_RECORDER_FLAGS.setdefault(recorder, {})
     flags["skip"] = True
     fail = ctrl.get("fail_start")
@@ -349,6 +356,7 @@ def try_stub_initialize(recorder: Any) -> bool:
         recorder._apply_event(ErrorOccurredEvent(flags["fail_start"]))
         return True
     if flags["hang_ready"]:
+        # G21: child never emits ready. Do not wait the real 30s spawn timeout.
         from plugin.chatbot.audio_recorder_state import ErrorOccurredEvent
 
         timeout = ctrl.get("ready_timeout_sec")
@@ -359,11 +367,13 @@ def try_stub_initialize(recorder: Any) -> bool:
         if timeout_s > 0:
             time.sleep(timeout_s)
         shown = timeout_s if timeout_s > 0 else 30
+        # Same wording as wait_for_recording_ready TimeoutExpired.
         recorder._apply_event(
             ErrorOccurredEvent(f"Recording subprocess timed out after {shown:g} seconds.")
         )
         return True
 
+    # Packet G: pretend the capture child said {"status":"ready"} without a mic.
     recorder._take_new_temp_wav()
     recorder._proc = None
     from plugin.chatbot.audio_recorder_state import DeviceReadyEvent
@@ -371,7 +381,15 @@ def try_stub_initialize(recorder: Any) -> bool:
     recorder._apply_event(DeviceReadyEvent())
     if ctrl.get("auto_stop"):
         _write_stub_injected_wav(recorder, flags.get("inject_wav"))
+        # One-shot: G4 must not leave auto_stop for G5–G15.
         write_stub_recorder_control(auto_stop=False)
+        # Report auto-stop from a worker, matching the real silence
+        # detector's stdout monitor thread. Firing it inside Record's
+        # start transition posts STOP_REC_CLICKED inline under
+        # WRITERAGENT_TESTING, so the send drain re-enters this
+        # recorder mid-start on the URP Record click and wedges
+        # soffice. The worker post lands on a later VCL tick after
+        # Record has returned.
         run_in_background(
             recorder._notify_auto_stop,
             recorder.temp_filename,
@@ -391,6 +409,7 @@ def try_stub_stop(recorder: Any) -> bool:
                 os.remove(recorder.temp_filename)
         recorder.temp_filename = None
     else:
+        # Packet G native tests: skip venv/PortAudio spawn and use inject_wav.
         _write_stub_injected_wav(recorder, flags.get("inject_wav"))
     recorder._proc = None
     recorder.stream = None

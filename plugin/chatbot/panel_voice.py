@@ -43,6 +43,8 @@ def stop_playback_if_speaking(host: Any) -> bool:
     if is_speaking():
         _stop_tts()
         if not getattr(host, "_send_busy", False):
+            # Playback-only Stop does not dispatch STOP_CLICKED. Still leave
+            # hands-free, or the TTS poll would arm the mic again.
             if hasattr(host, "_voice"):
                 host._voice.exit_hands_free_record()
             elif hasattr(host, "exit_hands_free_record"):
@@ -99,6 +101,7 @@ class PanelVoiceController:
     def __init__(self, panel: Any) -> None:
         self._panel = panel
         self._sticky_restart_pending = False
+        # Empty transcripts in a row while sticky (EMPTY_TAKES_EXIT ends the loop).
         self._empty_take_count = 0
         self._hold_waiter: _CancellableWaiter = _CancellableWaiter()
         self._sticky_waiter: _CancellableWaiter = _CancellableWaiter()
@@ -109,6 +112,8 @@ class PanelVoiceController:
 
     def note_send_completed(self, was_busy: bool) -> None:
         gesture = getattr(self._panel, "_record_gesture", None)
+        # Flag only. The drain flushes after speak_text_async so a voice reply
+        # is already speaking (or known idle) before we touch the mic.
         if was_busy and gesture is not None and getattr(gesture, "sticky", False):
             self._sticky_restart_pending = True
 
@@ -116,6 +121,11 @@ class PanelVoiceController:
         gesture = getattr(self._panel, "_record_gesture", None)
         if gesture is not None and getattr(gesture, "sticky", False):
             self._empty_take_count += 1
+            # End hands-free after EMPTY_TAKES_EXIT empty
+            # takes in a row. An empty take finishes as
+            # Stopped, not Error, so sticky re-arms Record
+            # and noise that trips silence auto-stop loops
+            # empty takes forever.
             if self._empty_take_count >= EMPTY_TAKES_EXIT:
                 log.info("Hands-free off after %d empty takes", self._empty_take_count)
                 self.exit_hands_free_record()
@@ -193,7 +203,10 @@ class PanelVoiceController:
         self._spawn_record_hold_wait(self._panel._record_hold_gen)
 
     def _spawn_record_hold_wait(self, gen: int) -> None:
-        """Sleep off the UI thread, then hop back through QueueExecutor."""
+        """Sleep off the UI thread, then hop back through QueueExecutor.
+
+        The generation is checked on the UI thread; releasing early just bumps it.
+        """
         self._hold_waiter.wait_and_post(
             RECORD_HOLD_MS,
             self._panel.queue_executor,
@@ -209,7 +222,14 @@ class PanelVoiceController:
         self._apply_record_gesture(gesture_hold_elapsed(self._panel._record_gesture))
 
     def _release_open_microphone(self) -> None:
-        """Stop capture and leave the Stop Rec label."""
+        """Stop capture and leave the Stop Rec label.
+
+        Clear and sidebar close must stop the mic, not only
+        exit_hands_free_record. Leaving AudioRecorder running keeps the
+        take: recording is not is_busy, so STOP_CLICKED does not apply, and
+        the next click sends it. ERROR_OCCURRED clears is_recording without
+        starting a send.
+        """
         recorder = getattr(self._panel, "audio_recorder", None)
         if recorder is not None:
             try:
@@ -270,6 +290,7 @@ class PanelVoiceController:
 
     def _on_audio_auto_stop(self) -> None:
         """Silence detector ended capture; same FSM path as clicking Stop Rec (stop + send)."""
+        # A post can already be queued when disposing clears the recorder hooks.
         if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
             return
         if not self._panel.sidebar_state.send.is_recording:
@@ -279,13 +300,25 @@ class PanelVoiceController:
         self._panel.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
 
     def _on_audio_recorder_error(self, msg: str) -> None:
-        """Child error after ready, on the UI thread."""
+        """Child error after ready, on the UI thread.
+
+        The stdout monitor only posts here. Applying the recorder event on
+        that thread raised out of ReportErrorEffect and left the button on
+        Stop Rec. ERROR_OCCURRED drops the recording label.
+        """
+        # A post can already be queued when disposing clears the recorder hooks.
         if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
             return
         recorder = getattr(self._panel, "audio_recorder", None)
         if recorder is not None:
             recorder.apply_stdout_error(msg)
 
+        # Bugfix: Any child error dispatched ERROR_OCCURRED. Because the monitor
+        # posts onto the UI queue, STOP_REC_CLICKED had already set is_busy=True
+        # and is_recording=False before that post ran (including during a text
+        # send), clearing is_busy while the send drain was still running. Only
+        # an open take may take the send-button error transition; a failed send
+        # still dispatches ERROR_OCCURRED from the drain while is_busy.
         if not self._panel.sidebar_state.send.is_recording:
             log.warning("audio recorder error while not recording: %s", msg)
             return
@@ -305,7 +338,22 @@ class PanelVoiceController:
                 self._panel._set_status(_("Recording audio… (%d ms silence)") % silence_ms)
 
     def _transcribe_audio(self, wav_path: str, stt_model: str) -> str:
-        """Transcribe audio synchronously using event pumping on the main thread."""
+        """Transcribe audio synchronously using event pumping on the main thread.
+
+        ``capture_send_stop`` freezes the scope from this send, and the
+        checker is read once more after the transcript returns. Without
+        that checker, ``run_blocking_in_thread`` pumps the UI, so Stop can
+        cancel the send scope and a nested send can replace
+        ``_send_cancellation``, while Whisper's ``subprocess.run`` still
+        waits out 900s and the transcript is posted anyway. Stop does
+        not kill local Whisper or close the endpoint socket: transcription
+        finishes and ``_do_send`` puts the words back in the Ask box instead
+        of sending them (see the StopSendEffect invariant in ``panel``).
+        Only sidebar teardown kills the child, through ``_stt_kill``. A
+        re-entrant call returns without deleting the first WAV or clearing
+        the first client's stop latch. The STT client is not registered with
+        the send scope for the same reason.
+        """
         from plugin.audio.stt_service import (
             status_for_transcription,
             terminate_stt_process,
@@ -314,12 +362,16 @@ class PanelVoiceController:
         )
         from plugin.framework.queue_executor import post_to_main_thread
 
+        # getattr: a duck-typed host (the smol _do_send double) has no field
+        # until this call sets it. Missing means nothing is in flight.
         if getattr(self._panel, "_stt_inflight", False):
             log.info("Ignoring re-entrant STT; the in-flight transcription keeps the first Stop")
             return ""
 
         self._panel._stt_inflight = True
         try:
+            # Spawn-time scope. Do not call resolve_stop_checker inside the
+            # worker: Stop's drain clears the field and the next send replaces it.
             cancel_scope, stop_checker = capture_send_stop(self._panel)
             if stop_checker():
                 self._panel._terminal_status = "Stopped"
@@ -328,6 +380,7 @@ class PanelVoiceController:
             if uses_local_stt():
                 client = None
             else:
+                # Always create a fresh client to avoid reusing previous STT endpoint/key
                 api_config = get_api_config()
                 client = LlmClient(
                     api_config,
@@ -345,12 +398,18 @@ class PanelVoiceController:
             self._panel._append_response("\n[" + transcribing + "]\n")
 
             def on_status(message: str) -> None:
+                # What was wrong: local Whisper model download status messages were lost.
+                # How it happened: on_status callback was dropped during cleanup.
+                # Why this change: post status updates to the UI thread so weight
+                # download progress is visible in the sidebar.
                 post_to_main_thread(self._panel._set_status, message)
 
             def _on_spawn(proc: Any) -> None:
                 def _kill() -> None:
                     terminate_stt_process(proc)
 
+                # Sidebar teardown (_kill_inflight_stt) calls this. Stop does
+                # not: the transcript is kept for the Ask box.
                 self._panel._stt_kill = _kill
 
             def _call() -> str:
@@ -363,6 +422,7 @@ class PanelVoiceController:
                 )
 
             try:
+                # Runs to the end: Stop keeps the transcript.
                 transcript_text = run_blocking_in_thread(self._panel.ctx, _call)
             except Exception as e:
                 from plugin.framework.i18n import _
@@ -404,6 +464,10 @@ class PanelVoiceController:
         current_endpoint = get_current_endpoint()
 
         local_stt = uses_local_stt()
+        # Transcription Fallback check
+        # Local Whisper is the user's STT choice: transcribe in the venv and
+        # send text, including when the chat model could take input_audio.
+        # Endpoint STT still waits until the chat model cannot take audio.
         if local_stt or has_native_audio(current_model, current_endpoint) is False:
             stt_model = get_stt_model()
             if local_stt or stt_model:
@@ -425,6 +489,8 @@ class PanelVoiceController:
                         typed_after = (get_control_text(self._panel.query_control) or "").strip()
 
                     if self._panel._terminal_status == "Stopped":
+                        # R10: Do not auto-send late transcript into the new typed turn.
+                        # Put it back in Ask so it is not silently lost.
                         new_text = (
                             (query_text + "\n" + transcript).strip()
                             if (query_text and transcript)
@@ -467,6 +533,8 @@ class PanelVoiceController:
                     self._panel._restore_query_text(query_text)
                     return query_text, True
 
+                # WAV is deleted in _transcribe_audio finally. Empty STT must not
+                # fall through into a chat POST with a blank user message (G27).
                 if not query_text.strip():
                     self._panel._append_response("\n" + _("[No speech detected.]") + "\n")
                     self._panel._terminal_status = "Stopped"

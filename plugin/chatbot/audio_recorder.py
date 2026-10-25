@@ -233,6 +233,8 @@ class AudioRecorder:
         self._stop_handoff = None
         self._auto_stopped_path = None
         if self.stream is not None:
+            # stream.stop() returns only after the current callback does, and
+            # that callback no longer holds _wav_lock. Close after that.
             best_effort(self.stream.stop, "audio stream stop")
             best_effort(self.stream.close, "audio stream close")
             self.stream = None
@@ -473,6 +475,9 @@ class AudioRecorder:
             try:
                 self._apply_event(StopRequestedEvent())
             except Exception:
+                # A failed Stop must not leave the host WAV open. The
+                # callback can still be inside writeframes, so stop the
+                # stream first (that waits for the callback) and close after.
                 self._teardown_capture()
         self._delete_wav()
 

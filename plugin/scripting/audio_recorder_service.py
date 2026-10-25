@@ -566,7 +566,10 @@ def clear_pending_audio_wav(host: Any) -> None:
         try:
             os.remove(host.audio_wav_path)
         except OSError as exc:
-            # On Windows the recorder subprocess still holds the WAV,
-            # so os.remove raises PermissionError.
+            # What was wrong: except Exception: pass hid a failed delete.
+            # How it happened: on Windows the recorder subprocess still
+            # holds the WAV, so os.remove raises PermissionError.
+            # Why this fixes it: OSError is logged and the path is still
+            # dropped. Any other exception propagates.
             log.debug("clear_pending_audio_wav: failed to remove %s: %s", host.audio_wav_path, exc)
         host.audio_wav_path = None

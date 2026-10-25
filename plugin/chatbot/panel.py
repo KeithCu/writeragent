@@ -241,6 +241,10 @@ class QueryKeyListener(BaseKeyListener):
             return
         if not sc.getModel().Enabled:
             return
+        # Enter in the query box sends only when the button label is
+        # "Send". Enabled alone is not enough: an empty box reads "Record"
+        # (Enter would start recording), "Stop Rec" while recording would
+        # stop and send, and "Accept" is web-search approval.
         if getattr(self.send_listener, "_button_action", None) != ButtonAction.SEND:
             return
         with suppress_disposed("QueryKeyListener Consume", logger=log):
@@ -1075,9 +1079,18 @@ class SendButtonListener(BaseActionListener):
             entered = True
             cancel_scope.bind_executor(self.queue_executor)
             self._send_cancellation = cancel_scope
+            # Safe now: this callback is already running, not a pending post.
             if stop_before_body and (cancel_scope.is_cancelled() or self._stop_requested_fallback):
                 log.info("Send drain skipped (Stop before drain started)")
+                # Terminal status is "Stopped" so completion and TTS skip
+                # this turn. Leaving it at "Ready" replays the previous
+                # answer when Stop is pressed before the drain begins.
                 self._terminal_status = "Stopped"
+                # Drop the take. STT never starts on this path, so it
+                # cannot be kept as text. Stop Rec stores it on
+                # audio_wav_path; if Stop lands before this drain runs,
+                # nothing consumes the WAV and the next typed Send
+                # transcribes or attaches it.
                 clear_pending_audio_wav(self)
                 return
             if not (cancel_scope.is_cancelled() or self._stop_requested_fallback):
@@ -1090,7 +1103,20 @@ class SendButtonListener(BaseActionListener):
             doc_type_for_log = self.initial_doc_type or "unknown"
             log.exception("Turn drain unhandled exception [doc: %s]", doc_type_for_log)
         finally:
+            # The event-driven drain returns before the stream ends. Exiting
+            # agent_session and running SEND_COMPLETED on that return would clear
+            # the stop scope and abort the turn while chunks are still landing.
+            # defer_until_drain_done runs this close on the terminal slice; the
+            # blocking drain has already finished, so it runs now.
+            # Another document's drain may still be open; this send must not
+            # defer its completion onto it.
             def _close_turn_drain() -> None:
+                # Clear the scope only once the drain has finished. Doing it
+                # when the event-driven call returns would drop Stop for the
+                # rest of the turn.
+                # Drop _send_cancellation only while the panel is still alive.
+                # An inner finally that clears it after disposing cancelled that
+                # scope leaves a late reader with None on a dead panel.
                 if entered and not self._panel_teardown:
                     self._send_cancellation = None
                 err = exit_error[0]
@@ -1103,6 +1129,8 @@ class SendButtonListener(BaseActionListener):
                     except Exception:
                         log.exception("turn drain agent_session close failed")
                 if err is not None:
+                    # The tool-loop epilogue already aborted the turn, so
+                    # _append_response would treat this as a late chunk.
                     self._project_closing_line("\n\n[Error: %s]\n" % str(err), failed_turn[0])
                     self._terminal_status = "Error"
                 on_close()
@@ -1111,6 +1139,8 @@ class SendButtonListener(BaseActionListener):
 
     def _run_send_drain(self) -> None:
         """Run ``_do_send`` on a VCL tick after Send ``actionPerformed`` returns."""
+        # A drain posted before StartSend learned STT was in flight must not
+        # clear the first send's scope or dispatch SEND_COMPLETED under it.
         if self._stt_inflight:
             log.info("Nested send drain ignored during speech-to-text")
             return
@@ -1122,6 +1152,9 @@ class SendButtonListener(BaseActionListener):
 
         update_activity_state("")
         try:
+            # Dispose runs inside this drain, then sets ctx to None. The
+            # completion dispatch writes the status line, and the rest starts
+            # TTS or arms the mic on a dead panel.
             if not self._panel_teardown:
                 if self._terminal_status == "Error":
                     clear_pending_audio_wav(self)
@@ -1287,6 +1320,7 @@ class SendButtonListener(BaseActionListener):
 
         self._set_status(_("Getting document..."))
         log.debug("_require_send_document: getting document model...")
+        # 1. Get document model
         model = self._get_document_model(log_failure=True)
         if not model:
             self._fail_send(
@@ -1313,12 +1347,17 @@ class SendButtonListener(BaseActionListener):
         """
         from plugin.framework.i18n import _
 
+        # Get user query and clear field (before loading tools, so direct-image path can return early)
         query_text = ""
         if self.query_control and self.query_control.getModel():
             from plugin.chatbot.dialogs import get_control_text
 
             query_text = (get_control_text(self.query_control) or "").strip()
 
+        # Audio implies we have input even if text is empty.
+        # Stop Rec sets has_audio and always starts a send. A missing WAV used
+        # to clear _terminal_status and return, so the click looked like it did
+        # nothing (no Whisper, no chat) after the stop handshake lost the file.
         if not query_text and not self.audio_wav_path:
             if self.sidebar_state.send.has_audio:
                 log.warning("_do_send: Stop Rec finished without a WAV path")
@@ -1327,6 +1366,12 @@ class SendButtonListener(BaseActionListener):
                     set_status_text=True,
                 )
                 return None
+            # Mark the terminal status "Ready" so the UI updates, and
+            # rely on message-count tracking to suppress TTS when no new
+            # message was added. An empty-query return that leaves
+            # _terminal_status as "" skips _set_status in
+            # _finish_send_drain_ui (status stays "Getting document…") and
+            # speaks the prior turn's reply.
             self._terminal_status = "Ready"
             return None
 
@@ -1337,6 +1382,8 @@ class SendButtonListener(BaseActionListener):
             session = self.frame_session
             if session is not None:
                 session.note_user_wants_query()
+            # Send button click leaves focus on Send; keep the query field
+            # ready for the next question (reveal/scroll must not win later).
             if hasattr(self.query_control, "setFocus"):
                 self.query_control.setFocus()
         return query_text
@@ -1359,6 +1406,8 @@ class SendButtonListener(BaseActionListener):
         flags = self.sidebar_mode_flags or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
         sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
 
+        # Mode and the document are arguments of the turn already started.
+        # A later dropdown change aborts it; it does not retarget the turn.
         started = current_turn(self)
         if isinstance(started, TurnController):
             started.mode = str(sidebar_mode or "")
@@ -1391,6 +1440,7 @@ class SendButtonListener(BaseActionListener):
             self._send_handlers._run_brainstorming(query_text, model)
             return True
 
+        # Writing-plan tools are TextDocument-only. Non-Writer sidebars do not list this mode.
         if sidebar_mode == CHAT_MODE_WRITING_PLAN and doc_type_label == "writer":
             if not self._mode_topic:
                 self._mode_topic = query_text
@@ -1411,15 +1461,23 @@ class SendButtonListener(BaseActionListener):
         from plugin.framework.i18n import _
         from plugin.chatbot.tool_loop_actions import begin_send_turn
 
+        # begin_send_turn aborts the turn already in flight. A pump re-entry
+        # during Whisper must not do that, and must not clear the WAV.
+        # Missing means not transcribing, same as the mixin default.
+        # Reading self._stt_inflight raises AttributeError on the smol
+        # _do_send double: that SimpleNamespace never ran __init__.
         if self._stt_inflight:
             log.info("_do_send re-entered during speech-to-text; the first Stop still applies")
             return
 
+        # The turn exists before any worker and before early error rows.
+        # Mode and the document are filled in once this send knows them.
         begin_send_turn(self, "")
         self._set_status(_("Starting..."))
         update_activity_state("do_send", status_control=self.status_control)
         log.info("=== _do_send START ===")
 
+        # Ensure extension directory is on sys.path (injected by panel_factory to avoid circular import)
         if self.ensure_path_fn:
             self.ensure_path_fn(self.ctx)
 
@@ -1444,6 +1502,12 @@ class SendButtonListener(BaseActionListener):
             if self._route_sidebar_mode(query_text, model, doc_type_label):
                 return
 
+            # Agent backend: use external agent instead of built-in LLM.
+            # Show the error and end the send here. The handler documents
+            # no builtin fallback. Leaving `_do_send_via_agent_backend` in
+            # this try means the except only logs, then execution falls
+            # through to `_do_send_chat_with_tools` and one Send starts a
+            # second builtin turn.
             try:
                 from plugin.framework.config import get_config
                 from plugin.acp.registry import normalize_backend_id
@@ -1461,9 +1525,15 @@ class SendButtonListener(BaseActionListener):
                 )
                 return
 
+            # Regular Chat with Tools or Streams
             self._tool_calling._do_send_chat_with_tools(query_text, model, doc_type_label)
 
         except Exception:
+            # Bugfix: this except used to put the Ask text back after
+            # add_user_message had already stored it, so the next Send appended
+            # the same user row again. The user row is inside
+            # _do_send_chat_with_tools / the mode handlers, which is why the check
+            # is the turn's tail, not a flag set in this function.
             from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
             turn = current_turn(self)
@@ -1518,6 +1588,8 @@ class SendButtonListener(BaseActionListener):
         def _on_close() -> None:
             update_activity_state("")
             try:
+                # Same teardown guard as _run_send_drain: completion writes status
+                # and can arm the mic after the sidebar is gone.
                 if not self._panel_teardown:
                     if self._terminal_status == "Error":
                         self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
@@ -1530,6 +1602,14 @@ class SendButtonListener(BaseActionListener):
                 from plugin.chatbot.tool_loop_actions import drop_turn
                 from plugin.doc.peer_message import kick_pending_peer_starts
 
+                # Drop the turn after SEND_COMPLETED, never before, so the next peer
+                # turn starts only once this one is finished. An exception
+                # from the completion dispatch otherwise skips drop_turn
+                # and kick_pending_peer_starts, leaking the turn and
+                # stalling queued peer turns.
+                # We kick inline here, not via post like _on_drain_idle, because
+                # SEND_COMPLETED and drop_turn already ran; nesting is bounded by
+                # one full peer turn per hop.
                 drop_turn(self)
                 kick_pending_peer_starts()
 
@@ -1668,6 +1748,7 @@ class SendButtonListener(BaseActionListener):
         except Exception as e:
             log.debug("SendButtonListener.disposing: drop peer queue: %s", e)
         try:
+            # Unsubscribe each handler from the bus saved at subscribe time.
             for bus, event, handler in self._subscriptions:
                 try:
                     bus.unsubscribe(event, handler)
@@ -1809,6 +1890,10 @@ class StopButtonListener(BaseActionListener):
         if getattr(self.send_listener, "_stop_button_action", None) == ButtonAction.CHANGE:
             self.send_listener._events._open_web_search_change_dialog()
             return
+        # During a take Stop steps down (leave hands-free, then cancel). Only
+        # this ActionEvent path does it; mousePressed returns while not busy,
+        # so one click is one step.
+        # ``is True`` so a MagicMock host (tests) is not treated as recording.
         take_stop = getattr(getattr(self.send_listener, "_voice", None), "stop_during_take", None)
         if not callable(take_stop):
             take_stop = getattr(self.send_listener, "stop_during_take", None)

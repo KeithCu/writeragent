@@ -372,6 +372,11 @@ class SendHandlersMixin:
             if isinstance(live, TurnController) and not live.alive:
                 return
             append_texts = dispatch_event(ErrorEvent(e))
+            # Same write for web, agent, and image, using the lines
+            # handle_error already shows. The tool loop stores that banner
+            # with persist_assistant_on_turn. Painting the banner and storing
+            # the user row without this write leaves the next send a hole
+            # where the assistant row should be.
             if append_texts:
                 persist_assistant_on_turn(self._panel, "".join(append_texts))
 

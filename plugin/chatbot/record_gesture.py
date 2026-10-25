@@ -89,7 +89,15 @@ class RecordPhase(Enum):
 
 @dataclass(frozen=True)
 class RecordGesture:
-    """One Send-button press, plus the sticky flag that outlives it."""
+    """One Send-button press, plus the sticky flag that outlives it.
+
+    ``holding`` is true from mousePressed on Record until mouseReleased.
+    ``fired`` means this press already dispatched ``RECORD_CLICKED`` (the
+    hold timer). ``action_seen`` means ActionEvent arrived while the button
+    was still down, so release must not expect a second one.
+    ``suppress_action`` eats the ActionEvent that follows a mouse dispatch,
+    including when the label is already Stop Rec.
+    """
 
     phase: RecordPhase = RecordPhase.IDLE
     sticky: bool = False
@@ -203,7 +211,12 @@ def gesture_action(gesture: RecordGesture) -> GestureStep:
 
 
 def exit_sticky(gesture: RecordGesture) -> RecordGesture:
-    """Leave hands-free. Swallow an in-flight Record click so it cannot re-arm."""
+    """Leave hands-free. Swallow an in-flight Record click so it cannot re-arm.
+
+    Stop, Clear, cancel, and an aborting error use this. Stop Rec does not:
+    that send should still restart Record when the reply finishes. Stop
+    during a locked take uses this too, and leaves the take recording.
+    """
     swallow = gesture.phase != RecordPhase.IDLE
     new_phase = RecordPhase.SUPPRESS_ACTION if swallow else RecordPhase.IDLE
     return RecordGesture(phase=new_phase, sticky=False)
