@@ -531,3 +531,14 @@ def test_send_stopped_predicates():
     assert send_stopped(fresh_scope, lambda: False, client) is True
 
 
+def test_send_cancellation_imports_before_queue_executor():
+    import subprocess
+    import sys
+
+    code = (
+        "import plugin.framework.send_cancellation as sc\n"
+        "import plugin.framework.queue_executor as qe\n"
+        "assert sc._SCOPE_UNSET is qe._SCOPE_UNSET\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True, timeout=60)
+

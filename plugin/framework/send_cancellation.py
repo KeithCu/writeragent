@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, cast
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from plugin.framework.queue_executor import QueueExecutor, _ScopeUnset
+    from plugin.framework.queue_executor import QueueExecutor
 
 log = logging.getLogger("writeragent.framework.queue_executor")
 
@@ -46,6 +46,15 @@ _AGENT_ACTIVE_COUNT = 0
 # Scopes whose agent_session has not exited yet (identity, under the lock).
 _AGENT_OPEN_SCOPES: list["SendCancellation"] = []
 _current_send_cancellation: ContextVar["SendCancellation | None"] = ContextVar("current_send_cancellation", default=None)
+
+
+class _ScopeUnset:
+    """Marker: enqueue reads the current send instead of a caller-supplied scope."""
+
+
+# ``_enqueue_work`` reads the current send unless the caller passes the scope
+# that was current when a pending post was stored.
+_SCOPE_UNSET = _ScopeUnset()
 
 
 class SendCancelled(Exception):
@@ -239,6 +248,8 @@ def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancel
         scope = SendCancellation()
     # Bind here, not when StartSendEffect creates the scope: Stop before the
     # deferred drain must not cancel_pending_work that posted closer.
+    from plugin.framework.queue_executor import default_executor
+
     scope.bind_executor(default_executor)
     token = _current_send_cancellation.set(scope)
     with _AGENT_ACTIVE_LOCK:
@@ -294,6 +305,3 @@ def _restore_send_cancellation(scope: SendCancellation, token: Any, previous_ope
 def is_agent_active() -> bool:
     with _AGENT_ACTIVE_LOCK:
         return _AGENT_ACTIVE_COUNT > 0
-
-
-from plugin.framework.queue_executor import _SCOPE_UNSET, default_executor

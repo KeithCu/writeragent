@@ -1540,6 +1540,31 @@ def test_pump_main_thread_work_queue_skips_off_main_and_runs_on_main() -> None:
     assert called == ["ran"]
 
 
+def test_pump_ui_idle_skips_off_main_and_pumps_on_main() -> None:
+    from plugin.framework.queue_executor import QueueExecutor, pump_ui_idle
+
+    ex = QueueExecutor()
+    calls: list[str] = []
+
+    class Toolkit:
+        def processEventsToIdle(self) -> None:
+            calls.append("pump")
+
+    toolkit = Toolkit()
+
+    def worker() -> None:
+        pump_ui_idle(toolkit, executor=ex)
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join(timeout=2.0)
+    assert not t.is_alive()
+    assert calls == []
+
+    pump_ui_idle(toolkit, executor=ex)
+    assert calls == ["pump"]
+
+
 def test_pump_main_thread_work_queue_runs_on_designated_main() -> None:
     if is_release_build():
         pytest.skip("thread_guard is stubbed in release bundles; designated main thread is a no-op")
