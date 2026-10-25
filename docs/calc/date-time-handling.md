@@ -148,7 +148,7 @@ Because elapsed formats classify as `"time"` (§1.1), routing them through `iso8
 | `1.25` | `[HH]:MM:SS` | `30:00:00` | `06:00:00` | `"PT30H"`, `type: "duration"` |
 | `0.333…` | `[HH]:MM:SS` | `08:00:00` | `08:00:00` | `"PT8H"`, `type: "duration"` |
 
-The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_elapsed_format_string`](../../plugin/calc/datetime_wire.py) detects bracketed units; wire category becomes `"duration"`; emit via [`iso_duration_from_serial`](../../plugin/calc/datetime_wire.py) (hours may exceed 24 — `PT30H`, not `P1DT6H`). Write accepts the same `PT…` gate, parses with vendored [`isodate`](https://github.com/gweis/isodate) from [`requirements-vendor.txt`](../requirements-vendor.txt) → `plugin/lib/` (build + hot-deploy overlay; without it `datetime_wire` fails to import and `write_formula_range` never registers), applies built-in formatindex 43 (`[HH]:MM:SS`) unless M1 preserves a TIME destination.
+The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_elapsed_format_string`](../../plugin/calc/datetime_wire.py) detects bracketed elapsed units of one or two ASCII letters (`[HH]`, `[H]`, `[MM]`, `[SS]`, localized `[TT]`/`[UU]`), so color/modifier brackets such as `[RED]`/`[NatNum1]` do not turn a clock time into `duration`; wire category becomes `"duration"`; emit via [`iso_duration_from_serial`](../../plugin/calc/datetime_wire.py) (hours may exceed 24 — `PT30H`, not `P1DT6H`). Write accepts the same `PT…` gate, parses with vendored [`isodate`](https://github.com/gweis/isodate) from [`requirements-vendor.txt`](../requirements-vendor.txt) → `plugin/lib/` (build + hot-deploy overlay; without it `datetime_wire` fails to import and `write_formula_range` never registers), applies built-in formatindex 43 (`[HH]:MM:SS`) unless M1 preserves a TIME destination.
 
 ---
 
@@ -700,7 +700,7 @@ Without the gate, `08/05/2026` becomes 5 August under `en-US` and 8 May under `f
 - Time: `HH:MM` or `HH:MM:SS`
 - Datetime: `YYYY-MM-DDTHH:MM[:SS]`
 - Compatibility datetime: one space may replace `T`
-- Duration: `PT` + at least one integer `H` / `M` / `S` (e.g. `PT30H`, `PT1H30M`, `PT45S`). No `Y`/`M`(month)/`W`/`D`, fractions, or sign.
+- Duration: `PT` + at least one integer `H` / `M` / `S` (e.g. `PT30H`, `PT1H30M`, `PT45S`). No `Y`/`M`(month)/`W`/`D`, fractions, or sign. Gate digits are ASCII `[0-9]` only (non-ASCII digits are plain text), and each `H`/`M`/`S` component is capped at 6 digits, which bounds the day serial and makes over-long `PT…` values plain text rather than a parse overflow.
 - Leading/trailing whitespace may be stripped
 
 Date/time fast prefilter before regex:
