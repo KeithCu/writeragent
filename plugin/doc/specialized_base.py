@@ -18,11 +18,13 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any, cast, Type, ClassVar
 
+from plugin.doc.doc_type import IMPRESS_DOCUMENT_SERVICE, uno_services_for_doc_type_label
 from plugin.framework.errors import is_real_disposal
-from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments
+from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
@@ -108,20 +110,45 @@ class DelegateToSpecializedBase(ToolBase):
     long_running: bool = True
     parameters: dict[str, Any] | None
 
-    def __init__(self) -> None:
-        super().__init__()
-        domains = []
-        # Find all domains by scanning subclasses of the specialized base
+    def _domains_for(self, doc_type: str | None = None) -> list[str]:
+        """Sorted domains whose base class can serve *doc_type* (no document needed).
+
+        Bugfix: the enum ignored the document type, so a Draw (not Impress)
+        document offered presentation-only domains (headers_footers,
+        speaker_notes, slide_*); picking one returned "No specialized tools
+        found". Recomputing here (not only in __init__) also frees the list
+        from module import order.
+        """
+        classes: dict[str, list[Any]] = {}
         for cls in self._special_base_class.__subclasses__():
             domain = getattr(cls, "specialized_domain", None)
-            if domain:
-                if self._agent_label == "Calc" and domain in CALC_HIDDEN_SPECIALIZED_DOMAINS:
-                    continue
-                if self._agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
-                    continue
-                if self._agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
-                    continue
-                domains.append(domain)
+            if not domain:
+                continue
+            if self._agent_label == "Calc" and domain in CALC_HIDDEN_SPECIALIZED_DOMAINS:
+                continue
+            if self._agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
+                continue
+            if self._agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
+                continue
+            classes.setdefault(str(domain), []).append(cls)
+        services = uno_services_for_doc_type_label(doc_type) if isinstance(doc_type, str) else frozenset()
+        if doc_type == "draw":
+            # Distinct label "draw" is a DrawingDocument (not Impress PresentationDocument).
+            # uno_services_for_doc_type_label("draw") includes both for family fallback.
+            services = services - {IMPRESS_DOCUMENT_SERVICE}
+        return sorted(
+            domain
+            for domain, cls_list in classes.items()
+            if not services
+            or any(
+                tool_supports_document(cast("ToolBase", cls), doc_type=doc_type, uno_services_supported=services)
+                for cls in cls_list
+            )
+        )
+
+    def __init__(self) -> None:
+        super().__init__()
+        domains = self._domains_for()
 
         self.parameters = {
             "type": "object",
@@ -144,6 +171,20 @@ class DelegateToSpecializedBase(ToolBase):
             "required": ["domain", "task"],
         }
 
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
+        # Only a real doc-type label narrows the enum; MCP/no-doc keeps every domain.
+        if not isinstance(doc_type, str) or not uno_services_for_doc_type_label(doc_type):
+            return self.parameters
+        domains = self._domains_for(doc_type)
+        assert self.parameters is not None
+        params = copy.deepcopy(self.parameters)
+        props = params.get("properties")
+        assert isinstance(props, dict)
+        domain_schema = props.get("domain")
+        assert isinstance(domain_schema, dict)
+        domain_schema["enum"] = domains
+        return params
+
     def is_async(self) -> bool:
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
         return True
@@ -151,7 +192,7 @@ class DelegateToSpecializedBase(ToolBase):
     # Domains whose work is read-only -> a long-running delegation to them must NOT
     # take the per-document mutation lock (it would needlessly serialize research on
     # the same doc). The gateway itself is is_mutation=True for the mutating domains.
-    _READ_ONLY_DOMAINS: ClassVar[frozenset[str]] = frozenset({"document_research", "web_research", "vision"})
+    _READ_ONLY_DOMAINS: ClassVar[frozenset[str]] = frozenset({"document_research", "web_research"})
 
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = field_from_tool_arguments(arguments, "domain")
@@ -163,8 +204,6 @@ class DelegateToSpecializedBase(ToolBase):
         # the document lock (safe default), allowing execute() to subsequently return the standard
         # invalid-domain error.
         if isinstance(domain, str) and domain in self._READ_ONLY_DOMAINS:
-            if domain == "vision":
-                return True
             return False
         return super().requires_document_lock(arguments)
 
@@ -376,6 +415,11 @@ class DelegateToSpecializedBase(ToolBase):
                     # Sub-agent runs on a worker thread; UNO reads must go through the main thread.
                     calc_ctx = queue_executor.execute_on_main_thread(_fetch_calc_context)
                 except Exception as e:
+                    # Bugfix: a document closed during the async run landed here; swallowing it
+                    # dropped the context and let the inner agent answer from a partial prompt.
+                    # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+                    if is_real_disposal(e):
+                        raise
                     log.warning("Failed to get Calc context for sub-agent: %s", e)
 
             open_docs_context = ""
@@ -398,6 +442,11 @@ class DelegateToSpecializedBase(ToolBase):
                             + "\n".join(lines)
                         )
                 except Exception as e:
+                    # Bugfix: a document closed during the async run landed here; swallowing it
+                    # dropped the context and let the inner agent answer from a partial prompt.
+                    # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+                    if is_real_disposal(e):
+                        raise
                     log.warning("Failed to get open documents for sub-agent: %s", e)
 
             images_hint = images_specialized_sub_agent_hint() if domain == "images" else ""
@@ -452,7 +501,7 @@ class DelegateToSpecializedBase(ToolBase):
             if "answer" in payload:
                 payload.setdefault("result", str(payload["answer"]))
         else:
-            payload = {"status": "ok", "message": _(f"Specialized task ({domain}) completed."), "result": str(final_ans)}
+            payload = {"status": "ok", "message": _("Specialized task ({domain}) completed.").format(domain=domain), "result": str(final_ans)}
         # Outer never sees create_sheet's inner-only ok string; forward the same
         # `instruction` field web research uses when empty tabs were created.
         if domain == "sheets" or create_sheet_ran or captured_tool_results:
