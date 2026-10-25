@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.contrib.pooch import HTTPDownloader, Untar, Unzip, retrieve
+from plugin.framework.config import atomic_write_text
 from plugin.framework.constants import USER_AGENT
 from plugin.framework.errors import best_effort
 
@@ -32,9 +33,6 @@ _DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024
 _DOWNLOAD_TIMEOUT_SEC = 120
 _RELEASE_CHECK_INTERVAL_SEC = 7 * 24 * 3600
 _RELEASE_CACHE_FILENAME = "harper-ls.release.json"
-# In-process latest-release memo. Unlocked: Harper install/lookup runs on the
-# single Harper drain thread. Add a lock if that ever changes.
-_release_cache: dict[str, tuple[float, HarperReleaseAsset]] = {}
 
 
 def _emit_progress(heartbeat_fn: Callable[[dict[str, str]], None] | None, message: str) -> None:
@@ -113,20 +111,32 @@ def _read_persisted_release(harper_dir: Path, asset_name: str) -> HarperReleaseA
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or data.get("asset_name") != asset_name:
-            return None
-        checked_at = float(data.get("checked_at", 0))
-        if (time.time() - checked_at) >= _RELEASE_CHECK_INTERVAL_SEC:
-            return None
-        return HarperReleaseAsset(version=str(data["version"]), asset_name=asset_name, download_url=str(data["download_url"]), sha256=str(data["sha256"]))
-    except Exception:
+    except (OSError, ValueError):
         return None
+    if not isinstance(data, dict) or data.get("asset_name") != asset_name:
+        return None
+    checked_at = data.get("checked_at")
+    version = data.get("version")
+    download_url = data.get("download_url")
+    sha256 = data.get("sha256")
+    # Malformed or partial cache entries are treated as a miss.
+    if isinstance(checked_at, bool) or not isinstance(checked_at, (int, float)):
+        return None
+    if not isinstance(version, str) or not version.strip():
+        return None
+    if not isinstance(download_url, str) or not download_url.strip():
+        return None
+    if not isinstance(sha256, str):
+        return None
+    if (time.time() - float(checked_at)) >= _RELEASE_CHECK_INTERVAL_SEC:
+        return None
+    return HarperReleaseAsset(version=version, asset_name=asset_name, download_url=download_url, sha256=sha256)
 
 
 def _write_persisted_release(harper_dir: Path, release: HarperReleaseAsset) -> None:
     harper_dir.mkdir(parents=True, exist_ok=True)
     payload = {"checked_at": time.time(), "version": release.version, "asset_name": release.asset_name, "download_url": release.download_url, "sha256": release.sha256}
-    _release_cache_path(harper_dir).write_text(json.dumps(payload), encoding="utf-8")
+    atomic_write_text(str(_release_cache_path(harper_dir)), json.dumps(payload))
 
 
 def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> HarperReleaseAsset:
@@ -136,10 +146,6 @@ def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path, *, 
     persisted = _read_persisted_release(harper_dir, asset_name)
     if persisted is not None:
         return persisted
-
-    cached = _release_cache.get(asset_name)
-    if cached is not None and (time.time() - cached[0]) < _RELEASE_CHECK_INTERVAL_SEC:
-        return cached[1]
 
     _emit_progress(heartbeat_fn, "Checking Harper release…")
     try:
@@ -170,7 +176,6 @@ def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path, *, 
             raise RuntimeError(msg)
         info = HarperReleaseAsset(version=version, asset_name=asset_name, download_url=download_url, sha256=_parse_github_digest(asset.get("digest")))
         _write_persisted_release(harper_dir, info)
-        _release_cache[asset_name] = (time.time(), info)
         return info
 
     msg = f"Harper asset {asset_name} not found in latest release {tag_name}"
@@ -247,7 +252,7 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
             shutil.copy2(source, tmp_binary)
             os.chmod(tmp_binary, 0o755)  # nosec B103  # nosemgrep: insecure-file-permissions
             os.replace(tmp_binary, dest_path)
-            (dest_path.parent / "harper-ls.version").write_text(release.version, encoding="utf-8")
+            atomic_write_text(str(dest_path.parent / "harper-ls.version"), release.version)
             log.info("[harper] Binary v%s installed at %s", release.version, dest_path)
             try:
                 if archive_path.is_file():
