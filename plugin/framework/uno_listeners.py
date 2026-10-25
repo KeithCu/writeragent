@@ -216,6 +216,7 @@ else:
 # Marker on wrappers from ``_catch_and_log``. Prefer this over ``id()`` so a
 # collected wrapper cannot suppress wrapping a later override.
 _CATCH_LOGGED_ATTR = "_writeragent_catch_and_log"
+_CATCH_FAILURE_ATTR = "_writeragent_catch_failure"
 
 
 class ListenerBoundary(BaseException):
@@ -356,6 +357,7 @@ def _catch_and_log(func: Any, failure: Any = _UNSET) -> Any:
             return failure
 
     setattr(wrapper, _CATCH_LOGGED_ATTR, True)
+    setattr(wrapper, _CATCH_FAILURE_ATTR, failure)
     return wrapper
 
 
@@ -384,18 +386,14 @@ class BaseListener(_BaseParent, _XEventListenerParent):
             if method is None or getattr(method, _CATCH_LOGGED_ATTR, False):
                 continue
             # __init_subclass__ wraps an override that replaced the base method,
-            # and the override often has no return annotation. The bridge type
-            # for XMouseClickHandler.mousePressed is sal_Bool. Taking None from
-            # the override's missing annotation type-errors the bridge. The base
-            # method's annotation is the contract.
-            failure = None
-            for base in cls.__mro__:
-                base_method = base.__dict__.get(name)
-                if base_method is not None:
-                    ret = getattr(base_method, "__annotations__", {}).get("return")
-                    if ret is bool or ret == "bool":
-                        failure = False
-                        break
+            # and the override often has no return annotation. The base method's
+            # failure contract (from _catch_and_log) is preserved.
+            base_method = next(
+                (b.__dict__[name] for b in cls.__mro__[1:] if name in b.__dict__ and hasattr(b.__dict__[name], _CATCH_FAILURE_ATTR)),
+                None,
+            )
+            assert base_method is not None, name
+            failure = getattr(base_method, _CATCH_FAILURE_ATTR)
             setattr(cls, name, _catch_and_log(method, failure=failure))
 
     @_catch_and_log
