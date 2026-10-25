@@ -504,6 +504,110 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     assert rec2.cells[0].kind == "n" and rec2.cells[0].value == 20.0
 
 
+def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    from plugin.calc.python.function import SpillCell, SpillRecord
+
+    stored: dict[str, Any] = {}
+
+    def mock_get_prop(model: Any, name: str, default: Any = None) -> Any:
+        return stored.get(name, default)
+
+    def mock_set_prop(model: Any, name: str, value: Any) -> None:
+        stored[name] = value
+
+    monkeypatch.setattr("plugin.doc.udprops.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.doc.udprops.set_document_property", mock_set_prop)
+
+    doc = CalcDocStub(url="file:///nonfinite.ods")
+    python_function.SPILL_REGISTRY.clear()
+    python_function.LOADED_DOCUMENTS.clear()
+    key = ("file:///nonfinite.ods", "Sheet1", 1, 1)
+    try:
+        python_function.SPILL_REGISTRY[key] = SpillRecord(
+            code="c",
+            cells=[
+                SpillCell(2, 1, "n", float("nan")),
+                SpillCell(3, 1, "n", float("inf")),
+                SpillCell(4, 1, "n", float("-inf")),
+                SpillCell(5, 1, "n", 1.5),
+            ],
+        )
+        python_function.save_spill_registry_for_doc(doc)
+
+        saved = stored.get("WriterAgentSpillRegistry")
+        assert saved is not None
+        data = json.loads(saved)
+        assert data["Sheet1:1,1"]["cells"] == [
+            {"r": 2, "c": 1, "t": "n", "v": "nan"},
+            {"r": 3, "c": 1, "t": "n", "v": "inf"},
+            {"r": 4, "c": 1, "t": "n", "v": "-inf"},
+            {"r": 5, "c": 1, "t": "n", "v": 1.5},
+        ]
+
+        python_function.SPILL_REGISTRY.clear()
+        python_function.LOADED_DOCUMENTS.clear()
+        python_function.load_spill_registry_for_doc(doc)
+        rec = python_function.SPILL_REGISTRY[key]
+        assert all(c.kind == "n" for c in rec.cells)
+        assert math.isnan(rec.cells[0].value)
+        assert rec.cells[1].value == math.inf
+        assert rec.cells[2].value == -math.inf
+        assert rec.cells[3].value == 1.5
+    finally:
+        python_function.SPILL_REGISTRY.clear()
+        python_function.LOADED_DOCUMENTS.clear()
+
+
+def test_reloaded_nan_spill_cell_keeps_user_edit_on_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.function import CalcSpillModifyListener, SpillCell, SpillRecord
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    stored: dict[str, Any] = {}
+
+    def mock_get_prop(model: Any, name: str, default: Any = None) -> Any:
+        return stored.get(name, default)
+
+    def mock_set_prop(model: Any, name: str, value: Any) -> None:
+        stored[name] = value
+
+    monkeypatch.setattr("plugin.doc.udprops.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.doc.udprops.set_document_property", mock_set_prop)
+
+    sheet = CalcSheetStub("Sheet1")
+    doc = CalcDocStub(sheets=[sheet], url="file:///nan_cleanup.ods")
+    monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: doc)
+
+    python_function.SPILL_REGISTRY.clear()
+    python_function.LOADED_DOCUMENTS.clear()
+    key = ("file:///nan_cleanup.ods", "Sheet1", 0, 0)
+    try:
+        python_function.SPILL_REGISTRY[key] = SpillRecord(
+            code="result = [float('nan'), 1.0]",
+            cells=[SpillCell(1, 0, "n", float("nan"))],
+        )
+        python_function.save_spill_registry_for_doc(doc)
+        python_function.SPILL_REGISTRY.clear()
+        python_function.LOADED_DOCUMENTS.clear()
+        python_function.load_spill_registry_for_doc(doc)
+
+        reloaded = python_function.SPILL_REGISTRY[key]
+        assert reloaded.cells[0].kind == "n"
+
+        sheet.getCellByPosition(0, 0).setFormula("")
+        sheet.getCellByPosition(0, 1).setValue(42.0)
+
+        CalcSpillModifyListener(MagicMock(), "file:///nan_cleanup.ods", "Sheet1").modified(
+            SimpleNamespace(Source=sheet)
+        )
+
+        assert key not in python_function.SPILL_REGISTRY
+        assert sheet.getCellByPosition(0, 1).getValue() == 42.0
+    finally:
+        python_function.SPILL_REGISTRY.clear()
+        python_function.LOADED_DOCUMENTS.clear()
+
+
 def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two unsaved books must not share spill rows or LOADED_DOCUMENTS.
 
