@@ -293,3 +293,36 @@ def test_delegate_completed_message_uses_static_msgid(
 
     assert result["status"] == "ok"
     assert result["message"] == "Specialized task (structural) completed."
+
+
+def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None:
+    """Impress and Draw both carry doc_type "draw"; only PresentationDocument keeps slide domains."""
+    import plugin.draw.headers_footers  # noqa: F401
+    import plugin.draw.notes  # noqa: F401
+    from plugin.doc.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
+    from plugin.doc.specialized_base import narrow_delegate_domain_enums
+    from plugin.draw.specialized import DelegateToSpecializedDraw
+    from plugin.framework.tool_schema import to_mcp_schema, to_openai_schema
+
+    gateway = DelegateToSpecializedDraw()
+    impress_only = {"headers_footers", "speaker_notes"}
+    assert gateway.parameters is not None
+    assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])
+
+    draw = frozenset({DRAW_DOCUMENT_SERVICE})
+    impress = frozenset({DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE})
+    assert not impress_only & set(gateway.domains_for_services(draw))
+    assert "shapes" in gateway.domains_for_services(draw)
+    assert impress_only <= set(gateway.domains_for_services(impress))
+
+    oa = to_openai_schema(gateway, doc_type="draw")
+    [draw_oa] = narrow_delegate_domain_enums([oa], [gateway], draw)
+    assert not impress_only & set(draw_oa["function"]["parameters"]["properties"]["domain"]["enum"])
+    [impress_oa] = narrow_delegate_domain_enums([oa], [gateway], impress)
+    assert impress_only <= set(impress_oa["function"]["parameters"]["properties"]["domain"]["enum"])
+    mcp = to_mcp_schema(gateway, doc_type="draw")
+    [draw_mcp] = narrow_delegate_domain_enums([mcp], [gateway], draw)
+    assert not impress_only & set(draw_mcp["inputSchema"]["properties"]["domain"]["enum"])
+    # Unknown services leave the schema alone; the shared instance enum is never mutated.
+    assert narrow_delegate_domain_enums([oa], [gateway], None) == [oa]
+    assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])

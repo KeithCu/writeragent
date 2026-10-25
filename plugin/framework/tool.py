@@ -846,13 +846,18 @@ class ToolRegistry:
             tools_kwargs["doc_type"] = doc_type
 
         tools = self.get_tools(active_domain=active_domain, **tools_kwargs)
+        # Probed services tell Impress (PresentationDocument) from Draw; both carry doc_type "draw".
+        from plugin.doc.doc_type import uno_services_for_document
+        from plugin.doc.specialized_base import narrow_delegate_domain_enums
+
+        uno_services = kwargs.get("uno_services_supported") or uno_services_for_document(doc, doc_type)
         if protocol == "openai":
             # get_image is only useful to a vision-capable text model on the chat path; hide it from
             # text-only models. The MCP path (below) always keeps it (client assumed vision-capable).
             from plugin.vision.image_filter import filter_get_image_for_text_only_model
 
             tools = filter_get_image_for_text_only_model(tools)
-            schemas = [to_openai_schema(t, doc_type=doc_type) for t in tools]
+            schemas = narrow_delegate_domain_enums([to_openai_schema(t, doc_type=doc_type) for t in tools], tools, uno_services)
             ctx = kwargs.get("ctx")
             if ctx is not None:
                 from plugin.vision.vision_availability import filter_vision_delegate_schemas
@@ -866,7 +871,7 @@ class ToolRegistry:
         # Never advertise peer send tools on MCP, including find_tools(domain=…).
         from plugin.doc.peer_message import filter_peer_message_schemas
 
-        schemas = [to_mcp_schema(t, doc_type=doc_type) for t in tools]
+        schemas = narrow_delegate_domain_enums([to_mcp_schema(t, doc_type=doc_type) for t in tools], tools, uno_services)
         return filter_peer_message_schemas(schemas, kwargs.get("ctx"), doc=doc, active_domain=None)
 
     def get(self, name: str) -> ToolBase | None:

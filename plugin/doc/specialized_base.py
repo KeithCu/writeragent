@@ -18,11 +18,12 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any, cast, Type, ClassVar
 
 from plugin.framework.errors import is_real_disposal
-from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments
+from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
@@ -143,6 +144,25 @@ class DelegateToSpecializedBase(ToolBase):
             },
             "required": ["domain", "task"],
         }
+
+    def domains_for_services(self, uno_services: frozenset[str]) -> list[str]:
+        """Sorted enum domains with a base class that runs on a document supporting *uno_services*.
+
+        Bugfix: a Draw (DrawingDocument only) document was offered Impress-only domains
+        (headers_footers, speaker_notes, slide_*) whose bases declare PresentationDocument,
+        and picking one returned "No specialized tools found". Keyed on probed services,
+        not the doc_type label: Impress's label is the family "draw" too (K082 regression).
+        """
+        assert uno_services, "caller must skip narrowing when services are unknown"
+        assert self.parameters is not None
+        enum = self.parameters["properties"]["domain"]["enum"]
+        supported = {
+            str(domain)
+            for cls in self._special_base_class.__subclasses__()
+            if (domain := getattr(cls, "specialized_domain", None))
+            and tool_supports_document(cast("ToolBase", cls), doc_type=None, uno_services_supported=uno_services)
+        }
+        return [d for d in enum if d in supported]
 
     def is_async(self) -> bool:
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
@@ -532,3 +552,24 @@ class DelegateToSpecializedBase(ToolBase):
             payload["message"] = model_text
 
         return payload
+
+
+def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any], uno_services: frozenset[str] | None) -> list[dict[str, Any]]:
+    """Drop gateway ``domain`` enum values that cannot run on the document's UNO services.
+
+    *schemas* are ``tools`` converted 1:1 (OpenAI ``function.parameters`` or MCP ``inputSchema``).
+    Unknown services (no document / MCP without probe) keep every domain.
+    """
+    if not uno_services:
+        return schemas
+    out: list[dict[str, Any]] = []
+    for schema, tool in zip(schemas, tools, strict=True):
+        if not isinstance(tool, DelegateToSpecializedBase):
+            out.append(schema)
+            continue
+        patched = copy.deepcopy(schema)
+        params = patched["function"]["parameters"] if "function" in patched else patched["inputSchema"]
+        domain_prop = params["properties"]["domain"]
+        domain_prop["enum"] = tool.domains_for_services(uno_services)
+        out.append(patched)
+    return out
