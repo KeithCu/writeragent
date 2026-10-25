@@ -187,7 +187,12 @@ def _parse_ocr_v2_lines(raw_lines: list[Any]) -> tuple[list[dict[str, Any]], lis
         box_raw, text_info = line[0], line[1]
         if isinstance(text_info, (list, tuple)) and text_info:
             text = str(text_info[0] or "").strip()
-            confidence = float(text_info[1]) if len(text_info) > 1 else 0.0
+            # What was wrong: non-numeric 2.x score (None, "N/A") raised TypeError/ValueError and aborted extract_text.
+            # Why this change: guard conversion like _parse_ocr_v3 does, falling back to 0.0.
+            try:
+                confidence = float(text_info[1]) if len(text_info) > 1 else 0.0
+            except (TypeError, ValueError):
+                confidence = 0.0
         elif isinstance(text_info, str):
             text = text_info.strip()
             confidence = 0.0
@@ -237,8 +242,8 @@ def html_from_paddle_regions(regions: list[dict[str, Any]]) -> str:
     return prepare_html_for_lo_import(_wrap_html_fragment("\n".join(parts)))
 
 
-def decode_image_bytes(image: Any) -> Any:
-    """Return a numpy RGB array from raw PNG/JPEG bytes."""
+def decode_image_bytes(image: Any, *, scale: float = 1.0) -> Any:
+    """Return a numpy RGB array from raw PNG/JPEG bytes, optionally scaled."""
     # Transpose EXIF orientation, then composite transparent pixels onto white.
     # convert('RGB') drops alpha and paints transparent images black-on-black.
     if image is None:
@@ -260,7 +265,24 @@ def decode_image_bytes(image: Any) -> Any:
             rgb = Image.alpha_composite(bg, rgba).convert("RGB")
         else:
             rgb = img.convert("RGB")
+        if scale > 0 and scale != 1.0:
+            width, height = rgb.size
+            rgb = rgb.resize(
+                (max(1, round(width * scale)), max(1, round(height * scale))),
+                Image.Resampling.LANCZOS,
+            )
         return np.array(rgb)
+
+
+def _decode_image(image: Any, params: dict[str, Any]) -> Any:
+    """Decode image bytes, applying the persisted images_scale (Paddle ignored it before)."""
+    try:
+        scale = float(params.get("images_scale") or 1.0)
+    except (TypeError, ValueError):
+        scale = 1.0
+    if scale <= 0 or scale == 1.0:
+        return decode_image_bytes(image)
+    return decode_image_bytes(image, scale=scale)
 
 
 def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -281,7 +303,7 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         return error_result("VISION_ERROR", str(exc), helper=helper)
 
     try:
-        image_array = decode_image_bytes(image)
+        image_array = _decode_image(image, params)
         raw_lines = _run_paddle_ocr(engine, image_array)
         regions, texts = _parse_ocr_lines(raw_lines)
     except Exception as exc:
@@ -325,7 +347,8 @@ def _positive_span(value: str | None) -> int:
         parsed = int(str(value).strip())
     except (TypeError, ValueError):
         return 1
-    return parsed if parsed > 0 else 1
+    # Clamp to MAX_TABLE_ROWS; a huge rowspan/colspan would otherwise allocate/hang before truncation.
+    return min(parsed, MAX_TABLE_ROWS) if parsed > 0 else 1
 
 
 class _HtmlTableParser(HTMLParser):
@@ -342,6 +365,7 @@ class _HtmlTableParser(HTMLParser):
     _col: int
     _pending_rowspan: int
     _pending_colspan: int
+    _table_depth: int
 
     def __init__(self) -> None:
         super().__init__()
@@ -353,8 +377,21 @@ class _HtmlTableParser(HTMLParser):
         self._pending_rowspan = 1
         self._pending_colspan = 1
         self._covered: set[tuple[int, int]] = set()
+        self._table_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        # Nested tables must not reset the outer cell; their text is folded into a space.
+        if tag == "table":
+            self._table_depth += 1
+            if self._table_depth > 1 and self._in_cell:
+                self._cell_parts.append(" ")
+            return
+        if self._table_depth > 1:
+            return
+        if tag == "br":
+            if self._in_cell:
+                self._cell_parts.append(" ")
+            return
         if tag == "tr":
             self._row += 1
             self._col = 0
@@ -371,6 +408,12 @@ class _HtmlTableParser(HTMLParser):
             self._cell_parts = []
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "table":
+            if self._table_depth > 0:
+                self._table_depth -= 1
+            return
+        if self._table_depth > 1:
+            return
         if tag in ("td", "th") and self._in_cell:
             self._in_cell = False
             rowspan = self._pending_rowspan
@@ -378,7 +421,7 @@ class _HtmlTableParser(HTMLParser):
             origin = (self._row, self._col)
             self.cells.append(
                 {
-                    "text": "".join(self._cell_parts).strip(),
+                    "text": " ".join("".join(self._cell_parts).replace("\xa0", " ").split()),
                     "start_row_offset_idx": self._row,
                     "start_col_offset_idx": self._col,
                     "row_span": rowspan,
@@ -392,7 +435,7 @@ class _HtmlTableParser(HTMLParser):
             self._col += colspan
 
     def handle_data(self, data: str) -> None:
-        if self._in_cell:
+        if self._in_cell and self._table_depth <= 1:
             self._cell_parts.append(data)
 
 
@@ -410,6 +453,8 @@ def _table_from_html(html: str, *, name: str) -> dict[str, Any] | None:
     for cell in parser.cells:
         num_rows = max(num_rows, int(cell["start_row_offset_idx"]) + int(cell["row_span"]))
         num_cols = max(num_cols, int(cell["start_col_offset_idx"]) + int(cell["col_span"]))
+    num_rows = min(num_rows, MAX_TABLE_ROWS)
+    num_cols = min(num_cols, MAX_TABLE_ROWS)
     return table_from_span_cells(parser.cells, num_rows, num_cols, name=name)
 
 
@@ -539,21 +584,22 @@ def _is_v3_block(block: Any) -> bool:
     return hasattr(block, "label") and hasattr(block, "content")
 
 
-def _is_v3_structure_page(obj: Any) -> bool:
+def _v3_structure_payload(obj: Any) -> dict[str, Any] | None:
+    """PP-Structure v3 page payload, or None when *obj* is not one."""
     payload = _paddle_payload(obj)
     if not isinstance(payload, dict):
-        return False
+        return None
     # ``table_res_list`` exists only on PPStructureV3 pages (``pred_html``).
     if "table_res_list" in payload:
-        return True
+        return payload
     blocks = payload.get("parsing_res_list")
     if not isinstance(blocks, list):
-        return False
-    # A bare ``parsing_res_list`` of 2.x regions is unwrapped below. 3.x blocks
-    # use block_label / block_content / block_bbox (or LayoutBlock attributes).
-    if not blocks:
-        return True
-    return _is_v3_block(blocks[0])
+        return None
+    # A bare ``parsing_res_list`` of 2.x regions is unwrapped by the caller.
+    # 3.x blocks use block_label / block_content / block_bbox (or LayoutBlock attributes).
+    if not blocks or _is_v3_block(blocks[0]):
+        return payload
+    return None
 
 
 def _parse_v3_structure_page(
@@ -607,7 +653,7 @@ def _parse_v3_structure_page(
 
 
 def _normalize_structure_pages(raw: Any) -> list[Any]:
-    """One entry per page. 2.x pages are region lists; 3.x pages stay Results.
+    """Pages as a flat list: 2.x per-page region lists are flattened into their regions; 3.x pages stay Results.
 
     PPStructureV3.predict() yields per-page Results (often a generator). The old
     normalizer peeled ``parsing_res_list`` off that dict and dropped
@@ -620,7 +666,7 @@ def _normalize_structure_pages(raw: Any) -> list[Any]:
         return []
     if isinstance(raw, tuple):
         raw = list(raw)
-    if _is_v3_structure_page(raw):
+    if _v3_structure_payload(raw) is not None:
         return [raw]
     if isinstance(raw, dict):
         for key in ("layout_parsing_result", "parsing_res_list", "result", "res"):
@@ -629,8 +675,8 @@ def _normalize_structure_pages(raw: Any) -> list[Any]:
                 return inner
         return [raw]
     if isinstance(raw, list):
-        if raw and isinstance(raw[0], list):
-            return list(raw[0])
+        if raw and all(isinstance(page, list) for page in raw):
+            return [region for page in raw for region in page]
         return raw
     return [raw]
 
@@ -642,10 +688,8 @@ def _parse_structure_output(raw_pages: list[Any]) -> tuple[list[dict[str, Any]],
     table_index = 0
 
     for item in raw_pages:
-        if _is_v3_structure_page(item):
-            payload = _paddle_payload(item)
-            if payload is None:
-                continue
+        payload = _v3_structure_payload(item)
+        if payload is not None:
             page_blocks, page_tables, page_text, table_index = _parse_v3_structure_page(payload, table_index=table_index)
             blocks.extend(page_blocks)
             tables.extend(page_tables)
@@ -771,7 +815,7 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         return error_result("VISION_ERROR", str(exc), helper=helper)
 
     try:
-        image_array = decode_image_bytes(image)
+        image_array = _decode_image(image, params)
         raw_pages = _run_pp_structure(engine, image_array)
         blocks, tables, text_parts = _parse_structure_output(raw_pages)
     except Exception as exc:
