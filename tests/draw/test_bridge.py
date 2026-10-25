@@ -90,6 +90,7 @@ def test_get_draw_context_for_chat_keeps_going_when_one_shape_cannot_be_read():
     assert "Hello" in out
     assert "Unable to read Draw/Impress context" not in out
     assert "- [0] Shape" in out
+    assert '- [1] TextShape: pos(10, 20) size(100x50) text: "Hello"' in out
 
 
 def test_get_draw_context_for_chat_keeps_notes_when_shapes_exceed_budget():
