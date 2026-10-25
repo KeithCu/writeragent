@@ -10,6 +10,11 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 offsets need linebreak normalization, tracked-deletion reads, heading trees, file
 paths, selection range calculation, and Writer text-slice reads. Those must not
 load ``document_helpers`` → chat context / ``DocumentService``.
+
+Offsets: visible-text offsets (``get_string_without_tracked_deletions``,
+``get_document_length``, ``_read_writer_text_slice`` results) and cursor-step
+offsets (``_writer_char_count``, ``get_text_cursor_at_range*``,
+``get_selection_range``) are different spaces; convert with a slice read.
 """
 
 from __future__ import annotations
@@ -126,7 +131,7 @@ def _position_text_is_body(model: Any, position: Any, step_label: str) -> bool:
 
 
 def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int:
-    """Character offset of a UNO text position from document start (no prefix getString())."""
+    """Cursor-step offset of a body text position from the document start, or -1 when the position is outside the body or cannot be measured."""
     if not _position_text_is_body(model, target_start, "Get position text"):
         # Selection is in a table cell, frame, or header. compareRegionStarts
         # against the body raises, and the handler below used to return 0,
@@ -138,35 +143,31 @@ def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int
         text = safe_call(model.getText, "Get document text")
         cursor = safe_call(text.createTextCursor, "Create text cursor")
         safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        offset = 0
-        while offset < doc_len:
-            cmp = safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart"))
+        lo, hi = 0, doc_len
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            probe = safe_call(
+                text.createTextCursorByRange,
+                "Create probe cursor",
+                safe_call(cursor.getStart, "Cursor getStart"),
+            )
+            safe_call(probe.goRight, "Cursor goRight", mid, False)
+            cmp = safe_call(
+                text.compareRegionStarts,
+                "compareRegionStarts",
+                target_start,
+                safe_call(probe.getStart, "Cursor getStart"),
+            )
             if cmp == 0:
-                return offset
-            if cmp > 0:
-                if offset == 0:
-                    return 0
-                safe_call(cursor.goLeft, "Cursor goLeft", 1, False)
-                offset -= 1
-                continue
-            step = min(_GO_RIGHT_CHUNK, doc_len - offset)
-            if step <= 0:
-                return offset
-            safe_call(cursor.goRight, "Cursor goRight", step, False)
-            offset += step
-            cmp_after = safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart"))
-            if cmp_after >= 0:
-                while offset > 0 and safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart")) > 0:
-                    safe_call(cursor.goLeft, "Cursor goLeft", 1, False)
-                    offset -= 1
-                while safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart")) < 0 and offset < doc_len:
-                    safe_call(cursor.goRight, "Cursor goRight", 1, False)
-                    offset += 1
-                return offset
-        return doc_len
+                return mid
+            if cmp < 0:
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return min(lo, doc_len)
     except UnoObjectError:
         log.exception("_char_offset_of_position failed")
-        return 0
+        return -1
 
 
 def selected_text_range(controller: Any) -> Any:
@@ -461,13 +462,25 @@ def _paragraph_visible_text(para: Any) -> str:
     return ""
 
 
+def _table_visible_text(table: Any) -> str:
+    """Visible text of *table* cells in document order, cells joined like paragraphs."""
+    names: Any = uno_read(lambda: table.getCellNames() or (), (), object_type="TextTable")
+    cells: list[str] = []
+    for name in names:
+        cell = uno_read(lambda: table.getCellByName(name), None, object_type="TextTable")
+        if cell is not None:
+            cells.append(get_string_without_tracked_deletions(cell))
+    return "\n".join(cells)
+
+
 @main_thread_only
 def get_string_without_tracked_deletions(text_range: Any) -> str:
     """Return *text_range* text while skipping tracked deletions when possible.
 
     A paragraph (``com.sun.star.text.Paragraph``, or first child has
     ``TextPortionType``) concatenates visible portions without a mid-``\\n``.
-    A document or multi-paragraph range still joins paragraphs with ``\\n``.
+    A document or multi-paragraph range still joins paragraphs with ``\\n``
+    and includes table-cell text, including nested tables.
     """
     try:
         if _range_is_paragraph(text_range):
@@ -484,6 +497,9 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
             if not first_para:
                 parts.append("\n")
             first_para = False
+            if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False, object_type="TextRange"):
+                parts.append(_table_visible_text(para))
+                continue
             # Each paragraph's portion enum is independent; Delete start/end
             # markers for this walk live in that para. Reset is inside
             # _visible_portions (same as UNO per-paragraph redline markers).
@@ -739,6 +755,7 @@ def get_document_length(model: Any) -> int:
     statistic, which leaves out the breaks and the deleted text, so a range read near the end
     was cut short ("o dan"). Cursor steps minus the deleted text is no substitute: a field or
     footnote anchor is one step but several characters (314 against 324 on 12 footnotes).
+    Returns 0 for a non-Writer document or on error.
     """
     try:
         check_disposed(model, "Document Model")
@@ -748,12 +765,7 @@ def get_document_length(model: Any) -> int:
             safe_call(whole.gotoStart, "Cursor gotoStart", False)
             safe_call(whole.gotoEnd, "Cursor gotoEnd", True)
             return len(normalize_linebreaks(get_string_without_tracked_deletions(whole)))
-        text = safe_call(model.getText, "Get document text")
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
-        length = len(normalize_linebreaks(safe_call(cursor.getString, "Cursor getString")))
-        return length
+        return 0
     except UnoObjectError:
         log.exception("get_document_length failed")
         return 0
@@ -840,13 +852,9 @@ def get_text_cursor_at_range_reached(model: Any, start_offset: int, end_offset: 
     """
     try:
         check_disposed(model, "Document Model")
-        # Offsets are not clamped to get_document_length(). For Writer
-        # that is the CharacterCount statistic -- it leaves out paragraph
-        # breaks and tracked deletions, while offsets
-        # (search_in_document return_offsets, getString) count both. On
-        # a long document the range is clamped past its real end and
-        # set_selection selects nothing (relato #37). No clamp is needed
-        # at the end: goRight stops at the end of the text on its own.
+        # Offsets are not clamped here. Writer callers use visible-text offsets
+        # (get_document_length) or cursor-step offsets (_writer_char_count);
+        # either way goRight stops at the end of the text on its own.
         start_offset = max(0, start_offset)
         end_offset = max(0, end_offset)
         if start_offset > end_offset:

@@ -80,7 +80,7 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | Symbol | Purpose |
 |--------|---------|
 | `normalize_linebreaks` | `\r\n` / `\r` → `\n` so offsets match (Windows UNO/clipboard). |
-| `get_string_without_tracked_deletions` | Skip redline Delete portions. A paragraph concatenates visible portions without a mid-`\n`; a document or multi-para range still joins with `\n`. Shares `_visible_portions` with range_copy paint (paint aborts on portion-enum failure to avoid offset drift; the helper continues). |
+| `get_string_without_tracked_deletions` | Skip redline Delete portions. A paragraph concatenates visible portions without a mid-`\n`; a document or multi-para range still joins with `\n` and descends into table cells (nested included). Shares `_visible_portions` with range_copy paint (paint aborts on portion-enum failure to avoid offset drift; the helper continues). |
 | `normalize_file_url` | Repair `file:/path` → `file:///path` (legacy `urljoin`). Shared with research. |
 | `get_document_path` | `file:` URL → repair then `uno.fileUrlToSystemPath`; `None` if untitled / non-file. |
 | `get_selection_range` | Writer `(start, end)` character offsets (cursor = equal ends). |
@@ -88,7 +88,7 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
 | `collect_tracked_changes` | Bounded list of redlines in a range. |
 | `get_full_writer_text` | Prefix of Writer body, hiding tracked deletions. |
-| `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted) = the space of `get_document_content` `document_length` and `scope='range'`. |
+| `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text; returns 0 for non-Writer or on error) = the space of `get_document_content` `document_length` and `scope='range'`. |
 | `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). |
 | `_writer_char_count` / `_read_writer_text_slice` | Body length in cursor steps (paragraph breaks and pending deleted text count, as in `goRight` / `get_selection_range`); slice reads for chat excerpts. Not `CharacterCount`: that statistic leaves both out and recomputes after an edit (slower than the walk). |
 
