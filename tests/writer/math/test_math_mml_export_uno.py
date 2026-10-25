@@ -67,6 +67,7 @@ def test_iter_inline_and_display_math(ctx: Any, doc: Any) -> None:
     assert "a" in inline.starmath and "b" in inline.starmath
     display = hits[-1]
     assert display.display_block is True
+    assert all(h.embed_name for h in hits)
 
 
 @native_test
@@ -83,12 +84,15 @@ def test_document_to_content_includes_tex(ctx: Any, doc: Any) -> None:
     assert conv.ok and conv.starmath, conv.error_message
     insert_writer_math_formula(doc, cur, conv.starmath, display_block=False)
     text.insertString(cur, " there", False)
+    text.insertControlCharacter(cur, 0, False)
+    insert_writer_math_formula(doc, cur, "x", display_block=True)
 
     html = document_to_content(doc, ctx, services=None, scope="full")
     assert html
     assert "<math" not in html.lower()
     assert "frac" in html.lower() or "1" in html
-    assert html.count("$") == 2
+    assert html.count("$") == 6
+    assert "$$x$$" in html
 
 
 @native_test
@@ -141,6 +145,7 @@ def test_body_table_and_header_math_order_uno(ctx: Any, doc: Any) -> None:
     # Full document HTML export
     html = document_to_content(doc, ctx, services=None, scope="full")
     assert html
+    assert "<math" not in html.lower()
     idx1 = html.find("a + 1") if "a + 1" in html else html.find("a+1")
     idx2 = html.find("b + 2") if "b + 2" in html else html.find("b+2")
     idx3 = html.find("c + 3") if "c + 3" in html else html.find("c+3")

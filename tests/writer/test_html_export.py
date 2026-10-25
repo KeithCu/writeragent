@@ -908,7 +908,7 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
 
 
 def test_substitute_math_placeholders_entities_and_fallback():
-    from plugin.writer.math.math_mml_export import MathExportResult, substitute_math_placeholders
+    from plugin.writer.math import math_mml_export as exp
 
     p1 = chr(0xE000)
     p2 = chr(0xE001)
@@ -921,19 +921,21 @@ def test_substitute_math_placeholders_entities_and_fallback():
         (p3, "bad starmath", False),
     ]
 
-    def fake_convert(ctx: object, starmath: str) -> MathExportResult:
-        if starmath == "a + b":
-            return MathExportResult(True, "a + b", None, None)
-        if starmath == "x":
-            return MathExportResult(True, "x", None, None)
-        return MathExportResult(False, None, None, "error")
+    def fake_convert(self: object, starmath: str | None = None) -> exp.MathExportResult:
+        expr = self if starmath is None else starmath
+        if expr == "a + b":
+            return exp.MathExportResult(True, "a + b", None, None)
+        if expr == "x":
+            return exp.MathExportResult(True, "x", None, None)
+        return exp.MathExportResult(False, None, None, "error")
 
-    with patch("plugin.writer.math.math_mml_export.convert_starmath_to_latex", side_effect=fake_convert):
-        out = substitute_math_placeholders(html, records, object())
+    with patch.object(exp._MathExportBatch, "convert_starmath_to_latex", side_effect=fake_convert):
+        out = exp.substitute_math_placeholders(html, records, object())
 
     assert "$a + b$" in out
     assert "$$x$$" in out
-    assert "[Math export fallback] bad starmath" in out
+    assert 'data-math-export-error="error">bad starmath' in out
+    assert "$bad starmath" not in out
 
 def test_range_export_skips_flat_odf_when_no_autostyle():
     """Flat ODF is skipped when XHTML contains no paragraph-P<digits> autostyle classes."""
