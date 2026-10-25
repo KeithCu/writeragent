@@ -112,9 +112,7 @@ class CopyMcpConfigListener(BaseActionListener):
         self._dlg = dlg
 
     def on_action_performed(self, rEvent: Any) -> None:
-        # What was wrong: copy read the snippet control before sync, risking stale text,
-        # and re-implemented port parsing with an unguarded int(getValue()).
-        # Why: sync first to ensure freshness, and delegate to _read_mcp_port for fallback.
+        # Sync first so the copied text matches the current fields.
         sync_mcp_config_snippet(self._dlg)
         snippet_ctrl = get_optional(self._dlg, "mcp__client_config_snippet")
         text = get_control_text(snippet_ctrl) if snippet_ctrl else ""
@@ -196,8 +194,6 @@ def sync_mcp_config_snippet(
     if not snippet_ctrl:
         return
 
-    # What was wrong: port parsing was duplicated and int() on getValue() threw unhandled exceptions.
-    # Why: _read_mcp_port safely guards getValue/getText and falls back cleanly.
     port_val = _read_mcp_port(dlg)
 
     tunnel_enabled_ctrl = get_optional(dlg, "mcp__tunnel_enabled")
@@ -228,11 +224,7 @@ def sync_mcp_config_snippet(
 
         if _shared_tunnel and _shared_tunnel.is_running and getattr(_shared_tunnel, "provider", None) == selected_provider:
             active_url = _shared_tunnel.mcp_public_url()
-            # What was wrong: a 1.2s polling thread was scheduled if active_url was missing,
-            # holding a dialog reference off the UI thread and permanently disabling future polls
-            # if run_in_background failed.
-            # Why: NotifyUrlAcquiredEffect already notifies when the URL arrives; if not ready yet,
-            # we write the provider template immediately and wait for the event.
+            # No URL yet: write the template now; notify_tunnel_url_acquired refreshes it later.
             if active_url:
                 remember_tested_tunnel_url(selected_provider, active_url)
 
@@ -310,11 +302,7 @@ class TestTunnelListener(BaseActionListener):
             btn.getModel().Enabled = False
 
         def _worker() -> None:
-            # What was wrong: if test_tunnel_connectivity raised, _apply never ran and the
-            # button was stuck on 'Testing…'. Also _apply could run on a disposed/closed dialog,
-            # and the probe ran on the shared pool rather than a dedicated thread.
-            # Why: catch unexpected probe exceptions to guarantee _apply runs, check dialog
-            # liveness via _current_settings_dialog() and suppress_disposed, and use dedicated=True.
+            # A probe exception must still reach _apply, or the button stays on "Testing…".
             try:
                 _ok, msg, pub_url = test_tunnel_connectivity(provider=provider, port=port)
             except Exception as exc:
