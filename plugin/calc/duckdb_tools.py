@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from typing import TYPE_CHECKING, Any, cast
 
 from plugin.calc.address_utils import format_range_address, qualify_a1, split_sheet_prefix
@@ -116,7 +117,9 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
 
         tables_raw = kwargs.get("tables") or {}
         tables = dict(tables_raw) if isinstance(tables_raw, dict) else {}
-        if data_range and "data" not in tables:
+        if data_range:
+            if "data" in tables:
+                return self._tool_error("data_range and tables['data'] both define table 'data'; pass only one", code="DUCKDB_SQL_ERROR")
             tables["data"] = {"range": data_range, "headers": headers}
 
         task_hint = str(kwargs.get("task_hint") or "") or None
@@ -156,18 +159,19 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                 spec = str(fspec).strip() if fspec else ""
                 if not spec:
                     continue
-                # Parse optional #sheet hint
-                if "#" in spec:
-                    bn_part, sheet_part = spec.rsplit("#", 1)
-                    sheet_hint = sheet_part.strip() or None
-                    bn = os.path.basename(bn_part.strip())
-                else:
-                    bn = os.path.basename(spec)
-                    sheet_hint = None
+                try:
+                    file_spec = parse_table_source_spec({"file": spec}, default_headers=headers)
+                except ToolExecutionError as exc:
+                    return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
+                bn = str(file_spec.get("file") or "")
+                sheet_hint = file_spec.get("sheet")
 
                 ext = os.path.splitext(bn)[1].lower()
                 if not scoped:
                     return self._tool_error("A saved document folder is required to read sibling files", code="MISSING_SCOPED_DIR")
+                table_name = name_hint or bn
+                if table_name in preloaded or table_name in flat_files:
+                    return self._tool_error(f"Duplicate SQL table name {table_name!r} for {spec!r}; give each tables/files source a distinct name", code="DUCKDB_SQL_ERROR")
                 full_path = os.path.join(scoped, bn)
                 if not os.path.isfile(full_path):
                     # Used to append the basename to direct_files so DuckDB failed
@@ -181,12 +185,10 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                         office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, sheet_hint=sheet_hint)
                     except ToolExecutionError as exc:
                         return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
-                    use_name = name_hint or bn
-                    preloaded[use_name] = {"grid": office_grid, "headers": headers}
+                    preloaded[table_name] = {"grid": office_grid, "headers": headers}
                     continue
                 if ext in FLAT_FILE_EXTS:
-                    use_name = name_hint or bn
-                    flat_files[use_name] = full_path
+                    flat_files[table_name] = full_path
                     continue
                 return self._tool_error(unsupported_flat_type_message(bn, ext), code="UNSUPPORTED_FILE_TYPE")
 
@@ -457,10 +459,10 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
     if not callable(store):
         raise TypeError("document cannot storeToURL")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(dest.name + ".partial")
+    # Unique per writer: a fixed ".partial" name let two cache writes unlink
+    # each other's in-progress export.
+    tmp = dest.parent / f"{dest.name}.{uuid.uuid4().hex}.partial"
     try:
-        if tmp.exists():
-            tmp.unlink()
         url = uno.systemPathToFileUrl(str(tmp.resolve()))
         props = (create_property_value("FilterName", "calc8"), create_property_value("Overwrite", True))
         store(url, props)

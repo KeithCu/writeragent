@@ -14,6 +14,7 @@ from unittest.mock import patch
 from plugin.calc.address_utils import parse_range_string, split_sheet_prefix
 from plugin.calc.duckdb_tools import (
     QueryFolderSqlTool,
+    _export_model_to_cached_ods,
     _read_sibling_office_file_as_grid,
     _sheet_qualified_a1,
     _source_is_open_workbook,
@@ -1119,3 +1120,76 @@ def test_read_range_calc_error_reports_maximum_is(mock_resolve, mock_a1, mock_re
     res = QueryFolderSqlTool().execute(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
     assert res["status"] == "error"
     assert "maximum is" in res.get("message", "")
+
+
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
+@patch("plugin.calc.duckdb_tools.read_table_source_grid", return_value=[["h"], [1]])
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
+def test_execute_rejects_table_and_file_with_same_name(
+    _mock_isfile, _mock_read, _mock_resolve, mock_run
+):
+    ctx = _mk_ctx()
+    res = QueryFolderSqlTool().execute(
+        ctx,
+        sql="SELECT * FROM sales",
+        tables={"sales": {"sheet": "Sales"}},
+        files={"sales": "budget.xlsx#Actuals"},
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "DUCKDB_SQL_ERROR"
+    assert "sales" in res["message"]
+    mock_run.assert_not_called()
+
+
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
+@patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid", return_value=[["h"], [1]])
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
+def test_execute_rejects_duplicate_file_table_names(
+    _mock_isfile, mock_read_sibling, _mock_resolve, mock_run
+):
+    ctx = _mk_ctx()
+    res = QueryFolderSqlTool().execute(
+        ctx,
+        sql="SELECT * FROM budget",
+        files=["budget.xlsx#Actuals", "budget.xlsx#Summary"],
+    )
+    assert res["status"] == "error"
+    assert "budget.xlsx" in res["message"]
+    mock_read_sibling.assert_called_once()
+    mock_run.assert_not_called()
+
+
+def test_execute_rejects_data_range_with_tables_data():
+    ctx = _mk_ctx()
+    res = QueryFolderSqlTool().execute(
+        ctx,
+        sql="SELECT * FROM data",
+        data_range="A1:B2",
+        tables={"data": {"range": "Actuals.A1:B2"}},
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "DUCKDB_SQL_ERROR"
+    assert "data" in res["message"]
+
+
+def test_export_uses_unique_partial_temp(tmp_path, monkeypatch):
+    import uno
+    from pathlib import Path
+
+    monkeypatch.setattr(uno, "systemPathToFileUrl", lambda path: str(path))
+    dest = tmp_path / "cached.ods"
+    decoy = tmp_path / "cached.ods.partial"
+    decoy.write_bytes(b"other-writer")
+
+    class _Model:
+        def storeToURL(self, url, _props):
+            Path(url).write_bytes(b"PK\x03\x04ods")
+
+    _export_model_to_cached_ods(_Model(), dest)
+
+    assert dest.read_bytes() == b"PK\x03\x04ods"
+    assert decoy.read_bytes() == b"other-writer"
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".partial")] == ["cached.ods.partial"]
+
