@@ -195,3 +195,33 @@ def test_missing_field_name_in_scope_returns_none_without_second_walk():
 
     # Only 1 call to getByIndex during the initial build
     assert dp.getByIndex.call_count == 1
+
+
+def test_lookup_with_none_doc_is_empty_not_a_crash():
+    assert index_form_control_models(None) == {}
+    assert find_form_control_model_by_name(None, "nb_cell_0_code") is None
+    assert find_control_shape_by_name(None, "nb_cell_0_code") is None
+    assert read_code_from_field(None, "nb_cell_0_code") is None
+
+
+def test_text_fallback_accepts_uno_integer_one():
+    field_model = MagicMock()
+    field_model.Name = "nb_cell_0_code"
+    portion = MagicMock()
+    portion.getPropertyValue.return_value = "Frame"
+    portion.TextField = field_model
+    para = MagicMock()
+    para.createEnumeration.return_value = _enum_of([portion])
+
+    outer = MagicMock()
+    outer.hasMoreElements.side_effect = [1, False]
+    outer.nextElement.return_value = para
+
+    dp = MagicMock()
+    dp.getCount.return_value = 0
+    doc = MagicMock()
+    doc.getDrawPage.return_value = dp
+    doc.getText.return_value.createEnumeration.return_value = outer
+
+    assert find_form_control_model_by_name(doc, "nb_cell_0_code") is field_model
+

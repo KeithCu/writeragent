@@ -60,8 +60,16 @@ def control_lookup_scope(doc: Any) -> Iterator[None]:
         _local.index = prev
 
 
+def _enum_has_more(enum: Any) -> bool:
+    """``hasMoreElements`` is True or 1 on UNO; a MagicMock return is neither."""
+    more = enum.hasMoreElements()
+    return more is True or more == 1
+
+
 def build_control_index(doc: Any) -> ControlIndex:
-    """Snapshot draw-page form control models and shapes once for *doc*."""
+    """Snapshot draw-page form control models and shapes once for *doc*; a None *doc* yields an empty index."""
+    if doc is None:
+        return ControlIndex(doc=None, models_by_name={}, shapes_by_name={})
     models: dict[str, Any] = {}
     shapes: dict[str, Any] = {}
     for name, model, shape in _iter_control_shapes(doc):
@@ -128,7 +136,7 @@ def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
     """Fallback for tests and LO builds that expose controls only via text portions."""
     text = doc.getText()
     enum = text.createEnumeration()
-    while enum.hasMoreElements() is True:  # a MagicMock return never stops a plain truth test
+    while _enum_has_more(enum):
         block = enum.nextElement()
         # TextTable blocks have no portion enumeration. Skip the block.
         portion_enum = best_effort(
@@ -137,7 +145,7 @@ def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
         )
         if portion_enum is None:
             continue
-        while portion_enum.hasMoreElements() is True:
+        while _enum_has_more(portion_enum):
             portion = portion_enum.nextElement()
             model = _model_from_text_portion(portion)
             if model is None:
