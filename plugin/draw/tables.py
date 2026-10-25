@@ -85,19 +85,17 @@ def _is_table_shape(shape: Any) -> bool:
 def _ensure_table_dims(model: Any, rows: int, columns: int) -> tuple[int, int]:
     """Grow a TableShape model to at least ``rows`` x ``columns``.
 
-    TableShape defaults to 1x1 after ``page.add``. ``Rows``/``Columns``
-    properties on a detached shape are often ignored, so insert uses the
-    same ``insertByIndex`` path as ``manage_draw_structure``. Does not shrink.
+    TableShape starts 1x1 after ``page.add``; grow one ``insertByIndex`` call
+    per axis and verify. Does not shrink.
     """
     nrows, ncols = table_dims(model)
-    band = model.getRows()
-    while nrows < rows:
-        band.insertByIndex(nrows, 1)
-        nrows += 1
-    band = model.getColumns()
-    while ncols < columns:
-        band.insertByIndex(ncols, 1)
-        ncols += 1
+    if nrows < rows:
+        model.getRows().insertByIndex(nrows, rows - nrows)
+    if ncols < columns:
+        model.getColumns().insertByIndex(ncols, columns - ncols)
+    nrows, ncols = table_dims(model)
+    if nrows < rows or ncols < columns:
+        raise ValueError("TableShape grew to %dx%d, expected at least %dx%d." % (nrows, ncols, rows, columns))
     return nrows, ncols
 
 
@@ -246,6 +244,14 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     if rows < 1 or columns < 1:
         return {"status": "error", "message": "rows and columns must be at least 1.", "code": "TOOL_EXECUTION_ERROR"}
 
+    data = kwargs.get("data")
+    if data:
+        if len(data) > rows:
+            return {"status": "error", "message": "data has %d rows but table only has %d." % (len(data), rows), "code": "TOOL_EXECUTION_ERROR"}
+        for r_idx, row in enumerate(data):
+            if isinstance(row, (list, tuple)) and len(row) > columns:
+                return {"status": "error", "message": "data row %d has %d columns but table only has %d." % (r_idx, len(row), columns), "code": "TOOL_EXECUTION_ERROR"}
+
     page, actual_idx, err = resolve_shape_page(ctx, kwargs)
     if err or page is None:
         return {"status": "error", "message": err or "No draw page available.", "code": "TOOL_EXECUTION_ERROR"}
@@ -255,40 +261,37 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     width = coerce_int(kwargs.get("width"), 20000)
     height = coerce_int(kwargs.get("height"), 10000)
 
-    data = kwargs.get("data")
     added = False
     shape: Any = None
     written = 0
     stage = "create table"
 
     try:
-        shape = ctx.doc.createInstance("com.sun.star.drawing.TableShape")
-        for prop, val in (("Rows", rows), ("Columns", columns)):
-            try:
-                shape.setPropertyValue(prop, val)
-            except Exception:
-                log.debug("TableShape setPropertyValue %s failed", prop, exc_info=True)
-        page.add(shape)
-        added = True
-        shape.setSize(Size(width, height))
-        shape.setPosition(Point(x, y))
+        from plugin.doc.compound_undo import WriterCompoundUndo
 
-        table = _table_model(shape)
-        if table is None:
-            if data:
-                return {
-                    "status": "ok",
-                    "message": "Table inserted but cell model was unavailable; data not filled",
-                    "page": actual_idx,
-                    "index": page.getCount() - 1,
-                    "warning": "table_model_unavailable",
-                }
-        else:
-            stage = "size table"
-            _ensure_table_dims(table, rows, columns)
-            if data:
-                stage = "fill table cells"
-                written = fill_table_cells(table, data)
+        with WriterCompoundUndo(ctx.doc, "WriterAgent: Insert table"):
+            shape = ctx.doc.createInstance("com.sun.star.drawing.TableShape")
+            page.add(shape)
+            added = True
+            shape.setSize(Size(width, height))
+            shape.setPosition(Point(x, y))
+
+            table = _table_model(shape)
+            if table is None:
+                if data:
+                    return {
+                        "status": "ok",
+                        "message": "Table inserted but cell model was unavailable; data not filled",
+                        "page": actual_idx,
+                        "index": page.getCount() - 1,
+                        "warning": "table_model_unavailable",
+                    }
+            else:
+                stage = "size table"
+                _ensure_table_dims(table, rows, columns)
+                if data:
+                    stage = "fill table cells"
+                    written = fill_table_cells(table, data)
     except Exception as exc:
         if is_real_disposal(exc):
             raise

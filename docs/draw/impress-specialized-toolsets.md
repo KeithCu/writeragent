@@ -361,8 +361,9 @@ class AlignShapes(ToolDrawShapeBase):
 **Design:** Slide table manipulation uses the specialized table tools in [`plugin/writer/specialized/tables.py`](../../plugin/writer/specialized/tables.py) (`TableInsert`, `TableDelete`, `TableList`, `TableGetCells`, `TableSetCell`, `ManageTableStructure`), which branch on `_is_draw_doc(ctx.doc)` to delegate to Draw TableShape helpers in [`plugin/draw/tables.py`](../../plugin/draw/tables.py).
 
 **Implementation:**
-- `insert_draw_table`: creates an instance of `com.sun.star.drawing.TableShape`.
-- After `page.add`, grows the TableShape model with row/column `insertByIndex` (Rows/Columns properties on a detached shape are unreliable), then populates cells via `getCellByPosition(col, row)`.
+- `insert_draw_table`: oversized `data` is rejected before any shape is created.
+- Growth is one `insertByIndex(index, count)` per axis and the result is verified; cells are then populated via `getCellByPosition(col, row)`.
+- The whole insert runs in one compound undo step titled `WriterAgent: Insert table`.
 
 ---
 
