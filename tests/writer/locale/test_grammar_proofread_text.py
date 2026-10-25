@@ -6,11 +6,17 @@
 
 from __future__ import annotations
 
+import logging
+from unittest.mock import MagicMock, patch
+
+from hypothesis import given, settings
+from hypothesis import strategies as st
+import pytest
+
 from plugin.writer.locale import grammar_proofread_locale as gl
 from plugin.writer.locale import grammar_proofread_text as gt
 
-import pytest
-from unittest.mock import MagicMock, patch
+_HYP_TEXT = st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=30)
 
 # --- Mocks for non-native tests ---
 
@@ -863,12 +869,129 @@ def test_resolve_work_spans() -> None:
         assert res_empty == []
         mock_obs.assert_called_once_with(
             "do_proofreading_skip",
-            reason="no_eligible_sentences_or_incomplete_short",
+            reason="no_active_sentences",
             doc_id="doc1",
             n_start_lo=50,
             raw_candidates=len(spans),
             grammar_bcp47="en-US",
         )
+
+
+def test_split_debug_summary_is_one_gated_line(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
+    caplog.clear()
+    gt.split_into_sentences(None, "en-US", "One. Two.")
+    records = [r for r in caplog.records if r.name == "writeragent.grammar" and "split_into_sentences count=" in r.getMessage()]
+    assert len(records) == 1
+    assert "count=2" in records[0].getMessage()
+
+    caplog.set_level(logging.WARNING, logger="writeragent.grammar")
+    caplog.clear()
+    gt.split_into_sentences(None, "en-US", "One. Two.")
+    records_warn = [r for r in caplog.records if r.name == "writeragent.grammar" and "split_into_sentences count=" in r.getMessage()]
+    assert len(records_warn) == 0
+
+
+def test_split_quoted_abbreviation_not_boundary() -> None:
+    chunks = gt.split_into_sentences(None, "en-US", 'He said "Dr. Smith went home." Next one.')
+    assert len(chunks) == 2
+    assert "Dr. Smith" in chunks[0][1]
+
+
+def test_split_parenthesized_abbreviation_not_boundary() -> None:
+    chunks = gt.split_into_sentences(None, "en-US", "(Dr. Smith) went home. Next one.")
+    assert len(chunks) == 2
+    assert "Dr. Smith" in chunks[0][1]
+
+
+def test_split_abbreviation_before_closing_quote() -> None:
+    class CloserConsumingFakeBI(FakeBI):
+        def endOfSentence(self, text, pos, locale):
+            import re
+            m = re.search(r'[.!?]', text[pos:])
+            if not m:
+                return len(text)
+            end = pos + m.end()
+            while end < len(text) and text[end] in "\")]":
+                end += 1
+            return end
+
+    with patch(
+        "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",
+        return_value=(CloserConsumingFakeBI(), "en-US"),
+    ):
+        chunks = gt.split_into_sentences(None, "en-US", 'He said "Dr." Smith went home. Next one.')
+        assert len(chunks) == 2
+        assert 'Dr." Smith' in chunks[0][1]
+
+
+def test_expansion_clamped_to_slice() -> None:
+    full = "aaa bbb ccc"
+    # Probe 1: expansion walks outside window [4, 7) into full_text, clamp keeps it inside [4, 7)
+    items1 = [{"wrong": "bbb", "correct": "aaa bbb ddd"}]
+    norms1 = gt.normalize_errors_for_text(full, 4, 7, items1)
+    assert len(norms1) == 1
+    assert (norms1[0].n_error_start, norms1[0].n_error_length) == (4, 3)
+
+    # Probe 2: correct="aaa bbb", previously expanded out and dropped as no-op; now clamped to (4, 3)
+    items2 = [{"wrong": "bbb", "correct": "aaa bbb"}]
+    norms2 = gt.normalize_errors_for_text(full, 4, 7, items2)
+    assert len(norms2) == 1
+    assert (norms2[0].n_error_start, norms2[0].n_error_length) == (4, 3)
+
+
+@given(_HYP_TEXT, st.integers(0, 10), st.integers(0, 10), st.text(min_size=1, max_size=8))
+@settings(max_examples=50, deadline=None)
+def test_hypothesis_normalize_spans_stay_inside_slice(text: str, a: int, b: int, correct: str) -> None:
+    lo = max(0, min(a, b))
+    hi = max(a, b)
+    if lo >= hi or hi > len(text):
+        return
+    norms = gt.normalize_errors_for_text(text, lo, hi, [{"wrong": text[lo:hi], "correct": correct, "type": "grammar"}])
+    for err in norms:
+        assert lo <= err.n_error_start
+        assert err.n_error_start + err.n_error_length <= hi
+
+
+@given(_HYP_TEXT, st.integers(0, 30), st.integers(0, 30))
+@settings(max_examples=50, deadline=None)
+def test_hypothesis_utf16_offset_map_round_trip(text: str, i: int, j: int) -> None:
+    m = gt.Utf16OffsetMap(text)
+    p = max(0, min(i, len(text)))
+    assert m.utf16_to_py(m.py_to_utf16(p)) == p
+    assert m.py_to_utf16(len(text)) == len(text) + sum(1 for ch in text if ord(ch) > 0xFFFF)
+    u_start, u_len = m.utf16_span(i, j)
+    assert u_start == m.py_to_utf16(p)
+    assert u_start + u_len == m.py_to_utf16(max(p, min(i + j, len(text))))
+
+
+@given(_HYP_TEXT)
+@settings(max_examples=50, deadline=None)
+def test_hypothesis_split_into_sentences_tiles_text(text: str) -> None:
+    chunks = gt.split_into_sentences(None, "en-US", text)
+    if not text or text.isspace():
+        assert chunks == []
+    else:
+        prev_end = 0
+        for off, s in chunks:
+            assert off == prev_end
+            assert len(s) > 0
+            prev_end = off + len(s)
+        assert prev_end == len(text)
+
+
+def test_normalize_null_type_and_reason_do_not_leak_none() -> None:
+    norms = gt.normalize_errors_for_text(
+        "Hello",
+        0,
+        5,
+        [{"wrong": "Hello", "correct": "hello", "type": None, "reason": None}],
+    )
+    assert len(norms) == 1
+    assert norms[0].short_comment == "grammar"
+    assert "None" not in norms[0].short_comment
+    assert norms[0].rule_identifier == "wa_g_rule||"
+
 
 
 
