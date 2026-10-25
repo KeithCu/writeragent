@@ -54,12 +54,12 @@ def replace_text_in_shape(shape: Any, old: str, new: str) -> bool:
     preserving the formatting of the surrounding text via a text cursor. Returns True on success.
 
     Uses character-offset navigation (goRight) which aligns with getString() for single-paragraph
-    shape text (the common case for callouts / text boxes); Returns False on an ordinary UNO failure; a disposed document propagates."""
+    shape text (the common case for callouts / text boxes). Returns False on an ordinary UNO failure;
+    a disposed document propagates."""
     try:
         xtext = shape.getText()
         s = xtext.getString()
     except Exception as exc:
-        # Fix: Swallowing DisposedException made closed documents look like ordinary search misses.
         reraise_if_disposed(exc, object_type="Text")
         return False
     idx = s.find(old)
@@ -79,7 +79,6 @@ def replace_text_in_shape(shape: Any, old: str, new: str) -> bool:
         cursor.setString(new)
         return True
     except Exception as exc:
-        # Fix: Propagate disposal if document or shape text was disposed during mutation.
         reraise_if_disposed(exc, object_type="Text")
         return False
 

@@ -170,7 +170,6 @@ class ListDataSources(ToolWriterMailMergeBase):
 
                         source_entry["tables"] = tables_info
                     finally:
-                        # Fix: Ensure database connection is closed even if inspection fails.
                         try:
                             if hasattr(conn, "close"):
                                 conn.close()
@@ -241,7 +240,6 @@ class RegisterDataSource(ToolWriterMailMergeBase):
 
         if action == "unregister":
             if db_ctx.hasByName(name):
-                # Fix: Use revokeDatabaseLocation instead of XNamingService.revokeObject.
                 try:
                     db_ctx.revokeDatabaseLocation(name)
                 except Exception as exc:
@@ -276,9 +274,7 @@ class RegisterDataSource(ToolWriterMailMergeBase):
 
         file_url = _to_file_url(path)
 
-        # Fix: XNamingService.registerObject expected an XInterface database document and failed
-        # on URL strings; revoking before re-registering also lost previous registrations on failure.
-        # Use changeDatabaseLocation if already registered, otherwise registerDatabaseLocation.
+        # Tip: change in place; revoke-then-register lost the old registration on failure.
         try:
             if db_ctx.hasByName(name):
                 db_ctx.changeDatabaseLocation(name, file_url)
@@ -400,8 +396,7 @@ class InsertField(ToolWriterMailMergeBase):
                 cursor.setString("")
                 cursor.getText().insertTextContent(cursor, field, False)
 
-            # Fix: Previously deleted matched text before inserting field without undo context;
-            # if insert failed the text was permanently lost. Use commit_or_rollback_mutation.
+            # Delete + insert as one undo step, so a failed insert does not lose the matched text.
             err = commit_or_rollback_mutation(
                 self,
                 doc,
@@ -622,8 +617,7 @@ class RunMerge(ToolWriterMailMergeBase):
             except Exception as exc:
                 reraise_if_disposed(exc)
                 return self._tool_error("Cannot read the active document before mail merge.")
-            # Fix: MailMerge reads template from disk directly via DocumentURL, ignoring in-memory
-            # edits in WriterAgent. Reject if active document has unsaved changes.
+            # MailMerge reads the template from disk (DocumentURL), so unsaved edits would be ignored.
             if modified is True:
                 return self._tool_error(
                     "The active document has unsaved changes. Save it first, or pass document_url "
@@ -657,8 +651,7 @@ class RunMerge(ToolWriterMailMergeBase):
 
         output_url = None
         if out_type == 2:  # File
-            # Fix: When output_path is omitted, do not fall back to os.getcwd() which can be the
-            # LO installation or root folder. Leaving OutputURL unset lets LO save to the template directory.
+            # No output_path: leave OutputURL unset so LO writes next to the template (cwd may be /).
             if output_path:
                 out_dir = _to_system_path(output_path)
                 try:
@@ -697,7 +690,6 @@ class RunMerge(ToolWriterMailMergeBase):
         # Execute the merge
         mail_merge.execute([])
 
-        # Fix: Stop claiming a file format for printer output.
         dest_msg = (
             f"Output directory: {out_dir or output_url} ({file_format.upper()})."
             if out_type == 2

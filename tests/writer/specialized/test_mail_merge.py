@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import types
 from unittest.mock import MagicMock
 
 
@@ -214,7 +215,10 @@ def test_unregister_failure_surfaces():
     assert "read-only" in res["message"]
 
 
-def test_file_url_with_one_slash_is_normalized(tmp_path):
+def test_file_url_with_one_slash_is_normalized(tmp_path, monkeypatch):
+    # Other test modules swap sys.modules["uno"] for a bare MagicMock; pin the pure-Python path.
+    import plugin.writer.specialized.mail_merge as mail_merge_mod
+    monkeypatch.setattr(mail_merge_mod, "uno", types.SimpleNamespace())
     ctx, doc, comp_ctx, smgr = _create_mock_ctx()
     db_ctx = MagicMock()
     smgr.createInstanceWithContext.return_value = db_ctx

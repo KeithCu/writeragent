@@ -385,7 +385,7 @@ def test_writer_chat_prompt_delegation_routing_local_vs_web():
     prompt = get_chat_system_prompt_for_document(model)
     assert DELEGATION_USER_FILE_DATA_HINT in prompt
     assert "to research public topics" in prompt
-    assert "OLE in active doc only" in prompt
+    assert "OLE in active doc only" not in prompt  # embedded domain is parked (no tools)
 
 
 def test_specialized_delegation_block_is_single_line():

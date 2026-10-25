@@ -17,8 +17,7 @@ from ..specialized_base import ToolWriterEmbeddedBase, target_params
 
 # B3-A3: the embedded domain is out of specialist routing until OLE insert is real.
 # ToolBaseDummy keeps both stubs out of the registry but keeps the code and schema.
-# Dropping the `embedded` domain from the delegate enum needs ToolWriterEmbeddedBase
-# in plugin/writer/specialized_base.py (owned by K212); this job must not edit that file.
+# ToolWriterEmbeddedBase has no specialized_domain while parked, so the delegate catalog omits it.
 class EmbeddedInsert(ToolWriterEmbeddedBase, ToolBaseDummy):  # type: ignore[misc]  # pyright: ignore[reportIncompatibleVariableOverride]
     name: str | None = "embedded_insert"
     description: str = "Insert an embedded object (e.g. Calc spreadsheet) into the document. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Planned: CLSID-based insert + in-place activation."
