@@ -65,6 +65,7 @@ def strip_skill_front_matter(content: str) -> str:
     if not lines or lines[0].strip() != "---":
         return text.strip()
 
+    # Very light front-matter strip (--- ... --- or just the body after first ---)
     for idx, line in enumerate(lines[1:], start=1):
         if line.strip() == "---":
             return "\n".join(lines[idx + 1:]).strip()
@@ -107,9 +108,13 @@ class SkillStore:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
             stripped = strip_skill_front_matter(content)
+            # A front-matter-only file splits to an empty body.
+            # That is the same as a missing file: use HUMANIZER_GUIDANCE
+            # so the prompt still gets the humanizer rules.
             if stripped:
                 return stripped
         except FileNotFoundError:
+            # Seed the editable file from the built-in default the first time anyone asks for it.
             self.write_humanizer_guidance(HUMANIZER_GUIDANCE)
             return HUMANIZER_GUIDANCE
         except (OSError, UnicodeDecodeError) as e:

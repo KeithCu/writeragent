@@ -2359,6 +2359,7 @@ class _UrpSlashHost:
     def append_output(self, text: str) -> None:
         append = getattr(self, "_append_response", None)
         if callable(append):
+            # ``role`` matches SendButtonListener._append_response (run_slash_command).
             append(text, role="assistant")
 
     def clear_chat(self) -> None:

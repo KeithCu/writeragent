@@ -1220,12 +1220,23 @@ def format_user_memory_prompt_block() -> str:
             return ""
         return _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
     except Exception:
+        # A broken USER.md still builds the prompt. Log it the same way as
+        # a peer-block failure (exception + traceback); debug alone drops
+        # the profile with no traceback.
         logging.getLogger(__name__).exception("Failed to read user memory for prompt")
     return ""
 
 
 def format_humanizer_guidance_prompt_block() -> str:
-    """Return fenced humanizer guidance if enabled in settings, else empty string."""
+    """Return fenced humanizer guidance if enabled in settings, else empty string.
+
+    Humanizer skill (minimal addition, re-uses the exact same injection pattern as memory above).
+    When enabled, the model receives the rules as ambient context for any prose it generates
+    or revises. This is the primary delivery mechanism — cheap, always-on when active,
+    and automatically benefits main chat + all writing/brainstorming sub-agents.
+    User can turn it off in Settings or override the rules by editing the SKILL.md file.
+    Defined in plugin/chatbot/module.yaml so it appears as a checkbox in the sidebar Settings.
+    """
     try:
         from plugin.chatbot.skills import SkillStore
         from plugin.framework.config import get_config_bool_safe
@@ -1237,6 +1248,8 @@ def format_humanizer_guidance_prompt_block() -> str:
                 body = _cap_injected_prompt_blob(hguidance)
                 return _profile_data_block("[HUMANIZER GUIDANCE — apply when generating or revising prose]", body)
     except Exception:
+        # Same as the memory except above: a broken skill store must not
+        # swallow the guidance at debug, and must not abort the prompt.
         logging.getLogger(__name__).exception("Failed to inject humanizer guidance")
     return ""
 

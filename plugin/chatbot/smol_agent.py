@@ -431,6 +431,9 @@ def run_inner_tool_agent(
         examples_block=examples_block,
         status_callback=getattr(ctx, "status_callback", None),
     )
+    # execute_safe calls interrupt() before it reports USER_STOPPED, which
+    # closes the model's HTTP client. Returning from this loop without that
+    # leaves agent.run() going after the sidebar has stopped.
     return SmolAgentExecutor(ctx).execute_safe(
         agent,
         task,

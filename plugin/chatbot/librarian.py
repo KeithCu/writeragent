@@ -174,6 +174,9 @@ TOOLS FOR COMPLETION:
     )
     mem_block = format_user_memory_prompt_block()
     if mem_block:
+        # Cap USER.md with the same CHAT_DOCUMENT_CONTEXT_MAX_CHARS limit
+        # as the main chat prompt. A raw profile crowds out the librarian
+        # instructions.
         instructions += mem_block
 
     from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC
@@ -210,6 +213,7 @@ TOOLS FOR COMPLETION:
 
 
 class LibrarianOnboardingTool(SubAgentSessionToolBase):
+    # Hide from the default main-chat tool surface; librarian onboarding owns this tool.
     name: str | None = "librarian_onboarding"
     description: str = "Librarian agent for new user onboarding."
     agent_label: str = "Librarian"

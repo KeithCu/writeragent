@@ -658,6 +658,9 @@ def _run_sub_queries_parallel(
         work_q.put(sq)
 
     def _worker_fn() -> None:
+        # worker_factory builds a fresh LlmClient + extraction chat on this
+        # thread. Falling back to the shared callables is for unit tests that
+        # do not open HTTP; production always passes a factory.
         if worker_factory is not None:
             task_run_web_agent, task_llm_chat, worker_cleanup = worker_factory()
         else:
@@ -667,6 +670,8 @@ def _run_sub_queries_parallel(
                 sq = work_q.get()
                 if sq is None:
                     break
+                # Stop can land after submit and before this body. Return without
+                # building a client so the pool join is not stuck in HTTP.
                 stopped = _check_stopped(stop_checker)
                 if stopped is not None:
                     result_q.put((sq, {"error": stopped}))
@@ -712,6 +717,8 @@ def _run_sub_queries_parallel(
             completed += 1
             if isinstance(res, Exception):
                 if getattr(res, "code", None) == "USER_STOPPED":
+                    # process_research_results raises USER_STOPPED. Do not
+                    # store it on the accumulator and continue sibling queries.
                     raise res
                 log.warning("deep_research: parallel sub-query error (%s): %s", sq.get("query"), res)
                 acc.last_branch_error = format_error_payload(res)
@@ -722,11 +729,13 @@ def _run_sub_queries_parallel(
                 error_payload = branch["error"]
                 if isinstance(error_payload, dict) and error_payload.get("code") == "USER_STOPPED":
                     return error_payload
+                # Emulate the `break` from original `as_completed` when an error branch is found
                 break
             if branch:
                 _merge_branch_results(acc, branch)
         return error_payload
     finally:
+        # Cancel unstarted work on Stop, then join the pool.
         while not work_q.empty():
             try:
                 work_q.get_nowait()
@@ -735,6 +744,7 @@ def _run_sub_queries_parallel(
         for _ in range(workers):
             work_q.put(None)
 
+        # No public join timeout. The worker set is what shutdown(wait=True) joins.
         deadline = time.monotonic() + _STOP_POOL_JOIN_SEC
         for handle in handles:
             remaining = deadline - time.monotonic()

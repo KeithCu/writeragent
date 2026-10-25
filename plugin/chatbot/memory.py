@@ -68,7 +68,9 @@ class MemoryStore:
             try:
                 current = self.read()
             except (OSError, UnicodeDecodeError) as e:
-                # Catch both OSError and UnicodeDecodeError for unreadable files.
+                # Invalid UTF-8 raises UnicodeDecodeError, a ValueError, not
+                # an OSError. Catch both and return the same tool error as any
+                # other failed read.
                 return {"status": "error", "message": f"Failed to read existing memory: {e}"}
 
             raw = current.strip()
@@ -78,11 +80,16 @@ class MemoryStore:
                 try:
                     parsed_obj = json.loads(current)
                 except json.JSONDecodeError:
+                    # Invalid JSON used to become {} and the write replaced USER.md
+                    # with only the new key. Leave the file and tell the model.
                     return {"status": "error", "message": "USER.md is not valid JSON; left unchanged."}
                 if not isinstance(parsed_obj, dict):
                     return {"status": "error", "message": "USER.md is not a JSON object; left unchanged."}
                 parsed = parsed_obj
 
+            # Nested update. content "" used to store an empty string; pop the key.
+            # JSON null is the same delete. A dotted key must not replace a string
+            # value with {} (name="Ada" then name.nickname wiped the profile).
             parts = key.split(".")
             if content is None or content == "":
                 node: Any = parsed

@@ -113,6 +113,7 @@ class SubAgentResearchWebBase(ToolBase):
 class SubAgentSessionToolBase(ToolBase):
     """Nameless base class for sidebar subagent session orchestrators."""
 
+    # Hide from the default main-chat tool surface; subagent session tools own these tools.
     tier: str = "specialized_control"
     is_mutation: bool | None = False
     long_running: bool = True
@@ -186,11 +187,26 @@ def run_subagent_tool(
     ctx: ToolContext,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Execute a specialized subagent runner with standard error handling."""
+    """Execute a specialized subagent runner with standard error handling.
+
+    Failures are logged with ``log.exception`` so the traceback stays in the
+    log. The payload shown to the model and UI is the exception text only.
+
+    Args:
+        agent_label: Human-readable label for logging and errors (e.g. 'Writing plan', 'PPT-Master').
+        runner: Callable that executes the subagent turn (takes ctx and keyword arguments).
+        ctx: ToolContext for the tool execution.
+        **kwargs: Arguments passed to the tool (query, history_text, topic, etc.).
+
+    Returns:
+        Result dictionary from runner or formatted ToolExecutionError payload.
+    """
     query = kwargs.get("query")
     try:
         return runner(ctx, **kwargs)
     except Exception as e:
+        # This except is the boundary for subagent runners. log.exception
+        # records the traceback; the payload keeps the exception text only.
         log.exception("%s execution failed", agent_label)
         from plugin.framework.errors import (
             WriterAgentException,

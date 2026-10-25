@@ -99,6 +99,7 @@ class _ModeSpec:
     pinned_last: bool = False
 
 
+# Literals inside _() so xgettext extracts them (_(CONST) is invisible).
 _MODE_SPECS: tuple[_ModeSpec, ...] = (
     _ModeSpec(CHAT_MODE_CHAT, _label_chat),
     _ModeSpec(CHAT_MODE_IMAGE, _label_image, handler="image"),
@@ -124,6 +125,7 @@ _MODE_SPECS: tuple[_ModeSpec, ...] = (
         handler="brainstorming",
         flag_attr="include_brainstorming",
     ),
+    # Writing-plan tools are TextDocument-only. Non-Writer sidebars do not list this mode.
     _ModeSpec(
         CHAT_MODE_WRITING_PLAN,
         _label_writing_plan,

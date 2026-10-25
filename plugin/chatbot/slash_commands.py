@@ -42,6 +42,8 @@ class SlashCommand:
     clears_ask: bool = True
 
 
+# Help and clear replace the draft. /stop must not: the Stop button
+# leaves whatever the user typed.
 # Default product commands only.
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("help", _("Print the command list"), "wired", clears_ask=True),
@@ -148,7 +150,13 @@ def record_slash_lru(name: str) -> None:
 
 
 def run_slash_command(name: str, host: Any, commands: Sequence[SlashCommand] | None = None) -> bool:
-    """Run a registry command on the live send listener. Not a chat turn."""
+    """Run a registry command on the live send listener. Not a chat turn.
+
+    ``/help`` prints the static list. ``/clear`` clears the chat. Those and
+    mocks clear Ask. ``/stop`` does not: it runs the Stop button flow
+    (TTS, inline web approval, hands-free, and STOP_CLICKED), same as the
+    Stop button, and leaves the draft.
+    """
     clean = (name or "").lstrip("/").strip().lower()
     cmd = (
         {c.name: c for c in commands}.get(clean)
@@ -165,6 +173,9 @@ def run_slash_command(name: str, host: Any, commands: Sequence[SlashCommand] | N
         host.slash_popup.hide()
 
     if cmd.name == "stop":
+        # /stop is the Stop button's flow: speech, the inline approval
+        # dialog, and hands-free exit. Clearing Ask and dispatching only
+        # STOP_CLICKED wipes the draft and skips those.
         stop_fn = getattr(host, "stop_in_flight", None)
         if callable(stop_fn):
             stop_fn()

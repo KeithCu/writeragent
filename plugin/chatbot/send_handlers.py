@@ -96,6 +96,7 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         default_error=_("Unknown librarian error."),
         error_flag="in_librarian_mode",
         finish_builder=lambda d: (
+            # Exit librarian on the UI thread via STREAM_DONE (combobox is UNO).
             d.get("result", _("Perfect! I'm switching you to the main assistant now.")),
             {"librarian_switch_to_chat": True, "assistant_content": str(d.get("result", _("Perfect! I'm switching you to the main assistant now.")))},
         ),
@@ -656,10 +657,22 @@ class SendHandlersMixin:
                 turn.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
         def _image_ready() -> None:
+            # Runs when the drain is really done. The event-driven drain returns
+            # to the VCL loop at once, so code placed after the drain call would
+            # run before the queued text and terminal slice are flushed.
+            #
+            # The stop line must follow the final flush, so finalize runs
+            # inside this deferred callback. Chat and web call finalize after
+            # their drain, which draws the stop line; the image path has to
+            # do the same or Image-mode Stop shows no '[Stopped by user]'
+            # until a later repaint.
             if self._panel.stop_requested:
                 from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
 
                 finalize_sidebar_assistant_response(self._panel, allow_rerender=False)
+            # Stop already stored "Stopped" via CompleteJobEffect. Forcing Ready
+            # here made image Stop look like a normal finish. The agent path
+            # below keeps both Error and Stopped.
             if self._panel._terminal_status not in ("Error", "Stopped"):
                 self._panel._terminal_status = "Ready"
 
@@ -851,6 +864,7 @@ class SendHandlersMixin:
             if not getattr(self._panel, "_librarian_suggested_user_name_fetched", False):
                 from plugin.chatbot.librarian import get_suggested_user_name
 
+                # Resolve on the UI thread so UNO UserProfile reads stay on the main thread.
                 self._panel._librarian_suggested_user_name = get_suggested_user_name(self._panel.ctx)
                 self._panel._librarian_suggested_user_name_fetched = True
 
@@ -863,6 +877,7 @@ class SendHandlersMixin:
 
         turn_session.add_user_message(query_text)
 
+        # 1. State machine transition: start
         interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type="web", status="ready")
         step = next_state(current_state, StartEvent(query_text, model, "web", mode=mode))
@@ -971,6 +986,7 @@ class SendHandlersMixin:
                     turn.put((StreamQueueKind.CHUNK, note))
                     done_payload = _specialized_tool_error_payload(note)
                     if spec.error_flag:
+                        # Mode flag rides the one STREAM_DONE so the UI thread applies it.
                         done_payload[spec.error_flag] = False
                     turn.put((StreamQueueKind.STREAM_DONE, done_payload))
             except Exception as e:
