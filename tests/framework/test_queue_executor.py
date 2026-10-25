@@ -1333,7 +1333,6 @@ def test_execute_accepts_and_passes_bound_scope() -> None:
     # to return a dummy item and check what was passed.
 
     with patch.object(executor, 'should_run_inline', return_value=False), \
-         patch.object(executor, '_is_logical_main_thread', return_value=False), \
          patch.object(executor, '_get_async_callback', return_value=MagicMock()), \
          patch('plugin.framework.queue_executor._force_marshal_mode', True), \
          patch.object(executor, '_wait_for_result', return_value="dummy_result"), \
@@ -1370,11 +1369,11 @@ def test_flush_pending_posts_order_concurrent_enqueue():
 
     enqueued_items = []
 
-    def slow_put(items):
+    def slow_put(item, block=True, timeout=None):
         time.sleep(0.05)
-        enqueued_items.extend(items)
+        enqueued_items.append(item)
 
-    qe._put_work_items = slow_put
+    qe._work_queue.put = slow_put
 
     def direct_enqueue():
         time.sleep(0.01) # let flush start
