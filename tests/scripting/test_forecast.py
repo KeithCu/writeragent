@@ -207,6 +207,19 @@ def test_forecast_periods_are_capped():
     assert "periods capped at 10000" in result["flags"]
 
 
+def test_yearly_horizon_past_timestamp_max_is_invalid_param():
+    frame = pd.DataFrame({
+        "Date": pd.date_range("2000-01-01", periods=13, freq="YS"),
+        "Value": [float(i) for i in range(13)],
+    })
+    res = forecast_time_series(
+        frame, periods=venv_forecast._MAX_FORECAST_PERIODS, model="moving_average"
+    )
+    assert res["status"] == "error", res
+    assert res["code"] == "INVALID_PARAM"
+    assert "past the supported date range" in res["message"]
+
+
 def test_holt_winters_intervals_use_simulate_not_get_prediction():
     _require_statsmodels_installed()
     result = forecast_time_series(

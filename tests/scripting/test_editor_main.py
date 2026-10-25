@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import builtins
 import io
+import logging
 import queue
 import struct
 from unittest.mock import MagicMock
+
+import pytest
 
 from plugin.scripting.editor_ipc import PARENT_TO_CHILD_TYPES, write_message
 from plugin.scripting.venv import editor_main as em
@@ -155,7 +158,7 @@ def test_reader_bad_pickle_finishes_and_destroys_only_after_claim():
     assert em._shutting_down is True
 
 
-def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch):
+def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch, caplog):
     _reset_state()
     index_file = tmp_path / "index.html"
     index_file.write_bytes(b"hi")
@@ -191,11 +194,25 @@ def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch):
 
     recorded.clear()
     monkeypatch.setattr(builtins, "open", fake_open)
+    caplog.set_level(logging.ERROR)
     body = em.wsgi_app({"PATH_INFO": "/"}, start_response)
+    assert "failed to serve" in caplog.text
     status = recorded["status"]
     assert isinstance(status, str)
     assert status.startswith("500")
     assert b"disk" in b"".join(body)
+
+
+def test_main_fails_fast_when_monaco_loader_is_missing(tmp_path, monkeypatch, capsys):
+    (tmp_path / "index.html").write_text("x", encoding="utf-8")
+    monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(tmp_path))
+    monkeypatch.setattr(em, "_ROCHER_ROOT", "")
+    # Keep main() from claiming the real stdout fd when pytest runs with -s.
+    monkeypatch.setattr("plugin.scripting.ipc.claim_ipc_channel", lambda: io.BytesIO())
+    with pytest.raises(SystemExit) as exc_info:
+        em.main()
+    assert exc_info.value.code == 1
+    assert "Monaco assets not found" in capsys.readouterr().err
 
 
 def test_wsgi_traversal_and_vs_root_are_404(tmp_path, monkeypatch):

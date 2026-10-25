@@ -636,6 +636,18 @@ def forecast_time_series(
             helper=helper,
         )
 
+    # The 10_000 cap is frequency-blind: a yearly series steps past
+    # pd.Timestamp.max, and only the statsmodels branches catch the raise.
+    # Build the horizon once here so every model returns a parameter error.
+    try:
+        _future_index(series, periods_clamped)
+    except (ValueError, OverflowError):
+        return _error_result(
+            "INVALID_PARAM",
+            f"periods={periods_val} is past the supported date range for this series",
+            helper=helper,
+        )
+
     if model_name == "moving_average":
         forecast_df, _unused_model, metrics = _forecast_moving_average(series, periods=periods_clamped)
         if seasonal_periods_val is not None:
