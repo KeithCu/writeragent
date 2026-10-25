@@ -44,6 +44,7 @@ DELEGATE_TOOL_DOMAINS = "delegate_tool_domains"
 _PYTHON_DOMAIN = "python"
 _FINISH_TOOL = "specialized_workflow_finished"
 _VENV_SCRIPT_TOOL = "run_venv_python_script"
+_DOMAINS_ERROR = "domains must be a non-empty list of specialized domain names."
 # Shapes-first: bulk geometry is a script loop, not N LLM mutator calls.
 # Other domains (footnotes, sheets, …) keep their ToolBase tools.
 _SCRIPT_PLACEMENT_DOMAINS = frozenset({"shapes"})
@@ -78,11 +79,11 @@ def normalize_domain_list(raw: Any) -> tuple[list[str] | None, str | None]:
             if isinstance(parsed, list):
                 raw = parsed
             else:
-                return None, "domains must be a non-empty list of specialized domain names."
+                return None, _DOMAINS_ERROR
         else:
-            return None, "domains must be a non-empty list of specialized domain names."
+            return None, _DOMAINS_ERROR
     if not isinstance(raw, (list, tuple)):
-        return None, "domains must be a non-empty list of specialized domain names."
+        return None, _DOMAINS_ERROR
     names: list[str] = []
     seen: set[str] = set()
     for item in raw:
@@ -198,26 +199,18 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
                     added = True
             if not added and not hid_script_tools:
                 log.warning("Domain tool agent: no tools for domain %s", domain)
-        def _first_tool_named(registry: Any, name: str) -> ToolBase | None:
-            for tool in registry.get_tools(names=[name], exclude_tiers=(), filter_doc_type=False):
-                if tool.name == name:
-                    return tool
-            return None
-
         # Not returned by a non-python domain lookup. The inner script is how
         # bulk shape placement reaches writeragent_api.
-        if _VENV_SCRIPT_TOOL not in seen:
-            tool = _first_tool_named(registry, _VENV_SCRIPT_TOOL)
-            if tool is not None:
-                venv.append(tool)
-        if _FINISH_TOOL not in seen:
-            tool = _first_tool_named(registry, _FINISH_TOOL)
-            if tool is not None:
-                finish.append(tool)
+        missing = [name for name in (_VENV_SCRIPT_TOOL, _FINISH_TOOL) if name not in seen]
+        if missing:
+            for tool in registry.get_tools(names=missing, exclude_tiers=(), filter_doc_type=False):
+                if tool.name == _VENV_SCRIPT_TOOL:
+                    venv.append(tool)
+                elif tool.name == _FINISH_TOOL:
+                    finish.append(tool)
         return body + venv + finish
 
-    fetched: list[ToolBase] = run_on_main(_fetch)
-    return fetched
+    return run_on_main(_fetch)
 
 
 def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
@@ -274,18 +267,54 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
     return "".join(parts)
 
 
-def _compact_result(final_ans: Any, domains: list[str]) -> dict[str, Any]:
+class _InnerToolErrorCapture(SmolToolAdapter):
+    _errors: list[dict[str, Any]]
+
+    def __init__(self, tool: ToolBase, tctx: ToolContext, errors: list[dict[str, Any]]) -> None:
+        super().__init__(tool, tctx, safe=True, inputs_style="specialized")
+        self._errors = errors
+
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
+        result = super().forward(*args, **kwargs)
+        if isinstance(result, dict) and result.get("status") == "error":
+            self._errors.append(result)
+        return result
+
+
+# Bugfix: the inner loop returned status ok for inner tool errors and for
+# max-step prose, because _compact_result never inspected either. Record
+# inner error payloads and treat a run that did not call the finish tool as
+# incomplete (same contract as DelegateToSpecializedBase).
+def _normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: list[dict[str, Any]]) -> dict[str, Any]:
     if isinstance(final_ans, dict) and final_ans.get("status") == "error":
         return final_ans
-    if isinstance(final_ans, dict) and "result" in final_ans:
-        payload = final_ans["result"]
-    elif isinstance(final_ans, dict) and "answer" in final_ans:
-        payload = final_ans["answer"]
+    payload: dict[str, Any]
+    if isinstance(final_ans, dict) and "status" in final_ans:
+        payload = dict(final_ans)
+        if "answer" in payload:
+            payload.setdefault("result", str(payload["answer"]))
     else:
-        payload = final_ans
-    if payload is None:
-        payload = ""
-    return {"status": "ok", "domains": list(domains), "result": str(payload)}
+        payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
+    payload["domains"] = list(domains)
+    if tool_errors:
+        messages = [str(err.get("message") or err.get("error") or err) for err in tool_errors]
+        if payload.get("answer"):
+            messages.append(str(payload["answer"]))
+        text = "; ".join(messages) or "Specialized tool error."
+        payload.update(status="error", code="SPECIALIZED_TOOL_ERROR", message=text, error=text)
+        return payload
+    if payload.get("finished") is True:
+        return payload
+    if final_ans is None:
+        text = ""
+    elif isinstance(final_ans, str):
+        text = final_ans
+    elif isinstance(final_ans, dict):
+        text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
+    else:
+        text = str(final_ans)
+    payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
+    return payload
 
 
 def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], task: str) -> dict[str, Any]:
@@ -302,9 +331,10 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         )
 
     inner_ctx = _inner_context(parent_ctx, domains)
+    inner_tool_errors: list[dict[str, Any]] = []
     # inputs_style="specialized" keeps enum / items / descriptions, same as other
     # specialized loops — not the slim librarian input shape.
-    smol_tools = [SmolToolAdapter(tool, inner_ctx, safe=True, inputs_style="specialized") for tool in ordered]
+    smol_tools = [_InnerToolErrorCapture(tool, inner_ctx, inner_tool_errors) for tool in ordered]
     domain_list = ", ".join(domains)
     hints = _domain_loop_hints(parent_ctx, domains, label)
     # Shapes mutators are not on this tool list. One script loops the API.
@@ -359,7 +389,7 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         error_prefix="Domain tool agent failed",
         tool_call_handler=tool_call_handler,
     )
-    return _compact_result(final_ans, domains)
+    return _normalize_inner_result(final_ans, domains, inner_tool_errors)
 
 
 class DelegateToolDomains(ToolBase):
@@ -413,11 +443,12 @@ class DelegateToolDomains(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.framework.send_cancellation import SendCancelled
 
-        names, names_err = normalize_domain_list(kwargs["domains"])
+        names, names_err = normalize_domain_list(kwargs.get("domains"))
         if names_err or not names:
-            return self._tool_error(names_err or "domains must be a non-empty list of specialized domain names.", code="DOMAINS_REQUIRED")
-        task: str = kwargs["task"]
-        if not task.strip():
+            return self._tool_error(names_err or _DOMAINS_ERROR, code="DOMAINS_REQUIRED")
+        raw_task = kwargs.get("task")
+        task = raw_task.strip() if isinstance(raw_task, str) else None
+        if not task:
             return self._tool_error("task is required.", code="TASK_REQUIRED")
 
         label = agent_label_for_context(ctx)
@@ -425,11 +456,11 @@ class DelegateToolDomains(ToolBase):
         if message:
             return self._tool_error(message, code=code or "UNKNOWN_SPECIALIZED_DOMAIN")
 
-        stop_checker = ctx.stop_checker if isinstance(ctx, ToolContext) else None
+        stop_checker = getattr(ctx, "stop_checker", None)
         if stop_checker is not None and stop_checker():
             return user_stopped_payload("Domain tool agent stopped by user.")
 
         try:
-            return run_inner_domain_tool_agent(ctx, names, task.strip())
+            return run_inner_domain_tool_agent(ctx, names, task)
         except SendCancelled:
             return user_stopped_payload("Domain tool agent stopped by user.")

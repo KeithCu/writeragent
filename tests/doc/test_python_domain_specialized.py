@@ -89,6 +89,15 @@ class _NestedDelegateProbe(ToolWriterFootnoteBase):
         return {"status": "ok"}
 
 
+class _FailingFootnoteProbe(ToolWriterFootnoteBase):
+    name = "failing_footnote_tool"
+    description = "Always fails."
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "error", "message": "Failed to insert the note"}
+
+
 def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
     doc = MagicMock()
     doc.supportsService = lambda svc, service=service: svc == service
@@ -257,6 +266,17 @@ def test_delegate_tool_domains_rejects_unknown_and_python_and_empty():
     assert not isinstance(tool, DelegateToSpecializedBase)
 
 
+def test_delegate_tool_domains_rejects_non_string_or_missing_task():
+    registry = ToolRegistry(services={})
+    tool = DelegateToolDomains()
+    ctx = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    for bad in (None, 123, ["do it"]):
+        assert tool.execute(ctx, domains=["footnotes"], task=bad)["code"] == "TASK_REQUIRED"
+    assert tool.execute(ctx, domains=["footnotes"])["code"] == "TASK_REQUIRED"
+    assert tool.execute(ctx, task="x")["code"] == "DOMAINS_REQUIRED"
+
+
 def test_delegate_tool_domains_visible_on_python_domain_for_each_app():
     registry = ToolRegistry(services={})
     registry.register(DelegateToolDomains())
@@ -283,7 +303,12 @@ def test_delegate_tool_domains_visible_on_python_domain_for_each_app():
 @patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock_build):
     mock_build.return_value = MagicMock()
-    mock_executor_cls.return_value.execute_safe.return_value = "Inserted the footnote."
+    mock_executor_cls.return_value.execute_safe.return_value = {
+        "status": "ok",
+        "finished": True,
+        "answer": "Inserted the footnote.",
+        "message": "Specialized task complete. Normal toolset restored.",
+    }
 
     registry = ToolRegistry(services={})
     registry.register(FootnotesInsert())
@@ -318,6 +343,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert result["status"] == "ok"
     assert result["domains"] == ["footnotes", "shapes"]
     assert result["result"] == "Inserted the footnote."
+    assert result["answer"] == "Inserted the footnote."
 
     tools_arg = mock_build.call_args[0][1]
     by_name = {tool.name: tool for tool in tools_arg}
@@ -383,7 +409,12 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     """Inner shapes instructions get the same canvas line as the shapes specialized loop."""
     mock_canvas.return_value = " Document canvas (Writer): paper 210.0 x 297.0 mm"
     mock_build.return_value = MagicMock()
-    mock_executor_cls.return_value.execute_safe.return_value = "placed"
+    mock_executor_cls.return_value.execute_safe.return_value = {
+        "status": "ok",
+        "finished": True,
+        "answer": "placed",
+        "message": "Specialized task complete. Normal toolset restored.",
+    }
 
     registry = ToolRegistry(services={})
     registry.register(_ShapeProbe())
@@ -428,7 +459,12 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
 @patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     mock_build.return_value = MagicMock()
-    mock_executor_cls.return_value.execute_safe.return_value = "sorted"
+    mock_executor_cls.return_value.execute_safe.return_value = {
+        "status": "ok",
+        "finished": True,
+        "answer": "sorted",
+        "message": "Specialized task complete. Normal toolset restored.",
+    }
 
     registry = ToolRegistry(services={})
     registry.register(SortRange())
@@ -465,9 +501,72 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     assert "wa.shape.upsert" not in calc_instructions
 
 
+@patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
+def test_run_inner_domain_tool_agent_prose_is_incomplete(mock_executor_cls, mock_build):
+    mock_build.return_value = MagicMock()
+    mock_executor_cls.return_value.execute_safe.return_value = "I could not place the shapes."
+
+    registry = ToolRegistry(services={})
+    registry.register(FootnotesInsert())
+    registry.register(SpecializedWorkflowFinished())
+    parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    result = run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
+    assert result["status"] == "incomplete"
+    assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
+    assert result["message"] == "I could not place the shapes."
+
+
+def test_run_inner_domain_tool_agent_inner_tool_error_is_error():
+    registry = ToolRegistry(services={})
+    registry.register(_FailingFootnoteProbe())
+    registry.register(SpecializedWorkflowFinished())
+    parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    def fake_run_inner(inner_ctx, tools, **kwargs):
+        by_name = {tool.name: tool for tool in tools}
+        by_name["failing_footnote_tool"]()
+        return by_name["specialized_workflow_finished"](answer="Tried the note")
+
+    with patch("plugin.doc.python_domain_specialized.run_inner_tool_agent", side_effect=fake_run_inner):
+        result = run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
+
+    assert result["status"] == "error"
+    assert result["code"] == "SPECIALIZED_TOOL_ERROR"
+    assert "Failed to insert the note" in result["message"]
+    assert "Tried the note" in result["message"]
+    assert result["domains"] == ["footnotes"]
+
+
+@patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
+@patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
+def test_run_inner_domain_tool_agent_user_stop_passes_through(mock_executor_cls, mock_build):
+    mock_build.return_value = MagicMock()
+    mock_executor_cls.return_value.execute_safe.return_value = {
+        "status": "error",
+        "code": "USER_STOPPED",
+        "message": "Domain tool agent stopped by user.",
+    }
+
+    registry = ToolRegistry(services={})
+    registry.register(FootnotesInsert())
+    registry.register(SpecializedWorkflowFinished())
+    parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    result = run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
+    assert result == {
+        "status": "error",
+        "code": "USER_STOPPED",
+        "message": "Domain tool agent stopped by user.",
+    }
+    assert "domains" not in result
+
+
 def test_gather_domain_tools_marshals_off_main_thread():
     registry = ToolRegistry(services={})
     registry.register(FootnotesInsert())
+    registry.register(_VenvScriptProbe())
     registry.register(SpecializedWorkflowFinished())
     parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
 
@@ -480,6 +579,10 @@ def test_gather_domain_tools_marshals_off_main_thread():
         tools = gather_domain_tools(parent, ["footnotes"])
     assert mock_main.called
     assert {tool.name for tool in tools} >= {"footnotes_insert", "specialized_workflow_finished"}
+    names = [tool.name for tool in tools]
+    assert names.count("specialized_workflow_finished") == 1
+    assert names.count("run_venv_python_script") == 1
+    assert names[-1] == "specialized_workflow_finished"
 
 
 @patch("plugin.doc.python_domain_specialized.run_inner_domain_tool_agent", return_value={"status": "ok", "domains": ["footnotes"], "result": "noted"})
