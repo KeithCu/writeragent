@@ -110,6 +110,3 @@ def test_emit_one_bad_cell_does_not_abort_sheet(monkeypatch):
     assert output.cells["B1"].formula == "=ROUNDUP(1;0)"
     assert sorted(t.address for t in report.skipped if t.reason == "EMIT_ERROR") == ["A1", "B1"]
     assert report.converted == []
-
-
-
