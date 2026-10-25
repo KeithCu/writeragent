@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.calc.address_utils import format_address, parse_address, parse_range_string
+from plugin.calc.address_utils import parse_address
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
 from plugin.calc.spreadsheet_import.models import OutputSheetModel, SheetModel, output_cell_from_record
@@ -40,30 +40,28 @@ def build_output_model(model: SheetModel) -> OutputSheetModel:
 
 
 def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
-    """Write *output* onto *target_sheet* (per-cell value or formula, then number formats)."""
-    (start_col, start_row), (end_col, end_row) = parse_range_string(output.used_range)
-    for row in range(start_row, end_row + 1):
-        for col in range(start_col, end_col + 1):
-            oc = output.cells[format_address(col, row)]
-            cell = target_sheet.getCellByPosition(col, row)
-            # Bugfix: every value was str()'d and then float()'d, so text
-            # "00123" became setValue(123.0). The string grid also treated
-            # text that starts with "=" or "{" as a formula. bool is an int,
-            # and str(True) is the text "True"; CellManipulator._classify_write_cell
-            # already stores bools as 1.0/0.0 so PY formulas see numbers.
-            value = oc.value
-            if oc.formula:
-                cell.setFormula(oc.formula)
-            elif isinstance(value, bool):
-                cell.setValue(1.0 if value else 0.0)
-            elif isinstance(value, (int, float)):
-                cell.setValue(value)
-            elif value is None or value == "":
-                cell.setString("")
-            else:
-                cell.setString(value if isinstance(value, str) else str(value))
-            if oc.number_format is not None:
-                cell.setPropertyValue("NumberFormat", oc.number_format)
+    """Write *output* onto *target_sheet* (per-cell value or formula, then number formats). Skip empty cells; the target must be fresh or already cleared."""
+    for address, oc in output.cells.items():
+        value = oc.value
+        if not oc.formula and oc.number_format is None and (value is None or (isinstance(value, str) and value == "")):
+            continue
+        col, row = parse_address(address)
+        cell = target_sheet.getCellByPosition(col, row)
+        # Bugfix: every value was str()'d and then float()'d, so text
+        # "00123" became setValue(123.0). The string grid also treated
+        # text that starts with "=" or "{" as a formula. bool is an int,
+        # and str(True) is the text "True"; CellManipulator._classify_write_cell
+        # already stores bools as 1.0/0.0 so PY formulas see numbers.
+        if oc.formula:
+            cell.setFormula(oc.formula)
+        elif isinstance(value, bool):
+            cell.setValue(1.0 if value else 0.0)
+        elif isinstance(value, (int, float)):
+            cell.setValue(value)
+        elif value is not None and value != "":
+            cell.setString(value if isinstance(value, str) else str(value))
+        if oc.number_format is not None:
+            cell.setPropertyValue("NumberFormat", oc.number_format)
 
 
 def preserve_sheet_to_new_sheet(doc: Any, source_sheet: Any, *, target_name: str = "PythonImport") -> OutputSheetModel:

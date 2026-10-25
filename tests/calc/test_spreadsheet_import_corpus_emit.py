@@ -81,8 +81,21 @@ def test_clip_whole_column_data_ranges():
         sheet_bounds=bounds,
         current_sheet="Dashboard Finished",
     )
-    assert "Actual.F1:F55" in formula or "ACTUAL.F1:F55" in formula
+    assert "ACTUAL.F1:F55" in formula
+    assert "ACTUAL.C1:C55" in formula
+    assert "ACTUAL.D1:D55" in formula
     assert "F:F" not in formula
+    assert "C:C" not in formula
+    assert "D:D" not in formula
+
+    formula_multi = emit_py_formula(
+        "calc.sum(data[0], data[1])",
+        ["Actual.A:C", "Actual.1:3"],
+        sheet_bounds={"ACTUAL": (5, 54)},
+        current_sheet="Dashboard Finished",
+    )
+    assert "Actual.A1:C55" in formula_multi
+    assert "Actual.A1:F3" in formula_multi
 
 
 def test_income_statement_style_grid():
