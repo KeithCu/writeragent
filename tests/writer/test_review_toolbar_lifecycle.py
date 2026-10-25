@@ -133,6 +133,12 @@ def _reset_pending():
         rt._pending_refresh.clear()
 
 
+def _reset():
+    _reset_pending()
+    rt._modify_listeners.clear()
+    rt._docked_uids.clear()
+
+
 def _capture_posts():
     posted = []
     return posted, patch("plugin.framework.queue_executor.post_to_main_thread",
@@ -236,3 +242,74 @@ def test_non_writer_unload_does_not_ask_disposed_controller():
         listener.on_document_event(event)
     impress.getCurrentController.assert_not_called()
     unreg.assert_not_called()
+
+
+def test_dock_failure_is_retried_on_the_next_show():
+    _reset()
+    model = FakeModel("uid-dock")
+    lm = MagicMock()
+    with patch.object(rt, "_layout_manager", return_value=lm), \
+         patch.object(rt, "_dock_top", side_effect=[False, True]) as dock, \
+         patch("plugin.writer.review_scan.agent_change_presence",
+               side_effect=[(1, True), (0, True), (1, True)]):
+        rt.refresh_review_toolbar(model)
+        assert "uid-dock" not in rt._docked_uids
+        rt.refresh_review_toolbar(model)   # hide
+        rt.refresh_review_toolbar(model)   # show again -> retry
+    assert dock.call_count == 2
+    assert "uid-dock" in rt._docked_uids
+    _reset()
+
+
+def test_dock_top_returns_boolean():
+    lm = MagicMock()
+    assert rt._dock_top(lm) is True
+    lm.dockWindow.side_effect = RuntimeError("dock error")
+    assert rt._dock_top(lm) is False
+
+
+def test_refresh_review_toolbar_show_hide_unreliable():
+    lm = MagicMock()
+    model = FakeModel("uid-sh")
+    with patch.object(rt, "_layout_manager", return_value=lm), \
+         patch.object(rt, "_dock_top", return_value=True):
+        # 1 pending change -> show
+        with patch("plugin.writer.review_scan.agent_change_presence", return_value=(1, True)):
+            rt.refresh_review_toolbar(model)
+            lm.showElement.assert_called_once_with(rt.TOOLBAR_RESOURCE_URL)
+            lm.hideElement.assert_not_called()
+
+        lm.reset_mock()
+        # 0 pending changes -> hide
+        with patch("plugin.writer.review_scan.agent_change_presence", return_value=(0, True)):
+            rt.refresh_review_toolbar(model)
+            lm.hideElement.assert_called_once_with(rt.TOOLBAR_RESOURCE_URL)
+            lm.showElement.assert_not_called()
+
+        lm.reset_mock()
+        # unreliable scan -> no-op
+        with patch("plugin.writer.review_scan.agent_change_presence", return_value=(0, False)):
+            rt.refresh_review_toolbar(model)
+            lm.showElement.assert_not_called()
+            lm.hideElement.assert_not_called()
+
+
+def test_install_review_toolbar_warns_on_sweep_failure():
+    ctx = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = MagicMock()
+    with patch.object(rt, "_doc_listener", None), \
+         patch("plugin.framework.uno_context.get_desktop", side_effect=RuntimeError("sweep error")), \
+         patch.object(rt.log, "warning") as warn:
+        rt.install_review_toolbar(ctx)
+        warn.assert_any_call("review_toolbar: initial sweep failed", exc_info=True)
+
+
+def test_install_review_toolbar_warns_on_listener_install_failure():
+    ctx = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.side_effect = RuntimeError("service error")
+    with patch.object(rt, "_doc_listener", None), \
+         patch("plugin.framework.uno_context.get_desktop", return_value=None), \
+         patch.object(rt.log, "warning") as warn:
+        rt.install_review_toolbar(ctx)
+        warn.assert_any_call("review_toolbar: listener install failed", exc_info=True)
+
