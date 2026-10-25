@@ -641,7 +641,7 @@ def is_vision_result(value: Any) -> bool:
 
 ### Error
 
-Host multi-image OCR (`run_and_insert_vision_for_selection`) still returns `status: error` and stops the loop when a later image fails. Image 1 stays inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), and `failed_image`. The LLM tool copies those into `details`.
+Host multi-image OCR (`run_and_insert_vision_for_selection`) keeps going after a failed image, then returns `status: error` built from the first failure. Images that completed stay inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), `failed_image`, `failed_images`, and `individual_results`. The LLM tool copies `partial`, `images_processed`, `image_names`, `failed_image`, and `inserted` into `details`.
 
 `insert_mode=structured` copies the pre-layout HTML to `html_docling` before replacing `html`. Calc cell-grid failure falls back to `html_docling`, not the bbox fragment. Writer still inserts `html`.
 
