@@ -50,19 +50,58 @@ def test_latest_for_code_and_detail():
     assert "fail" in text
 
 
-def test_latest_for_code_truncated_snippet_prefix():
+def test_record_clips_stdout_message_and_traceback():
     store = PythonDiagnosticsStore()
-    # Stored code is shorter than the search needle
-    store.record(workbook_key="wb", code="short_prefix", status="ok", stdout="stored-short")
-    found = store.latest_for_code("wb", "short_prefix_and_more_tokens")
-    assert found is not None
-    assert found.stdout == "stored-short"
+    entry = store.record(
+        workbook_key="wb",
+        code="print(1)",
+        status="error",
+        message="m" * 2001,
+        stdout="o" * 8001,
+        traceback="t" * 8001,
+    )
+    assert entry.message.startswith("m" * 2000)
+    assert "truncated, 1 more characters" in entry.message
+    assert entry.stdout.startswith("o" * 8000)
+    assert "truncated, 1 more characters" in entry.stdout
+    assert entry.traceback.startswith("t" * 8000)
+    assert "truncated, 1 more characters" in entry.traceback
 
-    # Stored code is longer than the search needle
+    short_entry = store.record(
+        workbook_key="wb",
+        code="print(1)",
+        status="ok",
+        message="short",
+        stdout="hello",
+        traceback="",
+    )
+    assert "truncated" not in short_entry.message
+    assert "truncated" not in short_entry.stdout
+    assert "truncated" not in short_entry.traceback
+
+
+def test_workbook_buckets_are_bounded_and_touched_key_survives():
+    store = PythonDiagnosticsStore()
+    for i in range(16):
+        store.record(workbook_key=f"wb{i}", code="x=1", status="ok")
+    store.record(workbook_key="wb0", code="x=2", status="ok")
+    store.record(workbook_key="wb16", code="x=3", status="ok")
+
+    assert store.list_entries("wb1") == []
+    assert len(store.list_entries("wb0")) > 0
+    assert len(store.list_entries("wb16")) > 0
+
+
+def test_latest_for_code_requires_exact_code():
+    store = PythonDiagnosticsStore()
+    store.record(workbook_key="wb", code="short_prefix", status="ok", stdout="stored-short")
+    assert store.latest_for_code("wb", "short_prefix_and_more_tokens") is None
+
     store.record(workbook_key="wb2", code="long_stored_code_snippet", status="ok", stdout="stored-long")
-    found2 = store.latest_for_code("wb2", "long_stored")
-    assert found2 is not None
-    assert found2.stdout == "stored-long"
+    assert store.latest_for_code("wb2", "long_stored") is None
+
+    assert store.latest_for_code("wb", "short_prefix") is not None
+    assert store.latest_for_code("wb", "short_prefix").stdout == "stored-short"
 
 
 def test_module_singleton_record_python_eval():
