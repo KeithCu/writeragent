@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSpeakerNotesBase
 from plugin.draw.bridge import DrawBridge, find_notes_shape
+from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.framework.errors import uno_probe
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -23,6 +25,16 @@ def _slide(ctx: ToolContext, page_idx: int | None) -> tuple[int, Any]:
     return actual_idx, DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
 
 
+def _write_notes(shape: Any, text: str, append: bool) -> None:
+    """Replace or append the notes body; one paragraph break between old and new text."""
+    text = normalize_linebreaks(text)
+    if append:
+        existing = str(shape.getString() or "")
+        if existing.strip():
+            text = existing + ("" if existing.endswith("\n") else "\n") + text
+    shape.setString(text)
+
+
 class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     """Read speaker notes from a slide."""
 
@@ -33,7 +45,7 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         actual_idx, page = _slide(ctx, kwargs.get("page"))
-        notes_shape = find_notes_shape(page.getNotesPage())
+        notes_shape = find_notes_shape(uno_probe(lambda: page.getNotesPage(), None))
         notes_text = ""
         if notes_shape is not None:
             notes_text = notes_shape.getString() or ""
@@ -58,13 +70,20 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
         append = kwargs.get("append", False)
 
         actual_idx, page = _slide(ctx, kwargs.get("page"))
-        notes_shape = find_notes_shape(page.getNotesPage())
+        notes_page = uno_probe(lambda: page.getNotesPage(), None)
+        if notes_page is None:
+            return self._tool_error(
+                "Slide %d has no notes page." % actual_idx,
+                code="NOTES_UNAVAILABLE",
+                page=actual_idx,
+            )
+        notes_shape = find_notes_shape(notes_page)
         if notes_shape is None:
-            return self._tool_error("No notes page available.")
-        if append:
-            existing = notes_shape.getString()
-            if existing:
-                text = existing + "\n" + text
-        notes_shape.setString(text)
+            return self._tool_error(
+                "Slide %d has a notes page but no notes body (no NotesShape)." % actual_idx,
+                code="NOTES_UNAVAILABLE",
+                page=actual_idx,
+            )
+        _write_notes(notes_shape, text, append)
 
         return {"status": "ok", "page": actual_idx, "message": "Speaker notes updated."}

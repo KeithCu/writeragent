@@ -87,6 +87,35 @@ def test_speaker_notes(ctx, doc):
     assert "And some more notes." in notes, f"Expected appended notes not found: {notes}"
 
 
+@native_test
+@with_native_doc("impress")
+def test_speaker_notes_multiline_roundtrip(ctx, doc):
+    text = "one\ntwo\nthree"
+    result = _exec_tool(doc, ctx, "set_speaker_notes", {"page": 0, "text": text})
+    assert json.loads(result).get("status") == "ok", result
+
+    got = json.loads(_exec_tool(doc, ctx, "get_speaker_notes", {"page": 0}))
+    notes = got.get("notes")
+    assert notes.splitlines() == ["one", "two", "three"], notes
+    assert "\r" not in notes, notes
+    from plugin.draw.bridge import find_notes_shape
+    page = doc.getDrawPages().getByIndex(0)
+    enum = find_notes_shape(page.getNotesPage()).getText().createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement().getString())
+    assert paras == ["one", "two", "three"], paras
+
+    result = _exec_tool(doc, ctx, "set_speaker_notes",
+                        {"page": 0, "text": "four", "append": True})
+    assert json.loads(result).get("status") == "ok", result
+    enum = find_notes_shape(page.getNotesPage()).getText().createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement().getString())
+    assert paras == ["one", "two", "three", "four"], paras
+
+
 def _collect_shape_marks(shape, texts, groups):
     try:
         shape_type = shape.getShapeType()
