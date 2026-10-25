@@ -110,7 +110,7 @@ def resolve_image_generate_is_edit(source_image: typing.Any, *, selection_availa
     Explicit ``source_image='selection'`` always edits. Omitting ``source_image``
     also edits when a graphic is selected: the parent often rewrites
     "make it look like a wizard" into a generate-new task and drops the
-    argument; defaulting to the selection keeps ``replace_image_in_place``.
+    argument; defaulting to the selection keeps the in-place replace.
     Create-new when nothing is selected (clear the selection to force create).
     """
     if isinstance(source_image, str):

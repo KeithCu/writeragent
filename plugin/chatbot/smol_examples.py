@@ -237,7 +237,7 @@ Action:
 
 
 # Images specialist: edit-in-place uses image_generate(source_image='selection')
-# → selection b64 → img2img → replace_image_in_place. A delete + prompt-only
+# → selection b64 → img2img → replace_graphic_source. A delete + prompt-only
 # generate creates a new graphic and skips that path.
 IMAGES_SPECIALIZED_EXAMPLES = """Task: "Make it look like a wizard"
 

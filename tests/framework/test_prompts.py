@@ -588,7 +588,7 @@ def test_images_specialized_sub_agent_hint_steers_source_image():
     assert "source_image" in hint
     assert "selection" in hint
     assert "image_generate" in hint
-    assert "replace_image_in_place" in hint
+    assert "in place" in hint
     assert "image_list_nearby_files" in hint
 
 
