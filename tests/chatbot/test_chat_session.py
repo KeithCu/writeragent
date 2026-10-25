@@ -86,7 +86,7 @@ def test_persist_rules_with_mock_db():
     with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
         session = ChatSession(system_prompt="Sys", session_id="sid-1")
 
-    mock_db.add_message.assert_called_with("system", "Sys")
+    mock_db.replace_messages.assert_called_once_with([{"role": "system", "content": "Sys"}])
     mock_db.reset_mock()
 
     session.add_user_message("u")
@@ -140,7 +140,6 @@ def test_clear_resets_messages_and_document_context():
 
     session.clear()
 
-    mock_db.clear.assert_called_once()
     assert session.document_context == ""
     assert session.compaction is None
     assert session.active_specialized_domain is None
@@ -148,7 +147,7 @@ def test_clear_resets_messages_and_document_context():
 
     assert len(session.messages) == 1
     assert session.messages[0] == {"role": "system", "content": "Sys"}
-    mock_db.add_message.assert_called_with("system", "Sys")
+    mock_db.replace_messages.assert_called_once_with([{"role": "system", "content": "Sys"}])
 
 
 def test_clear_resets_compaction():
@@ -232,4 +231,10 @@ def test_set_system_context_nondict_first_row_inserts_system():
     session.set_system_context("Base", "")
     assert session.messages[0] == {"role": "system", "content": "Base"}
     assert session.messages[1] == "nope"
+
+
+def test_logger_is_module_scoped():
+    from plugin.chatbot import chat_session
+
+    assert chat_session.log.name == "plugin.chatbot.chat_session"
 
