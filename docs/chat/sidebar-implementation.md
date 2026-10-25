@@ -89,7 +89,7 @@ Do not copy `WRITER_APPLY_DOCUMENT_HTML_RULES` EXAMPLES into sidebar examples; a
 
 ### Writer sub-agent assembly order (differs from main chat)
 
-Brainstorming and writing-plan sub-agents (`get_brainstorming_sub_agent_instructions` in [`brainstorming.py`](../../plugin/chatbot/brainstorming.py), `get_writing_sub_agent_instructions` in [`writing.py`](../../plugin/chatbot/writing.py)):
+Brainstorming and writing-plan sub-agents (`get_sub_agent_instructions(BRAINSTORMING_SUB_AGENT_INSTRUCTIONS)` in [`brainstorming.py`](../../plugin/chatbot/brainstorming.py), `get_sub_agent_instructions(WRITING_SUB_AGENT_INSTRUCTIONS)` in [`writing.py`](../../plugin/chatbot/writing.py)):
 
 1. Mode-specific instructions (`BRAINSTORMING_SUB_AGENT_INSTRUCTIONS` / `WRITING_SUB_AGENT_INSTRUCTIONS`)
 2. `WRITER_APPLY_DOCUMENT_HTML_RULES` (for `save_design_spec` / `write_document_section` array content)

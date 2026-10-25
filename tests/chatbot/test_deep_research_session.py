@@ -8,10 +8,12 @@ from plugin.chatbot.deep_research_session import (
     DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS,
     DeepResearchSessionTool,
     DeepResearchWebTool,
-    collect_deep_research_tools,
 )
 from plugin.chatbot.smol_examples import get_examples_block
-from plugin.chatbot.sub_agent_tools import get_sub_agent_instructions
+from plugin.chatbot.sub_agent_tools import (
+    collect_sub_agent_tools,
+    get_sub_agent_instructions,
+)
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
@@ -78,7 +80,7 @@ def test_collect_deep_research_tools_includes_apply_on_writer():
         doc_type="writer",
         services={"tools": registry},
     )
-    names = {t.name for t in collect_deep_research_tools(ctx)}
+    names = {t.name for t in collect_sub_agent_tools(ctx, "deep_research", include_document_research=False)}
     assert "deep_research_web" in names
     assert "apply_document_content" in names
     assert "get_document_content" in names

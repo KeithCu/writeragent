@@ -791,7 +791,7 @@ class _CoreProxy:
         return _rpc_call("undo", steps=steps)
 
     def upsert_memory(self, key: str, content: str) -> dict[str, Any]:
-        """Persistent memory for the agent. Stores user profile, preferences, and quirks. Inserts or updates a specific key in a YAML/JSON-like key: value structure. To delete a memory, update it with an empty string.
+        """Persistent memory stored as a JSON object. Stores user profile, preferences, and durable facts using short stable keys. Dotted keys nest (e.g. 'writing.tone'). To delete a memory, set content to an empty string.
 
         Args:
             key (required): The key to update or insert (e.g., 'favorite_color').

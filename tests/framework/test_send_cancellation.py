@@ -356,11 +356,17 @@ def test_smol_executor_aborts_before_next_step_when_cancelled():
     step2 = MagicMock()
     step2.__class__.__name__ = "ActionStep"
 
+    generator_closed = False
+
     def fake_run(_task, stream=True):
-        yield step1
-        scope.cancel()
-        yield step2
-        yield FinalAnswerStep(output="should not run")
+        nonlocal generator_closed
+        try:
+            yield step1
+            scope.cancel()
+            yield step2
+            yield FinalAnswerStep(output="should not run")
+        finally:
+            generator_closed = True
 
     agent.run.return_value = fake_run("t")
     executor = SmolAgentExecutor(ctx)
@@ -368,6 +374,34 @@ def test_smol_executor_aborts_before_next_step_when_cancelled():
         executor.run(agent, "task")
     assert exc_info.value.code == "USER_STOPPED"
     agent.interrupt.assert_called_once()
+    assert generator_closed is True
+
+
+def test_smol_executor_early_handler_return_interrupts_and_closes_generator():
+    from plugin.chatbot.smol_agent import SmolAgentExecutor
+    from plugin.contrib.smolagents.memory import ToolCall
+
+    ctx = MagicMock()
+    ctx.stop_checker = lambda: False
+    agent = MagicMock()
+    tool_step = ToolCall(name="test_tool", arguments={}, id="call_1")
+
+    generator_closed = False
+
+    def fake_run(_task, stream=True):
+        nonlocal generator_closed
+        try:
+            yield tool_step
+            yield "unreachable"
+        finally:
+            generator_closed = True
+
+    agent.run.return_value = fake_run("t")
+    executor = SmolAgentExecutor(ctx)
+    result = executor.run(agent, "task", tool_call_handler=lambda step: {"status": "early_exit"})
+    assert result == {"status": "early_exit"}
+    agent.interrupt.assert_called_once()
+    assert generator_closed is True
 
 
 def test_stop_checker_stays_true_after_panel_clears_scope_reference():

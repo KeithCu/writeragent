@@ -246,7 +246,7 @@ class DelegateToSpecializedBase(ToolBase):
                     list_v1_peers,
                 )
 
-                tools = filter_document_research_discovery_tools(tools, ctx.ctx)
+                tools = filter_document_research_discovery_tools(tools)
                 tools = filter_peer_tools_for_specialized(tools, ctx.ctx, ctx.doc)
                 if any(getattr(t, "name", None) in PEER_TOOL_NAMES for t in tools):
                     peer_catalog = format_peer_catalog(list_v1_peers(ctx.ctx, ctx.doc))

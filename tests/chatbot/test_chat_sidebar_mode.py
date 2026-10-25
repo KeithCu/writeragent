@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_BRAINSTORMING,
     CHAT_MODE_CHAT,
@@ -122,6 +124,20 @@ def test_mode_from_selector_oob_index_falls_back_to_text():
     ctrl.getSelectedItemPos.return_value = 99
     ctrl.getText.return_value = labels[1]
     assert mode_from_selector_with_flags(ctrl, flags) == CHAT_MODE_IMAGE
+
+
+def test_mode_from_selector_error_handling():
+    ctrl = MagicMock()
+    flags = SidebarModeFlags()
+    ctrl.getSelectedItemPos.side_effect = RuntimeError("Bridge failure")
+    assert mode_from_selector_with_flags(ctrl, flags) == CHAT_MODE_CHAT
+
+    class DisposedException(Exception):
+        pass
+
+    ctrl.getSelectedItemPos.side_effect = DisposedException("object disposed")
+    with pytest.raises(DisposedException):
+        mode_from_selector_with_flags(ctrl, flags)
 
 
 def test_set_selector_mode_selects_by_index():
