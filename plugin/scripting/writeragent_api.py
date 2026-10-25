@@ -963,7 +963,7 @@ class _ErrorProxy:
     """Proxy for error tools."""
 
     def detect_and_explain_errors(self, *, range_name: list[str] | None = None) -> dict[str, Any]:
-        """Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas.
+        """Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas. Explanations are capped at 50 per range; truncated and total_error_count report any remainder.
 
         Args:
             range_name (optional): Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.
