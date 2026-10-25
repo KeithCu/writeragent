@@ -293,7 +293,7 @@ Set `log_level` to **DEBUG** in Settings (or `writeragent.json`) if you need pee
 
 ### Scroll diagnostics
 
-When the transcript viewport jumps (especially after sending a message), temporarily set `RICH_SCROLL_VERBOSE_DEBUG = True` in [`rich_text_control.py`](../../plugin/chatbot/rich_text_control.py), reproduce once, then grep the debug log:
+Set `WRITERAGENT_RICH_SCROLL_DEBUG=1` and grep `\[RICH-SCROLL\]`:
 
 ```bash
 grep '\[RICH-SCROLL\]' ~/.config/libreoffice/4/user/config/writeragent_debug.log

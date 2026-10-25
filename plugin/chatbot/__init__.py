@@ -20,9 +20,12 @@ Also hosts shared LibreOffice UNO UI helpers (`dialogs`, `dialog_views`, `settin
 """
 
 from importlib import import_module
+import logging
 from typing import Any
 
 from plugin.framework.module_base import ModuleBase
+
+log = logging.getLogger(__name__)
 
 _TOOL_MODULES = (
     "web_research",
@@ -39,9 +42,12 @@ class ChatbotModule(ModuleBase):
     """Registers the chatbot sidebar tools and selection actions."""
 
     def initialize(self, services: Any) -> None:
-        for name in _TOOL_MODULES:
-            services.tools.auto_discover(import_module(f"{__name__}.{name}"))
         self._register_selection_actions(services)
+        for name in _TOOL_MODULES:
+            try:
+                services.tools.auto_discover(import_module(f"{__name__}.{name}"))
+            except Exception:
+                log.exception("chatbot tool import failed: %s", name)
 
     def _register_selection_actions(self, services: Any) -> None:
         """Hamburger passes the sidebar frame. The menubar calls these with none."""

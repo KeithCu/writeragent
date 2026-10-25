@@ -51,17 +51,37 @@ def _debug_env_active(env_name: str = "WRITERAGENT_TESTING") -> bool:
     return os.environ.get(env_name) == "1"
 
 _CONTROL_INIT_STARTED: set[int] = set()
-_IN_SCROLL_TO_TAIL = False
+_IN_SCROLL_TO_TAIL: set[int] = set()
 _ENV_SNAPSHOT_LOGGED = False
 RICH_CONTROL_NAME = "response_rich"
 # Dialog units (AppFont) — inset RichTextControl inside the response placeholder so glyphs are not clipped.
 RICH_CONTROL_EDGE_INSET = 8
 # Very noisy live scroll tracing. Keep available for sidebar scroll investigations,
 # but do not emit it by default even when log_level is DEBUG.
-RICH_SCROLL_VERBOSE_DEBUG = False
+RICH_SCROLL_VERBOSE_DEBUG = os.environ.get("WRITERAGENT_RICH_SCROLL_DEBUG") == "1"
 # Transcript is read-only. Stick-to-bottom still dispatches .uno:SelectAll;
 # an editable field let that selection (and a click) rewrite the chat log.
 TEMP_RICH_CONTROL_EDITABLE = False
+# If a 1-char tail selection is left (collapse missed), hide it when
+# Ask/instruct has focus (exp 16). Harmless if selection is collapsed.
+_RICH_CONTROL_FIELD_FLAGS = (
+    ("RichText", True),
+    ("ReadOnly", not TEMP_RICH_CONTROL_EDITABLE),
+    ("Tabstop", TEMP_RICH_CONTROL_EDITABLE),
+    ("MultiLine", True),
+    ("VScroll", True),
+    ("HScroll", False),
+    ("AutoHScroll", False),
+    ("HardLineBreaks", False),
+    ("HideInactiveSelection", True),
+)
+
+
+def _apply_rich_control_field_flags(model: Any) -> None:
+    for name, val in _RICH_CONTROL_FIELD_FLAGS:
+        _set_model_property(model, name, val)
+
+
 _RICH_SCROLL_SEQ = 0
 
 
@@ -179,6 +199,20 @@ class RichTextChatWidget:
         # and the plain text appended after that clear draws from a stale
         # layout (turn 1 after load drops lines).
         self._greeting: str = ""
+
+    def replace_control(self, new: Any) -> None:
+        """Point this widget at a replaced RichText control and clear row caches."""
+        if new is self.control:
+            return
+        if self.control is not None:
+            from plugin.calc.navigation import clear_cell_link_spans
+
+            clear_cell_link_spans(self.control)
+        self.control = new
+        self.model = new.getModel() if new is not None and hasattr(new, "getModel") else None
+        self._shown = None
+        self._formatted_rows = 0
+        self._formatted_len = None
 
     def get_text_length(self) -> int | None:
         """Get the length of the text currently in the control.
@@ -635,7 +669,7 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                     rich_control.getPosSize().Height if hasattr(rich_control, "getPosSize") else "?",
                     bh,
                 )
-        if placeholder_rect is not None:
+        if placeholder_rect is not None and (bounds_changed or RICH_SCROLL_VERBOSE_DEBUG):
             cur = rich_control.getPosSize()
             log.info(
                 "[RICH-CONTROL] sync bounds placeholder_rect=%s -> %dx%d@%d,%d",
@@ -645,7 +679,7 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                 int(cur.X),
                 int(cur.Y),
             )
-        return True
+        return not _rich_control_needs_bounds(rich_control, bx, by, bw, bh)
     except Exception as e:
         log.debug("sync_rich_control_bounds failed: %s", e)
         return False
@@ -713,16 +747,9 @@ def _apply_rich_control_style_defaults_on_model(model: Any, style_window: Any = 
         ("BackgroundColor", theme.bg_color),
         ("CharBackColor", theme.bg_color),
         ("PaintTransparent", False),
-        ("MultiLine", True),
-        ("VScroll", True),
-        ("HScroll", False),
-        ("AutoHScroll", False),
-        ("HardLineBreaks", False),
-        # If a 1-char tail selection is left (collapse missed), hide it when
-        # Ask/instruct has focus (exp 16). Harmless if selection is collapsed.
-        ("HideInactiveSelection", True),
     ):
         _set_model_property(model, name, val)
+    _apply_rich_control_field_flags(model)
     import uno
 
     fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
@@ -929,17 +956,10 @@ def _try_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, p
             ("PositionY", by),
             ("Width", bw),
             ("Height", bh),
-            ("RichText", True),
-            ("ReadOnly", not TEMP_RICH_CONTROL_EDITABLE),
-            ("Tabstop", TEMP_RICH_CONTROL_EDITABLE),
-            ("MultiLine", True),
-            ("VScroll", True),
-            ("HScroll", False),
-            ("AutoHScroll", False),
-            ("HardLineBreaks", False),
         ):
             _set_model_property(embedded, prop, val)
 
+        _apply_rich_control_field_flags(embedded)
         _apply_rich_control_style_defaults_on_model(embedded, style_window=root_window)
 
         if dlg_model.hasByName(RICH_CONTROL_NAME):
@@ -985,6 +1005,7 @@ class RichTextControlListener(BaseWindowListener):
         self.rich_control = None
         self.initialized = False
         self._disposed = False
+        self.on_replaced: Any = None
 
     def _resolved_placeholder_rect(self) -> Any | None:
         if self._placeholder_rect_fn is not None:
@@ -997,6 +1018,7 @@ class RichTextControlListener(BaseWindowListener):
     def _sync_bounds(self) -> None:
         if self._disposed or not self.rich_control or not self.placeholder_ctrl:
             return
+        prev_ctrl = self.rich_control
         out = [self.rich_control]
         sync_rich_control_bounds(
             self.rich_control,
@@ -1007,6 +1029,8 @@ class RichTextControlListener(BaseWindowListener):
             restore_focus=self.restore_focus,
         )
         self.rich_control = out[0]
+        if self.rich_control is not prev_ctrl and callable(self.on_replaced):
+            self.on_replaced(self.rich_control)
         refresh_rich_control_peer_layout(self.ctx, self.rich_control)
 
     def disposing(self, Source: Any) -> None:
@@ -1108,6 +1132,8 @@ class RichTextControlListener(BaseWindowListener):
                 placeholder_rect=self._resolved_placeholder_rect(),
             )
             if not control:
+                self.initialized = False
+                _CONTROL_INIT_STARTED.discard(id(self.root_window))
                 log_rich_control_context(self.ctx, "deferred_init", result="control_fail")
                 log.error("RichTextControlListener: failed to create sidebar RichText control")
                 from plugin.chatbot.dialogs import set_control_text
@@ -1130,8 +1156,10 @@ class RichTextControlListener(BaseWindowListener):
                 visible=visible,
                 bounds=bounds,
             )
-            self.on_ready_callback(control)
+            self.on_ready_callback(self.rich_control)
         except Exception:
+            self.initialized = False
+            _CONTROL_INIT_STARTED.discard(id(self.root_window))
             log_rich_control_context(self.ctx, "deferred_init", result="exception")
             log.exception("RichTextControlListener deferred init failed")
 
@@ -1162,8 +1190,7 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
 
         impl = field_model.getImplementationName() if hasattr(field_model, "getImplementationName") else "?"
         _set_model_property(field_model, "Name", RICH_CONTROL_NAME)
-        _set_model_property(field_model, "RichText", True)
-        _set_model_property(field_model, "ReadOnly", not TEMP_RICH_CONTROL_EDITABLE)
+        _apply_rich_control_field_flags(field_model)
         _apply_rich_control_style_defaults_on_model(field_model, root_window)
 
         rich_flag = field_model.getPropertyValue("RichText") if hasattr(field_model, "getPropertyValue") else None
@@ -1311,7 +1338,7 @@ def _dispatch_rich_uno(control: Any, command: str, ctx: Any = None) -> bool:
         return False
 
 
-def _scroll_rich_to_tail(control: Any, ctx: Any = None, query: Any = None, restore_focus: Any = None) -> None:
+def _scroll_rich_to_tail(control: Any, ctx: Any = None, restore_focus: Any = None) -> None:
     """SelectAll for stick-to-bottom, keeping EESelectionMode::Hidden.
 
     OSelectAllDispatcher: EditView.SetSelection(All()) then ShowCursor.
@@ -1325,22 +1352,20 @@ def _scroll_rich_to_tail(control: Any, ctx: Any = None, query: Any = None, resto
     layoutWindow into another restick; that is the hang we must not reintroduce.
     Do not process_events_to_idle here.
     """
-    global _IN_SCROLL_TO_TAIL
-    if _IN_SCROLL_TO_TAIL:
+    if control is None:
         return
-    _IN_SCROLL_TO_TAIL = True
+    ctrl_id = id(control)
+    if ctrl_id in _IN_SCROLL_TO_TAIL:
+        return
+    _IN_SCROLL_TO_TAIL.add(ctrl_id)
     try:
-        # *query* names this panel's Ask field for callers. Restore goes
-        # through *restore_focus*, which closes over the frame session.
-        if query is not None and restore_focus is None:
-            log.debug("scroll tail without a frame restore callback")
         if callable(restore_focus):
             restore_focus()
         _dispatch_rich_uno(control, ".uno:SelectAll", ctx)
         if callable(restore_focus):
             restore_focus()
     finally:
-        _IN_SCROLL_TO_TAIL = False
+        _IN_SCROLL_TO_TAIL.discard(ctrl_id)
 
 
 def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None, query: Any = None, char_color: int | None = None, restore_focus: Any = None) -> None:
@@ -1371,7 +1396,9 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
             # _scroll_rich_to_tail already restores before and after SelectAll.
             # A third restore here repeated the second with nothing in between,
             # and each one is a GrabFocus on this frame (release QA BUG A).
-            _scroll_rich_to_tail(control, ctx, query, restore_focus)
+            if query is not None and restore_focus is None:
+                log.debug("scroll tail without a frame restore callback")
+            _scroll_rich_to_tail(control, ctx=ctx, restore_focus=restore_focus)
             process_events_to_idle(ctx, force=True)
 
     try:
@@ -1480,7 +1507,7 @@ def _temporarily_allow_focus(control: Any) -> tuple[Any, Any]:
     return model, was_readonly
 
 
-def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unspecified", *, restore: Any = None, _already_focus_preserved: bool = False) -> None:
+def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unspecified", *, restore: Any = None) -> None:
     """Focus the control so EditView ShowCursor can run, then restore the query field.
 
     Does not insert dummy text. A second UNO insert at the end is the same path
@@ -1503,9 +1530,6 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
             if was_readonly and model is not None:
                 _set_model_property(model, "ReadOnly", True)
 
-    if _already_focus_preserved:
+    with focus_preserved(ctx, restore):
         _do_reveal()
-    else:
-        with focus_preserved(ctx, restore):
-            _do_reveal()
 

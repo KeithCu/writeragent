@@ -8,6 +8,7 @@ on the main thread (docs/framework/uno-thread-safety.md §12).
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
 from plugin.chatbot.panel_factory import ChatPanelElement
@@ -91,6 +92,7 @@ def _make_panel(combo: FiringCombo):
         _get_document_model=lambda: None,
         _update_backend_indicator=lambda root_window=None: None,
     )
+    panel._populate_model_combos = lambda *args, **kwargs: ChatPanelElement._populate_model_combos(cast(Any, panel), *args, **kwargs)
     return panel
 
 
@@ -183,7 +185,7 @@ def test_typed_image_model_is_saved_unless_refreshing():
 
 
 def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
-    from plugin.chatbot.panel_wiring import _measure_aux_button_max_width
+    from plugin.chatbot.panel_wiring import _measure_button_max_width
 
     class _Pos:
         def __init__(self, width: int) -> None:
@@ -202,7 +204,7 @@ def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
             return _Pos(len(model.Label))
 
     monkeypatch.setattr("plugin.chatbot.panel_wiring._", lambda text: text + "XX")
-    width = _measure_aux_button_max_width(_Ctrl(), ["Stop", "Change"])
+    width = _measure_button_max_width(_Ctrl(), ["Stop", "Change"])
     assert model.Label == "Stop"
     assert width == len("ChangeXX")
 

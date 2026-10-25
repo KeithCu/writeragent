@@ -100,6 +100,8 @@ def _thin_panel_element():
     el.librarian_session = None
     el._panel_resize_listener = None
     el._rich_control_listener = None
+    el.xFrame = None
+    el._last_mode_labels = None
     return el
 
 
@@ -1060,6 +1062,9 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
     el.frame_session = None
     el._live_panel_uid = "uid"
     el._apply_sidebar_mode = MagicMock()
+    el._doc_type_label = "unknown"
+    el._doc_type_title = "Unknown"
+    el._doc_uno_services = frozenset()
 
     send = MagicMock()
     stop = MagicMock()
@@ -1102,7 +1107,8 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
         patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
     ):
-        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
+        mode_flags = el._sidebar_mode_flags(MagicMock())
+        el._wire_buttons(controls, MagicMock(), "chat", mode_flags, MagicMock())
 
     send.addActionListener.assert_called_once_with(sentinel)
     stop.addActionListener.assert_called_once()
@@ -1112,9 +1118,10 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
 
 
 def test_minimal_width_is_pre_negotiation_constant() -> None:
+    from typing import Any, cast
     from plugin.chatbot.panel_factory import ChatToolPanel, _PRE_NEGOTIATION_PANEL_WIDTH
 
-    assert ChatToolPanel.getMinimalWidth(object()) == _PRE_NEGOTIATION_PANEL_WIDTH == 320
+    assert ChatToolPanel.getMinimalWidth(cast(Any, object())) == _PRE_NEGOTIATION_PANEL_WIDTH == 320
 
 
 def test_refresh_controls_continues_after_model_read_failure():
@@ -1335,6 +1342,8 @@ def test_wire_buttons_send_constructor_failure_clears_stale_listener():
         "btn_hamburger": None,
     }
 
+    import pytest
+
     with (
         patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
@@ -1349,6 +1358,7 @@ def test_wire_buttons_send_constructor_failure_clears_stale_listener():
         patch("plugin.doc.doc_type.get_document_uno_services", return_value=frozenset()),
         patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
+        pytest.raises(RuntimeError, match="constructor fail"),
     ):
         el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
 
@@ -1394,5 +1404,321 @@ def test_initialize_extension_paths_handler_still_inits_logging():
         mock_init_logging.assert_called_once()
     finally:
         pf._paths_initialized = False
+
+
+def test_plan_session_id_all_eight_cases() -> None:
+    import hashlib
+    from plugin.chatbot.panel_factory import SessionIdPlan, plan_session_id
+
+    fixed_uuid = "11111111-2222-3333-4444-555555555555"
+    url1 = "file:///tmp/doc1.odt"
+    hash1 = hashlib.sha256(url1.encode("utf-8")).hexdigest()
+    url2 = "file:///tmp/doc2.odt"
+    hash2 = hashlib.sha256(url2.encode("utf-8")).hexdigest()
+
+    # 1. no id, url non-empty
+    p1 = plan_session_id(None, None, url1, fixed_uuid)
+    assert p1 == SessionIdPlan(session_id=hash1, fork_from=None, stamp_url=True)
+
+    # 2. no id, no url
+    p2 = plan_session_id(None, None, "", fixed_uuid)
+    assert p2 == SessionIdPlan(session_id=fixed_uuid, fork_from=None, stamp_url=False)
+
+    # 3. stored url non-empty and differs from url, and sha256(url) != stored_id
+    p3 = plan_session_id("stored_id_x", url1, url2, fixed_uuid)
+    assert p3 == SessionIdPlan(session_id=hash2, fork_from="stored_id_x", stamp_url=True)
+
+    # 4. no stored url, url non-empty, stored id is 64-char lowercase hex, differs from sha256(url)
+    p4 = plan_session_id(hash1, None, url2, fixed_uuid)
+    assert p4 == SessionIdPlan(session_id=hash2, fork_from=hash1, stamp_url=True)
+
+    # 5. hash equals stored id -> fork_from=None, session_id=stored_id, stamp_url=True when url non-empty
+    p5a = plan_session_id(hash2, url1, url2, fixed_uuid)
+    assert p5a == SessionIdPlan(session_id=hash2, fork_from=None, stamp_url=True)
+    p5b = plan_session_id(hash1, None, url1, fixed_uuid)
+    assert p5b == SessionIdPlan(session_id=hash1, fork_from=None, stamp_url=True)
+
+    # 6. stored id is not a sha256 hex (UUID), no stored url, url non-empty -> no fork, stamp_url=True
+    p6 = plan_session_id("some-uuid-string", None, url1, fixed_uuid)
+    assert p6 == SessionIdPlan(session_id="some-uuid-string", fork_from=None, stamp_url=True)
+
+    # 7. stored url equals url -> no fork, stamp_url=False
+    p7 = plan_session_id("any_id", url1, url1, fixed_uuid)
+    assert p7 == SessionIdPlan(session_id="any_id", fork_from=None, stamp_url=False)
+
+    # 8. stored id set, url empty -> no fork, stamp_url=False
+    p8 = plan_session_id("any_id", url1, "", fixed_uuid)
+    assert p8 == SessionIdPlan(session_id="any_id", fork_from=None, stamp_url=False)
+
+
+def test_debug_live_panels_registry_and_iter() -> None:
+    import gc
+    from unittest.mock import patch
+    from plugin.chatbot.panel_factory import (
+        _LIVE_CHAT_PANELS,
+        iter_debug_live_chat_panels,
+        register_debug_live_panel,
+        unregister_debug_live_panel,
+    )
+
+    class _Dummy:
+        pass
+
+    obj = _Dummy()
+    register_debug_live_panel(obj)
+    assert obj in _LIVE_CHAT_PANELS
+
+    with patch("plugin.chatbot.panel_factory._is_testing_env_active", return_value=False):
+        assert iter_debug_live_chat_panels() == []
+        assert obj in _LIVE_CHAT_PANELS
+
+    with patch("plugin.chatbot.panel_factory._is_testing_env_active", return_value=True):
+        assert obj in iter_debug_live_chat_panels()
+
+    unregister_debug_live_panel(obj)
+    assert obj not in _LIVE_CHAT_PANELS
+
+    # Weakref collection
+    obj2 = _Dummy()
+    register_debug_live_panel(obj2)
+    assert obj2 in _LIVE_CHAT_PANELS
+    del obj2
+    gc.collect()
+    with patch("plugin.chatbot.panel_factory._is_testing_env_active", return_value=True):
+        assert iter_debug_live_chat_panels() == []
+
+
+def test_wire_buttons_send_add_action_listener_failure_disposes_and_reraises() -> None:
+    import pytest
+    from unittest.mock import MagicMock, patch
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.xFrame = MagicMock()
+    el.session = MagicMock()
+    el.frame_session = None
+    el._live_panel_uid = "uid"
+    el._apply_sidebar_mode = MagicMock()
+
+    send = MagicMock()
+    send.addActionListener.side_effect = RuntimeError("send attach failed")
+    stop = MagicMock()
+    controls = {
+        "send": send,
+        "stop": stop,
+        "query": MagicMock(),
+        "response": MagicMock(),
+        "image_model_selector": None,
+        "model_selector": None,
+        "status": None,
+        "chat_mode_selector": None,
+        "aspect_ratio_selector": None,
+        "base_size_input": None,
+        "clear": None,
+        "chk_voice": None,
+        "btn_settings": None,
+        "btn_python": None,
+        "btn_latex": None,
+        "btn_search": None,
+        "btn_hamburger": None,
+    }
+    sentinel = MagicMock(name="send_listener")
+
+    with (
+        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
+        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
+        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
+        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
+        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
+        patch("plugin.chatbot.panel_factory.release_live_sidebar") as mock_release,
+        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
+        patch("plugin.doc.live_panels.register_live_panel") as mock_reg_live,
+        pytest.raises(RuntimeError, match="send attach failed"),
+    ):
+        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
+
+    sentinel.disposing.assert_called_once_with(None)
+    mock_release.assert_called_once_with(el)
+    assert el.send_listener is None
+    mock_reg_live.assert_not_called()
+
+    # A subsequent wire_buttons succeeds and attaches Stop
+    send.addActionListener.side_effect = None
+    with (
+        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
+        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
+        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
+        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
+        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
+        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
+        patch("plugin.doc.live_panels.register_live_panel"),
+        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
+    ):
+        ret = el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
+
+    assert ret is sentinel
+    stop.addActionListener.assert_called_once()
+
+
+def test_wire_buttons_stop_failure_aborts_registration() -> None:
+    import pytest
+    from unittest.mock import MagicMock, patch
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.xFrame = MagicMock()
+    el.session = MagicMock()
+    el.frame_session = None
+    el._live_panel_uid = "uid"
+    el._apply_sidebar_mode = MagicMock()
+
+    send = MagicMock()
+    stop = MagicMock()
+    stop.addActionListener.side_effect = RuntimeError("stop attach failed")
+    controls = {
+        "send": send,
+        "stop": stop,
+        "query": MagicMock(),
+        "response": MagicMock(),
+        "image_model_selector": None,
+        "model_selector": None,
+        "status": None,
+        "chat_mode_selector": None,
+        "aspect_ratio_selector": None,
+        "base_size_input": None,
+        "clear": None,
+        "chk_voice": None,
+        "btn_settings": None,
+        "btn_python": None,
+        "btn_latex": None,
+        "btn_search": None,
+        "btn_hamburger": None,
+    }
+    sentinel = MagicMock(name="send_listener")
+
+    with (
+        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
+        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
+        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
+        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
+        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
+        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
+        patch("plugin.chatbot.panel_factory.release_live_sidebar") as mock_release,
+        patch("plugin.chatbot.panel_factory.register_debug_live_panel") as mock_reg_debug,
+        patch("plugin.doc.live_panels.register_live_panel") as mock_reg_live,
+        pytest.raises(RuntimeError, match="stop attach failed"),
+    ):
+        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
+
+    sentinel.disposing.assert_called_once_with(None)
+    mock_release.assert_called_once_with(el)
+    assert el.send_listener is None
+    mock_reg_live.assert_not_called()
+    mock_reg_debug.assert_not_called()
+
+
+def test_chat_panel_element_disposing_removes_both_listeners() -> None:
+    from unittest.mock import MagicMock
+
+    el = _thin_panel_element()
+    root = MagicMock()
+    el.m_panelRootWindow = root
+    tp = MagicMock()
+    rl = MagicMock()
+    tp.resize_listener = rl
+    el.toolpanel = tp
+    rich_l = MagicMock()
+    el._rich_control_listener = rich_l
+
+    el.disposing()
+    assert root.removeWindowListener.call_count == 2
+    root.removeWindowListener.assert_any_call(rl)
+    root.removeWindowListener.assert_any_call(rich_l)
+    assert el._rich_control_listener is None
+    assert tp.resize_listener is None
+
+    # Without rich listener, only resize listener is removed
+    root.reset_mock()
+    tp.resize_listener = rl
+    el._rich_control_listener = None
+    el.disposing()
+    assert root.removeWindowListener.call_count == 1
+    root.removeWindowListener.assert_called_once_with(rl)
+
+
+def test_refresh_controls_populates_model_combos_without_readding_listeners() -> None:
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.m_panelRootWindow = MagicMock()
+    el.send_listener = MagicMock()
+    el.send_listener.cached_doc_type = "writer"
+
+    model_sel = MagicMock()
+    image_sel = MagicMock()
+    controls = {"model_selector": model_sel, "image_model_selector": image_sel}
+    el.m_panelRootWindow.getControl.side_effect = lambda n: controls.get(n)
+
+    with (
+        patch("plugin.chatbot.panel_factory.get_optional_control", side_effect=lambda _r, n: controls.get(n)),
+        patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_pop_text,
+        patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector") as mock_pop_img,
+        patch("plugin.chatbot.panel_factory.set_text_model"),
+        patch("plugin.chatbot.panel_factory.set_image_model"),
+    ):
+        mock_pop_text.return_value = "gpt-4o"
+        mock_pop_img.return_value = "dall-e-3"
+        el._wire_model_selectors(model_sel, image_sel)
+        assert model_sel.addItemListener.call_count == 1
+        assert image_sel.addItemListener.call_count == 1
+        assert mock_pop_text.call_count == 1
+        assert mock_pop_img.call_count == 1
+
+        # Now config refresh: should populate again, but not add listeners
+        el._refresh_controls_from_config()
+        assert model_sel.addItemListener.call_count == 1
+        assert image_sel.addItemListener.call_count == 1
+        assert mock_pop_text.call_count == 2
+        assert mock_pop_img.call_count == 2
+
+
+def test_refresh_controls_mode_selector_caching() -> None:
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.m_panelRootWindow = MagicMock()
+    el.send_listener = MagicMock()
+    el.send_listener.cached_doc_type = "writer"
+
+    chat_mode = MagicMock()
+    chat_mode.getSelectedItemPos.return_value = 1
+    controls = {"chat_mode_selector": chat_mode}
+    el.m_panelRootWindow.getControl.side_effect = lambda n: controls.get(n)
+
+    with (
+        patch("plugin.chatbot.panel_factory.get_optional_control", side_effect=lambda _r, n: controls.get(n)),
+        patch("plugin.chatbot.panel_factory.ChatPanelElement._populate_model_combos"),
+        patch("plugin.chatbot.panel_factory.ChatPanelElement._update_backend_indicator"),
+        patch("plugin.chatbot.chat_sidebar_mode.populate_mode_selector_with_flags") as mock_pop_mode,
+        patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value="web"),
+        patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"),
+    ):
+        # First refresh: labels change from None -> ("Chat", "Web", ...) -> populate runs
+        el._refresh_controls_from_config()
+        assert mock_pop_mode.call_count == 1
+
+        # Second refresh: same doc type ("writer"), same labels -> populate skipped
+        el._refresh_controls_from_config()
+        assert mock_pop_mode.call_count == 1
+
+        # Third refresh: doc type changes -> labels differ -> populate runs again
+        el.send_listener.cached_doc_type = "calc"
+        el._refresh_controls_from_config()
+        assert mock_pop_mode.call_count == 2
+
 
 

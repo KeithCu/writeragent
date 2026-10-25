@@ -29,7 +29,19 @@ _STRETCH_CONTROLS = frozenset({
 })
 
 # Completion menu overlays the transcript; do not park it in the bottom band.
-_OVERLAY_CONTROLS = frozenset({"slash_popup"})
+_OVERLAY_CONTROLS = frozenset({"slash_popup", "response_rich"})
+
+# Header buttons keep origin X and width, then clamp to column.
+_HEADER_CONTROLS = frozenset({
+    "btn_settings",
+    "btn_python",
+    "btn_latex",
+    "btn_search",
+    "btn_hamburger",
+})
+
+_INDICATOR_CONTROLS = frozenset({"backend_indicator"})
+_INDICATOR_GAP = 4
 
 # ChatPanelDialog.xdl: response top=16 height=110, status top=128 -> gap=2.
 _XDL_GAP_BELOW_RESPONSE = 2
@@ -132,7 +144,7 @@ def compute_chat_panel_layout(
         if name == "response":
             continue
 
-        if name in _OVERLAY_CONTROLS:
+        if name in _OVERLAY_CONTROLS or name in _INDICATOR_CONTROLS:
             continue
 
         if name in _STRETCH_CONTROLS:
@@ -145,6 +157,19 @@ def compute_chat_panel_layout(
         layouts[name] = ControlRect(ox, new_y, new_w, oh)
 
     layouts["response"] = ControlRect(response_x, response_y, response_w, response_h)
+    if "backend_indicator" in snapshot:
+        _ix, iy, _iw, ih = snapshot["backend_indicator"]
+        hamb = layouts.get("btn_hamburger")
+        if hamb is not None:
+            ind_x = hamb.x + hamb.width + _INDICATOR_GAP
+        else:
+            ind_x = snapshot.get("btn_hamburger", (_ix, 0, 0, 0))[0] + _INDICATOR_GAP
+        col_right = width - right_margin
+        ind_w = col_right - ind_x
+        if ind_w < 8:
+            ind_w = 0
+            ind_x = min(ind_x, col_right)
+        layouts["backend_indicator"] = ControlRect(ind_x, iy, ind_w, ih)
     _share_button_row(layouts, snapshot, width, right_margin)
     _fit_base_size_row(layouts, snapshot, width, right_margin, (preferred or {}).get("base_size_input"))
     label_pref = (preferred or {}).get("query_label")
@@ -358,9 +383,11 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     _in_relayout: bool
     _root_window: Any
     _parent_window: Any
-    _width_negotiated: bool
     _viewport_w: int
     _restore_focus: Any
+    _pending_win: Any
+    _last_logged_size: tuple[int, int] | None
+    on_control_replaced: Any
 
     def __init__(self, controls: dict[str, Any], on_dispose: Any = None, restore_focus: Any = None) -> None:
         self._c = controls
@@ -369,11 +396,27 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         self._snapshot: dict[str, tuple[int, int, int, int]] | None = None
         self._preferred: dict[str, tuple[int, int]] = {}
         self._in_relayout = False
+        self._pending_win = None
         self._root_window = None
         self._parent_window = None
-        self._width_negotiated = False
         self._viewport_w = 0
         self._last_response_rect: tuple[int, int, int, int] | None = None
+        self._last_logged_size = None
+        self.on_control_replaced = None
+
+    def set_windows(self, root: Any, parent: Any) -> None:
+        self._root_window = root
+        self._parent_window = parent
+
+    def set_control(self, name: str, ctrl: Any) -> None:
+        self._c[name] = ctrl
+
+    def get_control(self, name: str) -> Any:
+        return self._c.get(name)
+
+    def invalidate_measurements(self) -> None:
+        self._snapshot = None
+        self._preferred.clear()
 
     @property
     def last_response_rect(self) -> tuple[int, int, int, int] | None:
@@ -392,34 +435,36 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             except Exception:
                 log.exception("sidebar window dispose callback failed")
 
-    def relayout_now(self, win: Any) -> None:
+    def relayout_now(self, win: Any, viewport_w: int = 0) -> None:
         if not win:
             return
-        # Do not wait for deck negotiation. Keith create-time: root=320 with
-        # max_child_right=1087 seeded the H-bar until the first widen.
+        if viewport_w > 0:
+            self._viewport_w = int(viewport_w)
         if self._in_relayout:
-            _resize_debug("relayout_now: skipped (in_relayout)")
+            _resize_debug("relayout_now: pending extra pass (in_relayout)")
+            self._pending_win = win
             return
         try:
             self._in_relayout = True
             self._relayout(win)
+            if self._pending_win is not None:
+                pending = self._pending_win
+                self._pending_win = None
+                self._relayout(pending)
+                self._pending_win = None
         except Exception:
             log.exception("relayout_now failed")
         finally:
             self._in_relayout = False
+            self._pending_win = None
 
     def on_window_resized(self, rEvent: Any) -> None:
         r = rEvent.Source.getPosSize()
-        log.info("[LAYOUT] source=windowResized root=%dx%d", r.Width, r.Height)
+        _resize_debug("[LAYOUT] source=windowResized root=%dx%d", r.Width, r.Height)
         # Do not setPosSize the dialog here. windowResized can beat
         # getHeightForWidth on a widen drag (1x: 465 then hfw 465); snapping
         # back to last deck_hint would fight the splitter.
         self.relayout_now(rEvent.Source)
-
-    def note_width_negotiated(self, viewport_w: int = 0) -> None:
-        self._width_negotiated = True
-        if viewport_w > 0:
-            self._viewport_w = int(viewport_w)
 
     def _capture_snapshot(self, win: Any) -> None:
         r = win.getPosSize()
@@ -469,6 +514,9 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         w, h = int(r.Width), int(r.Height)
         if w <= 0 or h <= 0:
             return
+        if (w, h) != self._last_logged_size:
+            self._last_logged_size = (w, h)
+            log.debug("[LAYOUT] size=(%d, %d)", w, h)
         # Cap h against the parent window height (getPosSize().Height) and
         # 3000px. In Calc's sidebar, moving bottom controls down resizes the
         # container, which fires windowResized with a larger height and
@@ -486,7 +534,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         if self._viewport_w <= 0:
             self._viewport_w = w
         elif w > self._viewport_w:
-            log.info("[LAYOUT] cap_width window=%s viewport=%s", w, self._viewport_w)
+            _resize_debug("[LAYOUT] cap_width window=%s viewport=%s", w, self._viewport_w)
             w = self._viewport_w
 
         if self._snapshot is None:
@@ -511,7 +559,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             max_right = 0
             for rect in layouts.values():
                 max_right = max(max_right, rect.x + rect.width)
-            log.info(
+            _resize_debug(
                 "[LAYOUT] response_rect x=%d y=%d w=%d h=%d root=%dx%d max_child_right=%d overflow=%s",
                 response.x,
                 response.y,
@@ -538,7 +586,12 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
                         control_out=rich_out,
                         restore_focus=self._restore_focus,
                     )
-                    rich = rich_out[0]
-                    self._c["response_rich"] = rich
+                    new_rich = rich_out[0]
+                    if new_rich is not rich:
+                        self.set_control("response_rich", new_rich)
+                        cb = getattr(self, "on_control_replaced", None)
+                        if callable(cb):
+                            cb("response_rich", new_rich)
+                        rich = new_rich
 
                 best_effort(_sync_rich, "response_rich sync after relayout")
