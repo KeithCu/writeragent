@@ -316,11 +316,8 @@ def bootstrap(ctx: Any | None = None) -> None:
             if not _modules:
                 _bootstrap_state = BootstrapState.UNINITIALIZED
                 return
-            # What was wrong: a module start_background failure used to return before
-            # core handlers, so Settings and the other register_action_handler calls never ran.
-            # How it happened: the except block unconditionally returned on any error.
-            # Why this change: fall through so core handlers and menu updates register;
-            # the error is kept so an unhandled command still raises BOOTSTRAP_FAILED.
+            # Fall through so core handlers still register; the kept error makes an
+            # unhandled command raise BOOTSTRAP_FAILED.
 
         # 6. Background phase: modules that start listeners/servers (e.g. McpModule when MCP enabled).
         # Isolate each module: one failed start must not keep later servers/listeners from starting.
