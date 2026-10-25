@@ -25,7 +25,9 @@ class DrawModule(ModuleBase):
     """Registers Draw/Impress tools for shapes, pages/slides."""
 
     def initialize(self, services: Any) -> None:
-        services.tools.auto_discover_package(__name__)
+        # Not shipping: transform.py is a ToolBaseDummy tool, so discovery
+        # would import transform_engine for a class the registry drops.
+        services.tools.auto_discover_package(__name__, skip=frozenset({"transform"}))
         from plugin.ppt_master import tools as ppt_master_tools
 
         services.tools.auto_discover(ppt_master_tools)
