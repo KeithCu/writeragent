@@ -34,7 +34,6 @@ from plugin.framework.errors import suppress_disposed
 from plugin.framework.logging import update_activity_state
 from plugin.framework.queue_executor import QueueExecutor, default_executor
 from plugin.chatbot.record_gesture import (
-    EMPTY_TAKES_EXIT,
     RecordGesture,
     gesture_action,
     gesture_press,
@@ -93,8 +92,7 @@ from plugin.chatbot.send_state import (
     next_state as send_next_state,
 )
 from plugin.chatbot.sidebar_state import SidebarCompositeState
-from plugin.chatbot.tool_loop_state import ToolLoopState
-from plugin.scripting.audio_recorder_service import clear_pending_audio_wav, is_audio_recording_supported
+from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
 
 log = logging.getLogger(__name__)
 

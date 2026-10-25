@@ -18,12 +18,9 @@
 
 from __future__ import annotations
 
-import contextlib
-import json
 import logging
 import os
 import struct
-import tempfile
 import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable
@@ -283,7 +280,6 @@ class AudioRecorder:
         self._cleanup_failed_start()
 
     def _execute_effect(self, effect: object) -> None:
-        import sys
         import wave
 
         if isinstance(effect, InitializeDeviceEffect):

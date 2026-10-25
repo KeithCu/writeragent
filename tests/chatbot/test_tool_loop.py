@@ -29,7 +29,6 @@ from plugin.framework.stream_batch import StreamQueueKind  # noqa: E402
 
 # Now import the actual ToolCallingMixin class from the module
 from plugin.chatbot.tool_loop import CHAT_STREAM_BATCH_INTERVAL, ToolCallingMixin  # noqa: E402
-from plugin.chatbot.audio_recorder_state import AudioRecorderState  # noqa: E402
 from plugin.chatbot.send_state import SendButtonState  # noqa: E402
 from plugin.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
 

@@ -21,7 +21,6 @@ from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.config import get_api_config
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.errors import best_effort
 from plugin.framework.send_cancellation import capture_send_stop
 
 log = logging.getLogger("plugin.chatbot.panel")

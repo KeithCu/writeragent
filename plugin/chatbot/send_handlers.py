@@ -11,7 +11,6 @@ alternate send flows that would otherwise bloat that class:
 
 from __future__ import annotations
 
-import os
 import json
 import threading
 import logging
@@ -20,7 +19,6 @@ from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
 from plugin.framework.i18n import _
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_async_worker_with_drain
-from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.errors import (
     AgentParsingError,
     BlockingWaitStopped,
@@ -30,9 +28,8 @@ from plugin.framework.errors import (
     safe_json_loads,
     suppress_disposed,
 )
-from plugin.framework.config import get_api_config, get_config, get_config_int_safe
+from plugin.framework.config import get_config, get_config_int_safe
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
-from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
 from plugin.framework.llm_lanes import llm_request_lane
@@ -40,7 +37,6 @@ from plugin.framework.send_cancellation import capture_send_stop
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import (
-    SendHandlerEffect,
     SendHandlerEvent,
     SendHandlerState,
     SendHandlerUIEffect,
@@ -160,6 +156,7 @@ def _reset_active_run_flags(host: Any) -> None:
 if TYPE_CHECKING:
     import queue
     from plugin.chatbot.chat_session import ChatSession
+    from plugin.framework.client.llm_client import LlmClient
 
 
 def _agent_backend_label(adapter: Any, backend_id: str) -> str:

@@ -1996,6 +1996,7 @@ def adopt_runtime_send_listeners() -> int:
             if getattr(obj, "query_control", None) is None:
                 continue
         except Exception:
+            log.debug("skipping send listener whose attributes raised", exc_info=True)
             continue
         if _listener_torn_down(obj):
             continue

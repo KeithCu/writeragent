@@ -123,7 +123,7 @@ def _replace_state(state: SendButtonState, **changes: Any) -> SendButtonState:
 
 
 def _noop(state: SendButtonState) -> FsmTransition[SendButtonState]:
-    return FsmTransition(state, cast(list[Any], ()))
+    return FsmTransition(state, cast("list[Any]", ()))
 
 
 # Helper to determine the button label

@@ -1,4 +1,3 @@
-import dataclasses
 
 from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, next_state as send_next_state
 from plugin.chatbot.sidebar_state import SidebarCompositeState

@@ -245,4 +245,4 @@ class TestEffectInterpreterThinking:
         state = SendHandlerState(handler_type="web", status="running")
         interpreter = EffectInterpreter(None)
         with pytest.raises(AssertionError):
-            interpreter.interpret(cast(Any, object()), state)
+            interpreter.interpret(cast("Any", object()), state)

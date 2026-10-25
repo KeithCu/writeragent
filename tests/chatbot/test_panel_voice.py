@@ -8,7 +8,6 @@ from plugin.chatbot.panel_voice import PanelVoiceController, _stop_tts
 from plugin.chatbot.record_gesture import RecordGesture
 from plugin.chatbot.send_state import SendButtonState
 from plugin.chatbot.sidebar_state import SidebarCompositeState
-from plugin.chatbot.audio_recorder_state import AudioRecorderState
 
 
 class DummyPanel:
