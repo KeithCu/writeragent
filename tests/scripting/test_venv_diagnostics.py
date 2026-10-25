@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from unittest.mock import MagicMock, patch
@@ -36,6 +37,9 @@ from plugin.scripting.venv_diagnostics import (
     _VISION_PROBE_SCRIPT,
     _build_probe_display,
     _format_self_check_success,
+    _import_probe_script,
+    _import_try_block,
+    _parse_probe_stdout,
     _probe_key_to_pip,
     _probe_nlp_packages,
     _probe_vector_search_packages,
@@ -1291,4 +1295,115 @@ def test_partial_scientific_group_uses_translated_title(monkeypatch) -> None:
     )
     assert "L:Scientific Libraries: numpy" in msg
     assert "pandas" not in msg
+
+
+def test_run_json_probe_keeps_payload_on_nonzero_exit():
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=1,
+        stdout='WA_PROBE_JSON {"docling": "present"}\n',
+        stderr="atexit failed",
+    )
+    with patch("plugin.scripting.venv_diagnostics.subprocess.run", return_value=completed):
+        probes, hint = probe_vision_packages("/x/python", timeout=30.0)
+    assert probes == {"docling": "present"}
+    assert hint is None
+
+
+def test_run_json_probe_nonzero_exit_without_payload_fails():
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=1,
+        stdout="",
+        stderr="atexit failed",
+    )
+    with patch("plugin.scripting.venv_diagnostics.subprocess.run", return_value=completed):
+        probes, hint = probe_vision_packages("/x/python", timeout=30.0)
+    assert probes == {}
+    assert hint is not None
+
+
+def test_probe_import_guard_survives_system_exit(tmp_path):
+    (tmp_path / "wa_k157_exit.py").write_text("raise SystemExit(7)\n")
+    script = _import_probe_script(
+        _import_try_block("wa_k157_exit", "wa_k157_exit"),
+        _import_try_block("json", "json"),
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        encoding="utf-8",
+        timeout=60,
+        env={**os.environ, "PYTHONPATH": str(tmp_path) + os.pathsep + os.environ.get("PYTHONPATH", "")},
+    )
+    assert proc.returncode == 0
+    assert _parse_probe_stdout(proc.stdout) == {"wa_k157_exit": None, "json": "present"}
+
+
+def test_run_json_probe_watches_the_flatpak_bus():
+    recorded_kwargs: dict[str, Any] = {}
+
+    def fake_wrap(cmd, **kwargs):
+        recorded_kwargs.update(kwargs)
+        return cmd
+
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=0,
+        stdout='WA_PROBE_JSON {"docling": "present"}\n',
+        stderr="",
+    )
+    with patch("plugin.scripting.venv_diagnostics.wrap_command_for_sandbox", side_effect=fake_wrap):
+        with patch("plugin.scripting.venv_diagnostics.subprocess.run", return_value=completed):
+            probe_vision_packages("/x/python", timeout=30.0)
+    assert recorded_kwargs.get("watch_bus") is True
+
+
+def test_build_probe_display_input_device_is_not_missing():
+    data = {
+        "p": {
+            "sounddevice": "present",
+            "input_device": None,
+            "kokoro_onnx": None,
+            "soundfile": None,
+            "piper": None,
+            "faster_whisper": None,
+        },
+        "audio": list(_AUDIO_PACKAGE_KEYS),
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "viz": [],
+        "cas": [],
+        "quant": [],
+        "data_eng": [],
+        "nlp": [],
+        "vision": [],
+        "vector_search": [],
+    }
+    msg = _build_probe_display(data, completed_groups=8, include_audio=True)
+    assert "No microphone input devices detected." in msg
+    assert "input_device" not in msg
+
+
+def test_probe_venv_path_messages_are_translated(tmp_path, monkeypatch):
+    monkeypatch.setattr("plugin.scripting.venv_diagnostics._", lambda message: f"L:{message}")
+
+    with patch("plugin.scripting.venv_diagnostics.resolve_libreoffice_python", return_value=None):
+        ok, msg = probe_venv_path_with_progress("", lambda _: None)
+        assert ok is False
+        assert msg.startswith("L:No process interpreter:")
+
+    ok, msg = probe_venv_path_with_progress(str(tmp_path), lambda _: None)
+    assert ok is False
+    assert msg.startswith("L:No python found.")
+
+    ok, msg = probe_venv_path_with_progress(str(tmp_path / "missing"), lambda _: None)
+    assert ok is False
+    assert msg.startswith("L:Path not found: ")
+
+    ok, msg = probe_venv_path_with_progress(__file__, lambda _: None)
+    assert ok is False
+    assert msg.startswith("L:Not a Python executable: ")
+
 
