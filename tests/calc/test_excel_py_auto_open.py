@@ -100,6 +100,29 @@ def test_apply_dag_formulas_sets_calc_semicolon_formula():
     assert sheet.getCellRangeByName("D1").getFormula() == ""  # spill cells cleared
 
 
+def test_apply_dag_formulas_invalid_array_ref_fails_preflight():
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="C1",
+        direction="dag",
+        original_code="x",
+        converted_code="df = pd.DataFrame(data)",
+        data_args=["A1:B2"],
+        converted=True,
+        array_ref="not-a-ref",
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellRangeByName("C1").setFormula("=ORIGINAL")
+
+    errors = apply_dag_formulas_to_calc_doc(doc, report)
+    assert any("invalid array_ref" in e for e in errors)
+    assert sheet.getCellRangeByName("C1").getFormula() == "=ORIGINAL"
+    assert not doc.getSheets().hasByName("py_code_Sheet1")
+
+
 def test_apply_dag_formulas_banks_long_scripts():
     long_code = "x = data\n" + ("# pad\n" * 200)
     assert len(long_code) > 1000
@@ -123,6 +146,37 @@ def test_apply_dag_formulas_banks_long_scripts():
     formula = doc.getSheets().getByName("Sheet1").getCellRangeByName("C1").getFormula()
     assert "py_code_Sheet1.C1" in formula
     assert not formula.startswith('=PY("')
+
+
+def test_apply_dag_formulas_defined_name_add_failure_rolls_back(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    long_code = "x = data\n" + ("# pad\n" * 200)
+    assert len(long_code) > 1000
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="C1",
+        direction="dag",
+        original_code="x",
+        converted_code=long_code,
+        data_args=["A1:B2"],
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+
+    doc = CalcDocStub()
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("names locked")
+
+    doc.NamedRanges = SimpleNamespace(hasByName=lambda _name: False, addNewByName=_boom)
+    monkeypatch.setitem(sys.modules, "uno", SimpleNamespace(createUnoStruct=lambda _name: None))
+
+    errors = apply_dag_formulas_to_calc_doc(doc, report)
+    assert any("script bank write failed" in e for e in errors)
+    assert not doc.getSheets().hasByName("py_code_Sheet1")
+
 
 def test_script_bank_only_long_scripts_and_mirrors_a1():
     from plugin.calc.excel_py_convert.script_bank import (
@@ -782,6 +836,50 @@ def test_apply_dag_formulas_rollback_on_cell_failure(tmp_path: Path):
         assert get_document_property(doc, _CONVERTED_PROP) is None
         assert sheet.getCellRangeByName("A1").getFormula() == "=ORIGINAL_A1"
         assert not doc.getSheets().hasByName("py_code_Sheet1")
+
+
+def test_apply_dag_formulas_rollback_failure_is_reported():
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    a1_cell = sheet.getCellRangeByName("A1")
+    b1_cell = sheet.getCellRangeByName("B1")
+    a1_cell.setFormula("=ORIGINAL_A1")
+    b1_cell.setFormula("=ORIGINAL_B1")
+
+    c1 = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="dag",
+        original_code="x = 1",
+        converted_code="x = 1",
+        converted=True,
+    )
+    c2 = ConvertedCell(
+        sheet="Sheet1",
+        cell="B1",
+        direction="dag",
+        original_code="y = 2",
+        converted_code="y = 2",
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[c1, c2])
+
+    orig_a1_set = a1_cell.setFormula
+
+    def _a1_set_formula(val: str):
+        if val == "=ORIGINAL_A1":
+            raise RuntimeError("simulated rollback failure on A1")
+        orig_a1_set(val)
+
+    def _b1_set_formula(val: str):
+        raise RuntimeError("simulated write failure on B1")
+
+    a1_cell.setFormula = _a1_set_formula
+    b1_cell.setFormula = _b1_set_formula
+
+    errors = apply_dag_formulas_to_calc_doc(doc, report)
+    assert any("rollback incomplete" in e and "A1" in e for e in errors)
+    assert doc.calculate_all_count == 1
 
 
 def test_apply_dag_formulas_preflight_failure_writes_nothing():
