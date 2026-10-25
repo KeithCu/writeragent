@@ -114,6 +114,14 @@ def test_parse_flags_and_format_flags():
     assert set(_format_flags(12)) == {"column_header", "row_header"}
 
 
+def test_parse_flags_rejects_unknown_and_out_of_mask():
+    for bad in ("printarea", ["printarea"], 16, -1, "16", 4 | 8 | 16):
+        with pytest.raises(ValueError):
+            _parse_flags(bad)
+    assert _parse_flags(0) == 0
+    assert _parse_flags("1,4,8") == 13
+
+
 def test_resolve_container_global_and_sheet():
     """Verify _resolve_container routes to doc.NamedRanges or sheet.NamedRanges."""
     doc = MagicMock()
@@ -342,12 +350,12 @@ def test_named_range_tools_error_handling():
 
 def test_defined_name_matches_calc_is_name_valid():
     """ScRangeData::IsNameValid rejects cell refs, dots, leading digits, and spaces."""
-    for illegal in ("A1", "a1", "AA10", "Q1", "R1C1", "RC", "C1", "R2", "Sales.2026", "1abc", "My Range", "", "A1:B2", "$A$1"):
+    for illegal in ("A1", "a1", "AA10", "Q1", "R1C1", "RC", "C1", "R2", "Sales.2026", "1abc", "My Range", "", "A1:B2", "$A$1", "XFD1"):
         assert _defined_name_error(illegal), illegal
     assert "cell" in (_defined_name_error("A1") or "").lower()
     assert "underscore" in (_defined_name_error("Sales.2026") or "").lower()
     assert "underscore" in (_defined_name_error("1abc") or "").lower()
-    for legal in ("TaxRate", "_Hidden", "Sales_2026", "Q1Sales", "DATA1", "R2D2", "Sales?", "Ångström"):
+    for legal in ("TaxRate", "_Hidden", "Sales_2026", "Q1Sales", "DATA1", "R2D2", "Sales?", "Ångström", "XFE1"):
         assert _defined_name_error(legal) is None, legal
 
 
@@ -435,6 +443,35 @@ def test_edit_renames_before_other_fields_and_rolls_back():
     assert [call.args[0] for call in nr_fail.setName.call_args_list] == ["TaxRate2", "TaxRate"]
 
 
+def test_edit_rolls_back_content_when_type_set_fails():
+    nr = _nr("TaxRate", "$Sheet1.$A$1")
+    ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
+    nr.setType.side_effect = IllegalArgumentException("type rejected")
+    res = NamedRangeEdit().execute(ctx, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1", flags=["print_area"])
+    assert res["status"] == "error"
+    assert res["code"] == "NAMED_RANGE_ERROR"
+    assert [call.args[0] for call in nr.setName.call_args_list] == ["TaxRate2", "TaxRate"]
+    assert [call.args[0] for call in nr.setContent.call_args_list] == ["$Sheet1.$B$1", "$Sheet1.$A$1"]
+
+    # setReferencePosition failure rolls back content, type, and rename
+    nr_pos = _nr("TaxRate", "$Sheet1.$A$1")
+    ctx_pos = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr_pos})
+    nr_pos.setReferencePosition.side_effect = IllegalArgumentException("pos rejected")
+    res_pos = NamedRangeEdit().execute(
+        ctx_pos,
+        name="TaxRate",
+        new_name="TaxRate2",
+        content="$Sheet1.$B$1",
+        flags=["print_area"],
+        base_cell="A1",
+    )
+    assert res_pos["status"] == "error"
+    assert res_pos["code"] == "NAMED_RANGE_ERROR"
+    assert [call.args[0] for call in nr_pos.setName.call_args_list] == ["TaxRate2", "TaxRate"]
+    assert [call.args[0] for call in nr_pos.setContent.call_args_list] == ["$Sheet1.$B$1", "$Sheet1.$A$1"]
+    assert [call.args[0] for call in nr_pos.setType.call_args_list] == [2, 0]
+
+
 def test_unqualified_name_prefers_sheet_local_shadow():
     """A bare name on a sheet with a local same-spelled range targets the local one."""
     local = _nr("Total", "local")
@@ -513,3 +550,51 @@ def test_get_info_bare_sheet_qualified_name_resolves_sheet_scope():
     assert info["result"]["scope"] == "Data"
     assert info["result"]["name"] == "LocalName"
     assert info["result"]["content"] == "$Data.$A$1"
+
+
+def test_edit_and_delete_resolve_sheet_qualified_name():
+    """Edit and delete resolve 'Data.LocalName' to the Data sheet and operate with bare name."""
+    local = _nr("LocalName", "$Data.$A$1")
+    data_sheet = _sheet("Data", {"LocalName": local})
+    sheet1 = _sheet("Sheet1", {})
+    ctx = _workbook("Sheet1", [sheet1, data_sheet], {})
+
+    res_edit = NamedRangeEdit().execute(ctx, name="Data.LocalName", content="$Data.$B$1")
+    assert res_edit["status"] == "ok"
+    local.setContent.assert_called_once_with("$Data.$B$1")
+
+    res_del = NamedRangeDelete().execute(ctx, name="Data.LocalName")
+    assert res_del["status"] == "ok"
+    data_sheet.NamedRanges.removeByName.assert_called_once_with("LocalName")
+
+
+def test_add_validates_name_and_flags():
+    """NamedRangeAdd validates name and flags before container lookup or mutation."""
+    doc = MagicMock()
+    named_ranges = MagicMock()
+    doc.NamedRanges = named_ranges
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    tool = NamedRangeAdd()
+    res_bad_name = tool.execute(ctx, name="A1", content="$Sheet1.$A$1")
+    assert res_bad_name["status"] == "error"
+    assert res_bad_name["code"] == "INVALID_NAME"
+    named_ranges.addNewByName.assert_not_called()
+
+    res_bad_flag = tool.execute(ctx, name="TaxRate", content="$Sheet1.$A$1", flags=["printarea"])
+    assert res_bad_flag["status"] == "error"
+    assert res_bad_flag["code"] == "INVALID_FLAGS"
+    named_ranges.addNewByName.assert_not_called()
+
+
+def test_edit_rejects_unknown_flags_before_mutation():
+    """NamedRangeEdit validates flags before setName or setContent mutations."""
+    nr = _nr("TaxRate", "$Sheet1.$A$1")
+    ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
+    tool = NamedRangeEdit()
+    res = tool.execute(ctx, name="TaxRate", new_name="TaxRate2", flags=["printarea"])
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_FLAGS"
+    nr.setName.assert_not_called()
+    nr.setContent.assert_not_called()
