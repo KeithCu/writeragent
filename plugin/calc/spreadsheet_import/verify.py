@@ -10,6 +10,7 @@ import math
 from typing import Any
 
 from plugin.calc.error_detector import is_calc_error_display
+from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.spreadsheet_import.models import ConversionReport, OutputSheetModel, SheetModel, VerifyMismatch, VerifyResult
 
 
@@ -36,31 +37,40 @@ def _values_equal(expected: Any, actual: Any, *, rtol: float) -> tuple[bool, str
         return expected == actual, f"other {expected!r} vs {actual!r}"
 
 
-def verify_converted_cells(source: SheetModel, output: OutputSheetModel, report: ConversionReport, *, rtol: float = 1e-9, actual_values: dict[str, Any] | None = None) -> VerifyResult:
-    """Compare cell values to *source* ingest oracle.
-
-    When *actual_values* is omitted (no LibreOffice recalc), only checks that
-    converted cells have ``=PY()`` formulas and records oracles for later UNO
-    verification.
-    """
+def verify_converted_cells(
+    source: SheetModel,
+    output: OutputSheetModel,
+    report: ConversionReport,
+    *,
+    actual_values: dict[str, Any],
+    rtol: float = 1e-9,
+) -> VerifyResult:
+    """Compare converted cell values against the source ingest oracle."""
     result = VerifyResult()
     for addr in report.converted:
         if addr not in source.cells:
             result.skipped.append(addr)
             continue
         oc = output.cells.get(addr)
-        if oc is None or not oc.formula or not oc.formula.lstrip().upper().startswith("=PY"):
-            result.failed.append(VerifyMismatch(address=addr, expected="=PY(...)", actual=oc.formula if oc else None, message="missing PY formula"))
+        if oc is None or not oc.formula or not is_py_formula_text(oc.formula):
+            result.failed.append(
+                VerifyMismatch(
+                    address=addr,
+                    expected="=PY(...)",
+                    actual=oc.formula if oc else None,
+                    message="missing PY formula",
+                )
+            )
             continue
-        if actual_values is not None:
-            expected = source.cells[addr].value
-            actual = actual_values.get(addr)
-            ok, msg = _values_equal(expected, actual, rtol=rtol)
-            if ok:
-                result.passed.append(addr)
-            else:
-                result.failed.append(VerifyMismatch(address=addr, expected=expected, actual=actual, message=msg))
-        else:
+        if addr not in actual_values:
+            result.skipped.append(addr)
+            continue
+        expected = source.cells[addr].value
+        actual = actual_values[addr]
+        ok, msg = _values_equal(expected, actual, rtol=rtol)
+        if ok:
             result.passed.append(addr)
+        else:
+            result.failed.append(VerifyMismatch(address=addr, expected=expected, actual=actual, message=msg))
     return result
 
