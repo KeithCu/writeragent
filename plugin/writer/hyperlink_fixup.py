@@ -126,9 +126,7 @@ class OutlineSnapshot:
 
 
 def _prop(obj: Any, name: str) -> str:
-    # What was wrong: markers without link properties raised on bare getPropertyValue.
-    # How it happened: pending walk calls _prop on every yielded portion.
-    # Why this change fixes it: uno_read catches property-read errors and returns safely.
+    # Marker portions may lack link properties; a failed read counts as empty.
     value = uno_read(lambda: obj.getPropertyValue(name), None)
     return value if isinstance(value, str) else ""
 
@@ -379,9 +377,7 @@ def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_p
     onto the following bookmark. The paragraph start plus the saved prefix length
     is still the replacement, including after that drift.
     """
-    # What was wrong: len() counted code points instead of UTF-16 code units for Writer goRight.
-    # How it happened: a non-BMP emoji prefix made the cursor stop short, selecting wrong characters.
-    # Why this change fixes it: go_right advances by _utf16_len, matching Writer UNO cursor stepping.
+    # goRight counts UTF-16 units, so an emoji is 2 (len() would stop short).
     if not snapshot.single_paragraph:
         return None
     try:
@@ -426,9 +422,7 @@ def _read_char_look(obj: Any) -> dict[str, Any]:
     """Direct colour / underline on *obj*, or empty when the property is missing."""
     props: dict[str, Any] = {}
     for name in _CHAR_LOOK:
-        # What was wrong: obj.getPropertyValue raised when a marker portion lacked Char* props.
-        # How it happened: portion enumeration yields markers (bookmarks, redlines) without Char properties.
-        # Why this change fixes it: uno_read returns None if the property is missing or raises.
+        # Marker portions (bookmarks, redlines) may lack Char* properties.
         value = uno_read(lambda: obj.getPropertyValue(name), None)
         if value is not None:
             props[name] = value
