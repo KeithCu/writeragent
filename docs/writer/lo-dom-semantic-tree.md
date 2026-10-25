@@ -22,7 +22,7 @@ The `get_draw_tree` tool extracts the hierarchical structure of a Draw page or I
 * **Hierarchy:** Grouped shapes become parent nodes with nested children.
 * **Spatial Geometry:** Extracts precise `x`, `y`, `width`, and `height` properties (the bbox used for paper-form neighbor labels).
 * **Semantic Attributes:** Reads the underlying `text`, `name`, `alt_title`, and `alt_description`.
-* **Paper-form blanks:** Empty or near-empty text-capable shapes are marked `fillable=true` with an optional `label_hint` (nearest text to the left or above). Address them by `name` via `fill_draw_fields` / `shape_upsert`. This is **not** PDF/AcroForm fill — a PDF opened in Draw is an editable stand-in.
+* **Paper-form blanks:** Empty or near-empty text-capable shapes are marked `fillable=true` with an optional `label_hint` (nearest text to the left or above). Group children expose `path_index` (e.g. `2.0`) and can be addressed by it. Address fields by `name` (preferred, with `path_index`/`index` disambiguating duplicate names), `path_index`, `index`, or `label_hint` via `fill_draw_fields` / `shape_upsert`. Missing `value` fails without writing; explicit `null` clears text. This is **not** PDF/AcroForm fill — a PDF opened in Draw is an editable stand-in.
 * **ControlShapes:** Live form widgets include `control.type`, `control.name`, and current `text` / `state` so the main agent can see them without a forms delegation.
 * **Relational Logic:** For `ConnectorShape`s, it directly extracts the `StartShape` and `EndShape`, proving unambiguous flow logic for flowcharts.
 * **Visual Style:** Captures `FillColor`, `LineColor`, and `ZOrder`.
