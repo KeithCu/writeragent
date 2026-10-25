@@ -69,8 +69,8 @@ class PythonFunction(CalcAddInBase, _XPythonFunctionBase):  # pyright: ignore[re
     # not expose getAvailableSymbolTokens (only getMappings/getAvailableMappings)
     # and FormulaToken lacks a .Token attribute, so dynamic mapping was dead code
     # that always failed at runtime and fell back to these English defaults.
-    _true_strings = {"=TRUE()", "TRUE", "True"}
-    _false_strings = {"=FALSE()", "FALSE", "False"}
+    _true_strings: set[str] = {"=TRUE()", "TRUE", "True"}
+    _false_strings: set[str] = {"=FALSE()", "FALSE", "False"}
 
     def __init__(self, ctx: Any) -> None:
         log.debug("=== PythonFunction.__init__ ===")
