@@ -793,3 +793,33 @@ def test_settings_ok_many_keys_one_write_and_one_emit(tmp_path):
             assert data[f"model_lru@{normalized}"] == ["target-model", "old-model"]
     finally:
         reset_config_for_tests()
+
+
+def test_apply_settings_result_uses_passed_field_specs():
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    specs = [
+        {
+            "name": "doc__grammar_provider",
+            "config_key": "doc.grammar_provider",
+            "options": [
+                {"value": "off", "label": "Off"},
+                {"value": "shared", "label": "Shared kernel"},
+            ],
+        }
+    ]
+
+    def fake_gettext(msg: str) -> str:
+        if msg == "Shared kernel":
+            return "Gedeelde kernel"
+        return msg
+
+    with (
+        patch("plugin.chatbot.settings_dialog.get_settings_field_specs", side_effect=AssertionError("rebuilt")),
+        patch("plugin.chatbot.settings_dialog.get_config", return_value=""),
+        patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://api.test"),
+        patch("plugin.chatbot.settings_dialog.set_configs") as mock_set_configs,
+        patch("plugin.chatbot.settings_fields._", side_effect=fake_gettext),
+    ):
+        apply_settings_result(MagicMock(), {"doc__grammar_provider": "Gedeelde kernel"}, specs)
+        mock_set_configs.assert_called_once_with({"doc.grammar_provider": "shared"})

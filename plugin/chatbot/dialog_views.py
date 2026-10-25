@@ -267,7 +267,7 @@ class SettingsDialog:
                 if not result:
                     break
                 try:
-                    apply_settings_result(self._ctx, result)
+                    apply_settings_result(self._ctx, result, field_specs)
                     return result
                 except ConfigValidationError as ve:
                     msgbox(self._ctx, _("Invalid Setting"), str(ve))

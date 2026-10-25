@@ -206,8 +206,10 @@ def endpoint_for_api_key_write(
     return normalize_endpoint_url(target_endpoint or "")
 
 
-def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
+def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[dict[str, Any]] | None = None) -> None:
     """Apply settings dialog result to config. Shared by Writer and Calc.
+
+    ``field_specs`` may be the list the dialog built at open; it is rebuilt only when omitted.
 
     Endpoint, text model, API key, voice family, and the other fields go
     through one ``set_configs``, and only when the value differs from disk
@@ -222,7 +224,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     from plugin.chatbot.settings_fields import stored_select_value
     from plugin.framework.client.model_fetcher import _sanitize_stored_model_value
 
-    field_specs = get_settings_field_specs(ctx)
+    field_specs = field_specs if field_specs is not None else get_settings_field_specs(ctx)
     field_specs_by_name = {f["name"]: f for f in field_specs}
     pending: dict[str, Any] = {}
     # (dialog key, value) for LRU that does not itself write the field.
