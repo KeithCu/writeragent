@@ -11,11 +11,15 @@
 
 from typing import Any
 
+from plugin.framework.tool import ToolBaseDummy
 from ..specialized_base import ToolWriterEmbeddedBase, target_params
-from ..target_resolver import resolve_target_cursor
 
 
-class EmbeddedInsert(ToolWriterEmbeddedBase):
+# B3-A3: the embedded domain is out of specialist routing until OLE insert is real.
+# ToolBaseDummy keeps both stubs out of the registry but keeps the code and schema.
+# Dropping the `embedded` domain from the delegate enum needs ToolWriterEmbeddedBase
+# in plugin/writer/specialized_base.py (owned by K212); this job must not edit that file.
+class EmbeddedInsert(ToolWriterEmbeddedBase, ToolBaseDummy):  # type: ignore[misc]  # pyright: ignore[reportIncompatibleVariableOverride]
     name: str | None = "embedded_insert"
     description: str = "Insert an embedded object (e.g. Calc spreadsheet) into the document. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Planned: CLSID-based insert + in-place activation."
     parameters: dict[str, Any] | None = {
@@ -29,18 +33,10 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
-
-        try:
-            resolve_target_cursor(ctx, target, old_content)
-        except ValueError as ve:
-            return self._tool_error(str(ve))
-
         return self._tool_error("embedded_insert is not implemented yet. Use Insert > Object > OLE Object in LibreOffice Writer.")
 
 
-class EmbeddedEdit(ToolWriterEmbeddedBase):
+class EmbeddedEdit(ToolWriterEmbeddedBase, ToolBaseDummy):  # type: ignore[misc]  # pyright: ignore[reportIncompatibleVariableOverride]
     name: str | None = "embedded_edit"
     description: str = "Activate or edit an embedded OLE object (planned)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Object name or anchor hint when available."}}, "required": []}

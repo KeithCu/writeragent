@@ -33,7 +33,7 @@ log = logging.getLogger("writeragent.writer.comments")
 def _iter_annotations(doc: Any) -> Any:
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
-    while enum.hasMoreElements():
+    while enum.hasMoreElements() is True:
         field = enum.nextElement()
         try:
             if field.supportsService("com.sun.star.text.textfield.Annotation"):
@@ -55,6 +55,14 @@ class CommentList(ToolWriterCommentBase):
         author_filter = kwargs.get("author_filter")
         doc = ctx.doc
         doc_svc = ctx.services.document
+        # One field scan first: a comment-free document should not pay for the paragraph map.
+        fields = list(_iter_annotations(doc))
+        if not fields:
+            result: dict[str, Any] = {"status": "ok", "comments": [], "count": 0}
+            if author_filter:
+                result["filtered_by"] = author_filter
+            return result
+
         para_ranges = doc_svc.get_paragraph_ranges(doc)
         text_obj = doc.getText()
         from plugin.doc.paragraph_search import paragraph_entries
@@ -64,7 +72,7 @@ class CommentList(ToolWriterCommentBase):
 
         comments = []
         af = (author_filter or "").lower() if author_filter else None
-        for field in _iter_annotations(doc):
+        for field in fields:
             if af is not None:
                 try:
                     field_author = field.getPropertyValue("Author") or ""
@@ -189,6 +197,8 @@ class AddComment(ToolBase):
                 "anchor_text": anchor_text or search_text,
             }
 
+        prior = set(n for n in names_before if n)
+        new_name = next((n for n in names_after if n and n not in prior), "")
         return {
             "status": "ok",
             "message": "Comment added.",
@@ -196,7 +206,7 @@ class AddComment(ToolBase):
             "matched": True,
             "comment_added": True,
             "anchor_text": anchor_text or search_text,
-            "name": _name_of_new_annotation(doc, annotation, names_before),
+            "name": _annotation_name(annotation) or new_name,
         }
 
     def _insert_reply(self, doc: Any, parent: Any, parent_name: str, content: str, author: str) -> dict[str, Any]:
@@ -400,6 +410,9 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
     unresolved_only = kwargs.get("unresolved_only", True)
     prefix_filter = kwargs.get("prefix_filter", None)
     doc = ctx.doc
+    fields = list(_iter_annotations(doc))
+    if not fields:
+        return {"status": "ok", "tasks": [], "count": 0}
     doc_svc = ctx.services.document
     para_ranges = doc_svc.get_paragraph_ranges(doc)
     text_obj = doc.getText()
@@ -408,7 +421,7 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
     entries = paragraph_entries(para_ranges)
     label_cache: dict[int, str] = {}
     tasks = []
-    for field in _iter_annotations(doc):
+    for field in fields:
         try:
             content = field.getPropertyValue("Content") or ""
         except Exception as exc:
@@ -594,12 +607,15 @@ def _annotation_field_names(doc: Any) -> list[str]:
     return names
 
 
-def _ensure_annotation_name(field: Any, doc: Any) -> str:
-    """Return *field*'s Name, assigning a unique one if Writer left it empty."""
+def _ensure_annotation_name(field: Any, names: list[str]) -> str:
+    """Return *field*'s Name, assigning a unique one if Writer left it empty.
+
+    *names* is the current annotation-name list from _annotation_field_names.
+    """
     name = _annotation_name(field)
     if name:
         return name
-    existing = set(n for n in _annotation_field_names(doc) if n)
+    existing = set(n for n in names if n)
     stamp = int(now_aware().timestamp())
     n = len(existing) + 1
     candidate = "__Annotation__%d_%d" % (n, stamp)
@@ -608,22 +624,6 @@ def _ensure_annotation_name(field: Any, doc: Any) -> str:
         candidate = "__Annotation__%d_%d" % (n, stamp)
     field.setPropertyValue("Name", candidate)
     return _annotation_name(field) or candidate
-
-
-def _name_of_new_annotation(doc: Any, field: Any, names_before: Any) -> str:
-    """Name on *field*, or the new Name that appeared on *doc* after insert.
-
-    Point-insert replies (CommentResolve shape) often leave Name empty on the
-    pre-insert instance; the document field enumeration has the assigned id.
-    """
-    name = _annotation_name(field)
-    if name:
-        return name
-    prior = set(n for n in names_before if n)
-    for n in _annotation_field_names(doc):
-        if n and n not in prior:
-            return n
-    return ""
 
 
 def _set_annotation_date(annotation: Any) -> None:
@@ -656,19 +656,18 @@ def _insert_annotation_reply(
     # Point-insert replies (ParentName set) do not get an auto Name from Writer;
     # the pre-insert instance and the document enumeration both stay empty.
     # Setting Name before insert sticks (LO probe: listed ParentName + Name).
-    assigned_name = _ensure_annotation_name(reply, doc)
+    names_before = _annotation_field_names(doc)
+    assigned_name = _ensure_annotation_name(reply, names_before)
     _set_annotation_date(reply)
     # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
     anchor = parent.getAnchor()
     host = anchor.getText()
     cursor = host.createTextCursorByRange(anchor.getStart())
-    names_before = _annotation_field_names(doc)
     host.insertTextContent(cursor, reply, False)
     names_after = _annotation_field_names(doc)
     if len(names_after) <= len(names_before):
         return False, "Reply insert did not register an annotation."
-    reply_name = _annotation_name(reply) or assigned_name or _name_of_new_annotation(doc, reply, names_before)
-    return True, reply_name
+    return True, _annotation_name(reply) or assigned_name
 
 
 def _read_annotation(
