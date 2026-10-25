@@ -13,7 +13,7 @@ import uno
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.uno_context import get_active_document
 from plugin.framework.config import get_config, get_config_str, set_config
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import best_effort, resolve_exception_message
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
     get_control_text,
@@ -69,9 +69,18 @@ def show_latex_input_dialog(
 
     Returns tuple (latex_string, display_block) if Insert/Update is clicked, else None.
     """
+    # What was wrong: dlg.dispose() ran only on the success path, leaking dialog resources on
+    #   exceptions during control setup or execute, while dialog load/runtime errors silently returned
+    #   None, appearing to the caller as user cancellation.
+    # How it happened: Dialog initialization, execution, and disposal were kept in a basic try/except
+    #   block without a finally clause or error reporting.
+    # Why this change: Dispose dlg safely in a finally block, and report load or runtime failures
+    #   via msgbox so internal errors are visible instead of silently mimicking a cancel.
+    dlg: Any = None
     try:
         dlg = load_writeragent_dialog("LatexInputDialog", ctx)
         if dlg is None:
+            msgbox(ctx, _("Error"), _("Could not open the LaTeX input dialog."))
             return None
 
         # Populate initial values
@@ -110,12 +119,15 @@ def show_latex_input_dialog(
         edit.setFocus()
 
         dlg.execute()
-        dlg.dispose()
 
         return outcome
     except Exception:
         log.exception("show_latex_input_dialog failed")
+        msgbox(ctx, _("Error"), _("Could not open the LaTeX input dialog."))
         return None
+    finally:
+        if dlg is not None:
+            best_effort(dlg.dispose, "LaTeX dialog: dispose failed")
 
 
 def _selection_latex_prefill(
@@ -148,8 +160,10 @@ def _selection_latex_prefill(
         )
         return _SelectionLatexPrefill(None, last_latex, last_display, True)
     try:
-        inner = embed.getEmbeddedObject() if hasattr(embed, "getEmbeddedObject") else embed
-        starmath = str(getattr(inner, "Formula", "") or "").strip()
+        # What was wrong: Hand-rolled getEmbeddedObject() unwrap and Formula extraction duplicated math_mml_export.read_starmath.
+        # How it happened: Early prototype wrote embedded object introspection inline before read_starmath was factored out.
+        # Why this change: Call math_mml_export.read_starmath to reuse the shared unwrapping and fallback logic.
+        starmath = math_mml_export.read_starmath(embed)
         if starmath:
             exported = math_mml_export.convert_starmath_to_latex(ctx, starmath)
             if exported.ok and exported.latex:
@@ -183,7 +197,10 @@ def _apply_latex_to_writer(
             replace_writer_math_formula(embed, starmath)
         except Exception as exc:
             log.exception("replace_writer_math_formula failed")
-            return False, str(exc)
+            # What was wrong: str(exc) on PyUNO exceptions is often empty (""), producing an empty error dialog.
+            # How it happened: PyUNO exceptions store details in .Message rather than __str__.
+            # Why this change: Use resolve_exception_message to extract .Message, fallback to str, or exception type name.
+            return False, resolve_exception_message(exc)
         set_config("last_latex_input", latex)
         return True, _("Formula updated.")
 
