@@ -520,7 +520,7 @@ def test_tunnel_manager_reconnect_and_url_recovery(monkeypatch):
         _fire_current_retry_timer(mgr)
         assert mgr.public_url == "http://bore.pub:1111"
         assert mgr.is_reconnecting is False
-        assert mgr.retry_count == 0
+        assert mgr.retry_count == 1  # reset only after a stable connection drops
         assert mgr.last_error is None
 
         mgr.stop()

@@ -9,6 +9,7 @@ from hypothesis import strategies as st
 import deal
 from plugin.framework.deal_shim import DEAL_MAX_RETRY
 from plugin.mcp.tunnel_state import (
+    STABLE_CONNECTION_SECONDS,
     CancelRetryTimerEffect,
     NotifyUrlAcquiredEffect,
     ScheduleRetryTimerEffect,
@@ -115,7 +116,7 @@ def test_url_acquired_transition():
 
     assert tr.state.status == TunnelStatus.CONNECTED
     assert tr.state.public_url == "https://quick.trycloudflare.com"
-    assert tr.state.retry_count == 0
+    assert tr.state.retry_count == 3
     assert tr.state.last_error is None
 
     notify_eff = [e for e in tr.effects if isinstance(e, NotifyUrlAcquiredEffect)][0]
@@ -312,10 +313,10 @@ def test_hypothesis_state_transition_invariants(event_kind, current_status, retr
         assert tr.state.status == TunnelStatus.STOPPED
         assert not tr.state.desired_running
 
-    # Invariant 2: URL acquired always results in CONNECTED and retry_count == 0
+    # Invariant 2: URL acquired always results in CONNECTED and keeps retry_count
     if event_kind == TunnelEventKind.URL_ACQUIRED:
         assert tr.state.status == TunnelStatus.CONNECTED
-        assert tr.state.retry_count == 0
+        assert tr.state.retry_count == retry_count
 
     # Invariant 3: RECONNECTING state always has desired_running == True
     if tr.state.status == TunnelStatus.RECONNECTING:
@@ -328,3 +329,30 @@ def test_state_repr_hides_provider_token():
     assert state.provider_token == "secret-token"
     assert dataclasses.replace(state, provider_token="other").provider_token == "other"
 
+
+
+def _connect_then_exit(state, connected_at, exited_at):
+    state = next_state(state, TunnelEvent(TunnelEventKind.URL_ACQUIRED, {"url": "https://x.example.com", "now": connected_at})).state
+    return next_state(state, TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "now": exited_at})).state
+
+
+def test_quick_exit_tunnel_stops_after_max_retries():
+    state = TunnelState(status=TunnelStatus.STARTING, desired_running=True, max_retries=3)
+    t = 1000.0
+    for attempt in range(1, 4):
+        state = _connect_then_exit(state, t, t + 1.0)
+        assert state.status == TunnelStatus.RECONNECTING
+        assert state.retry_count == attempt
+        state = next_state(state, TunnelEvent(TunnelEventKind.RETRY_TIMER_EXPIRED)).state
+        t += 10.0
+    state = _connect_then_exit(state, t, t + 1.0)
+    assert state.status == TunnelStatus.FAILED
+    assert state.desired_running is False
+
+
+def test_stable_connection_resets_retry_counter():
+    state = TunnelState(status=TunnelStatus.STARTING, desired_running=True, max_retries=3, retry_count=3)
+    state = _connect_then_exit(state, 1000.0, 1000.0 + STABLE_CONNECTION_SECONDS)
+    assert state.status == TunnelStatus.RECONNECTING
+    assert state.retry_count == 1
+    assert state.connected_at is None
