@@ -96,7 +96,7 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
             return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
         from plugin.framework.sidebar_column import apply_sidebar_height_for_width
 
-        (eff_w, current_h), layout = apply_sidebar_height_for_width(
+        (eff_w, _current_h), layout = apply_sidebar_height_for_width(
             self.PanelWindow,
             self.parent_window,
             width,

@@ -335,6 +335,8 @@ class PythonSidebarController:
     _controls: dict[str, Any]
     _last_cell_lines: list[str] | None
     _last_diag_detail_text: str | None
+    _on_torn_down: Any
+    resize_listener: _PanelResizeListener | None
 
     def __init__(self, ctx: Any, root_window: Any, frame: Any = None, on_torn_down: Any = None) -> None:
         self.ctx = ctx

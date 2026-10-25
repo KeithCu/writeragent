@@ -282,7 +282,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     def _hfw_body(self, width: int) -> Any:
         from plugin.framework.sidebar_column import apply_sidebar_height_for_width
 
-        (eff_w, current_h), layout = apply_sidebar_height_for_width(
+        (eff_w, _current_h), layout = apply_sidebar_height_for_width(
             self.PanelWindow,
             self.parent_window,
             width,
