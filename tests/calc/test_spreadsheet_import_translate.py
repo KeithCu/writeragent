@@ -25,6 +25,11 @@ import pytest
     [
         pytest.param("=IF(A1>0;B1;C1)", "=IF(A1>0,B1,C1)", id="test_preprocess_semicolon_to_comma"),
         pytest.param('=CONCAT("a;b";A1)', '=CONCAT("a;b",A1)', id="test_preprocess_preserves_quoted_semicolon"),
+        pytest.param("='My;Sheet'.A1", "='My;Sheet'.A1", id="test_preprocess_preserves_semicolon_in_quoted_sheet"),
+        pytest.param("='O''Brien;X'.A1", "='O''Brien;X'.A1", id="test_preprocess_preserves_semicolon_in_escaped_sheet"),
+        pytest.param('="a"";b"', '="a"";b"', id="test_preprocess_preserves_semicolon_in_doubled_quote_text"),
+        pytest.param("=SUM({1;2|3;4})", "=SUM({1;2|3;4})", id="test_preprocess_preserves_array_column_separator"),
+        pytest.param("=SUM('My;Sheet'.A1;B1)", "=SUM('My;Sheet'.A1,B1)", id="test_preprocess_still_replaces_argument_separator"),
     ],
 )
 def test_preprocess_semicolon_to_comma(value, expected):
