@@ -274,47 +274,12 @@ def test_add_comment_reply_via_parent_name_skips_search():
 def test_ensure_annotation_name_assigns_when_empty():
     from plugin.writer.specialized.comments import _ensure_annotation_name
 
-    class FakeEnum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
-
-    existing = MagicMock()
-    existing.supportsService.return_value = True
-    existing.getPropertyValue.return_value = "__Annotation__1_1"
     field = MagicMock()
     field.getPropertyValue.return_value = ""
-    doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([existing])
-    name = _ensure_annotation_name(field, doc)
+    name = _ensure_annotation_name(field, ["__Annotation__1_1"])
     assert name.startswith("__Annotation__")
     assert name != "__Annotation__1_1"
     field.setPropertyValue.assert_called_once_with("Name", name)
-
-
-def test_name_of_new_annotation_reads_back_from_doc():
-    """Point-insert replies leave Name empty on the instance; read the new Name from the doc."""
-    from plugin.writer.specialized.comments import _name_of_new_annotation
-
-    class FakeEnum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
-
-    field = MagicMock()
-    field.getPropertyValue.return_value = ""
-    listed = MagicMock()
-    listed.supportsService.return_value = True
-    listed.getPropertyValue.return_value = "__Annotation__9_1"
-    doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([listed])
-    assert _name_of_new_annotation(doc, field, names_before=[]) == "__Annotation__9_1"
 
 # ---- D4: add_comment span / occurrence / author -----------------------------
 
@@ -1209,4 +1174,77 @@ def test_comment_scan_tasks_reraises_disposal():
 
     with pytest.raises(DocumentDisposedError):
         _comment_scan_tasks(ctx, {"unresolved_only": True})
+
+
+def test_comment_list_without_annotations_skips_paragraph_scan():
+    from plugin.writer.specialized.comments import CommentList
+
+    doc = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    ctx = MagicMock(doc=doc)
+    res = CommentList().execute(ctx, author_filter="Rev")
+    assert res == {"status": "ok", "comments": [], "count": 0, "filtered_by": "Rev"}
+    ctx.services.document.get_paragraph_ranges.assert_not_called()
+
+
+def test_comment_scan_tasks_without_annotations_skips_paragraph_scan():
+    from plugin.writer.specialized.comments import _comment_scan_tasks
+
+    doc = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    ctx = MagicMock(doc=doc)
+    assert _comment_scan_tasks(ctx, {}) == {"status": "ok", "tasks": [], "count": 0}
+    ctx.services.document.get_paragraph_ranges.assert_not_called()
+
+
+def test_add_comment_reads_document_assigned_name_in_two_scans():
+    from plugin.writer.specialized.comments import AddComment
+
+    doc = MagicMock()
+    found = MagicMock()
+    found.getString.return_value = "hit"
+    found.getText.return_value = MagicMock()
+    doc.findFirst.return_value = found
+    listed = MagicMock()
+    listed.supportsService.return_value = True
+    listed.getPropertyValue.side_effect = lambda p: "LO_NAME" if p == "Name" else ""
+    calls = {"n": 0}
+
+    def _enum():
+        calls["n"] += 1
+        return _FiniteEnum([] if calls["n"] == 1 else [listed])
+
+    doc.getTextFields.return_value.createEnumeration.side_effect = _enum
+    doc.createInstance.return_value.getPropertyValue.return_value = ""
+    with patch("plugin.writer.specialized.comments._set_annotation_date"):
+        res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit")
+    assert res["status"] == "ok", res
+    assert res["name"] == "LO_NAME"
+    assert calls["n"] == 2
+
+
+def test_add_comment_reply_uses_three_annotation_scans():
+    from plugin.writer.specialized.comments import AddComment
+
+    parent = MagicMock()
+    parent.supportsService.return_value = True
+    parent.getPropertyValue.side_effect = lambda p: {"Name": "P"}.get(p, "")
+    parent.getAnchor.return_value.getText.return_value = MagicMock()
+    reply = MagicMock()
+    reply.supportsService.return_value = True
+    reply.getPropertyValue.side_effect = lambda p: {"Name": "R"}.get(p, "")
+    doc = MagicMock()
+    doc.createInstance.return_value = reply
+    calls = {"n": 0}
+
+    def _enum():
+        calls["n"] += 1
+        return _FiniteEnum([parent]) if calls["n"] <= 2 else _FiniteEnum([parent, reply])
+
+    doc.getTextFields.return_value.createEnumeration.side_effect = _enum
+    with patch("plugin.writer.specialized.comments._set_annotation_date"):
+        res = AddComment().execute(MagicMock(doc=doc), content="r", parent_name="P")
+    assert res["status"] == "ok", res
+    assert res["name"] == "R"
+    assert calls["n"] == 3
 
