@@ -283,7 +283,6 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
 
 
 def _copy_cell_xtext(
-    src_doc: Any,
     src_cell: Any,
     dest_doc: Any,
     dest_cell: Any,
@@ -308,7 +307,7 @@ def _copy_cell_xtext(
             break
         if _supports_service(para, "com.sun.star.text.TextTable"):
             # Recreate the nested table inside dest_cell (same walk as body _copy_table).
-            _copy_table(src_doc, para, dest_doc, dest_cell, math_records=math_records)
+            _copy_table(para, dest_doc, dest_cell, math_records=math_records)
             dest_cursor = dest_text.createTextCursor()
             dest_cursor.gotoEnd(False)
             first_para = False
@@ -331,6 +330,12 @@ def _copy_cell_xtext(
                 if field is None:
                     continue
                 _copy_field_into(dest_doc, dest_text, dest_cursor, field)
+            # Cell copy used to insert plain text, dropping bold/colour inside table cells; same as the body walk.
+            elif kind == "Text":
+                chunk = uno_read(lambda: portion.getString(), "")
+                if not chunk:
+                    continue
+                _copy_text_run(portion, dest_text, dest_cursor, chunk)
             else:
                 _copy_math_or_text(portion, para, dest_text, dest_cursor, math_records)
 
@@ -409,7 +414,6 @@ def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
 
 
 def _copy_table(
-    src_doc: Any,
     src_table: Any,
     dest_doc: Any,
     dest_text: Any = None,
@@ -440,7 +444,7 @@ def _copy_table(
             except Exception as exc:
                 log.debug("_copy_table: cell %s unreadable: %s", cell_name, exc)
                 continue
-            _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell, math_records=math_records)
+            _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
     else:
         # No name list: last-resort position walk (same first-row bound as before).
         for row in range(dest_rows):
@@ -451,12 +455,11 @@ def _copy_table(
                 except Exception as exc:
                     log.debug("_copy_table: cell (%s,%s) unreadable: %s", col, row, exc)
                     continue
-                _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell, math_records=math_records)
+                _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
     _goto_doc_end(dest_doc)
 
 
 def _copy_xtext_by_portions(
-    src_doc: Any,
     src_text: Any,
     dest_doc: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
@@ -482,7 +485,7 @@ def _copy_xtext_by_portions(
         except Exception:
             break
         if _supports_service(el, "com.sun.star.text.TextTable"):
-            _copy_table(src_doc, el, dest_doc, math_records=math_records)
+            _copy_table(el, dest_doc, math_records=math_records)
             _goto_doc_end(dest_doc)
             dest_cursor = dest_text.createTextCursor()
             dest_cursor.gotoEnd(False)
@@ -551,8 +554,6 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
         except Exception as exc:
             log.debug("_copy_flow_into_xtext: plain-text fallback failed: %s", exc)
         return 0
-    if not enum:
-        return 0
 
     first_para = True
     while enum.hasMoreElements() is True:
@@ -561,7 +562,7 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
         except Exception:
             break
         if _supports_service(el, "com.sun.star.text.TextTable"):
-            _copy_table(doc, el, doc, dest_text)
+            _copy_table(el, doc, dest_text)
             cursor = dest_text.createTextCursor()
             cursor.gotoEnd(False)
             first_para = False
@@ -696,6 +697,6 @@ def _copy_xtext_into_doc(  # pyright: ignore[reportUnusedFunction]
     tables, and direct formatting. Anchored graphics are cloned afterwards
     because setString in the portion walk would drop a graphic inserted first.
     """
-    _copy_xtext_by_portions(src_doc, src_text, dest_doc, math_records=math_records)
+    _copy_xtext_by_portions(src_text, dest_doc, math_records=math_records)
     _copy_anchored_graphics(src_doc, src_text, dest_doc)
 

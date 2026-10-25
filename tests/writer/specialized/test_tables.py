@@ -681,7 +681,7 @@ def test_copy_table_copies_merged_d2_by_name():
         getText=lambda: FakeBodyText(),
         getCurrentController=no_controller,
     )
-    _copy_table(None, src, dest_doc)
+    _copy_table(src, dest_doc)
     assert dest_table.rows == 5 and dest_table.cols == 4
     assert written.get("D2") == "Telèfon responsable"
     assert "B1" not in written
