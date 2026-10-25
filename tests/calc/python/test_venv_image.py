@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
@@ -12,8 +12,10 @@ from plugin.calc.python.image_egress import (
     _IMAGE_ANNOTATION_PREFIX,
     _PLOT_SHAPE_NAME_PREFIX,
     ImageEgressError,
+    _intrinsic_aspect,
     _plot_slot_index,
     _plot_slot_name,
+    _read_image_bytes,
     _shape_anchor_matches_cell,
     insert_image_result_on_sheet,
 )
@@ -476,6 +478,40 @@ def test_image_count_removes_higher_slot():
     assert other_plot in page.shapes
 
 
+def test_failed_insert_does_not_sweep_extra_slots():
+    """If insert fails, stale slot shapes are not swept."""
+    cell = CalcCellStub(col=3, row=6)
+    slot0 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
+    slot1 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_2", cell)
+    page = _DrawPage([slot0, slot1])
+
+    ctx = MagicMock()
+    target = MagicMock(name="target")
+    sheet = MagicMock()
+    sheet.DrawPage = page
+    target.getCurrentController.return_value = None
+
+    def _set_fail(prop, _val):
+        if prop == "GraphicURL":
+            raise RuntimeError("graphic update failed")
+
+    slot0.setPropertyValue = _set_fail
+
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
+        pytest.raises(ImageEgressError),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=0, image_count=1)
+
+    assert slot1 in page.shapes
+
+
 def test_temp_image_removed_after_graphic_url_and_on_failure(tmp_path):
     """GraphicURL still sees the file; the file is gone after the setter returns or fails."""
     png = tmp_path / "plot.png"
@@ -598,6 +634,20 @@ def test_png_aspect():
         insert_image_result_on_sheet(ctx, png_payload, code="plt.show()", doc=target, image_index=0)
 
     assert shape.props.get("Size") == Size(10000, 5000)
+
+
+def test_read_image_bytes_reads_only_header():
+    m = mock_open(read_data=b"x" * 20000)
+    with (
+        patch("builtins.open", m),
+        patch("plugin.calc.python.image_egress.os.path.isfile", return_value=True),
+    ):
+        _read_image_bytes(None, "/tmp/x.png")
+    m().read.assert_called_once_with(8192)
+
+
+def test_intrinsic_aspect_handles_mixed_svg_units():
+    assert _intrinsic_aspect(b'<svg xmlns="http://www.w3.org/2000/svg" width="2in" height="192px"></svg>') == (50800, 50800)
 
 
 def test_anchor_failure_removes_new_shape_and_raises():
@@ -793,8 +843,8 @@ def test_off_main_failure_updates_existing_writeragent_annotation():
     annotations.insertNew.assert_not_called()
 
 
-def test_off_main_annotation_does_not_invent_an_address():
-    """When both getCellAddress and CellAddress constructor fail, insertNew is not called with a stand-in."""
+def test_off_main_annotation_requires_cell_address():
+    """When getCellAddress fails, insertNew is not called."""
     ctx = MagicMock()
     doc = MagicMock()
     sheet = MagicMock()
@@ -820,7 +870,6 @@ def test_off_main_annotation_does_not_invent_an_address():
             "plugin.calc.python.image_egress._insert_image_result_on_sheet_impl",
             side_effect=ImageEgressError("test egress failure"),
         ),
-        patch("com.sun.star.table.CellAddress", side_effect=RuntimeError("cannot construct CellAddress"), create=True),
     ):
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, notify_cell=True)
         assert len(posted_calls) == 1
