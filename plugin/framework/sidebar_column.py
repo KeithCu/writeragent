@@ -70,16 +70,23 @@ def apply_sidebar_height_for_width(
                 parent_w = getattr(pr, "Width", 0) or 0
                 parent_h = getattr(pr, "Height", 0) or 0
 
+        # Read current actual size *before* we decide.
         panel_h = 0
         if panel_window is not None and hasattr(panel_window, "getPosSize"):
             before = panel_window.getPosSize()
             if before is not None:
                 panel_h = getattr(before, "Height", 0) or 0
 
+        # Width is negotiated here; height stays whatever LO/deck already allocated.
         current_h = panel_h if panel_h > 0 else (parent_h if parent_h > 0 else _LAYOUT_PREFERRED)
+        # Fill the content box. min(nWidth, parent); 180 AppFont is a leak.
+        # Do not cap at 800px: HiDPI columns are often 900+.
         eff_w = sidebar_column_width(n_width, parent_w, min_w=min_w)
 
         if panel_window is not None and hasattr(panel_window, "setPosSize"):
+            # Size the AWT dialog only, like last month. ChildFrame setPosSize is
+            # gtk_widget_set_size_request (a minimum); typing grew past it and we
+            # filled the new width (Keith: 995 → 1019).
             panel_window.setPosSize(0, 0, eff_w, current_h, _POS_SIZE_FLAGS)
 
     return (eff_w, current_h), layout_size

@@ -62,8 +62,6 @@ RICH_SCROLL_VERBOSE_DEBUG = os.environ.get("WRITERAGENT_RICH_SCROLL_DEBUG") == "
 # Transcript is read-only. Stick-to-bottom still dispatches .uno:SelectAll;
 # an editable field let that selection (and a click) rewrite the chat log.
 TEMP_RICH_CONTROL_EDITABLE = False
-# If a 1-char tail selection is left (collapse missed), hide it when
-# Ask/instruct has focus (exp 16). Harmless if selection is collapsed.
 _RICH_CONTROL_FIELD_FLAGS = (
     ("RichText", True),
     ("ReadOnly", not TEMP_RICH_CONTROL_EDITABLE),
@@ -73,6 +71,8 @@ _RICH_CONTROL_FIELD_FLAGS = (
     ("HScroll", False),
     ("AutoHScroll", False),
     ("HardLineBreaks", False),
+    # If a 1-char tail selection is left (collapse missed), hide it when
+    # Ask/instruct has focus (exp 16). Harmless if selection is collapsed.
     ("HideInactiveSelection", True),
 )
 
@@ -1396,6 +1396,8 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
             # _scroll_rich_to_tail already restores before and after SelectAll.
             # A third restore here repeated the second with nothing in between,
             # and each one is a GrabFocus on this frame (release QA BUG A).
+            # *query* names this panel's Ask field for callers. Restore goes
+            # through *restore_focus*, which closes over the frame session.
             if query is not None and restore_focus is None:
                 log.debug("scroll tail without a frame restore callback")
             _scroll_rich_to_tail(control, ctx=ctx, restore_focus=restore_focus)

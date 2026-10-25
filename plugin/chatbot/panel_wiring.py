@@ -27,10 +27,15 @@ def _measure_button_max_width(ctrl: Any, labels: list[str]) -> int | None:
         try:
             wmax = ctrl.getPosSize().Width
             for lab in labels:
+                # Live labels are _(effect.send_label). Measuring the English
+                # string let a longer translation change width before the pin.
                 m.Label = _(lab)
                 wmax = max(wmax, ctrl.getPosSize().Width)
             return wmax if wmax > 0 else None
         finally:
+            # Restore the label here. A failed width read otherwise leaves
+            # the last candidate on the button, and suppress_disposed swallows
+            # the error before a restore after the loop.
             m.Label = saved
     return None
 

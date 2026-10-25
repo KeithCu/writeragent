@@ -438,6 +438,8 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     def relayout_now(self, win: Any, viewport_w: int = 0) -> None:
         if not win:
             return
+        # Do not wait for deck negotiation. Keith create-time: root=320 with
+        # max_child_right=1087 seeded the H-bar until the first widen.
         if viewport_w > 0:
             self._viewport_w = int(viewport_w)
         if self._in_relayout:

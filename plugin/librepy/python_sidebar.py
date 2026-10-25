@@ -571,6 +571,7 @@ class PythonSidebarController:
         filt = _filter_from_combo(self._ctrl("filter_combo"))
         self._diags = self._store.list_entries(key, filt=filt, newest_first=True)
 
+        # Attach addresses from cell list when codes match.
         enriched: list[DiagnosticEntry] = []
         for entry in self._diags:
             if entry.address:

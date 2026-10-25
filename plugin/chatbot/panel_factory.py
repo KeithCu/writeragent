@@ -355,6 +355,16 @@ def plan_session_id(
     if not url:
         return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=False)
 
+    # Fork only when the id has to change. Snapshot and replace
+    # the destination. When the id already names this file, update
+    # the stored URL and leave the rows alone. A regenerated sha256
+    # equal to the stored id that calls clear() before the copy
+    # reads the rows wipes the only history. A copied file whose
+    # stored id is a 64-hex digest but has no WriterAgentSessionURL
+    # skips the URL-change branch, then stamps the new URL onto that
+    # old id so the new file shares the old chat. A UUID from the
+    # first save of an untitled document is not a url-hash and must
+    # keep its history.
     if stored_url_str:
         if stored_url_str != url:
             if url_id != stored_id_str:
@@ -708,6 +718,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                     flags = sidebar_mode_flags_for_doc_type(dt)
                     labels = tuple(get_mode_labels(flags))
+                    # removeItems/addItems resets the combo to index 0 (Chat) and
+                    # fires ChatModeListener. Capturing first, then restoring after
+                    # populate, keeps Librarian/Web selected. The listener also
+                    # bails out while _in_refresh_controls is set; both are required
+                    # because a guarded listener still leaves the combo on Chat.
                     prior_mode = mode_from_selector_with_flags(chat_mode_selector, flags)
                     last_labels = getattr(self, "_last_mode_labels", None)
                     if labels != last_labels:
@@ -789,6 +804,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         current_endpoint = get_current_endpoint()
 
         if model_selector:
+            # LRU plus provider defaults only, no catalog HTTP on this
+            # thread. populate_combobox_with_lru fetches /v1/models unless
+            # skip_remote_fetch is set. A dead endpoint then hangs the
+            # editor on every settings apply, and failures are not memoized.
+            # Match Settings/eval.
+            # Keep catalog refresh off the main thread. The same populate path
+            # as config:changed, without skip_remote_fetch, fetches the model
+            # catalog on the UI thread and an unreachable endpoint freezes
+            # LibreOffice for the fetch timeout.
             set_val = populate_combobox_with_lru(
                 self.ctx,
                 model_selector,
@@ -801,6 +825,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_text_model(set_val, update_lru=False)
 
         if image_model_selector:
+            # Refresh visual (image) model via shared helper; persist correction if strict replaced value
             current_image = get_image_model()
             set_image_val = populate_image_model_selector(
                 self.ctx,
@@ -1070,6 +1095,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 fork_doc_chat_history(str(old_session_id) + "_web", fork_to + "_web")
                 if model:
                     set_document_property(model, "WriterAgentSessionID", fork_to)
+                # Id write succeeded, or there is no model to stamp.
+                # Memory matches the document from here on. A URL write
+                # failure leaves fork_failed set so the stamp below does
+                # not run; the next open hits fork_to == session_id and
+                # writes WriterAgentSessionURL. A failure before this
+                # line keeps the old id and retries the fork.
                 session_id = fork_to
                 if model and url:
                     set_document_property(model, "WriterAgentSessionURL", url)
@@ -1219,6 +1250,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     # abort the try that also called addActionListener.
                     log.exception("Failed to query document type / UNO services for Send listener: %s", e)
                     services = frozenset()
+                    # Bugfix: a failed probe used to store "writer" / "Writer".
+                    # When cached_uno_services is empty, tool_supports_document
+                    # refills services based on the doc_type label, which caused
+                    # Calc/Draw documents to be misfiltered as Writer.
+                    # Using "unknown" matches the label get_document_type returns
+                    # for DocumentType.UNKNOWN on the non-raising path, and
+                    # _get_document_model rejects it cleanly.
                     if not label:
                         label = "unknown"
                         title = "Unknown"
