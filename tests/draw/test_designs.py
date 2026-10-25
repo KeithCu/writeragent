@@ -2017,3 +2017,12 @@ def test_assign_master_disposed_exception_propagates():
         assign_master_to_all_slides(doc, MagicMock())
 
 
+def test_normalize_master_name_keeps_digits_before_a_ratio_suffix():
+    from plugin.draw.designs import _normalize_master_name
+
+    assert _normalize_master_name("2024:3") == "2024:3"
+    assert _normalize_master_name("Slide 2024:3") == "slide 2024:3"
+    assert _normalize_master_name("Metropolis 16:9") == "metropolis"
+    assert _normalize_master_name("Beehive_20_4_3a_3") == "beehive"
+    assert _normalize_master_name("Slide_4_3") == "slide"
+

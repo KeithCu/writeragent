@@ -97,7 +97,7 @@ def _decode_odf_name(name: str) -> str:
 def _normalize_master_name(name: str) -> str:
     """Normalize master name: decode ODF, lower, strip ratio suffix, and clean spaces."""
     s = _decode_odf_name(str(name or "")).lower()
-    s = re.sub(r"[\s_-]*(16[:_x -]?9|4[:_x -]?3)\s*$", "", s)
+    s = re.sub(r"(?:^|[\s_-]+)(?:16[:_x -]?9|4[:_x -]?3)\s*$", "", s)
     s = re.sub(r"[_-]+", " ", s)
     return " ".join(s.split())
 
