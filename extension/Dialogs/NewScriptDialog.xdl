@@ -9,7 +9,7 @@
         - Monaco New Script Modal:  plugin/contrib/scripting/assets/editor/index.html (#new-script-modal)
         - JS Modal Handler:         plugin/contrib/scripting/assets/editor/scripts_manager.js (onCreateNewScript)
         - Python Dialog Helper:     plugin/scripting/script_dialogs.py (show_new_script_dialog)
-        - Python Dialog Listener:   plugin/scripting/python_runner_ui.py (_NewListener)
+        - Python Dialog Listener:   plugin/scripting/python_runner_ui.py (_on_new)
       ========================================================================================= -->
  <dlg:bulletinboard>
   <dlg:text dlg:id="PromptLbl" dlg:left="8" dlg:top="8" dlg:width="264" dlg:height="10" dlg:value="Script name:" dlg:align="left" dlg:multiline="false"/>

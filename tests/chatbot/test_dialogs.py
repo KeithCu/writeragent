@@ -36,7 +36,6 @@ from plugin.chatbot.dialogs import (
     _collect_xdl_load_diagnostics,
     _UnoExceptionAdapter,
 )
-from plugin.scripting.script_dialogs import show_new_script_dialog
 
 
 @pytest.fixture(autouse=True)
@@ -413,110 +412,6 @@ def test_show_text_input_dialog_cancel_returns_none(mock_get_desktop):
 
     result = show_text_input_dialog(ctx, "Enter name:", "Title", "")
     assert result is None
-
-
-def _mock_new_script_dialog_uno(name_on_ok: str, attach_state: int = 1):
-    """Build ctx/desktop/smgr/dlg mocks for show_new_script_dialog tests."""
-    ctx = MagicMock()
-    desktop = MagicMock()
-    frame = MagicMock()
-    desktop.getCurrentFrame.return_value = frame
-    frame.getContainerWindow.return_value = MagicMock()
-
-    smgr = MagicMock()
-    dlg_model = MagicMock()
-    dlg = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-
-    def fake_create(service, _ctx):
-        if "UnoControlDialogModel" in service:
-            return dlg_model
-        if "UnoControlDialog" in service:
-            return dlg
-        if "DialogProvider" in service:
-            dp = MagicMock()
-            dp.createDialog.return_value = dlg
-            return dp
-        return MagicMock()
-
-    smgr.createInstanceWithContext.side_effect = fake_create
-
-    name_edit_model = MagicMock()
-    name_edit_model.Text = name_on_ok
-    name_edit = MagicMock()
-    name_edit.getModel.return_value = name_edit_model
-    name_edit.getText.return_value = name_on_ok
-
-    chk_model = MagicMock()
-    chk_model.State = attach_state
-    chk = MagicMock()
-    chk.getModel.return_value = chk_model
-    chk.getState.return_value = attach_state
-
-    ok_listeners = []
-    cancel_listeners = []
-
-    def fake_get_control(name):
-        if name == "NameEdit":
-            return name_edit
-        if name == "ChkAttach":
-            return chk
-        if name == "BtnOK":
-            btn = MagicMock()
-            btn.addActionListener.side_effect = lambda listener: ok_listeners.append(listener)
-            return btn
-        if name == "BtnCancel":
-            btn = MagicMock()
-            btn.addActionListener.side_effect = lambda listener: cancel_listeners.append(listener)
-            return btn
-        return MagicMock()
-
-    dlg.getControl.side_effect = fake_get_control
-    return ctx, desktop, dlg, ok_listeners, cancel_listeners
-
-
-def test_show_new_script_dialog_ok_returns_name_and_attach():
-    ctx, _desktop, dlg, ok_listeners, _cancel_listeners = _mock_new_script_dialog_uno("  MyNewScript  ", attach_state=1)
-
-    def fake_execute():
-        for listener in ok_listeners:
-            listener.actionPerformed(MagicMock())
-
-    dlg.execute.side_effect = fake_execute
-
-    doc = MagicMock()
-    doc.isReadonly.return_value = False
-    result = show_new_script_dialog(ctx, doc=doc, default_name="NewScript")
-    assert result == ("MyNewScript", True)
-
-
-def test_show_new_script_dialog_cancel_returns_none():
-    ctx, _desktop, dlg, _ok_listeners, cancel_listeners = _mock_new_script_dialog_uno("MyScript", attach_state=0)
-
-    def fake_execute():
-        for listener in cancel_listeners:
-            listener.actionPerformed(MagicMock())
-
-    dlg.execute.side_effect = fake_execute
-
-    result = show_new_script_dialog(ctx, doc=None, default_name="")
-    assert result is None
-
-
-def test_show_new_script_dialog_custom_title_and_default_attach():
-    ctx, _desktop, dlg, ok_listeners, _cancel_listeners = _mock_new_script_dialog_uno("SavedCopy", attach_state=0)
-
-    def fake_execute():
-        for listener in ok_listeners:
-            listener.actionPerformed(MagicMock())
-
-    dlg.execute.side_effect = fake_execute
-
-    doc = MagicMock()
-    doc.isReadonly.return_value = False
-    result = show_new_script_dialog(ctx, doc=doc, default_name="OldScript", title="Save Script As", default_attach=False)
-    assert result == ("SavedCopy", False)
-    assert dlg.getModel().Title == "Save Script As"
 
 
 def test_format_exception_detail_includes_message_and_nested_context():

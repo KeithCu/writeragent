@@ -31,7 +31,7 @@ def show_new_script_dialog(
     doc: Any | None = None,
     default_name: str = "",
     title: str = "",
-    default_attach: bool | None = None,
+    default_attach: bool = True,
 ) -> tuple[str, bool] | None:
     """Modal dialog for creating or saving a Python script with name and attach checkbox.
 
@@ -72,7 +72,7 @@ def show_new_script_dialog(
 
             chk = dlg.getControl("ChkAttach")
             if chk is not None:
-                initial_attach = can_attach if default_attach is None else (default_attach and can_attach)
+                initial_attach = default_attach and can_attach
                 if not can_attach:
                     reason = (
                         _("Attach to this document (no document is open)")

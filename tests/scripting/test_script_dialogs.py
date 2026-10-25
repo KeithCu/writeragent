@@ -135,6 +135,20 @@ def test_show_new_script_dialog_custom_title_and_default_attach_false():
     assert chk.getModel().Label == "Attach to this document"
 
 
+def test_show_new_script_dialog_default_attach_true_matches_default():
+    ctx, dlg, _edit, _chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+        name_text="Mine",
+        attach_state=1,
+    )
+    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
+    doc = MagicMock()
+    doc.isReadonly.return_value = False
+
+    result = show_new_script_dialog(ctx, doc=doc, default_attach=True)
+    assert result == ("Mine", True)
+    dlg.dispose.assert_called_once()
+
+
 def test_show_new_script_dialog_writable_init_rejected():
     peer = object()
     for init_name in ("INIT", "Init"):
