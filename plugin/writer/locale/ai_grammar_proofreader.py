@@ -131,45 +131,6 @@ def _is_text_document(model: Any) -> bool:
     return supports(_TEXT_DOCUMENT_SERVICE) is True
 
 
-def _writer_from_desktop_element(elem: Any) -> Any | None:
-    """Writer model for a desktop component or the frame that holds one."""
-    if _is_text_document(elem):
-        return elem
-    get_controller = getattr(elem, "getController", None)
-    if not callable(get_controller):
-        return None
-    controller = get_controller()
-    if controller is None:
-        return None
-    get_model = getattr(controller, "getModel", None)
-    if not callable(get_model):
-        return None
-    model = get_model()
-    return model if _is_text_document(model) else None
-
-
-def _open_writer_models(desktop: Any) -> list[Any]:
-    """Open Writer models. Stops if the enumeration is not a real boolean."""
-    writers: list[Any] = []
-    comps = desktop.getComponents()
-    enum = comps.createEnumeration() if comps is not None else None
-    if enum is None:
-        return writers
-    # Real ``hasMoreElements()`` is bool (or 1). A MagicMock stays truthy forever
-    # and would spin the main thread, same guard as ``resolve_document_by_url``.
-    seen = 0
-    while seen < 64:
-        more = enum.hasMoreElements()
-        if more is not True and more != 1:
-            break
-        seen += 1
-        elem = enum.nextElement()
-        model = _writer_from_desktop_element(elem)
-        if model is not None:
-            writers.append(model)
-    return writers
-
-
 def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
     """Writer model this proofreading call is for, or None.
 
@@ -183,7 +144,7 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
 
     if not on_main_thread():
         return None
-    from plugin.framework.uno_context import get_desktop, get_runtime_uid
+    from plugin.framework.uno_context import get_desktop, get_runtime_uid, iter_open_models
 
     try:
         desktop = get_desktop(ctx)
@@ -192,7 +153,7 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
         return None
     if desktop is None:
         return None
-    writers = _open_writer_models(desktop)
+    writers = [model for model in iter_open_models(desktop) if _is_text_document(model)]
 
     for model in writers:
         uid = get_runtime_uid(model)
@@ -249,9 +210,12 @@ def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> 
     p = get_persistence(ctx, doc_id) if doc_id else None
     if not p:
         return
-    from .grammar_ignore_rules import canonical_rule_keys
+    from .grammar_ignore_rules import canonical_rule_key
 
-    stored = canonical_rule_keys(rule_identifier)[0]
+    stored = canonical_rule_key(rule_identifier)
+    if stored is None:
+        log.debug("[grammar] ignoreRule: no canonical key for '%s'", rule_identifier)
+        return
     p.add_ignored_rule(stored)
     log.debug("[grammar] ignoreRule added: '%s' (stored: '%s') to doc_id=%s", rule_identifier, stored, doc_id)
 
@@ -582,8 +546,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         # XLinguServiceEventListener. Remember the miss and recover once.
         self._pending_proofread_again = False
         self._first_listener_proofread_again_done = False
-        self._last_split_key: tuple[str, str] | None = None
-        self._last_paragraph_spans: list[tuple[int, int, str]] = []
+        self._last_split: tuple[tuple[str, str], list[tuple[int, int, str]]] | None = None
         from plugin.framework.logging import init_logging
         from plugin.writer.locale.grammar_persistence import grammar_registry
 
@@ -636,7 +599,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     should_hop = True
         if should_hop:
             try:
-                run_on_main(self._ensure_document_bound_on_main, doc_id)
+                # A busy VCL thread must not stall a Linguistic worker for the 30 s default;
+                # a failed hop is already backed off by _failed_bind_deadlines.
+                run_on_main(self._ensure_document_bound_on_main, doc_id, timeout=BIND_RETRY_SEC)
             except TimeoutError:
                 with self._bind_lock:
                     self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
@@ -701,15 +666,15 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         combined_errors: list[dict[str, Any]] = []
         uncached_spans: list[tuple[int, int, str]] = []
         checker_ident = checker_identity or self._checker_identity
+        is_llm = checker_ident.startswith("llm:")
+        max_chars = grammar_proofread_locale.grammar_max_chars(self.ctx) if is_llm else 0
         for sent_start, _sent_end, sent_text in work_spans:
             get_kwargs: dict[str, Any] = {"ctx": self.ctx, "doc_id": a_doc_id}
             if checker_ident:
                 get_kwargs["checker_identity"] = checker_ident
             lookup_text = (
-                grammar_proofread_locale.checked_grammar_text(
-                    sent_text, grammar_proofread_locale.grammar_max_chars(self.ctx)
-                )
-                if (checker_ident or "").startswith("llm:")
+                grammar_proofread_locale.checked_grammar_text(sent_text, max_chars)
+                if is_llm
                 else sent_text
             )
             cached = cache_get_sentence(loc_key, lookup_text, **get_kwargs)
@@ -827,13 +792,13 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
                 # 1. One BreakIterator + dialogue-merge pass for the whole paragraph (memoized per paragraph+locale).
                 split_key = (loc_key, aText)
-                if self._last_split_key == split_key:
-                    paragraph_spans = self._last_paragraph_spans
+                memo = self._last_split
+                if memo is not None and memo[0] == split_key:
+                    paragraph_spans = memo[1]
                 else:
                     paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
                     paragraph_spans = filter_sentence_spans_for_thresholds(paragraph_spans)
-                    self._last_split_key = split_key
-                    self._last_paragraph_spans = paragraph_spans
+                    self._last_split = (split_key, paragraph_spans)
 
                 # 2. Active window: overlap-filter those spans (n_start==0 keeps all).
                 active_spans = resolve_work_spans(

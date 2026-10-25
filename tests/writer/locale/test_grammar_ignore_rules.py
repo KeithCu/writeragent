@@ -12,7 +12,7 @@ from plugin.writer.locale.grammar_ignore_rules import (
     LANGUAGETOOL_RULE_PREFIX,
     STABLE_RULE_PREFIXES,
     WA_G_RULE_PREFIX,
-    canonical_rule_keys,
+    canonical_rule_key,
     collect_ignored_reasons,
     doc_ignored_rules,
     is_rule_ignored,
@@ -44,10 +44,21 @@ class TestGrammarIgnoreRules:
     def test_is_rule_ignored_bare_id_matches_normalized_doc_key(self) -> None:
         """Ignore stores normalize_reason(bare); membership must use the same key."""
         raw = "Legacy Bare Rule!"
-        stored = canonical_rule_keys(raw)[0]
+        stored = canonical_rule_key(raw)
         assert (stored) == (normalize_reason(raw))
         assert (is_rule_ignored(raw, {stored}, set()))
         assert not (is_rule_ignored(raw, {"unrelated"}, set()))
+
+    def test_canonical_rule_key_returns_plain_string(self) -> None:
+        assert canonical_rule_key(make_rule_identifier(HARPER_RULE_PREFIX, "SpellCheck")) == "SpellCheck"
+
+    def test_canonical_rule_key_empty_or_punctuation_is_none(self) -> None:
+        assert canonical_rule_key(WA_G_RULE_PREFIX) is None
+        assert canonical_rule_key("!!!") is None
+
+    def test_is_rule_ignored_empty_input_and_doc_set(self) -> None:
+        assert is_rule_ignored("", set(), set()) is False
+        assert not is_rule_ignored(f"{WA_G_RULE_PREFIX}Avoid passive voice.", {""}, set())
 
     def test_is_rule_ignored_not_ignored(self) -> None:
         rule = f"{WA_G_RULE_PREFIX}Use 'an' instead of 'a'."
@@ -97,6 +108,18 @@ class TestGrammarIgnoreRules:
         ):
             reasons = collect_ignored_reasons(ctx, "doc-x")
         assert (normalize_reason(raw)) in (reasons)
+
+    def test_collect_ignored_reasons_drops_empty_keys(self) -> None:
+        ctx = MagicMock()
+        dp = MagicMock()
+        dp.ignored_rules_snapshot.return_value = set()
+        with (
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={WA_G_RULE_PREFIX}),
+        ):
+            reasons = collect_ignored_reasons(ctx, "doc-x")
+        assert "" not in reasons
+        assert len(reasons) == 0
 
     def test_doc_ignored_rules_empty_when_no_persistence(self) -> None:
         with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=None):
@@ -197,10 +220,15 @@ class TestGrammarIgnoreRules:
                 assert mock_save.call_count == 2
 
                 pr.ignoreRule("Legacy Bare Rule!", None)
-                stored = canonical_rule_keys("Legacy Bare Rule!")[0]
+                stored = canonical_rule_key("Legacy Bare Rule!")
                 assert stored in dp.ignored_rules_snapshot()
                 assert is_rule_ignored("Legacy Bare Rule!", dp.ignored_rules_snapshot(), set())
                 assert mock_save.call_count == 3
+
+                # Empty or punctuation-only canonical key must not persist to doc or call _persist_to_udprops
+                pr.ignoreRule(f"{WA_G_RULE_PREFIX}", None)
+                assert mock_save.call_count == 3
+                assert "" not in dp.ignored_rules_snapshot()
 
 
 @pytest.mark.parametrize("prefix,ignored_code,other_code", _STABLE_PREFIX_CASES)
@@ -326,6 +354,5 @@ def test_rule_prefixes_come_from_framework_leaf() -> None:
     assert ids.STABLE_RULE_PREFIXES is gir.STABLE_RULE_PREFIXES
     assert ids.make_rule_identifier is gir.make_rule_identifier
     assert ids.parse_prefixed_rule_identifier is gir.parse_prefixed_rule_identifier
-    assert ids.bare_code_for_persistence is gir.bare_code_for_persistence
 
 
