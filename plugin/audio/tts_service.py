@@ -921,6 +921,49 @@ def _run_synth(
         _clear_speech_proc(proc, "synth")
 
 
+def _run_synth_to_temp(
+    tmp_wav: str,
+    cmd: list[str],
+    generation: int | None,
+    *,
+    label: str,
+    stdin_text: str | None = None,
+    timeout: float | None = None,
+    missing_hint: str | None = None,
+) -> tuple[str | None, str]:
+    """Run a synth command into *tmp_wav*; return (path, stderr).
+
+    path is None on failure and the temp is released. stderr is returned
+    only for an exit-0 run (Kokoro uses it for the G2P fallback notice).
+    """
+    ok = False
+    try:
+        result = _run_synth(cmd, generation, stdin_text=stdin_text, timeout=timeout)
+        if result is None:
+            return None, ""
+        code, _stdout, stderr = result
+        if code != 0:
+            log.warning("%s failed (code %d): %s", label, code, stderr.strip())
+            return None, ""
+        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
+            ok = True
+            return tmp_wav, stderr
+        log.warning("%s produced empty audio", label)
+        return None, stderr
+    except FileNotFoundError as exc:
+        if missing_hint:
+            log.warning(missing_hint)
+        else:
+            log.warning("%s execution error: %s", label, exc)
+        return None, ""
+    except Exception as exc:
+        log.warning("%s execution error: %s", label, exc)
+        return None, ""
+    finally:
+        if not ok:
+            _release_temp(tmp_wav)
+
+
 def _kokoro_warm_to_file(
     text: str,
     voice: str,
@@ -1007,31 +1050,15 @@ def _kokoro_oneshot_to_file(
     # communicate used to wait with no timeout, so a hung child blocked the
     # speech thread until something else called stop.
     cmd = [py_exe, "-c", KOKORO_ONNX_SCRIPT, "-", voice, str(speed), tmp_wav, model_path, voices_path, lang]
-    try:
-        result = _run_synth(
-            cmd,
-            generation,
-            stdin_text=text,
-            timeout=_kokoro_synth_timeout(text),
-        )
-        if result is None:
-            _release_temp(tmp_wav)
-            return None
-        code, _stdout, stderr = result
-        if code != 0:
-            log.warning("Venv Kokoro failed (code %d): %s", code, stderr)
-            _release_temp(tmp_wav)
-            return None
-        stderr_text = stderr.strip()
-        if stderr_text:
-            log.warning("Kokoro: %s", stderr_text)
-            _notify_kokoro_g2p_fallback(stderr_text, misaki_ready, on_status)
-        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
-            return tmp_wav
-    except Exception as exc:
-        log.warning("Venv Kokoro execution error: %s", exc)
-    _release_temp(tmp_wav)
-    return None
+    wav_path, stderr = _run_synth_to_temp(
+        tmp_wav, cmd, generation, label="Venv Kokoro", stdin_text=text,
+        timeout=_kokoro_synth_timeout(text),
+    )
+    stderr_text = stderr.strip()
+    if stderr_text:
+        log.warning("Kokoro: %s", stderr_text)
+        _notify_kokoro_g2p_fallback(stderr_text, misaki_ready, on_status)
+    return wav_path
 
 
 def _kokoro_cli_to_file(
@@ -1057,22 +1084,10 @@ def _kokoro_cli_to_file(
     if tmp_wav is None:
         return None
     cmd = [cand_cli, "--voice", voice, "--speed", str(speed), "--output", tmp_wav, text]
-    try:
-        result = _run_synth(cmd, generation, timeout=_kokoro_synth_timeout(text))
-        if result is None:
-            _release_temp(tmp_wav)
-            return None
-        code, _stdout, stderr = result
-        if code != 0:
-            log.warning("Kokoro CLI failed (code %d): %s", code, stderr.strip())
-            _release_temp(tmp_wav)
-            return None
-        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
-            return tmp_wav
-    except Exception as exc:
-        log.warning("Kokoro CLI execution error: %s", exc)
-    _release_temp(tmp_wav)
-    return None
+    wav_path, _stderr = _run_synth_to_temp(
+        tmp_wav, cmd, generation, label="Kokoro CLI", timeout=_kokoro_synth_timeout(text),
+    )
+    return wav_path
 
 
 def _kokoro_audio_file(
@@ -1205,30 +1220,16 @@ def _piper_audio_file(
     # Generous scaled timeout based on character count
     timeout = max(30.0, min(600.0, 30.0 + len(text) * 0.2))
 
-    try:
-        result = _run_synth(cmd, generation, stdin_text=text, timeout=timeout)
-        if result is None:
-            _release_temp(tmp_wav)
-            return None
-        code, _stdout, stderr = result
-        if code != 0:
-            log.warning("Piper process failed (code %d): %s", code, stderr)
-            # A non-zero exit used to return the file whenever getsize > 0, so
-            # a partial wav was played; Kokoro CLI was fixed the same way and
-            # Piper was left on the old path when both moved onto _run_synth.
-            _release_temp(tmp_wav)
-            return None
-        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
-            return tmp_wav
-        log.warning("Piper produced empty audio for voice %s", voice)
-    except FileNotFoundError:
-        log.warning(
-            "Local Piper executable not found in configured venv. Install via 'uv pip install piper-tts'."
-        )
-    except Exception as exc:
-        log.warning("Piper synthesis error: %s", exc)
-    _release_temp(tmp_wav)
-    return None
+    wav_path, _stderr = _run_synth_to_temp(
+        tmp_wav,
+        cmd,
+        generation,
+        label="Piper",
+        stdin_text=text,
+        timeout=timeout,
+        missing_hint="Local Piper executable not found in configured venv. Install via 'uv pip install piper-tts'.",
+    )
+    return wav_path
 
 
 def _speak_piper_local(

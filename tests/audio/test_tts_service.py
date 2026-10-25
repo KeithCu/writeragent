@@ -838,6 +838,27 @@ def test_piper_rejects_nonzero_exit_even_when_wav_is_nonempty(tmp_path):
     release.assert_called_with(str(wav))
 
 
+def test_run_synth_to_temp_returns_a_path_only_for_a_nonempty_file(tmp_path):
+    from plugin.audio.tts_service import _run_synth_to_temp
+
+    wav = tmp_path / "out.wav"
+    with patch("plugin.audio.tts_service._run_synth", return_value=(0, "", "")), \
+         patch("plugin.audio.tts_service._release_temp") as release:
+        assert _run_synth_to_temp(str(wav), ["cmd"], None, label="T") == (None, "")
+        release.assert_called_once_with(str(wav))
+
+    wav.write_bytes(b"RIFF")
+    with patch("plugin.audio.tts_service._run_synth", return_value=(2, "", "boom")), \
+         patch("plugin.audio.tts_service._release_temp") as release:
+        assert _run_synth_to_temp(str(wav), ["cmd"], None, label="T") == (None, "")
+        release.assert_called_once_with(str(wav))
+
+    with patch("plugin.audio.tts_service._run_synth", return_value=(0, "", "warn")), \
+         patch("plugin.audio.tts_service._release_temp") as release:
+        assert _run_synth_to_temp(str(wav), ["cmd"], None, label="T") == (str(wav), "warn")
+    release.assert_not_called()
+
+
 def test_play_audio_file_player_order_and_fallback(tmp_path):
     """Bug 3: Player chosen by suffix, exit code checked, fallback on failure."""
     from plugin.audio.tts_service import _play_audio_file
