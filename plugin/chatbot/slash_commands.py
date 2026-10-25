@@ -178,7 +178,7 @@ def _clear_ask_box(host: Any) -> None:
     set_control_text(query, "")
     dispatch = getattr(host, "dispatch", None)
     if callable(dispatch):
-        dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": False}))
+        dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
 
 
 def run_slash_command(name: str, host: Any) -> bool:

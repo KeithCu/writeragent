@@ -1188,7 +1188,6 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
     """panel._append_response keeps the stop line and drops a later chunk."""
     import threading
 
-    from plugin.chatbot.audio_recorder_state import AudioRecorderState
     from plugin.chatbot.send_state import SendButtonState
     from plugin.chatbot.sidebar_state import SidebarCompositeState
     from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn
@@ -1205,7 +1204,6 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
     send.sidebar_state = SidebarCompositeState(
         send=SendButtonState(True, False, False, False, False),
         tool_loop=None,
-        audio=AudioRecorderState(status="idle"),
     )
 
     class Session:

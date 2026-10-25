@@ -16,13 +16,13 @@ def test_mcp_result_preserves_concurrent_requests():
 
     with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=turn_mock):
         # Two requests arrive concurrently
-        listener._on_mcp_request(tool="test1", req_id="request_1")
-        listener._on_mcp_request(tool="test2", req_id="request_2")
+        listener._events._on_mcp_request(tool="test1", req_id="request_1")
+        listener._events._on_mcp_request(tool="test2", req_id="request_2")
 
         # Result for request_1 arrives after request_2 was registered
-        listener._on_mcp_result(tool="test1", result_snippet="snip1", req_id="request_1")
+        listener._events._on_mcp_result(tool="test1", result_snippet="snip1", req_id="request_1")
         # Result for request_2 arrives
-        listener._on_mcp_result(tool="test2", result_snippet="snip2", req_id="request_2")
+        listener._events._on_mcp_result(tool="test2", result_snippet="snip2", req_id="request_2")
 
     # Both results must be appended
     assert append_mock.call_count == 2

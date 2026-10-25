@@ -2,17 +2,11 @@
 
 import dataclasses
 from dataclasses import dataclass
-from typing import List, Any, Optional, NamedTuple, Literal
+from typing import List, Any, Optional, NamedTuple
 
 from plugin.framework.errors import format_error_for_display
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.service import BaseState, FsmTransition
-
-# Send-handler FSM status and kind
-SendHandlerKind = Literal["image", "agent", "web"]
-SendHandlerFsmStatus = Literal["ready", "starting", "running", "done", "error", "stopped"]
-# CompleteJobEffect.terminal_status (UI / job completion; capitalized)
-SendHandlerCompleteStatus = Literal["Error", "Stopped", "Ready"]
 
 # 1. Define State (frozen dataclass)
 
@@ -53,7 +47,6 @@ class StreamDoneEvent(NamedTuple):
 
 class ErrorEvent(NamedTuple):
     error: Exception
-    context: str = "state_machine"
     error_time: Optional[float] = None
 
 
@@ -61,12 +54,7 @@ class StopRequestedEvent(NamedTuple):
     pass
 
 
-class ToolResultEvent(NamedTuple):
-    tool_id: str
-    result: dict[str, Any]
-
-
-SendHandlerEvent = StartEvent | StreamChunkEvent | StreamDoneEvent | ErrorEvent | StopRequestedEvent | ToolResultEvent
+SendHandlerEvent = StartEvent | StreamChunkEvent | StreamDoneEvent | ErrorEvent | StopRequestedEvent
 
 # 3. Define Effects (Commands)
 
@@ -110,9 +98,8 @@ class EffectInterpreter:
 
     def __init__(self, handler_mixin: Any) -> None:
         self.handler = handler_mixin
-        self.current_state: SendHandlerState | None = None
 
-    def interpret(self, effect: SendHandlerEffect) -> None:
+    def interpret(self, effect: SendHandlerEffect, state: SendHandlerState) -> None:
         # crosshair: off
         match effect:
             case SendHandlerUIEffect("append", text, is_thinking, role):
@@ -128,14 +115,13 @@ class EffectInterpreter:
                 if terminal == "Ready":
                     self.handler._set_status("Ready")
             case SpawnDirectImageEffect(query_text=qt, model=mod):
-                self.handler._send_handlers._execute_direct_image_effect(qt, mod, self.current_state, self)
+                self.handler._send_handlers._execute_direct_image_effect(qt, mod, state, self)
             case SpawnAgentWorkerEffect(query_text=qt, model=mod, doc_type_str=dts):
-                self.handler._send_handlers._execute_agent_backend_effect(qt, mod, dts, self.current_state, self)
+                self.handler._send_handlers._execute_agent_backend_effect(qt, mod, dts, state, self)
             case SpawnWebWorkerEffect(query_text=qt, model=mod):
-                self.handler._send_handlers._execute_web_research_effect(qt, mod, self.current_state, self)
+                self.handler._send_handlers._execute_web_research_effect(qt, mod, state, self)
             case _:
-                # SendHandlerUIEffect kinds beyond append/status (and future effects): no-op.
-                pass
+                raise AssertionError(f"unhandled effect type {type(effect).__name__}")
 
 
 # 4. Pure helpers + transition
@@ -182,7 +168,8 @@ def ui_lines_for_handler_error(handler_type: str, err_msg: str) -> tuple[str, st
 
 @deal.pre(
     lambda handler_type, query_text, model, doc_type_str: (
-        str_bounded(handler_type, DEAL_MAX_TOKEN)
+        handler_type in ("image", "agent", "web")
+        and str_bounded(handler_type, DEAL_MAX_TOKEN)
         and str_bounded(query_text, DEAL_MAX_SOURCE)
         and str_bounded(doc_type_str, DEAL_MAX_TOKEN)
     )
@@ -195,6 +182,7 @@ def spawn_effects_for_start(
     doc_type_str: str,
 ) -> list[SendHandlerEffect]:
     """UI + spawn effects for a StartEvent, keyed by handler_type. No I/O."""
+    assert handler_type in ("image", "agent", "web"), f"unknown handler_type: {handler_type}"
     effects: List[SendHandlerEffect] = []
     if handler_type == "image":
         effects.append(SendHandlerUIEffect("append", query_text, role="user"))
@@ -218,18 +206,7 @@ def spawn_effects_for_start(
 
 
 def _replace_state(state: SendHandlerState, **changes: Any) -> SendHandlerState:
-    """Safe dataclass replace that falls back to explicit reconstruction for mocks."""
-    if dataclasses.is_dataclass(state) and not isinstance(state, type):
-        return dataclasses.replace(state, **changes)
-    return SendHandlerState(
-        handler_type=changes.get("handler_type", getattr(state, "handler_type", "")),
-        status=changes.get("status", getattr(state, "status", "ready")),
-        query_text=changes.get("query_text", getattr(state, "query_text", "")),
-        model=changes.get("model", getattr(state, "model", None)),
-        doc_type_str=changes.get("doc_type_str", getattr(state, "doc_type_str", "")),
-        last_error=changes.get("last_error", getattr(state, "last_error", None)),
-        error_time=changes.get("error_time", getattr(state, "error_time", None)),
-    )
+    return dataclasses.replace(state, **changes)
 
 
 def handle_error(state: SendHandlerState, event: ErrorEvent) -> FsmTransition[SendHandlerState]:
@@ -304,9 +281,5 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
             effects.extend(spawn_effects_for_start(state.handler_type, q_text, mod, doc_type))
             new_state = _replace_state(state, status="starting", query_text=q_text, model=mod, doc_type_str=doc_type)
             return FsmTransition(new_state, effects)
-
-        case _:
-            # ToolResultEvent belongs to the tool-loop FSM; ignore here.
-            pass
 
     return FsmTransition(state, effects)

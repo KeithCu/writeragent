@@ -8,7 +8,6 @@ from plugin.chatbot.panel_voice import PanelVoiceController, _stop_tts
 from plugin.chatbot.record_gesture import RecordGesture
 from plugin.chatbot.send_state import SendButtonState
 from plugin.chatbot.sidebar_state import SidebarCompositeState
-from plugin.chatbot.audio_recorder_state import AudioRecorderState
 
 
 class DummyPanel:
@@ -26,7 +25,6 @@ class DummyPanel:
         self.sidebar_state = SidebarCompositeState(
             send=send_state,
             tool_loop=None,
-            audio=AudioRecorderState(status="idle"),
         )
         self._record_gesture = RecordGesture()
         self._record_hold_gen = 0
@@ -75,11 +73,12 @@ def test_stop_tts_handles_exceptions():
 
 
 def test_clear_pending_audio_wav():
+    from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
+
     panel = DummyPanel()
     panel.audio_wav_path = "/tmp/test_nonexistent_audio.wav"
-    controller = PanelVoiceController(panel)
     with patch("os.remove") as mock_remove:
-        controller.clear_pending_audio_wav()
+        clear_pending_audio_wav(panel)
         mock_remove.assert_called_once_with("/tmp/test_nonexistent_audio.wav")
     assert panel.audio_wav_path is None
 
@@ -93,22 +92,13 @@ def test_kill_inflight_stt():
     mock_kill.assert_called_once()
 
 
-def test_sync_audio_slice():
-    panel = DummyPanel()
-    panel.audio_recorder = MagicMock()
-    panel.audio_recorder.state = AudioRecorderState(status="recording")
-    controller = PanelVoiceController(panel)
-    controller.sync_audio_slice()
-    assert panel.sidebar_state.audio.status == "recording"
-
-
 def test_exit_hands_free_record():
     panel = DummyPanel()
     panel._record_gesture = RecordGesture(sticky=True)
-    panel._sticky_restart_pending = True
     controller = PanelVoiceController(panel)
+    controller._sticky_restart_pending = True
     controller.exit_hands_free_record()
     assert not panel._record_gesture.sticky
-    assert not panel._sticky_restart_pending
+    assert not controller._sticky_restart_pending
     assert panel._sticky_restart_gen == 1
     assert panel._record_hold_gen == 1

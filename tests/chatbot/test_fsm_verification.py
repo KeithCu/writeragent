@@ -22,6 +22,7 @@ from hypothesis import strategies as st
 
 from plugin.chatbot.audio_recorder_state import (
     AudioRecorderState,
+    AudioStatus,
     ErrorOccurredEvent,
     ReportErrorEffect,
     next_state as audio_next_state,
@@ -103,7 +104,7 @@ def test_send_state_mutual_exclusion_oracle() -> None:
         SendButtonState(False, False, False, True, True),
     ]
     events = [
-        SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}),
+        SendEvent(SendEventKind.TEXT_UPDATED, has_text=True),
         SendEvent(SendEventKind.RECORD_CLICKED),
         SendEvent(SendEventKind.STOP_REC_CLICKED),
         SendEvent(SendEventKind.SEND_CLICKED),
@@ -121,7 +122,7 @@ def test_send_state_mutual_exclusion_oracle() -> None:
 
 def test_audio_error_always_reports_error_status() -> None:
     for status in ("idle", "initializing", "recording", "error"):
-        tr = audio_next_state(AudioRecorderState(status=status), ErrorOccurredEvent("boom"))
+        tr = audio_next_state(AudioRecorderState(status=AudioStatus(status)), ErrorOccurredEvent("boom"))
         assert tr.state.status == "error"
         assert any(isinstance(e, ReportErrorEffect) for e in tr.effects)
 

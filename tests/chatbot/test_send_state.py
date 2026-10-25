@@ -2,6 +2,7 @@ import pytest
 
 import deal
 from plugin.chatbot.send_state import (
+    ButtonAction,
     CancelRecordingEffect,
     SendButtonState,
     SendEvent,
@@ -14,22 +15,32 @@ from plugin.chatbot.send_state import (
 )
 
 
-def test_send_event_default_data_is_not_shared():
+def test_send_event_fields():
     a = SendEvent(SendEventKind.SEND_CLICKED)
-    b = SendEvent(SendEventKind.STOP_CLICKED)
-    assert a.data is None
-    assert b.data is None
+    assert a.has_text is None
+    b = SendEvent(SendEventKind.TEXT_UPDATED, has_text=True)
+    assert b.has_text is True
+
+
+def test_send_event_post_init_assertions():
+    with pytest.raises(AssertionError):
+        SendEvent(SendEventKind.TEXT_UPDATED)
+    with pytest.raises(AssertionError):
+        SendEvent(SendEventKind.TEXT_UPDATED, has_text=None)
+    with pytest.raises(AssertionError):
+        SendEvent(SendEventKind.SEND_CLICKED, has_text=True)
 
 
 def test_initial_state_to_text_updated():
     state = SendButtonState(False, False, False, False, True)
-    tr = next_state(state, SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+    tr = next_state(state, SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
 
     assert tr.state.has_text is True
     assert tr.state.is_busy is False
     assert len(tr.effects) == 1
     assert isinstance(tr.effects[0], UpdateUIEffect)
     assert tr.effects[0].send_label == "Send"
+    assert tr.effects[0].action == ButtonAction.SEND
 
 
 def test_record_flow():
@@ -113,12 +124,12 @@ def test_error_while_idle_is_noop():
     state1 = SendButtonState(False, False, True, False, True)
     tr1 = next_state(state1, SendEvent(SendEventKind.ERROR_OCCURRED))
     assert tr1.state == state1
-    assert tr1.effects == []
+    assert not tr1.effects
 
     state2 = SendButtonState(False, False, False, True, True)
     tr2 = next_state(state2, SendEvent(SendEventKind.ERROR_OCCURRED))
     assert tr2.state == state2
-    assert tr2.effects == []
+    assert not tr2.effects
 
 
 def test_error_while_recording_drops_the_take():
@@ -169,21 +180,10 @@ def test_record_clicked_clears_stale_has_audio():
         assert not any(isinstance(e, StartCaptureEffect) for e in tr_bad.effects)
 
 
-def test_text_updated_without_has_text_is_noop():
-    states = (
-        SendButtonState(False, False, True, False, True),
-        SendButtonState(True, False, True, False, True),
-        SendButtonState(False, True, False, False, True),
-    )
-    events = (
-        SendEvent(SendEventKind.TEXT_UPDATED),
-        SendEvent(SendEventKind.TEXT_UPDATED, {}),
-    )
-    for state in states:
-        for event in events:
-            tr = next_state(state, event)
-            assert tr.state == state
-            assert tr.effects == []
+def test_text_updated_without_has_text_raises():
+    state = SendButtonState(False, False, True, False, True)
+    with pytest.raises(AssertionError):
+        next_state(state, SendEvent(SendEventKind.TEXT_UPDATED))
 
 
 def test_invalid_record_does_not_emit_recording_or_send_effects():
@@ -220,7 +220,7 @@ def test_extracted_send_while_busy_is_noop():
     state = SendButtonState(True, False, True, False, True)
     tr = next_state(state, SendEvent(SendEventKind.EXTRACTED_SEND))
     assert tr.state == state
-    assert tr.effects == []
+    assert not tr.effects
 
 
 def test_send_clicked_with_audio_only_starts_send():
@@ -279,7 +279,7 @@ def test_record_enables_stop_for_the_take():
 
 def test_text_updated_during_take_keeps_stop_enabled():
     state = SendButtonState(False, True, False, False, True)
-    tr = next_state(state, SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+    tr = next_state(state, SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
     ui_effect = next(e for e in tr.effects if isinstance(e, UpdateUIEffect))
     assert ui_effect.send_label == "Stop Rec"
     assert ui_effect.stop_enabled is True
@@ -315,16 +315,16 @@ def test_cancel_rec_when_not_recording_is_noop():
     ):
         tr = next_state(state, SendEvent(SendEventKind.CANCEL_REC_CLICKED))
         assert tr.state == state
-        assert tr.effects == []
+        assert not tr.effects
 
 
 def test_text_updated_while_busy_emits_no_ui_effects():
     """Typing while busy (in flight or awaiting approval) records text but avoids UI effect clobber."""
     state = SendButtonState(True, False, False, False, True)
-    tr = next_state(state, SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+    tr = next_state(state, SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
     assert tr.state.is_busy is True
     assert tr.state.has_text is True
-    assert tr.effects == []
+    assert not tr.effects
 
 
 def test_stop_clicked_label_uses_get_send_label():

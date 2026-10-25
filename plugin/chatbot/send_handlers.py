@@ -11,7 +11,6 @@ alternate send flows that would otherwise bloat that class:
 
 from __future__ import annotations
 
-import os
 import json
 import threading
 import logging
@@ -20,27 +19,35 @@ from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
 from plugin.framework.i18n import _
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_async_worker_with_drain
-from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.errors import (
     AgentParsingError,
     BlockingWaitStopped,
     best_effort,
-    format_error_for_display,
     format_error_payload,
     is_disposed_exception,
     safe_json_loads,
     suppress_disposed,
 )
-from plugin.framework.config import get_api_config, get_config, get_config_int_safe
+from plugin.framework.config import get_config, get_config_int_safe
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
-from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
 from plugin.framework.llm_lanes import llm_request_lane
 from plugin.framework.send_cancellation import capture_send_stop
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
-from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter, ui_lines_for_handler_error
+from plugin.chatbot.state_machine import (
+    SendHandlerEvent,
+    SendHandlerState,
+    SendHandlerUIEffect,
+    StartEvent,
+    StreamChunkEvent,
+    StreamDoneEvent,
+    ErrorEvent,
+    StopRequestedEvent,
+    next_state,
+    EffectInterpreter,
+)
 from plugin.chatbot.tool_loop import _PanelDescriptor
 from plugin.chatbot.tool_loop_actions import (
     TurnController,
@@ -149,6 +156,7 @@ def _reset_active_run_flags(host: Any) -> None:
 if TYPE_CHECKING:
     import queue
     from plugin.chatbot.chat_session import ChatSession
+    from plugin.framework.client.llm_client import LlmClient
 
 
 def _agent_backend_label(adapter: Any, backend_id: str) -> str:
@@ -193,7 +201,8 @@ class SendHandlerHost(Protocol):
 
     def _set_status(self, text: str) -> None: ...
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
-    def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None: ...
+    _events: Any
+    _voice: Any
     def rerender_rich_text_session(self) -> bool: ...
     _record_assistant_start: bool
     def _run_unified_worker_drain_loop(
@@ -243,115 +252,20 @@ class SendHandlersMixin:
     _active_run_deep_research: bool = False
     _turn: Any = None
 
-    def _transcribe_audio(self: SendHandlerHost, wav_path: str, stt_model: str) -> str:
-        """Transcribe audio synchronously using event pumping on the main thread.
-
-        ``capture_send_stop`` freezes the scope from this send, and the
-        checker is read once more after the transcript returns. Without
-        that checker, ``run_blocking_in_thread`` pumps the UI, so Stop can
-        cancel the send scope and a nested send can replace
-        ``_send_cancellation``, while Whisper's ``subprocess.run`` still
-        waits out 900s and the transcript is posted anyway. Stop does
-        not kill local Whisper or close the endpoint socket: transcription
-        finishes and ``_do_send`` puts the words back in the Ask box instead
-        of sending them (see the StopSendEffect invariant in ``panel``).
-        Only sidebar teardown kills the child, through ``_stt_kill``. A
-        re-entrant call returns without deleting the first WAV or clearing
-        the first client's stop latch. The STT client is not registered with
-        the send scope for the same reason.
-        """
-        from plugin.audio.stt_service import (
-            status_for_transcription,
-            terminate_stt_process,
-            transcribe,
-            uses_local_stt,
-        )
-        from plugin.framework.queue_executor import post_to_main_thread
-
-        # getattr: a duck-typed host (the smol _do_send double) has no field
-        # until this call sets it. Missing means nothing is in flight.
-        if getattr(self._panel, "_stt_inflight", False):
-            log.info("Ignoring re-entrant STT; the in-flight transcription keeps the first Stop")
-            return ""
-
-        self._panel._stt_inflight = True
-        try:
-            # Spawn-time scope. Do not call resolve_stop_checker inside the
-            # worker: Stop's drain clears the field and the next send replaces it.
-            cancel_scope, stop_checker = capture_send_stop(self._panel)
-            if stop_checker():
-                self._panel._terminal_status = "Stopped"
-                return ""
-
-            if uses_local_stt():
-                client = None
-            else:
-                # Always create a fresh client to avoid reusing previous STT endpoint/key
-                api_config = get_api_config()
-                client = LlmClient(api_config, self._panel.ctx, cancellation_scope=cancel_scope, register_with_send=False)
-                if cancel_scope is not None and not cancel_scope.is_cancelled():
-                    clearer = getattr(client, "clear_stop", None)
-                    if callable(clearer):
-                        clearer()
-
-            transcribing = status_for_transcription()
-            self._panel._set_status(transcribing)
-            self._panel._append_response("\n[" + transcribing + "]\n")
-
-            def on_status(message: str) -> None:
-                # What was wrong: local Whisper model download status messages were lost.
-                # How it happened: on_status callback was dropped during cleanup.
-                # Why this change: post status updates to the UI thread so weight
-                # download progress is visible in the sidebar.
-                post_to_main_thread(self._panel._set_status, message)
-
-            def _on_spawn(proc: Any) -> None:
-                def _kill() -> None:
-                    terminate_stt_process(proc)
-
-                # Sidebar teardown (_kill_inflight_stt) calls this. Stop does
-                # not: the transcript is kept for the Ask box.
-                self._panel._stt_kill = _kill
-
-            def _call() -> str:
-                return transcribe(
-                    wav_path,
-                    client=client,
-                    model=stt_model,
-                    on_status=on_status,
-                    on_spawn=_on_spawn,
-                )
-
-            try:
-                # Runs to the end: Stop keeps the transcript.
-                transcript_text = run_blocking_in_thread(self._panel.ctx, _call)
-            except Exception as e:
-                log.exception("Transcription error in _transcribe_audio")
-                self._panel._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
-                raise
-            if stop_checker():
-                log.info("Speech-to-text finished after Stop; preserving transcript for query box")
-                self._panel._terminal_status = "Stopped"
-                return transcript_text
-            return transcript_text
-        finally:
-            self._panel._stt_inflight = False
-            self._panel._stt_kill = None
-            best_effort(lambda: os.remove(wav_path), "cleanup audio wav")
-            self._panel.audio_wav_path = None
-
     def _run_unified_worker_drain_loop(
         self: SendHandlerHost, q: StreamQueue, worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
     ) -> None:
 
-
-        def dispatch_event(event: SendHandlerEvent) -> None:
+        def dispatch_event(event: SendHandlerEvent) -> list[str]:
             nonlocal current_state
             step = next_state(current_state, event)
             current_state = step.state
-            interpreter.current_state = current_state
+            appends: list[str] = []
             for eff in step.effects:
-                interpreter.interpret(eff)
+                if isinstance(eff, SendHandlerUIEffect) and eff.kind == "append":
+                    appends.append(eff.text)
+                interpreter.interpret(eff, current_state)
+            return appends
 
         agent_parts: list[str] = []
 
@@ -457,15 +371,14 @@ class SendHandlersMixin:
             live = current_turn(self._panel)
             if isinstance(live, TurnController) and not live.alive:
                 return
-            dispatch_event(ErrorEvent(e))
+            append_texts = dispatch_event(ErrorEvent(e))
             # Same write for web, agent, and image, using the lines
             # handle_error already shows. The tool loop stores that banner
             # with persist_assistant_on_turn. Painting the banner and storing
             # the user row without this write leaves the next send a hole
             # where the assistant row should be.
-            err_msg = format_error_for_display(e)
-            append_text = ui_lines_for_handler_error(current_state.handler_type, err_msg)[1]
-            persist_assistant_on_turn(self._panel, content=append_text.strip())
+            if append_texts:
+                persist_assistant_on_turn(self._panel, "".join(append_texts))
 
         def worker_wrapper(worker_q: queue.Queue[Any]) -> None:
             # worker_q is the q passed to run_async_worker_with_drain. worker_fn
@@ -520,9 +433,8 @@ class SendHandlersMixin:
         # 1. State machine transition: start
         step = next_state(current_state, StartEvent(query_text, model, "image"))
         current_state = step.state
-        interpreter.current_state = step.state
         for effect in step.effects:
-            interpreter.interpret(effect)
+            interpreter.interpret(effect, current_state)
 
     def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
         turn_session = turn_session_or_stop(self._panel)
@@ -639,9 +551,8 @@ class SendHandlersMixin:
         # 1. State machine transition: start
         step = next_state(current_state, StartEvent(query_text, model, doc_type_str))
         current_state = step.state
-        interpreter.current_state = current_state
         for effect in step.effects:
-            interpreter.interpret(effect)
+            interpreter.interpret(effect, current_state)
 
     def _retained_agent_backend(self: SendHandlerHost, backend_id: str) -> Any:
         """Keep one CLI on this sidebar until the backend id changes.
@@ -677,14 +588,15 @@ class SendHandlersMixin:
             return
 
         def _handle_early_error(exception_instance: Exception) -> None:
+            nonlocal current_state
             self._panel._terminal_status = "Error"
             self._panel._set_status(_("Error"))
 
             # Step 1: dispatch ErrorEvent to current state machine (this will persist the banner)
             step = next_state(current_state, ErrorEvent(exception_instance))
-            interpreter.current_state = step.state
+            current_state = step.state
             for eff in step.effects:
-                interpreter.interpret(eff)
+                interpreter.interpret(eff, current_state)
 
             # Step 2: Ensure turn is closed out properly, just as _do_send_direct_image does
             defer_until_drain_done(lambda: abort_turn(self._panel))
@@ -825,14 +737,13 @@ class SendHandlersMixin:
         # 1. State machine transition: start
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
-        interpreter.current_state = current_state
 
         # Manually set the run_librarian flag to distinguish from web research in effect execution
         setattr(self._panel, "_active_run_librarian", True)
 
         try:
             for effect in step.effects:
-                interpreter.interpret(effect)
+                interpreter.interpret(effect, current_state)
         finally:
             _reset_active_run_flags(self._panel)
 
@@ -856,13 +767,12 @@ class SendHandlersMixin:
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
-        interpreter.current_state = current_state
 
         setattr(self._panel, flag_attr, True)
 
         try:
             for effect in step.effects:
-                interpreter.interpret(effect)
+                interpreter.interpret(effect, current_state)
         finally:
             _reset_active_run_flags(self._panel)
 
@@ -896,10 +806,9 @@ class SendHandlersMixin:
         # 1. State machine transition: start
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
-        interpreter.current_state = current_state
         try:
             for effect in step.effects:
-                interpreter.interpret(effect)
+                interpreter.interpret(effect, current_state)
         finally:
             _reset_active_run_flags(self._panel)
 
@@ -1202,7 +1111,7 @@ class SendHandlersMixin:
             tool_name = item[2] if len(item) > 2 else ""
             event_obj = item[3] if len(item) > 3 else None
             if event_obj is not None:
-                self._panel.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
+                self._panel._events.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
             log.info("web_research on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
         self._run_unified_worker_drain_loop(drain_q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)

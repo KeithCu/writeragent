@@ -25,7 +25,7 @@ from plugin.chatbot.slash_commands import (
     run_slash_command,
     slash_typed_prefix,
 )
-from plugin.chatbot.send_state import SendEventKind
+from plugin.chatbot.send_state import ButtonAction, SendEventKind
 
 
 def _names(typed: str, lru: list[str] | None = None) -> list[str]:
@@ -112,7 +112,7 @@ def test_run_mock_echoes_and_records_lru():
     assert "slash: /mock-alpha" in host._append_response.call_args[0][0]
     event = host.dispatch.call_args[0][0]
     assert event.kind is SendEventKind.TEXT_UPDATED
-    assert event.data == {"has_text": False}
+    assert event.has_text is False
 
 
 def test_run_help_prints_static_list():
@@ -131,7 +131,7 @@ def test_run_help_prints_static_list():
     set_text.assert_called_once_with(None, "")
     event = host.dispatch.call_args[0][0]
     assert event.kind is SendEventKind.TEXT_UPDATED
-    assert event.data == {"has_text": False}
+    assert event.has_text is False
 
 
 def test_run_clear_calls_existing_clear_listener():
@@ -194,20 +194,26 @@ def test_run_stop_during_inline_approval_opens_change_dialog_without_clearing_as
     from plugin.framework.i18n import _
 
     stop_model = SimpleNamespace(Label=_("Change"), Enabled=True)
+    events_mock = SimpleNamespace(
+        _open_web_search_change_dialog=MagicMock(),
+        _finish_inline_web_approval=MagicMock(),
+    )
     host = SimpleNamespace(
         slash_popup=None,
         query_control=SimpleNamespace(text="keep me"),
         dispatch=MagicMock(),
         _approval_event=object(),
         stop_control=SimpleNamespace(getModel=lambda: stop_model),
-        _finish_inline_web_approval=MagicMock(),
-        _open_web_search_change_dialog=MagicMock(),
+        _stop_button_action=ButtonAction.CHANGE,
+        _events=events_mock,
+        _finish_inline_web_approval=events_mock._finish_inline_web_approval,
+        _open_web_search_change_dialog=events_mock._open_web_search_change_dialog,
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
             run_slash_command("stop", host)
     set_text.assert_not_called()
     assert host.query_control.text == "keep me"
-    host._open_web_search_change_dialog.assert_called_once_with()
-    host._finish_inline_web_approval.assert_not_called()
+    events_mock._open_web_search_change_dialog.assert_called_once_with()
+    events_mock._finish_inline_web_approval.assert_not_called()
     host.dispatch.assert_not_called()

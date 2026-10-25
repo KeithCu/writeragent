@@ -25,6 +25,7 @@ one-shot take is cancelled. Stop Rec always means send.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -36,9 +37,6 @@ STICKY_TTS_POLL_MS = 200
 
 # English msgid. Panel passes it through gettext. Matches the literal below.
 HANDS_FREE_STATUS = "Hands-free recording..."
-
-# UpdateUIEffect status from RECORD_CLICKED in send_state.next_state.
-RECORDING_STATUS = "Recording audio..."
 
 # Consecutive "[No speech detected.]" takes that end hands-free. Noise can
 # trip silence auto-stop, and each empty take re-arms Record, so without a
@@ -80,6 +78,15 @@ class StickyRestart(Enum):
     WAIT_FOR_TTS = auto()
 
 
+class RecordPhase(Enum):
+    IDLE = auto()
+    SUPPRESS_ACTION = auto()
+    DOWN = auto()
+    DOWN_ACTION_SEEN = auto()
+    FIRED = auto()
+    FIRED_ACTION_SEEN = auto()
+
+
 @dataclass(frozen=True)
 class RecordGesture:
     """One Send-button press, plus the sticky flag that outlives it.
@@ -92,11 +99,29 @@ class RecordGesture:
     including when the label is already Stop Rec.
     """
 
-    holding: bool = False
-    fired: bool = False
-    action_seen: bool = False
-    suppress_action: bool = False
+    phase: RecordPhase = RecordPhase.IDLE
     sticky: bool = False
+
+    @property
+    def holding(self) -> bool:
+        return self.phase in (
+            RecordPhase.DOWN,
+            RecordPhase.DOWN_ACTION_SEEN,
+            RecordPhase.FIRED,
+            RecordPhase.FIRED_ACTION_SEEN,
+        )
+
+    @property
+    def fired(self) -> bool:
+        return self.phase in (RecordPhase.FIRED, RecordPhase.FIRED_ACTION_SEEN)
+
+    @property
+    def action_seen(self) -> bool:
+        return self.phase in (RecordPhase.DOWN_ACTION_SEEN, RecordPhase.FIRED_ACTION_SEEN)
+
+    @property
+    def suppress_action(self) -> bool:
+        return self.phase in (RecordPhase.FIRED, RecordPhase.SUPPRESS_ACTION)
 
 
 @dataclass(frozen=True)
@@ -111,31 +136,34 @@ class GestureStep:
 def gesture_press(gesture: RecordGesture, *, label_is_record: bool) -> GestureStep:
     """mousePressed. Starts the hold timer only when the label is Record.
 
-    A new press drops a stale ``suppress_action``. Otherwise a lost
-    ActionEvent from the previous click would swallow Stop Rec.
+    Every mousePressed is a new press. If label_is_record, returns DOWN with
+    start_timer=True. If not label_is_record and holding, returns IDLE with
+    cancel_timer=True so the old timer cannot fire.
     """
+    if label_is_record:
+        return GestureStep(
+            dataclasses.replace(gesture, phase=RecordPhase.DOWN),
+            start_timer=True,
+        )
     if gesture.holding:
-        return GestureStep(gesture)
-    if not label_is_record:
-        return GestureStep(RecordGesture(sticky=gesture.sticky))
-    return GestureStep(
-        RecordGesture(holding=True, sticky=gesture.sticky),
-        start_timer=True,
-    )
+        return GestureStep(
+            dataclasses.replace(gesture, phase=RecordPhase.IDLE),
+            cancel_timer=True,
+        )
+    return GestureStep(dataclasses.replace(gesture, phase=RecordPhase.IDLE))
 
 
 def gesture_hold_elapsed(gesture: RecordGesture) -> GestureStep:
     """Hold timer fired. Arm sticky and start Record once, if still held."""
     if not gesture.holding or gesture.fired:
         return GestureStep(gesture)
+    new_phase = (
+        RecordPhase.FIRED_ACTION_SEEN
+        if gesture.phase == RecordPhase.DOWN_ACTION_SEEN
+        else RecordPhase.FIRED
+    )
     return GestureStep(
-        RecordGesture(
-            holding=True,
-            fired=True,
-            action_seen=gesture.action_seen,
-            suppress_action=not gesture.action_seen,
-            sticky=True,
-        ),
+        dataclasses.replace(gesture, phase=new_phase, sticky=True),
         dispatch_record=True,
     )
 
@@ -145,14 +173,12 @@ def gesture_release(gesture: RecordGesture) -> GestureStep:
     if not gesture.holding:
         return GestureStep(gesture)
     dispatch = not gesture.fired
-    if dispatch:
-        suppress = not gesture.action_seen
-    elif gesture.action_seen:
-        suppress = False
+    if gesture.phase in (RecordPhase.DOWN, RecordPhase.FIRED):
+        new_phase = RecordPhase.SUPPRESS_ACTION
     else:
-        suppress = gesture.suppress_action
+        new_phase = RecordPhase.IDLE
     return GestureStep(
-        RecordGesture(suppress_action=suppress, sticky=gesture.sticky),
+        dataclasses.replace(gesture, phase=new_phase),
         dispatch_record=dispatch,
         cancel_timer=True,
     )
@@ -165,20 +191,20 @@ def gesture_action(gesture: RecordGesture) -> GestureStep:
     down (release or the hold timer will dispatch). Keyboard activation has
     neither flag, so the caller handles Record / Stop Rec / Send as before.
     """
-    if gesture.suppress_action:
+    if gesture.phase == RecordPhase.SUPPRESS_ACTION:
         return GestureStep(
-            RecordGesture(sticky=gesture.sticky),
+            dataclasses.replace(gesture, phase=RecordPhase.IDLE),
             swallowed_action=True,
         )
     if gesture.holding:
+        if gesture.phase == RecordPhase.DOWN:
+            new_phase = RecordPhase.DOWN_ACTION_SEEN
+        elif gesture.phase == RecordPhase.FIRED:
+            new_phase = RecordPhase.FIRED_ACTION_SEEN
+        else:
+            new_phase = gesture.phase
         return GestureStep(
-            RecordGesture(
-                holding=True,
-                fired=gesture.fired,
-                action_seen=True,
-                suppress_action=gesture.suppress_action,
-                sticky=gesture.sticky,
-            ),
+            dataclasses.replace(gesture, phase=new_phase),
             swallowed_action=True,
         )
     return GestureStep(gesture)
@@ -191,8 +217,9 @@ def exit_sticky(gesture: RecordGesture) -> RecordGesture:
     that send should still restart Record when the reply finishes. Stop
     during a locked take uses this too, and leaves the take recording.
     """
-    swallow = gesture.holding or gesture.fired or gesture.suppress_action or gesture.action_seen
-    return RecordGesture(suppress_action=swallow)
+    swallow = gesture.phase != RecordPhase.IDLE
+    new_phase = RecordPhase.SUPPRESS_ACTION if swallow else RecordPhase.IDLE
+    return RecordGesture(phase=new_phase, sticky=False)
 
 
 def sticky_restart(*, sticky: bool, speaking: bool) -> StickyRestart:

@@ -26,7 +26,7 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
-from weakref import WeakSet
+from weakref import WeakKeyDictionary
 
 from plugin.chatbot.panel import (
     StopButtonListener,
@@ -52,9 +52,7 @@ _INFLATE_TARGET_TOKENS = 28000
 _INFLATE_PAIR_TOKENS = 4000
 _INFLATE_MAX_PAIRS = 16
 
-# Debug-only. This module is replaced by a stub in release OXTs (no WeakSet).
-_LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
-# Listeners created by the installed OXT factory may not share this WeakSet.
+# Listeners created by the installed OXT factory may not share this list.
 _LIVE_SEND_LISTENERS: list[Any] = []
 # Last native-test ctx so URP fallbacks can executeDispatch without get_ctx().
 _HOOK_CTX: Any = None
@@ -63,31 +61,29 @@ _HOOK_DOC: Any = None
 # Out-of-process mock-sidebar: controller bound to the live XDL ListBox over URP.
 _URP_SLASH_POPUP: Any = None
 
+# Packet G recorder stub flags table
+_STUB_RECORDER_FLAGS: WeakKeyDictionary[Any, dict[str, Any]] = WeakKeyDictionary()
+
 
 def register_live_panel(element: Any) -> None:
     _require_debug()
-    if element is not None:
-        _LIVE_CHAT_PANELS.add(element)
+    from plugin.chatbot.panel_factory import register_debug_live_panel
+
+    register_debug_live_panel(element)
 
 
 def unregister_live_panel(element: Any) -> None:
     _require_debug()
-    _LIVE_CHAT_PANELS.discard(element)
+    from plugin.chatbot.panel_factory import unregister_debug_live_panel
+
+    unregister_debug_live_panel(element)
 
 
 def iter_live_chat_panels() -> list[Any]:
     _require_debug()
     from plugin.chatbot.panel_factory import iter_debug_live_chat_panels
 
-    merged: list[Any] = []
-    seen: set[int] = set()
-    for panel in list(iter_debug_live_chat_panels()) + list(_LIVE_CHAT_PANELS):
-        ident = id(panel)
-        if ident in seen:
-            continue
-        seen.add(ident)
-        merged.append(panel)
-    return merged
+    return list(iter_debug_live_chat_panels())
 
 
 def _require_debug() -> None:
@@ -269,6 +265,164 @@ def _replace_state_file(tmp_path: str, path: str) -> None:
             time.sleep(0.01)
 
 
+def write_json_state(path: str, data: Any) -> None:
+    """Atomically write JSON data to *path* via temp file and _replace_state_file."""
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle)
+        handle.flush()
+    _replace_state_file(tmp_path, path)
+
+
+def stub_recorder_control_path() -> str:
+    """Cross-process Packet G control file (URP tests vs soffice OXT)."""
+    return os.path.join(tempfile.gettempdir(), "writeragent_stub_recorder.json")
+
+
+def read_stub_recorder_control() -> dict[str, Any]:
+    path = stub_recorder_control_path()
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_stub_recorder_control(**fields: Any) -> None:
+    path = stub_recorder_control_path()
+    data = read_stub_recorder_control()
+    data.update(fields)
+    try:
+        write_json_state(path, data)
+    except OSError as exc:
+        log.debug("write_stub_recorder_control failed: %s", exc)
+
+
+def clear_stub_recorder_control() -> None:
+    try:
+        os.remove(stub_recorder_control_path())
+    except OSError:
+        pass
+
+
+def _write_stub_injected_wav(recorder: Any, inject: str | None) -> None:
+    dest = getattr(recorder, "temp_filename", None)
+    if inject and dest and os.path.isfile(inject):
+        import shutil
+
+        shutil.copyfile(inject, dest)
+        return
+    if not dest:
+        return
+    import wave
+
+    try:
+        with wave.open(dest, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(b"\x00" * 3200)
+    except OSError as exc:
+        log.debug("write injected wav failed: %s", exc)
+
+
+def try_stub_initialize(recorder: Any) -> bool:
+    # Bugfix: the control file lives at a predictable path under /tmp.
+    # Another local user can create it before this one does.
+    # {"skip": true, "wav": "..."} turned the microphone off and
+    # copied that file into the take that is sent to the model. Only
+    # a test soffice sets WRITERAGENT_TESTING.
+    ctrl = read_stub_recorder_control()
+    if not ctrl.get("skip"):
+        return False
+    # Always apply JSON (including null/false) so G12 fail_start / G14
+    # missing_wav cannot stick on the live recorder for later cases.
+    flags = _STUB_RECORDER_FLAGS.setdefault(recorder, {})
+    flags["skip"] = True
+    fail = ctrl.get("fail_start")
+    flags["fail_start"] = str(fail) if fail else None
+    flags["missing_wav"] = bool(ctrl.get("missing_wav"))
+    flags["hang_ready"] = bool(ctrl.get("hang_ready"))
+    flags["inject_wav"] = ctrl.get("wav")
+    flags["start_count"] = flags.get("start_count", 0) + 1
+
+    recorder._auto_stopped_path = None
+    if flags["fail_start"]:
+        from plugin.chatbot.audio_recorder_state import ErrorOccurredEvent
+
+        recorder._apply_event(ErrorOccurredEvent(flags["fail_start"]))
+        return True
+    if flags["hang_ready"]:
+        # G21: child never emits ready. Do not wait the real 30s spawn timeout.
+        from plugin.chatbot.audio_recorder_state import ErrorOccurredEvent
+
+        timeout = ctrl.get("ready_timeout_sec")
+        try:
+            timeout_s = float(timeout) if timeout is not None else 0.0
+        except (TypeError, ValueError):
+            timeout_s = 0.0
+        if timeout_s > 0:
+            time.sleep(timeout_s)
+        shown = timeout_s if timeout_s > 0 else 30
+        # Same wording as wait_for_recording_ready TimeoutExpired.
+        recorder._apply_event(
+            ErrorOccurredEvent(f"Recording subprocess timed out after {shown:g} seconds.")
+        )
+        return True
+
+    # Packet G: pretend the capture child said {"status":"ready"} without a mic.
+    recorder._take_new_temp_wav()
+    recorder._proc = None
+    from plugin.chatbot.audio_recorder_state import DeviceReadyEvent
+
+    recorder._apply_event(DeviceReadyEvent())
+    if ctrl.get("auto_stop"):
+        _write_stub_injected_wav(recorder, flags.get("inject_wav"))
+        # One-shot: G4 must not leave auto_stop for G5–G15.
+        write_stub_recorder_control(auto_stop=False)
+        # Report auto-stop from a worker, matching the real silence
+        # detector's stdout monitor thread. Firing it inside Record's
+        # start transition posts STOP_REC_CLICKED inline under
+        # WRITERAGENT_TESTING, so the send drain re-enters this
+        # recorder mid-start on the URP Record click and wedges
+        # soffice. The worker post lands on a later VCL tick after
+        # Record has returned.
+        run_in_background(
+            recorder._notify_auto_stop,
+            recorder.temp_filename,
+            name="audio-rec-stub-auto-stop",
+            dedicated=True,
+        )
+    return True
+
+
+def try_stub_stop(recorder: Any) -> bool:
+    flags = _STUB_RECORDER_FLAGS.get(recorder)
+    if not flags or not flags.get("skip"):
+        return False
+    if flags.get("missing_wav"):
+        if recorder.temp_filename:
+            with contextlib.suppress(OSError):
+                os.remove(recorder.temp_filename)
+        recorder.temp_filename = None
+    else:
+        # Packet G native tests: skip venv/PortAudio spawn and use inject_wav.
+        _write_stub_injected_wav(recorder, flags.get("inject_wav"))
+    recorder._proc = None
+    recorder.stream = None
+    recorder.wav_file = None
+    recorder._silence_detector = None
+    return True
+
+
+def get_stub_start_count(recorder: Any) -> int:
+    flags = _STUB_RECORDER_FLAGS.get(recorder)
+    return int(flags.get("start_count", 0)) if flags else 0
+
+
 def _remove_quiet(path: str) -> None:
     with contextlib.suppress(OSError):
         os.remove(path)
@@ -289,12 +443,7 @@ def read_fake_stt_state() -> dict[str, Any]:
     return _read_json_dict(fake_stt_state_path(), retry=True)
 
 def _fake_stt_refresh_locked() -> None:
-    path = fake_stt_state_path()
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-        json.dump(_FAKE_STT_STATE, handle)
-        handle.flush()
-    _replace_state_file(tmp_path, path)
+    write_json_state(fake_stt_state_path(), _FAKE_STT_STATE)
 
 def _fake_stt_note_spawn_locked(cmd: list[str], proc: subprocess.Popen[Any]) -> None:
     _FAKE_STT_STATE["spawn_count"] = _FAKE_STT_STATE.get("spawn_count", 0) + 1
@@ -449,14 +598,10 @@ def _apply_fake_stt(mode: str) -> None:
     # The fake hooks the real recorder spawn. A Packet G stub (control file
     # skip=True, or the flags stub_recorder_child / inject_wav set on the live
     # recorder) never spawns, and the flags outlive the file, so drop both.
-    audio_recorder.clear_stub_recorder_control()
+    clear_stub_recorder_control()
     rec = _live_audio_recorder()
     if rec is not None:
-        rec._test_skip_spawn = False
-        rec._test_inject_wav = None
-        rec._test_fail_start = None
-        rec._test_missing_wav = False
-        rec._test_hang_ready = False
+        _STUB_RECORDER_FLAGS.pop(rec, None)
 
     with _FAKE_STT_LOCK:
         if _FAKE_STT_SAVED is None:
@@ -652,12 +797,7 @@ def _fake_tts_refresh_locked() -> None:
 
     _FAKE_TTS_STATE["speaking"] = bool(tts_service.is_speaking())
 
-    path = fake_tts_state_path()
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-        json.dump(_FAKE_TTS_STATE, handle)
-        handle.flush()
-    _replace_state_file(tmp_path, path)
+    write_json_state(fake_tts_state_path(), _FAKE_TTS_STATE)
 
 
 def _fake_tts_note_spawn_locked(requested: list[str], proc: subprocess.Popen[Any]) -> None:
@@ -934,8 +1074,8 @@ def clear_fake_tts() -> None:
 
 def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
     send = sl.sidebar_state.send if sl is not None else None
-    audio = sl.sidebar_state.audio if sl is not None else None
     rec = getattr(sl, "audio_recorder", None) if sl is not None else None
+    audio = rec.state if rec is not None else None
     # The paint counters live on RichTextChatWidget, not on the raw response control.
     rich_widget = getattr(sl, "rich_text_widget", None) if sl is not None else None
     data: dict[str, Any] = {
@@ -948,7 +1088,7 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
         "stop_label": _control_label(getattr(sl, "stop_control", None)) if sl is not None else "",
         "status": getattr(audio, "status", "idle") if audio is not None else "idle",
         "error_message": getattr(audio, "error_message", None) if audio is not None else None,
-        "stub_start_count": int(getattr(rec, "_stub_start_count", 0) or 0),
+        "stub_start_count": get_stub_start_count(rec),
         "history_user_tail": _history_user_tail(sl) if sl is not None else "",
         "approval_active": bool(getattr(sl, "_approval_event", None)) if sl is not None else False,
         **_slash_snapshot_fields(sl),
@@ -960,8 +1100,7 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
         "venv_worker_kills": _VENV_WORKER_KILLS,
         "terminate_listener_installed": _terminate_listener_installed(),
     }
-    with open(debug_sidebar_snapshot_path(), "w", encoding="utf-8") as handle:
-        json.dump(data, handle)
+    write_json_state(debug_sidebar_snapshot_path(), data)
     return data
 
 
@@ -972,7 +1111,7 @@ def _terminate_listener_installed() -> bool:
 
 
 def _read_debug_snapshot() -> dict[str, Any]:
-    return _read_json_dict(debug_sidebar_snapshot_path())
+    return _read_json_dict(debug_sidebar_snapshot_path(), retry=True)
 
 
 def _parse_debug_sidebar_command(command: str) -> tuple[str, str]:
@@ -1220,9 +1359,9 @@ def handle_debug_sidebar_command(command: str) -> None:
             ss = sl.sidebar_state
             send = dataclasses.replace(ss.send, has_audio=False, has_text=False)
             sl.sidebar_state = dataclasses.replace(ss, send=send)
-            sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": False}))
+            sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
         elif op == "SET_TEXT_NONEMPTY":
-            sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+            sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
         elif op == "SET_CHAT_MODE":
             apply_fn = getattr(sl, "_apply_sidebar_mode_fn", None)
             if apply_fn is not None:
@@ -1861,24 +2000,22 @@ def _listener_with_slash_popup(sl: Any) -> Any:
 
 
 def adopt_runtime_send_listeners() -> int:
-    """Find ``SendButtonListener`` instances already wired by the installed factory.
-
-    UNO may load ``panel_factory`` from the OXT cache while tests import the
-    checkout copy, so the debug WeakSet can be empty even with a live sidebar.
-    """
+    """Find ``SendButtonListener`` instances already wired by the installed factory."""
     _require_debug()
-    import gc
+    from plugin.chatbot.panel_factory import iter_debug_live_chat_panels
 
     found = 0
-    for obj in gc.get_objects():
+    for panel in iter_debug_live_chat_panels():
+        obj = getattr(panel, "send_listener", None)
+        if obj is None:
+            continue
         try:
-            if type(obj).__name__ != "SendButtonListener":
-                continue
             if getattr(obj, "dispatch", None) is None:
                 continue
             if getattr(obj, "query_control", None) is None:
                 continue
-        except Exception:  # noqa: S112  heap scan: disposed UNO proxies raise on getattr; a debug log per object is a traceback storm
+        except Exception:
+            log.debug("skipping send listener whose attributes raised", exc_info=True)
             continue
         if _listener_torn_down(obj):
             continue
@@ -2115,7 +2252,7 @@ def set_query_text_via_controls(controls: dict[str, Any], text: str, *, listener
         set_control_text(controls["query"], text)
     sl = listener if listener is not None else send_listener()
     if sl is not None:
-        sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(text.strip())}))
+        sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(text.strip())))
     else:
         execute_debug_sidebar_op("SET_TEXT_NONEMPTY" if text.strip() else "SET_TEXT_EMPTY")
 
@@ -2209,7 +2346,7 @@ def set_query_text(text: str, *, listener: Any = None) -> None:
         query = getattr(sl, "query_control", None)
         set_control_text(query, text)
         stripped = (text or "").strip()
-        sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(stripped)}))
+        sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(stripped)))
         popup = getattr(sl, "slash_popup", None)
         on_text = getattr(popup, "on_query_text", None) if popup is not None else None
         if callable(on_text):
@@ -2598,7 +2735,7 @@ def press_change(query_override: str | None = None, *, listener: Any = None) -> 
         raise RuntimeError("no live SendButtonListener")
     if query_override is None:
         query_override = getattr(sl, "_approval_query_for_engine", None) or ""
-    sl._finish_inline_web_approval(True, query_override=query_override)
+    sl._events._finish_inline_web_approval(True, query_override=query_override)
 
 
 def press_reject(*, listener: Any = None) -> None:
@@ -2607,7 +2744,7 @@ def press_reject(*, listener: Any = None) -> None:
     sl = listener if listener is not None else send_listener()
     if sl is None:
         raise RuntimeError("no live SendButtonListener")
-    sl._finish_inline_web_approval(False)
+    sl._events._finish_inline_web_approval(False)
 
 
 def approval_active(*, listener: Any = None) -> bool:
@@ -2676,7 +2813,7 @@ def set_audio_supported(supported: bool, *, listener: Any = None) -> None:
     sl.dispatch(
         SendEvent(
             SendEventKind.TEXT_UPDATED,
-            {"has_text": bool(send.has_text)},
+            has_text=bool(send.has_text),
         )
     )
 
@@ -2695,14 +2832,14 @@ def audio_status(*, listener: Any = None) -> dict[str, Any]:
             "history_user_tail": str(data.get("history_user_tail") or ""),
         }
     send = sl.sidebar_state.send
-    audio = sl.sidebar_state.audio
     rec = getattr(sl, "audio_recorder", None)
+    audio = rec.state if rec is not None else None
     return {
         "status": getattr(audio, "status", "idle"),
         "has_audio": bool(send.has_audio),
         "is_recording": bool(send.is_recording),
         "error_message": getattr(audio, "error_message", None),
-        "stub_start_count": int(getattr(rec, "_stub_start_count", 0) or 0),
+        "stub_start_count": get_stub_start_count(rec),
         "history_user_tail": _history_user_tail(sl),
     }
 
@@ -2717,7 +2854,6 @@ def _live_audio_recorder(*, listener: Any = None) -> Any:
 def inject_wav(path_or_bytes: Any, *, listener: Any = None) -> None:
     """Point the stub capture child at a finished WAV (path or bytes). No mic."""
     _require_debug()
-    from plugin.chatbot.audio_recorder import write_stub_recorder_control
 
     wav_path = path_or_bytes
     if isinstance(path_or_bytes, (bytes, bytearray)):
@@ -2729,10 +2865,11 @@ def inject_wav(path_or_bytes: Any, *, listener: Any = None) -> None:
     rec = _live_audio_recorder(listener=listener)
     if rec is None:
         return
-    rec._test_skip_spawn = True
-    rec._test_inject_wav = wav_path
+    flags = _STUB_RECORDER_FLAGS.setdefault(rec, {})
+    flags["skip"] = True
+    flags["inject_wav"] = wav_path
     if rec.temp_filename and wav_path is not None:
-        rec._write_injected_wav()
+        _write_stub_injected_wav(rec, wav_path)
 
 
 def stub_recorder_child(
@@ -2744,7 +2881,6 @@ def stub_recorder_child(
 ) -> None:
     """Skip venv/PortAudio spawn; InitializeDeviceEffect fakes a ready child."""
     _require_debug()
-    from plugin.chatbot.audio_recorder import clear_stub_recorder_control, write_stub_recorder_control
 
     # Replace the control file so G4 auto_stop / G12 fail_start / G21 hang_ready cannot leak.
     clear_stub_recorder_control()
@@ -2757,17 +2893,17 @@ def stub_recorder_child(
     rec = _live_audio_recorder(listener=listener)
     if rec is None:
         return
-    rec._test_skip_spawn = True
-    rec._test_fail_start = fail_start
-    rec._test_missing_wav = bool(missing_wav)
-    rec._test_hang_ready = bool(hang_ready)
-    rec._stub_start_count = 0
+    flags = _STUB_RECORDER_FLAGS.setdefault(rec, {})
+    flags["skip"] = True
+    flags["fail_start"] = fail_start
+    flags["missing_wav"] = bool(missing_wav)
+    flags["hang_ready"] = bool(hang_ready)
+    flags["start_count"] = 0
 
 
 def fire_audio_auto_stop(*, listener: Any = None) -> None:
     """Same host path as IPC auto_stopped (silence detector), no wall-clock wait."""
     _require_debug()
-    from plugin.chatbot.audio_recorder import write_stub_recorder_control
 
     write_stub_recorder_control(auto_stop=True, skip=True)
     rec = _live_audio_recorder(listener=listener)
@@ -2982,6 +3118,7 @@ def next_hello_ok(*, listener: Any = None, timeout: float = 60.0) -> bool:
 
 _FAKE_VISION_NAME = "writeragent_fake_vision.json"
 _FAKE_VISION_LOCK = threading.Lock()
+_FAKE_VISION_MODE = "off"
 _FAKE_VISION_ORIG: dict[tuple[Any, str], Any] = {}
 _FAKE_VISION_STATE: dict[str, Any] = {}
 FAKE_VISION_MODES = ("ok", "fail_second", "timeout", "slow", "export_fail", "unavailable", "off")
@@ -2997,11 +3134,7 @@ def read_fake_vision_state() -> dict[str, Any]:
 
 
 def _write_fake_vision_state() -> None:
-    path = fake_vision_state_path()
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(_FAKE_VISION_STATE, f)
-    _replace_state_file(tmp, path)
+    write_json_state(fake_vision_state_path(), _FAKE_VISION_STATE)
 
 
 def fake_ocr_text(image_name: str) -> str:
@@ -3013,6 +3146,8 @@ def _apply_fake_vision(mode: str) -> None:
     _require_debug()
     if mode not in FAKE_VISION_MODES:
         raise ValueError(f"unknown fake vision mode {mode!r}")
+    global _FAKE_VISION_MODE
+    _FAKE_VISION_MODE = mode
     import plugin.vision.vision_availability as availability
     import plugin.vision.vision_runner as runner
     import plugin.writer.images.image_tools as image_tools
@@ -3128,3 +3263,38 @@ def dispatch_undo(*, ctx: Any = None) -> None:
         uno_ctx = get_ctx()
     helper = uno_ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
     helper.executeDispatch(frame, ".uno:Undo", "", 0, ())
+
+
+def reset_hook_state() -> None:
+    """Reset hook state globals to empty defaults for unit test isolation."""
+    global _HOOK_CTX, _HOOK_DOC, _URP_SLASH_POPUP, _SAVED_REQUEST_TIMEOUT
+    global _FAKE_TTS_SAVED, _FAKE_TTS_ORIG, _FAKE_STT_SAVED, _FAKE_STT_ORIG
+    global _THREAD_VIOLATION_ORIG, _VENV_WORKER_KILLS, _FAKE_STT_DELAY
+    global _THREAD_VIOLATION_COUNT, _FAKE_TTS_MODE, _FAKE_STT_MODE, _FAKE_VISION_MODE
+
+    _HOOK_CTX = None
+    _HOOK_DOC = None
+    _URP_SLASH_POPUP = None
+    _SAVED_REQUEST_TIMEOUT = None
+    _FAKE_TTS_SAVED = None
+    _FAKE_TTS_ORIG = None
+    _FAKE_STT_SAVED = None
+    _FAKE_STT_ORIG = None
+    _THREAD_VIOLATION_ORIG = None
+
+    _VENV_WORKER_KILLS = 0
+    _FAKE_STT_DELAY = 0.0
+    _THREAD_VIOLATION_COUNT = 0
+
+    _FAKE_TTS_MODE = "off"
+    _FAKE_STT_MODE = "off"
+    _FAKE_VISION_MODE = "off"
+
+    _LIVE_SEND_LISTENERS.clear()
+    _FAKE_TTS_STATE.clear()
+    _FAKE_STT_STATE.clear()
+    _FAKE_VISION_STATE.clear()
+    _FAKE_TTS_PROCS.clear()
+    _FAKE_STT_PROCS.clear()
+    _FAKE_VISION_ORIG.clear()
+
