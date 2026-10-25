@@ -226,8 +226,10 @@ def test_blocked_categories_are_disjoint_and_valid() -> None:
 
 
 def test_compact_policy_lists_network_block_without_string_prepend() -> None:
+    from plugin.scripting.sandbox import NETWORK_BLOCKED_MODULES
+
     policy = format_venv_import_policy_for_prompt(compact=True)
-    assert "socket, requests, urllib, urllib3, http, httpx, ssl" in policy
+    assert ", ".join(NETWORK_BLOCKED_MODULES) in policy
 
 
 def test_format_units_helper_hint():
