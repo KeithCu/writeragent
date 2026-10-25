@@ -82,7 +82,7 @@ def test_translate_p2_functions():
 
     res = translate_formula("=LEFT(A1;2)")
     assert res.ok
-    assert "[:((2)//1)]" in res.code or "[:2]" in res.code
+    assert "[:np.int64(2)]" in res.code
 
     res = translate_formula("=LEN(A1)")
     assert res.ok
@@ -1470,7 +1470,7 @@ def test_translate_row_column():
     # Absolute reference with $
     res = translate_formula("=ROW($A$5)")
     assert res.ok
-    assert res.code == "(5)+0.0"
+    assert res.code == "np.float64(5)"
 
     # Cross-sheet range reference with sheet prefix
     res = translate_formula("=ROW(Sheet2.A1:A3)")
@@ -1484,7 +1484,7 @@ def test_translate_row_column():
     # COLUMN with absolute reference
     res = translate_formula("=COLUMN($C$5)")
     assert res.ok
-    assert res.code == "(3)+0.0"
+    assert res.code == "np.float64(3)"
 
     # COLUMN with cross-sheet range
     res = translate_formula("=COLUMN(Sheet2.B1:D3)")
@@ -1494,11 +1494,11 @@ def test_translate_row_column():
     # Argless ROW/COLUMN with provided cell_addr
     res = translate_formula("=ROW()", cell_addr="B10")
     assert res.ok
-    assert res.code == "(10)+0.0"
+    assert res.code == "np.float64(10)"
 
     res = translate_formula("=COLUMN()", cell_addr="B10")
     assert res.ok
-    assert res.code == "(2)+0.0"
+    assert res.code == "np.float64(2)"
 
     # Argless ROW/COLUMN without cell_addr fails as unsupported
     res = translate_formula("=ROW()")
@@ -1650,5 +1650,83 @@ def test_calc_helper_name_and_arity_contracts():
         checked += 1
 
     assert checked > 150
+
+
+def test_translate_value_text_argument():
+    res = translate_formula("=VALUE(A1)")
+    assert res.ok
+    assert exec_result(res, "3.5") == 3.5
+
+
+def test_translate_date_text_arguments():
+    res = translate_formula('=DATE("2023";"10";"5")')
+    assert res.ok
+    assert exec_result(res, []) == float(dt.date(2023, 10, 5).toordinal() - 693594)
+
+
+def test_translate_mid_and_left_cell_valued_counts():
+    res_mid = translate_formula("=MID(A1;B1;C1)")
+    assert res_mid.ok
+    # Multiple cell references are passed as a list of arguments matching data[i]
+    locs = {"data": ["abcdef", 2, 3], "np": np, "calc": calc, "math": math, "dt": dt}
+    exec(f"result = {res_mid.code}", locs)
+    assert locs["result"] == "bcd"
+
+    res_left = translate_formula("=LEFT(A1;B1)")
+    assert res_left.ok
+    locs = {"data": ["abcdef", 2], "np": np, "calc": calc, "math": math, "dt": dt}
+    exec(f"result = {res_left.code}", locs)
+    assert locs["result"] == "ab"
+
+
+def test_translate_int_argument_truncates_toward_zero():
+    res = translate_formula("=LEFT(A1;-3.7)")
+    assert res.ok
+    assert exec_result(res, "abcdef") == "abc"
+
+
+def test_translate_does_not_rewrite_text_literals():
+    res_t = translate_formula('=T("int(x)")')
+    assert res_t.ok
+    assert exec_result(res_t, []) == "int(x)"
+
+    res_concat = translate_formula('=A1&"float(z)"')
+    assert res_concat.ok
+    assert exec_result(res_concat, "a") == "afloat(z)"
+
+
+def test_translate_rounding_calc_parity():
+    res = translate_formula("=ROUND(2.5;0)")
+    assert res.ok
+    assert exec_result(res, []) == 3
+
+    res = translate_formula("=ROUND(-2.5;0)")
+    assert res.ok
+    assert exec_result(res, []) == -3
+
+    res = translate_formula("=ROUND(2.4;0)")
+    assert res.ok
+    assert exec_result(res, []) == 2
+
+    res = translate_formula("=ROUND(1234.5;-2)")
+    assert res.ok
+    assert exec_result(res, []) == 1200
+
+    res = translate_formula("=ROUNDUP(-1.23;1)")
+    assert res.ok
+    assert exec_result(res, []) == -1.3
+
+    res = translate_formula("=ROUNDUP(1.23;1)")
+    assert res.ok
+    assert exec_result(res, []) == 1.3
+
+    res = translate_formula("=ROUNDDOWN(-1.23;1)")
+    assert res.ok
+    assert exec_result(res, []) == -1.2
+
+    res = translate_formula("=ROUNDDOWN(1.23;1)")
+    assert res.ok
+    assert exec_result(res, []) == 1.2
+
 
 
