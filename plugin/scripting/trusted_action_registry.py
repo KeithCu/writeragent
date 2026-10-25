@@ -54,21 +54,23 @@ class TrustedActionWiring:
         return fn(data)
 
 
+_VENV_DISPATCH = "plugin.scripting.venv.trusted_dispatch:"
+
 _TRUSTED_ACTION_WIRING: tuple[TrustedActionWiring, ...] = (
-    TrustedActionWiring("units", "plugin.scripting.venv.trusted_dispatch:dispatch_units"),
-    TrustedActionWiring("symbolic", "plugin.scripting.venv.trusted_dispatch:dispatch_symbolic"),
-    TrustedActionWiring("viz", "plugin.scripting.venv.trusted_dispatch:dispatch_viz"),
-    TrustedActionWiring("analysis", "plugin.scripting.venv.trusted_dispatch:dispatch_analysis"),
-    TrustedActionWiring("forecast", "plugin.scripting.venv.trusted_dispatch:dispatch_forecast"),
-    TrustedActionWiring("optimize", "plugin.scripting.venv.trusted_dispatch:dispatch_optimize"),
-    TrustedActionWiring("quant", "plugin.scripting.venv.trusted_dispatch:dispatch_quant"),
-    TrustedActionWiring("text", "plugin.scripting.venv.trusted_dispatch:dispatch_text"),
-    TrustedActionWiring("vision", "plugin.scripting.venv.trusted_dispatch:dispatch_vision"),
-    TrustedActionWiring("sql", "plugin.scripting.venv.trusted_dispatch:dispatch_sql"),
-    TrustedActionWiring("languagetool", "plugin.scripting.venv.trusted_dispatch:dispatch_languagetool"),
-    TrustedActionWiring("vale", "plugin.scripting.venv.trusted_dispatch:dispatch_vale"),
-    TrustedActionWiring("embedding", "plugin.scripting.venv.trusted_dispatch:dispatch_embedding"),
-    TrustedActionWiring("langdetect", "plugin.scripting.venv.trusted_dispatch:dispatch_langdetect"),
+    TrustedActionWiring("units", f"{_VENV_DISPATCH}dispatch_units"),
+    TrustedActionWiring("symbolic", f"{_VENV_DISPATCH}dispatch_symbolic"),
+    TrustedActionWiring("viz", f"{_VENV_DISPATCH}dispatch_viz"),
+    TrustedActionWiring("analysis", f"{_VENV_DISPATCH}dispatch_analysis"),
+    TrustedActionWiring("forecast", f"{_VENV_DISPATCH}dispatch_forecast"),
+    TrustedActionWiring("optimize", f"{_VENV_DISPATCH}dispatch_optimize"),
+    TrustedActionWiring("quant", f"{_VENV_DISPATCH}dispatch_quant"),
+    TrustedActionWiring("text", f"{_VENV_DISPATCH}dispatch_text"),
+    TrustedActionWiring("vision", f"{_VENV_DISPATCH}dispatch_vision"),
+    TrustedActionWiring("sql", f"{_VENV_DISPATCH}dispatch_sql"),
+    TrustedActionWiring("languagetool", f"{_VENV_DISPATCH}dispatch_languagetool"),
+    TrustedActionWiring("vale", f"{_VENV_DISPATCH}dispatch_vale"),
+    TrustedActionWiring("embedding", f"{_VENV_DISPATCH}dispatch_embedding"),
+    TrustedActionWiring("langdetect", f"{_VENV_DISPATCH}dispatch_langdetect"),
     TrustedActionWiring(
         "embeddings_index",
         "plugin.embeddings.venv.embeddings_index_dispatch:dispatch_trusted",
