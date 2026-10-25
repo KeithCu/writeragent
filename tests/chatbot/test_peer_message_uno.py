@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from plugin.doc.live_panels import register_live_panel, reset_live_panels, unregister_live_panel
+from plugin.doc.live_panels import register_live_panel, reset_live_panels
 from plugin.doc.peer_message import (
     SendPeerWork,
     drop_listener_queue,
@@ -287,7 +287,6 @@ def test_peer_inject_defers_until_drain_idle(ctx):
         assert listener.started[0][1] is True
     finally:
         drop_listener_queue(listener)
-        unregister_live_panel(get_runtime_uid(other) if other is not None else "")
         _close(other)
         _close(writer)
         reset_peer_queues()
@@ -411,7 +410,6 @@ def test_peer_impress_resolves_as_v1_peer(ctx):
         assert listener.started[0][1] is True
     finally:
         drop_listener_queue(listener)
-        unregister_live_panel(get_runtime_uid(impress) if impress is not None else "")
         writer, impress = _teardown_peer_pair(writer, impress, ctx)
         reset_peer_queues()
         reset_live_panels()

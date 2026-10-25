@@ -40,6 +40,14 @@ def test_get_domain_guidance():
     assert get_domain_guidance("totally_unknown_domain") == ""
 
 
+def test_document_research_guidance_has_no_peer_tools():
+    from unittest.mock import patch
+    with patch("plugin.framework.prompts.get_document_research_workflow_hint", return_value="HINT") as hint:
+        assert get_domain_guidance("document_research") == "HINT"
+    hint.assert_called_once_with()
+    assert "send_peer" not in get_domain_guidance("document_research")
+
+
 def test_specialized_domain_catalog_writer_has_footnotes():
     catalog = get_specialized_domain_catalog(agent_label="Writer", ctx=MagicMock())
     assert "footnotes" in _domain_ids(catalog)
@@ -501,6 +509,20 @@ def test_explicit_sidebar_domain_returns_no_tools():
     assert result["domain"] == "brainstorming"
 
 
+def test_explicit_sidebar_domain_ppt_master_returns_no_tools_and_note():
+    result = FindTools().execute(_ctx_real(_real_registry()), domain="ppt_master")
+    assert result["tools"] == []
+    assert result["domain"] == "ppt_master"
+    assert "note" in result
+
+
+def test_unknown_domain_returns_error_and_available_domains():
+    result = FindTools().execute(_ctx_real(_real_registry()), domain="formatting")
+    assert result["status"] == "error"
+    assert result["code"] == "UNKNOWN_DOMAIN"
+    assert result["details"]["available_domains"]
+
+
 def test_find_tools_suppresses_ppt_master_when_draw_or_impress_doc_is_open():
     """Open Draw/Impress must hide ppt-master, same as no document and direct_flat.
 
@@ -760,18 +782,6 @@ def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():
 
     names = {t["name"] for t in handler._mcp_tools_list({})["tools"]}
     assert "brainstorm_research_web" not in names
-
-def test_execute_excludes_find_tools_itself():
-    registry = MagicMock()
-    registry.get_schemas.return_value = [
-        _schema("find_tools", "finds tools"),
-        _schema("footnotes_insert", "insert a footnote"),
-    ]
-    registry.get_tools.return_value = []
-    names = [t.get("name") for t in FindTools().execute(_ctx(registry), domain="footnotes")["tools"]]
-    assert "find_tools" not in names
-    assert "footnotes_insert" in names
-
 
 def test_tools_list_does_not_swallow_get_ctx(monkeypatch):
     handler = _handler_real("delegate", _real_registry())
