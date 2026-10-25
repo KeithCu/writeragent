@@ -42,6 +42,8 @@ def _has_function_node(node: Any) -> bool:
     try:
         return any(isinstance(n, FunctionNode) for n in node)
     except Exception:
+        # Walking a very deep AST can hit the recursion limit; say "has a function"
+        # so the cell goes to the guarded translate path and is reported EMIT_ERROR.
         return True
 
 

@@ -264,15 +264,16 @@ def test_to_mcp_schema_delegate_calc_domain_list_omits_analysis_and_python():
 
 
 def test_calc_gateway_description_lists_every_domain():
+    import plugin.writer.specialized.forms  # noqa: F401 - registers forms (ToolWriterFormBase is also a ToolCalcSpecialBase)
     from plugin.calc.specialized import DelegateToSpecializedCalc
 
     tool = DelegateToSpecializedCalc()
     params = tool.parameters or {}
-    enum = [d for d in params["properties"]["domain"]["enum"] if d != "forms"]
+    enum = params["properties"]["domain"]["enum"]
     desc = tool.get_description()
+    assert "forms" in enum
     for domain in enum:
         assert domain in desc
-    assert "forms" not in desc
 
 
 def test_update_style_schema_emits_no_additional_properties_keyword():
