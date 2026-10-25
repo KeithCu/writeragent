@@ -92,13 +92,46 @@ def css_inline_unavailable_result(helper: str) -> dict[str, Any]:
     return error_result("CSS_INLINE_UNAVAILABLE", f"Install css-inline in your venv (Settings → Python): {CSS_INLINE_INSTALL_CMD}", helper=helper)
 
 
+def _ltrb_to_xywh(l: float, t: float, r: float, b: float, coord_origin: str, page_height: float | None) -> list[int]:  # noqa: E741
+    """Docling l/t/r/b to [x, y, w, h]; flips BOTTOMLEFT y only when page_height is known."""
+    w = max(0, r - l)
+    if coord_origin in ("BOTTOMLEFT", "BOTTOM_LEFT") or t > b:
+        h = max(0, abs(t - b))
+        top_y = (page_height - max(t, b)) if page_height is not None else min(t, b)
+    else:
+        h = max(0, b - t)
+        top_y = t
+    return [int(l), int(top_y), int(w), int(h)]
+
+
+def _docling_ltrb(bbox: Any) -> tuple[float, float, float, float, str] | None:
+    """(l, t, r, b, coord_origin) for a Docling dict/object box, else None."""
+    try:
+        if isinstance(bbox, dict):
+            origin = str(bbox.get("coord_origin") or "").strip().upper()
+            for keys in (("l", "t", "r", "b"), ("left", "top", "right", "bottom")):
+                if all(k in bbox for k in keys):
+                    return (float(bbox[keys[0]]), float(bbox[keys[1]]), float(bbox[keys[2]]), float(bbox[keys[3]]), origin)
+            return None
+        if all(hasattr(bbox, name) for name in ("l", "t", "r", "b")):
+            origin = str(getattr(bbox, "coord_origin", "") or "").strip().upper()
+            return (float(bbox.l), float(bbox.t), float(bbox.r), float(bbox.b), origin)
+    except (TypeError, ValueError):
+        log.debug("bbox_to_xywh: malformed Docling box %r", bbox)
+    return None
+
+
 def _box_to_xywh(box_points: Any) -> list[int]:
-    """Convert quadrilateral corners to [x, y, w, h] in PNG pixel space."""
+    """Convert quadrilateral corner points to [x, y, w, h] in PNG pixel space."""
     xs: list[float] = []
     ys: list[float] = []
-    for point in box_points:
-        xs.append(float(point[0]))
-        ys.append(float(point[1]))
+    try:
+        for point in box_points:
+            xs.append(float(point[0]))
+            ys.append(float(point[1]))
+    except (TypeError, ValueError, IndexError, KeyError):
+        log.debug("bbox_to_xywh: malformed quad %r", box_points)
+        return [0, 0, 0, 0]
     if not xs or not ys:
         return [0, 0, 0, 0]
     x_min = int(min(xs))
@@ -109,46 +142,40 @@ def _box_to_xywh(box_points: Any) -> list[int]:
 
 
 def bbox_to_xywh(bbox: Any, *, page_height: float | None = None) -> list[int]:
-    """Normalize bbox to [x, y, w, h] from quad, xyxy, xywh, or Docling l/t/r/b dict."""
-    # BOTTOMLEFT boxes have top > bottom, so max(0, d - b) is 0 height and y
-    # is inverted. Height is max(0, abs(d - b)); flip with page_height when
-    # it is available.
-    # TODO: live run check - verify multi-page BOTTOMLEFT flipping against live Docling PDF pages.
-    if isinstance(bbox, dict):
-        coord_origin = str(bbox.get("coord_origin") or "").strip().upper()
-        for keys in (("l", "t", "r", "b"), ("x", "y", "w", "h"), ("left", "top", "right", "bottom")):
-            if all(k in bbox for k in keys):
-                a, b, c, d = (float(bbox[keys[0]]), float(bbox[keys[1]]), float(bbox[keys[2]]), float(bbox[keys[3]]))
-                if keys[2] in ("r", "right"):
-                    w = max(0, c - a)
-                    if coord_origin in ("BOTTOMLEFT", "BOTTOM_LEFT") or b > d:
-                        h = max(0, b - d) if b > d else max(0, d - b)
-                        top_y = (page_height - max(b, d)) if page_height is not None else min(b, d)
-                    else:
-                        h = max(0, d - b)
-                        top_y = b
-                    return [int(a), int(top_y), int(w), int(h)]
-                return [int(a), int(b), int(max(0, c)), int(max(0, d))]
-    elif hasattr(bbox, "l") and hasattr(bbox, "t") and hasattr(bbox, "r") and hasattr(bbox, "b"):
-        coord_origin = str(getattr(bbox, "coord_origin", "") or "").strip().upper()
-        a, b, c, d = float(bbox.l), float(bbox.t), float(bbox.r), float(bbox.b)
-        w = max(0, c - a)
-        if coord_origin in ("BOTTOMLEFT", "BOTTOM_LEFT") or b > d:
-            h = max(0, b - d) if b > d else max(0, d - b)
-            top_y = (page_height - max(b, d)) if page_height is not None else min(b, d)
-        else:
-            h = max(0, d - b)
-            top_y = b
-        return [int(a), int(top_y), int(w), int(h)]
+    """Normalize to [x, y, w, h].
 
-    if not isinstance(bbox, (list, tuple)) or not bbox:
+    Accepts Docling l/t/r/b (or left/top/right/bottom) dicts and objects, with
+    optional coord_origin / page_height flipping, x/y/w/h dicts, bare
+    4-number [x1, y1, x2, y2] xyxy sequences (list, tuple, numpy row), and
+    quadrilateral corner lists. Malformed input returns [0, 0, 0, 0].
+    """
+    # BOTTOMLEFT boxes have t > b; the flip needs the page height. Docling
+    # callers currently pass page_height=None (see vision_docling.prov_bbox_to_xywh).
+    if isinstance(bbox, dict) and all(k in bbox for k in ("x", "y", "w", "h")):
+        return [int(float(bbox["x"])), int(float(bbox["y"])), int(max(0, float(bbox["w"]))), int(max(0, float(bbox["h"])))]
+    ltrb = _docling_ltrb(bbox)
+    if ltrb is not None:
+        l, t, r, b, origin = ltrb  # noqa: E741
+        return _ltrb_to_xywh(l, t, r, b, origin, page_height)
+    if isinstance(bbox, dict):
+        log.debug("bbox_to_xywh: malformed box dict %r", bbox)
         return [0, 0, 0, 0]
-    if len(bbox) == 4 and all(isinstance(v, (int, float)) for v in bbox):
-        x0, y0, x1, y1 = (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
-        if x1 >= x0 and y1 >= y0 and (x1 - x0) > 1 and (y1 - y0) > 1:
-            return [int(x0), int(y0), int(max(0, x1 - x0)), int(max(0, y1 - y0))]
-        return [int(x0), int(y0), int(max(0, x1)), int(max(0, y1))]
-    return _box_to_xywh(bbox)
+
+    try:
+        size = len(bbox)
+    except TypeError:
+        return [0, 0, 0, 0]
+    if size == 0:
+        return [0, 0, 0, 0]
+    try:
+        x0 = float(bbox[0])
+    except (TypeError, ValueError):
+        return _box_to_xywh(bbox)
+    if size != 4:
+        log.debug("bbox_to_xywh: expected 4 numbers, got %r", bbox)
+        return [0, 0, 0, 0]
+    y0, x1, y1 = float(bbox[1]), float(bbox[2]), float(bbox[3])
+    return [int(x0), int(y0), int(max(0, x1 - x0)), int(max(0, y1 - y0))]
 
 
 def resolve_engine(params: dict[str, Any]) -> str:
@@ -197,17 +224,13 @@ def _cell_text(cell: Any) -> str:
 
 def _cell_int(cell: Any, *names: str, default: int = 0) -> int:
     for name in names:
-        if isinstance(cell, dict) and name in cell:
-            try:
-                return int(cell[name])
-            except (TypeError, ValueError):
-                return default
-        value = getattr(cell, name, None)
-        if value is not None:
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return default
+        value = cell.get(name) if isinstance(cell, dict) else getattr(cell, name, None)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
     return default
 
 

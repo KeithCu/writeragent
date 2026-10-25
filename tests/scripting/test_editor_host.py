@@ -1595,8 +1595,7 @@ def test_venv_path_change_clears_webview_probe_failure_cache():
     launch_mod._PROBE_FAILURE_CACHE[exe] = (10**12, (False, "no"))
     try:
         with patch.object(launch_mod, "terminate_persistent_editor"):
-            with patch("plugin.vision.vision_availability.invalidate_vision_availability_cache"):
-                launch_mod._on_config_changed(key="scripting.python_venv_path")
+            launch_mod._on_config_changed(key="scripting.python_venv_path")
         assert exe not in launch_mod._PROBE_CACHE
         assert exe not in launch_mod._PROBE_FAILURE_CACHE
     finally:

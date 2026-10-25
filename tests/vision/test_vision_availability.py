@@ -112,3 +112,20 @@ def test_specialized_domain_available():
     with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
         assert specialized_domain_available("vision") is False
     assert specialized_domain_available("writing") is True
+
+
+def test_filter_vision_delegate_schemas_skips_odd_entries_and_does_not_mutate():
+    schema = {
+        "type": "function",
+        "function": {
+            "name": "delegate_to_specialized_writer_toolset",
+            "parameters": {"type": "object", "properties": {"domain": {"type": "string", "enum": ["writing", "vision"]}}},
+        },
+    }
+    junk = {"function": "not-a-dict"}
+    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
+        filtered = filter_vision_delegate_schemas([schema, "junk", junk, {"type": "function"}], ctx=None)
+    assert schema["function"]["parameters"]["properties"]["domain"]["enum"] == ["writing", "vision"]
+    assert filtered[0] == {**schema, "function": {**schema["function"], "parameters": {"type": "object", "properties": {"domain": {"type": "string", "enum": ["writing"]}}}}}
+    assert filtered[1:] == ["junk", junk, {"type": "function"}]
+

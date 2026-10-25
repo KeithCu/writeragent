@@ -1003,9 +1003,6 @@ def _on_config_changed(**kwargs: Any) -> None:
         log.info("editor_host: scripting.python_venv_path changed, terminating background Monaco process")
         _PROBE_CACHE.clear()
         _PROBE_FAILURE_CACHE.clear()
-        from plugin.vision.vision_availability import invalidate_vision_availability_cache
-
-        invalidate_vision_availability_cache()
 
     if force_changed:
         log.info("editor_host: scripting.force_internal_script_editor changed, terminating background Monaco process")
