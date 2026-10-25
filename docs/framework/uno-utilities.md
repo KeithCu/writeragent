@@ -143,7 +143,8 @@ Module: [`plugin/doc/udprops.py`](../../plugin/doc/udprops.py)
 | Symbol | Purpose |
 |--------|---------|
 | `get_document_property` | Read `UserDefinedProperties` by name (PropertyBag, not `XNameAccess`). |
-| `set_document_property` | Add or set a removable string UD prop. |
+| `set_document_property` | Add or set a removable string UD prop. Returns `False` when the document has no usable `UserDefinedProperties` bag. |
+| `remove_document_property` | Remove a UD prop. Returns `True` when it is absent afterwards (idempotent). |
 | `_user_defined_property_exists` | `PropertySetInfo.hasPropertyByName` (and `hasByName` fallback). |
 
 Used by grammar persistence, document-attached Python scripts, Calc session ids. Intentionally **not** `@main_thread_only` (notebook `XFilter.filter` runs on LO’s dispatch thread).
