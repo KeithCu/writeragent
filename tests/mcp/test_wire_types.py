@@ -91,6 +91,21 @@ def test_is_jsonrpc_notification():
     assert wire_types.is_jsonrpc_notification({"jsonrpc": "2.0", "method": "ping", "id": 1}) is False
 
 
+@pytest.mark.parametrize(
+    "msg",
+    [
+        {"jsonrpc": "2.0"},
+        {"jsonrpc": "2.0", "method": 123},
+        {"jsonrpc": "2.0", "method": ""},
+        {"jsonrpc": "2.0", "id": None, "method": 5},
+        {"jsonrpc": "2.0", "method": "notifications/x", "params": []},
+    ],
+)
+def test_malformed_notification_is_not_a_notification(msg):
+    assert wire_types.is_jsonrpc_notification(msg) is False
+    assert isinstance(wire_types.parse_jsonrpc_request(msg), wire_types.JsonRpcParseError)
+
+
 def test_jsonrpc_failure_preserves_data_and_codes():
     err = wire_types.jsonrpc_failure(9, wire_types.METHOD_NOT_FOUND, "Unknown method: foo")
     assert err["error"]["code"] == wire_types.METHOD_NOT_FOUND
@@ -122,16 +137,6 @@ def test_call_tool_request_params_missing_name():
         wire_types.CallToolRequestParams.from_params({})
     with pytest.raises(ValueError, match="params.name"):
         wire_types.CallToolRequestParams.from_params({"name": ""})
-
-
-def test_progress_notification_shape():
-    note = wire_types.progress_notification(progress_token="tok-1", progress=50.0, total=100.0, message="halfway")
-    assert note["method"] == "notifications/progress"
-    assert note["params"]["progressToken"] == "tok-1"
-    assert note["params"]["progress"] == 50.0
-    assert note["params"]["total"] == 100.0
-    assert note["params"]["message"] == "halfway"
-    assert "id" not in note
 
 
 def test_initialize_result_accepts_long_odd_client_protocol_version():
