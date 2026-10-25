@@ -184,7 +184,7 @@ class DelegateReadDocument(ToolBase):
                 except Exception:
                     # post raises TimeoutError when AsyncCallback is missing and the
                     # pending list is full; an exception from finally would replace
-                    # a successful read. grep_nearby_files already guards this.
+                    # a successful read.
                     log.exception("Close fallback failed; hidden read document may stay open")
 
         if isinstance(result, dict) and result.get("status") == "error":
