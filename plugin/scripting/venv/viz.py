@@ -29,6 +29,10 @@ log = logging.getLogger(__name__)
 
 _CORR_METHODS = frozenset({"pearson", "kendall", "spearman"})
 
+# The IPC frame cap is 16 MiB (DEFAULT_MAX_PAYLOAD_BYTES). Leave headroom for
+# the rest of the result and re-render a dense SVG as PNG above this size.
+_MAX_SVG_BYTES = 8 * 1024 * 1024
+
 
 # --- Core Helper Implementations (Venv Execution Path) ---
 
@@ -66,7 +70,11 @@ def _figure_payload(fig: Any) -> dict[str, Any]:
     # whatever pyplot still has open.
     from plugin.scripting.venv.venv_sandbox import _figure_to_image_payload
 
-    return _figure_to_image_payload(fig)
+    payload = _figure_to_image_payload(fig)
+    if payload["format"] == "svg" and len(payload["data"]) > _MAX_SVG_BYTES:
+        # A dense SVG can exceed the IPC frame cap.
+        payload = _figure_to_image_payload(fig, fmt="png")
+    return payload
 
 
 def _ok_viz(helper: str, fig: Any, *, chart_type: str, title: str = "", legend: bool = False) -> dict[str, Any]:
@@ -109,6 +117,21 @@ def _non_numeric_column(df: Any, name: Any, *, helper: str) -> dict[str, Any] | 
     return None
 
 
+def _resolve_y_column(df: Any, y_col: Any, numeric: list[Any], *, helper: str) -> Any:
+    # quick_plot and plot_data both fell back to the first numeric column when
+    # y named nothing. A typo plotted another series instead of reporting it.
+    if y_col is not None:
+        name = _column_by_label(df, y_col)
+        if name is None:
+            return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {y_col}", helper=helper)
+    else:
+        if not numeric:
+            return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper=helper)
+        name = numeric[0]
+    rejected = _non_numeric_column(df, name, helper=helper)
+    return rejected if rejected is not None else name
+
+
 def _require_matplotlib() -> Any | None:
     try:
         import matplotlib.pyplot as plt
@@ -142,20 +165,10 @@ def quick_plot(
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    if y_col is not None:
-        resolved_y = _column_by_label(df, y_col)
-        if resolved_y is None:
-            return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {y_col}", helper="quick_plot")
-        y_name = resolved_y
-    else:
-        numeric = _numeric_labels(df)
-        if not numeric:
-            return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper="quick_plot")
-        y_name = numeric[0]
-
-    rejected = _non_numeric_column(df, y_name, helper="quick_plot")
-    if rejected is not None:
-        return rejected
+    numeric = _numeric_labels(df)
+    y_name = _resolve_y_column(df, y_col, numeric, helper="quick_plot")
+    if isinstance(y_name, dict):
+        return y_name
     y_values = df[y_name]
 
     resolved_x = _column_by_label(df, x_col) if x_col is not None else None
@@ -227,17 +240,9 @@ def plot_data(
     title = str(spec.get("title") or "Plot")
 
     numeric = _numeric_labels(df)
-    if not numeric:
-        return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper="plot_data")
-
-    resolved_y = _column_by_label(df, y_col) if y_col is not None else None
-    if resolved_y is not None:
-        rejected = _non_numeric_column(df, resolved_y, helper="plot_data")
-        if rejected is not None:
-            return rejected
-        y_name = resolved_y
-    else:
-        y_name = numeric[0]
+    y_name = _resolve_y_column(df, y_col, numeric, helper="plot_data")
+    if isinstance(y_name, dict):
+        return y_name
 
     resolved_x = _column_by_label(df, x_col) if x_col is not None else None
 
@@ -249,7 +254,10 @@ def plot_data(
                 return rejected_x
             scatter_x = resolved_x
         else:
-            scatter_x = numeric[1] if len(numeric) > 1 else numeric[0]
+            others = [c for c in numeric if c != y_name]
+            if not others:
+                return _error_result("NOT_ENOUGH_NUMERIC", "Need at least two numeric columns.", helper="plot_data")
+            scatter_x = others[0]
 
     with _open_figure(plt, (8, 4)) as (fig, ax):
         if chart_type == "scatter" and scatter_x is not None:
@@ -394,6 +402,17 @@ def time_series_plot(
     dates_all = cast(pd.Series, parse_date_column(series[date_col]))
     if dates_all.isna().all():
         return _error_result("INVALID_DATES", "Could not parse date column.", helper="time_series_plot")
+
+    # Rows were plotted in sheet order, so an unsorted date column drew a zig-zag.
+    if not dates_all.is_monotonic_increasing:
+        order = dates_all.to_numpy().argsort(kind="stable")
+        series = series.iloc[order]
+        dates_all = dates_all.iloc[order]
+
+    if series[hist_col].notna().any():
+        rejected = _non_numeric_column(df, hist_col, helper="time_series_plot")
+        if rejected is not None:
+            return rejected
 
     hist_values = cast(pd.Series, pd.to_numeric(series[hist_col], errors="coerce"))
     hist_mask = dates_all.notna() & hist_values.notna()
