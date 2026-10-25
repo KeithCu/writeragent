@@ -126,6 +126,8 @@ Homelab / LocalAI setups typically need **no** entries in `mcp.cors_allowed_orig
 2. On POST, check response headers include **`Mcp-Session-Id`** (after `initialize`) and **`Mcp-Protocol-Version`**, and that **`Access-Control-Expose-Headers`** lists both (otherwise JS cannot read them).
 3. Ensure the client URL includes the **`/mcp`** path and MCP is enabled in Settings.
 
+The forbidden-Origin line logs the path without its query string.
+
 **Debug log patterns** (`writeragent_debug.log`, Settings → `log_level` **DEBUG** recommended):
 
 | Log line | Meaning |

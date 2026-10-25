@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from plugin.framework.url_utils import get_url_path
 from plugin.mcp.cors import get_allow_private_origins, is_extra_allowed_origin, is_private_browser_origin, is_safe_origin, merge_allow_headers
 
 log = logging.getLogger("writeragent.mcp.http")
@@ -22,8 +23,14 @@ def _client(handler: Any) -> str:
 
 
 def _header(handler: Any, name: str) -> str | None:
-    value = handler.headers.get(name)
-    return value.strip() if value else None
+    headers = getattr(handler, "headers", None)
+    if not headers:
+        return None
+    wanted = name.lower()
+    for key, value in headers.items():
+        if str(key).lower() == wanted:
+            return value.strip() if isinstance(value, str) and value.strip() else None
+    return None
 
 
 def log_http_request(handler: Any, method: str, path: str) -> None:
@@ -33,6 +40,8 @@ def log_http_request(handler: Any, method: str, path: str) -> None:
 
 def log_cors_preflight(handler: Any, path: str) -> None:
     """Log OPTIONS preflight details — key for browser clients that stop after preflight."""
+    if not log.isEnabledFor(logging.INFO):
+        return
     origin = _header(handler, "Origin")
     requested_method = _header(handler, "Access-Control-Request-Method")
     requested_headers = _header(handler, "Access-Control-Request-Headers")
@@ -58,8 +67,8 @@ def log_forbidden_origin(handler: Any) -> None:
     """Origin present and not on the allow list — request rejected with HTTP 403."""
     origin = _header(handler, "Origin")
     method = getattr(handler, "command", "?")
-    path = getattr(handler, "path", "?")
-    log.warning("[MCP-CORS] %s %s: Origin %r forbidden — HTTP 403 (no Access-Control-*). Enable mcp.cors_allow_private_origins or add the origin to mcp.cors_allowed_origins in writeragent.json.", method, path, origin)
+    path = get_url_path(getattr(handler, "path", "") or "")
+    log.warning("[MCP-CORS] %s %r: Origin %r forbidden — HTTP 403 (no Access-Control-*). Enable mcp.cors_allow_private_origins or add the origin to mcp.cors_allowed_origins in writeragent.json.", method, path, origin)
 
 
 def log_mcp_transport_entry(handler: Any, transport: str) -> None:
@@ -70,9 +79,9 @@ def log_mcp_transport_entry(handler: Any, transport: str) -> None:
         transport,
         _client(handler),
         _header(handler, "Origin"),
-        _protocol_version(handler),
+        _header(handler, "Mcp-Protocol-Version"),
         _header(handler, "Mcp-Session-Id"),
-        handler.headers.get("Content-Length", "0"),
+        _header(handler, "Content-Length") or "0",
     )
 
 
@@ -82,11 +91,3 @@ def log_unsupported_protocol_version(handler: Any, requested: str) -> None:
 
 def log_no_route(handler: Any, method: str, path: str) -> None:
     log.warning("[MCP-HTTP] no route for %s %s from %s", method, path, _client(handler))
-
-
-def _protocol_version(handler: Any) -> str | None:
-    for name in ("Mcp-Protocol-Version", "mcp-protocol-version", "MCP-Protocol-Version"):
-        value = handler.headers.get(name)
-        if value:
-            return value.strip()
-    return None
