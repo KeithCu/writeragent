@@ -3,12 +3,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from plugin.writer.math.math_mml_convert import (
     MathConversionResult,
     collapse_starmath_newline_tokens_for_writer_embed,
     convert_latex_to_starmath,
+    insert_writer_math_formula,
 )
 
 
@@ -113,5 +114,59 @@ def test_math_formula_insert_uno_skips_windows_leftover_hidden_mml() -> None:
     assert "skip_windows_leftover_hidden_load" in src
     assert "math formula Hidden _blank .mml" in src
     assert "34678020608" in src
+
+
+class _FakeMathText:
+    def __init__(self) -> None:
+        self.control_chars: list[tuple[object, int, bool]] = []
+        self.contents: list[object] = []
+
+    def insertControlCharacter(self, cursor: object, char: int, absorb: bool) -> None:
+        self.control_chars.append((cursor, char, absorb))
+
+    def insertTextContent(self, cursor: object, content: object, absorb: bool) -> None:
+        self.contents.append(content)
+
+
+class _FakeMathCursor:
+    def __init__(self, text: _FakeMathText, initial_adjust: int) -> None:
+        self._text = text
+        self.initial_adjust = initial_adjust
+        self.adjust_writes: list[object] = []
+
+    def getText(self) -> _FakeMathText:
+        return self._text
+
+    def getPropertyValue(self, prop: str) -> object:
+        if prop == "ParaAdjust":
+            return self.initial_adjust
+        return None
+
+    def setPropertyValue(self, prop: str, val: object) -> None:
+        if prop == "ParaAdjust":
+            self.adjust_writes.append(val)
+
+
+def test_display_math_restores_paragraph_alignment() -> None:
+    text = _FakeMathText()
+    cur = _FakeMathCursor(text, initial_adjust=1)
+    model = MagicMock()
+
+    insert_writer_math_formula(model, cur, "x = y", display_block=True)
+
+    assert len(text.control_chars) == 2
+    assert cur.adjust_writes == [3, 1]
+
+
+def test_inline_math_leaves_paragraph_alignment_alone() -> None:
+    text = _FakeMathText()
+    cur = _FakeMathCursor(text, initial_adjust=2)
+    model = MagicMock()
+
+    insert_writer_math_formula(model, cur, "x = y", display_block=False)
+
+    assert len(text.control_chars) == 0
+    assert cur.adjust_writes == []
+
 
 

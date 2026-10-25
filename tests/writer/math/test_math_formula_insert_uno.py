@@ -192,3 +192,33 @@ def test_insert_formula_display_block_centered(ctx: Any, doc: Any) -> None:
     assert paragraphs[1].getPropertyValue("ParaAdjust") == 3  # Center
     assert paragraphs[2].getPropertyValue("ParaAdjust") == 0  # Left / Standard
 
+
+@native_test
+@with_native_doc("writer")
+def test_display_math_keeps_trailing_paragraph_alignment(ctx: Any, doc: Any) -> None:
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+
+    text.insertString(cur, "Before", False)
+    cur.setPropertyValue("ParaAdjust", 1)
+    insert_writer_math_formula(
+        doc, cur, "x = y", display_block=True
+    )
+    text.insertString(cur, "After", False)
+
+    paragraphs = []
+    enum = text.createEnumeration()
+    while enum.hasMoreElements():
+        p = enum.nextElement()
+        if p.supportsService("com.sun.star.text.Paragraph"):
+            paragraphs.append(p)
+
+    assert len(paragraphs) == 3, f"Expected 3 paragraphs, got {len(paragraphs)}"
+    assert paragraphs[0].getString() == "Before"
+    assert paragraphs[2].getString() == "After"
+    assert paragraphs[0].getPropertyValue("ParaAdjust") == 1  # Right
+    assert paragraphs[1].getPropertyValue("ParaAdjust") == 3  # Center
+    assert paragraphs[2].getPropertyValue("ParaAdjust") == 1  # Right (not 0)
+
