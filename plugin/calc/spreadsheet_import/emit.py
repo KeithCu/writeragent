@@ -22,7 +22,14 @@ from plugin.calc.spreadsheet_import.models import (
     TodoCell,
     output_cell_from_record,
 )
+from plugin.calc.spreadsheet_import.range_clip import clip_workbook_data_ranges
 from plugin.calc.spreadsheet_import.translate import translate_formula
+from plugin.calc.spreadsheet_import.vectorize import (
+    detect_vectorized_columns,
+    to_r1c1,
+    translation_has_cross_sheet_ranges,
+    vectorize_range,
+)
 
 
 from plugin.contrib.calc_formula_parser import FunctionNode, parse_formula
@@ -32,13 +39,14 @@ log = logging.getLogger(__name__)
 
 
 def _has_function_node(node: Any) -> bool:
-    return any(isinstance(n, FunctionNode) for n in node)
+    try:
+        return any(isinstance(n, FunctionNode) for n in node)
+    except Exception:
+        return True
 
 
 def emit_py_formula(code: str, data_ranges: list[str], *, sheet_bounds: dict[str, tuple[int, int]] | None = None, current_sheet: str | None = None) -> str:
     """Build canonical ``=PY("…"; ranges…)``."""
-    from plugin.calc.spreadsheet_import.range_clip import clip_workbook_data_ranges
-
     clipped = clip_workbook_data_ranges(data_ranges, sheet_bounds=sheet_bounds, current_sheet=current_sheet)
     return rebuild_python_formula_with_data(code, clipped)
 
@@ -52,8 +60,6 @@ def _circular_addresses(model: SheetModel) -> set[str]:
 
 def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, sheet_bounds: dict[str, tuple[int, int]] | None = None) -> tuple[OutputSheetModel, ConversionReport]:
     """Translate formula cells to ``=PY()``; preserve constants and normalized PY."""
-    from plugin.calc.spreadsheet_import.vectorize import detect_vectorized_columns, to_r1c1, translation_has_cross_sheet_ranges, vectorize_range
-
     report = ConversionReport()
     circular = _circular_addresses(model)
     py_extracts = extract_py_cells(model)
@@ -63,37 +69,43 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
     vector_handled_cells: dict[str, str] = {}
 
     for first_addr, group in vector_groups.items():
-        first_record = model.cells[first_addr]
-        if not first_record.formula:
+        group_formulas: dict[str, str] = {}
+        try:
+            first_record = model.cells[first_addr]
+            if not first_record.formula:
+                continue
+            ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(first_record.formula)), "vector parse formula")
+            if ast is None or not _has_function_node(ast):
+                continue
+            translation = translate_formula(first_record.formula, cell_addr=first_addr)
+            if translation.ok and translation.code and translation.data_ranges is not None and not translation_has_cross_sheet_ranges(translation.data_ranges) and "calc.fmt(" not in translation.code:
+                last_addr = group[-1]
+                vectorized_data_ranges = []
+                for a1_range in translation.data_ranges:
+                    r1c1_range = to_r1c1(a1_range, first_addr)
+                    vec_range = vectorize_range(r1c1_range, first_addr, last_addr)
+                    vectorized_data_ranges.append(vec_range)
+
+                # Convert bare data references to np.asarray(data) to support element-wise operations
+                code = translation.code
+                if len(translation.data_ranges) == 1:
+                    code = re.sub(r"(?<!np\.asarray\()\bdata\b", "np.asarray(data)", code)
+                else:
+                    for idx in range(len(translation.data_ranges)):
+                        code = re.sub(rf"(?<!np\.asarray\()\bdata\[{idx}\]\b", f"np.asarray(data[{idx}])", code)
+
+                # Strip scalar coercion since array formulas return vectors, not scalars
+                if code.startswith("float(") and code.endswith(")"):
+                    code = code[6:-1]
+
+                for idx, addr in enumerate(group):
+                    formula = emit_py_formula(code, vectorized_data_ranges + [str(idx)], sheet_bounds=sheet_bounds, current_sheet=model.sheet_name)
+                    group_formulas[addr] = formula
+        except Exception:
+            log.exception("build_converted_output_model: vector group at %s failed", first_addr)
             continue
-        ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(first_record.formula)), "vector parse formula")
-        if ast is None or not _has_function_node(ast):
-            continue
-        translation = translate_formula(first_record.formula, cell_addr=first_addr)
-        if translation.ok and translation.code and translation.data_ranges is not None and not translation_has_cross_sheet_ranges(translation.data_ranges) and "calc.fmt(" not in translation.code:
-            last_addr = group[-1]
-            vectorized_data_ranges = []
-            for a1_range in translation.data_ranges:
-                r1c1_range = to_r1c1(a1_range, first_addr)
-                vec_range = vectorize_range(r1c1_range, first_addr, last_addr)
-                vectorized_data_ranges.append(vec_range)
-
-            # Convert bare data references to np.asarray(data) to support element-wise operations
-            code = translation.code
-            if len(translation.data_ranges) == 1:
-                code = re.sub(r"(?<!np\.asarray\()\bdata\b", "np.asarray(data)", code)
-            else:
-                for idx in range(len(translation.data_ranges)):
-                    code = re.sub(rf"(?<!np\.asarray\()\bdata\[{idx}\]\b", f"np.asarray(data[{idx}])", code)
-
-            # Strip scalar coercion since array formulas return vectors, not scalars
-            if code.startswith("float(") and code.endswith(")"):
-                code = code[6:-1]
-
-            for idx, addr in enumerate(group):
-                formula = emit_py_formula(code, vectorized_data_ranges + [str(idx)], sheet_bounds=sheet_bounds, current_sheet=model.sheet_name)
-                vector_handled_cells[addr] = formula
-                report.converted.append(addr)
+        vector_handled_cells.update(group_formulas)
+        report.converted.extend(group_formulas)
 
     cells: dict[str, OutputCell] = {}
 
@@ -137,13 +149,22 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             _pass_through(addr, record, None)
             continue
 
-        translation = translate_formula(record.formula, cell_addr=addr)
-        log.debug("build_converted_output_model translate cell %s formula=%r translation.ok=%s reason=%s code=%r", addr, record.formula, translation.ok, translation.reason, translation.code)
-        if translation.ok and translation.code and translation.data_ranges is not None:
-            cells[addr] = OutputCell(address=addr, value=None, formula=emit_py_formula(translation.code, translation.data_ranges, sheet_bounds=sheet_bounds, current_sheet=model.sheet_name), number_format=None)
-            report.converted.append(addr)
-        else:
-            _pass_through(addr, record, translation.reason or "UNSUPPORTED_FUNCTION")
+        try:
+            translation = translate_formula(record.formula, cell_addr=addr)
+            log.debug("build_converted_output_model translate cell %s formula=%r translation.ok=%s reason=%s code=%r", addr, record.formula, translation.ok, translation.reason, translation.code)
+            if translation.ok and translation.code and translation.data_ranges is not None:
+                cells[addr] = OutputCell(address=addr, value=None, formula=emit_py_formula(translation.code, translation.data_ranges, sheet_bounds=sheet_bounds, current_sheet=model.sheet_name), number_format=None)
+                report.converted.append(addr)
+            else:
+                _pass_through(addr, record, translation.reason or "UNSUPPORTED_FUNCTION")
+        except Exception:
+            # Bugfix: one pathological formula aborted the whole sheet. parse/_emit
+            # recurse the AST, so a formula deeper than Python's recursion limit
+            # raises RecursionError out of translate_formula (it catches only
+            # ValueError/TypeError/IndexError/TranslationError). Keep the original
+            # formula and report this cell instead.
+            log.exception("build_converted_output_model: cell %s failed", addr)
+            _pass_through(addr, record, "EMIT_ERROR")
 
     output = OutputSheetModel(sheet_name=model.sheet_name, used_range=model.used_range, cells=cells, py_extracts=py_extracts)
     return output, report
