@@ -56,8 +56,8 @@ _running_docs: set[str] = set()
 # ``flush_ui_idle`` delivers the click when no drain owns VCL. That flush
 # no-ops while a chat drain holds the owner (event-driven drain has already
 # returned to VCL). A chat-owned sequence therefore pumps between cells with
-# ``pump_ui_idle`` instead (depth <= 1 still pumps). ``_clear_stop`` does not
-# reset the chat scope.
+# ``pump_ui_idle`` instead (depth <= 1 still pumps). ``_begin_run``/``_end_run``
+# do not reset the chat scope.
 _stop_flags: dict[str, threading.Event] = {}
 _stop_lock = threading.Lock()
 
@@ -114,7 +114,7 @@ def _chat_stop_requested() -> bool:
     """True when sidebar Stop has latched the active send scope.
 
     Chat Stop cancels ``SendCancellation`` only. Run All must read that
-    scope (it is on this thread, and ``_clear_stop`` does not reset it).
+    scope (it is on this thread, and ``_end_run`` does not reset it).
     The notebook Event is never set by that button, so watching it left
     the rest of a chat-owned Run All running.
     """
