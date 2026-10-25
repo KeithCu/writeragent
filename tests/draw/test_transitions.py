@@ -11,6 +11,7 @@ from plugin.draw.transitions import (
     GetSlideTransition,
     SetSlideLayout,
     SetSlideTransition,
+    _FADE_EFFECTS,
     _LAYOUTS,
     apply_slide_layout,
     layout_id,
@@ -170,17 +171,14 @@ def test_get_slide_transition_defaults_only_the_failed_property():
 def test_set_slide_transition_effect_and_speed():
     ctx = MagicMock()
     page = MagicMock()
-    mock_fade = MagicMock()
-    mock_speed = MagicMock()
 
     with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
-         patch("plugin.draw.transitions._fade_effect", return_value=mock_fade), \
-         patch.dict("sys.modules", {"com.sun.star.presentation": MagicMock(AnimationSpeed=mock_speed)}):
+         patch("plugin.draw.transitions._pres_enum", side_effect=lambda type_name, member: (type_name, member)):
         out = SetSlideTransition().execute(ctx, page=0, effect="dissolve", speed="fast", duration=5, advance="auto")
 
     assert out == {"status": "ok", "page": 0, "updated": ["effect", "speed", "duration", "advance"]}
-    page.setPropertyValue.assert_any_call("Effect", mock_fade)
-    page.setPropertyValue.assert_any_call("Speed", mock_speed.FAST)
+    page.setPropertyValue.assert_any_call("Effect", ("FadeEffect", "DISSOLVE"))
+    page.setPropertyValue.assert_any_call("Speed", ("AnimationSpeed", "FAST"))
     page.setPropertyValue.assert_any_call("Duration", 5)
     page.setPropertyValue.assert_any_call("Change", 1)
 
@@ -188,8 +186,7 @@ def test_set_slide_transition_effect_and_speed():
 def test_set_slide_transition_unknown_effect():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
-         patch("plugin.draw.transitions._fade_effect", return_value=MagicMock()):
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
         out = SetSlideTransition().execute(ctx, page=0, effect="not_a_real_effect")
 
     assert out["status"] == "error"
@@ -197,15 +194,38 @@ def test_set_slide_transition_unknown_effect():
     assert "dissolve" in out["details"]["available"]
 
 
-def test_set_slide_transition_fade_import_error():
+def test_set_slide_transition_enum_import_error_is_a_tool_error():
     ctx = MagicMock()
     page = MagicMock()
     with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
-         patch("plugin.draw.transitions._fade_effect", side_effect=ImportError("no uno")):
+         patch("plugin.draw.transitions._pres_enum", side_effect=ImportError("no uno")):
         out = SetSlideTransition().execute(ctx, page=0, effect="dissolve")
 
     assert out["status"] == "error"
-    assert out["message"] == "FadeEffect enum not available."
+    assert "Could not update slide transition" in out["message"]
+    page.setPropertyValue.assert_not_called()
+
+
+def test_set_slide_transition_accepts_every_effect_key():
+    ctx = MagicMock()
+    page = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
+         patch("plugin.draw.transitions._pres_enum", return_value="enum"):
+        for key in _FADE_EFFECTS:
+            out = SetSlideTransition().execute(ctx, page=0, effect=key)
+            assert out["status"] == "ok"
+            assert "effect" in out["updated"]
+
+
+def test_set_slide_transition_unknown_effect_never_looks_up_enum():
+    ctx = MagicMock()
+    page = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
+         patch("plugin.draw.transitions._pres_enum", side_effect=AssertionError("enum lookup")):
+        out = SetSlideTransition().execute(ctx, page=0, effect="bogus")
+
+    assert out["status"] == "error"
+    assert "Unknown effect" in out["message"]
 
 
 def test_set_slide_transition_unknown_speed():
@@ -227,5 +247,105 @@ def test_set_slide_transition_unknown_advance():
 
     assert out["status"] == "error"
     assert "Unknown advance" in out["message"]
-    assert out["details"]["available"] == ["on_click", "auto"]
+    assert out["details"]["available"] == ["auto", "on_click", "semi_auto"]
+
+
+def test_set_slide_transition_accepts_semi_auto():
+    ctx = MagicMock()
+    page = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+        out = SetSlideTransition().execute(ctx, page=0, advance="semi_auto")
+    assert out["status"] == "ok"
+    page.setPropertyValue.assert_any_call("Change", 2)
+
+
+def test_get_slide_transition_uses_ctx_active_page_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 2
+    page = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page) as mock_get_slide:
+        out = GetSlideTransition().execute(ctx)
+    assert out["page"] == 2
+    mock_get_slide.assert_called_once_with(ctx.doc, 2)
+
+
+def test_explicit_page_wins_over_ctx_active_page_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 2
+    page = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page) as mock_get_slide:
+        out = GetSlideTransition().execute(ctx, page=0)
+    assert out["page"] == 0
+    mock_get_slide.assert_called_once_with(ctx.doc, 0)
+
+
+def test_set_slide_layout_uses_ctx_active_page_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 1
+    page = MagicMock()
+    page.Layout = 20
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page) as mock_get_slide:
+        out = SetSlideLayout().execute(ctx, layout="text")
+    assert out["page"] == 1
+    assert page.Layout == 1
+    mock_get_slide.assert_called_once_with(ctx.doc, 1)
+
+
+def test_set_slide_transition_invalid_speed_writes_nothing():
+    ctx = MagicMock()
+    page = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+        out = SetSlideTransition().execute(ctx, page=0, effect="dissolve", speed="supersonic")
+    assert out["status"] == "error"
+    assert "Unknown speed" in out["message"]
+    page.setPropertyValue.assert_not_called()
+
+
+def test_set_slide_transition_invalid_advance_writes_nothing():
+    ctx = MagicMock()
+    page = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+        out = SetSlideTransition().execute(ctx, page=0, effect="dissolve", duration=5, advance="telepathic")
+    assert out["status"] == "error"
+    page.setPropertyValue.assert_not_called()
+
+
+def test_set_slide_transition_bad_duration_type():
+    ctx = MagicMock()
+    page = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+        out = SetSlideTransition().execute(ctx, page=0, duration="five")
+    assert out["status"] == "error"
+    assert "Invalid duration" in out["message"]
+    page.setPropertyValue.assert_not_called()
+
+
+def test_set_slide_transition_bad_transition_duration_type():
+    ctx = MagicMock()
+    page = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+        out = SetSlideTransition().execute(ctx, page=0, transition_duration="long")
+    assert out["status"] == "error"
+    assert "Invalid transition_duration" in out["message"]
+    page.setPropertyValue.assert_not_called()
+
+
+def test_set_slide_transition_write_failure_is_a_tool_error():
+    ctx = MagicMock()
+    page = MagicMock()
+    page.setPropertyValue.side_effect = RuntimeError("boom")
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+        out = SetSlideTransition().execute(ctx, page=0, effect="dissolve")
+    assert out["status"] == "error"
+    assert "Could not update slide transition" in out["message"]
+
+
+def test_set_slide_transition_disposal_still_raises():
+    ctx = MagicMock()
+    page = MagicMock()
+    page.setPropertyValue.side_effect = RuntimeError("boom")
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
+         patch("plugin.draw.transitions.is_real_disposal", return_value=True):
+        with pytest.raises(RuntimeError):
+            SetSlideTransition().execute(ctx, page=0, effect="dissolve")
 

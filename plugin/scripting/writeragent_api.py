@@ -2046,7 +2046,7 @@ class _SlideTransitionProxy:
         return _rpc_call("get_slide_transition", page=page)
 
     def set_slide_transition(self, *, page: int | None = None, effect: str | None = None, speed: str | None = None, duration: int | None = None, transition_duration: float | None = None, advance: str | None = None) -> dict[str, Any]:
-        """Set the transition effect on an Impress slide. Effects: none, fade_from_left/top/right/bottom, move_from_left/top/right/bottom, dissolve, random, open_vertical/horizontal, close_vertical/horizontal, roll_from_left/top/right/bottom, uncover_to_left/top/right/bottom, fade_to_center, fade_from_center. Speed: slow, medium, fast. Advance: on_click, auto (set duration for auto-advance).
+        """Set the transition effect on an Impress slide. Effects: none, fade_from_left/top/right/bottom, move_from_left/top/right/bottom, dissolve, random, open_vertical/horizontal, close_vertical/horizontal, roll_from_left/top/right/bottom, uncover_to_left/top/right/bottom, fade_to_center, fade_from_center. Speed: slow, medium, fast. Advance: on_click, auto, semi_auto (set duration for auto-advance).
 
         Args:
             page (optional): 0-based slide index (active slide if omitted).
@@ -2054,7 +2054,7 @@ class _SlideTransitionProxy:
             speed (optional): Transition speed (default: medium). One of: slow, medium, fast.
             duration (optional): Auto-advance duration in seconds (0 = manual advance).
             transition_duration (optional): Transition animation time in seconds (e.g. 1.5).
-            advance (optional): How to advance: on_click (default) or auto. One of: on_click, auto.
+            advance (optional): How to advance: on_click (default), auto, or semi_auto (object effects run automatically, click still changes the page). One of: on_click, auto, semi_auto.
         """
         return _rpc_call("set_slide_transition", page=page, effect=effect, speed=speed, duration=duration, transition_duration=transition_duration, advance=advance)
 
