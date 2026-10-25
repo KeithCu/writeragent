@@ -65,6 +65,9 @@ def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
     with _LOCK:
         for obj in objects:
             try:
+                previous = _LIFECYCLE_KEYS.get(obj)
+                if previous and previous != key:
+                    _rekey_listener(previous, key)
                 _LIFECYCLE_KEYS[obj] = key
             except TypeError:
                 doc_id = id(obj)
@@ -73,6 +76,8 @@ def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
                 # different document and cancel the wrong spill timer.
                 entry = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
                 previous = entry[0] if entry is not None else None
+                if previous and previous != key:
+                    _rekey_listener(previous, key)
                 if previous and previous != key:
                     old_ids = _DOC_IDS_BY_LIFECYCLE_KEY.get(previous)
                     if old_ids is not None:
@@ -100,6 +105,24 @@ def _forget_doc_lifecycle_key(key: str) -> None:
             entry = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
             if entry is not None and entry[0] == key:
                 _LIFECYCLE_KEY_BY_DOC_ID.pop(doc_id, None)
+
+
+def _rekey_listener(old: str, new: str) -> None:
+    """Move a listener and its alias bookkeeping to a document's upgraded key.
+
+    Caller holds ``_LOCK``. Without the move the old key kept a listener, the
+    new key installed a second one, and unload forgot only the new alias.
+    """
+    listener = _LISTENERS.pop(old, None)
+    if listener is not None:
+        listener._lifecycle_key = new
+        _LISTENERS[new] = listener
+    refs = _LIFECYCLE_REFS_BY_KEY.pop(old, None)
+    if refs:
+        _LIFECYCLE_REFS_BY_KEY.setdefault(new, []).extend(refs)
+    doc_ids = _DOC_IDS_BY_LIFECYCLE_KEY.pop(old, None)
+    if doc_ids:
+        _DOC_IDS_BY_LIFECYCLE_KEY.setdefault(new, set()).update(doc_ids)
 
 
 def lifecycle_key_if_known(doc: Any | None) -> str:
@@ -240,12 +263,24 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
     def on_disposing(self, Source: Any) -> None:
         self._teardown()
 
+    def _session_has_new_listener(self, sid: str) -> bool:
+        """True when another live listener owns *sid*: the workbook was reopened."""
+        with _LOCK:
+            return any(
+                listener is not self
+                and (listener._workbook_session_id == sid or sid in listener._extra_session_ids)
+                for listener in _LISTENERS.values()
+            )
+
     def _retry_reset(self, sid: str) -> None:
         """Retry resetting a worker session that returned WORKER_REENTRY."""
         # do_retry sleeps up to 5s, so run it on a dedicated background
         # worker. On the shared pool that sleep starves other tasks.
         last_res: Any = None
         for _attempt in range(10):
+            if self._session_has_new_listener(sid):
+                log.debug("python_workbook_lifecycle: %s reopened; dropping reset retry", sid)
+                return
             time.sleep(0.5)
             try:
                 last_res = reset_python_session(self._ctx, sid)
@@ -274,6 +309,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                     from plugin.framework.worker_pool import run_in_background
 
                     # A sleeping background job uses dedicated=True (AGENTS.md).
+                    # The retry aborts if a new listener appears for the same session (reopen).
                     run_in_background(
                         lambda: self._retry_reset(s),
                         name="reset_python_session_retry",
