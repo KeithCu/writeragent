@@ -7,6 +7,7 @@ act on it. Headless MCP clients have no way to set a selection otherwise, which 
 target='selection' a trap (see the target_resolver fix). Selection is view state and transient,
 so for headless flows set_selection and the follow-up edit should be consecutive."""
 from typing import Any
+import logging
 
 from plugin.doc.text_helpers import get_text_cursor_at_range_reached
 from plugin.framework.errors import reraise_if_disposed
@@ -20,6 +21,8 @@ from plugin.writer.search import (
     shape_only_search_message,
 )
 
+log = logging.getLogger("writeragent.writer")
+
 
 def _read_selection_fields(target_range: Any) -> dict[str, Any]:
     """Read selected text and length, returning a warning on failure."""
@@ -27,6 +30,7 @@ def _read_selection_fields(target_range: Any) -> dict[str, Any]:
         selected = target_range.getString()
     except Exception as exc:
         reraise_if_disposed(exc)
+        log.exception("set_selection: could not read selected text")
         return {"warning": "Could not read selected text."}
     return {"selected_text": selected, "length": len(selected)}
 
@@ -96,6 +100,8 @@ class SetSelection(ToolBase):
         if has_search:
             case_sensitive = bool(kwargs.get("case_sensitive", True))
             search_str = plain_text_if_markup(str(search_text), ctx.ctx, ctx.services.get("config"))
+            if not search_str.strip():
+                return self._tool_error("search_text is empty after normalization.")
 
             try:
                 target_range = find_occurrence_range(
@@ -105,7 +111,7 @@ class SetSelection(ToolBase):
                 return self._tool_error(str(e))
 
             if target_range is None:
-                shape_name = drawing_shape_containing(doc, search_str)
+                shape_name = drawing_shape_containing(doc, search_str, case_sensitive=case_sensitive)
                 if shape_name:
                     return self._tool_error(
                         shape_only_search_message("search_text", shape_name)
@@ -130,7 +136,7 @@ class SetSelection(ToolBase):
             return self._tool_error("Could not build a cursor for that character range.")
 
         fields = _read_selection_fields(target_range)
-        if not fully_reached and not fields.get("selected_text"):
+        if not fully_reached and not fields.get("selected_text") and "warning" not in fields:
             return self._tool_error("Could not reach character range in document.")
 
         controller.select(target_range)
@@ -138,7 +144,8 @@ class SetSelection(ToolBase):
         result: dict[str, Any] = {"status": "ok", **fields}
         if not fully_reached:
             result["char_start"] = char_start
-            result["warning"] = "Character range was truncated at the document end."
+            truncation = "Character range was truncated at the document end."
+            result["warning"] = (truncation + " " + result["warning"]) if "warning" in result else truncation
         else:
             result["char_start"] = char_start
             result["char_end"] = char_end

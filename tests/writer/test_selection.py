@@ -158,9 +158,11 @@ def test_set_selection_no_match_errors():
 
 def test_set_selection_shape_match_returns_shape_message():
     ctx, doc, controller = _selection_ctx()
+    mock_shape = MagicMock(return_value="Box 1")
     with patch("plugin.writer.selection.find_occurrence_range", return_value=None), \
-         patch("plugin.writer.selection.drawing_shape_containing", return_value="Box 1"):
+         patch("plugin.writer.selection.drawing_shape_containing", mock_shape):
         res = SetSelection().execute(ctx, search_text="in_shape")
+    mock_shape.assert_called_once_with(doc, "in_shape", case_sensitive=True)
     assert res["status"] == "error"
     assert "shapes toolset" in res["message"]
     assert "Box 1" in res["message"]
@@ -363,6 +365,30 @@ def test_set_selection_non_int_occurrence_does_not_touch_controller():
     assert res["message"] == "occurrence must be a non-negative integer."
     controller.select.assert_not_called()
     doc.getCurrentController.assert_not_called()
+
+
+def test_set_selection_read_failure_on_truncated_range_keeps_both_warnings():
+    ctx, doc, controller = _selection_ctx()
+    rng = MagicMock()
+    rng.getString.side_effect = RuntimeError("boom")
+    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, False)):
+        res = SetSelection().execute(ctx, char_start=10, char_end=50)
+    assert res["status"] == "ok"
+    assert "Character range was truncated" in res["warning"]
+    assert "Could not read selected text" in res["warning"]
+    assert res["char_start"] == 10
+    controller.select.assert_called_once_with(rng)
+
+
+def test_set_selection_blank_search_text_errors_after_normalization():
+    ctx, doc, controller = _selection_ctx()
+    with patch("plugin.writer.selection.find_occurrence_range") as mock_find:
+        for blank in ("   ", "<b></b>"):
+            res = SetSelection().execute(ctx, search_text=blank)
+            assert res["status"] == "error"
+            assert "empty after normalization" in res["message"]
+        mock_find.assert_not_called()
+
 
 
 
