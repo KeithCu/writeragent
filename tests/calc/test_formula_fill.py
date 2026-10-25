@@ -11,7 +11,6 @@ import pytest
 from plugin.calc.formula_fill import (
     _RefKind,
     _SpanKind,
-    _classify_sheet_ref_span,
     adjust_a1_formula,
     expand_single_formula,
 )
@@ -74,7 +73,6 @@ def test_py_quoted_a1_looking_text_is_not_a_sheet_ref():
 
 def test_py_whole_column_datarange_is_verbatim():
     formula = '=PY("result = data"; A:A)'
-    assert _classify_sheet_ref_span("A:A") == _SpanKind.MULTI_ROW
     assert expand_single_formula(formula, 2, 1) == [formula, formula]
 
 
@@ -157,10 +155,4 @@ def test_enums():
     assert _SpanKind.MULTI_ROW.value == "multi_row"
 
 
-def test_span_classifier():
-    assert _classify_sheet_ref_span("H2") == _SpanKind.SINGLE_CELL
-    assert _classify_sheet_ref_span("A2:H2") == _SpanKind.SAME_ROW
-    assert _classify_sheet_ref_span("A1:H10") == _SpanKind.MULTI_ROW
-    assert _classify_sheet_ref_span("A:A") == _SpanKind.MULTI_ROW
-    assert _classify_sheet_ref_span("1:1") == _SpanKind.SAME_ROW
-    assert _classify_sheet_ref_span("SalesData") == _SpanKind.AMBIGUOUS
+

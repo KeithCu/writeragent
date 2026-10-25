@@ -22,7 +22,6 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 try:
-    import uno
     from com.sun.star.sheet.GeneralFunction import (
         AVERAGE,
         COUNT,
@@ -158,6 +157,8 @@ def _set_field_orientations(
             fld.setPropertyValue("Function", fn_enum)
 
     if page_filters:
+        import uno
+
         filter_fields = []
         for pf_name, pf_val in page_filters.items():
             if pf_name not in by_name:

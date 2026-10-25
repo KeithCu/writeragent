@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import CalcError
-from plugin.calc.manipulator import CellManipulator
+from plugin.calc.manipulator import CellManipulator, _coerce_array_flag
 
 
 def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
@@ -348,3 +348,26 @@ def test_quiet_probe_cleanup():
 
     # Does not raise
     _quiet_probe_cleanup(raise_val_error, "test_swallowed")
+
+
+def test_coerce_array_flag_string_regression():
+    # Item 3: String like "false" must not count as True.
+    assert _coerce_array_flag("false") is False
+    assert _coerce_array_flag("False") is False
+    assert _coerce_array_flag(" FALSE ") is False
+    assert _coerce_array_flag("true") is True
+    assert _coerce_array_flag("True") is True
+    assert _coerce_array_flag(False) is False
+    assert _coerce_array_flag(True) is True
+    assert _coerce_array_flag(None) is None
+
+
+def test_prepare_array_formula_string_false_does_not_force_array():
+    # Regression: array="false" must coerce to False, disabling forced array behavior
+    bridge = MagicMock()
+    manipulator = CellManipulator(bridge)
+    res = manipulator.prepare_array_formula_if_needed("A1:A5", "=A1+1", array="false")
+    assert res is None
+    res_sort = manipulator.prepare_array_formula_if_needed("A1:A5", "=SORT(B1:B5)", array="false")
+    assert res_sort is None
+

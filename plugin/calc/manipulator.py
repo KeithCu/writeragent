@@ -89,6 +89,22 @@ def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, 
 
 
 
+def _coerce_array_flag(array: Any) -> bool | None:
+    """Coerce optional array parameter (bool, 'true'/'false', or None) to bool | None."""
+    if array is None:
+        return None
+    if isinstance(array, bool):
+        return array
+    if isinstance(array, str):
+        cleaned = array.strip().lower()
+        if cleaned == "true":
+            return True
+        if cleaned == "false":
+            return False
+        return None
+    return bool(array)
+
+
 # ── Helper ─────────────────────────────────────────────────────────────
 
 
@@ -709,10 +725,14 @@ class CellManipulator:
         XUndoManager is locked. This merges the probe's temporary actions cleanly without leaving
         a phantom Ctrl+Z step.
         '''
-        if array is True or (isinstance(array, str) and array.strip().lower() == "true"):
+        # Bugfix: string array flags like "false" were passed uncoerced to returns_array(forced=...),
+        # which evaluated bool("false") as True and wrongly forced array formulas.
+        # Coerce to bool | None here so "false" becomes False and "true" becomes True.
+        forced_array = _coerce_array_flag(array)
+        if forced_array is True:
             if isinstance(formula_or_values, str) and not formula_or_values.startswith("="):
                 raise CalcError("array=true needs a formula starting with '='.")
-        if not (isinstance(formula_or_values, str) and returns_array(formula_or_values, array)):
+        if not (isinstance(formula_or_values, str) and returns_array(formula_or_values, forced=forced_array)):
             return None
 
         cell_range = self.bridge.resolve_range_or_address(range_str)
@@ -817,10 +837,14 @@ class CellManipulator:
             # Detect top-level array functions and enter setArrayFormula
             # instead of fill-down. =SUM(FILTER()) stays scalar.
             if not literal_text and isinstance(formula_or_values, str):
-                if array is True or (isinstance(array, str) and array.strip().lower() == "true"):
+                # Bugfix: string array flags like "false" were passed uncoerced to returns_array(forced=...),
+                # which evaluated bool("false") as True and wrongly forced array formulas.
+                # Coerce to bool | None here so "false" becomes False and "true" becomes True.
+                forced_array = _coerce_array_flag(array)
+                if forced_array is True:
                     if not formula_or_values.startswith("="):
                         raise CalcError("array=true needs a formula starting with '='.")
-                if returns_array(formula_or_values, array):
+                if returns_array(formula_or_values, forced=forced_array):
                     sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
                     return self._write_array_formula(sheet, formula_or_values, start, end, premeasured_array_size=premeasured_array_size)
 

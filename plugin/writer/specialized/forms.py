@@ -152,7 +152,7 @@ def _delete_form_control(tool_or_doc: Any, doc_or_kwargs: Any, kwargs: dict[str,
         tool = tool_or_doc
         doc = doc_or_kwargs
 
-    dp, idx, shape, err = _resolve_form_page_and_control(doc, kwargs)
+    dp, idx, shape, err = _resolve_form_page_and_control(doc, kwargs or {})
     if err or dp is None or shape is None:
         return err or format_error_payload(ToolExecutionError("Form control not found."))
 
@@ -980,7 +980,7 @@ class FormEditControl(ToolWriterFormBase):
             return batch_err
 
         snap = control_snapshot(model)
-        values = {k: snap[k] for k in ("text", "state", "selected") if k in snap}
+        values: dict[str, Any] = {k: snap[k] for k in ("text", "state", "selected") if k in snap}
         ctrl_name = getattr(shape, "Name", "") or getattr(model, "Name", "")
         out: dict[str, Any] = {
             "status": "ok",

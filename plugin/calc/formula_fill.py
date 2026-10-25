@@ -186,20 +186,6 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
     return "".join(out)
 
 
-def _classify_sheet_ref_span(token: str) -> _SpanKind:
-    """Classify one DataRange-style token for the =PY span-peek."""
-    s = (token or "").strip()
-    if not s:
-        return _SpanKind.AMBIGUOUS
-    matched = _try_match_ref(s, 0)
-    if matched is None:
-        return _SpanKind.AMBIGUOUS
-    end, ref = matched
-    if end != len(s):
-        return _SpanKind.AMBIGUOUS
-    return ref.row_span_kind()
-
-
 def _looks_like_python_formula(formula: str) -> bool:
     return py_call_open_end(formula, require_equals=True) is not None
 
