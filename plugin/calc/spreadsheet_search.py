@@ -11,16 +11,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import filter_agent_sheet_names
 from plugin.calc.calc_utils import resolve_sheet
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+
+# Cap search hit text at the same 200-character snippet budget as
+# document_research_grep (not a user config setting).
+_HIT_TEXT_MAX = 200
 
 
 def _cell_address_str(cell: Any) -> str:
-    from plugin.calc.address_utils import format_address
-
     addr = cell.getCellAddress()
     return format_address(addr.Column, addr.Row)
 
@@ -43,8 +46,18 @@ def configure_search_descriptor(desc: Any, text: str, *, regex: bool = False, ca
     desc.SearchCaseSensitive = bool(case_sensitive)
 
 
-def search_spreadsheet_cells(doc: Any, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 50, all_sheets: bool = True, sheet_name: str | None = None, stop_checker: Any = None) -> list[dict[str, Any]]:
-    """Search a Calc document for *pattern*; return match dicts with sheet, cell, value."""
+def search_spreadsheet_cells(
+    doc: Any,
+    pattern: str,
+    *,
+    regex: bool = False,
+    case_sensitive: bool = False,
+    max_results: int = 50,
+    all_sheets: bool = True,
+    sheet_name: str | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+) -> list[dict[str, Any]]:
+    """Search a Calc document for *pattern*; return match dicts with sheet, cell, value. Long values are truncated to 200 characters with a trailing "…"."""
     if not pattern:
         return []
 
@@ -56,16 +69,19 @@ def search_spreadsheet_cells(doc: Any, pattern: str, *, regex: bool = False, cas
         sd = sheet.createSearchDescriptor()
         configure_search_descriptor(sd, pattern, regex=regex, case_sensitive=case_sensitive)
 
-        found = sheet.findAll(sd)
-        if found is None:
-            continue
-
-        for i in range(found.getCount()):
+        # findAll() joins adjacent hits into a range object that has no
+        # getCellAddress()/getString(); findFirst/findNext return one cell
+        # per hit. max_results still bounds the loop if findNext repeats.
+        cell = sheet.findFirst(sd)
+        while cell is not None:
             if stop_checker and stop_checker():
-                break
+                return matches
             if len(matches) >= max_results:
                 return matches
-            cell = found.getByIndex(i)
-            matches.append({"sheet": sname, "cell": _cell_address_str(cell), "value": cell.getString()})
+            value = cell.getString()
+            if len(value) > _HIT_TEXT_MAX:
+                value = value[:_HIT_TEXT_MAX] + "…"
+            matches.append({"sheet": sname, "cell": _cell_address_str(cell), "value": value})
+            cell = sheet.findNext(cell, sd)
 
     return matches

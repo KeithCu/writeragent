@@ -22,6 +22,16 @@ if TYPE_CHECKING:
 
 _SYMBOLIC_HELPERS = ", ".join(sorted(HELPER_NAMES))
 
+# Mirrors the venv helper signatures (plugin/scripting/venv/symbolic.py).
+# The venv still owns required-key and default checks.
+_HELPER_PARAM_KEYS: dict[str, frozenset[str]] = {
+    "solve_equation": frozenset({"equation", "variable"}),
+    "symbolic_simplify": frozenset({"expression"}),
+    "integrate": frozenset({"expression", "variable", "lower", "upper"}),
+    "differentiate": frozenset({"expression", "variable"}),
+    "latex_to_math_object": frozenset({"latex", "expression"}),
+}
+
 
 class SymbolicMathTool(ToolCalcPythonBase):
     """Run trusted SymPy symbolic helpers (solve, simplify, integrate, differentiate)."""
@@ -61,11 +71,23 @@ class SymbolicMathTool(ToolCalcPythonBase):
 
         params = kwargs.get("params")
         assert params is None or isinstance(params, dict)
+
+        accepted = _HELPER_PARAM_KEYS.get(helper)
+        if params and accepted is not None:
+            unknown = sorted(set(params) - accepted)
+            if unknown:
+                return self._tool_error(
+                    f"Unknown parameter(s) for {helper}: {', '.join(unknown)}. Accepted: {', '.join(sorted(accepted))}.",
+                    code="INVALID_PARAM",
+                )
+
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
         display_block = bool(kwargs.get("display_block", False))
 
         try:
-            result = run_trusted_symbolic(ctx.ctx, ctx.doc, helper=helper, params=params, task_hint=task_hint, doc_type=ctx.doc_type)
+            # Pass ToolContext (not ctx.ctx) so run_trusted_worker_action reads
+            # stop_checker / send_cancellation; the UNO context has neither.
+            result = run_trusted_symbolic(ctx, ctx.doc, helper=helper, params=params, task_hint=task_hint, doc_type=ctx.doc_type)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "SYMBOLIC_ERROR"))
         except Exception as exc:
@@ -81,7 +103,10 @@ class SymbolicMathTool(ToolCalcPythonBase):
 
         try:
             execute_on_main_thread(_insert)
-            out["math_inserted"] = True
+            # What was wrong: out["math_inserted"] was unconditionally True, even
+            # on Calc where tabular_egress writes cells instead of inserting a Math object.
+            # Why this change fixes it: set math_inserted only when doc_type != "calc".
+            out["math_inserted"] = ctx.doc_type != "calc"
             if ctx.doc_type == "calc":
                 out["message"] = "Symbolic result written to active sheet"
             else:
