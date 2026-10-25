@@ -2413,13 +2413,13 @@ class _WriterProxy:
         return _rpc_call("apply_style", style=style, family=family, target=target, old_content=old_content, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct)
 
     def get_document_content(self, *, scope: str | None = None, max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool | None = None) -> dict[str, Any]:
-        """Get document (or selection/range) content. Result includes document_length. scope: full, selection, or range (requires start, end). CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> and apply_document_content of that markup recreates live Ruby portions.
+        """Get document (or selection/range) content. Result includes document_length (plain-text characters) and length (HTML characters). scope: full, selection, or range (requires start, end as plain-text offsets in the document_length space). max_chars counts returned HTML and is approximate. The result may carry warning, truncated, tracked_changes, tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected returns empty content plus a warning. CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> and apply_document_content of that markup recreates live Ruby portions.
 
         Args:
             scope (optional): Return full document (default), current selection/cursor region, or a character range (requires start and end). One of: full, selection, range.
-            max_chars (optional): Maximum characters to return.
-            start (optional): Start character offset (0-based). Required for scope 'range'.
-            end (optional): End character offset (exclusive). Required for scope 'range'.
+            max_chars (optional): Maximum characters of exported HTML to return (approximate: the truncation marker adds about 20 characters).
+            start (optional): Plain-text start offset (0-based), same coordinate space as document_length. Required for scope 'range'; must be less than end.
+            end (optional): Plain-text end offset (exclusive), same coordinate space as document_length. Required for scope 'range'.
             include_images (optional): Include embedded image data (base64) in export. Default false: an image comes back as its wrapper with the picture's name (<div|span ... id="Name"><img src=""/></...>); keep that wrapper in apply_document_content content to keep the picture there, drop it to delete the picture.
         """
         return _rpc_call("get_document_content", scope=scope, max_chars=max_chars, start=start, end=end, include_images=include_images)
