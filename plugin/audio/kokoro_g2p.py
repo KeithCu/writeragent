@@ -24,8 +24,9 @@ and would change English audio that already ships.
 
 Patterns: hexgrad/kokoro ``pipeline.py`` ``KPipeline.__init__`` and
 kokoro-onnx ``examples/{japanese,french,spanish,chinese}.py``.
-Synthesis still runs in the configured venv via ``python -c``; this module
-does not import misaki (LibreOffice's Python must not gain those deps).
+Synthesis runs in the venv via ``kokoro_worker.py`` (warm stdio loop, or
+``--once``). This module still does not import misaki or kokoro-onnx
+(LibreOffice's Python must not gain those deps).
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from importlib import import_module
 import logging
 import shutil
 import subprocess
+import threading
 from typing import Any, Callable
 
 from plugin.framework.errors import best_effort
@@ -79,7 +81,6 @@ def g2p_fallback_warning(lang: str, exc: BaseException | None = None) -> str:
 
 @dataclass(frozen=True)
 class MisakiLangSpec:
-    lang: str
     module: str
     attr: str
     kwargs: tuple[tuple[str, str], ...]
@@ -92,7 +93,6 @@ _ESPEAK_LANGS = ("es", "fr-fr", "it", "hi", "pt-br")
 
 _LANG_SPECS: dict[str, MisakiLangSpec] = {
     "ja": MisakiLangSpec(
-        lang="ja",
         module="misaki.ja",
         attr="JAG2P",
         kwargs=(),
@@ -101,7 +101,6 @@ _LANG_SPECS: dict[str, MisakiLangSpec] = {
         needs_unidic=True,
     ),
     "zh": MisakiLangSpec(
-        lang="zh",
         module="misaki.zh",
         attr="ZHG2P",
         kwargs=(),
@@ -111,7 +110,6 @@ _LANG_SPECS: dict[str, MisakiLangSpec] = {
     ),
     **{
         lang: MisakiLangSpec(
-            lang=lang,
             module="misaki.espeak",
             attr="EspeakG2P",
             kwargs=(("language", lang),),
@@ -121,17 +119,6 @@ _LANG_SPECS: dict[str, MisakiLangSpec] = {
         )
         for lang in _ESPEAK_LANGS
     },
-}
-
-
-def _misaki_snippet(spec: MisakiLangSpec) -> str:
-    kwargs_str = ", ".join(f"{k}={v!r}" for k, v in spec.kwargs)
-    return f"from {spec.module} import {spec.attr}\nphonemes, _tokens = {spec.attr}({kwargs_str})(text)"
-
-
-_MISAKI_G2P_SNIPPETS: dict[str, str] = {
-    spec.lang: _misaki_snippet(spec)
-    for spec in _LANG_SPECS.values()
 }
 
 _g2p_cache: dict[str, Any] = {}
@@ -153,6 +140,17 @@ def _get_misaki_g2p(lang: str) -> Any:
     return inst
 
 
+_probe_ok_keys: set[tuple[str, str]] = set()
+_seen_unknown_prefixes: set[str] = set()
+_probe_ok_lock = threading.Lock()
+
+
+def clear_kokoro_misaki_probe_cache() -> None:
+    with _probe_ok_lock:
+        _probe_ok_keys.clear()
+        _seen_unknown_prefixes.clear()
+
+
 # Single source of truth for Kokoro voice prefixes and their G2P language codes
 KOKORO_VOICE_PREFIX_TO_LANG: dict[str, str] = {
     "a": "en-us",
@@ -171,6 +169,12 @@ def _kokoro_lang_for_voice(voice: str) -> str:
     """Determine the Kokoro phonemizer language code from voice prefix."""
     clean = (voice or "").lower().strip()
     prefix = clean[:1]
+    if prefix and prefix not in KOKORO_VOICE_PREFIX_TO_LANG:
+        with _probe_ok_lock:
+            if prefix not in _seen_unknown_prefixes:
+                _seen_unknown_prefixes.add(prefix)
+                log.warning("Kokoro voice %r has no G2P prefix; using en-us", voice)
+        return "en-us"
     return KOKORO_VOICE_PREFIX_TO_LANG.get(prefix, "en-us")
 
 
@@ -216,9 +220,8 @@ def misaki_phonemes(text: str, lang: str) -> str:
 def misaki_frontend(text: str, lang: str) -> tuple[str, str]:
     """Return ``(phonemes, warning)``. Empty phonemes means espeak-ng.
 
-    The warning strings match ``KOKORO_ONNX_SCRIPT`` so the host can show the
-    same status line for the warm worker and the one-shot fallback. English
-    returns ``("", "")`` and does not import misaki.
+    The warning strings are what both the warm worker and ``--once`` put in the
+    ``warning`` field. English returns ``("", "")`` and does not import misaki.
     """
     if not kokoro_lang_uses_misaki(lang):
         return "", ""
@@ -258,83 +261,11 @@ def kokoro_misaki_probe_code(lang: str) -> str:
     if spec is None:
         return ""
     kwargs_str = ", ".join(f"{k}={v!r}" for k, v in spec.kwargs)
-    return f"from {spec.module} import {spec.attr}\n{spec.attr}({kwargs_str})({spec.probe_text!r})\n"
-
-
-def _misaki_branches() -> str:
-    """If/elif body that fills ``phonemes`` for each non-English lang."""
-    lines: list[str] = []
-    for index, (lang, snippet) in enumerate(_MISAKI_G2P_SNIPPETS.items()):
-        keyword = "if" if index == 0 else "elif"
-        lines.append("        %s lang == %r:" % (keyword, lang))
-        for line in snippet.splitlines():
-            lines.append("            " + line)
-    lines.append("        else:")
-    lines.append('            raise RuntimeError("no Misaki G2P for %s" % lang)')
-    return "\n".join(lines)
-
-
-def _build_kokoro_onnx_script() -> str:
-    """``python -c`` source. English skips Misaki; other langs set is_phonemes.
-
-    The language tuple is spliced in with a marker. The script itself contains
-    ``%`` format strings for the venv process; interpolating those here would
-    raise at import time.
-    """
-    lang_tuple = repr(tuple(_LANG_SPECS.keys()))
-    script = (
-        "import sys\n"
-        "from kokoro_onnx import Kokoro\n"
-        "import soundfile as sf\n"
-        "\n"
-        "text = sys.stdin.read() if sys.argv[1] == '-' else sys.argv[1]\n"
-        "requested = sys.argv[2]\n"
-        "speed = float(sys.argv[3])\n"
-        "out_path = sys.argv[4]\n"
-        "model_path = sys.argv[5]\n"
-        "voices_path = sys.argv[6]\n"
-        "lang = sys.argv[7]\n"
-        "\n"
-        "kokoro = Kokoro(model_path, voices_path)\n"
-        "names = list(kokoro.voices)\n"
-        "if requested in names:\n"
-        "    voice = requested\n"
-        "else:\n"
-        "    voice = 'af_sky' if 'af_sky' in names else names[0]\n"
-        "    sys.stderr.write(\n"
-        "        'Kokoro voice %r is not in %s; using %s\\n'\n"
-        "        % (requested, voices_path, voice)\n"
-        "    )\n"
-        "\n"
-        "phonemes = ''\n"
-        "if lang in __KOKORO_MISAKI_LANGS__:\n"
-        "    try:\n"
-        "__MISAKI_BRANCHES__\n"
-        "    except Exception as exc:\n"
-        "        sys.stderr.write('" + G2P_FAILED_FMT + "\\n' % (lang, exc))\n"
-        "        phonemes = ''\n"
-        "\n"
-        "if isinstance(phonemes, str) and phonemes.strip():\n"
-        "    samples, rate = kokoro.create(\n"
-        "        phonemes, voice=voice, speed=speed, lang=lang, is_phonemes=True\n"
-        "    )\n"
-        "else:\n"
-        "    if lang in __KOKORO_MISAKI_LANGS__:\n"
-        "        sys.stderr.write(\n"
-        "            '" + G2P_FALLBACK_FMT + "\\n'\n"
-        "            % lang\n"
-        "        )\n"
-        "    samples, rate = kokoro.create(text, voice=voice, speed=speed, lang=lang)\n"
-        "sf.write(out_path, samples, rate)\n"
-    )
     return (
-        script.replace("__KOKORO_MISAKI_LANGS__", lang_tuple)
-        .replace("__MISAKI_BRANCHES__", _misaki_branches())
+        f"from {spec.module} import {spec.attr}\n"
+        f"phonemes, _tokens = {spec.attr}({kwargs_str})({spec.probe_text!r})\n"
+        "raise SystemExit(0 if isinstance(phonemes, str) and phonemes.strip() else 1)\n"
     )
-
-
-# Built once so speak and tests share the exact script the venv runs.
-KOKORO_ONNX_SCRIPT = _build_kokoro_onnx_script()
 
 
 def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
@@ -463,10 +394,15 @@ def ensure_kokoro_misaki(
     """
     if _cancelled(cancelled):
         return None
+    with _probe_ok_lock:
+        if (py_exe, lang) in _probe_ok_keys:
+            return True
     packages = kokoro_misaki_packages(lang)
     if not packages:
         return True
     if _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
+        with _probe_ok_lock:
+            _probe_ok_keys.add((py_exe, lang))
         return True
     if _cancelled(cancelled):
         return None
@@ -483,6 +419,8 @@ def ensure_kokoro_misaki(
     if _cancelled(cancelled):
         return None
     if _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
+        with _probe_ok_lock:
+            _probe_ok_keys.add((py_exe, lang))
         return True
 
     # fugashi's default dictionary is not in the wheel. Without this download,
@@ -491,6 +429,8 @@ def ensure_kokoro_misaki(
     if spec is not None and spec.needs_unidic:
         _emit(on_status, _("Downloading Japanese phonemizer dictionary…"))
         if _download_unidic(py_exe, run_cmd=run_cmd) and _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
+            with _probe_ok_lock:
+                _probe_ok_keys.add((py_exe, lang))
             return True
 
     _emit(

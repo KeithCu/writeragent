@@ -67,7 +67,11 @@ def test_handle_kokoro_job_loads_model_once(tmp_path, monkeypatch):
     assert inits == [("/models/kokoro.onnx", "/models/voices.bin")]
     assert first_result["status"] == "ok"
     assert first_result["path"] == str(first)
+    assert first_result["g2p"] == "espeak"
+    assert "warning" not in first_result
     assert second_result["path"] == str(second)
+    assert second_result["g2p"] == "espeak"
+    assert "warning" not in second_result
     assert first.read_bytes() == b"RIFF"
     assert second.read_bytes() == b"RIFF"
 
@@ -327,6 +331,7 @@ def test_handle_kokoro_job_japanese_uses_misaki_phonemes(tmp_path, monkeypatch):
         }
     )
     assert result["status"] == "ok"
+    assert result["g2p"] == "misaki"
     assert "warning" not in result
     assert seen == [
         {"text": "PH:ja:非常に", "voice": "jf_alpha", "lang": "ja", "is_phonemes": True}
@@ -351,10 +356,94 @@ def test_handle_kokoro_job_empty_misaki_falls_back_to_espeak(tmp_path, monkeypat
         }
     )
     assert result["status"] == "ok"
+    assert result["g2p"] == "espeak"
     assert "fell back to espeak-ng" in result["warning"]
     assert seen == [
         {"text": "非常に", "voice": "jf_alpha", "lang": "ja", "is_phonemes": False}
     ]
+
+
+def test_handle_kokoro_job_misaki_exception_falls_back_to_espeak(tmp_path, monkeypatch):
+    seen: list[dict] = []
+    _install_voice_kokoro(monkeypatch, ["jf_alpha"], seen)
+
+    def raise_err(text, lang):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("plugin.audio.kokoro_g2p.misaki_phonemes", raise_err)
+    out = tmp_path / "ja_err.wav"
+    result = kokoro_worker.handle_kokoro_job(
+        {
+            "text": "非常に",
+            "voice": "jf_alpha",
+            "speed": 1.0,
+            "lang": "ja",
+            "model_path": "/models/kokoro.onnx",
+            "voices_path": "/models/voices.bin",
+            "out_path": str(out),
+        }
+    )
+    assert result["status"] == "ok"
+    assert result["g2p"] == "espeak"
+    from plugin.audio.kokoro_g2p import G2P_FAILED_MARK
+
+    assert G2P_FAILED_MARK in result["warning"]
+    assert seen == [
+        {"text": "非常に", "voice": "jf_alpha", "lang": "ja", "is_phonemes": False}
+    ]
+
+
+def test_kokoro_worker_once_subprocess(tmp_path):
+    import json
+    import subprocess
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    worker_script = os.path.join(repo_root, "plugin", "audio", "kokoro_worker.py")
+
+    fake_onnx = tmp_path / "kokoro_onnx.py"
+    fake_onnx.write_text(
+        "class Kokoro:\n"
+        "    voices = ['af_sky']\n"
+        "    def __init__(self, model_path, voices_path):\n"
+        "        pass\n"
+        "    def create(self, text, voice='af_sky', speed=1.0, lang='en-us', is_phonemes=False):\n"
+        "        return [0.0], 24000\n"
+    )
+    fake_sf = tmp_path / "soundfile.py"
+    fake_sf.write_text(
+        "def write(path, samples, rate):\n"
+        "    with open(path, 'wb') as f:\n"
+        "        f.write(b'RIFFdata')\n"
+    )
+    out_wav = tmp_path / "out.wav"
+    env = dict(os.environ)
+    env["PYTHONPATH"] = f"{tmp_path}:{repo_root}:{env.get('PYTHONPATH', '')}"
+
+    cmd = [
+        sys.executable,
+        worker_script,
+        "--once",
+        "-",
+        "af_sky",
+        "1.0",
+        str(out_wav),
+        "m.onnx",
+        "v.bin",
+        "en-us",
+    ]
+    proc = subprocess.run(
+        cmd,
+        input="Hello",
+        text=True,
+        capture_output=True,
+        timeout=30,
+        env=env,
+    )
+    assert proc.returncode == 0
+    assert out_wav.read_bytes().startswith(b"RIFF")
+    res = json.loads(proc.stdout)
+    assert res["status"] == "ok"
+    assert res["g2p"] == "espeak"
 
 
 def test_fallback_voice_npz_without_af_sky(tmp_path, monkeypatch):
