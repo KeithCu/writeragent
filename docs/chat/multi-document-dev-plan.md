@@ -19,14 +19,14 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 ## MVP (Phase 0) — **shipped**
 
-**Status:** Phase 0 is implemented in-tree (2026-05-17). Automated tests: [`test_nearby.py`](../../tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../../tests/doc/test_nearby_specialized.py), [`test_nearby_uno.py`](../../tests/doc/test_nearby_uno.py). Manual Calc acceptance (#1) still recommended before calling the feature “done” in production.
+**Status:** Phase 0 is implemented in-tree (2026-05-17). Automated tests: [`test_document_research.py`](../../tests/doc/test_document_research.py), [`test_document_research_specialized.py`](../../tests/doc/test_document_research_specialized.py), [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py). Manual Calc acceptance (#1) still recommended before calling the feature “done” in production.
 
 **Phase 0** provides same-directory discovery and cross-file **read** via **two-tier delegation**. Main adds only `document_research` to the existing delegate enum — no new core tools on main.
 
 **User flow:** one `delegate_to_specialized_*_toolset(domain="document_research", task="…")` call → **outer** sub-agent lists/opens → **inner** sub-agent(s) read with production read tools → compact result to main → main writes **active** doc only.
 
 - Same folder as the active saved document’s **parent directory** (no config dirs, no recursion).
-- **Untitled** active doc: list from LibreOffice profile **Work** folder ([`get_work_directory`](../../plugin/doc/nearby.py) via `com.sun.star.util.thePathSettings`); if that path is missing, fall back to other **open** LO file URLs only (see [Edge cases](#edge-cases-and-failure-modes)).
+- **Untitled** active doc: list from LibreOffice profile **Work** folder ([`get_work_directory`](../../plugin/doc/document_research.py) via `com.sun.star.util.thePathSettings`); if that path is missing, fall back to other **open** LO file URLs only (see [Edge cases](#edge-cases-and-failure-modes)).
 - Later phases add config directories, prompt injection, UI, headless, and polish — see [Phased implementation](#phased-implementation).
 
 ---
@@ -35,7 +35,7 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 | Principle | Detail |
 | --------- | ------ |
-| **Same read tools, not main’s schema** | The **inner** sub-agent calls the same production read tools as today (`get_document_content`, `get_document_tree`, `search_in_document`, `get_sheet_summary`, `read_cell_range`, Draw read tools, …) via `ToolRegistry.execute` — not a parallel extractor. Main chat does **not** register those tools; it only has **core** tools plus `delegate_to_specialized_*_toolset`. **Discovery** (`list_nearby_files` on the **outer** agent) and **targeting** (open hidden/read-only, point `ToolContext.doc` at that model) live in the document_research domain. |
+| **Same read tools, not main’s schema** | The **inner** sub-agent calls the same production read tools as today (`get_document_content`, `get_document_tree`, `search_in_document`, `get_sheet_summary`, `read_cell_range`, Draw read tools, …) via `SmolToolAdapter` — not a parallel extractor. Main chat does **not** register those tools; it only has **core** tools plus `delegate_to_specialized_*_toolset`. **Discovery** (`list_nearby_files` on the **outer** agent) and **targeting** (open hidden/read-only, point `ToolContext.doc` at that model) live in the document_research domain. |
 | **Read-only on other files** | Mutation tools apply to the **active** document only. Sibling files are opened **read-only**; write APIs are **not** exposed on those models in Phase 0 (see [Read-only enforcement](#read-only-enforcement) and [Open questions](#open-questions) #4). |
 | **Writer + Calc + Draw** | Calc is first-class (budget → table). Draw/Impress: `list_pages` + shape/text tools where applicable. |
 | **Active doc unchanged** | Cross-doc reads must not steal focus or mutate the user’s window; hidden open in the **same** LO process for Phase 0. |
@@ -49,7 +49,7 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 ### `FileEntry`
 
-Listing tools return a consistent shape (TypedDict or dataclass in `plugin/doc/nearby.py`):
+Listing tools return a consistent shape (TypedDict or dataclass in `plugin/doc/document_research.py`):
 
 | Field | Type | Notes |
 | ----- | ---- | ----- |
@@ -199,9 +199,10 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 
 ### Handoff mechanism (implemented)
 
-- [`DelegateReadDocument`](../../plugin/doc/nearby_specialized.py): dedicated tool — **not** recursive `DelegateToSpecializedBase.execute`. Resolves name via [`resolve_path_or_name`](../../plugin/doc/nearby.py), opens via [`open_document_for_read`](../../plugin/doc/nearby.py) on the main thread (`execute_on_main_thread`).
-- [`run_inner_read_agent`](../../plugin/doc/nearby_specialized.py): builds `ToolContext(doc=opened_model, read_only_target=True, …)`; runs smol with `READ_TOOLS_BY_DOC_TYPE[doc_type]` + `specialized_workflow_finished`.
-- Outer document_research sub-agent is still launched by [`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py) with `active_domain="document_research"` (tools from [`nearby_tools.py`](../../plugin/doc/nearby_tools.py) + `DelegateReadDocument`).
+- [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): dedicated tool — **not** recursive `DelegateToSpecializedBase.execute`. Resolves name off the main thread via [`resolve_path_or_name`](../../plugin/doc/document_research.py), opens via [`open_document_for_read`](../../plugin/doc/document_research.py) on the main thread (`run_on_main`).
+- [`run_inner_read_agent`](../../plugin/doc/document_research_specialized.py): builds `ToolContext(doc=opened_model, read_only_target=True, …)`; runs smol with `READ_TOOLS_BY_DOC_TYPE[doc_type]` + `specialized_workflow_finished`.
+- The tool returns `{status: "ok", path, doc_type, result}`; result is the finish tool's answer string (or a plain-string final answer). Inner error payloads pass through unchanged; a run with no answer returns the coded error `READ_EMPTY_RESULT`.
+- Outer document_research sub-agent is still launched by [`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py) with `active_domain="document_research"` (tools from [`document_research_tools.py`](../../plugin/doc/document_research_tools.py) + `DelegateReadDocument`).
 - Inner ends with `specialized_workflow_finished` / `final_answer`; outer accumulates and returns one payload to main.
 
 ---
@@ -216,7 +217,7 @@ Document research is **cross-app**: active Writer may read a Calc `.ods` budget.
 | `delegate_read_document` | `specialized` | `document_research` | Spawns inner smol; outer only |
 | Inner read tools | — | — | **Not** a separate domain on main registry; allowlist inside `delegate_read_document` |
 
-Gateway enum discovery: marker subclasses with `specialized_domain = "document_research"` on each app base — `ToolWriterDocumentResearchBase`, `ToolCalcDocumentResearchBase`, `ToolDrawDocumentResearchBase` in [`writer/specialized_base.py`](../../plugin/writer/specialized_base.py), [`calc/base.py`](../../plugin/calc/base.py), [`draw/base.py`](../../plugin/draw/base.py). Tools register once in [`plugin/doc/common_module.py`](../../plugin/doc/common_module.py) via `auto_discover(nearby_tools, nearby_specialized)`.
+Gateway enum discovery: marker subclasses with `specialized_domain = "document_research"` on each app base — `ToolWriterDocumentResearchBase`, `ToolCalcDocumentResearchBase`, `ToolDrawDocumentResearchBase` in [`writer/specialized_base.py`](../../plugin/writer/specialized_base.py), [`calc/base.py`](../../plugin/calc/base.py), [`draw/base.py`](../../plugin/draw/base.py). Tools register once in [`plugin/doc/common_module.py`](../../plugin/doc/common_module.py) via `auto_discover(document_research_tools, document_research_specialized)`.
 
 ---
 
@@ -224,8 +225,8 @@ Gateway enum discovery: marker subclasses with `specialized_domain = "document_r
 
 Schema omission alone is insufficient; Phase 0 enforces at execution time:
 
-1. **`ToolContext.read_only_target`** — set on the inner agent’s context in [`run_inner_read_agent`](../../plugin/doc/nearby_specialized.py).
-2. **Inner allowlist** — `READ_TOOLS_BY_DOC_TYPE` in [`nearby_specialized.py`](../../plugin/doc/nearby_specialized.py); inner uses `registry.get_tools(..., names=allowlist)` — not `active_domain="document_research"` on the opened model.
+1. **`ToolContext.read_only_target`** — set on the inner agent’s context in [`run_inner_read_agent`](../../plugin/doc/document_research_specialized.py).
+2. **Inner allowlist** — `READ_TOOLS_BY_DOC_TYPE` in [`document_research_specialized.py`](../../plugin/doc/document_research_specialized.py); inner uses `registry.get_tools(..., names=allowlist)` — not `active_domain="document_research"` on the opened model.
 3. **Defense in depth** — [`ToolRegistry.execute`](../../plugin/framework/tool.py) returns `READ_ONLY_TARGET` when `ctx.read_only_target` and `tool.detects_mutation()`. The inner agent does not go through the registry: [`SmolToolAdapter.forward`](../../plugin/chatbot/smol_agent.py) applies the same check before `execute` / `execute_safe`.
 
 ---
@@ -240,8 +241,8 @@ Schema omission alone is insufficient; Phase 0 enforces at execution time:
 
 **Phase 0 tests (implemented):**
 
-- [`test_nearby_specialized.py`](../../tests/doc/test_nearby_specialized.py): mock inner agent (no live LLM); `document_research` on all three delegates; `READ_ONLY_TARGET` guard; outer document_research tool surface; `delegate_read_document` is not a delegate gateway recurse.
-- [`test_nearby_uno.py`](../../tests/doc/test_nearby_uno.py): hidden+read-only open; list excludes active file; inner path reads sibling via `read_cell_range` on opened model.
+- [`test_document_research_specialized.py`](../../tests/doc/test_document_research_specialized.py): mock inner agent (no live LLM); `document_research` on all three delegates; `READ_ONLY_TARGET` guard; outer document_research tool surface; `delegate_read_document` is not a delegate gateway recurse.
+- [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py): hidden+read-only open; list excludes active file; inner path reads sibling via `read_cell_range` on opened model.
 - `stop_checker` is copied from parent to inner `ToolContext` in `run_inner_read_agent`.
 
 See [../framework/streaming-and-threading.md](../framework/streaming-and-threading.md).
@@ -261,7 +262,7 @@ The **inner** sub-agent calls production read tools via `ToolRegistry.execute`:
 | --------------- | ----------------------- |
 | **Writer** | `get_document_content` ([`get_document_content.py`](../../plugin/writer/get_document_content.py); optional `include_images`, default false), `get_document_tree` ([`outline.py`](../../plugin/writer/outline.py)), `search_in_document` |
 | **Calc** | `get_sheet_summary` ([`sheets.py`](../../plugin/calc/sheets.py)), `read_cell_range` ([`cells.py`](../../plugin/calc/cells.py)) |
-| **Draw / Impress** | `list_pages` ([`shapes.py`](../../plugin/draw/shapes.py)), `get_draw_tree` ([`tree.py`](../../plugin/draw/tree.py)) — see `READ_TOOLS_BY_DOC_TYPE` in [`nearby_specialized.py`](../../plugin/doc/nearby_specialized.py) |
+| **Draw / Impress** | `list_pages` ([`shapes.py`](../../plugin/draw/shapes.py)), `get_draw_tree` ([`tree.py`](../../plugin/draw/tree.py)) — see `READ_TOOLS_BY_DOC_TYPE` in [`document_research_specialized.py`](../../plugin/doc/document_research_specialized.py) |
 
 **Calc example:** User has `Q4_Report.odt` open → main delegates document_research → outer opens `Budget_2026.ods` → inner `get_sheet_summary` + `read_cell_range` → main `apply_document_content` on active doc.
 
@@ -273,7 +274,7 @@ The **inner** sub-agent calls production read tools via `ToolRegistry.execute`:
 
 | Case | Behavior |
 | ---- | -------- |
-| **Untitled / unsaved active doc** | **Implemented:** [`resolve_listing_directory`](../../plugin/doc/nearby.py) uses LO profile **Work** path (`thePathSettings` → `Work`); if no directory, list other **open** LO documents only; if none, tool error with a clear message. |
+| **Untitled / unsaved active doc** | **Implemented:** [`resolve_listing_directory`](../../plugin/doc/document_research.py) uses LO profile **Work** path (`thePathSettings` → `Work`); if no directory, list other **open** LO documents only; if none, tool error with a clear message. |
 | **Active file in directory listing** | Exclude self from `list_nearby_files`. |
 | **Permission denied / I/O error** | Tool error with `details.path`. |
 | **File modified on disk after open** | Phase 0: no cache; re-open on next delegate if needed. Phase 6 may add mtime-keyed metadata. |
@@ -307,7 +308,7 @@ Record decisions here as we learn.
 | 3 | **Untitled / unsaved active doc** | **Decision (Phase 0):** saved parent dir → else **Work** path → else open-docs-only list. Unit-tested (`test_get_work_directory`, `test_resolve_listing_directory_work_fallback`). |
 | 4 | **Write-back to nearby files** | **Out of scope:** siblings read-only; writes on active doc only. |
 | 5 | **Final naming** | **Decision:** named `document_research` to best describe document-centric cross-file reading. |
-| 6 | **Inner allowlist** | **Decision (Phase 0):** static `READ_TOOLS_BY_DOC_TYPE` in [`nearby_specialized.py`](../../plugin/doc/nearby_specialized.py). |
+| 6 | **Inner allowlist** | **Decision (Phase 0):** static `READ_TOOLS_BY_DOC_TYPE` in [`document_research_specialized.py`](../../plugin/doc/document_research_specialized.py). |
 | 7 | **Max files per list** | Cap (e.g. 100) — document in `list_nearby_files` result. |
 
 ---
@@ -343,29 +344,29 @@ flowchart LR
 
 **Outer sub-agent (`specialized_domain="document_research"`):**
 
-- [`ListNearbyFiles`](../../plugin/doc/nearby_tools.py) → [`list_nearby_files`](../../plugin/doc/nearby.py): `NEARBY_FILE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100).
-- [`DelegateReadDocument`](../../plugin/doc/nearby_specialized.py): `path_or_name` + `task`; hidden+read-only open (or reuse open); spawns inner; returns `{ path, doc_type, result }`.
+- [`ListNearbyFiles`](../../plugin/doc/document_research_tools.py) → [`list_nearby_files`](../../plugin/doc/document_research.py): `NEARBY_FILE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100).
+- [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): `path_or_name` + `task`; hidden+read-only open (or reuse open); spawns inner; returns `{ path, doc_type, result }`.
 - `specialized_workflow_finished` / final answer to main (same as other specialized domains).
 
 **Inner sub-agent (per opened file):**
 
-- `READ_TOOLS_BY_DOC_TYPE` allowlist; [`run_inner_read_agent`](../../plugin/doc/nearby_specialized.py).
+- `READ_TOOLS_BY_DOC_TYPE` allowlist; [`run_inner_read_agent`](../../plugin/doc/document_research_specialized.py).
 - `ToolContext.doc` = opened model; `read_only_target=True` — see [read-only enforcement](#read-only-enforcement).
 - One inner run per `delegate_read_document` call; discarded after return.
 
-**Library ([`plugin/doc/nearby.py`](../../plugin/doc/nearby.py)):**
+**Library ([`plugin/doc/document_research.py`](../../plugin/doc/document_research.py)):**
 
 - `FileEntry`, `NEARBY_FILE_EXTENSIONS`, `get_document_directory`, `get_work_directory`, `resolve_listing_directory`, `list_nearby_files`, `resolve_path_or_name`, `open_document_for_read`, `guess_doc_type_from_path`.
 
-**Module wiring:** [`plugin/doc/common_module.py`](../../plugin/doc/common_module.py) `auto_discover` for `nearby_tools` and `nearby_specialized`. No new keys in [`module.yaml`](../../plugin/doc/module.yaml).
+**Module wiring:** [`plugin/doc/common_module.py`](../../plugin/doc/common_module.py) `auto_discover` for `document_research_tools` and `document_research_specialized`. No new keys in [`module.yaml`](../../plugin/doc/module.yaml).
 
 **Out of scope Phase 0:** config directories, `[NEARBY FILES]` prompt injection, `@` UI, headless, metadata cache, write-back to siblings.
 
 **Done when:**
 
 - [ ] Calc acceptance scenario #1 (Q4 budget) passes manually (recommended before release notes).
-- [x] `make test` / pytest green: [`test_nearby.py`](../../tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../../tests/doc/test_nearby_specialized.py).
-- [x] UNO: hidden open, list excludes self, sibling read via `read_cell_range` — [`test_nearby_uno.py`](../../tests/doc/test_nearby_uno.py).
+- [x] `make test` / pytest green: [`test_document_research.py`](../../tests/doc/test_document_research.py), [`test_document_research_specialized.py`](../../tests/doc/test_document_research_specialized.py).
+- [x] UNO: hidden open, list excludes self, sibling read via `read_cell_range` — [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py).
 - [ ] Active window focus unchanged after cross-file read (manual check).
 
 ---
@@ -502,7 +503,7 @@ flowchart LR
 #### 7.4 Multi-File Comparison (Native LO Compare)
 *   **Concept:** Compare versions of documents (e.g., "What changed between v1 and v2?") using LibreOffice's built-in comparison engine.
 *   **Implementation:** 
-    *   Create a specialized tool `CompareDocuments(path_a, path_b)` in [`plugin/doc/nearby_tools.py`](../../plugin/doc/nearby_tools.py).
+    *   Create a specialized tool `CompareDocuments(path_a, path_b)` in [`plugin/doc/document_research_tools.py`](../../plugin/doc/document_research_tools.py).
     *   **Logic:**
         1. Open `path_b` (the "newer" version) hidden.
         2. Use `XDispatchHelper` to execute `.uno:CompareDocuments` on the frame of `path_b`, passing the URL of `path_a` as the "original" document.
@@ -565,8 +566,8 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 
 | Phase | Unit | UNO / integration |
 | ----- | ---- | ----------------- |
-| **0** | [`test_nearby.py`](../../tests/doc/test_nearby.py): scandir, extensions, sort, exclude self, filter, truncate, Work-path fallback | [`test_nearby_uno.py`](../../tests/doc/test_nearby_uno.py): hidden+read-only open; list; sibling `read_cell_range` |
-| **0** | [`test_nearby_specialized.py`](../../tests/doc/test_nearby_specialized.py): `document_research` on all delegates; mock inner; read-only guard; no gateway recurse | — |
+| **0** | [`test_document_research.py`](../../tests/doc/test_document_research.py): scandir, extensions, sort, exclude self, filter, truncate, Work-path fallback | [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py): hidden+read-only open; list; sibling `read_cell_range` |
+| **0** | [`test_document_research_specialized.py`](../../tests/doc/test_document_research_specialized.py): `document_research` on all delegates; mock inner; read-only guard; no gateway recurse | — |
 | **1** | Config merge, dedupe | — |
 | **2** | Prompt snapshot / max length | — |
 | **3** | — | Cache, close-on-idle, Writer/Calc/Draw samples; `ToolContext.doc` isolation |

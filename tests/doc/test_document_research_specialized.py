@@ -8,9 +8,15 @@ import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.calc.specialized import DelegateToSpecializedCalc
 from plugin.contrib.smolagents.memory import FinalAnswerStep, ToolCall
-from plugin.doc.document_research_specialized import DelegateReadDocument, run_inner_read_agent
+from plugin.doc.document_research_specialized import (
+    READ_TOOLS_BY_DOC_TYPE,
+    DelegateReadDocument,
+    run_inner_read_agent,
+)
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
@@ -884,4 +890,227 @@ def test_document_research_delegation_includes_open_documents_context(
         assert "File1.odt [writer] (Active)" in instructions
         assert "File2.ods [calc]" in instructions
         assert "Some of these files may be completely unrelated to the task at hand" in instructions
+
+
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "finished": True, "answer": "Q4=100", "message": "done"})
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
+@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+def test_delegate_read_document_unwraps_finish_answer(
+    mock_main,
+    mock_resolve,
+    mock_open,
+    mock_close,
+    mock_inner,
+):
+    opened_model = MagicMock()
+    mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
+    mock_open.return_value = (opened_model, "calc", None, True)
+
+    r = ToolRegistry(services={})
+    r.register(DelegateReadDocument())
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.services = {"tools": r}
+
+    tool = r.get("delegate_read_document")
+    assert tool is not None
+    result = tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
+    assert result["status"] == "ok"
+    assert result["result"] == "Q4=100"
+    assert "finished" not in result["result"]
+
+
+@pytest.mark.parametrize(
+    ("inner_payload", "expected"),
+    [
+        ("plain text", "plain text"),
+        ({"status": "ok", "result": "42"}, "42"),
+    ],
+)
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent")
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
+@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+def test_delegate_read_document_passes_through_plain_string_and_result(
+    mock_main,
+    mock_resolve,
+    mock_open,
+    mock_close,
+    mock_inner,
+    inner_payload,
+    expected,
+):
+    mock_inner.return_value = inner_payload
+    opened_model = MagicMock()
+    mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
+    mock_open.return_value = (opened_model, "calc", None, True)
+
+    r = ToolRegistry(services={})
+    r.register(DelegateReadDocument())
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.services = {"tools": r}
+
+    tool = r.get("delegate_read_document")
+    assert tool is not None
+    result = tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
+    assert result["status"] == "ok"
+    assert result["result"] == expected
+
+
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value=None)
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
+@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+def test_delegate_read_document_no_answer_is_error(
+    mock_main,
+    mock_resolve,
+    mock_open,
+    mock_close,
+    mock_inner,
+):
+    opened_model = MagicMock()
+    mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
+    mock_open.return_value = (opened_model, "calc", None, True)
+
+    r = ToolRegistry(services={})
+    r.register(DelegateReadDocument())
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.services = {"tools": r}
+
+    tool = r.get("delegate_read_document")
+    assert tool is not None
+    result = tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
+    assert result["status"] == "error"
+    assert result["code"] == "READ_EMPTY_RESULT"
+    mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
+
+
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value="42")
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
+def test_delegate_read_document_resolves_before_the_main_thread_open(
+    mock_resolve,
+    mock_open,
+    mock_close,
+    mock_inner,
+):
+    order: list[str] = []
+
+    def fake_run_on_main(fn, *a, **k):
+        order.append("main")
+        return fn(*a, **k)
+
+    def fake_resolve(*a, **k):
+        order.append("resolve")
+        return ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
+
+    def fake_open(*a, **k):
+        order.append("open")
+        return (MagicMock(), "calc", None, True)
+
+    mock_resolve.side_effect = fake_resolve
+    mock_open.side_effect = fake_open
+
+    with patch("plugin.doc.document_research_specialized.run_on_main", side_effect=fake_run_on_main):
+        r = ToolRegistry(services={})
+        r.register(DelegateReadDocument())
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.services = {"tools": r}
+
+        tool = r.get("delegate_read_document")
+        assert tool is not None
+        result = tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
+        assert result["status"] == "ok"
+        assert order == ["resolve", "main", "open", "main"]
+
+
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value="42")
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
+def test_delegate_read_document_survives_close_post_timeout(
+    mock_resolve,
+    mock_open,
+    mock_close,
+    mock_inner,
+):
+    opened_model = MagicMock()
+    mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
+    mock_open.return_value = (opened_model, "calc", None, True)
+
+    def fake_run_on_main(fn, *a, **k):
+        if getattr(fn, "__name__", "") == "_do_close":
+            raise TimeoutError("queue full")
+        return fn(*a, **k)
+
+    with (
+        patch("plugin.doc.document_research_specialized.run_on_main", side_effect=fake_run_on_main),
+        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=TimeoutError("queue full")),
+    ):
+        r = ToolRegistry(services={})
+        r.register(DelegateReadDocument())
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.services = {"tools": r}
+
+        tool = r.get("delegate_read_document")
+        assert tool is not None
+        result = tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
+        assert result["status"] == "ok"
+        assert result["result"] == "42"
+        assert result["path"] == "/tmp/Budget.ods"
+
+
+@pytest.mark.parametrize("doc_type", ["writer", "calc", "draw"])
+def test_allowlist_tools_are_registered(doc_type):
+    from plugin.calc.cells import ReadCellRange
+    from plugin.calc.sheets import GetSheetSummary
+    from plugin.draw.pages import ListPages
+    from plugin.draw.tree import GetDrawTree
+    from plugin.writer.get_document_content import GetDocumentContent
+    from plugin.writer.outline import GetDocumentTree
+    from plugin.writer.search import SearchInDocument
+
+    r = ToolRegistry(services={})
+    r.register(GetDocumentContent())
+    r.register(GetDocumentTree())
+    r.register(SearchInDocument())
+    r.register(GetSheetSummary())
+    r.register(ReadCellRange())
+    r.register(ListPages())
+    r.register(GetDrawTree())
+    r.register(SpecializedWorkflowFinished())
+
+    got = {t.name for t in r.get_tools(doc_type=doc_type, names=list(READ_TOOLS_BY_DOC_TYPE[doc_type]), exclude_tiers=())}
+    assert got == set(READ_TOOLS_BY_DOC_TYPE[doc_type])
+
+
+@patch("plugin.doc.document_research_specialized.resolve_path_or_name", return_value=(None, "No file matching 'x'"))
+def test_delegate_read_document_missing_file_error_has_flat_details(mock_resolve):
+    r = ToolRegistry(services={})
+    r.register(DelegateReadDocument())
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.services = {"tools": r}
+
+    tool = r.get("delegate_read_document")
+    assert tool is not None
+    result = tool.execute_safe(ctx, path_or_name="x", task="Q4")
+    assert result["status"] == "error"
+    assert result["details"]["path_or_name"] == "x"
+    assert "details" not in result["details"]
 
