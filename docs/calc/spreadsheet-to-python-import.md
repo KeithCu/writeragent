@@ -109,7 +109,7 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 |----|--------|---------|----------|
 | US1 | Calc user | to convert the **active sheet** to Python | I can use NumPy on existing logic without retyping |
 | US2 | Calc user | to convert **only my selection** | I can migrate one table at a time |
-| US3 | Calc user | output on a **new sheet** `PythonImport` | I can diff against the original before replacing |
+| US3 | Calc user | output on a **new sheet** `PythonImport` (suffixed `PythonImport 2`, … if taken) | I can diff against the original before replacing |
 | US4 | Calc user | a **conversion report** | I know which formulas still need manual work |
 | US5 | Chat user | to say “convert this range to Python” | the agent runs the tool and shows the report |
 | US6 | Power user | existing `=PY()` cells **normalized** not duplicated | Monaco-edited code stays canonical |

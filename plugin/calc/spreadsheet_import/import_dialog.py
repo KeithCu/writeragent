@@ -14,13 +14,16 @@ from plugin.framework.uno_context import get_desktop
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, run_dialog_with_listeners
 from plugin.calc.address_utils import parse_range_string, parse_address
-from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, enrich_number_formats
 from plugin.calc.spreadsheet_import.verify import verify_converted_cells
 
 log = logging.getLogger("writeragent.calc.import_dialog")
+
+TARGET_SHEET_NAME = "PythonImport"
+# com.sun.star.sheet.CellFlags: VALUE(1) | DATETIME(2) | STRING(4) | FORMULA(16).
+_CLEAR_CONTENTS_FLAGS = 1 | 2 | 4 | 16
 
 
 def _control_is_checked(ctrl: Any) -> bool:
@@ -32,51 +35,60 @@ def _control_is_checked(ctrl: Any) -> bool:
 
 
 def fetch_actual_values(sheet: Any, addresses: list[str]) -> dict[str, Any]:
-    actual_values: dict[str, Any] = {}
-    for addr in addresses:
-        col, row = parse_address(addr)
-        cell = sheet.getCellByPosition(col, row)
-        t = cell.getType()
-        log.debug("fetch_actual_values cell %s: type=%s, formula=%r, value=%r", addr, t, cell.getFormula(), cell.getValue())
-
-        if t == EMPTY:
-            actual_values[addr] = None
-        elif t == VALUE:
-            actual_values[addr] = cell.getValue()
-        elif t == TEXT:
-            actual_values[addr] = cell.getString()
-        elif t == FORMULA:
-            err = cell.getError()
-            if err != 0:
-                actual_values[addr] = f"Err:{err}"
-            else:
-                display = cell.getString()
-                if "Code execution failed" in display or display.strip().startswith("Error:"):
-                    actual_values[addr] = display
-                else:
-                    v = cell.getValue()
-                    # Text results (e.g. TEXT/MONTH) keep getValue()==0; use display.
-                    if v == 0.0 and display and display.strip() not in ("", "0", "0.0", "0.00") and not any(ch.isdigit() for ch in display):
-                        actual_values[addr] = display.strip()
-                    else:
-                        actual_values[addr] = v
-        else:
-            actual_values[addr] = cell.getValue()
-    return actual_values
+    """Bulk-read recalculated results; values match what ingest saw from getDataArray()."""
+    if not addresses:
+        return {}
+    coords = [parse_address(addr) for addr in addresses]
+    min_col = min(col for col, _row in coords)
+    max_col = max(col for col, _row in coords)
+    min_row = min(row for _col, row in coords)
+    max_row = max(row for _col, row in coords)
+    # Same representation ingest classified: float / str / "" / None (error).
+    grid = sheet.getCellRangeByPosition(min_col, min_row, max_col, max_row).getDataArray()
+    return {addr: grid[row - min_row][col - min_col] for addr, (col, row) in zip(addresses, coords)}
 
 
-def run_sheet_conversion(doc: Any, source_sheet: Any, *, scope: str = "sheet", output_mode: str = "new_sheet", vectorize: bool = True, verify: bool = True) -> dict[str, Any]:
+def _unique_sheet_name(sheets: Any, base: str) -> str:
+    """Return ``base``, or ``base 2``/``base 3``/... when the name is taken."""
+    if not sheets.hasByName(base):
+        return base
+    suffix = 2
+    while sheets.hasByName(f"{base} {suffix}"):
+        suffix += 1
+    return f"{base} {suffix}"
+
+
+def selection_range_address(selection: Any) -> Any:
+    """Return the one selected range address; reject shapes and multi-range selections."""
+    if hasattr(selection, "getRangeAddress"):
+        return selection.getRangeAddress()
+    if hasattr(selection, "getRangeAddresses"):
+        addresses = selection.getRangeAddresses()
+        if len(addresses) == 1:
+            return addresses[0]
+        raise ValueError("Select one contiguous range of cells to convert.")
+    raise ValueError("Select a range of cells to convert, not a shape or object.")
+
+
+def run_sheet_conversion(
+    doc: Any,
+    source_sheet: Any,
+    *,
+    scope: str = "sheet",
+    output_mode: str = "new_sheet",
+    vectorize: bool = True,
+    verify: bool = True,
+    preserve_formats: bool = True,
+) -> dict[str, Any]:
     """Execute the Conversion Pipeline using ingest, emit, apply, and verify."""
     range_addr = None
     if scope == "selection":
-        controller = doc.getCurrentController()
-        selection = controller.getSelection()
-        if hasattr(selection, "getRangeAddress"):
-            range_addr = selection.getRangeAddress()
+        range_addr = selection_range_address(doc.getCurrentController().getSelection())
 
     # 1. Ingest Sheet
     model = ingest_sheet(source_sheet, range_addr=range_addr)
-    enrich_number_formats(source_sheet, model)
+    if preserve_formats:
+        enrich_number_formats(source_sheet, model)
 
     sheet_bounds: dict[str, tuple[int, int]] = {}
 
@@ -97,17 +109,15 @@ def run_sheet_conversion(doc: Any, source_sheet: Any, *, scope: str = "sheet", o
     # 3. Resolve Target Sheet
     target_sheet = None
     if output_mode == "new_sheet":
-        target_name = "PythonImport"
         sheets = doc.getSheets()
-        if sheets.hasByName(target_name):
-            sheets.remove(sheets.getByName(target_name))
+        target_name = _unique_sheet_name(sheets, TARGET_SHEET_NAME)
         sheets.insertNewByName(target_name, sheets.getCount())
         target_sheet = sheets.getByName(target_name)
     else:
         target_sheet = source_sheet
         (sc, sr), (ec, er) = parse_range_string(output.used_range)
         cell_range = target_sheet.getCellRangeByPosition(sc, sr, ec, er)
-        cell_range.clearContents(23)
+        cell_range.clearContents(_CLEAR_CONTENTS_FLAGS)
 
     # 4. Apply Output
     apply_output_to_sheet(target_sheet, output)
@@ -120,7 +130,25 @@ def run_sheet_conversion(doc: Any, source_sheet: Any, *, scope: str = "sheet", o
         verify_res = verify_converted_cells(model, output, report, actual_values=actual_values)
         failed_verifications = [item.to_dict() for item in verify_res.failed]
 
-    return {"report": report.to_dict(), "summary": report.summary(), "failed_verifications": failed_verifications}
+    status = "partial" if failed_verifications else "ok"
+    return {
+        "status": status,
+        "report": report.to_dict(),
+        "summary": report.summary(),
+        "failed_verifications": failed_verifications,
+    }
+
+
+def result_message(outcome: dict[str, Any]) -> tuple[str, str]:
+    """Title and body for the result box; warns when verification found mismatches."""
+    failed = outcome.get("failed_verifications") or []
+    if failed:
+        first = failed[0]
+        return (
+            "Conversion finished with mismatches",
+            f"{len(failed)} cell(s) did not verify.\nFirst: {first.get('address')}: {first.get('message')}\n\n{outcome['summary']}",
+        )
+    return "Success", f"Conversion completed successfully!\n\n{outcome['summary']}"
 
 
 def show_import_dialog(ctx: Any) -> None:
@@ -155,8 +183,17 @@ def show_import_dialog(ctx: Any) -> None:
                     output_mode = "in_place" if _control_is_checked(dlg.getControl("ModeReplace")) else "new_sheet"
                     vectorize = _control_is_checked(dlg.getControl("OptVector"))
                     verify = _control_is_checked(dlg.getControl("OptVerify"))
+                    preserve_formats = _control_is_checked(dlg.getControl("OptFormats"))
 
-                    res = run_sheet_conversion(doc, source_sheet, scope=scope, output_mode=output_mode, vectorize=vectorize, verify=verify)
+                    res = run_sheet_conversion(
+                        doc,
+                        source_sheet,
+                        scope=scope,
+                        output_mode=output_mode,
+                        vectorize=vectorize,
+                        verify=verify,
+                        preserve_formats=preserve_formats,
+                    )
                     _outcome = res
                     dlg.endDialog(1)
                 except Exception as e:
@@ -171,7 +208,8 @@ def show_import_dialog(ctx: Any) -> None:
         run_dialog_with_listeners(dlg, _OkListener(), _CancelListener())
 
         if _outcome:
-            msgbox(ctx, "Success", f"Conversion completed successfully!\n\n{_outcome['summary']}")
+            title, text = result_message(_outcome)
+            msgbox(ctx, title, text)
 
     except Exception as e:
         log.exception("show_import_dialog failed")
