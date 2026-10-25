@@ -98,10 +98,7 @@ def audit_plugin_roots(roots: list[str] | None = None) -> str:
             )
         else:
             pairs_str = "; ".join(f"{path}={version}" for path, version in versioned_roots)
-            logger.error(
-                f"Dual OXT plugin roots have different versions: %s. {_AUDIT_HINT}",
-                pairs_str,
-            )
+            logger.error("Dual OXT plugin roots have different versions: %s. %s", pairs_str, _AUDIT_HINT)
 
     return code
 
