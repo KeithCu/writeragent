@@ -21,10 +21,10 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.address_utils import column_to_index, format_range_address, index_to_column, parse_address, split_sheet_prefix
+from plugin.calc.address_utils import MAX_COL, column_to_index, format_range_address, index_to_column, parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcRangeBase
-from plugin.calc.bridge import CalcBridge, find_named_range, is_agent_visible_sheet
-from plugin.framework.errors import UnoObjectError, best_effort, uno_read
+from plugin.calc.bridge import CalcBridge, NamedRangeHit, find_named_range, is_agent_visible_sheet
+from plugin.framework.errors import UnoObjectError, uno_read
 
 from com.sun.star.lang import IllegalArgumentException
 
@@ -38,30 +38,50 @@ _FLAG_NAME_TO_BIT: dict[str, int] = {"filter_criteria": 1, "print_area": 2, "col
 
 _BIT_TO_FLAG_NAME: dict[int, str] = {v: k for k, v in _FLAG_NAME_TO_BIT.items()}
 
+_FLAG_MASK = 15
+
 # Gemini rejects oneOf; advertise the LLM-friendly form. _parse_flags still
 # accepts a comma-string or integer bitmask if sent.
 _FLAGS_SCHEMA: dict[str, Any] = {"description": ("Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'."), "type": "array", "items": {"type": "string", "enum": list(_FLAG_NAME_TO_BIT.keys())}}
 
 
 def _parse_flags(flags: list[str] | str | int | None) -> int:
-    """Parse human-readable flags or integer bitmask into a NamedRangeFlag bitmask."""
+    """Parse human-readable flags or integer bitmask into a NamedRangeFlag bitmask.
+
+    Raises ValueError on unknown flag names, invalid types, or out-of-mask values.
+    """
     if flags is None:
         return 0
-    if isinstance(flags, int):
-        return flags
-    if isinstance(flags, str):
-        flag_list = [f.strip().lower() for f in flags.replace(",", " ").split() if f.strip()]
-    elif isinstance(flags, (list, tuple)):
-        flag_list = [str(f).strip().lower() for f in flags if str(f).strip()]
-    else:
-        return 0
 
-    mask = 0
-    for item in flag_list:
-        if item in _FLAG_NAME_TO_BIT:
-            mask |= _FLAG_NAME_TO_BIT[item]
-        elif item.isdigit():
-            mask |= int(item)
+    if isinstance(flags, int):
+        mask = flags
+    elif isinstance(flags, str):
+        mask = 0
+        tokens = [f.strip().lower() for f in flags.replace(",", " ").split() if f.strip()]
+        for item in tokens:
+            if item in _FLAG_NAME_TO_BIT:
+                mask |= _FLAG_NAME_TO_BIT[item]
+            elif item.isdigit():
+                mask |= int(item)
+            else:
+                raise ValueError(f"Unknown flag '{item}'. Valid flags: {', '.join(_FLAG_NAME_TO_BIT)}.")
+    elif isinstance(flags, (list, tuple)):
+        mask = 0
+        for raw in flags:
+            item = str(raw).strip().lower()
+            if not item:
+                continue
+            if item in _FLAG_NAME_TO_BIT:
+                mask |= _FLAG_NAME_TO_BIT[item]
+            elif item.isdigit():
+                mask |= int(item)
+            else:
+                raise ValueError(f"Unknown flag '{item}'. Valid flags: {', '.join(_FLAG_NAME_TO_BIT)}.")
+    else:
+        raise ValueError(f"Invalid flags type: expected int, str, list, or tuple, got {type(flags).__name__}.")
+
+    if mask < 0 or mask & ~_FLAG_MASK:
+        raise ValueError(f"Invalid flags mask {mask}: only bits 1, 2, 4, and 8 are allowed.")
     return mask
 
 
@@ -83,7 +103,6 @@ _NAME_CELL_REF = "Invalid name. Reference to a cell, or a range of cells not all
 # Column ceiling is Calc's jumbo XFD (index 16383). IsNameValid treats any
 # ScAddress::Parse result other than ScRefFlags::ZERO as a cell, including a
 # partial row, so a positive row with a column inside that ceiling is rejected.
-_MAX_NAMED_RANGE_COL = 16383  # XFD
 _A1_CELL_NAME = re.compile(r"^([A-Za-z]{1,3})([0-9]+)$")
 # R1C1 forms that use only name characters (brackets are not Name chars).
 # RC is the current cell. Bare R or C is not a reference.
@@ -117,7 +136,7 @@ def _is_calc_cell_ref_name(name: str) -> bool:
     # Row 0 does not parse. Any positive row counts: a partial parse is not ScRefFlags::ZERO.
     if row < 1:
         return False
-    return column_to_index(match.group(1)) <= _MAX_NAMED_RANGE_COL
+    return column_to_index(match.group(1)) <= MAX_COL
 
 
 def _defined_name_error(name: str) -> str | None:
@@ -179,13 +198,10 @@ def _iter_named_range_sheets(doc: Any, *, agent_visible_only: bool) -> Any:
 def _resolve_named_range_target(
     tool: ToolCalcRangeBase,
     doc: Any,
-    bridge: CalcBridge,
     name: str,
     scope: str | None,
-    *,
-    not_found: str,
-) -> tuple[Any, str, Any | None, Any] | dict[str, Any]:
-    """Return ``(container, scope, sheet, named_range)`` or a tool error dict.
+) -> NamedRangeHit | dict[str, Any]:
+    """Return the resolved named range or a tool error dict.
 
     An explicit scope (including ``global``) uses only that container.
     An omitted scope uses :func:`find_named_range`.
@@ -194,13 +210,24 @@ def _resolve_named_range_target(
     if scope_text:
         container, effective_scope, sheet_obj = _resolve_container(doc, scope_text)
         if not container.hasByName(name):
-            return tool._tool_error(not_found.format(name=name, scope=effective_scope), code="NAMED_RANGE_NOT_FOUND")
-        return container, effective_scope, sheet_obj, container.getByName(name)
+            return tool._tool_error(f"No named range found with name '{name}' in scope '{effective_scope}'.", code="NAMED_RANGE_NOT_FOUND")
+        return NamedRangeHit(container, effective_scope, sheet_obj, container.getByName(name))
 
     found = find_named_range(doc, name)
     if found is None:
         return tool._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
     return found
+
+
+def _sheet_index(doc: Any, name: str) -> int | None:
+    """Return the 0-based index of sheet *name*, or None if not found or doc has no sheets."""
+    if not hasattr(doc, "getSheets"):
+        return None
+    sheets = doc.getSheets()
+    for idx in range(sheets.getCount()):
+        if sheets.getByIndex(idx).getName() == name:
+            return idx
+    return None
 
 
 def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int = 0) -> Any:
@@ -215,15 +242,8 @@ def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int 
             # A prefix that names no sheet is an error, same as a bad cell.
             # Leaving sheet_idx at the default (usually 0) when the scan
             # never matches anchors a relative name on the wrong sheet.
-            found = False
-            if hasattr(doc, "getSheets"):
-                sheets = doc.getSheets()
-                for idx in range(sheets.getCount()):
-                    if sheets.getByIndex(idx).getName() == prefix:
-                        sheet_idx = idx
-                        found = True
-                        break
-            if not found:
+            sheet_idx = _sheet_index(doc, prefix)
+            if sheet_idx is None:
                 raise ValueError("No sheet named '%s'." % prefix)
 
         # This will raise ValueError if invalid, instead of silently returning 0,0 (A1)
@@ -241,12 +261,8 @@ def _resolve_base_cell_pos(
     base_cell: str | None,
 ) -> Any | dict[str, Any]:
     sheet_idx = 0
-    if sheet_obj is not None and hasattr(doc, "getSheets"):
-        sheets = doc.getSheets()
-        for idx in range(sheets.getCount()):
-            if sheets.getByIndex(idx).getName() == sheet_obj.getName():
-                sheet_idx = idx
-                break
+    if sheet_obj is not None:
+        sheet_idx = _sheet_index(doc, sheet_obj.getName()) or 0
 
     try:
         return _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
@@ -347,24 +363,12 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
         name = kwargs["name"].strip()
-        scope_arg = kwargs.get("scope")
-
-        doc = bridge.doc
-
-        if scope_arg is not None and str(scope_arg).strip():
-            container, effective_scope, _ = _resolve_container(doc, str(scope_arg).strip())
-            if not container.hasByName(name):
-                return self._tool_error(f"No named range found with name '{name}' in scope '{effective_scope}'.", code="NAMED_RANGE_NOT_FOUND")
-            nr = container.getByName(name)
-            info = _extract_range_info(nr, effective_scope, doc)
-            return {"status": "ok", "result": info}
-
-        found = find_named_range(doc, name)
-        if found is None:
-            return self._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
-        _container, effective_scope, _sheet, nr = found
+        doc = ctx.doc
+        resolved = _resolve_named_range_target(self, doc, name, kwargs.get("scope"))
+        if isinstance(resolved, dict):
+            return resolved
+        _container, effective_scope, _sheet, nr = resolved
         return {"status": "ok", "result": _extract_range_info(nr, effective_scope, doc)}
 
 
@@ -395,6 +399,14 @@ class NamedRangeAdd(ToolCalcRangeBase):
         flags_arg = kwargs.get("flags")
 
         try:
+            invalid = _defined_name_error(name)
+            if invalid:
+                return self._tool_error(invalid, code="INVALID_NAME")
+            try:
+                type_mask = _parse_flags(flags_arg)
+            except ValueError as e:
+                return self._tool_error(str(e), code="INVALID_FLAGS")
+
             doc = ctx.doc
             container, effective_scope, sheet_obj = _resolve_container(doc, scope)
             if container.hasByName(name):
@@ -403,8 +415,6 @@ class NamedRangeAdd(ToolCalcRangeBase):
             pos = _resolve_base_cell_pos(self, doc, sheet_obj, base_cell)
             if isinstance(pos, dict):
                 return pos
-
-            type_mask = _parse_flags(flags_arg)
 
             container.addNewByName(name, content, pos, type_mask)
             log.info("Named range added: [%s] %s -> %s (flags=%d)", effective_scope, name, content, type_mask)
@@ -435,7 +445,6 @@ class NamedRangeEdit(ToolCalcRangeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
         name = kwargs["name"].strip()
         new_name = kwargs.get("new_name")
         content = kwargs.get("content")
@@ -444,13 +453,14 @@ class NamedRangeEdit(ToolCalcRangeBase):
         flags_arg = kwargs.get("flags")
 
         try:
-            doc = bridge.doc
-            resolved = _resolve_named_range_target(self, doc, bridge, name, scope, not_found="No named range found with name '{name}' in scope '{scope}'.")
+            doc = ctx.doc
+            resolved = _resolve_named_range_target(self, doc, name, scope)
             if isinstance(resolved, dict):
                 return resolved
             container, effective_scope, sheet_obj, nr = resolved
 
-            if new_name is not None and new_name.strip() and new_name.strip() != name:
+            old_name = nr.getName()
+            if new_name is not None and new_name.strip() and new_name.strip() != old_name:
                 new_clean = new_name.strip()
                 # setName does not run IsNameValid, so reject A1, Sales.2026,
                 # 1abc, and names with spaces using the same messages as
@@ -466,28 +476,54 @@ class NamedRangeEdit(ToolCalcRangeBase):
             else:
                 new_clean = None
 
+            try:
+                type_mask = _parse_flags(flags_arg) if flags_arg is not None else None
+            except ValueError as e:
+                return self._tool_error(str(e), code="INVALID_FLAGS")
+
             pos = None
             if base_cell is not None:
                 pos = _resolve_base_cell_pos(self, doc, sheet_obj, base_cell)
                 if isinstance(pos, dict):
                     return pos
 
+            old_content = nr.getContent() if content is not None else None
+            old_type = nr.getType() if flags_arg is not None else None
+            old_pos = nr.getReferencePosition() if pos is not None else None
+
             if new_clean:
                 nr.setName(new_clean)
                 final_name = new_clean
             else:
-                final_name = name
+                final_name = old_name
 
+            applied: list[str] = []
             try:
                 if content is not None:
                     nr.setContent(content.strip())
-                if flags_arg is not None:
-                    nr.setType(_parse_flags(flags_arg))
+                    applied.append("content")
+                if type_mask is not None:
+                    nr.setType(type_mask)
+                    applied.append("type")
                 if pos is not None:
                     nr.setReferencePosition(pos)
+                    applied.append("position")
             except Exception:
+                undo = {
+                    "content": lambda: nr.setContent(old_content),
+                    "type": lambda: nr.setType(old_type),
+                    "position": lambda: nr.setReferencePosition(old_pos),
+                }
+                for field in reversed(applied):
+                    try:
+                        undo[field]()
+                    except Exception:
+                        log.exception("Rollback of named range %s field %s failed", old_name, field)
                 if new_clean:
-                    best_effort(lambda: nr.setName(name), f"Rollback of named range rename {name} -> {new_clean} failed")
+                    try:
+                        nr.setName(old_name)
+                    except Exception:
+                        log.exception("Rollback of named range rename %s -> %s failed", old_name, new_clean)
                 raise
 
             log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)
@@ -507,18 +543,17 @@ class NamedRangeDelete(ToolCalcRangeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge = CalcBridge(ctx.doc)
         name = kwargs["name"].strip()
         scope = kwargs.get("scope")
 
         try:
-            doc = bridge.doc
-            resolved = _resolve_named_range_target(self, doc, bridge, name, scope, not_found="No named range found with the name '{name}' in scope '{scope}'.")
+            doc = ctx.doc
+            resolved = _resolve_named_range_target(self, doc, name, scope)
             if isinstance(resolved, dict):
                 return resolved
-            container, effective_scope, _sheet, _nr = resolved
+            container, effective_scope, _sheet, nr = resolved
 
-            container.removeByName(name)
+            container.removeByName(nr.getName())
             log.info("Named range deleted: [%s] %s", effective_scope, name)
             return {"status": "ok", "message": f"Named range '{name}' deleted successfully from scope '{effective_scope}'."}
         except IllegalArgumentException as e:
