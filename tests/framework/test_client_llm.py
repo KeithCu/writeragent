@@ -1130,11 +1130,11 @@ def test_grok_shim(client):
 
         # Test image request for Grok (should omit size and steps). A supplied
         # model id is sent as the caller wrote it.
-        client.image_completion("Draw a cat", model="grok-imagine-image-2.0", width=1024, height=1024, steps=30)
+        client.image_completion("Draw a cat", model="grok-imagine-image", width=1024, height=1024, steps=30)
 
         path, body = _posted_json(mock_sync)
         assert body["prompt"] == "Draw a cat"
-        assert body["model"] == "grok-imagine-image-2.0"
+        assert body["model"] == "grok-imagine-image"
         assert body["aspect_ratio"] == "1:1"
         assert body["resolution"] == "1k"
         assert body["response_format"] == "b64_json"
