@@ -30,20 +30,54 @@ KOKORO_VOICES_FILENAME = "voices-v1.0.bin"
 
 _KOKORO_CANONICAL = ("kokoro",)
 _PIPER_CANONICAL = ("piper",)
+# Same id as voice_catalog.PIPER_FALLBACK_VOICE without importing voice_catalog.
+_PIPER_PLAIN_FALLBACK_ID = "en_US-lessac-medium"
 _KOKORO_PROBE: tuple[tuple[str, ...], ...] = (_KOKORO_CANONICAL, ("kokoro-tts",), ("pipecat", "kokoro-onnx"))
 _PIPER_PROBE: tuple[tuple[str, ...], ...] = (_PIPER_CANONICAL, ("pipecat", "piper"))
 
 _KOKORO_ENV_FILES: dict[str, str] = {"KOKORO_MODEL_PATH": KOKORO_MODEL_FILENAME, "KOKORO_VOICES_PATH": KOKORO_VOICES_FILENAME}
 
+_warned_overrides: set[tuple[str, str]] = set()
+
+
+def _is_usable_file(path: Path) -> bool:
+    """True when path exists, is a regular file, and has non-zero size."""
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _plain_piper_voice_id(voice_id: str) -> bool:
+    """True when voice_id is a plain filename stem without path separators or traversal."""
+    name = voice_id.strip()
+    if not name or name in (".", ".."):
+        return False
+    if any(sep in name for sep in ("/", "\\", "\x00")):
+        return False
+    if Path(name).name != name:
+        return False
+    return True
+
+
+def _warn_unusable_override(name: str, path: Path) -> None:
+    key = (name, os.fspath(path))
+    if key not in _warned_overrides:
+        _warned_overrides.add(key)
+        log.warning("%s=%s is not a usable file; Kokoro will not download over an override", name, path)
+
 
 def shared_cache_root() -> Path:
     """Cache root shared with other local-model apps.
 
-    ``XDG_CACHE_HOME`` when set and non-blank; otherwise ``Path.home() / ".cache"``.
+    ``XDG_CACHE_HOME`` when set to an absolute path (with ``~`` expanded);
+    otherwise ``Path.home() / ".cache"``. Blank, whitespace-only, or relative values are ignored.
     """
     raw = os.environ.get("XDG_CACHE_HOME", "").strip()
     if raw:
-        return Path(raw).expanduser()
+        expanded = Path(raw).expanduser()
+        if expanded.is_absolute():
+            return expanded
     return Path.home() / ".cache"
 
 
@@ -81,7 +115,11 @@ def resolve_kokoro_model_paths() -> tuple[Path, Path]:
     points at ``<cache>/kokoro`` and the two paths may differ.
     """
     model_path = _env_override("KOKORO_MODEL_PATH")
+    if model_path is not None and not _is_usable_file(model_path):
+        _warn_unusable_override("KOKORO_MODEL_PATH", model_path)
     voices_path = _env_override("KOKORO_VOICES_PATH")
+    if voices_path is not None and not _is_usable_file(voices_path):
+        _warn_unusable_override("KOKORO_VOICES_PATH", voices_path)
     model_found: Path | None = None
     voices_found: Path | None = None
 
@@ -89,12 +127,12 @@ def resolve_kokoro_model_paths() -> tuple[Path, Path]:
         for directory in kokoro_probe_dirs():
             if model_path is None:
                 candidate = directory / KOKORO_MODEL_FILENAME
-                if candidate.is_file():
+                if _is_usable_file(candidate):
                     model_path = candidate
                     model_found = directory
             if voices_path is None:
                 candidate = directory / KOKORO_VOICES_FILENAME
-                if candidate.is_file():
+                if _is_usable_file(candidate):
                     voices_path = candidate
                     voices_found = directory
             if model_path is not None and voices_path is not None:
@@ -114,7 +152,7 @@ def kokoro_should_download(path: Path, env_var: str) -> bool:
     override and kokoro_download_dir() / filename. Compare strings, do not resolve().
     A probed path is a download target.
     """
-    if path.is_file():
+    if _is_usable_file(path):
         return False
     filename = _KOKORO_ENV_FILES.get(env_var)
     if filename is None:
@@ -129,18 +167,21 @@ def kokoro_should_download(path: Path, env_var: str) -> bool:
 def resolve_piper_voice_paths(voice_id: str) -> tuple[Path, Path]:
     """Return ``({voice}.onnx, {voice}.onnx.json)``.
 
+    A voice id that is not a single filename resolves as en_US-lessac-medium.
     Both files must sit in the same probe directory. A lone ``.onnx`` is not
     a hit — Piper needs the json beside it, which is what the downloader
     writes. Missing pairs point at ``<cache>/piper``, not Pipecat's tree.
     An absolute voice path that already exists is handled by the caller
     before this function runs.
     """
+    if not _plain_piper_voice_id(voice_id):
+        voice_id = _PIPER_PLAIN_FALLBACK_ID
     onnx_name = f"{voice_id}.onnx"
     json_name = f"{voice_id}.onnx.json"
     for directory in piper_probe_dirs():
         onnx_path = directory / onnx_name
         json_path = directory / json_name
-        if onnx_path.is_file() and json_path.is_file():
+        if _is_usable_file(onnx_path) and _is_usable_file(json_path):
             return onnx_path, json_path
     dest = piper_download_dir()
     return dest / onnx_name, dest / json_name
@@ -154,12 +195,12 @@ def _under_cache(relative: tuple[tuple[str, ...], ...]) -> tuple[Path, ...]:
 def _env_override(name: str) -> Path | None:
     """Set env path, or None when the variable is missing or blank.
 
-    A blank variable is unset. Do not expanduser; a missing override stays literal.
+    A blank or whitespace variable is unset. ``~`` is expanded; a missing file stays that expanded path (no probe).
     """
-    raw = os.environ.get(name)
+    raw = (os.environ.get(name) or "").strip()
     if not raw:
         return None
-    return Path(raw)
+    return Path(raw).expanduser()
 
 
 def _kokoro_missing_target(sibling_dir: Path | None) -> Path:

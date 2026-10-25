@@ -18,12 +18,12 @@ mentions that download only when those weights are not already cached.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import logging
 import os
 import subprocess
 import sys
-import threading
 import time
 from typing import Any, Callable
 
@@ -45,7 +45,6 @@ STT_PROVIDER_LOCAL = "local"
 LOCAL_STT_MODELS = ("tiny", "base", "small", "medium")
 DEFAULT_STT_LOCAL_MODEL = "base"
 
-_PROBE_TIMEOUT_SEC = 60.0
 # First run may download weights (base is ~150 MB; medium is ~1.5 GB) and then
 # transcribe. The 900 s bound is a hung download or decode, not Stop. Stop during
 # transcription still does not kill the child.
@@ -55,8 +54,14 @@ _STT_POLL_SEC = 0.2
 
 _WHISPER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whisper_transcribe.py")
 
-_probe_lock = threading.Lock()
-_whisper_ready: set[str] = set()
+
+@dataclass(frozen=True)
+class SttCommandResult:
+    returncode: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+    spawn_failed: bool = False
 
 
 def normalize_stt_provider(raw: object) -> str:
@@ -221,12 +226,6 @@ def status_for_transcription() -> str:
     return _("Transcribing audio...")
 
 
-def clear_faster_whisper_probe_cache() -> None:
-    """Forget which venv interpreters already imported faster-whisper."""
-    with _probe_lock:
-        _whisper_ready.clear()
-
-
 def resolve_stt_python() -> str | None:
     """Venv interpreter from Settings → Python, or None when it is not set."""
     venv_dir = _config_str_or_empty("scripting.python_venv_path").strip()
@@ -266,7 +265,7 @@ def _run_cmd(
     timeout: float,
     *,
     on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
-) -> subprocess.CompletedProcess[str] | None:
+) -> SttCommandResult:
     """Run *cmd* and return when it exits or *timeout* elapses."""
     scrubbed_env = scrub_subprocess_env(dict(os.environ))
     run_kwargs: dict[str, Any] = {
@@ -282,7 +281,7 @@ def _run_cmd(
         proc = subprocess.Popen(wrap_command_for_sandbox(cmd, env=scrubbed_env, watch_bus=True), **run_kwargs)
     except OSError as exc:
         log.warning("STT command failed (%s): %s", cmd[0], exc)
-        return None
+        return SttCommandResult(None, "", str(exc), spawn_failed=True)
 
     if on_spawn is not None:
         try:
@@ -311,14 +310,16 @@ def _run_cmd(
         for handle in handles:
             best_effort(lambda: handle.join(timeout=1.0), "STT pipe drain join failed")
 
+    timed_out = False
     try:
         deadline = time.monotonic() + timeout
         while proc.poll() is None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 log.warning("STT command timed out (%s)", cmd[0])
+                timed_out = True
                 terminate_stt_process(proc)
-                return None
+                break
             try:
                 proc.wait(timeout=min(_STT_POLL_SEC, remaining))
             except subprocess.TimeoutExpired:
@@ -327,11 +328,14 @@ def _run_cmd(
         # before ``finally``, so a join only in ``finally`` would drop stdout.
         _reap_stt_process(proc)
         _join_drains()
-        return subprocess.CompletedProcess(
-            cmd,
-            proc.returncode if proc.returncode is not None else 1,
-            "".join(out_parts),
-            "".join(err_parts),
+        out = "".join(out_parts)
+        err = "".join(err_parts)
+        return SttCommandResult(
+            proc.returncode,
+            out,
+            err,
+            timed_out=timed_out,
+            spawn_failed=False,
         )
     finally:
         if proc.poll() is None:
@@ -343,33 +347,6 @@ def _run_cmd(
         # pipe so GC never closes it. Closing the read end unblocks the thread.
         _close_stt_pipe(proc.stdout)
         _close_stt_pipe(proc.stderr)
-
-
-def ensure_faster_whisper(py_exe: str) -> bool:
-    """Return True when ``import faster_whisper`` succeeds in ``py_exe``.
-
-    A successful probe is remembered for this process so the next recording
-    does not spawn Python again just to import. A missing package is not
-    installed and is not cached: Record raises ``ConfigError`` with the
-    install hint. Auto-pip on first Record failed on real machines; Kokoro
-    and Piper auto-fetch voice files, not their Python packages.
-    """
-    with _probe_lock:
-        if py_exe in _whisper_ready:
-            return True
-    completed = _run_cmd([py_exe, "-c", "import faster_whisper"], _PROBE_TIMEOUT_SEC)
-    if completed is None:
-        raise ConfigError(
-            _(
-                "Could not check whether faster-whisper is installed. "
-                "The Settings → Python interpreter timed out or could not start."
-            )
-        )
-    if completed.returncode == 0:
-        with _probe_lock:
-            _whisper_ready.add(py_exe)
-        return True
-    return False
 
 
 def parse_whisper_stdout(stdout: str) -> str:
@@ -404,11 +381,11 @@ def parse_whisper_stdout(stdout: str) -> str:
 def _local_timeout_message(cached: bool) -> str:
     if cached:
         return _(
-            "Local Whisper timed out or could not start. "
+            "Local Whisper timed out. "
             "Try again, or pick a smaller Local Model in Settings → Speech."
         )
     return _(
-        "Local Whisper timed out or could not start. The first run downloads model weights; "
+        "Local Whisper timed out. The first run downloads model weights; "
         "try again, or pick a smaller Local Model in Settings → Speech."
     )
 
@@ -440,13 +417,6 @@ def _transcribe_local(
         )
     if not os.path.isfile(_WHISPER_SCRIPT):
         raise ConfigError(_("Local Whisper script is missing from the extension."))
-    if not ensure_faster_whisper(py_exe):
-        raise ConfigError(
-            _(
-                "faster-whisper is not installed in the Settings → Python venv. "
-                "Install with: {0}. Settings → Python Test lists it under Audio optional packages."
-            ).format(_FASTER_WHISPER_PIP_INSTALL)
-        )
 
     # What was wrong: local Whisper status updates were dropped, so weight download
     # was not surfaced to the sidebar while waiting for transcription.
@@ -455,17 +425,39 @@ def _transcribe_local(
     _emit(on_status, _local_whisper_status(model_name))
     cmd = [py_exe, _WHISPER_SCRIPT, "--wav", wav_path, f"--model={model_name}"]
     completed = _run_cmd(cmd, _TRANSCRIBE_TIMEOUT_SEC, on_spawn=on_spawn)
-    if completed is None:
+
+    returncode = getattr(completed, "returncode", None)
+    stdout = getattr(completed, "stdout", "") or ""
+    stderr = getattr(completed, "stderr", "") or ""
+    timed_out = bool(getattr(completed, "timed_out", False))
+    spawn_failed = bool(getattr(completed, "spawn_failed", False))
+
+    tail = stderr.strip()[-500:]
+
+    if spawn_failed:
+        raise ConfigError(_("Local Whisper could not start ({0}).").format(tail))
+    if timed_out:
         raise ConfigError(_local_timeout_message(_local_whisper_weights_cached(model_name)))
-    if completed.returncode != 0 or not (completed.stdout or "").strip():
-        detail = (completed.stderr or completed.stdout or "").strip()
-        log.warning("Local Whisper exited %s: %s", completed.returncode, detail[-2000:])
+
     try:
-        return parse_whisper_stdout(completed.stdout or "")
-    except ConfigError:
-        detail = (completed.stderr or "").strip()
-        if detail and completed.returncode != 0:
-            log.warning("Local Whisper stderr: %s", detail[-2000:])
+        return parse_whisper_stdout(stdout)
+    except ConfigError as exc:
+        if returncode not in (0, None) or tail:
+            log.warning("Local Whisper exited %s: %s", returncode, tail)
+        msg = str(exc)
+        if "faster-whisper is not installed" in msg:
+            raise ConfigError(
+                _(
+                    "faster-whisper is not installed in the Settings → Python venv. "
+                    "Install with: {0}. Settings → Python Test lists it under Audio optional packages."
+                ).format(_FASTER_WHISPER_PIP_INSTALL)
+            ) from exc
+        if "did not return a transcript" in msg:
+            detail = tail or "no error output"
+            err_msg = f"Local Whisper exited {returncode}: {detail}."
+            if returncode is not None and returncode < 0:
+                err_msg += " The process was killed; try a smaller Local Model in Settings → Speech."
+            raise ConfigError(err_msg) from exc
         raise
 
 
@@ -492,4 +484,4 @@ def transcribe(
         )
     if client is None or not hasattr(client, "transcribe_audio"):
         raise ConfigError(_("No language-model client is available for endpoint speech-to-text."))
-    return str(client.transcribe_audio(wav_path, model=model) or "")
+    return str(client.transcribe_audio(wav_path, model=model, status_callback=on_status) or "")

@@ -11,6 +11,7 @@ import struct
 import subprocess
 import sys
 import types
+from typing import Any
 
 from plugin.audio import kokoro_worker
 
@@ -18,6 +19,9 @@ from plugin.audio import kokoro_worker
 def _install_fake_kokoro(monkeypatch, inits: list[tuple[str, str]]):
     kokoro_worker._loaded = None
     kokoro_worker._loaded_key = None
+    kokoro_worker._kokoro_cls = None
+    kokoro_worker._soundfile = None
+    kokoro_worker._import_failure = None
 
     class Kokoro:
         voices = ["af_bella", "am_adam"]
@@ -30,9 +34,9 @@ def _install_fake_kokoro(monkeypatch, inits: list[tuple[str, str]]):
             assert lang == "en-us"
             return [0.0, float(len(text))], 24000
 
-    mod = types.ModuleType("kokoro_onnx")
+    mod: Any = types.ModuleType("kokoro_onnx")
     mod.Kokoro = Kokoro
-    soundfile = types.ModuleType("soundfile")
+    soundfile: Any = types.ModuleType("soundfile")
 
     def write(path: str, samples, rate: int) -> None:
         del samples, rate
@@ -91,6 +95,180 @@ def test_handle_kokoro_job_substitutes_missing_voice(tmp_path, monkeypatch):
     assert seen[0]["voice"] == "af_sky"
 
 
+def test_handle_kokoro_job_missing_voice_cross_language_recomputes_lang(tmp_path, monkeypatch):
+    seen: list[dict] = []
+    _install_voice_kokoro(monkeypatch, ["af_bella", "af_sky"], seen)
+    monkeypatch.setattr(
+        "plugin.audio.kokoro_g2p.misaki_phonemes",
+        lambda text, lang: f"WRONG_JA:{lang}:{text}",
+    )
+    out = tmp_path / "ja_to_en.wav"
+    result = kokoro_worker.handle_kokoro_job(
+        {
+            "text": "非常に",
+            "voice": "jf_alpha",
+            "speed": 1.0,
+            "lang": "ja",
+            "model_path": "/models/kokoro.onnx",
+            "voices_path": "/models/voices.bin",
+            "out_path": str(out),
+        }
+    )
+    assert result["status"] == "ok"
+    assert seen[0] == {
+        "text": "非常に",
+        "voice": "af_sky",
+        "lang": "en-us",
+        "is_phonemes": False,
+    }
+
+
+def test_handle_kokoro_job_missing_voice_prefers_same_family(tmp_path, monkeypatch):
+    seen: list[dict] = []
+    _install_voice_kokoro(monkeypatch, ["af_sky", "jf_gong"], seen)
+    monkeypatch.setattr(
+        "plugin.audio.kokoro_g2p.misaki_phonemes",
+        lambda text, lang: f"PH:{lang}:{text}",
+    )
+    out = tmp_path / "ja_same_family.wav"
+    result = kokoro_worker.handle_kokoro_job(
+        {
+            "text": "非常に",
+            "voice": "jf_alpha",
+            "speed": 1.0,
+            "lang": "ja",
+            "model_path": "/models/kokoro.onnx",
+            "voices_path": "/models/voices.bin",
+            "out_path": str(out),
+        }
+    )
+    assert result["status"] == "ok"
+    assert seen[0]["voice"] == "jf_gong"
+    assert seen[0]["lang"] == "ja"
+    assert seen[0]["is_phonemes"] is True
+    assert seen[0]["text"] == "PH:ja:非常に"
+
+
+def test_handle_kokoro_job_missing_voice_first_archive_voice_recomputes_lang(tmp_path, monkeypatch):
+    seen: list[dict] = []
+    _install_voice_kokoro(monkeypatch, ["ef_dora"], seen)
+    monkeypatch.setattr(
+        "plugin.audio.kokoro_g2p.misaki_phonemes",
+        lambda text, lang: f"PH:{lang}:{text}",
+    )
+    out = tmp_path / "fr_to_es.wav"
+    result = kokoro_worker.handle_kokoro_job(
+        {
+            "text": "Bonjour",
+            "voice": "ff_siwis",
+            "speed": 1.0,
+            "lang": "fr-fr",
+            "model_path": "/models/kokoro.onnx",
+            "voices_path": "/models/voices.bin",
+            "out_path": str(out),
+        }
+    )
+    assert result["status"] == "ok"
+    assert seen[0]["voice"] == "ef_dora"
+    assert seen[0]["lang"] == "es"
+    assert seen[0]["is_phonemes"] is True
+    assert seen[0]["text"] == "PH:es:Bonjour"
+
+
+def test_handle_kokoro_job_missing_voice_french_same_family(tmp_path, monkeypatch):
+    seen: list[dict] = []
+    _install_voice_kokoro(monkeypatch, ["ef_dora", "fm_siwis"], seen)
+    monkeypatch.setattr(
+        "plugin.audio.kokoro_g2p.misaki_phonemes",
+        lambda text, lang: f"PH:{lang}:{text}",
+    )
+    out = tmp_path / "fr_family.wav"
+    result = kokoro_worker.handle_kokoro_job(
+        {
+            "text": "Bonjour",
+            "voice": "ff_siwis",
+            "speed": 1.0,
+            "lang": "fr-fr",
+            "model_path": "/models/kokoro.onnx",
+            "voices_path": "/models/voices.bin",
+            "out_path": str(out),
+        }
+    )
+    assert result["status"] == "ok"
+    assert seen[0]["voice"] == "fm_siwis"
+    assert seen[0]["lang"] == "fr-fr"
+
+
+def test_handle_kokoro_job_rejects_empty_samples(tmp_path, monkeypatch):
+    seen: list[dict] = []
+    _install_voice_kokoro(monkeypatch, ["af_sky"], seen)
+
+    mod: Any = sys.modules["kokoro_onnx"]
+    orig_kokoro = mod.Kokoro
+
+    class EmptyKokoro(orig_kokoro):
+        def create(self, text, voice, speed, lang, is_phonemes=False):
+            return [], 24000
+
+    mod.Kokoro = EmptyKokoro
+    out = tmp_path / "empty.wav"
+    result = kokoro_worker.handle_kokoro_job(
+        {
+            "text": "Hi.",
+            "voice": "af_sky",
+            "model_path": "/models/kokoro.onnx",
+            "voices_path": "/models/voices.bin",
+            "out_path": str(out),
+        }
+    )
+    assert result["status"] == "error"
+    assert "no audio samples" in result["error"]
+    assert not out.exists()
+
+
+def test_handle_kokoro_job_cached_import_failure(monkeypatch, tmp_path):
+    kokoro_worker._loaded = None
+    kokoro_worker._loaded_key = None
+    kokoro_worker._kokoro_cls = None
+    kokoro_worker._soundfile = None
+    kokoro_worker._import_failure = None
+    call_count = 0
+    orig_import = __import__
+
+    def fake_import(name, *args, **kwargs):
+        nonlocal call_count
+        if name in ("kokoro_onnx", "soundfile"):
+            call_count += 1
+            raise ModuleNotFoundError(f"No module named {name!r}")
+        return orig_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+    try:
+        out = tmp_path / "fail.wav"
+        job = {
+            "text": "Hi.",
+            "voice": "af_sky",
+            "model_path": "/models/kokoro.onnx",
+            "voices_path": "/models/voices.bin",
+            "out_path": str(out),
+        }
+        res1 = kokoro_worker.handle_kokoro_job(job)
+        res2 = kokoro_worker.handle_kokoro_job(job)
+        from plugin.audio.kokoro_g2p import KOKORO_PIP_INSTALL
+
+        assert res1["status"] == "error"
+        assert "Kokoro dependency missing" in res1["error"]
+        assert KOKORO_PIP_INSTALL in res1["error"]
+        assert res1 == res2
+        assert call_count == 1
+    finally:
+        kokoro_worker._loaded = None
+        kokoro_worker._loaded_key = None
+        kokoro_worker._kokoro_cls = None
+        kokoro_worker._soundfile = None
+        kokoro_worker._import_failure = None
+
+
 def test_handle_kokoro_job_rejects_missing_path():
     result = kokoro_worker.handle_kokoro_job({"text": "Hi."})
     assert result["status"] == "error"
@@ -99,6 +277,9 @@ def test_handle_kokoro_job_rejects_missing_path():
 def _install_voice_kokoro(monkeypatch, voices: list[str], seen: list[dict]):
     kokoro_worker._loaded = None
     kokoro_worker._loaded_key = None
+    kokoro_worker._kokoro_cls = None
+    kokoro_worker._soundfile = None
+    kokoro_worker._import_failure = None
 
     class Kokoro:
         def __init__(self, model_path: str, voices_path: str) -> None:
@@ -112,9 +293,9 @@ def _install_voice_kokoro(monkeypatch, voices: list[str], seen: list[dict]):
             )
             return [0.0], 24000
 
-    mod = types.ModuleType("kokoro_onnx")
+    mod: Any = types.ModuleType("kokoro_onnx")
     mod.Kokoro = Kokoro
-    soundfile = types.ModuleType("soundfile")
+    soundfile: Any = types.ModuleType("soundfile")
 
     def write(path: str, samples, rate: int) -> None:
         del samples, rate
@@ -186,6 +367,9 @@ def test_fallback_voice_npz_without_af_sky(tmp_path, monkeypatch):
     seen: list[dict] = []
     kokoro_worker._loaded = None
     kokoro_worker._loaded_key = None
+    kokoro_worker._kokoro_cls = None
+    kokoro_worker._soundfile = None
+    kokoro_worker._import_failure = None
 
     class Kokoro:
         def __init__(self, model_path: str, voices_path: str) -> None:
@@ -199,9 +383,9 @@ def test_fallback_voice_npz_without_af_sky(tmp_path, monkeypatch):
             )
             return [0.0], 24000
 
-    mod = types.ModuleType("kokoro_onnx")
+    mod: Any = types.ModuleType("kokoro_onnx")
     mod.Kokoro = Kokoro
-    soundfile = types.ModuleType("soundfile")
+    soundfile: Any = types.ModuleType("soundfile")
 
     def write(path: str, samples, rate: int) -> None:
         del samples, rate
@@ -252,6 +436,9 @@ def test_fallback_voice_empty_container(tmp_path, monkeypatch):
 def test_speed_zero_is_kept(tmp_path, monkeypatch):
     kokoro_worker._loaded = None
     kokoro_worker._loaded_key = None
+    kokoro_worker._kokoro_cls = None
+    kokoro_worker._soundfile = None
+    kokoro_worker._import_failure = None
     recorded_speed = []
 
     class Kokoro:
@@ -264,9 +451,9 @@ def test_speed_zero_is_kept(tmp_path, monkeypatch):
             recorded_speed.append(speed)
             return [0.0], 24000
 
-    mod = types.ModuleType("kokoro_onnx")
+    mod: Any = types.ModuleType("kokoro_onnx")
     mod.Kokoro = Kokoro
-    soundfile = types.ModuleType("soundfile")
+    soundfile: Any = types.ModuleType("soundfile")
 
     def write(path: str, samples, rate: int) -> None:
         del samples, rate
