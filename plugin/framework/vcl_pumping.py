@@ -154,6 +154,23 @@ def _post_secondary_idle(ctx: Any) -> None:
         raise
 
 
+def pump_secondary_idle_tick(ctx: Any, *, on_caller: bool | None = None) -> None:
+    """One secondary-caller idle tick: PE2I on the main thread, else post it there.
+
+    Same per-tick pump as :func:`wait_while_pumping`, for wait loops that block
+    on something other than an Event (e.g. a lock). Failures are swallowed.
+    """
+    if on_caller is None:
+        on_caller = on_main_thread()
+    try:
+        if on_caller:
+            process_events_to_idle(ctx, force=False)
+        else:
+            _post_secondary_idle(ctx)
+    except Exception:
+        log.debug("wait_while_pumping process_events_to_idle failed", exc_info=True)
+
+
 def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, poll_sec: float = 0.075) -> bool:
     """Wait for *done* while pumping VCL as a secondary caller.
 
@@ -179,13 +196,7 @@ def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, pol
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
-        try:
-            if pump_on_caller:
-                process_events_to_idle(ctx, force=False)
-            else:
-                _post_secondary_idle(ctx)
-        except Exception:
-            log.debug("wait_while_pumping process_events_to_idle failed", exc_info=True)
+        pump_secondary_idle_tick(ctx, on_caller=pump_on_caller)
         if done.is_set():
             return True
         remaining = deadline - time.monotonic()
