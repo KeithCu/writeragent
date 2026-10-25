@@ -237,6 +237,35 @@ def test_audio_record_main_uses_silence_stop_ms_only(tmp_path):
     assert rc == 0
 
 
+def test_audio_record_main_default_silence_matches_detector_default(tmp_path):
+    from unittest.mock import patch
+
+    from plugin.scripting.audio_silence_detector import DEFAULT_SILENCE_STOP_MS
+    from plugin.scripting.venv.audio_record_main import main
+
+    seen: dict = {}
+
+    def fake_record(_output, _stop_event, *, on_stream_started=None, silence_config=None, on_ipc_emit=None):
+        seen["stop_ms"] = silence_config.silence_stop_ms
+        if on_stream_started is not None:
+            on_stream_started()
+        return False
+
+    class _NoOpThread:
+        def __init__(self, target, args, daemon):
+            pass
+
+        def start(self):
+            return None
+
+    out_file = str(tmp_path / "t.wav")
+    with patch("plugin.scripting.venv.audio_record_main.record_to_wav", side_effect=fake_record):
+        with patch("plugin.scripting.venv.audio_record_main._emit"):
+            with patch("plugin.scripting.venv.audio_record_main.threading.Thread", _NoOpThread):
+                assert main(["--output", out_file]) == 0
+    assert seen["stop_ms"] == DEFAULT_SILENCE_STOP_MS
+
+
 def test_monitor_recording_stdout_invokes_auto_stop_callback(tmp_path):
     import json
     from io import StringIO
