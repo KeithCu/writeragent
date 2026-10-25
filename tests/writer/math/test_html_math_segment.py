@@ -235,5 +235,9 @@ class TestHtmlMarkupIsNotMath:
         assert [s.kind for s in segs] == ["tex"]
         assert segs[0].text == "a < b"
 
-
-
+    def test_unspaced_less_than_inside_tex_before_a_tag_still_segments(self):
+        h = "<p>$x<y$ and <i>z</i></p>"
+        assert html_fragment_contains_tex_math(h) is True
+        segs = segment_html_with_mixed_math(h)
+        assert [s.kind for s in segs] == ["html", "tex", "html"]
+        assert segs[1].text == "x<y"
