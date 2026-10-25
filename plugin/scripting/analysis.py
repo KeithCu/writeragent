@@ -23,39 +23,25 @@ from plugin.scripting.calc_functions_common import (
     ANALYSIS_HELPER_NAMES as HELPER_NAMES,
 )
 
-_DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    "describe_data": {},
-    "kpi_summary": {"metrics": ["Column1"]},
-    "detect_outliers": {},
-    "quick_stats": {},
-    "format_currency": {"symbol": "$", "decimals": 2},
-    "format_percent": {"decimals": 1},
-    "clean_and_prepare": {},
-    "pivot_aggregate": {"index": "Category", "values": "Amount"},
-    "group_summary": {"by": "Region", "metrics": ["Sales"]},
-    "compare_periods": {"date_col": "Date", "value_col": "Amount", "agg": "sum"},
-    "correlation_matrix": {},
-    "run_regression": {"target": "Y", "features": ["X1", "X2"]},
-    "cluster_numeric": {},
-    "monte_carlo": {},
+_HELPER_META: dict[str, tuple[dict[str, Any], str]] = {
+    "describe_data": ({}, "Extended EDA and column quality summary"),
+    "kpi_summary": ({"metrics": ["Column1"]}, "Mean/min/max/sum for selected numeric columns"),
+    "detect_outliers": ({}, "Flag outlier rows (IQR, z-score, or isolation forest)"),
+    "quick_stats": ({}, "Compact metric card for numeric columns"),
+    "format_currency": ({"symbol": "$", "decimals": 2}, "Format values as currency strings"),
+    "format_percent": ({"decimals": 1}, "Format values as percentage strings"),
+    "clean_and_prepare": ({}, "Light dedupe and imputation"),
+    "pivot_aggregate": ({"index": "Category", "values": "Amount"}, "Pivot table aggregate"),
+    "group_summary": ({"by": "Region", "metrics": ["Sales"]}, "Group-by aggregates"),
+    "compare_periods": ({"date_col": "Date", "value_col": "Amount", "agg": "sum"}, "Period-over-period change (YoY/QoQ/MoM); agg is sum, mean, or last"),
+    "correlation_matrix": ({}, "Pairwise correlations and top pairs"),
+    "run_regression": ({"target": "Y", "features": ["X1", "X2"]}, "OLS linear regression (coefficients, standard errors, p-values, intervals)"),
+    "cluster_numeric": ({}, "KMeans on standardized numeric columns, with a row-to-cluster table"),
+    "monte_carlo": ({}, "Order-shuffle simulation: bust and goal from the cumulative path"),
 }
 
-_HELPER_DESCRIPTIONS: dict[str, str] = {
-    "describe_data": "Extended EDA and column quality summary",
-    "kpi_summary": "Mean/min/max/sum for selected numeric columns",
-    "detect_outliers": "Flag outlier rows (IQR, z-score, or isolation forest)",
-    "quick_stats": "Compact metric card for numeric columns",
-    "format_currency": "Format values as currency strings",
-    "format_percent": "Format values as percentage strings",
-    "clean_and_prepare": "Light dedupe and imputation",
-    "pivot_aggregate": "Pivot table aggregate",
-    "group_summary": "Group-by aggregates",
-    "compare_periods": "Period-over-period change (YoY/QoQ/MoM); agg is sum, mean, or last",
-    "correlation_matrix": "Pairwise correlations and top pairs",
-    "run_regression": "OLS linear regression (coefficients, standard errors, p-values, intervals)",
-    "cluster_numeric": "KMeans on standardized numeric columns, with a row-to-cluster table",
-    "monte_carlo": "Order-shuffle simulation: bust and goal from the cumulative path",
-}
+_DEFAULT_PARAMS: dict[str, dict[str, Any]] = {name: params for name, (params, _description) in _HELPER_META.items()}
+_HELPER_DESCRIPTIONS: dict[str, str] = {name: description for name, (_params, description) in _HELPER_META.items()}
 
 
 _ANALYSIS_VENV_EXPORTS = HELPER_NAMES | {"QuickStats", "run_analysis"}
