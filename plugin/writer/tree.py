@@ -65,11 +65,8 @@ def _heading_tree_fingerprint(doc: Any) -> int | None:
 
 
 def _collect_heading_indices(node: dict[str, Any]) -> list[int]:
-    """Collect all heading paragraph indices in document order."""
-    indices = [n["para_index"] for n in iter_heading_nodes(node) if n.get("para_index", -1) >= 0]
-    if node.get("para_index", -1) >= 0:
-        indices.append(node["para_index"])
-    return sorted(indices)
+    """Heading paragraph indices in document order (iter_heading_nodes yields them ordered)."""
+    return [n["para_index"] for n in iter_heading_nodes(node) if n.get("para_index", -1) >= 0]
 
 
 def _preview_text(text: str, max_chars: int = 100) -> str:
@@ -323,11 +320,7 @@ class TreeService(ServiceBase):
             resolved = self._doc_svc.resolve_locator(doc, locator)
             heading_para_index = resolved.get("para_index")
         elif heading_bookmark is not None and heading_para_index is None:
-            bm_sup = doc.getBookmarks()
-            if not bm_sup.hasByName(heading_bookmark):
-                raise ToolExecutionError("Bookmark '%s' not found" % heading_bookmark)
-            bm = bm_sup.getByName(heading_bookmark)
-            heading_para_index = self._paragraph_for_bookmark(doc, heading_bookmark, bm)
+            heading_para_index = self._resolve_bookmark_locator(doc, heading_bookmark)["para_index"]
 
         if heading_para_index is None:
             raise ToolExecutionError("Provide locator, heading_para_index, or heading_bookmark")
