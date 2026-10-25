@@ -620,15 +620,14 @@ class TestSettingsEnhancements:
         assert ("19999") in (args[1])
 
 
-def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
-    """A tunnel with no public URL yet writes the template and refreshes later."""
+def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
+    """A tunnel with no public URL yet writes the template and does not schedule a poll."""
     import json
 
     from plugin.mcp import mcp_ui
 
     mcp_ui._tested_provider_tunnel_urls.clear()
     mcp_ui._retired_provider_tunnel_urls.clear()
-    mcp_ui._mcp_snippet_refresh_scheduled = False
 
     snippet = MagicMock()
     port = MagicMock()
@@ -651,32 +650,20 @@ def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
     tunnel.provider = "cloudflare"
     tunnel.public_url = ""
     tunnel.mcp_public_url.return_value = ""
-    started: list[tuple[str, bool]] = []
-
-    def run_bg(fn, name=None, dedicated=False):
-        # What was wrong: ``_schedule_mcp_snippet_refresh`` calls
-        # ``run_in_background(_wait, name="mcp-snippet-refresh", dedicated=True)``
-        # so the 1.2s URL poll does not occupy a pool slot. This fake only
-        # accepted ``name``, so the extra keyword raised TypeError before
-        # the no-sleep check could run.
-        # Why: record the same arguments that call actually passes.
-        del fn
-        started.append((name or "", bool(dedicated)))
 
     try:
         with patch("plugin.mcp._shared_tunnel", tunnel), \
              patch("time.sleep") as mock_sleep, \
-             patch("plugin.framework.worker_pool.run_in_background", side_effect=run_bg):
+             patch("plugin.framework.worker_pool.run_in_background") as background:
             mcp_ui.sync_mcp_config_snippet(dlg)
             mcp_ui.sync_mcp_config_snippet(dlg)
         mock_sleep.assert_not_called()
-        assert started == [("mcp-snippet-refresh", True)]
+        background.assert_not_called()
         written = json.loads(snippet.setText.call_args[0][0])
         assert written["mcpServers"]["libreoffice"]["url"] == "https://<subdomain>.trycloudflare.com/mcp"
     finally:
         mcp_ui._tested_provider_tunnel_urls.clear()
         mcp_ui._retired_provider_tunnel_urls.clear()
-        mcp_ui._mcp_snippet_refresh_scheduled = False
 
 
 class TestProviderButtonIcons:
