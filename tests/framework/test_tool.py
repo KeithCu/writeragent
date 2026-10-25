@@ -664,13 +664,11 @@ class TestManageChartsSpecializedTier:
     def test_skinny_chart_tools_not_discovered(self):
         """list/info/upsert/delete are ToolBaseDummy-only; only manage_charts registers."""
         import plugin.calc.charts as calc_charts
-        import plugin.draw.charts as draw_charts
         import plugin.writer.specialized.charts as writer_charts
 
         reg = _make_registry()
         reg.auto_discover(calc_charts)
         reg.auto_discover(writer_charts)
-        reg.auto_discover(draw_charts)
 
         assert reg.get("manage_charts") is not None
         for name in self._SKINNY_CHART_TOOLS:
@@ -679,6 +677,19 @@ class TestManageChartsSpecializedTier:
         doc = TestingFactory.create_doc(doc_type="calc", content=[])
         domain_names = {t.name for t in reg.get_tools(doc=doc, active_domain="charts")}
         assert domain_names == {"manage_charts"}
+
+    def test_draw_doc_gets_shared_manage_charts_without_draw_wrapper(self):
+        """Draw relies on the shared Calc/Writer class; no draw/charts.py module."""
+        import plugin.calc.charts as calc_charts
+        import plugin.writer.specialized.charts as writer_charts
+
+        reg = _make_registry()
+        reg.auto_discover(calc_charts)
+        reg.auto_discover(writer_charts)
+
+        doc = TestingFactory.create_doc(doc_type="draw", content=[])
+        names = {t.name for t in reg.get_tools(doc=doc, active_domain="charts")}
+        assert names == {"manage_charts"}
 
     def test_writer_charts_domain_uses_writer_core_tools_not_sheet_readers(self):
         """Shared manage_charts name must not inherit Calc's required_core_tools via MRO."""
