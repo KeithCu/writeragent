@@ -21,6 +21,7 @@ from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     is_status_helper_result,
     make_template_api,
+    supports_calc_or_writer_manual,
 )
 
 # The menu scripts are solve, simplify, integrate, and differentiate.
@@ -87,13 +88,9 @@ def run_trusted_symbolic(
     if doc_type:
         is_valid = doc_type in ("calc", "writer")
     else:
-        from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import run_on_main
 
-        def _check_doc() -> bool:
-            return is_calc(doc) or is_writer(doc)
-
-        is_valid = _check_doc() if on_main_thread() else execute_on_main_thread(_check_doc)
+        is_valid = run_on_main(supports_calc_or_writer_manual, doc)
 
     if not is_valid:
         raise ToolExecutionError("Symbolic helpers require a Writer or Calc document.", code="SYMBOLIC_ERROR")
