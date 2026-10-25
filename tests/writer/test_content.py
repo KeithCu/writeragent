@@ -1096,3 +1096,103 @@ def test_content_tool_discovery_and_modules():
     assert reg.get("apply_document_content") is not None
     assert reg.get("get_document_content") is not None
 
+
+# ---- K171: undo entry, table verification, regex validation -----------------
+
+def test_outline_undo_disposed_undo_manager_reraises():
+    doc = MagicMock()
+    doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
+    session = MagicMock()
+    session.changes = []
+    with pytest.raises(DocumentDisposedError):
+        ApplyDocumentContent()._outline_undo(doc, session, lambda: [])
+
+
+def test_all_matches_disposed_undo_manager_reraises():
+    ctx = _edit_ctx()
+    ctx.doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
+    with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]):
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
+
+
+def test_all_matches_truthy_non_bool_islocked_is_not_locked():
+    ctx = _edit_ctx()
+    ctx.doc.getUndoManager.return_value.isLocked.return_value = MagicMock()
+    with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch.object(ApplyDocumentContent, "_replace_found", return_value=([], None)):
+        res = ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+
+
+def test_selection_table_insert_fails_when_the_doc_already_has_a_table():
+    ctx = _edit_ctx()
+    ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
+    with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
+         patch("plugin.writer.format.insert_content_at_position"):
+        res = ApplyDocumentContent().execute(
+            ctx, content="<table><tr><td>X</td></tr></table>", target="selection")
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_INSERT_FAILED"
+    assert res["message"] == "Table insert produced no table in document."
+
+
+def test_search_replace_table_insert_fails_when_the_doc_already_has_a_table():
+    ctx = _edit_ctx()
+    ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
+    with patch("plugin.writer.search.find_first_range", return_value=MagicMock()), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
+         patch.object(ApplyDocumentContent, "_replace_found", return_value=([], None)):
+        res = ApplyDocumentContent().execute(
+            ctx, content="<table><tr><td>X</td></tr></table>", target="search", old_content="old")
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_INSERT_FAILED"
+    assert res["message"] == "Table insert produced no table in document."
+
+
+def test_position_before_table_insert_reports_failure():
+    from plugin.writer import format as format_support
+
+    found, _cursor = _next_to_match_found(at_paragraph_edge=False)
+    ctx = _edit_ctx()
+    ctx.doc.getTextTables.return_value.getCount.return_value = 0
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_html_at_cursor"):
+        res = ApplyDocumentContent().execute(
+            ctx, content="<table><tr><td>Cell 1</td></tr></table>",
+            target="search", old_content="world", position="before")
+    assert res["status"] == "error"
+    assert res.get("code") == "TABLE_INSERT_FAILED"
+    assert "Table insert produced no table in document." in res.get("message", "")
+
+
+def test_table_count_read_reraises_disposed():
+    ctx = _edit_ctx()
+    ctx.doc.getTextTables.side_effect = type("DisposedException", (Exception,), {})("gone")
+    with patch("plugin.writer.format.insert_content_at_position"):
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent().execute(ctx, content="<table><tr><td>X</td></tr></table>", target="end")
+
+
+@pytest.mark.parametrize("extra", [{}, {"all_matches": True}, {"occurrence": 0}])
+def test_invalid_regex_is_invalid_regex_in_the_edit_path(extra):
+    ctx = _edit_ctx()
+    with patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.search.find_first_range") as find_first, \
+         patch("plugin.writer.search.find_all_ranges") as find_all:
+        res = ApplyDocumentContent().execute(
+            ctx, content="x", target="search", old_content="([a-", regex=True, **extra)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_REGEX"
+    assert res.get("count", res.get("details", {}).get("count")) == 0
+    find_first.assert_not_called()
+    find_all.assert_not_called()
+
+

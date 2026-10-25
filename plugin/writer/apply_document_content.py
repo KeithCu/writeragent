@@ -50,7 +50,6 @@ from plugin.writer.specialized.tables import record_table_deletions
 from plugin.writer.table_nesting import _cell_hosted_table_names
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param
 from plugin.framework.errors import (
-    DocumentDisposedError,
     ToolExecutionError,
     format_error_payload,
     reraise_if_disposed,
@@ -72,6 +71,7 @@ log = logging.getLogger("writeragent.writer")
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _PARAGRAPH_BREAK = 0
+_TABLE_INSERT_FAILED_MSG = "Table insert produced no table in document."
 
 
 def _paragraph_boundary_cursor(text_obj: Any, found: Any, position: str) -> tuple[Any, bool]:
@@ -279,17 +279,53 @@ def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tu
 
 
 def _doc_table_count(doc: Any) -> int | None:
-    """Safe table count from doc.getTextTables(); returns None if unreadable or mock."""
-    try:
-        tables = uno_read(lambda: doc.getTextTables(), None)
-        if tables is None:
-            return None
-        count = uno_read(lambda: tables.getCount(), None)
-        if isinstance(count, int):
-            return count
-    except DocumentDisposedError:
+    """Table count from doc.getTextTables(); None when unreadable (a mock). Disposal propagates."""
+    # What was wrong: catching DocumentDisposedError returned None ("unreadable"),
+    # causing table verification to swallow disposal and falsely report success.
+    # How it happened: defensive try/except DocumentDisposedError hid closed docs.
+    # Why this change fixes it: let uno_read raise DocumentDisposedError so callers abort.
+    tables = uno_read(lambda: doc.getTextTables(), None)
+    if tables is None:
         return None
-    return None
+    count = uno_read(lambda: tables.getCount(), None)
+    return count if isinstance(count, int) else None
+
+
+def _table_insert_failed(doc: Any, before: int | None) -> bool:
+    """True when an HTML import that carries a <table> produced none.
+
+    *before* is the table count captured before the mutation. None means the
+    whole document was replaced first, so any surviving table came from the import.
+    """
+    after = _doc_table_count(doc)
+    if after is None:
+        return False
+    return after == 0 if before is None else after <= before
+
+
+def _enter_atomic_undo(doc: Any) -> tuple[Any, str] | None:
+    """Enter one undo context for an atomic edit, or None when there is none.
+
+    Disposal propagates: a closed document is not "no undo context".
+    `isLocked() is True` (not truthy): a MagicMock return must not look locked.
+    """
+    # What was wrong: catching generic Exception masked DisposedException as
+    # UNDO_UNAVAILABLE instead of propagating disposal; truthy isLocked()
+    # treated MagicMock returns as locked.
+    # How it happened: inconsistent undo manager acquisition across three call sites.
+    # Why this change fixes it: reraise_if_disposed allows disposal to propagate,
+    # and explicit `is True` checks prevent MagicMocks from appearing locked.
+    title = next_agent_edit_undo_title()
+    try:
+        mgr = doc.getUndoManager()
+        if mgr is None or mgr.isLocked() is True:
+            return None
+        mgr.enterUndoContext(title)
+        return mgr, title
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.exception("apply_document_content: undo context failed")
+        return None
 
 
 def build_search_replace_response(
@@ -539,18 +575,13 @@ class ApplyDocumentContent(ToolBase):
         The HTML path and a surgical review replace each close their own undo context
         before returning. Without this outer step the URL write would be a second undo.
         """
-        undo_title = next_agent_edit_undo_title()
-        try:
-            mgr = doc.getUndoManager()
-            if mgr is None or mgr.isLocked():
-                raise RuntimeError("undo manager is locked")
-            mgr.enterUndoContext(undo_title)
-        except Exception:
-            log.exception("apply_document_content: outline hyperlink undo context failed")
+        entered = _enter_atomic_undo(doc)
+        if entered is None:
             return None, self._tool_error(
                 "Cannot update the outline hyperlink atomically (no usable undo context); "
                 "refusing rather than risk a text change that leaves the link stale.",
                 code="UNDO_UNAVAILABLE")
+        mgr, undo_title = entered
         changes_before = len(session.changes)
         applied_ok = False
         reports = None
@@ -582,7 +613,6 @@ class ApplyDocumentContent(ToolBase):
         search_string: str,
         opts_pattern: str,
         regex_opt: bool,
-        use_opts: bool,
         opts_cs: bool,
         track_reviewable: bool,
         new_text: str,
@@ -591,7 +621,7 @@ class ApplyDocumentContent(ToolBase):
     ) -> tuple[dict[str, Any], Any]:
         shape = search_mod.drawing_shape_object_containing(
             doc, opts_pattern if regex_opt else search_string,
-            use_regex=regex_opt, case_sensitive=opts_cs if use_opts else False)
+            use_regex=regex_opt, case_sensitive=opts_cs)
         if shape is not None:
             shape_name = (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
             if track_reviewable:
@@ -600,26 +630,15 @@ class ApplyDocumentContent(ToolBase):
                     "message": search_mod.shape_only_search_message("old_content", shape_name, review=True),
                     "replaced_count": 0,
                 }, session
-            undo_title = next_agent_edit_undo_title()
-            try:
-                undo = doc.getUndoManager()
-                # `is True`: MagicMock isLocked() is truthy and must not look locked.
-                if undo is None or undo.isLocked() is True:
-                    raise RuntimeError("undo manager is locked")
-                undo.enterUndoContext(undo_title)
-            except Exception as exc:
-                # What was wrong: a failed enter left undo as None and the shape
-                # text was still replaced, so the edit was not one Ctrl+Z.
-                # How it happened: the except only cleared undo.
-                # Why this fixes it: no usable undo context means no edit.
-                reraise_if_disposed(exc)
-                log.exception("apply_document_content: shape edit undo context failed")
+            entered = _enter_atomic_undo(doc)
+            if entered is None:
                 return self._tool_error(
                     "Cannot edit text inside the drawing shape '%s' atomically "
                     "(no usable undo context); refusing rather than leave an edit "
                     "that is not one Ctrl+Z." % shape_name,
                     code="UNDO_UNAVAILABLE",
                 ), session
+            undo, _unused_title = entered
             try:
                 edited = replace_text_in_shape(shape, search_string, new_text)
             finally:
@@ -883,7 +902,7 @@ class ApplyDocumentContent(ToolBase):
         # The preview loop only walks the first 20 matches. A later occurrence is
         # still the one execute would edit, so the override has to be checked there too.
         if (rewrites_outline and override and ranges and edit_idx < len(ranges)
-                and edit_idx >= 20):
+                and edit_idx >= search_mod.DEFAULT_SEARCH_RESULTS):
             later, outline_err = self._outline_match_fields(ranges[edit_idx], _plain, override)
             if outline_err:
                 return outline_err
@@ -1169,26 +1188,18 @@ class ApplyDocumentContent(ToolBase):
                     session, ctx.doc,
                     lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content_to_insert, config_svc=config_svc),
                     proposed_preview=_plain_preview(content))
-            if has_table:
-                tables_after = _doc_table_count(ctx.doc)
-                if tables_after is not None and tables_after == 0:
-                    return self._tool_error(
-                        "Table insert produced no table in document.",
-                        code="TABLE_INSERT_FAILED"), session
+            if has_table and _table_insert_failed(ctx.doc, None):
+                return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
             return {"status": "ok", "message": "Replaced entire document."}, session
         if target == "end":
             session = _open_session()
-            tables_before = _doc_table_count(ctx.doc)
+            tables_before = _doc_table_count(ctx.doc) if has_table else None
             with session:
                 session.record_mutation(
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "end", config_svc=config_svc),
                     proposed_preview=_plain_preview(content))
-            if has_table and tables_before is not None:
-                tables_after = _doc_table_count(ctx.doc)
-                if tables_after is not None and tables_after <= tables_before:
-                    return self._tool_error(
-                        "Table insert produced no table in document.",
-                        code="TABLE_INSERT_FAILED"), session
+            if has_table and _table_insert_failed(ctx.doc, tables_before):
+                return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
             return attach_edited_context(
                 {"status": "ok", "message": "Inserted content at end."},
                 collapsed_anchor(ctx.doc.getText().getEnd())), session
@@ -1196,6 +1207,7 @@ class ApplyDocumentContent(ToolBase):
             # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
             # collapsed position (not the selection range itself) survives the replace.
             anchor = selection_anchor(ctx.doc)
+            tables_before = _doc_table_count(ctx.doc) if has_table else None
             session = _open_session()
             with session:
                 # Selection insert clears the selection first, then imports -> atomic (full_document above).
@@ -1203,27 +1215,19 @@ class ApplyDocumentContent(ToolBase):
                     session, ctx.doc,
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "selection", config_svc=config_svc),
                     proposed_preview=_plain_preview(content))
-            if has_table:
-                tables_after = _doc_table_count(ctx.doc)
-                if tables_after is not None and tables_after == 0:
-                    return self._tool_error(
-                        "Table insert produced no table in document.",
-                        code="TABLE_INSERT_FAILED"), session
+            if has_table and _table_insert_failed(ctx.doc, tables_before):
+                return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
             return attach_edited_context(
                 {"status": "ok", "message": "Inserted content at selection."}, anchor), session
         if target == "beginning":
             session = _open_session()
-            tables_before = _doc_table_count(ctx.doc)
+            tables_before = _doc_table_count(ctx.doc) if has_table else None
             with session:
                 session.record_mutation(
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "beginning", config_svc=config_svc),
                     proposed_preview=_plain_preview(content))
-            if has_table and tables_before is not None:
-                tables_after = _doc_table_count(ctx.doc)
-                if tables_after is not None and tables_after <= tables_before:
-                    return self._tool_error(
-                        "Table insert produced no table in document.",
-                        code="TABLE_INSERT_FAILED"), session
+            if has_table and _table_insert_failed(ctx.doc, tables_before):
+                return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
             return attach_edited_context(
                 {"status": "ok", "message": "Inserted content at beginning."},
                 collapsed_anchor(ctx.doc.getText().getStart())), session
@@ -1261,6 +1265,13 @@ class ApplyDocumentContent(ToolBase):
                 "hyperlink_url only applies to position='replace'.",
                 code="INVALID_PARAM"), None
 
+        if kwargs.get("regex"):
+            rex_err = search_mod.validate_regex_pattern(old_stripped)
+            if rex_err:
+                return self._tool_error(
+                    search_mod.invalid_regex_tool_message(rex_err),
+                    code="INVALID_REGEX", count=0), None
+
         session = _open_session()
         doc = ctx.doc
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
@@ -1281,7 +1292,7 @@ class ApplyDocumentContent(ToolBase):
                       if _use_opts else search_mod.find_all_ranges(doc, search_string))
             if not ranges:
                 return self._finish_search_miss(
-                    ctx, doc, session, search_string, _opts_pattern, _regex_opt, _use_opts, _opts_cs,
+                    ctx, doc, session, search_string, _opts_pattern, _regex_opt, _opts_cs,
                     track_reviewable, _plain_preview(content), all_matches=True)
             max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
             # Decide before any replace. An empty replacement that is the last text
@@ -1294,17 +1305,13 @@ class ApplyDocumentContent(ToolBase):
                 anchor = collapsed_anchor(anchor_range) if anchor_range is not None else None
             else:
                 anchor = collapsed_anchor(ranges[0])
-            undo_title = next_agent_edit_undo_title()
-            try:
-                mgr = doc.getUndoManager()
-                if mgr.isLocked():
-                    raise ToolExecutionError("undo manager is locked")
-                mgr.enterUndoContext(undo_title)
-            except Exception:
+            entered = _enter_atomic_undo(doc)
+            if entered is None:
                 return self._tool_error(
                     "Cannot apply all_matches atomically (no usable undo context); "
                     "refusing rather than risk a half-applied edit.",
                     code="UNDO_UNAVAILABLE"), session
+            mgr, undo_title = entered
             changes_before = len(session.changes)
             applied_ok = False
             count = 0
@@ -1403,7 +1410,7 @@ class ApplyDocumentContent(ToolBase):
             )
         if found is None:
             return self._finish_search_miss(
-                ctx, doc, session, search_string, _opts_pattern, _regex_opt, _use_opts, _opts_cs,
+                ctx, doc, session, search_string, _opts_pattern, _regex_opt, _opts_cs,
                 track_reviewable, _plain_preview(content), all_matches=False)
         if position in ("before", "after"):
             # INSERT next to the match instead of replacing it: the single most common petition
@@ -1458,39 +1465,34 @@ class ApplyDocumentContent(ToolBase):
                 edge = found.getStart() if position == "before" else found.getEnd()
                 insert_cursor, snapped = text_obj.createTextCursorByRange(edge), False
 
-            tables_before = _doc_table_count(doc)
+            tables_before = _doc_table_count(doc) if has_table else None
 
             def _insert_next_to_match() -> None:
                 if not is_block:
                     format_support.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content), config_svc=config_svc)
-                    return
-                if position != "after":
+                elif position != "after":
                     format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False)
-                    return
-                # Importing at a paragraph END merges the first block into that paragraph; at a
-                # paragraph START it does not. Open an empty paragraph and import at its start.
-                text_obj.insertControlCharacter(insert_cursor, _PARAGRAPH_BREAK, False)
-                # The import puts every block (each with its own break) BEFORE that paragraph,
-                # which is then left over empty. This cursor stays at its start through the
-                # import (checked live, also with a table next and at the end of the text).
-                leftover = text_obj.createTextCursorByRange(insert_cursor.getStart())
-                format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False)
-                leftover.gotoEndOfParagraph(True)
-                if leftover.getString() == "":
-                    # Delete the last imported block's break; a tracked insertion swallows it.
-                    # Only drop a real break: after a table, goLeft(1) selects the table.
-                    leftover.collapseToStart()
-                    if leftover.goLeft(1, True):
-                        if leftover.getString() == "\n":
-                            leftover.setString("")
-                        else:
-                            leftover.collapseToEnd()
-                if has_table and tables_before is not None:
-                    tables_after = _doc_table_count(doc)
-                    if tables_after is not None and tables_after <= tables_before:
-                        raise ToolExecutionError(
-                            "Table insert produced no table in document.",
-                            code="TABLE_INSERT_FAILED")
+                else:
+                    # Importing at a paragraph END merges the first block into that paragraph; at a
+                    # paragraph START it does not. Open an empty paragraph and import at its start.
+                    text_obj.insertControlCharacter(insert_cursor, _PARAGRAPH_BREAK, False)
+                    # The import puts every block (each with its own break) BEFORE that paragraph,
+                    # which is then left over empty. This cursor stays at its start through the
+                    # import (checked live, also with a table next and at the end of the text).
+                    leftover = text_obj.createTextCursorByRange(insert_cursor.getStart())
+                    format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False)
+                    leftover.gotoEndOfParagraph(True)
+                    if leftover.getString() == "":
+                        # Delete the last imported block's break; a tracked insertion swallows it.
+                        # Only drop a real break: after a table, goLeft(1) selects the table.
+                        leftover.collapseToStart()
+                        if leftover.goLeft(1, True):
+                            if leftover.getString() == "\n":
+                                leftover.setString("")
+                            else:
+                                leftover.collapseToEnd()
+                if has_table and _table_insert_failed(doc, tables_before):
+                    raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 
             anchor = collapsed_anchor(found)
             with session:
@@ -1526,6 +1528,7 @@ class ApplyDocumentContent(ToolBase):
         # is only part of its cell) falls through to the text replace
         # below. Same delete path as table_delete, inside this edit's
         # review session.
+        tables_before = _doc_table_count(doc) if has_table else None
         doomed = writer_tables_emptied_by_matches([found], content)
         if doomed:
             # execute_safe reports a failed delete. This catch hid a closed
@@ -1544,11 +1547,7 @@ class ApplyDocumentContent(ToolBase):
         resp = build_search_replace_response(1, use_preserve=use_preserve)
         if occurrence is not None:
             resp["occurrence"] = occurrence
-        if has_table:
-            tables_after = _doc_table_count(doc)
-            if tables_after is not None and tables_after == 0:
-                return self._tool_error(
-                    "Table insert produced no table in document.",
-                    code="TABLE_INSERT_FAILED"), session
+        if has_table and _table_insert_failed(doc, tables_before):
+            return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
         self._attach_hyperlink_reports(resp, reports or [])
         return attach_edited_context(resp, anchor), session

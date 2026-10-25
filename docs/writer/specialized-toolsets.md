@@ -457,6 +457,7 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   `table_set_cell` / `table_*`. `target='full_document'` is not policed (a full
   rewrite is supposed to replace the document). Body search-replace is not treated as
   a host-cell wipe just because the document has top-level tables.
+- **`apply_document_content` verifies table imports and rejects bad regex early.** Any insert/replace whose content contains `<table>` compares the table count before and after (zero for `target='full_document'`) and returns `TABLE_INSERT_FAILED` when no table appeared; a closed document is `DOCUMENT_DISPOSED`, not "no tables". `target='search'` with `regex=true` and an unparsable pattern returns `INVALID_REGEX` before any matching, the same code `dry_run` reports.
 - **Nesting through a frame or section.** Discovery walks the host cell’s
   `XEnumeration` and as-character `TextFrame` portions (a frame in a cell is
   not a sibling of the paragraphs — probed). The parent is still that
