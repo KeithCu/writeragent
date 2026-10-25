@@ -47,6 +47,8 @@ def _has_notebook_registry(doc: Any) -> bool:
 
 PYTHON_WORKBOOK_SESSION_PROP = "WriterAgentPythonSessionId"
 _SESSION_MODE_KEY = "scripting.python_session_mode"
+_SESSION_PREFIXES = ("calc", "rps", "notebook", "ppt_master")
+_INIT_SUFFIX = ":init"
 
 
 def python_session_mode(ctx: Any) -> str:
@@ -84,28 +86,31 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
     # Bugfix (#411): In headless mode or when focus is outside the frame, getCurrentComponent()
     # returns None. Fall back to desktop.getComponents() enumeration so UI commands
     # (session reset) still resolve the document model. =PY() never comes here.
+    from plugin.framework.errors import check_disposed, reraise_if_disposed
+    from plugin.framework.thread_guard import guard_uno, _unwrap_uno
+
+    desktop = get_desktop(ctx)
+    doc = desktop.getCurrentComponent() if desktop else None
+    if doc is not None:
+        try:
+            # check_disposed is a None check; get_desktop is already @main_thread_only.
+            # Unwrap so PropertyBag-style None tests see the real object, then re-wrap on return.
+            check_disposed(_unwrap_uno(doc))
+            ctrl = getattr(doc, "getCurrentController", lambda: None)()
+            # Headless soffice returns None from getCurrentController().
+            # Requiring a controller skipped the open model, so session reset
+            # and shared-kernel lookup never saw it. A controller with no
+            # frame is an unfocused window — keep searching in that case.
+            if ctrl is None or getattr(ctrl, "getFrame", lambda: None)() is not None:
+                if predicate(doc):
+                    return guard_uno(doc)
+        except Exception as e:
+            # A closing focused document must not fall through to the desktop
+            # enumeration: that could reset a different open workbook.
+            reraise_if_disposed(e, "Focused document was closed", object_type="document")
+            log.debug("session_manager: focused component unusable", exc_info=True)
+
     try:
-        from plugin.framework.errors import check_disposed
-        from plugin.framework.thread_guard import guard_uno, _unwrap_uno
-
-        desktop = get_desktop(ctx)
-        doc = desktop.getCurrentComponent() if desktop else None
-        if doc is not None:
-            try:
-                # check_disposed is a None check; get_desktop is already @main_thread_only.
-                # Unwrap so PropertyBag-style None tests see the real object, then re-wrap on return.
-                check_disposed(_unwrap_uno(doc))
-                ctrl = getattr(doc, "getCurrentController", lambda: None)()
-                # Headless soffice returns None from getCurrentController().
-                # Requiring a controller skipped the open model, so session reset
-                # and shared-kernel lookup never saw it. A controller with no
-                # frame is an unfocused window — keep searching in that case.
-                if ctrl is None or getattr(ctrl, "getFrame", lambda: None)() is not None:
-                    if predicate(doc):
-                        return guard_uno(doc)
-            except Exception:
-                log.debug("session_manager: focused component unusable", exc_info=True)
-
         matches = _enumerated_matching_models(ctx, predicate)
         if len(matches) == 1:
             return matches[0]
@@ -120,7 +125,6 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
 # when the call returns. The token is not a worker namespace id.
 _SCRIPT_DOC_PINS: dict[str, Any] = {}
 _SCRIPT_DOC_PIN_LOCK = threading.Lock()
-_reset_marshal_tls = threading.local()
 
 
 def existing_calc_session_id(doc: Any) -> str | None:
@@ -177,10 +181,8 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
 
             try:
                 ctx = get_ctx()
-                _call_reset_python_session(ctx, f"calc:{existing}")
-                _call_reset_python_session(ctx, f"rps:{existing}")
-                _call_reset_python_session(ctx, f"notebook:{existing}")
-                _call_reset_python_session(ctx, f"ppt_master:{existing}")
+                for prefix in _SESSION_PREFIXES:
+                    _call_reset_python_session(ctx, f"{prefix}:{existing}")
             except Exception:
                 log.debug("session_manager: cleanup of unsaved session failed", exc_info=True)
     except Exception:
@@ -235,7 +237,7 @@ def calc_workbook_base_session_id(doc: Any) -> str:
 
 def calc_init_session_id(doc: Any) -> str:
     """Persistent worker session that runs the workbook init script once."""
-    return f"{calc_workbook_base_session_id(doc)}:init"
+    return f"{calc_workbook_base_session_id(doc)}{_INIT_SUFFIX}"
 
 
 def workbook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
@@ -268,11 +270,8 @@ def rps_session_id(ctx: Any, doc: Any | None = None) -> str | None:
     """
     if python_session_mode(ctx) != "shared" or doc is None:
         return None
-    try:
-        if is_calc(doc):
-            return workbook_session_id(ctx, doc)
-    except Exception:
-        log.debug("rps_session_id: is_calc failed", exc_info=True)
+    if is_calc(doc):
+        return workbook_session_id(ctx, doc)
     return f"rps:{_workbook_session_key(doc)}"
 
 
@@ -327,10 +326,10 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     if not isinstance(session_id, str) or ":" not in session_id:
         return None
     prefix, key = session_id.split(":", 1)
-    if prefix not in {"calc", "rps", "notebook", "ppt_master"}:
+    if prefix not in _SESSION_PREFIXES:
         return None
-    if prefix == "calc" and key.endswith(":init"):
-        key = key[: -len(":init")]
+    if prefix == "calc" and key.endswith(_INIT_SUFFIX):
+        key = key[: -len(_INIT_SUFFIX)]
     if not key:
         return None
     try:
@@ -425,7 +424,7 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     session_id = f"calc:{key}"
     res = _call_reset_python_session(ctx, session_id)
     # Also reset the persistent :init session so worker state from previous init script is cleared
-    res_init = _call_reset_python_session(ctx, f"{session_id}:init")
+    res_init = _call_reset_python_session(ctx, f"{session_id}{_INIT_SUFFIX}")
     from plugin.calc.python.function import clear_python_addin_cache
 
     clear_python_addin_cache()
@@ -497,17 +496,14 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
     from plugin.framework.thread_guard import on_main_thread
 
     if not on_main_thread():
-        if getattr(_reset_marshal_tls, "active", False):
-            raise RuntimeError("reset_workbook_python_session cannot run off the main thread")
-        _reset_marshal_tls.active = True
-        try:
-            from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import execute_on_main_thread
 
-            execute_on_main_thread(reset_workbook_python_session, ctx, doc)
-        finally:
-            _reset_marshal_tls.active = False
+        execute_on_main_thread(_reset_on_main, ctx, doc)
         return
+    _reset_on_main(ctx, doc)
 
+
+def _reset_on_main(ctx: Any, doc: Any | None = None) -> None:
     # Resetting a session on an unsaved/clean document must not mint a key
     # (WriterAgentPythonSessionId); the inner functions tell the user when
     # there is no session to reset. A focused Base, Math, or Start Center
@@ -536,7 +532,7 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
         if not (is_writer(current) or is_draw(current) or is_calc(current)):
             _msgbox(ctx, _("Reset Python Session applies to Writer, Calc, and Draw documents."))
             return
-        reset_workbook_python_session(ctx, current)
+        _reset_on_main(ctx, current)
         return
 
     # No current component (headless): keep the open-document search.
