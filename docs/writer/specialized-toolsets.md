@@ -440,7 +440,11 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
 - **Host-cell text beside a nested table.** `table_set_cell` enumerates the cell’s
   `XText` and rewrites **direct** paragraph siblings only (first para gets the text;
   extras are cleared; no paragraphs → `insertString` at `getStart()`). It does not
-  `setString` the whole host cell. Do not use `table_set_cell` as a delete
+  `setString` the whole host cell. Reads of a host cell (`table_get_cells`, `old_text`)
+  use the same direct-paragraph definition with `get_string_without_tracked_deletions`,
+  so pending deletions stay hidden and a set/read round-trip agrees. Text inside an
+  as-character frame is not host text: the write never clears it, so the read does not
+  return it either. Do not use `table_set_cell` as a delete
   (`table_delete` by name).
 - **Parent `cells` flatten.** `table_get_cells` returns host-paragraph text only for a
   host cell (`nested_in_cells` remains the flag). An empty host with only a nested table
