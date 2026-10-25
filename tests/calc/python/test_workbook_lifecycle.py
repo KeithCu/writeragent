@@ -79,6 +79,17 @@ def test_unload_listener_resets_worker_session():
         mock_reset.assert_called_once()
 
 
+def test_on_disposing_runs_teardown():
+    ctx = MagicMock()
+    listener = _CalcPythonUnloadListener(ctx, "calc:wb-disposing", "key-disposing")
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+        mock_reset.return_value = {"status": "ok"}
+        listener.on_disposing(MagicMock())
+        mock_reset.assert_called_once_with(ctx, "calc:wb-disposing")
+        listener.on_disposing(MagicMock())
+        mock_reset.assert_called_once()
+
+
 def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True)
     ctx = MagicMock()
@@ -208,6 +219,15 @@ def test_retry_reset_logs_warning_on_timeout():
                 assert "WORKER_REENTRY" in mock_warn.call_args[0][0]
 
 
+def test_retry_reset_aborts_after_reopen():
+    ctx = MagicMock()
+    old = _CalcPythonUnloadListener(ctx, "calc:wb-reopen", "key-old")
+    lifecycle._LISTENERS["key-new"] = _CalcPythonUnloadListener(ctx, "calc:wb-reopen", "key-new")
+    with patch("time.sleep"), patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+        old._retry_reset("calc:wb-reopen")
+        mock_reset.assert_not_called()
+
+
 def test_remember_doc_lifecycle_key_keeps_strong_reference():
     """Objects rejecting weakref must be held strongly in id map until unload."""
     class NoWeakRefDoc:
@@ -224,6 +244,20 @@ def test_remember_doc_lifecycle_key_keeps_strong_reference():
 
     _forget_doc_lifecycle_key("key-strong-ref")
     assert doc_id not in lifecycle._LIFECYCLE_KEY_BY_DOC_ID
+    assert lifecycle_key_if_known(doc) == ""
+
+
+def test_remember_doc_lifecycle_key_rekeys_strong_ref():
+    class NoWeakRefDoc:
+        __slots__ = ()
+
+    doc = NoWeakRefDoc()
+    _remember_doc_lifecycle_key(doc, "key-a")
+    _remember_doc_lifecycle_key(doc, "key-b")
+    assert lifecycle._LIFECYCLE_KEY_BY_DOC_ID[id(doc)] == ("key-b", doc)
+    assert "key-a" not in lifecycle._DOC_IDS_BY_LIFECYCLE_KEY
+    assert lifecycle_key_if_known(doc) == "key-b"
+    _forget_doc_lifecycle_key("key-b")
     assert lifecycle_key_if_known(doc) == ""
 
 
@@ -317,6 +351,35 @@ def test_off_main_spill_lifecycle_key_off_main_uses_cached(monkeypatch: pytest.M
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
     assert off_main_spill_lifecycle_key(doc) == "uid-cached"
     assert off_main_spill_lifecycle_key(None) == ""
+
+
+def test_runtime_uid_upgrade_keeps_one_listener(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="", props={})
+    ctx = MagicMock()
+    monkeypatch.setattr(
+        "plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id",
+        lambda _doc: "calc:unsaved:1",
+    )
+    with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
+        ensure_calc_workbook_unload_resets_python(ctx, doc)
+        doc.setPropertyValue("RuntimeUID", "uid-upgrade")
+        ensure_calc_workbook_unload_resets_python(ctx, doc)
+
+        assert len(doc._document_event_listeners) == 1
+        assert set(lifecycle._LISTENERS) == {"uid-upgrade"}
+        assert lifecycle_key_if_known(doc) == "uid-upgrade"
+        assert "calc:unsaved:1" not in lifecycle._LIFECYCLE_REFS_BY_KEY
+
+        with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+            mock_reset.return_value = {"status": "ok"}
+            doc._document_event_listeners[0].on_document_event(MagicMock(EventName="OnUnload"))
+            assert lifecycle._LISTENERS == {}
+            assert lifecycle_key_if_known(doc) == ""
+            assert lifecycle._LIFECYCLE_REFS_BY_KEY == {}
+            mock_reset.assert_called_once_with(ctx, "calc:unsaved:1")
+
+        ensure_calc_workbook_unload_resets_python(ctx, doc)
+        assert len(doc._document_event_listeners) == 2
 
 
 
