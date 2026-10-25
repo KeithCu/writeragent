@@ -195,10 +195,6 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("iseven-text", "iseven", ("text",), False),
     ("iseven-blank", "iseven", (None,), False),
     ("iseven-zero", "iseven", (0,), True),
-    ("isformula-text", "isformula", ("text",), False),
-    ("isformula-blank", "isformula", (None,), False),
-    ("isformula-zero", "isformula", (0,), False),
-    ("isformula-inf", "isformula", (_INF,), False),
     ("islogical-text", "islogical", ("text",), False),
     ("islogical-blank", "islogical", (None,), False),
     ("islogical-zero", "islogical", (0,), False),
@@ -223,18 +219,14 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("isoweeknum-inf", "isoweeknum", (_INF,), _NAN),
     ("ispmt-zero-rate", "ispmt", (0, 1, 12, 1000), 0.0),
     ("ispmt-rate-inf", "ispmt", (_INF, 1, 12, 1000), -_INF),
-    ("isref-text", "isref", ("text",), False),
-    ("isref-blank", "isref", (None,), False),
-    ("isref-zero", "isref", (0,), False),
-    ("isref-inf", "isref", (_INF,), False),
     ("istext-text", "istext", ("text",), True),
     ("istext-blank", "istext", (None,), False),
     ("istext-zero", "istext", (0,), False),
     ("istext-value", "istext", ("#VALUE!",), False),
-    ("jis-text", "jis", ("text",), "text"),
+    ("jis-text", "jis", ("text",), "ｔｅｘｔ"),
     ("jis-blank", "jis", (None,), ""),
-    ("jis-zero", "jis", (0,), "0"),
-    ("jis-inf", "jis", (_INF,), "inf"),
+    ("jis-zero", "jis", (0,), "０"),
+    ("jis-inf", "jis", (_INF,), "ｉｎｆ"),
     ("kurt-blank", "kurt", ([None, None, None, None],), _NAN),
     ("kurt-inf", "kurt", ([_INF, 1, 2, 3],), _NAN),
     ("large-blank", "large", ([None, ""], 1), _NAN),
@@ -552,9 +544,11 @@ def test_intercept_drops_text_pairs():
 
 
 def test_jis_integral_float_has_no_decimal():
-    assert calc.jis(1.0) == "1"
-    assert calc.jis(1.5) == "1.5"
+    assert calc.jis(1.0) == "１"
+    assert calc.jis(1.5) == "１．５"
     assert calc.jis(None) == ""
+    assert calc.jis("abc 1") == "ａｂｃ\u3000１"
+    assert calc.jis("ｶ") == "カ"
 
 
 def test_ipmt_any_nonzero_type_is_beginning():

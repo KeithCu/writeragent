@@ -262,7 +262,8 @@ def test_nan_cells_propagate_in_npv_sumsq_subtotal_sumifs():
 
     assert math.isnan(calc.sumifs([1.0, nan, 3.0], [1.0, 1.0, 1.0], ">0"))
     assert calc.sumifs([1.0, nan, 3.0], [1.0, 0.0, 1.0], ">0") == 4.0
-    assert calc.sumifs([1.0, "#N/A", 3.0], [1.0, 1.0, 1.0], ">0") == 4.0
+    assert math.isnan(calc.sumifs([1.0, "#N/A", 3.0], [1.0, 1.0, 1.0], ">0"))
+    assert calc.sumifs([1.0, "#N/A", 3.0], [1.0, 0.0, 1.0], ">0") == 4.0
 
 
 def test_numbervalue_grp_equals_dec():
@@ -540,5 +541,24 @@ def test_n_text_returns_zero():
     assert calc.n(np.float64(3.5)) == 3.5
     with pytest.raises(OverflowError):
         calc.n(10**400)
+
+
+def test_item3_sumif_error_propagation_and_shapes():
+    assert math.isnan(calc.sumif(["a", "a"], "a", [1, "#VALUE!"]))
+    assert math.isnan(calc.sumif(["a", "b"], "a", [1, 2, 3]))  # mismatched shapes
+    assert calc.sumif(["a", "b"], "a", [1, "#VALUE!"]) == 1.0
+
+
+def test_item17_oddfprice_and_percentrank():
+    # ODDFPRICE with basis 3 vs basis 0 must differ
+    p0 = calc.oddfprice(40000, 44000, 39000, 40500, 0.05, 0.06, 100, 2, 0)
+    p3 = calc.oddfprice(40000, 44000, 39000, 40500, 0.05, 0.06, 100, 2, 3)
+    assert not math.isnan(p0)
+    assert not math.isnan(p3)
+    assert p0 != p3
+
+    # PERCENTRANK with huge significance returns quickly with NaN
+    assert math.isnan(calc.percentrank([1, 2, 3], 2, 10**9))
+
 
 

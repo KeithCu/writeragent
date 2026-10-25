@@ -10,13 +10,20 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 from decimal import Decimal, InvalidOperation, Overflow, ROUND_HALF_UP, localcontext
+import functools
 import math
 import re
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 
 from .coerce import _LO_ERROR_TOKENS, is_missing_value
+
+ERR_VALUE = "#VALUE!"
+ERR_NA = "#N/A"
+ERR_DIV0 = "#DIV/0!"
+ERR_NUM = "#NUM!"
+ERR_REF = "#REF!"
 
 _SERIAL_OFFSET: int = 693594
 
@@ -52,7 +59,10 @@ def _serial_to_date(serial: Any) -> dt.date | None:
 
 def _date_to_serial(d: dt.date) -> float:
     """Convert a datetime.date object to Excel serial date number (-693594 offset)."""
-    return float(d.toordinal() - _SERIAL_OFFSET)
+    try:
+        return float(d.toordinal() - _SERIAL_OFFSET)
+    except (AttributeError, ValueError, TypeError, OverflowError):
+        return float("nan")
 
 
 def _days360(sd: dt.date, ed: dt.date, european: bool = False) -> float:
@@ -166,6 +176,20 @@ def _round_half_up(val: float, decimals: int) -> Decimal:
             return d.quantize(exp, rounding=ROUND_HALF_UP)
     except (InvalidOperation, Overflow):
         raise ValueError("decimal quantize failed") from None
+
+
+def _round_sig(x: float, sig: int) -> float:
+    """Round float to significant digits using half-up rounding. Keeps non-finite values unchanged."""
+    if not math.isfinite(x):
+        return x
+    if x == 0:
+        return 0.0
+    exponent = math.floor(math.log10(abs(x)))
+    decimals = sig - 1 - exponent
+    try:
+        return float(_round_half_up(x, decimals))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
 
 
 def _as_bool_flag(val: Any) -> bool:
@@ -306,12 +330,14 @@ def _to_float_a(val: Any) -> float:
 
 def _collect_a_values(*args: Any) -> np.ndarray:
     """Collect flat float array for *A functions (AVERAGEA, MAXA, etc.)."""
-    # *A functions skip blanks. Only text counts as 0. A blank is not a zero
-    # and must not change the count.
+    # *A functions skip blanks. Text and blanks evaluate to 0, while errors propagate as NaN.
     vals: list[float] = []
     for arg in args:
         for v in np.asarray(arg, dtype=object).ravel():
-            if v is None or (isinstance(v, (float, np.floating)) and math.isnan(float(v))):
+            if v is None:
+                continue
+            if _is_calc_error(v):
+                vals.append(float("nan"))
                 continue
             vals.append(_to_float_a(v))
     return np.asarray(vals, dtype=float)
@@ -371,18 +397,17 @@ def _wildcard_fullmatch(pattern: str, text: str) -> bool:
     return re.fullmatch(regex_pat, text, flags=re.IGNORECASE) is not None
 
 
-def match_criteria(val: Any, crit: Any) -> bool:
-    """Evaluate an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=')."""
-    # Operators come from an allowlist ('><' is not one). Text is
-    # case-insensitive, '*' '?' '~' are Excel wildcards, and a blank matches '=' and '<>'.
+@functools.lru_cache(maxsize=512)
+def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
+    """Parse an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=') into a matcher callable."""
     if is_missing_value(crit):
-        return is_missing_value(val) or val == "" or val is None
+        return lambda val: is_missing_value(val) or val == "" or val is None
 
     if isinstance(crit, str):
         m = re.match(r"^(<=|>=|<>|<|>|==|=)(?![<>=])(.*)$", crit)
         if m:
             op = "=" if m.group(1) == "==" else m.group(1)
-            val_str = m.group(2)
+            val_str: str | None = m.group(2)
         else:
             op = "="
             val_str = crit
@@ -390,17 +415,6 @@ def match_criteria(val: Any, crit: Any) -> bool:
         op = "="
         val_str = None
 
-    val_is_blank = val is None or val == "" or is_missing_value(val)
-    if val_str == "":
-        if op == "=":
-            return val_is_blank
-        if op == "<>":
-            return not val_is_blank
-
-    if val_is_blank:
-        return op == "<>"
-
-    val_is_bool = isinstance(val, (bool, np.bool_))
     crit_is_bool = False
     bool_val = False
     if isinstance(crit, (bool, np.bool_)):
@@ -410,20 +424,7 @@ def match_criteria(val: Any, crit: Any) -> bool:
         crit_is_bool = True
         bool_val = val_str.upper() == "TRUE"
 
-    if crit_is_bool:
-        if val_is_bool:
-            v_b = bool(val)
-            if op == "=":
-                return v_b == bool_val
-            if op == "<>":
-                return v_b != bool_val
-            return False
-        return op == "<>"
-
-    if val_is_bool:
-        return op == "<>"
-
-    c_num = None
+    c_num: float | None = None
     if val_str is not None:
         try:
             c_num = float(val_str)
@@ -435,60 +436,93 @@ def match_criteria(val: Any, crit: Any) -> bool:
         except (ValueError, TypeError, OverflowError):
             c_num = None
 
-    v_num = None
-    if isinstance(val, (int, float, np.integer, np.floating)):
-        try:
-            v_num = float(val)
-            if math.isnan(v_num):
-                v_num = None
-        except (ValueError, TypeError, OverflowError):
-            v_num = None
-
-    if c_num is not None and v_num is not None:
-        if op == "=":
-            return v_num == c_num
-        if op == "<>":
-            return v_num != c_num
-        if op == "<":
-            return v_num < c_num
-        if op == "<=":
-            return v_num <= c_num
-        if op == ">":
-            return v_num > c_num
-        if op == ">=":
-            return v_num >= c_num
-
-    v_str = str(val)
     c_pattern = val_str if val_str is not None else str(crit)
 
-    if c_num is not None and v_num is None:
-        # The criterion "5" is numeric, but the cell "5" is text. Equality
-        # and inequality still compare them; other operators do not.
-        if isinstance(val, str) and op in ("=", "<>"):
-            matched = _wildcard_fullmatch(c_pattern, v_str)
-            return matched if op == "=" else not matched
-        return op == "<>"
+    def matcher(val: Any) -> bool:
+        val_is_blank = val is None or val == "" or is_missing_value(val)
+        if val_str == "":
+            if op == "=":
+                return val_is_blank
+            if op == "<>":
+                return not val_is_blank
 
-    if c_num is None and v_num is not None:
-        return op == "<>"
+        if val_is_blank:
+            return op == "<>"
 
-    if op == "=":
-        return _wildcard_fullmatch(c_pattern, v_str)
-    if op == "<>":
-        return not _wildcard_fullmatch(c_pattern, v_str)
+        val_is_bool = isinstance(val, (bool, np.bool_))
+        if crit_is_bool:
+            if val_is_bool:
+                v_b = bool(val)
+                if op == "=":
+                    return v_b == bool_val
+                if op == "<>":
+                    return v_b != bool_val
+                return False
+            return op == "<>"
 
-    v_fold = v_str.casefold()
-    c_fold = c_pattern.casefold()
-    if op == "<":
-        return v_fold < c_fold
-    if op == "<=":
-        return v_fold <= c_fold
-    if op == ">":
-        return v_fold > c_fold
-    if op == ">=":
-        return v_fold >= c_fold
+        if val_is_bool:
+            return op == "<>"
 
-    return False
+        v_num: float | None = None
+        if isinstance(val, (int, float, np.integer, np.floating)):
+            try:
+                v_num = float(val)
+                if math.isnan(v_num):
+                    v_num = None
+            except (ValueError, TypeError, OverflowError):
+                v_num = None
+
+        if c_num is not None and v_num is not None:
+            if op == "=":
+                return v_num == c_num
+            if op == "<>":
+                return v_num != c_num
+            if op == "<":
+                return v_num < c_num
+            if op == "<=":
+                return v_num <= c_num
+            if op == ">":
+                return v_num > c_num
+            if op == ">=":
+                return v_num >= c_num
+
+        v_str = str(val)
+        if c_num is not None and v_num is None:
+            if isinstance(val, str) and op in ("=", "<>"):
+                matched = _wildcard_fullmatch(c_pattern, v_str)
+                return matched if op == "=" else not matched
+            return op == "<>"
+
+        if c_num is None and v_num is not None:
+            return op == "<>"
+
+        if op == "=":
+            return _wildcard_fullmatch(c_pattern, v_str)
+        if op == "<>":
+            return not _wildcard_fullmatch(c_pattern, v_str)
+
+        v_fold = v_str.casefold()
+        c_fold = c_pattern.casefold()
+        if op == "<":
+            return v_fold < c_fold
+        if op == "<=":
+            return v_fold <= c_fold
+        if op == ">":
+            return v_fold > c_fold
+        if op == ">=":
+            return v_fold >= c_fold
+
+        return False
+
+    return matcher
+
+
+def match_criteria(val: Any, crit: Any) -> bool:
+    """Evaluate an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=')."""
+    try:
+        return _parse_criterion(crit)(val)
+    except TypeError:
+        return _parse_criterion.__wrapped__(crit)(val)
 
 
 def _extract_numeric_array(
@@ -579,32 +613,55 @@ def _find_text_cut(
     return s, delim, inst, idx, False
 
 
-def _criteria_numbers(r: Any, crit: Any, val_range: Any | None = None) -> list[float]:
-    """Collect matching numeric values for criteria-based functions (averageif, sumif)."""
-    # dtype=object keeps cell types. A huge int raises OverflowError, which is
-    # the same failure as a bad number. Text and bools are not numbers:
-    # float("5") and float(True) used to count them. Calc AVERAGEIF and
-    # SUMIF ignore both in the value range.
-    r_flat = np.asarray(r, dtype=object).ravel()
-    v_flat = np.asarray(val_range, dtype=object).ravel() if val_range is not None else r_flat
+def _criteria_numbers(
+    r: Any,
+    crit: Any = None,
+    val_range: Any | None = None,
+    *,
+    pairs: Sequence[tuple[Any, Any]] | None = None,
+) -> list[float] | None:
+    """Collect matching numeric values for criteria-based functions (averageif, averageifs, sumif, sumifs)."""
+    if pairs is not None:
+        v_arr = np.asarray(r, dtype=object)
+        mask = _multi_criteria_mask(pairs, base_len=len(v_arr.ravel()), base_shape=v_arr.shape)
+    else:
+        r_arr = np.asarray(r, dtype=object)
+        v_arr = np.asarray(val_range, dtype=object) if val_range is not None else r_arr
+        if val_range is not None and v_arr.shape != r_arr.shape:
+            return None
+        mask = _multi_criteria_mask([(r, crit)], base_len=len(v_arr.ravel()), base_shape=v_arr.shape)
+
+    if mask is None:
+        return None
+
+    v_flat = v_arr.ravel()
     vals: list[float] = []
-    for i in range(min(len(r_flat), len(v_flat))):
-        if match_criteria(r_flat[i], crit):
-            cell = v_flat[i]
-            if isinstance(cell, (bool, np.bool_, str)):
+    for idx in range(len(v_flat)):
+        if not mask[idx]:
+            continue
+        cell = v_flat[idx]
+        if cell is None:
+            continue
+        if _is_calc_error(cell):
+            vals.append(float("nan"))
+            continue
+        if isinstance(cell, str):
+            if is_missing_value(cell):
                 continue
-            try:
-                val = float(cell)
-                if not np.isnan(val):
-                    vals.append(val)
-            except (ValueError, TypeError, OverflowError):
-                pass
+            continue
+        if isinstance(cell, (bool, np.bool_)):
+            continue
+        try:
+            val = float(cell)
+            vals.append(val)
+        except (ValueError, TypeError, OverflowError):
+            pass
     return vals
 
 
 def _complex_coeff(n: float) -> str:
     """Format complex coefficient without trailing .0 on integers."""
-    if math.isfinite(n) and n.is_integer():
+    if isinstance(n, int) or (isinstance(n, float) and math.isfinite(n) and n.is_integer()):
         return str(int(n))
     return str(n)
 
@@ -678,8 +735,12 @@ def _multi_criteria_mask(
 
     mask = np.ones(expected_len, dtype=bool)
     for cr, crit in zip(cond_ranges, criteria):
+        try:
+            matcher = _parse_criterion(crit)
+        except TypeError:
+            matcher = _parse_criterion.__wrapped__(crit)
         for idx in range(expected_len):
-            if mask[idx] and not match_criteria(cr[idx], crit):
+            if mask[idx] and not matcher(cr[idx]):
                 mask[idx] = False
 
     return mask

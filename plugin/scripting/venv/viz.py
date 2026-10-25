@@ -12,12 +12,14 @@ import logging
 from typing import Any, cast
 
 from plugin.scripting.venv.coerce import (
+    parse_date_column,
+    resolve_df as _resolve_df,
+)
+from plugin.scripting.venv.trusted_dispatch import (
     _sheet_layout_flags,
     dispatch_common_kwargs,
     error_result as _error_result,
     missing_package_error as _missing_package_error,
-    parse_date_column,
-    resolve_df as _resolve_df,
     resolve_spec_helper,
 )
 

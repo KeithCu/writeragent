@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
+    _as_nonzero,
     _collect_a_values,
     _criteria_numbers,
     _date_to_serial,
@@ -29,6 +30,7 @@ from .calc_functions_util import (
     _multi_criteria_mask,
     _npf_result,
     _round_half_up,
+    _scipy_stats,
     _serial_to_date,
     match_criteria,
     yearfrac,
@@ -52,7 +54,6 @@ __all__ = [
     "averagea",
     "averageif",
     "averageifs",
-    "bahttext",
     "base",
     "besseli",
     "besselj",
@@ -170,7 +171,10 @@ def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = N
         return "#VALUE!"
     if r < 1 or c < 1 or abs_n not in (1, 2, 3, 4):
         return "#VALUE!"
-    is_a1 = bool(a1)
+    try:
+        is_a1 = True if (a1 is None or a1 == "") else _as_nonzero(a1)
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
 
     if is_a1:
         # A1 style
@@ -204,8 +208,7 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
     # non-numeric function_num/options are left to the worker exception path, which returns #VALUE!
     fn = int(float(function_num))
     opt = int(float(options))
-    if 14 <= fn <= 19:
-        raise NotImplementedError(f"AGGREGATE function {fn} is unsupported in lightweight runtime")
+    assert 1 <= fn <= 13
     numeric: list[float] = []
     n_text = 0
     n_bool = 0
@@ -532,7 +535,7 @@ def averagea(*args: Any) -> float:
 
 def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
     vals = _criteria_numbers(r, crit, ar)
-    if not vals:
+    if vals is None or not vals:
         return float("nan")
     return float(np.mean(vals))
 
@@ -543,34 +546,13 @@ def averageifs(ar: Any, *args: Any) -> float | str:
     # averaged. Calc returns #VALUE!. No pairs used to average the whole range.
     if len(args) % 2 != 0 or not args:
         return "#VALUE!"
-    ar_arr = np.asarray(ar, dtype=object)
-    ar_flat = ar_arr.ravel()
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
-    mask = _multi_criteria_mask(pairs, base_len=len(ar_flat), base_shape=ar_arr.shape)
-    if mask is None:
+    vals = _criteria_numbers(ar, pairs=pairs)
+    if vals is None:
         return "#VALUE!"
-    vals: list[float] = []
-    for idx in range(len(ar_flat)):
-        if mask[idx]:
-            # Text and bools are not numbers. float("5") and float(True)
-            # used to pull them into the mean. Calc AVERAGEIFS ignores both.
-            cell = ar_flat[idx]
-            if isinstance(cell, (bool, np.bool_, str)):
-                continue
-            try:
-                val = float(cell)
-                if not np.isnan(val):
-                    vals.append(val)
-            except (ValueError, TypeError, OverflowError):
-                pass
     if not vals:
         return float("nan")
     return float(np.mean(vals))
-
-
-def bahttext(number: Any) -> str:
-    # Thai currency spelling is not implemented in this runtime.
-    raise NotImplementedError("BAHTTEXT is unsupported in lightweight runtime")
 
 
 def base(number: Any, radix: Any, min_length: Any = 0) -> str:
@@ -633,7 +615,7 @@ def _bessel_call(name: str, impl: Any, x: Any, n: Any) -> float:
         import scipy.special  # type: ignore[import-untyped]
 
         return impl(getattr(scipy.special, name), x, n)
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -658,14 +640,18 @@ def betadist(*args: Any) -> float:
     # args[3] is the lower bound A (default 0), not a cumulative flag.
     if len(args) < 3 or len(args) > 5:
         return float("nan")
-    # type errors are left to the worker exception path, which returns #VALUE!
-    from scipy import stats
+    stats = _scipy_stats()
+    if stats is None:
+        return float("nan")
 
-    x = float(args[0])
-    alpha = float(args[1])
-    beta = float(args[2])
-    A = float(args[3]) if len(args) > 3 else 0.0
-    B = float(args[4]) if len(args) > 4 else 1.0
+    try:
+        x = float(args[0])
+        alpha = float(args[1])
+        beta = float(args[2])
+        A = float(args[3]) if len(args) > 3 else 0.0
+        B = float(args[4]) if len(args) > 4 else 1.0
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
 
     if alpha <= 0.0 or beta <= 0.0 or A >= B or x < A or x > B:
         return float("nan")
@@ -677,14 +663,18 @@ def betainv(*args: Any) -> float:
     # p in [0, 1], alpha > 0, beta > 0, A < B. scipy's ppf does not enforce that.
     if len(args) < 3 or len(args) > 5:
         return float("nan")
-    # type errors are left to the worker exception path, which returns #VALUE!
-    from scipy import stats
+    stats = _scipy_stats()
+    if stats is None:
+        return float("nan")
 
-    p = float(args[0])
-    alpha = float(args[1])
-    beta = float(args[2])
-    A = float(args[3]) if len(args) > 3 else 0.0
-    B = float(args[4]) if len(args) > 4 else 1.0
+    try:
+        p = float(args[0])
+        alpha = float(args[1])
+        beta = float(args[2])
+        A = float(args[3]) if len(args) > 3 else 0.0
+        B = float(args[4]) if len(args) > 4 else 1.0
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
 
     if p < 0.0 or p > 1.0 or alpha <= 0.0 or beta <= 0.0 or A >= B:
         return float("nan")
@@ -695,13 +685,17 @@ def binomdist(*args: Any) -> float:
     # 0 <= k <= n, n >= 0, 0 <= p <= 1. scipy returns 0 for k > n; Calc wants #NUM!.
     if len(args) < 4:
         return float("nan")
-    # type errors are left to the worker exception path, which returns #VALUE!
-    from scipy import stats
+    stats = _scipy_stats()
+    if stats is None:
+        return float("nan")
 
-    k = int(float(args[0]))
-    n = int(float(args[1]))
-    p = float(args[2])
-    cum = bool(float(args[3]))
+    try:
+        k = int(float(args[0]))
+        n = int(float(args[1]))
+        p = float(args[2])
+        cum = False if (args[3] is None or args[3] == "") else _as_nonzero(args[3])
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     if k < 0 or k > n or n < 0 or p < 0 or p > 1:
         return float("nan")
     if cum:
@@ -785,11 +779,15 @@ def chidist(x: Any, df: Any) -> float:
     # Excel path, same as binomdist. x == 0 stays 1. df is truncated.
     # df < 1 or df > 1e10 is #NUM! (Excel; LO enforces the cap on
     # ScChiSqDist_MS). int(df) rejected the string "3.5".
-    # type errors are left to the worker exception path, which returns #VALUE!
-    from scipy import stats
+    stats = _scipy_stats()
+    if stats is None:
+        return float("nan")
 
-    xv = float(x)
-    dof = int(float(df))
+    try:
+        xv = float(x)
+        dof = int(float(df))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     if xv < 0.0 or dof < 1 or dof > 10**10:
         return float("nan")
     return float(stats.chi2.sf(xv, dof))
@@ -799,11 +797,15 @@ def chiinv(p: Any, df: Any) -> float:
     # ScChiInv: df < 1, p <= 0, or p > 1 is #NUM!. scipy isf(0, df) is inf.
     # p == 1 stays 0. df uses int(float()) so "3.5" truncates. df > 1e10
     # matches Excel CHIINV and the chidist cap above.
-    # type errors are left to the worker exception path, which returns #VALUE!
-    from scipy import stats
+    stats = _scipy_stats()
+    if stats is None:
+        return float("nan")
 
-    pv = float(p)
-    dof = int(float(df))
+    try:
+        pv = float(p)
+        dof = int(float(df))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     if dof < 1 or dof > 10**10 or pv <= 0.0 or pv > 1.0:
         return float("nan")
     return float(stats.chi2.isf(pv, dof))
@@ -900,12 +902,16 @@ def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
 
 def confidence(alpha: Any, stddev: Any, size: Any) -> float:
     # alpha strictly inside (0, 1), stddev > 0, size >= 1. Otherwise #NUM!.
-    # type errors are left to the worker exception path, which returns #VALUE!
-    from scipy import stats
+    stats = _scipy_stats()
+    if stats is None:
+        return float("nan")
 
-    a = float(alpha)
-    sd = float(stddev)
-    n = int(float(size))
+    try:
+        a = float(alpha)
+        sd = float(stddev)
+        n = int(float(size))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     if a <= 0.0 or a >= 1.0 or sd <= 0.0 or n < 1:
         return float("nan")
     return float(stats.norm.ppf(1 - a / 2.0) * sd / math.sqrt(n))
@@ -993,64 +999,65 @@ def _get_coupon_dates(
     return p_ser, c_ser, days_in_per, float(k)
 
 
+def _coupon_schedule(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> tuple[float, float, float, float, float, float]:
+    """Compute coupon schedule: (p_ser, c_ser, days_in_per, k, a_days, dsc_days)."""
+    b = int(float(basis))
+    p_ser, c_ser, days_in_per, k = _get_coupon_dates(settlement, maturity, frequency, b)
+    s_date = _serial_to_date(settlement)
+    assert s_date is not None
+    s_ser = _date_to_serial(s_date)
+    a_days = float(_days_between(p_ser, s_ser, b))
+    dsc_days = float(_days_between(s_ser, c_ser, b))
+    return p_ser, c_ser, days_in_per, k, a_days, dsc_days
+
+
 def coupdaybs(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     # Coupon dates step by calendar months. frequency in (1, 2, 4), basis in
     # (0..4), settlement < maturity. A fixed day step (180, 182.5) drifts.
     try:
-        b = int(float(basis))
-        p_ser, _c_ser, _days_in_per, _k = _get_coupon_dates(settlement, maturity, frequency, b)
-        s_date = _serial_to_date(settlement)
-        # _get_coupon_dates already raised when settlement does not convert
-        assert s_date is not None
-        s_ser = _date_to_serial(s_date)
-        return float(_days_between(p_ser, s_ser, b))
-    except Exception:
+        _p_ser, _c_ser, _days_in_per, _k, a_days, _dsc_days = _coupon_schedule(settlement, maturity, frequency, basis)
+        return a_days
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def coupdays(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     try:
-        b = int(float(basis))
-        _p_ser, _c_ser, days_in_per, _k = _get_coupon_dates(settlement, maturity, frequency, b)
+        _p_ser, _c_ser, days_in_per, _k, _a_days, _dsc_days = _coupon_schedule(settlement, maturity, frequency, basis)
         return float(days_in_per)
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def coupdaysnc(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     try:
-        b = int(float(basis))
-        _p_ser, c_ser, _days_in_per, _k = _get_coupon_dates(settlement, maturity, frequency, b)
-        s_date = _serial_to_date(settlement)
-        # _get_coupon_dates already raised when settlement does not convert
-        assert s_date is not None
-        s_ser = _date_to_serial(s_date)
-        return float(_days_between(s_ser, c_ser, b))
-    except Exception:
+        _p_ser, _c_ser, _days_in_per, _k, _a_days, dsc_days = _coupon_schedule(settlement, maturity, frequency, basis)
+        return dsc_days
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def coupncd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     try:
-        _p_ser, c_ser, _days_in_per, _k = _get_coupon_dates(settlement, maturity, frequency, basis)
+        _p_ser, c_ser, _days_in_per, _k, _a_days, _dsc_days = _coupon_schedule(settlement, maturity, frequency, basis)
         return float(c_ser)
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def coupnum(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     try:
-        _p_ser, _c_ser, _days_in_per, k = _get_coupon_dates(settlement, maturity, frequency, basis)
+        _p_ser, _c_ser, _days_in_per, k, _a_days, _dsc_days = _coupon_schedule(settlement, maturity, frequency, basis)
         return float(k)
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def couppcd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     try:
-        p_ser, _c_ser, _days_in_per, _k = _get_coupon_dates(settlement, maturity, frequency, basis)
+        p_ser, _c_ser, _days_in_per, _k, _a_days, _dsc_days = _coupon_schedule(settlement, maturity, frequency, basis)
         return float(p_ser)
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -1058,12 +1065,16 @@ def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
     # ScCritBinom (interpr3.cxx): n < 0, alpha outside [0, 1], or p outside
     # [0, 1] is #NUM!. alpha == 0 returns 0. scipy's ppf(0, n, p) is -1.
     # alpha == 1 returns n, or 0 when p == 0. int(trials) rejected "10.9".
-    # type errors are left to the worker exception path, which returns #VALUE!
-    from scipy import stats
+    stats = _scipy_stats()
+    if stats is None:
+        return float("nan")
 
-    n = int(float(trials))
-    p = float(prob)
-    a = float(alpha)
+    try:
+        n = int(float(trials))
+        p = float(prob)
+        a = float(alpha)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     if n < 0 or a < 0.0 or a > 1.0 or p < 0.0 or p > 1.0:
         return float("nan")
     if a == 0.0:

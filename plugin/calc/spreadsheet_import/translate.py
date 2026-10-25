@@ -275,6 +275,18 @@ def _emit_function(node: FunctionNode, state: _CodegenState, cell_addr: str | No
         raise BadArity(f"insufficient arguments for {name}") from exc
 
 
+def _emit_aggregate(args: list[str]) -> str:
+    if len(args) < 3:
+        _bad_arity("aggregate", ">=3", len(args))
+    try:
+        fn = int(args[0])
+    except (ValueError, TypeError):
+        raise UnsupportedFunction("AGGREGATE requires a numeric literal in 1..13 as first argument")
+    if not (1 <= fn <= 13):
+        raise UnsupportedFunction(f"AGGREGATE function_num {fn} not supported")
+    return f"calc.aggregate({', '.join(args)})"
+
+
 def _emit_if(args: list[str]) -> str:
     # Excel and Calc return FALSE when IF's condition is false and the else
     # branch is omitted. Requiring three arguments reports a legal
@@ -315,13 +327,16 @@ def _calc(name: str, min_args: int = 1, max_args: int | None = None) -> Callable
             _bad_arity(name, expected, len(args))
         return f"calc.{name}({', '.join(args)})"
 
+    setattr(emitter, "helper_name", name)
+    setattr(emitter, "min_args", min_args)
+    setattr(emitter, "max_args", max_args)
     return emitter
 
 
 # P1 function emitters: args are already Python sub-expressions using data[i].
 _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "ACCRINT": _calc("accrint", 6, 8),
-    "ACCRINTM": _calc("accrintm", 4, 6),
+    "ACCRINTM": _calc("accrintm", 3, 5),
     "AMORDEGRC": _calc("amordegrc", 6, 7),
     "AMORLINC": _calc("amorlinc", 6, 7),
     "COUPDAYBS": _calc("coupdaybs", 3, 4),
@@ -423,7 +438,6 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "REPT": _calc("rept", 2, 2),
     "EXACT": _exact("EXACT", 2, "(str({0}) == str({1}))"),
     "ARABIC": _calc("arabic", 1, 1),
-    "BAHTTEXT": _calc("bahttext", 1, 1),
     "CLEAN": _calc("clean", 1, 1),
     "DOLLAR": _calc("dollar", 1, 2),
     "ENCODEURL": _calc("encodeurl", 1, 1),
@@ -544,13 +558,10 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "XOR": _calc("xor", 1),
     "XIRR": _calc("xirr", 2, 3),
     "XNPV": _calc("xnpv", 3, 3),
-    "YIELD": _calc("yield_calc", 6, 7),
     "YIELDDISC": _calc("yielddisc", 4, 5),
     "YIELDMAT": _calc("yieldmat", 5, 6),
-    "ISFORMULA": _calc("isformula", 1, 1),
-    "ISREF": _calc("isref", 1, 1),
     "NA": lambda _a: "calc.na()",
-    "AGGREGATE": _calc("aggregate", 3),
+    "AGGREGATE": _emit_aggregate,
     "BASE": _calc("base", 2, 3),
     "DECIMAL": _calc("decimal", 2, 2),
     "MULTINOMIAL": _calc("multinomial", 1),

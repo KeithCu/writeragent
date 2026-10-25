@@ -13,13 +13,15 @@ from typing import Any
 
 from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.venv.coerce import (
-    error_result as _error_result,
     is_missing_value as _is_missing_value,
+    parse_date_column,
+    resolve_df as _resolve_df,
+)
+from plugin.scripting.venv.trusted_dispatch import (
+    error_result as _error_result,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
-    parse_date_column,
     parse_trusted_spec as _parse_trusted_spec,
-    resolve_df as _resolve_df,
 )
 
 log = logging.getLogger(__name__)

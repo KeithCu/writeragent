@@ -86,8 +86,7 @@ def test_headers_false_survives_client_path(ctx):
     so the first data row was consumed as column names.
     """
     from plugin.scripting.calc_functions_common import FORECAST_HELPER_NAMES
-    from plugin.scripting.venv.coerce import parse_trusted_spec
-    from plugin.scripting.venv.trusted_dispatch import _packet_parts
+    from plugin.scripting.venv.trusted_dispatch import _packet_parts, parse_trusted_spec
 
     grid = [["Date", "Value"], ["2024-01-01", 1]]
     spec = {
@@ -118,8 +117,7 @@ def test_headers_false_survives_client_path(ctx):
 
 def test_string_false_header_is_not_coerced_on_the_host(ctx):
     from plugin.scripting.calc_functions_common import FORECAST_HELPER_NAMES
-    from plugin.scripting.venv.coerce import parse_trusted_spec
-    from plugin.scripting.venv.trusted_dispatch import _packet_parts
+    from plugin.scripting.venv.trusted_dispatch import _packet_parts, parse_trusted_spec
 
     grid = [["Date", "Value"], ["2024-01-01", 1]]
     spec = {

@@ -18,7 +18,7 @@ import re
 from typing import Any, Callable
 
 from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES as HELPER_NAMES
-from plugin.scripting.venv.coerce import (
+from plugin.scripting.venv.trusted_dispatch import (
     error_result as _error_result,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,

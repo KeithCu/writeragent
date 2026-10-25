@@ -15,11 +15,11 @@ from typing import Any, Callable
 
 from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.calc_range import ensure_rectangular_2d
-from plugin.scripting.venv.coerce import (
+from plugin.scripting.venv.map_range import inspect_input, map_over_range
+from plugin.scripting.venv.trusted_dispatch import (
     error_result as _error_result,
     resolve_spec_helper,
 )
-from plugin.scripting.venv.map_range import inspect_input, map_over_range
 
 # Filled on first use. The venv worker handles one request at a time on the
 # main thread (worker_harness.main), so this lazy registry has no lock.

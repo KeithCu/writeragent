@@ -889,19 +889,25 @@ def test_translate_group_d_functions():
     assert "calc.xnpv" in res.code
     assert abs(exec_result(res, [-10000, 2750, 4250], [733042, 733102, 733345])) > 0
 
+    res = translate_formula("=BAHTTEXT(A1)")
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
+
     res = translate_formula("=YIELD(A1, B1, C1, D1, E1, F1)")
-    assert res.ok
-    assert "calc.yield_calc" in res.code
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
 
     res = translate_formula("=ISFORMULA(A1)")
-    assert res.ok
-    assert "calc.isformula" in res.code
-    assert exec_result(res, 42) is False
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
 
     res = translate_formula("=ISREF(A1)")
-    assert res.ok
-    assert "calc.isref" in res.code
-    assert exec_result(res, 42) is False
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
+
+    res = translate_formula("=AGGREGATE(14, 4, A1:A3, 1)")
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
 
     res = translate_formula("=NA()")
     assert res.ok
@@ -1265,7 +1271,7 @@ def test_translate_pearson(value, value_2):
     assert value_2 in res.code
 
 def test_translate_group_h():
-    assert translate_formula("=BAHTTEXT(A1)").code == 'calc.bahttext(data)'
+    assert translate_formula("=BAHTTEXT(A1)").reason == "UNSUPPORTED_FUNCTION"
     assert translate_formula("=CLEAN(A1)").code == 'calc.clean(data)'
     assert translate_formula("=DOLLAR(A1; 2)").code == 'calc.dollar(data, 2)'
     assert translate_formula("=ENCODEURL(A1)").code == 'calc.encodeurl(data)'
@@ -1295,7 +1301,7 @@ def test_translate_group_b_functions():
     # 3. DURATION
     res = translate_formula("=DURATION(45292; 47118; 0.08; 0.09; 2; 1)")
     assert res.ok
-    assert abs(exec_result(res, []) - 4.1970215) < 1e-4
+    assert abs(exec_result(res, []) - 4.196131) < 1e-4
 
     # 4. EFFECT
     res = translate_formula("=EFFECT(0.0525; 4)")
@@ -1325,7 +1331,7 @@ def test_translate_group_b_functions():
     # 9. MDURATION
     res = translate_formula("=MDURATION(45292; 47118; 0.08; 0.09; 2; 1)")
     assert res.ok
-    assert abs(exec_result(res, []) - 4.0162885) < 1e-4
+    assert abs(exec_result(res, []) - 4.0154364) < 1e-4
 
     # 10. MIRR
     res = translate_formula("=MIRR(A1:A4; 0.1; 0.12)")
@@ -1345,7 +1351,7 @@ def test_translate_group_b_functions():
     # 13. ODDFPRICE
     res = translate_formula("=ODDFPRICE(45292; 47118; 45000; 45500; 0.08; 0.09; 100; 2; 1)")
     assert res.ok
-    assert abs(exec_result(res, []) - 93.471810) < 1e-4
+    assert abs(exec_result(res, []) - 93.483446) < 1e-4
 
     # 14. ODDFYIELD
     res = translate_formula("=ODDFYIELD(45292; 47118; 45000; 45500; 0.08; 95; 100; 2; 1)")
@@ -1601,4 +1607,43 @@ def test_translate_quoted_sheet_names():
     assert res.data_ranges == ["'My Sheet'.A1"]
     py_f = emit_py_formula(res.code, res.data_ranges)
     assert "'My Sheet'.A1" in py_f
+
+
+def test_calc_helper_name_and_arity_contracts():
+    """Verify that every helper emitted by translate table is in HELPER_NAMES with valid arity."""
+    import inspect
+    import plugin.scripting.venv.calc_functions as vcf
+    from plugin.calc.spreadsheet_import.translate import _P1_FUNCTION_EMITTERS
+
+    checked = 0
+    for fn_name, emitter in _P1_FUNCTION_EMITTERS.items():
+        helper_name = getattr(emitter, "helper_name", None)
+        if helper_name is None:
+            continue
+
+        # 1. Assert helper name is registered in HELPER_NAMES
+        assert helper_name in vcf.HELPER_NAMES, f"{helper_name} (from {fn_name}) not in HELPER_NAMES"
+
+        # 2. Check min/max arity against inspect.signature where applicable
+        fn = getattr(vcf, helper_name)
+        sig = inspect.signature(fn)
+        params = list(sig.parameters.values())
+        has_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
+        if has_varargs:
+            # Skip inspect-unfriendly (*args) signatures
+            continue
+
+        pos_params = [p for p in params if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)]
+        req_params = [p for p in pos_params if p.default is inspect.Parameter.empty]
+        min_args = getattr(emitter, "min_args", None)
+        max_args = getattr(emitter, "max_args", None)
+
+        if min_args is not None:
+            assert min_args >= len(req_params), f"{fn_name} min_args {min_args} < req {len(req_params)}"
+        if max_args is not None:
+            assert max_args <= len(pos_params), f"{fn_name} max_args {max_args} > max_pos {len(pos_params)}"
+        checked += 1
+
+    assert checked > 150
+
 

@@ -170,10 +170,6 @@ _BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
     ("yearfrac", "text-basis", (44927, 45292, "b"), "nan"),
     ("yearfrac", "out-of-range-inf", (_INF, 45292, 1), "nan"),
     # The YIELD* helpers are stubs: every input, including these, is NaN.
-    ("yield_calc", "text", ("a", "b", "c", "d", "e", "f"), "nan"),
-    ("yield_calc", "blank", (None, None, None, None, None, None), "nan"),
-    ("yield_calc", "zero", (0, 0, 0, 0, 0, 0), "nan"),
-    ("yield_calc", "out-of-range", (-1, -2, -3, 0, 0, 0), "nan"),
     ("yielddisc", "text", ("a", "b", "c", "d"), "nan"),
     ("yielddisc", "blank", (None, None, None, None), "nan"),
     ("yielddisc", "zero", (0, 0, 0, 0), "nan"),
@@ -281,8 +277,6 @@ def test_yield_helpers():
     ym = calc.yieldmat(45000, 46000, 44000, 0.05, 98, 0)
     assert not math.isnan(ym)
     assert ym > 0.0
-
-    assert math.isnan(calc.yield_calc(45000, 46000, 0.05, 98, 100, 2))
 
 
 def test_trend_const_and_multivariate():
@@ -560,4 +554,21 @@ def test_textsplit_empty_text_is_nan_and_pad_is_nan():
     assert padded[1][0] == "c"
     assert math.isnan(padded[1][1])
     assert calc.textsplit("a,b;c", ",", ";", pad_with="x") == [["a", "b"], ["c", "x"]]
+
+
+def test_unique_ragged_input():
+    # Item 25: UNIQUE([[1, 2], [1]]) does not raise
+    res = calc.unique([[1, 2], [1]])
+    assert res == [[1, 2], [1, ""]]
+
+
+def test_text_date_time_formats():
+    # Item 26: TEXT date formats
+    d = _serial(2024, 1, 15)
+    assert calc.text(d, "yyyy-mm-dd") == "2024-01-15"
+    assert calc.text(d, "dd/mm/yyyy") == "15/01/2024"
+    assert calc.text(d, "mmm d, yyyy") == "Jan 15, 2024"
+    assert calc.text(0.5, "hh:mm:ss") == "12:00:00"
+    assert calc.text(0.75, "hh:mm:ss") == "18:00:00"
+
 

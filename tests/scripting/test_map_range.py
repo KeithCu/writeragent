@@ -340,3 +340,49 @@ def test_inspect_numpy_generic_and_zero_d_are_python_scalars():
     assert insp_0d.flat_items == [5]
 
 
+def test_rewrap_output_ragged():
+    # Item 16: ragged result must be padded to a rectangle with "" and must not raise
+    insp = inspect_input(CalcRange([[1, 2], [3, 4]]))
+    res = rewrap_output([1, 2, 3], insp)
+    assert res == [[1, 2], [3, ""]]
+
+    insp3 = inspect_input(CalcRange([[1, 2, 3], [4, 5, 6]]))
+    res3 = rewrap_output([1, 2, 3, 4], insp3)
+    assert res3 == [[1, 2, 3], [4, "", ""]]
+
+
+def test_broadcast_error_message_details():
+    # Item 15: include parameter name/index and shapes
+    with pytest.raises(ValueError, match=r"parameter 2 has shape 3×1.*expected 1×3"):
+        broadcast_args(CalcRange([[1, 2, 3]]), CalcRange([[1], [2], [3]]))
+
+
+from hypothesis import given, strategies as st
+
+
+@st.composite
+def shape_and_value(draw):
+    kind = draw(st.sampled_from(["scalar", "vector_row", "vector_col", "grid"]))
+    if kind == "scalar":
+        return draw(st.integers(0, 100))
+    if kind == "vector_row":
+        length = draw(st.integers(1, 4))
+        return draw(st.lists(st.integers(0, 100), min_size=length, max_size=length))
+    if kind == "vector_col":
+        length = draw(st.integers(1, 4))
+        return [[draw(st.integers(0, 100))] for _ in range(length)]
+    rows = draw(st.integers(2, 4))
+    cols = draw(st.integers(2, 4))
+    return [[draw(st.integers(0, 100)) for _ in range(cols)] for _ in range(rows)]
+
+
+@given(a=shape_and_value(), b=shape_and_value())
+def test_hypothesis_map_over_range_shapes(a, b):
+    try:
+        res = map_over_range(lambda x, y: x + y, a, b)
+        assert res is not None
+    except ValueError:
+        pass  # Expected when broadcast shapes are incompatible
+
+
+

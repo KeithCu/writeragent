@@ -502,6 +502,3 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
             assert "PY" in cell_a1.getFormula()
     finally:
         clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
-
-
-
