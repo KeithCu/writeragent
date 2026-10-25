@@ -45,8 +45,6 @@ class ACPTimeoutError(ToolExecutionError):
 
 
 _JSONRPC_VERSION = "2.0"
-# send_request's idle wait polls this often so an inbound line can extend it.
-_IDLE_POLL_S = 0.05
 _STDOUT_LINE_MAX = 1024 * 1024
 # Not a JSON-RPC id. None is a valid id, so rejection cannot use None.
 _BAD_ID = object()
@@ -182,7 +180,8 @@ class ACPConnection:
     _notify_callback: Any
     _write_queue: queue.Queue[Any]
     _writer_thread: BackgroundHandle | None
-    _last_inbound: float
+    _inbound_cv: threading.Condition
+    _last_inbound_at: float
     _managed: ManagedSubprocess | None
 
     def __init__(self, cmd_line: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> None:
@@ -203,7 +202,22 @@ class ACPConnection:
         self._notify_callback = None
         self._write_queue = queue.Queue()
         self._writer_thread = None
-        self._last_inbound = time.monotonic()
+        self._inbound_cv = threading.Condition()
+        self._last_inbound_at = time.monotonic()
+
+    @property
+    def _last_inbound(self) -> float:
+        return self._last_inbound_at
+
+    @_last_inbound.setter
+    def _last_inbound(self, value: float) -> None:
+        with self._inbound_cv:
+            self._last_inbound_at = value
+            self._inbound_cv.notify_all()
+
+    def _notify_idle(self) -> None:
+        with self._inbound_cv:
+            self._inbound_cv.notify_all()
 
     def start(self) -> None:
         """Spawn the ACP subprocess."""
@@ -273,6 +287,7 @@ class ACPConnection:
                 failed += 1
             elif not only_unanswered:
                 entry.event.set()
+        self._notify_idle()
         return failed
 
     def stop(self) -> None:
@@ -362,6 +377,7 @@ class ACPConnection:
             if entry is not None and entry.response is None:
                 entry.response = {"error": {"message": message}}
                 entry.event.set()
+        self._notify_idle()
 
     @background
     def _writer_drain_loop(self) -> None:
@@ -396,11 +412,16 @@ class ACPConnection:
                     if self._managed is not None:
                         self._managed.unregister()
                     break
+                stdin = item.proc.stdin if item.proc is not None else None
+                if stdin is None or item.data is None:
+                    if item.fail_req_id is not None:
+                        self._fail_request(item.fail_req_id, "Failed to write to ACP: stdin is closed")
+                    else:
+                        log.debug("ACP stdin write skipped: stdin is closed or data is None")
+                    continue
                 try:
-                    stdin = item.proc.stdin if item.proc is not None else None
-                    if stdin and item.data is not None:
-                        stdin.write(item.data)
-                        stdin.flush()
+                    stdin.write(item.data)
+                    stdin.flush()
                 except (OSError, ValueError) as exc:
                     # A closed pipe during stop is expected. Debug keeps a
                     # failed session/cancel visible without an error traceback.
@@ -410,6 +431,10 @@ class ACPConnection:
                     log.debug("ACP stdin write failed", exc_info=True)
                     if item.fail_req_id is not None:
                         self._fail_request(item.fail_req_id, f"Failed to write to ACP: {exc}")
+                except Exception:
+                    log.exception("ACP stdin writer failed")
+                    if item.fail_req_id is not None:
+                        self._fail_request(item.fail_req_id, "Failed to write to ACP: stdin writer failed")
         finally:
             with self._lock:
                 self._writer_thread = None
@@ -450,6 +475,7 @@ class ACPConnection:
 
         req_id = self._next_id()
         msg = {"jsonrpc": _JSONRPC_VERSION, "id": req_id, "method": method, "params": params if params is not None else {}}
+        line = json.dumps(msg) + "\n"
 
         event = threading.Event()
         with self._lock:
@@ -468,13 +494,17 @@ class ACPConnection:
             proc = self._proc
             self._pending[req_id] = _Pending(event)
 
-        line = json.dumps(msg) + "\n"
         log.debug(f"→ {method} (id={req_id})")
         # The caller used to write stdin itself. A full pipe blocked this
         # thread before the timeout started, and a second writer could run
         # beside the queue. The writer thread performs the write. A closed
         # pipe fails this waiter instead of raising ValueError here.
-        self._enqueue(_QueuedWrite(proc, line.encode("utf-8"), req_id))
+        try:
+            self._enqueue(_QueuedWrite(proc, line.encode("utf-8"), req_id))
+        except Exception:
+            with self._lock:
+                self._pending.pop(req_id, None)
+            raise
         return (req_id, event, method)
 
     def await_response(self, handle: tuple[int, threading.Event, str], timeout: float = 120) -> Any:
@@ -505,18 +535,18 @@ class ACPConnection:
     def _wait_idle(self, event: threading.Event, timeout: float) -> bool:
         """True when ``event`` is set before ``timeout`` seconds of silence.
 
-        The wait is sliced so that inbound stdout lines reset the idle budget.
+        Wakes when an inbound line updates the idle clock, or when the response/failure event is set.
         """
-        self._last_inbound = time.monotonic()
-        while True:
-            if event.is_set():
-                return True
-            idle_for = time.monotonic() - self._last_inbound
-            if idle_for >= timeout:
-                return False
-            remaining = timeout - idle_for
-            if event.wait(timeout=min(_IDLE_POLL_S, remaining)):
-                return True
+        with self._inbound_cv:
+            self._last_inbound_at = time.monotonic()
+            while True:
+                if event.is_set():
+                    return True
+                idle_for = time.monotonic() - self._last_inbound_at
+                if idle_for >= timeout:
+                    return False
+                remaining = timeout - idle_for
+                self._inbound_cv.wait(timeout=remaining)
 
     def send_notification(self, method: str, params: Any = None) -> None:
         """Send a JSON-RPC notification (no response expected)."""
@@ -615,6 +645,7 @@ class ACPConnection:
                             if entry:
                                 entry.response = msg
                                 entry.event.set()
+                                self._notify_idle()
                             else:
                                 log.warning("Response for unknown id=%s", req_id)
                     else:

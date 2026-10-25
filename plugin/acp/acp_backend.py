@@ -351,6 +351,8 @@ class ACPBackend(AgentBackend):
     _session_prompted: bool
     _prompt_inflight: bool
     _prompt_done: threading.Event
+    _inflight_token: Any | None
+    _closed: bool
 
     def __init__(self) -> None:
         self._conn: ACPConnection | None = None
@@ -360,6 +362,8 @@ class ACPBackend(AgentBackend):
         self._session_prompted = False
         self._ready = False
         self._stop_requested = False
+        self._closed = False
+        self._inflight_token = None
         # prepare_turn publishes _turn before Stop is registered. send()
         # consumes that publication. A send that was not prepared opens a
         # new turn, so a Stop from the previous message cannot stick.
@@ -530,6 +534,11 @@ class ACPBackend(AgentBackend):
         finished ``initialize`` (Stop during the startup wait) is reused
         for the handshake. A dead child is dropped here, not left on the slot.
         """
+        with self._state_lock:
+            if self._closed:
+                self._stop_requested = True
+                self._stop_turn = self._turn
+                return
         existing = self._conn
         if existing is not None and existing.is_healthy and self._ready:
             return
@@ -537,7 +546,7 @@ class ACPBackend(AgentBackend):
             conn = existing
         else:
             if existing is not None:
-                self.shutdown()
+                self._drop_connection()
             if self._stop_requested:
                 return
             if not self._binary_path:
@@ -549,9 +558,21 @@ class ACPBackend(AgentBackend):
             # ACPConnection.start merges os.environ itself. Passing a full copy
             # here merged the process environment twice.
             conn = ACPConnection(cmd_line=cmd_line, env=self.get_env_vars() or None)
-            self._conn = conn
-            self._ready = False
+            with self._state_lock:
+                self._conn = conn
+                self._ready = False
             conn.start()
+
+            with self._state_lock:
+                if self._closed or self._conn is not conn:
+                    self._stop_requested = True
+                    self._stop_turn = self._turn
+                    lost_slot = True
+                else:
+                    lost_slot = False
+            if lost_slot:
+                conn.stop()
+                return
 
             # Honor Stop before sending initialize; fail fast if child died during spawn.
             if self._startup_stopped(stop_checker):
@@ -582,13 +603,28 @@ class ACPBackend(AgentBackend):
                     result["protocolVersion"],
                     _ACP_PROTOCOL_VERSION,
                 )
-            self._ready = True
+            with self._state_lock:
+                if self._closed or self._conn is not conn:
+                    self._stop_requested = True
+                    self._stop_turn = self._turn
+                    lost_slot = True
+                else:
+                    self._ready = True
+                    lost_slot = False
+            if lost_slot:
+                conn.stop()
+                return
             log.info(f"ACP initialized: {result}")
         except _TurnStopped:
             # Stop won before initialize was sent. Leave the child so the
             # next message can finish the handshake. _ready stays false.
             return
         except Exception as exc:
+            with self._state_lock:
+                if self._closed or self._conn is not conn:
+                    self._stop_requested = True
+                    self._stop_turn = self._turn
+                    return
             log.exception("ACP initialize failed")
             # A crash during the handshake used to say only "process
             # terminated". The stderr tail is the CLI's own reason.
@@ -610,13 +646,18 @@ class ACPBackend(AgentBackend):
         url_key = document_url or ""
         effective_mcp = mcp_url if mcp_url and as_bool(get_config("mcp.mcp_enabled")) else None
 
-        # The session keeps the mcpServers from session/new, so a new MCP URL is a new session.
-        if self._session_id and self._session_url == url_key and self._session_mcp_url == effective_mcp:
-            return
-        # Read the connection slot once; raise if there is no process.
-        conn = self._conn
-        if conn is None:
-            raise RuntimeError(f"{self.display_name} ACP process is not running.")
+        with self._state_lock:
+            if self._closed:
+                self._stop_requested = True
+                self._stop_turn = self._turn
+                return
+            # The session keeps the mcpServers from session/new, so a new MCP URL is a new session.
+            if self._session_id and self._session_url == url_key and self._session_mcp_url == effective_mcp:
+                return
+            # Read the connection slot once; raise if there is no process.
+            conn = self._conn
+            if conn is None:
+                raise RuntimeError(f"{self.display_name} ACP process is not running.")
 
         # mcp_servers is required by the ACP schema. A disabled MCP server
         # must not be handed to session/new (effective_mcp is None then).
@@ -632,23 +673,33 @@ class ACPBackend(AgentBackend):
             # An empty id used to be stored and sent on session/prompt.
             if not isinstance(session_id, str) or not session_id.strip():
                 raise RuntimeError(f"{self.display_name} ACP session/new returned no sessionId.")
-            self._session_id = session_id
-            self._session_url = url_key
-            self._session_mcp_url = effective_mcp
-            self._session_prompted = False
+            with self._state_lock:
+                if self._closed or self._conn is not conn:
+                    self._stop_requested = True
+                    self._stop_turn = self._turn
+                    return
+                self._session_id = session_id
+                self._session_url = url_key
+                self._session_mcp_url = effective_mcp
+                self._session_prompted = False
             log.debug(f"ACP session created: {self._session_id}")
         except _TurnStopped:
             # Stop won before session/new was sent. Not a session failure,
             # and the process is still the one the next message should use.
             raise
         except Exception:
+            with self._state_lock:
+                if self._closed or self._conn is not conn:
+                    self._stop_requested = True
+                    self._stop_turn = self._turn
+                    return
             log.exception("ACP session creation failed")
             # The process can retry session/new. Drop it only when it has died.
             if self._conn is conn and not conn.is_healthy:
-                self.shutdown()
+                self._drop_connection()
             raise
 
-    def _build_prompt_blocks(self, user_message: str, document_context: Optional[str] = None, system_prompt: Optional[str] = None, document_url: Optional[str] = None, *, include_system: bool = True) -> list[dict[str, Any]]:
+    def _build_prompt_blocks(self, user_message: str, document_context: Optional[str] = None, system_prompt: Optional[str] = None, document_url: Optional[str] = None, *, include_system: bool = True) -> tuple[list[dict[str, Any]], bool]:
         """Build ACP prompt content blocks.
 
         The first prompt of a session carries the manual. Later prompts do
@@ -657,6 +708,7 @@ class ACPBackend(AgentBackend):
         """
         prompt_blocks = []
         is_slash_command = user_message.strip().startswith("/")
+        included_manual = False
 
         if is_slash_command:
             # For slash commands, only send the command itself
@@ -664,6 +716,7 @@ class ACPBackend(AgentBackend):
         else:
             if include_system and system_prompt:
                 prompt_blocks.append({"type": "text", "text": system_prompt})
+                included_manual = True
             # Add document context if provided
             if document_context:
                 prompt_blocks.append({"type": "text", "text": f"[DOCUMENT CONTENT]\n{document_context}"})
@@ -673,7 +726,7 @@ class ACPBackend(AgentBackend):
             # Always add the user message last
             prompt_blocks.append({"type": "text", "text": user_message})
 
-        return prompt_blocks
+        return prompt_blocks, included_manual
 
     def _handle_acp_update(self, update: Any, queue: Any) -> None:
         """Queue transcript events from an ACP ``session/update`` or a legacy content list.
@@ -897,16 +950,20 @@ class ACPBackend(AgentBackend):
 
     def _request(self, conn: ACPConnection, method: str, params: Any, timeout: float) -> Any:
         """send_request marked in flight so Stop can bound it."""
+        token = object()
         # The stop latch and inflight flag share _state_lock so Stop cannot slip between the check and the enqueue.
         with self._state_lock:
             if self._stop_requested and self._stop_turn == self._turn:
                 raise _TurnStopped()
             self._prompt_done.clear()
             self._prompt_inflight = True
+            self._inflight_token = token
             try:
                 handle = conn.begin_request(method, params)
             except Exception:
                 self._prompt_inflight = False
+                if self._inflight_token is token:
+                    self._inflight_token = None
                 self._prompt_done.set()
                 raise
         try:
@@ -914,9 +971,11 @@ class ACPBackend(AgentBackend):
         finally:
             with self._state_lock:
                 self._prompt_inflight = False
+                if self._inflight_token is token:
+                    self._inflight_token = None
             self._prompt_done.set()
 
-    def _arm_cancel_grace(self, turn: int) -> None:
+    def _arm_cancel_grace(self, token: Any, conn: ACPConnection | None) -> None:
         """Kill the CLI if this turn's request is still waiting after the grace."""
 
         def _watch() -> None:
@@ -924,17 +983,16 @@ class ACPBackend(AgentBackend):
             # clock would, and a wedged agent would keep editing.
             if self._prompt_done.wait(_CANCEL_GRACE_SEC):
                 return
-            self._kill_turn_if_still_inflight(turn)
+            self._kill_turn_if_still_inflight(token, conn)
 
         run_in_background(_watch, name="acp-cancel-grace", dedicated=True)
 
-    def _kill_turn_if_still_inflight(self, turn: int) -> None:
-        """Stop the CLI captured for ``turn`` when that request is still in flight."""
-        # Check turn and clear slot under _state_lock so a subsequent send does not adopt a killed connection.
+    def _kill_turn_if_still_inflight(self, token: Any, conn: ACPConnection | None) -> None:
+        """Stop the CLI captured for ``token`` when that request is still in flight."""
+        # Check token and clear slot under _state_lock so a subsequent send does not adopt a killed connection.
         with self._state_lock:
-            if self._turn != turn or not self._prompt_inflight:
+            if token is None or self._inflight_token is not token or not self._prompt_inflight or self._conn is not conn:
                 return
-            conn = self._conn
             pending_permissions = self._pop_pending_permission_ids()
             self._clear_slot_locked(conn)
         log.info("ACP cancel was not answered within %ss; killing the CLI", _CANCEL_GRACE_SEC)
@@ -952,6 +1010,10 @@ class ACPBackend(AgentBackend):
         """Send one prompt. The CLI stays up for the next message on this sidebar."""
         # Serialize send() calls on the retained CLI. stop() and shutdown() do not take this lock, so session/cancel still runs.
         with self._send_lock:
+            with self._state_lock:
+                if self._closed:
+                    self._finish_stopped(queue)
+                    return
             if self._turn_already_stopped(stop_checker):
                 self._finish_stopped(queue)
                 return
@@ -993,7 +1055,7 @@ class ACPBackend(AgentBackend):
 
                 queue.put((StreamQueueKind.STATUS, f"Sending to {self.display_name}..."))
 
-                prompt_blocks = self._build_prompt_blocks(user_message=user_message, document_context=document_context, system_prompt=system_prompt, document_url=document_url, include_system=not self._session_prompted)
+                prompt_blocks, included_manual = self._build_prompt_blocks(user_message=user_message, document_context=document_context, system_prompt=system_prompt, document_url=document_url, include_system=not self._session_prompted)
 
                 try:
                     # Single local read of self._conn; check stop and none.
@@ -1006,7 +1068,10 @@ class ACPBackend(AgentBackend):
                         return
 
                     result = self._request(conn, "session/prompt", {"sessionId": self._session_id, "prompt": prompt_blocks}, _PROMPT_IDLE_SEC)
-                    self._session_prompted = True
+                    # A slash-first turn, or a turn with no system prompt, used to set the flag anyway,
+                    # so later turns skipped the manual. The flag now follows the block that was actually built.
+                    if included_manual:
+                        self._session_prompted = True
 
                     if self._stop_requested:
                         self._finish_stopped(queue)
@@ -1020,9 +1085,13 @@ class ACPBackend(AgentBackend):
                     # No accepted stdout for the idle window. The CLI is wedged.
                     self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} prompt timed out")))
                     if not self._stop_requested:
-                        self.shutdown()
+                        self._drop_connection()
                 except Exception as e:
-                    if self._stop_requested:
+                    # When cancel grace killed this conn, the slot was cleared (self._conn is not conn).
+                    # A new send may have already prepared or started. Calling shutdown() or reporting
+                    # error here would break that next send or emit Error after Stop. If self._conn
+                    # is not conn and the child is dead, finish stopped without dropping the new connection.
+                    if self._stop_requested or (conn is not None and not conn.is_healthy and self._conn is not conn):
                         self._finish_stopped(queue)
                     else:
                         log.exception("Prompt execution failed")
@@ -1031,7 +1100,7 @@ class ACPBackend(AgentBackend):
                         # live. A dead child is dropped. A JSON-RPC error on a
                         # live child keeps the process for the next message.
                         if conn is not None and not conn.is_healthy:
-                            self.shutdown()
+                            self._drop_connection()
             finally:
                 # The process stays. Drop the callback so a late notification
                 # does not write into this turn's queue. The next send installs
@@ -1087,7 +1156,7 @@ class ACPBackend(AgentBackend):
             self._stop_turn = self._turn
             self._stop_requested = True
             inflight = self._prompt_inflight
-            turn = self._turn
+            token = self._inflight_token
             # Read _conn and _session_id under _state_lock to avoid sending cancel to a swapped connection.
             conn = self._conn
             session_id = self._session_id
@@ -1096,7 +1165,7 @@ class ACPBackend(AgentBackend):
         # Reply while stdin is still open. A later shutdown closes it.
         self._cancel_pending_permissions()
         if inflight:
-            self._arm_cancel_grace(turn)
+            self._arm_cancel_grace(token, conn)
 
     def submit_approval(self, request_id: Any, approved: bool) -> None:
         """Submit a schema-valid permission result for one HITL dialog choice."""
@@ -1118,11 +1187,21 @@ class ACPBackend(AgentBackend):
     def shutdown(self) -> None:
         """Kill the CLI and drop the session.
 
-        The sidebar calls this when the panel closes or the backend id
-        changes. A cancel that the agent does not answer, a silent prompt,
-        and a dead child call it too. A finished ``send`` does not.
+        The panel drops this object; a shut-down adapter is not reused.
+        Internal CLI drops go through _drop_connection.
         """
-        conn = self._conn
+        with self._state_lock:
+            self._closed = True
+            conn = self._conn
+            self._clear_slot_locked(conn)
+        self._cancel_pending_permissions()
+        self._release_connection(conn)
+
+    def _drop_connection(self) -> None:
+        """Drop the current connection so a replacement can be spawned."""
+        with self._state_lock:
+            conn = self._conn
+            self._clear_slot_locked(conn)
         self._cancel_pending_permissions()
         self._release_connection(conn)
 

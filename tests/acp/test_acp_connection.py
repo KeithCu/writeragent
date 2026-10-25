@@ -604,6 +604,72 @@ class TestStdinWriteCapturesProc:
         with pytest.raises(ToolExecutionError, match="Failed to write"):
             conn.send_request("initialize", {}, timeout=2)
 
+    def test_send_request_non_serializable_params_raises_type_error_and_does_not_leak_pending(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+        conn._proc = proc
+        conn._running = True
+        with pytest.raises(TypeError):
+            conn.send_request("session/prompt", {"bad": object()})
+        assert conn._pending == {}
+
+    def test_send_request_enqueue_failure_cleans_up_pending(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+        conn._proc = proc
+        conn._running = True
+
+        def fail_enqueue(item):
+            raise RuntimeError("pool down")
+
+        conn._enqueue = fail_enqueue  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError, match="pool down"):
+            conn.send_request("initialize", {}, timeout=2)
+        assert conn._pending == {}
+
+    def test_send_request_missing_stdin_fails_immediately(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+        proc.stdin = None
+        conn._proc = proc
+        conn._running = True
+        with pytest.raises(ToolExecutionError, match="stdin is closed"):
+            conn.send_request("initialize", {}, timeout=2)
+        assert conn._pending == {}
+
+    def test_send_request_writer_unexpected_exception_recovers(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+        proc.stdin.write.side_effect = RuntimeError("boom")
+        conn._proc = proc
+        conn._running = True
+
+        with pytest.raises(ToolExecutionError, match="Failed to write to ACP: stdin writer failed"):
+            conn.send_request("initialize", {}, timeout=2)
+        assert conn._writer_thread is not None
+
+        # A following send_request with a working stdin still completes
+        def flush() -> None:
+            with conn._lock:
+                entry = conn._pending.get(2)
+                if entry is not None and entry.response is None:
+                    entry.response = {"result": {"ok": True}}
+                    entry.event.set()
+                    conn._notify_idle()
+
+        proc.stdin.write.side_effect = None
+        proc.stdin.flush.side_effect = flush
+        res = conn.send_request("initialize", {}, timeout=2)
+        assert res == {"ok": True}
+
+    def test_send_notification_with_none_stdin_does_not_raise(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+        proc.stdin = None
+        conn._proc = proc
+        conn._running = True
+        conn.send_notification("session/cancel", {"sessionId": "s"})
+
     def test_send_notification_writes_captured_proc(self):
         conn = ACPConnection(cmd_line=["agent"])
         stdin = _Stdin()
