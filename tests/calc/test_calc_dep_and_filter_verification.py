@@ -120,6 +120,31 @@ def test_resolve_dep_range_and_table() -> None:
     assert dep6.kind == "anchor_snapshot"
     assert dep6.a1 == "A6:C10"
 
+    # Out-of-bounds A1 coords reject, within-bounds accept
+    for oob in ("XFE1", "ZZZZ1", "A0", "A1048577", "Sales2024", "Table1"):
+        res = resolve_dep(oob, model)
+        assert res.kind == "unresolved", f"{oob} should be unresolved"
+        assert "out-of-bounds A1 ref" in res.note, f"{oob} note should state out-of-bounds"
+
+    max_dep = resolve_dep("XFD1048576", model)
+    assert max_dep.kind == "range"
+    assert max_dep.a1 == "XFD1048576"
+
+    for valid_span in ("A1:B10", "A:A", "1:10", "Data!A:A", "$A$1:$B$2"):
+        res = resolve_dep(valid_span, model)
+        assert res.kind == "range", f"{valid_span} should be range"
+
+    # Dollar sign in sheet name preserved, not mangled
+    res_dollar = resolve_dep("'A$B'!A6", model)
+    assert res_dollar.kind == "range"
+    assert res_dollar.a1 == "'A$B'!A6"
+
+    # Spill with dollar in sheet name resolves against snapshot
+    model.anchor_snapshots["'A$B'!A6"] = "'A$B'!A6:D20"
+    res_spill_dollar = resolve_dep("'A$B'!A6#", model)
+    assert res_spill_dollar.kind == "anchor_snapshot"
+    assert res_spill_dollar.a1 == "'A$B'!A6:D20"
+
 
 @pytest.mark.parametrize("dep", ["_", "[", "]", "\x00", "!", ":", "#", ""])
 def test_resolve_dep_junk_no_pattern_error(dep: str) -> None:
