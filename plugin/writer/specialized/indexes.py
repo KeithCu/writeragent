@@ -1410,10 +1410,9 @@ class IndexesListCites(ToolWriterIndexBase):
             if not is_bibliography_text_field(field):
                 continue
             # Probes degrade; a disposed document must not read as an empty result.
-            mapped = uno_read(lambda: fields_sequence_to_dict(field.getPropertyValue("Fields")), {})
-            # Probes degrade; a disposed document must not read as an empty result.
+            empty: dict[str, Any] = {}
+            mapped = uno_read(lambda: fields_sequence_to_dict(field.getPropertyValue("Fields")), empty)
             location = uno_read(lambda: describe_match_location(field.getAnchor(), doc, hf_labels), "unknown")
-            # Probes degrade; a disposed document must not read as an empty result.
             presentation = uno_read(lambda: field.getPresentation(False), "")
             cites.append({
                 "id": len(cites) + 1,
@@ -1606,7 +1605,7 @@ class IndexesAddMark(ToolWriterIndexBase):
         set_bibliography_field_values(field, pairs)
         text = cursor.getText()
         text.insertTextContent(cursor, field, False)
-        payload = {
+        payload: dict[str, Any] = {
             "status": "ok",
             "message": "Added bibliography cite '%s'" % identifier,
             "kind": "bibliography",

@@ -199,8 +199,8 @@ class FieldsDelete(ToolWriterFieldBase):
         hasher = hashlib.sha256()
         fields_to_delete: list[tuple[int, Any, str]] = []
 
-        for field_id, field, service, presentation, location in _iter_body_field_identity(doc):
-            # Hash structure (service and location), not presentation text which can shift with repagination or ticking dates.
+        for field_id, field, service, _presentation, location in _iter_body_field_identity(doc):
+            # Same structural hash as FieldsList.
             hasher.update(f"{service}|{location}\n".encode("utf-8"))
             if field_id in seen:
                 fields_to_delete.append((field_id, field, location))
