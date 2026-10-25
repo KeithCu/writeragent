@@ -57,7 +57,6 @@ from plugin.notebook.writer_importer import (
     _webp_pixel_size,
     _trim_trailing_empty_paragraph,
     _unglue_last_paragraph,
-    _wrap_html_fragment,
     format_all_outputs,
     format_output_text,
     import_ipynb_to_writer,
@@ -293,7 +292,10 @@ def test_insert_html_at_body_end_calls_trim(monkeypatch):
     doc, body_text, body_cursor = _writer_doc_mock()
     body_cursor.getString.return_value = ""
 
+    calls = []
+
     def fake_insert_html(cursor, html, **kwargs):
+        calls.append((html, kwargs))
         return True
 
     monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
@@ -309,6 +311,7 @@ def test_insert_html_at_body_end_calls_trim(monkeypatch):
     wi._insert_html_at_body_end(doc, "<p>html</p>", lead_break=False)
 
     assert trim_called is True
+    assert calls == [("<p>html</p>", {"wrap": True})]
 
 
 def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
@@ -410,11 +413,6 @@ def test_looks_like_html_detects_tags():
     assert _looks_like_html("## Heading\n\n<img src=\"x.png\">\n") is False
     assert _looks_like_html("<div>raw</div>") is True
     assert _looks_like_html("## Plain markdown\n\nno tags") is False
-
-
-def test_wrap_html_fragment_adds_body():
-    wrapped = _wrap_html_fragment("<p>Hi</p>")
-    assert "<html>" in wrapped and "<body>" in wrapped and "<p>Hi</p>" in wrapped
 
 
 def test_format_in_prompt_executed_and_unexecuted():
@@ -912,6 +910,7 @@ def test_import_ipynb_code_cells_use_insert_text_content(tmp_path, monkeypatch):
     assert stats["cells"] == 4
     assert stats["code"] == 2
     assert stats["shapes"] == 4
+    assert "controls" not in stats
     assert body_text.insertTextContent.call_count == 4
     inserted = [call.args[1] for call in body_text.insertString.call_args_list]
     assert "In [1]:" in inserted
