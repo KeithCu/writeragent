@@ -5,13 +5,13 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from plugin.calc.python.editor import _apply_cell_save, _maybe_apply_xl_static_rewrite
 from plugin.calc.python.formula_edit import parse_python_formula
 from plugin.calc.python.xl_static_rewrite import (
     apply_xl_static_rewrite,
     is_static_a1_literal,
-    migrate_bare_data_to_index0,
-    normalize_range_address,
 )
 from plugin.tests.testing_utils import CalcCellStub, CalcDocStub
 
@@ -40,9 +40,15 @@ def test_is_static_a1_literal_rejects_non_addresses():
     assert not is_static_a1_literal("not a range")
 
 
-def test_normalize_range_address_strips_dollars_and_excel_bang():
-    assert normalize_range_address("$A$1:$A$10") == "A1:A10"
-    assert normalize_range_address("Sheet1!B2") == "Sheet1.B2"
+def test_is_static_a1_literal_rejects_invalid_and_out_of_bounds():
+    assert not is_static_a1_literal("A0")
+    assert not is_static_a1_literal("XFE1")
+    assert not is_static_a1_literal("A1048577")
+    assert not is_static_a1_literal("ABCD1")
+
+
+def test_is_static_a1_literal_accepts_calc_absolute_sheet():
+    assert is_static_a1_literal("$Sheet1.$A$1")
 
 
 def test_rewrite_single_range_headers_true():
@@ -92,12 +98,115 @@ def test_rewrite_leaves_percent_p_tokens_alone():
     assert "y = data" in result.code
 
 
-def test_migrate_bare_data_to_index0():
-    src = "df = data.to_pandas()\nx = data\ny = data[2]\n"
-    out = migrate_bare_data_to_index0(src)
-    assert "df = data[0].to_pandas()" in out
-    assert "x = data[0]\n" in out
-    assert "y = data[2]\n" in out  # already indexed — leave alone
+def test_rewrite_does_not_touch_user_data_when_bindings_grow_from_two():
+    result = apply_xl_static_rewrite('x = xl("C1")\nresult = len(data)\n', existing_data_args=["A1", "B1"])
+    assert result.data_args == ["A1", "B1", "C1"]
+    assert result.code == "x = data[2]\nresult = len(data)\n"
+
+
+def test_rewrite_skips_migration_when_data_is_bound():
+    result = apply_xl_static_rewrite('def f(data):\n    return data\nx = xl("C1")', existing_data_args=["A1"])
+    assert result.code == 'def f(data):\n    return data\nx = data[1]'
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "g = lambda data: data",
+        "xs = [data for data in []]",
+        "data = 1",
+        "def f():\n    global data\n    data = 2",
+        "import data",
+        "class data:\n    pass",
+    ],
+)
+def test_rewrite_skips_migration_when_data_is_shadowed_or_bound(snippet: str):
+    code = snippet + "\n\n" + 'x = xl("C1")'
+    result = apply_xl_static_rewrite(code, existing_data_args=["A1"])
+    assert not result.issues
+    assert snippet in result.code
+    assert "x = data[1]" in result.code
+
+
+def test_rewrite_leaves_user_defined_xl_alone():
+    code = 'def xl(ref):\n    return ref\nx = xl("A1")'
+    result = apply_xl_static_rewrite(code)
+    assert result.changed is False
+    assert result.issues == []
+    assert result.code == code
+
+
+def test_rewrite_is_idempotent():
+    first = apply_xl_static_rewrite('x = xl("A1")\ny = xl("B1")')
+    second = apply_xl_static_rewrite(first.code, existing_data_args=first.data_args)
+    assert second.code == first.code
+    assert second.data_args == first.data_args
+
+
+def test_rewrite_rejects_extra_positional_xl_args():
+    code = 'x = xl("A1", True)'
+    result = apply_xl_static_rewrite(code)
+    assert not result.changed
+    assert result.code == code
+    assert any("positional" in i for i in result.issues)
+
+
+def test_rewrite_rejects_unknown_xl_keyword():
+    code = 'x = xl("A1", foo=1)'
+    result = apply_xl_static_rewrite(code)
+    assert not result.changed
+    assert result.code == code
+    assert result.issues != []
+
+
+def test_rewrite_rejects_star_kwargs():
+    code = 'x = xl("A1", **kw)'
+    result = apply_xl_static_rewrite(code)
+    assert not result.changed
+    assert result.code == code
+    assert result.issues != []
+
+
+def test_rewrite_rejects_non_constant_headers():
+    code = 'x = xl("A1", headers=flag)'
+    result = apply_xl_static_rewrite(code)
+    assert not result.changed
+    assert result.code == code
+    assert result.issues != []
+
+
+def test_rewrite_canonicalizes_case_and_keeps_first_spelling():
+    res1 = apply_xl_static_rewrite('x = xl("A1")\ny = xl("a1")')
+    assert res1.data_args == ["A1"]
+    assert res1.code == "x = data\ny = data"
+    res2 = apply_xl_static_rewrite('x = xl("SHEET1.A1")\ny = xl("Sheet1.A1")')
+    assert res2.data_args == ["SHEET1.A1"]
+    res3 = apply_xl_static_rewrite('x = xl("$A$1")\ny = xl("A1")')
+    assert res3.data_args == ["$A$1"]
+    res4 = apply_xl_static_rewrite('x = xl("$Sheet1.$A$1")', existing_data_args=["Sheet1.A1"])
+    assert res4.data_args == ["Sheet1.A1"]
+    assert res4.code == "x = data"
+
+
+def test_rewrite_keeps_sheets_that_differ_apart():
+    res = apply_xl_static_rewrite("x = xl(\"'A!B'!C1\")\ny = xl(\"'A.B'!C1\")")
+    assert len(res.data_args) == 2
+    assert "x = data[0]" in res.code
+    assert "y = data[1]" in res.code
+    res_sep = apply_xl_static_rewrite('x = xl("Sheet1!A1")\ny = xl("Sheet1.A1")')
+    assert res_sep.data_args == ["Sheet1!A1"]
+
+
+def test_rewrite_collapses_duplicate_existing_data_args():
+    res = apply_xl_static_rewrite('x = xl("C1")', existing_data_args=["a1", "A1"])
+    assert res.data_args == ["a1", "C1"]
+    assert res.code == "x = data[1]"
+
+
+def test_rewrite_collapses_single_cell_range():
+    res = apply_xl_static_rewrite('x = xl("A1:A1")', existing_data_args=["A1"])
+    assert res.data_args == ["A1"]
+    assert res.code == "x = data"
 
 
 def test_rewrite_one_to_many_migrates_prior_data():
