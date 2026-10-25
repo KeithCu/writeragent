@@ -9,7 +9,6 @@ Compute is lazy-loaded from ``plugin.scripting.venv.text_analytics`` via ``__get
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import Counter
 from typing import TYPE_CHECKING, Any
@@ -390,6 +389,38 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
     return '<table border="1" style="border-collapse:collapse"><tbody>' + "".join(rows) + "</tbody></table>"
 
 
+def _result_payload(result: Any) -> dict[str, Any]:
+    """Extract inner payload dict if present, else outer dict if no result key."""
+    if not isinstance(result, dict):
+        return {}
+    if "result" in result:
+        res = result["result"]
+        return res if isinstance(res, dict) else {}
+    return result
+
+
+def text_analytics_payload_error(data: Any) -> str | None:
+    """Return error or note message from payload, checking top-level and inner result."""
+    if not isinstance(data, dict):
+        return None
+    for key in ("error", "note"):
+        val = data.get(key)
+        if val:
+            return str(val)
+    res = data.get("result")
+    if isinstance(res, dict):
+        for key in ("error", "note"):
+            val = res.get(key)
+            if val:
+                return str(val)
+    return None
+
+
+def text_analytics_payload_has_content(result: Any) -> bool:
+    """True if analysis payload contains renderable rows."""
+    return bool(_result_to_html_table(_result_payload(result)))
+
+
 def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a compact HTML report for the text analytics result (Writer)."""
     from plugin.doc.doc_type import is_writer
@@ -406,21 +437,11 @@ def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, 
             details={"result": result},
         )
 
-    # What was wrong: an empty inner result ({}) fell back to the outer envelope, dumping status and note into the doc.
-    # How it happened: (result or {}).get("result") or result or {} treated an empty inner dict as falsy.
-    # Why this change: select result["result"] when it is a dict (including {}), falling back to result only when "result" key is absent.
-    if isinstance(result, dict) and isinstance(result.get("result"), dict):
-        data = result["result"]
-    elif isinstance(result, dict) and "result" not in result:
-        data = result
-    else:
-        data = {}
+    data = _result_payload(result)
     html = _result_to_html_table(data)
     if not html:
-        # Fallback to a small JSON snippet so something is inserted
-        from plugin.scripting.python_runner import _html_insert_text
-
-        html = "<pre>" + _html_insert_text(json.dumps(data, indent=2, ensure_ascii=False)[:1500]) + "</pre>"
+        err = text_analytics_payload_error(data) or text_analytics_payload_error(result) or "Nothing to insert."
+        raise ToolExecutionError(err, code="TEXT_ANALYTICS_ERROR", details={"result": result})
 
     html = "<h4>Text Analytics</h4>" + html
 
