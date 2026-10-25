@@ -450,9 +450,10 @@ def resolve_voice_context(
     ep_str = str(ep_val or "").strip()
     host: str | None = None
     if ep_str:
+        from plugin.framework.errors import ConfigError
+
         try:
             from plugin.framework.client.provider_detection import get_provider_from_endpoint
-            from plugin.framework.errors import ConfigError
 
             host = get_provider_from_endpoint(ep_str)
         except (ConfigError, ValueError):

@@ -333,14 +333,14 @@ class KokoroProcessPool:
         self.idle_worker_ttl_sec = idle_worker_ttl_sec
         self.job_timeout_sec = job_timeout_sec
         self.num_workers = 1
-        self._worker = None
+        self._worker: _KokoroWorker | None = None
         self._lock = threading.Lock()
         self._job_lock = threading.Lock()
         self._inflight = False
         # Identifies the execute() call that set ``_inflight``. cancel() must
         # not clear a newer call's flag, and the older call's finally must not
         # clear the newer one.
-        self._exec_token = None
+        self._exec_token: object | None = None
         self._shutdown = False
         self._last_active = time.monotonic()
         self._reaper_stop = threading.Event()
