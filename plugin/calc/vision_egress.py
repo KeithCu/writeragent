@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.calc.address_utils import format_address
+from plugin.calc.address_utils import format_address, qualify_a1
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.rich_html import insert_cell_html_rich
-from plugin.calc.tabular_egress import _append_blank, _append_table_rows
+from plugin.calc.tabular_egress import _append_blank, _append_table_rows, pad_grid
 from plugin.doc.visual_helpers import get_graphic_object_by_name, selected_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
@@ -27,7 +27,13 @@ def _cell(value: Any) -> Any:
     return str(value)
 
 
-def _table_span_merges(table: dict[str, Any], *, header_grid_row: int, max_grid_row: int) -> list[tuple[int, int, int, int]]:
+def _table_span_merges(
+    table: dict[str, Any],
+    *,
+    header_grid_row: int,
+    max_grid_row: int,
+    max_width: int,
+) -> list[tuple[int, int, int, int]]:
     """Return (r1, c1, r2, c2) 0-based grid coords for Docling cell spans.
 
     Spans are clipped to *max_grid_row* so a rowspan past the kept body
@@ -40,20 +46,23 @@ def _table_span_merges(table: dict[str, Any], *, header_grid_row: int, max_grid_
     for span in spans:
         if not isinstance(span, dict):
             continue
-        row = int(span.get("row") or 0)
-        col = int(span.get("col") or 0)
-        rowspan = max(int(span.get("rowspan") or 1), 1)
-        colspan = max(int(span.get("colspan") or 1), 1)
+        try:
+            row = int(span.get("row") or 0)
+            col = int(span.get("col") or 0)
+            rowspan = max(int(span.get("rowspan") or 1), 1)
+            colspan = max(int(span.get("colspan") or 1), 1)
+        except (TypeError, ValueError):
+            continue
         if rowspan <= 1 and colspan <= 1:
+            continue
+        if row < 0 or col < 0 or col >= max_width:
             continue
         r1 = header_grid_row + row
         c1 = col
-        r2 = r1 + rowspan - 1
-        c2 = c1 + colspan - 1
         if r1 > max_grid_row:
             continue
-        if r2 > max_grid_row:
-            r2 = max_grid_row
+        r2 = min(r1 + rowspan - 1, max_grid_row)
+        c2 = min(c1 + colspan - 1, max_width - 1)
         if r1 == r2 and c1 == c2:
             continue
         merges.append((r1, c1, r2, c2))
@@ -95,7 +104,10 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
             rows.append([str(table.get("name") or f"table_{table_count}")])
             header_grid_row = len(rows)
             _append_table_rows(rows, columns, table_rows, _cell)
-            merges.extend(_table_span_merges(table, header_grid_row=header_grid_row, max_grid_row=len(rows) - 1))
+            col_width = len(columns) if isinstance(columns, list) else 0
+            row_widths = [len(r) if isinstance(r, list) else 1 for r in table_rows] if isinstance(table_rows, list) else []
+            width = max([col_width, *row_widths], default=0)
+            merges.extend(_table_span_merges(table, header_grid_row=header_grid_row, max_grid_row=len(rows) - 1, max_width=width))
             if table.get("truncated"):
                 total = table.get("total_rows")
                 note = f"(showing first rows; {total} total)" if total is not None else "(truncated)"
@@ -104,19 +116,8 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
     return rows, merges
 
 
-def format_vision_structure_for_calc(result: dict[str, Any]) -> list[list[Any]]:
-    """Turn extract_structure tables/blocks into a row-major grid for write_formula_range."""
-    grid, _merges = _vision_structure_calc_layout(result)
-    return grid
-
-
-def structure_calc_grid_has_content(grid: list[list[Any]]) -> bool:
-    """True when the grid has more than the title row and placeholder."""
-    return len(grid) > 1
-
-
-def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) -> tuple[int, int]:
-    """Return (start_col, start_row) one row below the graphic's anchor cell."""
+def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) -> tuple[str, int, int]:
+    """Return (sheet_name, start_col, start_row) one row below the graphic's anchor cell, on the graphic's sheet."""
     # Writer already inserts by name; Calc used to ignore image_name and write under the selection.
     # Named OCR then landed under whatever graphic happened to be selected. Resolve the named
     # shape first so the insert uses that graphic's cell anchor, not a second selection lookup.
@@ -147,16 +148,21 @@ def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) 
         addr = anchor.getCellAddress()
         col = int(addr.Column)
         row = int(addr.Row)
+        sheet_name = str(doc.getSheets().getByIndex(int(addr.Sheet)).getName())
     except Exception as exc:
         reraise_if_disposed(exc, object_type="calc")
         raise ToolExecutionError(_("Anchor the image to a cell, select it, then Run again."), code="NO_OUTPUT_ANCHOR") from None
 
-    return col, row + 1
+    return sheet_name, col, row + 1
 
 
 def insert_vision_html_into_calc(doc: Any, uno_ctx: Any, html: str, *, image_name: str | None = None) -> None:
     """Paste vision HTML into the cell below the graphic anchor."""
-    col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
+    sheet_name, col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
+    # The graphic's sheet becomes active because paste targets the active sheet selection.
+    bridge = CalcBridge(doc)
+    sheet = bridge.get_sheet(sheet_name)
+    doc.getCurrentController().setActiveSheet(sheet)
     # *row* is already one below the graphic anchor (see calc_output_anchor_from_graphic).
     cell_address = format_address(col, row)
     insert_cell_html_rich(doc, uno_ctx, cell_address, html)
@@ -165,20 +171,21 @@ def insert_vision_html_into_calc(doc: Any, uno_ctx: Any, html: str, *, image_nam
 def insert_vision_structure_into_calc(doc: Any, _uno_ctx: Any, result: dict[str, Any], *, image_name: str | None = None) -> int:
     """Write extract_structure blocks/tables as native Calc cells below the graphic anchor.
 
-    The _uno_ctx parameter exists so Run Python Script can call (doc, ctx, result).
+    The _uno_ctx parameter is unused; kept for the (doc, ctx, result) inserter signature.
     """
-    col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
+    sheet_name, col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
     grid, merges = _vision_structure_calc_layout(result)
-    if not structure_calc_grid_has_content(grid):
+    if len(grid) <= 1:
         raise ToolExecutionError(_("No structured tables or text blocks to insert."), code="VISION_ERROR", details={"vision_result": result})
+    grid = pad_grid(grid)
     bridge = CalcBridge(doc)
     manipulator = CellManipulator(bridge)
-    addr = format_address(col, row)
+    addr = qualify_a1(sheet_name, format_address(col, row))
     # literal_text: setString, so "=..." is not a live formula and "000123" is not float()'d.
     manipulator.write_formula_range(addr, grid, literal_text=True)
     for r1, c1, r2, c2 in merges:
         start = format_address(col + c1, row + r1)
         end = format_address(col + c2, row + r2)
         if start != end:
-            manipulator.merge_cells(f"{start}:{end}", center=False)
+            manipulator.merge_cells(qualify_a1(sheet_name, f"{start}:{end}"), center=False)
     return len(grid)

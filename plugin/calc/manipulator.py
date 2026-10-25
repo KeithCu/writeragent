@@ -590,7 +590,16 @@ class CellManipulator:
             key = formats.addNew("[HH]:MM:SS", locale)
         return int(key)
 
-    def _classify_write_cell(self, value: Any, formatter: Any, std_key: Any, *, elapsed_format_key: int | None = None, literal_text: bool = False) -> _CellWrite:
+    def _classify_write_cell(
+        self,
+        value: Any,
+        formatter: Any,
+        std_key: Any,
+        *,
+        elapsed_format_key: int | None = None,
+        literal_text: bool = False,
+        data_text: bool = False,
+    ) -> _CellWrite:
         """Classify one write input into data/formula/meta for the ISO write path."""
         if literal_text:
             if value is None or value == "":
@@ -614,6 +623,9 @@ class CellManipulator:
 
         if value == "":
             return _CellWrite("", "", "empty", None, None, False)
+
+        if data_text and value.startswith(("=", "'")):
+            return _CellWrite(value, "", "forced_text", None, None, False)
 
         if value.startswith("="):
             return _CellWrite("", value, "formula", None, None, False)
@@ -777,7 +789,16 @@ class CellManipulator:
                 _quiet_probe_cleanup(lambda: doc.setModified(False), "setModified")
         return None
 
-    def write_formula_range(self, range_str: str, formula_or_values: Any, array: Any = None, *, literal_text: bool = False, premeasured_array_size: tuple[int, int] | None = None) -> str | dict[str, Any]:
+    def write_formula_range(
+        self,
+        range_str: str,
+        formula_or_values: Any,
+        array: Any = None,
+        *,
+        literal_text: bool = False,
+        data_text: bool = False,
+        premeasured_array_size: tuple[int, int] | None = None,
+    ) -> str | dict[str, Any]:
         """Write formula(s) or value(s) to a cell range.
 
         ISO date/time strings matching the wire gate become Calc serials with
@@ -797,6 +818,8 @@ class CellManipulator:
                 (LET/XLOOKUP); ``False`` forces scalar ``setFormula``.
             literal_text: When true, every non-empty value is stored with
                 ``setString`` (text). Skips formula detection and ``float()``.
+            data_text: Stores strings starting with '=' or '\'' verbatim with
+                ``setString``; everything else is classified as usual.
 
         Returns:
             Summary string, or a dict with ``array_range`` / ``rows`` /
@@ -836,7 +859,7 @@ class CellManipulator:
             # used to return ok and show one value (nelson-mcp afc8cbd8 / #2631).
             # Detect top-level array functions and enter setArrayFormula
             # instead of fill-down. =SUM(FILTER()) stays scalar.
-            if not literal_text and isinstance(formula_or_values, str):
+            if not literal_text and not data_text and isinstance(formula_or_values, str):
                 # Bugfix: string array flags like "false" were passed uncoerced to returns_array(forced=...),
                 # which evaluated bool("false") as True and wrongly forced array formulas.
                 # Coerce to bool | None here so "false" becomes False and "true" becomes True.
@@ -893,7 +916,7 @@ class CellManipulator:
                 # identical ``=H2`` in every cell (AFC fill-down miss).
                 # Formulas now adjust relative A1 refs across 1-D and 2-D;
                 # =PY respects direction-aware span policy.
-                if not literal_text and isinstance(formula_or_values, str) and formula_or_values.startswith("=") and total_cells > 1:
+                if not literal_text and not data_text and isinstance(formula_or_values, str) and formula_or_values.startswith("=") and total_cells > 1:
                     values = expand_single_formula(formula_or_values, num_rows, num_cols)
                 else:
                     values = [formula_or_values] * total_cells
@@ -932,10 +955,17 @@ class CellManipulator:
             for row in range(start[1], end[1] + 1):
                 data_row: list[Any] = []
                 for col in range(start[0], end[0] + 1):
-                    cell_write = self._classify_write_cell(values[cell_idx], formatter, std_key, elapsed_format_key=elapsed_format_key, literal_text=literal_text)
+                    cell_write = self._classify_write_cell(
+                        values[cell_idx],
+                        formatter,
+                        std_key,
+                        elapsed_format_key=elapsed_format_key,
+                        literal_text=literal_text,
+                        data_text=data_text,
+                    )
                     data_val = cell_write.data
                     formula = cell_write.formula
-                    if literal_text and cell_write.kind == "forced_text":
+                    if (literal_text or data_text) and cell_write.kind == "forced_text":
                         # setDataArray/SetString parses a leading '=' as a formula
                         # and float() would drop leading zeros. Commit text via setString.
                         literal_text_cells.append((col, row, str(data_val)))

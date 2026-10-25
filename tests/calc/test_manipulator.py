@@ -242,6 +242,87 @@ def test_classify_write_cell_matrix():
     assert w_iso.data == 45000.0 and w_iso.kind == "temporal" and w_iso.detected_key == 101
 
 
+def test_classify_write_cell_data_text_keeps_formula_and_apostrophe_text():
+    bridge = MagicMock()
+    manipulator = CellManipulator(bridge)
+    w_form = manipulator._classify_write_cell("=A1+1", None, None, data_text=True)
+    assert w_form.kind == "forced_text" and w_form.formula == "" and w_form.data == "=A1+1"
+
+    w_apos = manipulator._classify_write_cell("'tis", None, None, data_text=True)
+    assert w_apos.kind == "forced_text" and w_apos.formula == "" and w_apos.data == "'tis"
+
+    w_num = manipulator._classify_write_cell("42", None, None, data_text=True)
+    assert w_num.kind == "number" and w_num.data == 42.0
+
+    w_default = manipulator._classify_write_cell("=A1+1", None, None)
+    assert w_default.kind == "formula" and w_default.formula == "=A1+1"
+
+
+def test_literal_text_write_uses_setstring():
+    addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0, Sheet=0)
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = addr
+    sheet = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    sheet.getCellRangeByPosition.return_value = cell_range
+    cells: dict[tuple[int, int], MagicMock] = {}
+
+    def get_cell(col, row):
+        cells.setdefault((col, row), MagicMock())
+        return cells[(col, row)]
+
+    sheet.getCellByPosition.side_effect = get_cell
+    formats = MagicMock()
+    formats.getStandardIndex.return_value = 0
+    doc = MagicMock()
+    doc.getNumberFormats.return_value = formats
+    doc.getPropertyValue.return_value = SimpleNamespace(Language="en", Country="US", Variant="")
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.return_value = cell_range
+    bridge.doc = doc
+    CellManipulator(bridge).write_formula_range("A1", [["=SUM(A1)", "000123"]], literal_text=True)
+    assert cells[(0, 0)].setString.call_args[0][0] == "=SUM(A1)"
+    assert cells[(1, 0)].setString.call_args[0][0] == "000123"
+    cells[(0, 0)].setFormula.assert_not_called()
+    cells[(1, 0)].setFormula.assert_not_called()
+    flat = [cell for row in cell_range.setDataArray.call_args[0][0] for cell in row]
+    assert "=SUM(A1)" not in flat
+    assert "000123" not in flat
+    assert 123.0 not in flat
+
+
+def test_data_text_write_uses_setstring_and_keeps_numbers():
+    addr = SimpleNamespace(StartColumn=0, EndColumn=2, StartRow=0, EndRow=0, Sheet=0)
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = addr
+    sheet = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    sheet.getCellRangeByPosition.return_value = cell_range
+    cells: dict[tuple[int, int], MagicMock] = {}
+
+    def get_cell(col, row):
+        cells.setdefault((col, row), MagicMock())
+        return cells[(col, row)]
+
+    sheet.getCellByPosition.side_effect = get_cell
+    formats = MagicMock()
+    formats.getStandardIndex.return_value = 0
+    doc = MagicMock()
+    doc.getNumberFormats.return_value = formats
+    doc.getPropertyValue.return_value = SimpleNamespace(Language="en", Country="US", Variant="")
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.return_value = cell_range
+    bridge.doc = doc
+    CellManipulator(bridge).write_formula_range("A1", [["=SUM(A1)", "'x", 42.0]], data_text=True)
+    assert cells[(0, 0)].setString.call_args[0][0] == "=SUM(A1)"
+    assert cells[(1, 0)].setString.call_args[0][0] == "'x"
+    cells[(0, 0)].setFormula.assert_not_called()
+    cells[(1, 0)].setFormula.assert_not_called()
+    cells[(2, 0)].setFormula.assert_not_called()
+    row_data = list(cell_range.setDataArray.call_args[0][0][0])
+    assert row_data == ["", "", 42.0]
+
+
 def test_oversized_write_raises_limit():
     from plugin.calc.manipulator import MAX_WRITE_CELLS
 

@@ -134,7 +134,7 @@ First Docling/Paddle model download uses the long trusted worker budget (Docling
 | **Calc** | **1b** | Default: insert **`html`** into cell below graphic anchor. **`vision.insert_mode=structured`** + **`extract_structure`**: write `tables[]` (and prose `blocks[]`) as a multi-cell grid via [`insert_vision_structure_into_calc`](../../plugin/calc/vision_egress.py) |
 | **Draw / Impress** | **1b.2** | Text box near selected graphic; shape annotations later |
 
-**Selection vs output anchor:** On **Writer**, select one **image**, multi-select graphics, or a **text range containing images**; OCR runs per graphic and HTML is inserted **after each** graphic (host collapses the selection before insert so a range selection cannot replace intervening text). On **Calc**, the selected graphic's **anchor cell** defines the sheet insert row (one row below); the image must be cell-anchored (single graphic only).
+**Selection vs output anchor:** On **Writer**, select one **image**, multi-select graphics, or a **text range containing images**; OCR runs per graphic and HTML is inserted **after each** graphic (host collapses the selection before insert so a range selection cannot replace intervening text). On **Calc**, the selected graphic's **anchor cell** defines the sheet insert row (one row below on the graphic's own sheet; the HTML path activates that sheet); the image must be cell-anchored (single graphic only).
 
 Errors surface in the Monaco status line / msgbox — see [§11](#11-selection-and-error-ux).
 
@@ -321,7 +321,7 @@ png_bytes = base64.b64decode(b64)
 | [`document_scripts.py`](../../plugin/scripting/document_scripts.py) | Vision Helpers picker gated on `supports_vision_manual` |
 | [`python_runner.py`](../../plugin/scripting/python_runner.py) | Vision fast path branches Writer vs Calc; generic venv fallback routes `is_vision_result` on Calc |
 
-**Output anchor:** selected graphic's **`Anchor` cell** → insert starts **one row below** (`NO_OUTPUT_ANCHOR` if not cell-anchored).
+**Output anchor:** selected graphic's **`Anchor` cell** → insert starts **one row below on the graphic's own sheet; the HTML path activates that sheet** (`NO_OUTPUT_ANCHOR` if not cell-anchored).
 
 ### Phase 1b.2 (next)
 
