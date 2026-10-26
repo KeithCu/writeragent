@@ -98,11 +98,9 @@ def _harper_lsp_settings(bcp47: str, user_config_dir: str) -> dict[str, Any]:
 # would deadlock.
 _HARPER_CLIENT_CACHE: dict[str, HarperLSClient] = {}
 _HARPER_LOCK = threading.Lock()
-# Wait-active is a separate flag so a nested walk can fail soft without
-# touching ``_HARPER_LOCK``. One WARN/obs line per nest, not per PE2I tick.
-_HARPER_WAIT_META = threading.Lock()
-_HARPER_WAIT_STARTED: float | None = None
-_HARPER_WAIT_THREAD = ""
+# Per-thread wait-active flag: only same-thread re-entry during a pumped wait
+# is a bug (asserted). Other threads block on ``_HARPER_LOCK`` instead.
+_HARPER_WAIT_TLS = threading.local()
 _HARPER_FAIL_COOLDOWN_SEC = 30.0
 
 
@@ -432,26 +430,20 @@ def lsp_range_to_offset(text: str, line: int, character: int) -> int:
 
 
 def _try_begin_harper_wait() -> bool:
-    """Mark a Harper lint wait in flight. False if one is already active."""
-    global _HARPER_WAIT_STARTED, _HARPER_WAIT_THREAD
-    with _HARPER_WAIT_META:
-        if _HARPER_WAIT_STARTED is not None:
-            return False
-        _HARPER_WAIT_STARTED = time.monotonic()
-        _HARPER_WAIT_THREAD = threading.current_thread().name
-        return True
+    """Mark a Harper lint wait in flight on this thread. False if one is already active here."""
+    if _harper_wait_active():
+        return False
+    _HARPER_WAIT_TLS.started = time.monotonic()
+    return True
 
 
 def _end_harper_wait() -> None:
-    global _HARPER_WAIT_STARTED, _HARPER_WAIT_THREAD
-    with _HARPER_WAIT_META:
-        _HARPER_WAIT_STARTED = None
-        _HARPER_WAIT_THREAD = ""
+    _HARPER_WAIT_TLS.started = None
 
 
-def _harper_wait_snapshot() -> tuple[float | None, str]:
-    with _HARPER_WAIT_META:
-        return _HARPER_WAIT_STARTED, _HARPER_WAIT_THREAD
+def _harper_wait_active() -> bool:
+    """True if the current thread is inside a pumped Harper lint wait."""
+    return getattr(_HARPER_WAIT_TLS, "started", None) is not None
 
 
 def shutdown_harper_runtime() -> None:
@@ -685,9 +677,9 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
         log.error("[harper] lint skipped: empty user config dir")
         return None
     # Pumping runs on main and doProofreading on the linguistic thread, so a
-    # nested call during an active wait would be a bug (and would deadlock on
-    # ``_HARPER_LOCK``).
-    assert _harper_wait_snapshot()[0] is None, "harper_try_lint re-entered during pumped wait"
+    # nested call on the same thread during its active wait would be a bug.
+    # Calls from other threads are fine: they block on ``_HARPER_LOCK``.
+    assert not _harper_wait_active(), "harper_try_lint re-entered during pumped wait"
     none_reason = "not_ready"
     client: HarperLSClient | None = None
     # Block (pumping UI events) rather than skip: every sentence must be checked,

@@ -1554,6 +1554,46 @@ def test_harper_try_lint_reenter_during_wait_asserts() -> None:
         harper_module._end_harper_wait()
 
 
+def test_harper_try_lint_concurrent_threads_all_return_results() -> None:
+    """Other threads' pumped waits must not trip the re-entry assert: they block on the lock."""
+
+    def _slow_lint(*_a: object, **_k: object) -> list:
+        time.sleep(0.01)
+        return []
+
+    _ready_harper_client(_slow_lint)
+    results: list[object] = []
+    errors: list[BaseException] = []
+    results_lock = threading.Lock()
+
+    def _wait(done: threading.Event, _ctx: object, timeout: float | None = None) -> None:
+        done.wait(timeout)
+
+    def _run() -> None:
+        for _ in range(5):
+            try:
+                res = harper_try_lint("The the cat.", "/tmp", ctx=MagicMock())
+            except BaseException as exc:  # noqa: BLE001 - surfaced via errors list
+                with results_lock:
+                    errors.append(exc)
+                continue
+            with results_lock:
+                results.append(res)
+
+    with (
+        patch("plugin.framework.uno_context.wait_while_pumping", side_effect=_wait),
+        patch("plugin.framework.vcl_pumping.pump_secondary_idle_tick"),
+    ):
+        threads = [threading.Thread(target=_run, name=f"Dummy-{i}") for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10.0)
+    assert all(not t.is_alive() for t in threads)
+    assert errors == []
+    assert results == [{"errors": []}] * 40
+
+
 def test_harper_close_does_not_block_on_stuck_stdin() -> None:
     """Fixture teardown must not hang if harper-ls stops reading stdin (Windows CI)."""
     import time
