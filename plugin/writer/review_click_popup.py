@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any
 
 import unohelper
@@ -28,6 +29,9 @@ import unohelper
 log = logging.getLogger(__name__)
 
 _CLICK_SLOP = 4
+# Wait out the double-click window before opening the modal popup: opening it on the
+# first release swallowed the second click, so double-click no longer selected a word.
+_DOUBLE_CLICK_SEC = 0.5
 
 _lock = threading.RLock()
 _attached: list[tuple[Any, Any]] = []  # (controller, handler); strong refs until the view is disposed
@@ -108,6 +112,14 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         log.warning("review_click_popup: popup failed", exc_info=True)
 
 
+def _post_after_double_click_window(fire: Any, *args: Any) -> None:
+    """Background: sleep out the double-click window, then hand *fire* to the main thread."""
+    from plugin.framework.queue_executor import post_to_main_thread
+
+    time.sleep(_DOUBLE_CLICK_SEC)
+    post_to_main_thread(fire, *args)
+
+
 def _make_handler(model: Any, controller: Any) -> Any:
     global _handler_cls
     if _handler_cls is None:
@@ -117,16 +129,25 @@ def _make_handler(model: Any, controller: Any) -> Any:
             _model: Any
             _controller: Any
             _press: tuple[int, int] | None
+            _click_gen: int
 
             def __init__(self, model: Any, controller: Any) -> None:
                 super().__init__()
                 self._model = model
                 self._controller = controller
                 self._press = None
+                self._click_gen = 0
+
+            def _fire_if_single(self, gen: int, source: Any, x: int, y: int) -> None:
+                """Main thread, after the double-click window: pop only if no later press."""
+                if gen != self._click_gen:
+                    return
+                _show_popup_and_resolve(self._model, source, x, y)
 
             def mousePressed(self, e: Any) -> bool:  # noqa: N802 -- UNO API
                 try:
                     self._press = (e.X, e.Y)
+                    self._click_gen += 1  # a new press cancels any pending popup
                 except Exception:
                     self._press = None
                 return False  # never consume
@@ -136,13 +157,11 @@ def _make_handler(model: Any, controller: Any) -> Any:
                     if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:  # plain left click
                         if not _same_click_point(self._press, e.X, e.Y):
                             return False
-                        source = e.Source
-                        x, y = e.X, e.Y
-                        model = self._model
-                        from plugin.framework.queue_executor import post_to_main_thread
+                        from plugin.framework.worker_pool import run_in_background
 
-                        # Defer: let the view finish moving the caret to the click point first.
-                        post_to_main_thread(_show_popup_and_resolve, model, source, x, y)
+                        # Defer past the double-click window (a second press bumps _click_gen
+                        # and cancels), so the view finishes caret placement / word select first.
+                        run_in_background(_post_after_double_click_window, self._fire_if_single, self._click_gen, e.Source, e.X, e.Y, name="review-click-popup")
                 except Exception:
                     log.debug("review_click_popup: mouseReleased failed", exc_info=True)
                 return False  # never consume

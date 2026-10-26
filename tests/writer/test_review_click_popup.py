@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from __future__ import annotations
 
+import time
 from typing import Any
 from unittest.mock import MagicMock
 import pytest
@@ -250,3 +251,37 @@ def test_cleanup_disposed_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
     review_click_popup.cleanup_disposed_controllers()
     assert len(review_click_popup._attached) == 1
     assert review_click_popup._attached[0][0] is live_ctrl
+
+
+def _click(x: int, y: int, count: int) -> Any:
+    return MagicMock(X=x, Y=y, ClickCount=count, Buttons=1, PopupTrigger=False)
+
+
+def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Double-click: the first release must not open the modal popup (it swallowed the 2nd click)."""
+    import sys
+    import types
+
+    awt = types.ModuleType("com.sun.star.awt")
+    awt.XMouseClickHandler = type("XMouseClickHandler", (), {})  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt)
+    monkeypatch.setattr(review_click_popup, "_handler_cls", None)
+    monkeypatch.setattr(review_click_popup, "_DOUBLE_CLICK_SEC", 0.05)
+    shown: list[tuple[int, int]] = []
+    monkeypatch.setattr(review_click_popup, "_show_popup_and_resolve", lambda _m, _s, x, y: shown.append((x, y)))
+    monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", lambda fn, *a: fn(*a))
+    handler = review_click_popup._make_handler(MagicMock(), MagicMock())
+
+    # Double-click: press/release/press/release inside the window -> no popup, nothing consumed.
+    assert handler.mousePressed(_click(10, 10, 1)) is False
+    assert handler.mouseReleased(_click(10, 10, 1)) is False
+    assert handler.mousePressed(_click(10, 10, 2)) is False
+    assert handler.mouseReleased(_click(10, 10, 2)) is False
+    time.sleep(0.2)
+    assert shown == []
+
+    # Plain single click still pops after the window.
+    handler.mousePressed(_click(20, 30, 1))
+    handler.mouseReleased(_click(20, 30, 1))
+    time.sleep(0.2)
+    assert shown == [(20, 30)]
