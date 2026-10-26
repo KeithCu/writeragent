@@ -247,7 +247,7 @@ class MockLLMConfig:
     fail: str = "none"
     fail_after_chunks: int = DEFAULT_FAIL_AFTER_CHUNKS
     sse_comments: bool = False
-    transcript: str = DEFAULT_TRANSCRIPT
+    transcript: str | None = DEFAULT_TRANSCRIPT
     # Packet E10: HTTP 500 on chat POSTs whose last message is role=tool (mid-loop).
     fail_tool_followup: bool = False
     # Packet E22: inner specialized HTTP never emits final_answer / specialized_workflow_finished.
