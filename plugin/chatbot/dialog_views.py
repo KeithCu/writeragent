@@ -31,7 +31,7 @@ from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_
 from plugin.framework.menu_icon_dpi import menu_icon_asset_url
 from plugin.framework.uno_context import get_extension_url
 from plugin.framework.i18n import N_, _
-from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int
+from plugin.framework.config import get_config, get_current_endpoint, set_configs, get_config_str, get_config_int
 from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, get_tts_model, set_text_model
 from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control
 from plugin.framework.logging import init_logging
@@ -42,7 +42,7 @@ from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener, VenvProbeP
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from .dialogs import (
     TabListener, is_checkbox_control, get_checkbox_state,
-    get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog,
+    get_optional, set_control_enabled, set_control_text, get_control_text,
     load_writeragent_dialog, msgbox,
 )
 
@@ -100,15 +100,19 @@ def _load_selection_token_controls(extend_ctrl: Any, edit_extra_ctrl: Any) -> No
 
 
 def _save_selection_token_controls(extend_ctrl: Any, edit_extra_ctrl: Any) -> None:
+    # Batch writes so if one value fails validation, partial saves are avoided.
+    values: dict[str, Any] = {}
     if extend_ctrl:
-        set_config("extend_selection_max_tokens", get_control_text(extend_ctrl))
+        values["extend_selection_max_tokens"] = get_control_text(extend_ctrl)
     if edit_extra_ctrl:
-        set_config("edit_selection_max_new_tokens", get_control_text(edit_extra_ctrl))
+        values["edit_selection_max_new_tokens"] = get_control_text(edit_extra_ctrl)
+    if values:
+        set_configs(values)
 
 
 # ── Generic Helpers ──────────────────────────────────────────────────
 
-def input_box(ctx: Any, message: str, title: str = "", default: str = "", x: Any = None, y: Any = None) -> tuple[str, str]:
+def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tuple[str, str]:
     """Shows input dialog (EditInputDialog.xdl). Returns (result_text, extra_prompt) if OK, else ("", "")."""
     init_logging(ctx)
     log.debug("input_box: opening Edit Input dialog")
@@ -122,8 +126,6 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "", x: Any
 
     need_dispose = True
     try:
-        translate_dialog(dlg)
-
         dlg.getControl("label").getModel().Label = str(message)
         set_control_text(dlg.getControl("edit"), str(default))
         if title:
@@ -265,7 +267,7 @@ class SettingsDialog:
                 if not result:
                     break
                 try:
-                    apply_settings_result(self._ctx, result)
+                    apply_settings_result(self._ctx, result, field_specs)
                     return result
                 except ConfigValidationError as ve:
                     msgbox(self._ctx, _("Invalid Setting"), str(ve))
@@ -418,7 +420,7 @@ class SettingsDialog:
             elif name == "additional_instructions":
                 populate_combobox_with_lru(self._ctx, ctrl, val, "prompt_lru", "")
             elif name == "endpoint":
-                populate_endpoint_selector(self._ctx, ctrl, val)
+                populate_endpoint_selector(ctrl, val)
                 self._setup_endpoint_listener(ctrl)
             elif name == "image_base_size":
                 populate_combobox_with_lru(self._ctx, ctrl, val, "image_base_size_lru", "")

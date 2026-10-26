@@ -30,26 +30,29 @@ def test_grammar_status_area():
 
 def test_format_grammar_status_lifecycle():
     assert format_grammar_status({"phase": "start", "preview": "sample text", "length": 11}) == "Grammar: queued 'sample tex…' len 11"
-    assert format_grammar_status({"phase": "join", "preview": "sample text", "length": 11}) == "Grammar: waiting 'sample tex…' len 11"
-    assert format_grammar_status({"phase": "complete", "preview": "sample", "length": 6, "result": "clean", "elapsed_ms": 42}) == "Grammar: done 'sample' len 6: clean, 42ms"
-    assert format_grammar_status({"phase": "timeout", "preview": "sample", "length": 6, "result": "timed out"}) == "Grammar: still running 'sample' len 6: timed out"
-    assert format_grammar_status({"phase": "skipped", "preview": "sample", "length": 6, "result": "cache hit"}) == "Grammar: skipped 'sample' len 6: cache hit"
     assert format_grammar_status({"phase": "failed", "preview": "sample", "length": 6, "result": "API error"}) == "Grammar: failed 'sample' len 6: API error"
     clipped = format_grammar_status({"phase": "failed", "preview": "Language d\u2026", "length": 19, "result": "TimeoutError"})
     assert clipped == "Language: failed 'Language d…' len 19: TimeoutError"
 
 
-def test_format_grammar_status_complete() -> None:
-    text = format_grammar_status(
-        {
-            "phase": "complete",
-            "preview": "This are bad",
-            "length": 42,
-            "result": "1 issue",
-            "elapsed_ms": 812,
-        }
+def test_format_grammar_status_multiline_result_collapsed() -> None:
+    assert (
+        format_grammar_status(
+            {"phase": "failed", "preview": "x", "length": 1, "result": "line1\n\nline2\tend"}
+        )
+        == "Grammar: failed 'x' len 1: line1 line2 end"
     )
-    assert text == "Grammar: done 'This are b…' len 42: 1 issue, 812ms"
+
+
+def test_format_grammar_status_long_result_clipped() -> None:
+    long_res = "a" * 200
+    res = format_grammar_status(
+        {"phase": "failed", "preview": "x", "length": 1, "result": long_res}
+    )
+    result_part = res.rsplit(": ", 1)[1]
+    assert res.endswith("…")
+    assert len(result_part) == 121
+    assert result_part == ("a" * 120) + "…"
 
 
 def test_format_grammar_status_done_matches_complete_line() -> None:

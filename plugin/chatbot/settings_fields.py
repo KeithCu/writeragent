@@ -17,7 +17,8 @@ from plugin.chatbot.dialogs import (
     set_control_text,
 )
 from plugin.framework.config import get_config, set_configs
-from plugin.framework.config_schema import as_bool
+from plugin.framework.config_schema import as_bool, coerce_config_value
+from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -62,8 +63,6 @@ def call_options_provider(ctx: Any, provider_path: str) -> Any:
         return options
     except Exception as e:
         # _resolve_field_options logs this failure. Do not log it again here.
-        from plugin.framework.errors import ConfigError
-
         raise ConfigError(f"Options provider {provider_path} failed: {e}") from e
 
 
@@ -315,9 +314,6 @@ def changed_config_values(pending: dict[str, Any], read: Any) -> dict[str, Any]:
     lock or the per-key writer; the caller makes one ``set_configs`` of
     what remains.
     """
-    from plugin.framework.config_schema import coerce_config_value
-    from plugin.framework.errors import ConfigError, ConfigValidationError
-
     changed: dict[str, Any] = {}
     for key, value in pending.items():
         try:
@@ -325,7 +321,7 @@ def changed_config_values(pending: dict[str, Any], read: Any) -> dict[str, Any]:
         except ConfigError:
             changed[key] = value
             continue
-        if _config_assignment_matches(key, value, current, coerce_config_value, ConfigError, ConfigValidationError):
+        if _config_assignment_matches(key, value, current):
             continue
         changed[key] = value
     return changed
@@ -335,9 +331,6 @@ def _config_assignment_matches(
     key: str,
     proposed: Any,
     current: Any,
-    coerce_config_value: Any,
-    config_error: type[BaseException],
-    validation_error: type[BaseException],
 ) -> bool:
     """True when *proposed* would not change *current* after the same coerce OK uses.
 
@@ -358,7 +351,7 @@ def _config_assignment_matches(
         return proposed == current
     try:
         coerced = coerce_config_value(key, proposed, fallback_value=current, strict=True)
-    except (config_error, validation_error):
+    except (ConfigError, ConfigValidationError):
         return False
     return coerced == current
 

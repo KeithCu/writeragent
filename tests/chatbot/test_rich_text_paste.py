@@ -1060,7 +1060,7 @@ class TestPaintMessageItems:
         assert len(session.messages) == 1
         assert session.messages[0]["content"] == "What is Python?"
 
-    def test_copy_logs_no_content_inserted_when_nothing_written(self, caplog):
+    def test_copy_returns_no_content_inserted_when_nothing_written(self, caplog):
         control = MagicMock()
         model = MagicMock()
         model.createTextCursor.return_value = MagicMock()
@@ -1081,7 +1081,7 @@ class TestPaintMessageItems:
 
         assert ok is False
         assert reason == "no_content_inserted"
-        assert any("reason=no_content_inserted" in r.message for r in caplog.records)
+        assert not any("_copy_formatted_from_hidden_doc_to_control: failed reason=" in r.message for r in caplog.records)
 
 
 def _body_paragraph(text: str):
@@ -1186,7 +1186,7 @@ class TestFlattenTextTableCopy:
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
             ok, reason = _copy_formatted_from_hidden_doc_to_control(
-                src_doc, control, MagicMock(), role="assistant", auto_scroll=False,
+                src_doc, control, MagicMock(), role="assistant",
             )
 
         assert ok is True
@@ -1228,7 +1228,7 @@ class TestFlattenTextTableCopy:
              ), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
             ok, reason = _copy_formatted_from_hidden_doc_to_control(
-                src_doc, control, MagicMock(), role="assistant", auto_scroll=False,
+                src_doc, control, MagicMock(), role="assistant",
             )
 
         assert ok is True, reason
@@ -1263,7 +1263,7 @@ class TestFlattenTextTableCopy:
                  side_effect=lambda _cursor, positions: applied.append(tuple(positions)),
              ):
             ok, reason = _copy_formatted_from_hidden_doc_to_control(
-                src_doc, control, MagicMock(), role="assistant", auto_scroll=False,
+                src_doc, control, MagicMock(), role="assistant",
             )
 
         assert ok is True, reason
@@ -1304,7 +1304,7 @@ class TestFlattenTextTableCopy:
                  side_effect=_capture_vpad,
              ):
             ok, reason = _copy_formatted_from_hidden_doc_to_control(
-                src_doc, control, MagicMock(), role="assistant", auto_scroll=False,
+                src_doc, control, MagicMock(), role="assistant",
             )
 
         assert ok is True, reason
@@ -1396,7 +1396,6 @@ class TestFlattenTextTableCopy:
                     control,
                     MagicMock(),
                     role="assistant",
-                    auto_scroll=False,
                     cell_link_targets=[("Sheet1.A1", "Sheet1.A1")],
                 )
 
@@ -1469,7 +1468,6 @@ class TestFlattenTextTableCopy:
                     control,
                     MagicMock(),
                     role="assistant",
-                    auto_scroll=False,
                     cell_link_targets=list(queue),
                 )
             assert ok is True, reason
@@ -1598,7 +1596,7 @@ class TestFlattenTextTableCopy:
                  patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
                  patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_mock_insert):
                 ok, reason = _copy_formatted_from_hidden_doc_to_control(
-                    src_doc, control, MagicMock(), role="assistant", auto_scroll=False,
+                    src_doc, control, MagicMock(), role="assistant",
                 )
             assert ok is True
             assert reason is None

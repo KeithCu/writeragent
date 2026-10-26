@@ -639,3 +639,31 @@ def test_msgbox_parent_window_skips_frame_lookup():
 
     args = toolkit.createMessageBox.call_args[0]
     assert args[0] is parent
+
+
+def test_show_text_input_dialog_disposes_when_prepare_raises():
+    from plugin.chatbot.dialogs import show_text_input_dialog
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    dlg = MagicMock()
+    dlg.getModel.side_effect = RuntimeError("no model")
+
+    with patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=dlg):
+        res = show_text_input_dialog(ctx, "msg", "Title")
+
+    assert res is None
+    dlg.dispose.assert_called_once()
+
+
+def test_copy_to_clipboard_log_does_not_include_payload(caplog):
+    import logging
+    import sys
+    from plugin.chatbot.dialogs import copy_to_clipboard
+    from unittest.mock import MagicMock
+
+    sys.modules["com.sun.star.datatransfer"].DataFlavor = MagicMock
+    with caplog.at_level(logging.INFO, logger="writeragent.dialogs"):
+        assert copy_to_clipboard(MagicMock(), "SECRET_PAYLOAD") is True
+        assert "SECRET_PAYLOAD" not in caplog.text
+

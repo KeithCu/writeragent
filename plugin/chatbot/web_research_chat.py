@@ -62,8 +62,10 @@ def _message_text(content: Any) -> str:
 
 
 def format_sub_agent_conversation_history(session: Any, *, current_query: str | None = None) -> str:
-    """Build CONVERSATION HISTORY text for web-research / librarian sub-agents from ChatSession."""
+    """Build CONVERSATION HISTORY text for web-research / librarian sub-agents from ChatSession (one User:/Assistant: turn per message)."""
     messages = getattr(session, "messages", None) or []
+    # Compare whitespace-collapsed text so a padded or &nbsp; variant of the query still dedupes.
+    query_line = " ".join((current_query or "").split())
     parts: list[str] = []
     for i, msg in enumerate(messages):
         if not isinstance(msg, dict):
@@ -73,7 +75,7 @@ def format_sub_agent_conversation_history(session: Any, *, current_query: str | 
             continue
         content = _message_text(msg.get("content"))
         if role == "user":
-            if current_query is not None and i == len(messages) - 1 and content == current_query:
+            if current_query is not None and i == len(messages) - 1 and " ".join(content.split()) == query_line:
                 continue
             if not content.strip():
                 continue
@@ -83,7 +85,7 @@ def format_sub_agent_conversation_history(session: Any, *, current_query: str | 
                 content = "[Thinking...]"
             if not content.strip():
                 continue
-            parts.append(content)
+            parts.append("Assistant: %s" % content)
     return "\n\n".join(parts)
 
 
@@ -123,34 +125,31 @@ def web_research_cache_chat_text(fields: Mapping[str, Any]) -> str:
     event = str(fields.get("research_cache_event") or "saved")
     cache_key = str(fields.get("research_cache_key") or "")
 
-    if event == "hit_fuzzy":
-        jaccard = fields.get("research_cache_jaccard")
-        pct = int(round(float(jaccard) * 100)) if jaccard is not None else 0
+    # One body for both score events; the two msgids stay separate so existing .po translations still match.
+    if event in ("hit_fuzzy", "hit_embedding"):
+        fuzzy = event == "hit_fuzzy"
+        score: Any = fields.get("research_cache_jaccard" if fuzzy else "research_cache_similarity")
+        try:
+            pct = int(round(float(score) * 100))
+        except (TypeError, ValueError):
+            pct = 0
         lang = fields.get("research_cache_lang") or ""
-        matched = fields.get("research_cache_matched_key") or ""
-        lang_bit = f"{lang}: " if lang else ""
-        block = "\n" + _("Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → %(matched)s)") % {
+        if fuzzy:
+            template = _("Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → %(matched)s)")
+        else:
+            template = _("Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → %(matched)s)")
+        block = "\n" + template % {
             "pct": pct,
-            "lang_bit": lang_bit,
+            "lang_bit": f"{lang}: " if lang else "",
             "cache_key": cache_key,
-            "matched": matched,
-        } + "\n"
-    elif event == "hit_embedding":
-        similarity = fields.get("research_cache_similarity")
-        pct = int(round(float(similarity) * 100)) if similarity is not None else 0
-        lang = fields.get("research_cache_lang") or ""
-        matched = fields.get("research_cache_matched_key") or ""
-        lang_bit = f"{lang}: " if lang else ""
-        block = "\n" + _("Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → %(matched)s)") % {
-            "pct": pct,
-            "lang_bit": lang_bit,
-            "cache_key": cache_key,
-            "matched": matched,
+            "matched": fields.get("research_cache_matched_key") or "",
         } + "\n"
     elif event == "hit":
         block = "\n" + _("Research cache hit (key: %s)") % (cache_key,) + "\n"
-    else:
+    elif event == "saved":
         block = "\n" + _("Research cache saved (key: %s)") % (cache_key,) + "\n"
+    else:
+        return ""
     block += "\n"
     return block
 

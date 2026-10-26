@@ -30,7 +30,7 @@ import os
 import platform
 import sys
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from plugin.framework.errors import best_effort
 
@@ -39,8 +39,21 @@ log = logging.getLogger("writeragent.bugreport")
 BUG_REPORT_REPO = "KeithCu/writeragent"
 BUG_REPORT_ISSUES_URL = f"https://github.com/{BUG_REPORT_REPO}/issues/new"
 
-# Practical URL length limit for issue body query param.
-_MAX_BODY_CHARS = 7500
+# The cap is on the encoded URL because percent-encoding expands newlines and
+# non-ASCII; GitHub/proxy request lines sit near 8 KB.
+_MAX_URL_CHARS = 8000
+_TRUNCATED = "[truncated]"
+
+
+def _redact_endpoint(endpoint: str) -> str:
+    """Drop userinfo, query and fragment (they can carry credentials) before publishing."""
+    if not endpoint:
+        return ""
+    try:
+        parts = urlsplit(endpoint)
+    except ValueError:
+        return "<redacted endpoint>"
+    return urlunsplit((parts.scheme, parts.netloc.rsplit("@", 1)[-1], parts.path, "", ""))
 
 
 def _config_has_property(ca: Any, name: str) -> bool:
@@ -130,7 +143,7 @@ def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
         venv_path = get_config_str("scripting.python_venv_path") or "(not set)"
         lines.append(f"- Python venv path: {venv_path}")
     else:
-        endpoint = get_current_endpoint() or "(not set)"
+        endpoint = _redact_endpoint(get_current_endpoint()) or "(not set)"
         model = "(not set)"
         try:
             from plugin.framework.client.model_fetcher import get_text_model
@@ -174,55 +187,78 @@ def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
     return header, rest
 
 
-def _truncate_body(body: str) -> str:
-    if len(body) <= _MAX_BODY_CHARS:
-        return body
-    suffix = "\n\n[truncated]"
-    return body[: _MAX_BODY_CHARS - len(suffix)] + suffix
+def _issue_url(body: str, title: str) -> str:
+    params: dict[str, str] = {"body": body}
+    if title:
+        params["title"] = title[:200]
+    return f"{BUG_REPORT_ISSUES_URL}?{urlencode(params)}"
 
 
-def _compose_issue_body(header: str, rest: str, extra_body: str) -> str:
-    """Keep the environment header, then the exception tail.
+def _fit_section(base: str, section: str, title: str, *, keep_head: bool) -> str:
+    """Append the largest part of *section* that keeps the encoded URL in budget."""
+    sep = "\n\n" if base else ""
+    lo, hi = 0, len(section)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if keep_head:
+            cut = section[:mid] + "\n\n" + _TRUNCATED
+        else:
+            cut = _TRUNCATED + "\n\n" + section[-mid:]
+        if len(_issue_url(base + sep + cut, title)) <= _MAX_URL_CHARS:
+            lo = mid
+        else:
+            hi = mid - 1
+    if lo == 0:
+        return base
+    if keep_head:
+        return base + sep + section[:lo] + "\n\n" + _TRUNCATED
+    return base + sep + _TRUNCATED + "\n\n" + section[-lo:]
 
-    A long traceback used to fill the whole 7500-character budget, so version,
-    OS, locale, Python, endpoint, and model never reached the GitHub URL.
+
+def _compose_issue_body(header: str, rest: str, extra_body: str, *, title: str = "") -> str:
+    """Keep the environment header, then the exception tail within the encoded URL budget.
+
     The header is reserved. The exception tail fills what remains. The rest of
     the template (description prompts) is included only when both fit.
     """
-    extra = (extra_body or "").strip()
-    header = (header or "").strip()
-    rest = (rest or "").strip()
-    template = f"{header}\n\n{rest}".strip() if (header or rest) else ""
-    if not extra:
-        return _truncate_body(template)
-    if not header and not rest:
-        return _truncate_body(extra)
-    suffix = "\n\n[truncated]"
-    room = _MAX_BODY_CHARS - len(suffix)
-    if len(header) >= room:
-        return header[:room] + suffix
-    extra_room = room - len(header) - 1
-    if len(extra) <= extra_room:
-        body = f"{header}\n{extra}" if header else extra
-        leftover = _MAX_BODY_CHARS - len(body) - 1
-        if rest and leftover > 0:
-            if len(rest) <= leftover:
-                return f"{body}\n{rest}"
-            return f"{body}\n{rest[:leftover]}{suffix}"
-        return body
-    return f"{header}\n{extra[-extra_room:]}{suffix}"
+    body = ""
+    sections = (
+        ((header or "").strip(), True),
+        ((extra_body or "").strip(), False),
+        ((rest or "").strip(), True),
+    )
+    for section, keep_head in sections:
+        if not section:
+            continue
+        sep = "\n\n" if body else ""
+        whole = f"{body}{sep}{section}"
+        if len(_issue_url(whole, title)) <= _MAX_URL_CHARS:
+            body = whole
+            continue
+        body = _fit_section(body, section, title, keep_head=keep_head)
+        break
+    return body
 
 
 def build_github_issue_url(*, title: str = "", extra_body: str = "", ctx: Any | None = None) -> str:
     """Build a GitHub new-issue URL with title and pre-filled body."""
-    header, rest = _issue_sections(ctx)
-    body = _compose_issue_body(header, rest, extra_body)
+    from plugin.framework.client.http_security import collect_secrets, redact_secrets, secrets_from_target
+    from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 
-    params: dict[str, str] = {"body": body}
+    header, rest = _issue_sections(ctx)
     title_clean = (title or "").strip()
-    if title_clean:
-        params["title"] = title_clean[:200]
-    return f"{BUG_REPORT_ISSUES_URL}?{urlencode(params)}"
+    extra_body = extra_body or ""
+
+    endpoint = get_current_endpoint()
+    secrets = collect_secrets(secrets_from_target(endpoint), [get_api_key_for_endpoint(endpoint)])
+
+    header = redact_secrets(header, secrets)
+    rest = redact_secrets(rest, secrets)
+    extra_body = redact_secrets(extra_body, secrets)
+    title_clean = redact_secrets(title_clean, secrets)
+
+    body = _compose_issue_body(header, rest, extra_body, title=title_clean)
+    return _issue_url(body, title_clean)
 
 
 def open_url_in_browser(ctx: Any, url: str) -> bool:

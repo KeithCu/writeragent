@@ -1046,8 +1046,6 @@ class ToolLoopEffectInterpreter:
         host = self.host
         if effect.kind == UIEffectKind.APPEND:
             host._append_response(effect.text)
-            if effect.is_empty_model_debug:
-                log.warning("Tool loop: no assistant text from model: %s", effect.text.strip())
         elif effect.kind == UIEffectKind.STATUS:
             host._set_status(effect.text)
             if effect.text in ("Stopped", "Ready", "Error"):
@@ -1069,8 +1067,6 @@ class ToolLoopEffectInterpreter:
             log.warning("Tool loop: no assistant text from model: %s", debug.strip())
         elif effect.kind == UIEffectKind.DEBUG:
             log.debug(effect.text)
-        elif effect.kind == UIEffectKind.INFO:
-            log.info(effect.text)
 
     def _add_message(self, effect: AddMessageEffect) -> None:
         content = effect.content

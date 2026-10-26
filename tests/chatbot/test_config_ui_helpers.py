@@ -708,3 +708,27 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         populate_combobox_with_lru(self.ctx, ctrl, "", "model_lru", "http://localhost:1a")
 
+    def test_lmstudio_keeps_catalogued_elsewhere_model(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        populate_combobox_with_lru(
+            self.ctx,
+            ctrl,
+            "deepseek-chat",
+            "model_lru",
+            "http://localhost:1234",
+            skip_remote_fetch=True,
+        )
+        ctrl.setText.assert_called_with("deepseek-chat")
+
+
+def test_paint_combo_clears_stale_items_on_empty_list():
+    from plugin.chatbot.config_ui_helpers import _paint_combo
+
+    ctrl = MagicMock()
+    ctrl.getItemCount.return_value = 2
+    _paint_combo(ctrl, [], "")
+    ctrl.removeItems.assert_called_once_with(0, 2)
+    ctrl.addItems.assert_not_called()
+
+

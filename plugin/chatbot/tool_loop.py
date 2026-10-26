@@ -42,7 +42,6 @@ from plugin.framework.config import (
     validate_api_config,
 )
 from plugin.framework.client.model_fetcher import (
-    get_text_model,
     resolve_context_window,
     set_image_model,
 )
@@ -250,6 +249,19 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 # Stop during fallback STT. None ends the drain. Do not show
                 # "No speech detected" or spawn another chat worker.
                 return None
+            # What was wrong: STT fallback wrote to host.session instead of the turn's session.
+            # How it happened: _transcribe_audio pumps UI idle, letting the user switch modes
+            # or sessions mid-transcription while the turn is aborted.
+            # Why this fixes it: Bind turn.session and verify the turn is still alive and has
+            # identical message list identity before modifying session state or deleting the WAV.
+            turn_session = getattr(turn, "session", None)
+            same_messages = getattr(turn, "same_messages", None)
+            if (
+                turn_session is None
+                or not getattr(turn, "alive", False)
+                or not (callable(same_messages) and same_messages())
+            ):
+                return None
             wav_path = host.audio_wav_path
             host.audio_wav_path = None
             if wav_path:
@@ -268,12 +280,12 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 host._terminal_status = ""
                 return None
             combined = (turn.active_query_text + "\n" + transcript).strip() if turn.active_query_text else transcript
-            if host.session.messages and host.session.messages[-1].get("role") == "user":
-                host.session.messages[-1]["content"] = combined
-                if getattr(host.session, "db", None):
-                    host.session.db.update_last_user_content(combined)
+            if turn_session.messages and turn_session.messages[-1].get("role") == "user":
+                turn_session.messages[-1]["content"] = combined
+                if getattr(turn_session, "db", None):
+                    turn_session.db.update_last_user_content(combined)
             else:
-                host.session.add_user_message(combined)
+                turn_session.add_user_message(combined)
             turn.active_query_text = combined
             host._tool_calling._spawn_llm_worker(retry_q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], host._tool_calling._sm_state.round_num, query_text=combined)
             return True
@@ -422,21 +434,6 @@ class ToolCallingMixin:
             self._panel._set_status("Error")
             return
 
-        from plugin.framework.url_utils import get_api_version_suffix
-
-        endpoint_stored = str(api_config.get("endpoint") or "").strip()
-        if "z.ai" in endpoint_stored.lower():
-            combobox_raw = str(self._panel.model_selector.getText() or "") if self._panel.model_selector else ""
-            log.debug(
-                "_do_send z.ai diag: endpoint=%r api_path=%r combobox_raw=%r synced_model=%r config_model=%r get_text_model=%r",
-                endpoint_stored,
-                get_api_version_suffix(endpoint_stored),
-                combobox_raw,
-                synced_model,
-                api_config.get("model"),
-                get_text_model(),
-            )
-
         # contextvars (SendCancellation) do not propagate to worker threads — LlmClient
         # picks up resolve_stop_checker() via get_current_send_cancellation when created on
         # the UI thread; spawned workers pass stop_checker= explicitly (_spawn_llm_worker).
@@ -499,9 +496,7 @@ class ToolCallingMixin:
         # Calling add_user_message again would double-post that turn.
         # The turn was bound before pump_ui_idle. Refresh edits that list
         # in place, so the pin still names it.
-        if skip_append_user:
-            b64_image = None
-        else:
+        if not skip_append_user:
             # Check for vision capability and selected image base64.
             # `model` in this function is the UNO document, not the model id.
             # get_api_config stores the chat model as "model". Reading
@@ -523,66 +518,64 @@ class ToolCallingMixin:
                     except Exception:
                         log.exception("Failed to get selected image base64")
 
-        if skip_append_user:
-            pass
-        elif b64_image or self._panel.audio_wav_path:
-            content_list: list[dict[str, Any]] = []
-            if query_text:
-                content_list.append({"type": "text", "text": query_text})
+            if b64_image or self._panel.audio_wav_path:
+                content_list: list[dict[str, Any]] = []
+                if query_text:
+                    content_list.append({"type": "text", "text": query_text})
 
-            attachments = []
-            if b64_image:
-                content_list.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{b64_image}"}
-                })
-                attachments.append("Image")
+                attachments = []
+                if b64_image:
+                    content_list.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64_image}"}
+                    })
+                    attachments.append("Image")
 
-            audio_content: list[dict[str, Any]] | None = None
-            if self._panel.audio_wav_path:
-                from plugin.scripting.audio_recorder_service import append_wav_as_input_audio
+                audio_content: list[dict[str, Any]] | None = None
+                if self._panel.audio_wav_path:
+                    from plugin.scripting.audio_recorder_service import append_wav_as_input_audio
 
-                audio_content = []
-                if append_wav_as_input_audio(audio_content, self._panel.audio_wav_path):
-                    attachments.append("Audio")
-                    # Capture the model/endpoint the audio is sent to, so a model
-                    # switch mid-send does not mark the wrong model as audio-capable.
-                    audio_turn = current_turn(self._panel)
-                    if isinstance(audio_turn, TurnController):
-                        audio_turn.text_model = str(api_config.get("model") or "") or None
-                        audio_turn.endpoint = client._endpoint()
+                    audio_content = []
+                    if append_wav_as_input_audio(audio_content, self._panel.audio_wav_path):
+                        attachments.append("Audio")
+                        # Capture the model/endpoint the audio is sent to, so a model
+                        # switch mid-send does not mark the wrong model as audio-capable.
+                        audio_turn = current_turn(self._panel)
+                        if isinstance(audio_turn, TurnController):
+                            audio_turn.text_model = str(api_config.get("model") or "") or None
+                            audio_turn.endpoint = client._endpoint()
+                    else:
+                        self._panel.audio_wav_path = None
+
+                # Add only text (and images) to DB to avoid 404s when reading history
+                if not content_list and attachments == ["Audio"]:
+                    from plugin.framework.i18n import _
+                    turn_session.add_user_message(_("[Voice message]"))
                 else:
-                    self._panel.audio_wav_path = None
+                    turn_session.add_user_message(content_list)
 
-            # Add only text (and images) to DB to avoid 404s when reading history
-            if not content_list and attachments == ["Audio"]:
-                from plugin.framework.i18n import _
-                turn_session.add_user_message(_("[Voice message]"))
-            else:
-                turn_session.add_user_message(content_list)
+                if audio_content and turn_session.messages:
+                    # Append audio to the in-memory message so it's sent this turn
+                    last_msg = turn_session.messages[-1]
+                    if isinstance(last_msg.get("content"), list):
+                        last_msg["content"].extend(audio_content)
+                    else:
+                        existing_text = last_msg.get("content", "")
+                        new_content = []
+                        if existing_text:
+                            new_content.append({"type": "text", "text": existing_text})
+                        new_content.extend(audio_content)
+                        last_msg["content"] = new_content
 
-            if audio_content and turn_session.messages:
-                # Append audio to the in-memory message so it's sent this turn
-                last_msg = turn_session.messages[-1]
-                if isinstance(last_msg.get("content"), list):
-                    last_msg["content"].extend(audio_content)
+                attach_str = " & ".join(attachments)
+                if attach_str:
+                    display_text = f"{query_text} [{attach_str} Attached]" if query_text else f"[{attach_str} Message]"
                 else:
-                    existing_text = last_msg.get("content", "")
-                    new_content = []
-                    if existing_text:
-                        new_content.append({"type": "text", "text": existing_text})
-                    new_content.extend(audio_content)
-                    last_msg["content"] = new_content
-
-            attach_str = " & ".join(attachments)
-            if attach_str:
-                display_text = f"{query_text} [{attach_str} Attached]" if query_text else f"[{attach_str} Message]"
+                    display_text = query_text
+                self._panel._append_response(display_text, role="user")
             else:
-                display_text = query_text
-            self._panel._append_response(display_text, role="user")
-        else:
-            turn_session.add_user_message(query_text)
-            self._panel._append_response(query_text, role="user")
+                turn_session.add_user_message(query_text)
+                self._panel._append_response(query_text, role="user")
 
         self._panel._append_response("\n[Using chat model.]\n")
         log.info("_do_send: using chat model")
@@ -989,8 +982,12 @@ class ToolCallingMixin:
                 from plugin.framework.client.model_fetcher import set_native_vision_support
                 set_native_vision_support(turn_model, turn_endpoint, supported=False)
 
-            if getattr(self._panel, "session", None) and getattr(self._panel.session, "messages", None):
-                for msg in reversed(self._panel.session.messages):
+            # What was wrong: Stripping unsupported image modified host.session instead of the turn's session.
+            # How it happened: Mode switch or session rebind points host.session to a new chat transcript.
+            # Why this fixes it: Use session_for_turn so modifications only apply to the active turn's session.
+            turn_session = session_for_turn(self._panel)
+            if turn_session is not None and getattr(turn_session, "messages", None):
+                for msg in reversed(turn_session.messages):
                     if isinstance(msg, dict) and msg.get("role") == "user":
                         content = msg.get("content")
                         if isinstance(content, list):
@@ -1004,8 +1001,8 @@ class ToolCallingMixin:
                                 turn = current_turn(self._panel)
                                 clean_text = (turn.active_query_text if turn else "") or ""
                             msg["content"] = clean_text
-                            if self._panel.session.db is not None:
-                                self._panel.session.db.update_last_user_content(clean_text)
+                            if getattr(turn_session, "db", None) is not None:
+                                turn_session.db.update_last_user_content(clean_text)
                         break
 
         # Prompt-too-large: respawn the worker with force_compact. Never call
