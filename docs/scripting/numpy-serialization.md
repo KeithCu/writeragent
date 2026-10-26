@@ -787,8 +787,8 @@ All of these optimizations are **pure Python stdlib / NumPy enhancements**, mean
 To make writing `=PY()` formulas extremely intuitive when a user passes a single cell or a constant (like `=PY("sp.prime(data)", 100000)`), the compute bridge automatically unpacks single-entry inputs into their scalar representations.
 
 * **Standard Lists & Split-Grid**: If the unpacked input is a 1D sequence or array with exactly one element (length 1), the child worker extracts its scalar value.
-* **Whole-number floats stay floats**: Calc stores numbers as float64. A 1×1 cell of `100000.0` stays a Python `float`, the same as a longer float64 column. Call `int(data)` when an API needs an `int`.
-* **Developer Impact**: Scalar-only APIs can take the unwrapped cell (`sp.prime(int(data))`) without indexing a 1×1 list.
+* **Whole numbers arrive as ints**: Calc stores numbers as float64. When every numeric cell of an argument is a finite whole number (abs < 1e15), `CalcRange` holds Python `int`s and `to_numpy()` is `int64` (blanks still give `float64` with NaN). One fractional cell keeps the whole argument float.
+* **Developer Impact**: Scalar-only APIs work directly: `=PY("sp.prime(data)", A1)` with A1=10 returns 29.
 
 #### Remaining pipeline costs (reference)
 

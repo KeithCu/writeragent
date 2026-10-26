@@ -3092,3 +3092,12 @@ def test_execute_python_addin_flag_passes_through_without_gate(monkeypatch: pyte
 
 
 
+
+
+def test_execute_python_addin_string_result_returns_text(monkeypatch) -> None:
+    python_function.clear_python_addin_cache()
+    monkeypatch.setattr(python_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "ok", "result": "hi"})
+    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
+    assert python_function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "'hi'", ((10.0,),)) == "hi"

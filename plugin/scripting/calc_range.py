@@ -163,6 +163,14 @@ _deal_binary_op_pre = _profile(
 )
 
 
+def _whole_floats_to_int(grid: list[list[Any]]) -> list[list[Any]]:
+    """All numeric cells finite whole (abs < 1e15) -> ints; any fractional keeps the grid float."""
+    nums = [c for row in grid for c in row if type(c) is float]
+    if not all(math.isfinite(c) and c.is_integer() and abs(c) < 1e15 for c in nums):
+        return grid
+    return [[int(c) if type(c) is float else c for c in row] for row in grid]
+
+
 def _numpy_required(exc: ImportError) -> NoReturn:
     # Missing NumPy is ImportError. Any other to_numpy failure propagates.
     raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
@@ -196,7 +204,9 @@ class CalcRange:
         # ensure_rectangular_2d treats a non-list/tuple as a scalar, so an
         # ndarray or DataFrame became a 1x1 range. _materialize_inner_grid
         # unpacks those, and nested structures, into a rectangular 2D list.
-        self._values = _materialize_inner_grid(values)
+        # Calc numbers are doubles; whole numbers arrive as ints so scalar-only
+        # APIs like sp.prime(data) work (lost in ff217d9d4).
+        self._values = _whole_floats_to_int(_materialize_inner_grid(values))
         _assert_rectangular(self._values)
         self._address = address
 
@@ -291,6 +301,8 @@ class CalcRange:
             for row in self._values
             for cell in row
         )
+        if is_numeric and all(type(c) is int for row in self._values for c in row):
+            return np.array(self._values, dtype=np.int64, **kwargs)
         if is_numeric:
             grid = [[math.nan if v is None else v for v in row] for row in self._values]
             return np.array(grid, dtype=np.float64, **kwargs)
@@ -375,6 +387,12 @@ class CalcRange:
                 raise TypeError("Cannot convert empty cell (None) to int")
             return int(val)
         raise TypeError(f"Only 1x1 CalcRange can be converted to int, got shape {self.shape}")
+
+    def __index__(self) -> int:
+        # crosshair: off
+        if self.shape == (1, 1):
+            return operator.index(self._values[0][0])
+        raise TypeError(f"Only 1x1 CalcRange can be used as an index, got shape {self.shape}")
 
     def __round__(self, ndigits: int | None = None) -> Any:
         # crosshair: off
