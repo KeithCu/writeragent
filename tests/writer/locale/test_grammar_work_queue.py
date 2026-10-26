@@ -658,4 +658,69 @@ def test_enqueue_misses() -> None:
     assert item2.provider == "custom-prov"
 
 
+def test_end_status_cycle_without_done_emits_one_skipped_terminal() -> None:
+    q = GrammarWorkQueue()
+    with patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status") as mock_status:
+        q.begin_status_cycle()
+        q.end_status_cycle()
+        q.end_status_cycle()
+    assert mock_status.call_count == 1
+    assert mock_status.call_args[0] == ("done", "batch")
+    assert mock_status.call_args[1].get("result") == "skipped"
+
+
+def test_forget_document_prunes_only_that_document() -> None:
+    q = GrammarWorkQueue()
+    q.note_inflight_generation("doc1|en-US|k1", 1)
+    q.note_inflight_generation("doc1|fr-FR|k2", 2)
+    q.note_inflight_generation("doc2|en-US|k3", 3)
+    q.forget_document("doc1")
+    with q._lock:
+        assert "doc1|en-US|k1" not in q._latest_seq
+        assert "doc1|fr-FR|k2" not in q._latest_seq
+        assert q._latest_seq.get("doc2|en-US|k3") == 3
+
+
+def test_remove_persistence_if_prunes_queue_generations() -> None:
+    import time
+    from typing import Any, cast
+    from plugin.writer.locale.grammar_persistence import grammar_registry
+    from plugin.writer.locale.grammar_work_queue import grammar_queue
+
+    doc_id = f"test_doc_k192_{time.time_ns()}"
+    fake = MagicMock()
+    with grammar_registry.lock:
+        grammar_registry.doc_persistence_instances[doc_id] = cast("Any", fake)
+    key = f"{doc_id}|en-US|abc"
+    grammar_queue.note_inflight_generation(key, 5)
+    try:
+        assert grammar_registry.remove_persistence_if(doc_id, cast("Any", fake)) is True
+        with grammar_queue._lock:
+            assert key not in grammar_queue._latest_seq
+    finally:
+        with grammar_registry.lock:
+            grammar_registry.doc_persistence_instances.pop(doc_id, None)
+            grammar_registry.doc_locales.pop(doc_id, None)
+        grammar_queue.forget_document(doc_id)
+
+
+def test_enqueue_misses_emits_one_queued_status() -> None:
+    queue = MagicMock()
+    ctx = MagicMock()
+    uncached = [(0, 14, "Sentence one. "), (14, 27, "Sentence two.")]
+    with patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status") as mock_status:
+        enqueue_misses(
+            queue,
+            ctx,
+            "doc1",
+            "en-US",
+            uncached,
+        )
+    assert mock_status.call_count == 1
+    assert mock_status.call_args[0][0] == "start"
+    assert mock_status.call_args[0][1] == "2 sentences"
+    assert mock_status.call_args[1].get("result") == "queued"
+    assert queue.enqueue.call_count == 2
+
+
 

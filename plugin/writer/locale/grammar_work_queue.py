@@ -28,7 +28,8 @@ invariant.  (A third Layer 1 "tail-replace" existed historically — see below.)
 **Layer 3 — Pre-execute and post-LLM stale checks** (``_latest_seq`` map)
 
     ``enqueue`` records the newest ``enqueue_seq`` per ``inflight_key`` in
-    ``_latest_seq`` (under ``_lock``).  Before sending a batch item to
+    ``_latest_seq`` (under ``_lock``; pruned when the document closes via
+    ``forget_document``).  Before sending a batch item to
     the LLM, the worker calls ``_is_stale`` — if a newer enqueue has been
     recorded since this item was drained, it is skipped.  After the LLM
     returns, ``inflight_superseded`` is checked again before writing to the
@@ -214,6 +215,16 @@ def enqueue_misses(
     paragraph_text: str = "",
 ) -> None:
     """Enqueue uncached sentences for background processing."""
+    count = len(uncached_spans)
+    if count:
+        label = f"{count} sentence" if count == 1 else f"{count} sentences"
+        emit_grammar_status(
+            "start",
+            label,
+            result="queued",
+            preview_source=label,
+            length_hint=sum(len(text) for _start, _end, text in uncached_spans),
+        )
     for sent_start, sent_end, sent_text in uncached_spans:
         seq = next_enqueue_seq()
         complete_sentence = looks_complete_sentence(sent_text)
@@ -229,7 +240,6 @@ def enqueue_misses(
             slice_len=len(sent_text),
             partial_sentence_arg=not complete_sentence,
         )
-        emit_grammar_status("start", sent_text, result="queued")
         queue.enqueue(
             GrammarWorkItem(
                 ctx=ctx,
@@ -301,11 +311,16 @@ class GrammarWorkQueue:
             self._pending_done = _PendingGrammarDone(text, result, elapsed_ms, preview_source, length_hint)
 
     def end_status_cycle(self) -> None:
-        """Drop in-flight count; emit a single sidebar ``done`` when all parallel batches finish."""
+        """Drop in-flight count; emit one terminal sidebar ``done`` when all parallel batches finish."""
         pending: _PendingGrammarDone | None = None
+        had_cycle = False
+        last = False
         with self._lock:
-            self._status_inflight = max(0, self._status_inflight - 1)
-            if self._status_inflight == 0:
+            had_cycle = self._status_inflight > 0
+            if had_cycle:
+                self._status_inflight -= 1
+            last = self._status_inflight == 0
+            if last:
                 pending = self._pending_done
                 self._pending_done = None
         if pending is not None:
@@ -317,6 +332,8 @@ class GrammarWorkQueue:
                 preview_source=pending.preview_source,
                 length_hint=pending.length_hint,
             )
+        elif had_cycle and last:
+            emit_grammar_status("done", "batch", result="skipped")
 
     def _is_stale(self, item: GrammarWorkItem) -> bool:
         with self._lock:
@@ -341,6 +358,15 @@ class GrammarWorkQueue:
                 return True
             self._latest_seq[inflight_key] = enqueue_seq
             return False
+
+    def forget_document(self, doc_id: str) -> None:
+        """Drop generation stamps for a closed document (keys start with ``doc_id + '|'``)."""
+        if not doc_id:
+            return
+        prefix = f"{doc_id}|"
+        with self._lock:
+            for key in [k for k in self._latest_seq if k.startswith(prefix)]:
+                del self._latest_seq[key]
 
     def enqueue(self, item: GrammarWorkItem) -> None:
         """Add a work item; starts the drain worker on first call.

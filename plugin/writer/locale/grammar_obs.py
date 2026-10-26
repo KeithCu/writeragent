@@ -34,6 +34,7 @@ _ROUTINE_LIBREHARPER_STATUS_RESULTS = frozenset({
     "queued",
 })
 _ISSUE_COUNT_RESULT = re.compile(r"^\d+ issues?$", re.IGNORECASE)
+_TERMINAL_STATUS_PHASES = ("done", "complete", "failed")
 
 
 def is_routine_libreharper_status(phase: str, result: str) -> bool:
@@ -117,52 +118,69 @@ def resolve_status_bar_frame(ctx: Any) -> Any | None:
     return _frame_from_existing_desktop_singleton(ctx)
 
 
-def update_libreoffice_status_bar(phase: str, text: str, result: str) -> None:
+def update_libreoffice_status_bar(phase: str, result: str, routine: bool) -> None:
     """Update the LibreOffice window status bar using XStatusIndicator."""
     global _last_status_indicator
-    if is_routine_libreharper_status(phase, result):
-        return
-    from plugin.framework.uno_context import get_ctx
+    terminal = phase in _TERMINAL_STATUS_PHASES
+    assert not routine or terminal, (phase, result)
 
-    # Determine status message
     msg = f"LibreHarper: {result or 'Checking...'}"
     if phase in ("done", "complete"):
         msg = "LibreHarper: Grammar check complete"
     elif phase == "failed":
-        msg = f"LibreHarper: Failed ({result})"
+        msg = f"LibreHarper: Failed ({result})" if result else "LibreHarper: Grammar check failed"
 
     try:
-        ctx = get_ctx()
+        if routine:
+            # Routine terminal ("2 issues"): finish the lifecycle but keep
+            # the visible text. Skipping it left the indicator stuck.
+            if _last_status_indicator is not None:
+                _last_status_indicator.end()
+                _last_status_indicator = None
+            return
+
+        from plugin.framework.uno_context import get_ctx
+
         # Never create Desktop here: uno.bin register ctx has no VCL (issue #768).
-        frame = resolve_status_bar_frame(ctx)
+        frame = resolve_status_bar_frame(get_ctx())
         if frame is None:
             return
 
-        if phase in ("start", "request"):
+        if phase == "failed":
+            # Keep the failure text visible: end() in this callback would
+            # hide it. The next grammar status replaces or ends it.
             if _last_status_indicator is None:
-                try:
-                    _last_status_indicator = frame.createStatusIndicator()
-                    if _last_status_indicator is not None:
-                        _last_status_indicator.start(msg, 100)
-                except Exception:
-                    _last_status_indicator = None
+                _last_status_indicator = frame.createStatusIndicator()
+                if _last_status_indicator is None:
+                    return
+                _last_status_indicator.start(msg, 100)
             else:
-                # What was wrong: setText/setValue on a disposed indicator was
-                # swallowed, so _last_status_indicator stayed set. Later
-                # start/request paints hit that dead object and did nothing
-                # until a done phase.
-                # How: the frame that owned the indicator closed during
-                # proofreading; the inner except pass kept the reference.
-                # Why: this raise reaches the outer handler, which clears the
-                # indicator so the next progress paint creates a new one.
                 _last_status_indicator.setText(msg)
-                _last_status_indicator.setValue(50)
-        elif phase in ("done", "complete", "failed"):
+                _last_status_indicator.setValue(100)
+        elif terminal:
             if _last_status_indicator is not None:
                 _last_status_indicator.setText(msg)
                 _last_status_indicator.setValue(100)
                 _last_status_indicator.end()
                 _last_status_indicator = None
+        elif _last_status_indicator is None:
+            try:
+                _last_status_indicator = frame.createStatusIndicator()
+                if _last_status_indicator is not None:
+                    _last_status_indicator.start(msg, 100)
+            except Exception:
+                _last_status_indicator = None
+        else:
+            # What was wrong: setText/setValue on a disposed indicator was
+            # swallowed, so _last_status_indicator stayed set. Later
+            # start/request paints hit that dead object and did nothing
+            # until a done phase.
+            # How: the frame that owned the indicator closed during
+            # proofreading; the inner except pass kept the reference.
+            # Why: this raise reaches the outer handler, which clears the
+            # indicator so the next progress paint creates a new one.
+            _last_status_indicator.setText(msg)
+            _last_status_indicator.setValue(50)
     except Exception as e:
         log.debug("[grammar] update_libreoffice_status_bar failed: %s", e)
         _last_status_indicator = None
@@ -185,7 +203,12 @@ def emit_grammar_status(
         if is_libreharper():
             # Skip main-thread posts for per-keystroke strings so typing does not
             # thrash XStatusIndicator (issue #768 status-bar flash / stalls).
-            if is_routine_libreharper_status(phase, result):
+            routine = is_routine_libreharper_status(phase, result)
+            # A routine terminal result ("2 issues") still posts while an
+            # indicator is up: it has to end that indicator (stuck-status bug).
+            if routine and (
+                phase not in _TERMINAL_STATUS_PHASES or _last_status_indicator is None
+            ):
                 return
             # pythonloader in uno.bin can rewrite argv; do not post a status
             # paint that would look up theDesktop on a no-VCL ctx (#768).
@@ -199,7 +222,7 @@ def emit_grammar_status(
             # or kills Writer. Progress strings (Starting Harper…, download)
             # still paint — just never on this thread.
             try:
-                post_to_main_thread(update_libreoffice_status_bar, phase, text, result)
+                post_to_main_thread(update_libreoffice_status_bar, phase, result, routine)
             except Exception:
                 log.debug("Failed to post status bar update to main thread", exc_info=True)
         else:

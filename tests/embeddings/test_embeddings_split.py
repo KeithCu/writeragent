@@ -128,10 +128,6 @@ def test_whitespace_locale_uses_grammar_split(monkeypatch: pytest.MonkeyPatch):
         "plugin.framework.grammar_rule_ids.normalize_detected_bcp47",
         lambda tag: "th-TH" if tag else None,
     )
-    monkeypatch.setattr(
-        "plugin.writer.locale.grammar_proofread_locale.is_whitespace_sentence_locale",
-        lambda key: key.startswith("th"),
-    )
     monkeypatch.setattr(split_mod, "_split_passage_whitespace_to_sentences", _fake_whitespace)
     split_mod.split_passage_to_chunk_meta(
         passage,

@@ -16,7 +16,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 import pytest
 
 from plugin.contrib.lsp.json_rpc_framing import read_exactly
@@ -42,17 +42,14 @@ from plugin.writer.locale.harper_binary import (
 )
 import plugin.writer.locale.harper as harper_module
 import plugin.writer.locale.harper_binary as harper_binary_module
-from tests.harness.strip_bundle import module_source_contains
 
 
 @pytest.fixture(autouse=True)
 def _reset_harper_client_cache() -> None:
     """Each run_harper_lint test owns a fresh LSP client and mocked stdout stream."""
     shutdown_harper_runtime()
-    harper_binary_module._release_cache.clear()
     yield
     shutdown_harper_runtime()
-    harper_binary_module._release_cache.clear()
 
 
 def test_harper_client_parameterizes_stdout_queue() -> None:
@@ -799,7 +796,6 @@ def test_download_harper_binary_propagates_retrieve_failure(mock_retrieve: Magic
 
 
 def test_fetch_latest_release_asset_uses_github_api(tmp_path: Path) -> None:
-    harper_binary_module._release_cache.clear()
     api_payload = {
         "tag_name": "v2.7.0",
         "assets": [
@@ -882,9 +878,26 @@ def test_run_harper_lint_emits_heartbeat_progress(mock_popen: MagicMock, mock_ge
     assert mock_get_bin.call_args.kwargs.get("heartbeat_fn") is heartbeat_fn
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "{not json",
+        "[]",
+        json.dumps({"asset_name": "harper-ls-x86_64-unknown-linux-gnu.tar.gz", "checked_at": "soon", "version": "9.9.9", "download_url": "https://x", "sha256": ""}),
+        json.dumps({"asset_name": "harper-ls-x86_64-unknown-linux-gnu.tar.gz", "checked_at": 1e18, "version": 9, "download_url": "https://x", "sha256": ""}),
+        json.dumps({"asset_name": "harper-ls-x86_64-unknown-linux-gnu.tar.gz", "checked_at": 1e18, "version": "9.9.9", "sha256": ""}),
+    ],
+)
+def test_read_persisted_release_malformed_json_is_cache_miss(tmp_path: Path, payload: str) -> None:
+    harper_dir = tmp_path / "harper"
+    harper_dir.mkdir()
+    (harper_dir / "harper-ls.release.json").write_text(payload, encoding="utf-8")
+
+    assert harper_binary_module._read_persisted_release(harper_dir, "harper-ls-x86_64-unknown-linux-gnu.tar.gz") is None
+
+
 @patch("plugin.writer.locale.harper_binary.log")
 def test_fetch_latest_release_asset_logs_error_when_asset_missing(mock_log: MagicMock, tmp_path: Path) -> None:
-    harper_binary_module._release_cache.clear()
     api_payload = {"tag_name": "v2.7.0", "assets": []}
 
     with patch("plugin.writer.locale.harper_binary._github_api_request", return_value=api_payload):
@@ -897,7 +910,6 @@ def test_fetch_latest_release_asset_logs_error_when_asset_missing(mock_log: Magi
 
 @patch("plugin.writer.locale.harper_binary.log")
 def test_fetch_latest_release_asset_logs_github_api_failure(mock_log: MagicMock, tmp_path: Path) -> None:
-    harper_binary_module._release_cache.clear()
 
     with patch("plugin.writer.locale.harper_binary._github_api_request", side_effect=OSError("network down")):
         with pytest.raises(RuntimeError, match="Harper releases API request failed"):
@@ -1342,6 +1354,36 @@ def test_harper_runtime_is_ready_requires_alive_client() -> None:
     assert harper_runtime_is_ready() is False
 
 
+def test_harper_try_lint_waits_for_lint_lock_and_pumps() -> None:
+    """A held lock blocks harper_try_lint (pumping each tick) instead of skipping the sentence."""
+    harper_module._HARPER_LOCK.acquire()
+    ticks: list[bool | None] = []
+
+    def _tick(_ctx: Any, *, on_caller: bool | None = None) -> None:
+        ticks.append(on_caller)
+        if len(ticks) == 2:
+            harper_module._HARPER_LOCK.release()
+
+    with patch("plugin.framework.vcl_pumping.pump_secondary_idle_tick", side_effect=_tick):
+        assert harper_module._acquire_harper_lock_pumping(object(), timeout=5.0) is True
+    try:
+        assert len(ticks) >= 2
+    finally:
+        harper_module._HARPER_LOCK.release()
+
+
+def test_harper_lock_wait_times_out_without_holding_lock() -> None:
+    harper_module._HARPER_LOCK.acquire()
+    try:
+        with patch("plugin.framework.vcl_pumping.pump_secondary_idle_tick"):
+            assert harper_module._acquire_harper_lock_pumping(object(), timeout=0.1) is False
+        assert harper_module._acquire_harper_lock_pumping(None, timeout=0.05) is False
+    finally:
+        harper_module._HARPER_LOCK.release()
+    assert harper_module._acquire_harper_lock_pumping(None, timeout=0.05) is True
+    harper_module._HARPER_LOCK.release()
+
+
 def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
     """READY + PROOFREAD_AGAIN with no listeners must still re-walk once a listener hooks."""
     from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
@@ -1501,45 +1543,15 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
             default_executor._work_queue.put(item)
 
 
-def test_harper_try_lint_reenter_during_wait_logs_and_returns_none(caplog: pytest.LogCaptureFixture) -> None:
-    """Nested try_lint while a wait is active fail-softs and logs harper_wait_reenter once."""
-    lint_started = threading.Event()
-    release_lint = threading.Event()
-    nested: dict[str, object] = {}
-
-    def _slow_lint(*_a: object, **_k: object) -> list:
-        lint_started.set()
-        release_lint.wait(timeout=2.0)
-        return []
-
-    def _pe2i(_ctx: object, rounds: int = 1, force: bool = False) -> bool:
-        # One nest per wait (not every later PE2I tick) — matches field logging.
-        if "res" not in nested:
-            nested["res"] = harper_try_lint("Other sentence.", "/tmp", ctx=_ctx)
-        if lint_started.is_set():
-            release_lint.set()
-        return True
-
-    _ready_harper_client(_slow_lint)
-    caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
-    ctx = MagicMock()
-    with patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i):
-        res = harper_try_lint("Hello.", "/tmp", ctx=ctx)
-
-    assert res == {"errors": []}
-    assert nested.get("res") is None
-    warn_recs = [r for r in caplog.records if r.levelno == logging.WARNING and "harper_wait_reenter" in r.message]
-    assert len(warn_recs) == 1
-    assert "wait_age_ms=" in warn_recs[0].message
-    assert "provider=" in warn_recs[0].message
-    # Bugfix: in stripped release bundles, scripts/strip_code.py strips out grammar_obs(...)
-    # call sites from plugin code, so the grammar_obs debug record is not emitted.
-    # We only assert on the debug record when running against unstripped source.
-    if module_source_contains(harper_module, "grammar_obs("):
-        assert any(
-            r.levelno == logging.DEBUG and "harper_wait_reenter" in r.message
-            for r in caplog.records
-        )
+def test_harper_try_lint_reenter_during_wait_asserts() -> None:
+    """Nested try_lint while a wait is active is a bug: it trips an assert."""
+    _ready_harper_client(lambda *_a, **_k: [])
+    assert harper_module._try_begin_harper_wait()
+    try:
+        with pytest.raises(AssertionError, match="re-entered during pumped wait"):
+            harper_try_lint("Other sentence.", "/tmp", ctx=MagicMock())
+    finally:
+        harper_module._end_harper_wait()
 
 
 def test_harper_close_does_not_block_on_stuck_stdin() -> None:
@@ -1629,7 +1641,7 @@ def test_reader_sentinel_stays_on_captured_queue() -> None:
     captured: queue.Queue[dict | None] = queue.Queue()
     replacement: queue.Queue[dict | None] = queue.Queue()
     client.stdout_queue = replacement
-    client._read_loop(captured)
+    client._read_loop(captured, cast("Any", client.proc).stdout)
     assert captured.get_nowait() is None
     assert replacement.empty()
 
@@ -1637,12 +1649,12 @@ def test_reader_sentinel_stays_on_captured_queue() -> None:
 def test_reader_crash_sentinel_is_not_a_clean_sentence() -> None:
     """A crashed reader still fences its sentinel, and that sentinel is not a publish."""
     client = _bare_harper_client()
-    client.proc.stdout = BytesIO(b"")
+    cast("Any", client.proc).stdout = BytesIO(b"")
     captured: queue.Queue[dict | None] = queue.Queue()
     replacement: queue.Queue[dict | None] = queue.Queue()
     client.stdout_queue = replacement
     with patch("plugin.writer.locale.harper.json_rpc_framing.read_frame", side_effect=OSError("reader crashed")):
-        client._read_loop(captured)
+        client._read_loop(captured, cast("Any", client.proc).stdout)
     assert captured.qsize() == 1
     assert replacement.empty()
     client.stdout_queue = captured
@@ -1682,8 +1694,8 @@ def test_initialize_joins_old_reader_before_new_queue() -> None:
         released.set()
         HarperLSClient._join_stdout_thread(client, thread)
 
-    def fake_read_loop(out_queue: queue.Queue[dict | None]) -> None:
-        del out_queue
+    def fake_read_loop(out_queue: queue.Queue[dict | None], stdout: Any) -> None:
+        del out_queue, stdout
         order.append("new-reader")
 
     fake_proc = MagicMock()
@@ -1709,6 +1721,31 @@ def test_initialize_joins_old_reader_before_new_queue() -> None:
         old_thread.join(timeout=1.0)
         if client.stdout_thread is not None and client.stdout_thread.is_alive():
             client.stdout_thread.join(timeout=1.0)
+
+
+def test_read_loop_uses_captured_stream_not_current_proc() -> None:
+    client = HarperLSClient.__new__(HarperLSClient)
+    client.proc = MagicMock()
+    client.proc.stdout = BytesIO(b"")
+    old_stream = BytesIO(b"")
+    out_queue: queue.Queue[dict | None] = queue.Queue()
+    frame = {"jsonrpc": "2.0", "method": "test"}
+    calls: list[Any] = []
+
+    def mock_read_frame(stream: Any) -> dict[str, Any] | None:
+        calls.append(stream)
+        if len(calls) == 1:
+            return frame
+        return None
+
+    with patch("plugin.writer.locale.harper.json_rpc_framing.read_frame", side_effect=mock_read_frame):
+        client._read_loop(out_queue, old_stream)
+
+    assert len(calls) == 2
+    assert all(stream is old_stream for stream in calls)
+    assert not any(stream is client.proc.stdout for stream in calls)
+    assert out_queue.get_nowait() == frame
+    assert out_queue.get_nowait() is None
 
 
 def test_read_cancel_does_not_wait_for_lint_budget() -> None:
@@ -2136,4 +2173,28 @@ def test_harper_close_swallows_pipe_close_errors() -> None:
     mock_stdin.close.assert_called_once()
     mock_stdout.close.assert_called_once()
     mock_proc.terminate.assert_called_once()
+
+
+def test_lint_clears_previous_heartbeat_when_none() -> None:
+    client = _bare_harper_client()
+    client._heartbeat_fn = lambda _p: None
+    with (
+        patch.object(client, "_sync_document"),
+        patch.object(client, "_collect_diagnostics", return_value=[]),
+        patch.object(client, "_suggestions_for_diagnostic"),
+    ):
+        client.lint("Hi.", bcp47="en-US", heartbeat_fn=None)
+    assert client._heartbeat_fn is None
+
+
+def test_read_and_handle_answers_multiple_server_requests() -> None:
+    client = _bare_harper_client()
+    written: list[dict[str, Any]] = []
+    client.stdout_queue.put({"id": 1, "method": "workspace/configuration"})
+    client.stdout_queue.put({"id": 2, "method": "window/workDoneProgress/create"})
+    client.stdout_queue.put({"id": 99, "result": {}})
+    with patch.object(client, "_write", side_effect=written.append):
+        msg = client._read_and_handle(time.monotonic() + 1.0)
+    assert msg == {"id": 99, "result": {}}
+    assert len(written) == 2
 

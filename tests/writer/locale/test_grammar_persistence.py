@@ -158,6 +158,29 @@ class TestGrammarPersistence:
         written = json.loads(str(args[2]))
         assert ("fp_save") in (written["locales"]["en-US"].get("good", []))
 
+    def test_document_event_on_copy_to_triggers_persist(self) -> None:
+        """documentEventOccured with OnCopyTo should drive set_document_property."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        with patch("plugin.doc.udprops.get_document_property", return_value=None):
+            dp = gp.DocumentPersistence(ctx, "doc-copy", model=model)
+
+        dp.put("fp_copy", "en-US", [])
+        listener = gp._GrammarDocumentEventListener(dp)
+        copy_event = MagicMock()
+        copy_event.EventName = "OnCopyTo"
+
+        with patch("plugin.doc.udprops.set_document_property") as mock_set:
+            listener.documentEventOccured(copy_event)
+
+        assert mock_set.called, "OnCopyTo must call set_document_property"
+        args = mock_set.call_args[0]
+        assert args[0] is model
+        written = json.loads(str(args[2]))
+        assert "fp_copy" in written["locales"]["en-US"].get("good", [])
+
     def test_document_event_on_unload_triggers_teardown(self) -> None:
         """documentEventOccured with OnUnload should teardown and clear the cache."""
         from plugin.writer.locale import grammar_persistence as gp
@@ -944,6 +967,50 @@ class TestGrammarPersistence:
             assert not t2.is_alive()
         finally:
             gp.grammar_registry.clear_all(ctx)
+
+    def test_persist_after_teardown_writes_nothing(self) -> None:
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        with patch("plugin.doc.udprops.get_document_property", return_value=None):
+            dp = gp.DocumentPersistence(ctx, "doc-torn", model=model)
+        dp.put("fp", "en-US", [])
+        dp._teardown()
+
+        with patch("plugin.doc.udprops.set_document_property") as mock_set:
+            dp._persist_to_udprops()
+        mock_set.assert_not_called()
+
+    def test_double_teardown_unregisters_listener_once(self) -> None:
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        with (
+            patch("plugin.writer.locale.grammar_persistence._HAVE_UNO_DOC_EVENTS", True),
+            patch("plugin.doc.udprops.get_document_property", return_value=None),
+        ):
+            dp = gp.DocumentPersistence(ctx, "doc-teardown-twice", model=model)
+            dp._teardown()
+            dp._teardown()
+        assert model.removeDocumentEventListener.call_count == 1
+        assert dp._teardown_done
+
+    def test_bind_registers_listener_before_load_done(self) -> None:
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        seen: list[bool] = []
+        with patch("plugin.doc.udprops.get_document_property", return_value=None):
+            dp = gp.DocumentPersistence(ctx, "doc-order")
+        model.addDocumentEventListener.side_effect = lambda listener: seen.append(dp._load_done.is_set())
+        with patch("plugin.writer.locale.grammar_persistence._HAVE_UNO_DOC_EVENTS", True):
+            dp._bind_model(model)
+        assert seen == [False]
+        assert dp._load_done.is_set()
+        assert dp._doc_listener is not None
 
 
 

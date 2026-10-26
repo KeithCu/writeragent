@@ -204,6 +204,11 @@ def cache_lookup_text(item: Any) -> str:
     return item.text
 
 
+def _item_is_complete(item: GrammarWorkItem, text: str) -> bool:
+    """Completion for ``inflight_key``: item flag and text must agree."""
+    return not item.partial_sentence and grammar_proofread_locale.looks_complete_sentence(text)
+
+
 def process_grammar_results(
     chunk: list[tuple[Any, str]],
     results: list[Any],
@@ -808,15 +813,17 @@ def detect_languages_for_chunk(
 
     if mode == "langdetect":
         _detect_languages_via_langdetect(chunk, detected_langs, ec)
-    elif len(chunk) > 1:
-        batch_results = _detect_via_llm_batch(chunk, detect_lang_instruction, ec)
-        for idx, canon in enumerate(batch_results):
-            if detected_langs[idx] is None:
-                detected_langs[idx] = canon
-    else:
-        canon = _detect_via_llm_single(chunk[0][1], detect_lang_instruction, ec)
-        detected_langs[0] = canon
+        return detected_langs
 
+    pending = [(idx, text) for idx, (_item, text) in enumerate(chunk) if detected_langs[idx] is None]
+    if len(pending) > 1:
+        pending_chunk = [(chunk[idx][0], text) for idx, text in pending]
+        batch_results = _detect_via_llm_batch(pending_chunk, detect_lang_instruction, ec)
+        for (idx, _text), canon in zip(pending, batch_results):
+            detected_langs[idx] = canon
+    else:
+        idx, text = pending[0]
+        detected_langs[idx] = _detect_via_llm_single(text, detect_lang_instruction, ec)
     return detected_langs
 
 
@@ -894,7 +901,6 @@ class GrammarWorkerContext:
     original_bcp47: str
     grammar_bcp47: str
     max_tok: int
-    detect_lang_instruction: str = ""
     detect_lang_mode: str = "off"
 
 
@@ -929,43 +935,6 @@ def _obs_language_validation_decision(
             )
 
 
-def _run_language_validation(
-    chunk: list[tuple[GrammarWorkItem, str]],
-    target_bcp47: str,
-    detect_lang_instruction: str,
-    ec: GrammarWorkerContext,
-) -> LanguageValidationDecision | None:
-    """Optional phase: detect language, filter chunk, requeue mismatches. None on failure."""
-    try:
-        # Do not treat embedded grammar rows as proof of CharLocale — persistence is keyed by
-        # sentence text only, so wrong-locale cache would skip real detection.
-        detected = detect_languages_for_chunk(
-            chunk, detect_lang_instruction, ec, trust_persisted_grammar_as_lang=False
-        )
-        decision = decide_language_validation(chunk, target_bcp47, detected)
-        _obs_language_validation_decision(chunk, target_bcp47, detected, decision)
-        for rq in decision.requeues:
-            log.info("[grammar] Language mismatch detected: %s vs %s. Triggering locale change.", rq.new_bcp47, rq.original_bcp47)
-            # The default placeholder must not store a clean row for the
-            # CharLocale just rejected. The next doProofreading cache-hits
-            # that empty result and never requeues, so the sentence is never
-            # retagged. cache_put_sentence(original_bcp47, text, []) before
-            # the detected-locale check records the rejected locale as a good
-            # sentence. Requeue under the detected locale instead, and do not
-            # record the rejected one.
-            requeue_individual_item(
-                rq.item, rq.text, rq.new_bcp47, rq.original_bcp47, ec, cache_placeholder=False
-            )
-        if len(chunk) == 1 and decision.target_bcp47 != target_bcp47:
-            log.info("[grammar] Single item language mismatch: %s -> %s. Proceeding with new locale.", target_bcp47, decision.target_bcp47)
-        return decision
-    except Exception as e:
-        log.exception("[grammar] Language validation error")
-        emit_grammar_status("failed", "Language detection", result=str(e))
-        canon_target = normalize_detected_bcp47(target_bcp47) or target_bcp47
-        return LanguageValidationDecision(target_bcp47=canon_target, result_chunk=list(chunk), requeues=())
-
-
 def requeue_individual_item(
     item: GrammarWorkItem,
     text: str,
@@ -981,7 +950,7 @@ def requeue_individual_item(
     ``cache_placeholder`` remains for an explicit caller; the default is off
     so a CharLocale cache hit cannot skip the retag.
     """
-    sent_complete = (not item.partial_sentence) and grammar_proofread_locale.looks_complete_sentence(text)
+    sent_complete = _item_is_complete(item, text)
     requeue_inflight_key = grammar_inflight_key(item.doc_id, new_bcp47, text, sent_complete)
 
     if cache_placeholder:
@@ -1074,7 +1043,7 @@ def _retarget_item_locale(
     ec: GrammarWorkerContext,
 ) -> GrammarWorkItem | None:
     new_key = grammar_inflight_key(
-        item.doc_id, target_bcp47, text, not item.partial_sentence
+        item.doc_id, target_bcp47, text, _item_is_complete(item, text)
     )
     new_seq = next_enqueue_seq()
     if ec.gq is not None and ec.gq.note_inflight_generation(new_key, new_seq) is True:
@@ -1098,49 +1067,16 @@ def _worker_process_chunk(
     chunk: list[tuple[GrammarWorkItem, str]],
     ec: GrammarWorkerContext,
     grammar_bcp47: str,
-    detect_lang_enabled: bool,
-    detect_lang_instruction: str,
+    *,
     original_bcp47: str = "",
 ) -> None:
-    """Run language validation (optional) then grammar LLM for one chunk."""
-    current_chunk = chunk
-    lang_decision = None
-    if detect_lang_enabled:
-        lang_decision = _run_language_validation(chunk, grammar_bcp47, detect_lang_instruction, ec)
-        if lang_decision is None:
-            grammar_obs("worker_chunk_skip", reason="lang_validation_failed", chunk_len=len(chunk))
-            return
-        current_chunk = lang_decision.result_chunk
-
+    """Run the grammar LLM for one chunk of ready items."""
+    current_chunk = _worker_ready_items(chunk, ec.gq, grammar_bcp47, ec.ctx)
     if not current_chunk:
-        grammar_obs(
-            "worker_chunk_skip",
-            reason="empty_result_chunk",
-            chunk_len=len(chunk),
-            target_bcp47=lang_decision.target_bcp47 if lang_decision else grammar_bcp47,
-            requeue_count=len(lang_decision.requeues) if lang_decision else 0,
-        )
+        grammar_obs("worker_chunk_skip", reason="empty_result_chunk", chunk_len=len(chunk))
         return
-
-    current_bcp47 = grammar_bcp47
-    if lang_decision is not None:
-        current_bcp47 = lang_decision.target_bcp47
-        if current_bcp47 != grammar_bcp47:
-            updated_chunk = []
-            for item, text in current_chunk:
-                new_item = _retarget_item_locale(item, text, current_bcp47, grammar_bcp47, ec)
-                if new_item is not None:
-                    updated_chunk.append((new_item, text))
-            current_chunk = updated_chunk
-            if not current_chunk:
-                return
-
-    current_chunk = _worker_ready_items(current_chunk, ec.gq, current_bcp47, ec.ctx)
-    if not current_chunk:
-        return
-
-    orig_bcp = original_bcp47 or (current_chunk[0][0].original_bcp47 if current_chunk else "") or ec.original_bcp47 or grammar_bcp47
-    run_grammar_check(current_chunk, current_bcp47, orig_bcp, ec)
+    orig_bcp = original_bcp47 or current_chunk[0][0].original_bcp47 or ec.original_bcp47 or grammar_bcp47
+    run_grammar_check(current_chunk, grammar_bcp47, orig_bcp, ec)
 
 
 def run_llm_and_cache_batch(
@@ -1202,7 +1138,6 @@ def run_llm_and_cache_batch(
             original_bcp47=original_bcp47,
             grammar_bcp47=grammar_bcp47,
             max_tok=max_tok,
-            detect_lang_instruction="",
             detect_lang_mode=detect_lang_mode,
         )
 
@@ -1223,7 +1158,7 @@ def run_llm_and_cache_batch(
             plain_items = list(valid_items)
 
         for chunk in _chunkify(plain_items):
-            _worker_process_chunk(chunk, ec, grammar_bcp47, False, "", original_bcp47=original_bcp47)
+            _worker_process_chunk(chunk, ec, grammar_bcp47, original_bcp47=original_bcp47)
 
         if detect_items:
             detect_lang_instruction = _detect_lang_instruction(detect_items)
@@ -1250,7 +1185,7 @@ def run_llm_and_cache_batch(
                 if not ready_items:
                     continue
                 for chunk in _chunkify(ready_items):
-                    _worker_process_chunk(chunk, ec, loc, False, "", original_bcp47=grammar_bcp47)
+                    _worker_process_chunk(chunk, ec, loc, original_bcp47=grammar_bcp47)
 
     except Exception as e:
         log.exception("[grammar] worker batch failed")

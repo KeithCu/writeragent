@@ -129,6 +129,20 @@ def test_looks_complete_sentence_matches_proofreader_gating() -> None:
     assert "։" in gl.GRAMMAR_SENTENCE_TERMINATORS
     assert gl.looks_complete_sentence('She said "hello."') is True
     assert gl.last_meaningful_char('She said "hello."') == "."
+    assert gl.looks_complete_sentence("He said hello.\u232a") is True
+    assert "\u232a" in gl.GRAMMAR_TRAILING_CLOSERS
+
+
+def test_trailing_closers_cover_unicode_pe_pf() -> None:
+    """A Unicode Pe/Pf that is skipped by last_meaningful_char must be in the table."""
+    import sys
+    import unicodedata
+
+    missing = sorted(
+        ch for ch in map(chr, range(sys.maxunicode + 1))
+        if unicodedata.category(ch) in ("Pe", "Pf") and ch not in gl.GRAMMAR_TRAILING_CLOSERS
+    )
+    assert missing == []
 
 def test_partial_threshold_counts_nonspace_chars() -> None:
     assert gl.count_nonspace_chars("a b c") == 3
@@ -203,18 +217,20 @@ def test_grammar_batch_sentences_defaults_and_clamping() -> None:
         assert gl.grammar_batch_sentences() == 1
 
 
-def test_grammar_max_tokens_and_chars() -> None:
-    with patch("plugin.framework.config.get_config_int_safe", return_value=0):
-        assert gl.grammar_max_tokens() == gl.GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
-        assert gl.grammar_max_chars() == gl.GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS
+def test_grammar_max_tokens_and_chars_are_fixed() -> None:
+    assert gl.grammar_max_tokens() == gl.GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
+    assert gl.grammar_max_chars() == gl.GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS
 
-    with patch("plugin.framework.config.get_config_int_safe", return_value=4096):
-        assert gl.grammar_max_tokens() == 4096
-        assert gl.grammar_max_chars() == 4096
 
-    with patch("plugin.framework.config.get_config_int_safe", return_value=100_000):
-        assert gl.grammar_max_tokens() == 16384
-        assert gl.grammar_max_chars() == 65536
+def test_clamped_int_config_keys_exist_in_doc_module_yaml() -> None:
+    """Every key read by _clamped_int_config must be a real doc-module config key."""
+    import yaml
+    from pathlib import Path
+
+    doc_yaml = Path(__file__).resolve().parents[3] / "plugin" / "doc" / "module.yaml"
+    config = yaml.safe_load(doc_yaml.read_text(encoding="utf-8"))["config"]
+    for key in ("doc.grammar_proofreader_max_in_flight", "doc.grammar_proofreader_batch_sentences"):
+        assert key.split(".", 1)[1] in config, key
 
 
 def test_normalize_detected_bcp47_registry_and_shorthand() -> None:
@@ -251,6 +267,30 @@ def test_filter_sentence_spans_for_thresholds() -> None:
     assert filtered[0][2] == "Hi."
     assert filtered[1][2] == "This is a much longer sentence."
     assert filtered[2][2] == "This is an incomplete but very long fragment"
+    assert gl.filter_sentence_spans_for_thresholds([(0, 1, "."), (1, 4, "   ")]) == [(0, 1, ".")]
+
+
+def test_split_sentence_chunks_by_separator_regex_whitespace() -> None:
+    assert gl.split_sentence_chunks_by_separator_regex("", gl.GRAMMAR_WHITESPACE_RUN_RE) == []
+    assert gl.split_sentence_chunks_by_separator_regex("   ", gl.GRAMMAR_WHITESPACE_RUN_RE) == []
+    assert gl.split_sentence_chunks_by_separator_regex("ab  cd", gl.GRAMMAR_WHITESPACE_RUN_RE) == [(0, "ab  "), (4, "cd")]
+
+
+@pytest.mark.parametrize(
+    "locale_key, expected",
+    [
+        ("th-TH", True),
+        ("lo-LA", True),
+        ("km-KH", True),
+        ("en-US", False),
+        ("loz-ZM", False),
+        ("kmr-TR", False),
+        ("thai", False),
+        ("", False),
+    ],
+)
+def test_is_whitespace_sentence_locale(locale_key: str, expected: bool) -> None:
+    assert gl.is_whitespace_sentence_locale(locale_key) is expected
 
 
 def test_uno_locales_for_tags() -> None:

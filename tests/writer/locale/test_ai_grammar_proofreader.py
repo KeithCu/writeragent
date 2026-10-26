@@ -1719,11 +1719,24 @@ def test_paragraph_spans_memoized(mock_config_fixture, mock_locale_fixture, mock
         assert mock_split.call_count == 2
 
 
+def test_paragraph_spans_memo_is_one_tuple(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
+    pr = _make_proofreader()
+    text = "This is a paragraph. Second sentence."
+    pr.doProofreading("doc-memo", text, mock_locale_fixture, 0, len(text), ())
+    memo = pr._last_split
+    assert memo is not None
+    assert memo[0] == ("en-US", text)
+    assert isinstance(memo[1], list)
+    pr.doProofreading("doc-memo", text, mock_locale_fixture, 0, len(text), ())
+    assert pr._last_split is memo
+
+
 def test_bind_timeout_backs_off() -> None:
     pr = _make_proofreader()
     with patch("plugin.writer.locale.ai_grammar_proofreader.run_on_main", side_effect=TimeoutError()) as mock_run:
         pr._ensure_document_bound("doc-timeout")
         assert mock_run.call_count == 1
+        assert mock_run.call_args.kwargs["timeout"] == proofreader.BIND_RETRY_SEC
         assert "doc-timeout" in pr._failed_bind_deadlines
 
         # Within 1.5s, does not hop again
@@ -1767,4 +1780,14 @@ def test_llm_cache_hits_use_checked_grammar_text_prefix(mock_config_fixture, moc
         assert len(harper_combined) == 1
         assert harper_combined[0]["rule_identifier"] == "r2"
         assert harper_uncached == []
+
+
+def test_cache_hits_read_max_chars_once_per_batch() -> None:
+    pr = _make_proofreader()
+    with (
+        patch("plugin.writer.locale.ai_grammar_proofreader.cache_get_sentence", return_value=None),
+        patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_chars", return_value=20) as mock_max_chars,
+    ):
+        pr._process_cache_hits("doc", "en-US", [(0, 5, "One."), (5, 10, "Two.")], "llm:model-x")
+        assert mock_max_chars.call_count == 1
 

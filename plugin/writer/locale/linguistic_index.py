@@ -20,6 +20,8 @@ Ported from mcp-libre services/writer/index.py.
 Language detected from UNO CharLocale. Stemming via bundled snowballstemmer.
 """
 
+from collections import OrderedDict
+from functools import lru_cache
 import logging
 import re
 import time
@@ -43,9 +45,11 @@ from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _NOT_RE = re.compile(r"\bNOT\b", re.IGNORECASE)
 _NEAR_RE = re.compile(r"(.+?)\s+NEAR/(\d+)\s+(.+)", re.IGNORECASE)
+_NEAR_COUNT_RE = re.compile(r"NEAR/\d+", re.IGNORECASE)
 _AND_RE = re.compile(r"\bAND\b", re.IGNORECASE)
 _OR_RE = re.compile(r"\bOR\b", re.IGNORECASE)
 _MIN_TOKEN_LEN = 2
+_MAX_CACHED_DOCS = 4
 
 
 def _deaccent(text: str) -> str:
@@ -58,6 +62,42 @@ def _raw_tokens(text: str) -> list[str]:
     return [t for t in cleaned.split() if len(t) >= _MIN_TOKEN_LEN]
 
 
+@lru_cache(maxsize=None)
+def _normalized_stop_words(snowball_lang: str) -> frozenset[str]:
+    """Stop words run through ``_raw_tokens`` so accented and punctuated
+    entries match document tokens. Multi-word entries contribute only
+    fragments that are standalone entries, so ``c'mon`` does not drop ``mon``."""
+    raw = stop_words_for_snowball(snowball_lang)
+    out: set[str] = set()
+    for entry in raw:
+        tokens = _raw_tokens(entry)
+        if len(tokens) == 1:
+            out.add(tokens[0])
+        elif tokens:
+            out.update(t for t in tokens if t in raw)
+    return frozenset(out)
+
+
+def _locale_language(loc: Any) -> str | None:
+    """ISO language of a UNO Locale, lowercased; 'zxx' (no linguistic content) is ignored."""
+    raw = str(getattr(loc, "Language", "") or "").strip().lower()
+    iso = raw.replace("-", "_").split("_")[0]
+    if len(iso) not in (2, 3) or iso == "zxx":
+        return None
+    return iso
+
+
+def _doc_locale_language(doc: Any) -> str | None:
+    for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
+        try:
+            iso = _locale_language(doc.getPropertyValue(prop))
+            if iso is not None:
+                return iso
+        except Exception:  # noqa: S110 - not every document model exposes all three
+            pass
+    return None
+
+
 # ── Per-document index ────────────────────────────────────────────────
 
 
@@ -65,7 +105,17 @@ class _DocIndex:
     para_count: int
     build_ms: float
     language: str
-    __slots__: ClassVar[tuple[str, ...]] = ("terms", "para_texts", "para_count", "build_ms", "language")
+    detected_language: str | None
+    stem_fallback: bool
+    __slots__: ClassVar[tuple[str, ...]] = (
+        "terms",
+        "para_texts",
+        "para_count",
+        "build_ms",
+        "language",
+        "detected_language",
+        "stem_fallback",
+    )
 
     def __init__(self) -> None:
         self.terms: dict[str, set[int]] = {}
@@ -73,6 +123,8 @@ class _DocIndex:
         self.para_count = 0
         self.build_ms = 0.0
         self.language = "english"
+        self.detected_language = None
+        self.stem_fallback = False
 
     def _paragraphs_for(self, stems: list[str]) -> set[int]:
         found: set[int] = set()
@@ -154,7 +206,7 @@ class IndexService(ServiceBase):
         self._doc_svc = services.document
         self._bm_svc = services.writer_bookmarks
         events = services.events
-        self._cache: dict[str, _DocIndex] = {}  # doc_key -> _DocIndex
+        self._cache: OrderedDict[str, tuple[int | None, _DocIndex]] = OrderedDict()  # doc_key -> (CharacterCount, index)
         self._stemmers: dict[str, Any] = {}  # lang -> StemmerInstance
         events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
 
@@ -170,32 +222,37 @@ class IndexService(ServiceBase):
     # ── Stemmer management ────────────────────────────────────────
 
     def _get_stemmer(self, lang: str) -> Any:
-        cached = self._stemmers.get(lang)
-        if cached is not None:
-            return cached
+        if lang in self._stemmers:
+            return self._stemmers[lang]
         try:
             import snowballstemmer  # type: ignore[import-untyped]
 
             s = snowballstemmer.stemmer(lang)
-            self._stemmers[lang] = s
-            return s
         except (ImportError, KeyError):
+            s = self._get_stemmer("english") if lang != "english" else None
             log.warning("No stemmer for '%s', falling back to english", lang)
-            if lang != "english":
-                return self._get_stemmer("english")
-            return None
+        self._stemmers[lang] = s
+        return s
 
-    def _detect_language(self, doc: Any) -> str:
-        text = doc.getText()
-        enum = text.createEnumeration()
-        if not enum.hasMoreElements():
-            return "english"
-        first = enum.nextElement()
-        # Body enumeration yields paragraphs and tables. A table has no CharLocale.
-        if not first.supportsService("com.sun.star.text.Paragraph"):
-            return "english"
-        iso = first.getPropertyValue("CharLocale").Language
-        return _ISO_TO_SNOWBALL.get(iso) or "english"
+    def _detect_language_iso(self, doc: Any) -> str | None:
+        doc_lang = _doc_locale_language(doc)
+        if doc_lang is not None:
+            return doc_lang
+        enum = doc.getText().createEnumeration()
+        while enum.hasMoreElements():
+            el = enum.nextElement()
+            if not el.supportsService("com.sun.star.text.Paragraph"):
+                continue
+            if not get_string_without_tracked_deletions(el).strip():
+                continue
+            try:
+                loc = el.getPropertyValue("CharLocale")
+            except Exception:  # noqa: S112 - missing CharLocale property falls through to next paragraph
+                continue
+            iso = _locale_language(loc)
+            if iso is not None:
+                return iso
+        return None
 
     def _stem(self, stemmer: Any, tokens: list[str], stop_words: frozenset[str]) -> list[str]:
         return [stemmer.stemWord(t) for t in tokens if t not in stop_words]
@@ -205,17 +262,27 @@ class IndexService(ServiceBase):
     def _get_index(self, doc: Any) -> tuple[_DocIndex, bool]:
         """Get or build the inverted index. Returns (index, was_cached)."""
         key = self._doc_svc.doc_key(doc)
+        # A missed XModifyListener, or a mutation inside
+        # DocumentService.ignore_cache_invalidation(), leaves the listener
+        # cache stale; CharacterCount still moves. Same rule as
+        # tree._heading_tree_fingerprint: no count -> listener-only.
+        count = getattr(doc, "CharacterCount", None)
+        fingerprint = int(count) if count is not None else None
         if is_cacheable_doc_key(key):
             cached = self._cache.get(key)
-            if cached is not None:
-                return cached, True
+            if cached is not None and (fingerprint is None or fingerprint == cached[0]):
+                self._cache.move_to_end(key)
+                return cached[1], True
 
         t0 = time.perf_counter()
-        lang = self._detect_language(doc)
+        detected = self._detect_language_iso(doc)
+        lang = (_ISO_TO_SNOWBALL.get(detected) if detected else None) or "english"
         stemmer = self._get_stemmer(lang)
-        stop_words = stop_words_for_snowball(lang)
+        stop_words = _normalized_stop_words(lang)
 
         idx = _DocIndex()
+        idx.detected_language = detected
+        idx.stem_fallback = detected is not None and detected not in _ISO_TO_SNOWBALL
         idx.language = lang
         text_obj = doc.getText()
         enum = text_obj.createEnumeration()
@@ -244,7 +311,9 @@ class IndexService(ServiceBase):
         idx.para_count = para_i
         idx.build_ms = round((time.perf_counter() - t0) * 1000, 1)
         if is_cacheable_doc_key(key):
-            self._cache[key] = idx
+            self._cache[key] = (fingerprint, idx)
+            while len(self._cache) > _MAX_CACHED_DOCS:
+                self._cache.popitem(last=False)
         log.info("Index built [%s]: %d paras, %d stems, %.1fms", lang, para_i, len(idx.terms), idx.build_ms)
         return idx, False
 
@@ -270,7 +339,11 @@ class IndexService(ServiceBase):
             stems, dropped = self._stem_query_tokens(part, stemmer, stop_words)
             result["not_stems"].extend(stems)
             result["dropped_stops"].extend(dropped)
- 
+
+        if len(_NEAR_COUNT_RE.findall(main_part)) > 1:
+            result["error"] = "Only one NEAR/N is supported per query."
+            return result
+
         # NEAR/N
         near_match = _NEAR_RE.search(main_part)
         if near_match:
@@ -349,14 +422,23 @@ class IndexService(ServiceBase):
 
     def search_boolean(self, doc: Any, query: str, max_results: int = 20, context_paragraphs: int = 1) -> dict[str, Any]:
         """Boolean full-text search with Snowball stemming."""
+        if type(max_results) is not int or max_results < 1:
+            raise ValueError("max_results must be a positive integer.")
+        if type(context_paragraphs) is not int or context_paragraphs < 0:
+            raise ValueError("context_paragraphs must be a non-negative integer.")
+
         idx, was_cached = self._get_index(doc)
 
         stemmer = self._get_stemmer(idx.language)
-        stop_words = stop_words_for_snowball(idx.language)
+        stop_words = _normalized_stop_words(idx.language)
         parsed = self._parse_query(query, stemmer, stop_words)
 
-        if parsed["error"]:
-            raise ToolExecutionError(parsed["error"])
+        if parsed["error"] or not (parsed["and_stems"] or parsed["or_stems"] or parsed["near"]):
+            error = parsed["error"] or "No search terms after stop-word filtering"
+            dropped = sorted(set(parsed["dropped_stops"]))
+            if dropped:
+                error += " (stop words dropped: %s)" % ", ".join(dropped)
+            raise ToolExecutionError(error)
 
         mode = parsed["mode"]
         and_stems = parsed["and_stems"]
@@ -382,7 +464,17 @@ class IndexService(ServiceBase):
 
         results = [self._build_result_entry(idx, para_i, context_paragraphs, all_positive, bookmark_map) for para_i in selected]
 
-        resp = {"query": query, "mode": mode, "language": idx.language, "total_found": total, "returned": len(results), "matches": results, "index": _index_counts(idx, was_cached)}
+        resp = {
+            "query": query,
+            "mode": mode,
+            "language": idx.language,
+            "detected_language": idx.detected_language,
+            "stem_fallback": idx.stem_fallback,
+            "total_found": total,
+            "returned": len(results),
+            "matches": results,
+            "index": _index_counts(idx, was_cached),
+        }
         if near:
             resp["near"] = {"left": near[0][0], "right": near[0][1], "distance": near[0][2]}
         if parsed["dropped_stops"]:
@@ -395,7 +487,11 @@ class IndexService(ServiceBase):
 
         top = sorted(idx.terms.items(), key=lambda x: len(x[1]), reverse=True)[:_TOP_STEMS]
 
-        stats: dict[str, Any] = {"language": idx.language}
+        stats: dict[str, Any] = {
+            "language": idx.language,
+            "detected_language": idx.detected_language,
+            "stem_fallback": idx.stem_fallback,
+        }
         stats.update(_index_counts(idx, was_cached))
         stats["top_stems"] = [{"stem": t, "paragraphs": len(s)} for t, s in top]
         return stats

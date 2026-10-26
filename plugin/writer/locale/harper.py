@@ -191,8 +191,9 @@ class HarperLSClient:
                 label="harper-ls",
             )
             managed.start()
+            assert managed.popen is not None
             self.proc = managed.popen
-            self.stdout_thread = threading.Thread(target=self._read_loop, args=(out_queue,), daemon=True)  # nosemgrep: raw-uno-thread-ban
+            self.stdout_thread = threading.Thread(target=self._read_loop, args=(out_queue, managed.popen.stdout), daemon=True)  # nosemgrep: raw-uno-thread-ban
             self.stdout_thread.start()
 
             init_params = dict(_INIT_PARAMS)
@@ -206,15 +207,15 @@ class HarperLSClient:
             log.exception("[harper] Failed to start/initialize harper-ls")
             raise RuntimeError(f"Failed to start/initialize harper-ls: {e}") from e
 
-    def _read_loop(self, out_queue: queue.Queue[dict[str, Any] | None]) -> None:
-        """Read LSP frames into the queue this thread was started with.
+    def _read_loop(self, out_queue: queue.Queue[dict[str, Any] | None], stdout: Any) -> None:
+        """Read LSP frames from the stream this thread was started with.
 
-        Binding the queue here (instead of ``self.stdout_queue`` at ``put``
-        time) keeps a superseded reader from pushing EOF onto the new client.
+        Binding the queue and stream here keeps a superseded reader from
+        pushing EOF onto the new client or consuming frames from the replacement.
         """
         try:
-            while self.proc and self.proc.stdout:
-                msg = json_rpc_framing.read_frame(cast("BinaryIO", self.proc.stdout))
+            while stdout:
+                msg = json_rpc_framing.read_frame(cast("BinaryIO", stdout))
                 if msg is None:
                     break
                 out_queue.put(msg)
@@ -254,19 +255,16 @@ class HarperLSClient:
         self._write(_lsp_response(req_id, [self._lsp_settings]))
 
     def _read_and_handle(self, deadline: float) -> dict[str, Any] | None:
-        msg = self._read(deadline)
-        if not msg:
-            return None
-
-        if "id" in msg and "method" in msg:
-            method = msg["method"]
-            if method == "workspace/configuration":
+        while True:
+            msg = self._read(deadline)
+            if not msg:
+                return None
+            if "id" not in msg or "method" not in msg:
+                return msg
+            if msg["method"] == "workspace/configuration":
                 self._reply_workspace_configuration(msg["id"])
             else:
                 self._write(_lsp_response(msg["id"], None))
-            return self._read_and_handle(deadline)
-
-        return msg
 
     def _send_request(self, method: str, params: dict[str, Any], *, deadline: float) -> dict[str, Any] | None:
         self.request_id += 1
@@ -355,8 +353,7 @@ class HarperLSClient:
         cancel_event: threading.Event | None = None,
     ) -> list[Any]:
         # One lint at a time: venv worker IPC is serialized; grammar uses a single drain thread for Harper.
-        if heartbeat_fn is not None:
-            self._heartbeat_fn = heartbeat_fn
+        self._heartbeat_fn = heartbeat_fn
         if deadline is None:
             deadline = time.monotonic() + _LINT_BUDGET_SEC
         previous_cancel = self._lint_cancel
@@ -455,35 +452,6 @@ def _end_harper_wait() -> None:
 def _harper_wait_snapshot() -> tuple[float | None, str]:
     with _HARPER_WAIT_META:
         return _HARPER_WAIT_STARTED, _HARPER_WAIT_THREAD
-
-
-def _log_harper_wait_reenter() -> None:
-    """One WARN + obs when PE2I / another walk nests during an active Harper wait."""
-    from plugin.writer.locale.grammar_obs import grammar_obs
-
-    started, wait_thread = _harper_wait_snapshot()
-    wait_age_ms = int((time.monotonic() - started) * 1000) if started is not None else 0
-    try:
-        from plugin.writer.locale.grammar_worker import get_grammar_provider
-
-        provider = get_grammar_provider() or "harper"
-    except Exception:
-        provider = "harper"
-    thread_name = threading.current_thread().name
-    log.warning(
-        "[harper] harper_wait_reenter thread=%s wait_thread=%s wait_age_ms=%s provider=%s",
-        thread_name,
-        wait_thread,
-        wait_age_ms,
-        provider,
-    )
-    grammar_obs(
-        "harper_wait_reenter",
-        thread=thread_name,
-        wait_thread=wait_thread,
-        wait_age_ms=wait_age_ms,
-        provider=provider,
-    )
 
 
 def shutdown_harper_runtime() -> None:
@@ -664,6 +632,35 @@ def maybe_start_harper_async(
     return harper_ensure_ready_async(ucd, bcp47=bcp47)
 
 
+_LOCK_WAIT_POLL_SEC = 0.075
+
+
+def _acquire_harper_lock_pumping(ctx: Any, *, timeout: float = _LINT_BUDGET_SEC) -> bool:
+    """Acquire ``_HARPER_LOCK``, pumping UI events while another lint holds it.
+
+    With ``ctx`` each poll tick runs :func:`pump_secondary_idle_tick` (PE2I on the
+    main thread, posted to it from the linguistic worker; ``pump_ui_idle`` is a
+    no-op off main). Without ``ctx`` there is nothing to pump: plain blocking wait.
+    Returns False only if *timeout* elapses (caller must not release then).
+    """
+    if _HARPER_LOCK.acquire(blocking=False):
+        return True
+    if ctx is None:
+        return _HARPER_LOCK.acquire(timeout=timeout)
+    from plugin.framework.vcl_pumping import pump_secondary_idle_tick
+    from plugin.framework.thread_guard import on_main_thread
+
+    pump_on_caller = on_main_thread()
+    deadline = time.monotonic() + timeout
+    while True:
+        pump_secondary_idle_tick(ctx, on_caller=pump_on_caller)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return _HARPER_LOCK.acquire(blocking=False)
+        if _HARPER_LOCK.acquire(timeout=min(_LOCK_WAIT_POLL_SEC, remaining)):
+            return True
+
+
 def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ctx: Any = None) -> dict[str, Any] | None:
     """Lint now if harper-ls is already in-process; else kick one ensure and return None.
 
@@ -675,8 +672,9 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     alive. Writer runs ``doProofreading`` on a linguistic worker (``Dummy-*``),
     not VCL: the helper posts PE2I to the main thread instead of pumping on
     this stack (in-loop PE2I there was a thread-violation dialog). Nested
-    ``doProofreading`` / ``harper_try_lint`` while that wait is active fail
-    soft (``None``) and log ``harper_wait_reenter``. Missing ``ctx`` falls
+    ``doProofreading`` / ``harper_try_lint`` while that wait is active cannot
+    happen (pumping runs on main; ``doProofreading`` on the linguistic
+    thread) and is asserted against. Missing ``ctx`` falls
     back to a blocking wait (no pump). Grammar-queue ``run_harper_check``
     does not pass ``ctx``: that thread is already a worker and paints status
     via ``_pump_grammar_status_ui``.
@@ -686,14 +684,18 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     if not user_config_dir:
         log.error("[harper] lint skipped: empty user config dir")
         return None
-    # Fail soft before ``_HARPER_LOCK``: PE2I can re-enter this function on
-    # the linguistic thread; waiting on a lock the parent still needs deadlocks.
-    if _harper_wait_snapshot()[0] is not None:
-        _log_harper_wait_reenter()
-        return None
+    # Pumping runs on main and doProofreading on the linguistic thread, so a
+    # nested call during an active wait would be a bug (and would deadlock on
+    # ``_HARPER_LOCK``).
+    assert _harper_wait_snapshot()[0] is None, "harper_try_lint re-entered during pumped wait"
     none_reason = "not_ready"
     client: HarperLSClient | None = None
-    with _HARPER_LOCK:
+    # Block (pumping UI events) rather than skip: every sentence must be checked,
+    # and a queue-path lint normally releases the lock within a few ms.
+    if not _acquire_harper_lock_pumping(ctx):
+        grammar_obs("harper_try_lint_none", reason="lock_timeout", ensure_submitted=False)
+        return None
+    try:
         client = _alive_client()
         if client is not None:
             _set_state(HarperRuntimeState.READY)
@@ -703,15 +705,16 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
             none_reason = "dead_client"
         else:
             none_reason = f"state_{_HARPER_STATE.value}"
+    finally:
+        _HARPER_LOCK.release()
     if client is None:
         submitted = harper_ensure_ready_async(user_config_dir, bcp47)
-        if none_reason in ("lint_exception", "dead_client"):
+        if none_reason == "dead_client":
             return None
         grammar_obs("harper_try_lint_none", reason=none_reason, ensure_submitted=submitted)
         return None
-    if not _try_begin_harper_wait():
-        _log_harper_wait_reenter()
-        return None
+    began_wait = _try_begin_harper_wait()
+    assert began_wait, "harper_try_lint re-entered during pumped wait"
     try:
         return _lint_ready_client(client, text, bcp47=bcp47, ctx=ctx)
     except Exception:

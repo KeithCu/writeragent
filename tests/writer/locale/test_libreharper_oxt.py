@@ -160,28 +160,24 @@ def test_harper_proofreader_skips_warmup_without_config_dir() -> None:
         reset_package_extension_id_for_tests()
 
 
-def test_unrecognized_english_locale_is_logged() -> None:
-    from unittest.mock import patch
-
-    from plugin.writer.locale import harper_proofreader as hp
-
-    hp._HARPER_LOCALE_MISS_LOGGED.clear()
-    unrecognized = SimpleNamespace(Language="en-NZ", Country="", Variant="")
-    with patch.object(hp.log, "warning") as mock_warn:
-        assert hp.normalize_harper_locale_to_bcp47(unrecognized) is None
-        assert hp.normalize_harper_locale_to_bcp47(unrecognized) is None
-    assert mock_warn.call_count == 1
-    assert "unrecognized English" in mock_warn.call_args[0][0]
-
-    supported = SimpleNamespace(Language="en", Country="GB", Variant="")
-    with patch.object(hp.log, "warning") as mock_warn_ok:
-        assert hp.normalize_harper_locale_to_bcp47(supported) == "en-GB"
-    mock_warn_ok.assert_not_called()
-
-    german = SimpleNamespace(Language="de", Country="DE", Variant="")
-    with patch.object(hp.log, "warning") as mock_warn_de:
-        assert hp.normalize_harper_locale_to_bcp47(german) is None
-    mock_warn_de.assert_not_called()
+def test_harper_locale_normalization_matrix() -> None:
+    matrix = (
+        ("en", "", "en-US"),
+        ("en", "US", "en-US"),
+        ("en", "GB", "en-GB"),
+        ("en", "UK", "en-GB"),
+        ("en", "NZ", "en-US"),
+        ("en", "AU", "en-AU"),
+        ("en-NZ", "", "en-US"),
+        ("en_GB", "", "en-GB"),
+        ("en-GB", "GB", "en-GB"),
+        ("en-Latn-US", "", "en-US"),
+        ("de", "DE", None),
+    )
+    for lang, country, expected in matrix:
+        locale = SimpleNamespace(Language=lang, Country=country, Variant="")
+        assert normalize_harper_locale_to_bcp47(locale) == expected
+    assert normalize_harper_locale_to_bcp47(None) is None
 
 
 def test_locale_construction_failure_registers_degraded_and_retries() -> None:

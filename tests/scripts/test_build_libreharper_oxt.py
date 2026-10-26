@@ -121,7 +121,7 @@ def test_linguistic_libreharper_grammar_xcu_locales_match_tags() -> None:
     assert locales_prop is not None
     val_el = next(c for c in locales_prop if _local_tag(c) == "value")
     values = [x.strip() for x in (val_el.text or "").split() if x.strip()]
-    assert set(values) == set(HARPER_LOCALE_TAGS)
+    assert values == list(HARPER_LOCALE_TAGS)
 
 
 def test_libreharper_manifest_registers_harper_proofreader_only() -> None:
