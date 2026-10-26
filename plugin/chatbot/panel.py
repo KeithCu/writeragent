@@ -199,7 +199,7 @@ def query_enter_triggers_primary_send(key_code: int, modifiers: int) -> bool:
     return bool(key_code == _QUERY_KEY_RETURN and (modifiers & _QUERY_KEY_MODIFIER_SHIFT) == 0)
 
 
-_DOC_CHAT_ENTER_SENDS = "doc.chat_enter_key_sends_message"
+_CHAT_ENTER_SENDS = "chatbot.chat_enter_key_sends_message"
 
 
 class QueryKeyListener(BaseKeyListener):
@@ -235,7 +235,7 @@ class QueryKeyListener(BaseKeyListener):
             return
         from plugin.framework.config import get_config_bool
 
-        if not get_config_bool(_DOC_CHAT_ENTER_SENDS):
+        if not get_config_bool(_CHAT_ENTER_SENDS):
             return
         sc = self.send_listener.send_control
         if not sc or not sc.getModel():
