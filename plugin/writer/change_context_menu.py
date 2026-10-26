@@ -174,9 +174,9 @@ def _unregister_model(model: Any) -> None:
 
     for controller, interceptor in removed:
         try:
-            controller.removeContextMenuInterceptor(interceptor)
+            controller.releaseContextMenuInterceptor(interceptor)
         except Exception:
-            log.debug("change_context_menu: removeContextMenuInterceptor failed", exc_info=True)
+            log.debug("change_context_menu: releaseContextMenuInterceptor failed", exc_info=True)
 
 
 def _register_controller(controller: Any) -> None:
