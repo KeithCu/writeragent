@@ -36,9 +36,25 @@ def session_token_prefix(session_id: str) -> str:
     return "%s%s:" % (TOKEN_PREFIX, session_id)
 
 
+def normalize_redline_comment(comment: Any) -> str | None:
+    """Comment text with the trailing newline LibreOffice adds on ODF load removed.
+
+    The token is saved as ``<text:p>wa-review:..</text:p>``; on reopen LibreOffice reads it
+    back as ``"wa-review:..\n"``, which the exact token regex rejected, so a saved and
+    reopened document had no agent changes (no click popup, no review toolbar).
+    """
+    if comment is None:
+        return None
+    return str(comment).rstrip("\r\n")
+
+
 def is_agent_token(comment: str | None) -> bool:
-    """True only for an exact ``wa-review:<session>:<n>`` token (no whitespace, no extra colons, numeric ``<n>``)."""
-    return bool(comment) and _TOKEN_RE.match(str(comment)) is not None
+    """True only for an exact ``wa-review:<session>:<n>`` token (no whitespace, no extra colons, numeric ``<n>``).
+
+    A trailing newline from ODF load is ignored (see ``normalize_redline_comment``).
+    """
+    norm = normalize_redline_comment(comment)
+    return bool(norm) and _TOKEN_RE.match(norm) is not None
 
 
 def read_redline_comment(redline: Any) -> tuple[str | None, bool]:
@@ -49,7 +65,7 @@ def read_redline_comment(redline: Any) -> tuple[str | None, bool]:
         return None, False
     if raw is None:
         return None, True
-    return str(raw), True
+    return normalize_redline_comment(raw), True
 
 
 def redline_is_agent_change(redline: Any) -> tuple[bool, bool]:
