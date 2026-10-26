@@ -1348,13 +1348,11 @@ class UpsertChart(ToolBaseDummy):
             try:
                 parse_address(bare_pos)
                 cell_obj = sheet.getCellRangeByName(bare_pos)
-                cell_pos = cell_obj.getPosition()
-                cell_size = cell_obj.getSize()
+                # Calc cells expose Position/Size properties, not getPosition()/getSize().
+                # Keep the default rect size: one cell's Size would make a tiny chart.
+                cell_pos = cell_obj.Position
                 rect.X = cell_pos.X
                 rect.Y = cell_pos.Y
-                if cell_size.Width > 0 and cell_size.Height > 0:
-                    rect.Width = cell_size.Width
-                    rect.Height = cell_size.Height
             except Exception as exc:
                 if is_real_disposal(exc):
                     raise
