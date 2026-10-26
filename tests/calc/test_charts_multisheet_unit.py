@@ -1012,9 +1012,10 @@ def test_calc_create_bad_position_does_not_call_add_new_by_name():
 def test_calc_create_valid_position_sets_rect_and_creates():
     tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
     sheet = bridge.get_active_sheet()
-    cell_obj = MagicMock()
-    cell_obj.getPosition.return_value = MagicMock(X=2500, Y=3500)
-    cell_obj.getSize.return_value = MagicMock(Width=5000, Height=2000)
+    cell_obj = SimpleNamespace(
+        Position=SimpleNamespace(X=2500, Y=3500),
+        Size=SimpleNamespace(Width=5000, Height=2000),
+    )
     sheet.getCellRangeByName.return_value = cell_obj
 
     rect = MagicMock(Width=12000, Height=8000, X=1000, Y=1000)
@@ -1029,8 +1030,8 @@ def test_calc_create_valid_position_sets_rect_and_creates():
     assert res["status"] == "ok"
     assert rect.X == 2500
     assert rect.Y == 3500
-    assert rect.Width == 5000
-    assert rect.Height == 2000
+    assert rect.Width == 12000
+    assert rect.Height == 8000
     charts.addNewByName.assert_called_once()
 
 
