@@ -40,7 +40,7 @@ from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
 from plugin.framework.queue_executor import QueueExecutor
-from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error
+from plugin.framework.errors import resolve_exception_message, format_error_payload, make_tool_error
 import plugin.mcp.document_mutation_gate as document_mutation_gate
 import plugin.mcp.mcp_session as mcp_session
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
@@ -438,6 +438,7 @@ class MCPProtocolHandler:
         except (BrokenPipeError, ConnectionResetError, OSError):
             if disconnect_log:
                 log.info("[SSE] GET stream disconnected")
+        finally:
             if reserved:
                 forget_sse_keepalive(tcp_server, sock)
 
@@ -637,8 +638,6 @@ class MCPProtocolHandler:
                 result = {"error": "Unknown action: %s" % action}
             self._send_json(handler, 200, {"ok": True, "result": result})
         except Exception as e:
-            from plugin.framework.errors import format_error_payload
-
             log.exception("Debug %s error", action)
             self._send_json(handler, 500, format_error_payload(e))
 
@@ -997,9 +996,6 @@ class MCPProtocolHandler:
         except TimeoutError as e:
             log.exception("MCP %s timeout", method)
             return (504, wire_types.jsonrpc_failure(req_id, wire_types.EXECUTION_TIMEOUT, str(e)))
-        except WriterAgentException as e:
-            log.exception("MCP %s error", method)
-            return (500, wire_types.jsonrpc_failure(req_id, wire_types.INTERNAL_ERROR, e.message, data=format_error_payload(e)))
         except Exception as e:
             log.exception("MCP %s error", method)
             return (500, wire_types.jsonrpc_failure(req_id, wire_types.INTERNAL_ERROR, str(e), data=format_error_payload(e)))
@@ -1150,7 +1146,6 @@ class MCPProtocolHandler:
                 return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": ("No document open in LibreOffice. Ask the user to open or create a document; list_open_documents works in this state to check what is open.")}
 
         from plugin.doc.doc_type import uno_services_for_document
-        from plugin.framework.tool import ToolContext
         from plugin.framework.uno_context import get_ctx
 
         ctx = get_ctx()

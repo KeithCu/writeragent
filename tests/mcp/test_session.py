@@ -70,6 +70,19 @@ def test_stale_session_id_without_initialize_is_404(mcp_server):
     assert "initialize" in body["error"]["message"].lower()
 
 
+def test_stale_session_404_omits_live_session_id(mcp_server):
+    with _post_mcp(mcp_server, _initialize_payload(2)) as live:
+        live_id = live.headers.get("Mcp-Session-Id")
+        live.read()
+    assert live_id
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        _post_mcp(mcp_server, {"jsonrpc": "2.0", "id": 3, "method": "tools/list"}, session_id="deadbeef")
+    err = exc_info.value
+    assert err.code == 404
+    assert err.headers.get("Mcp-Session-Id") is None
+    assert err.headers.get("Mcp-Protocol-Version") == MCP_PROTOCOL_VERSION
+
+
 def test_initialize_with_stale_id_returns_200_and_session_header(mcp_server):
     with _post_mcp(mcp_server, _initialize_payload(), session_id="deadbeef") as response:
         assert response.status == 200
@@ -123,6 +136,8 @@ def test_stale_session_id_on_get_sse_is_404(mcp_server):
     with pytest.raises(urllib.error.HTTPError) as exc_info:
         urllib.request.urlopen(req, timeout=5)
     assert exc_info.value.code == 404
+    assert exc_info.value.headers.get("Mcp-Session-Id") is None
+    assert exc_info.value.headers.get("Mcp-Protocol-Version") == MCP_PROTOCOL_VERSION
 
 
 def test_stale_batch_is_404_without_processing(mcp_server):

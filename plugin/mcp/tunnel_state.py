@@ -29,6 +29,8 @@ DEFAULT_INITIAL_BACKOFF: float = 1.0
 DEFAULT_BACKOFF_FACTOR: float = 2.0
 DEFAULT_MAX_RETRIES: int = 5
 DEFAULT_MAX_BACKOFF: float = 30.0
+# A connection up this long counts as healthy: its drop starts a fresh retry budget.
+STABLE_CONNECTION_SECONDS: float = 120.0
 
 
 # ── States ────────────────────────────────────────────────────────────
@@ -47,7 +49,7 @@ class TunnelState(BaseState):
     status: TunnelStatus = TunnelStatus.STOPPED
     port: int = 18765
     provider: str = "cloudflare"
-    provider_token: str = ""
+    provider_token: str = dataclasses.field(default="", repr=False)
     public_url: Optional[str] = None
     retry_count: int = 0
     max_retries: int = DEFAULT_MAX_RETRIES
@@ -56,6 +58,7 @@ class TunnelState(BaseState):
     max_backoff: float = DEFAULT_MAX_BACKOFF
     last_error: Optional[str] = None
     desired_running: bool = False
+    connected_at: Optional[float] = None  # monotonic time of URL_ACQUIRED
 
 
 # ── Events ────────────────────────────────────────────────────────────
@@ -142,6 +145,14 @@ def compute_backoff_delay(retry_count: int, initial: float = DEFAULT_INITIAL_BAC
     return min(delay, float(max_backoff))
 
 
+def _event_float(data: dict[str, Any], key: str) -> Optional[float]:
+    """Optional float from event data; missing or non-numeric gives None."""
+    raw = data.get(key)
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    return float(raw)
+
+
 def _event_int(data: dict[str, Any], key: str, fallback: int) -> int:
     # crosshair: off
     """Parse an optional int from event data; empty / invalid strings keep *fallback*.
@@ -168,7 +179,7 @@ def _event_int(data: dict[str, Any], key: str, fallback: int) -> int:
 
 
 @deal.ensure(lambda state, event, result: event.kind != TunnelEventKind.STOP_REQUESTED or (result.state.status == TunnelStatus.STOPPED and not result.state.desired_running and any(isinstance(e, CancelRetryTimerEffect) for e in result.effects)))
-@deal.ensure(lambda state, event, result: event.kind != TunnelEventKind.URL_ACQUIRED or (result.state.status == TunnelStatus.CONNECTED and result.state.retry_count == 0 and any(isinstance(e, NotifyUrlAcquiredEffect) for e in result.effects)))
+@deal.ensure(lambda state, event, result: event.kind != TunnelEventKind.URL_ACQUIRED or (result.state.status == TunnelStatus.CONNECTED and result.state.retry_count == state.retry_count and any(isinstance(e, NotifyUrlAcquiredEffect) for e in result.effects)))
 @deal.ensure(lambda state, event, result: event.kind != TunnelEventKind.PROCESS_EXITED or result.state.status != TunnelStatus.RECONNECTING or (result.state.desired_running and any(isinstance(e, ScheduleRetryTimerEffect) for e in result.effects)))
 def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelState]:
     """Pure transition function for the MCP tunnel lifecycle and reconnection."""
@@ -190,19 +201,24 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
         effects.append(TerminateProcessEffect(provider=state.provider, port=state.port))
 
         effects.append(StartProcessEffect(port=port, provider=provider, provider_token=provider_token))
-        new_state = dataclasses.replace(state, status=TunnelStatus.STARTING, port=port, provider=provider, provider_token=provider_token, public_url=None, retry_count=0, max_retries=max_retries, last_error=None, desired_running=True)
+        new_state = dataclasses.replace(state, status=TunnelStatus.STARTING, port=port, provider=provider, provider_token=provider_token, public_url=None, retry_count=0, max_retries=max_retries, last_error=None, desired_running=True, connected_at=None)
         return FsmTransition(new_state, effects)
 
     elif event.kind == TunnelEventKind.URL_ACQUIRED:
         url = str(event.data.get("url", "")).strip()
         effects.append(NotifyUrlAcquiredEffect(provider=state.provider, url=url))
-        new_state = dataclasses.replace(state, status=TunnelStatus.CONNECTED, public_url=url, retry_count=0, last_error=None)
+        # Keep retry_count: a tunnel that connects then exits at once must still run out of retries.
+        new_state = dataclasses.replace(state, status=TunnelStatus.CONNECTED, public_url=url, last_error=None, connected_at=_event_float(event.data, "now"))
         return FsmTransition(new_state, effects)
 
     elif event.kind == TunnelEventKind.PROCESS_EXITED:
         rc = event.data.get("rc", 0)
         auth_error = event.data.get("auth_error")
         had_url = state.public_url is not None
+        now = _event_float(event.data, "now")
+        if state.connected_at is not None and now is not None and now - state.connected_at >= STABLE_CONNECTION_SECONDS:
+            state = dataclasses.replace(state, retry_count=0)
+        state = dataclasses.replace(state, connected_at=None)
 
         # If user stopped the tunnel, ignore unexpected exit handling
         if not state.desired_running:
@@ -250,7 +266,7 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
     elif event.kind == TunnelEventKind.STOP_REQUESTED:
         effects.append(CancelRetryTimerEffect())
         effects.append(TerminateProcessEffect(provider=state.provider, port=state.port))
-        new_state = dataclasses.replace(state, status=TunnelStatus.STOPPED, public_url=None, retry_count=0, last_error=None, desired_running=False)
+        new_state = dataclasses.replace(state, status=TunnelStatus.STOPPED, public_url=None, retry_count=0, last_error=None, desired_running=False, connected_at=None)
         return FsmTransition(new_state, effects)
 
     return FsmTransition(state, effects)

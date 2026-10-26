@@ -17,7 +17,7 @@
 
 One session id for the whole soffice process, shared by every MCP client.
 Minted on first successful initialize; never rotated; never cleared on DELETE.
-Stale session ids return HTTP 404.
+Stale session ids return HTTP 404, which never repeats the live id.
 """
 
 from __future__ import annotations
@@ -84,17 +84,19 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:
     Spec clients re-initialize on 404, not 409 or silent success. No header is
     allowed (CLI / first contact). A single ``initialize`` is always allowed —
     that is recovery after restart. A stale header on a batch 404s the whole
-    request so we never process some items.
+    request so we never process some items. The 404 says the client's session is
+    gone, so it sends Mcp-Protocol-Version and CORS but not Mcp-Session-Id.
     """
     incoming = _get_request_session_id(handler)
+    current = _mcp_session_id
     if incoming is None:
         return False
     if isinstance(msg, dict) and msg.get("method") == "initialize":
         return False
-    if incoming == _mcp_session_id:
+    if incoming == current:
         return False
     req_id = msg.get("id") if isinstance(msg, dict) else None
-    log.info("[MCP] stale session id %r (current=%r) — 404", incoming, _mcp_session_id)
+    log.info("[MCP] stale session id %r (current=%r) — 404", incoming, current)
     # Drain unread body and send Connection: close so the kernel does
     # not emit TCP RST on close, which manifests as Errno 104 on the client.
     if msg is None and not getattr(handler, "_body_read", False):
@@ -110,7 +112,7 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:
     handler.close_connection = True
 
     def _headers(h: Any) -> None:
-        _send_mcp_response_headers(h, session_id=_mcp_session_id)
+        _send_mcp_response_headers(h)
         h.send_header("Connection", "close")
 
     write_http_json(
@@ -119,10 +121,4 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:
         wire_types.jsonrpc_failure(req_id, wire_types.INVALID_REQUEST, _SESSION_EXPIRED_MSG),
         extra_headers=_headers,
     )
-    flush = getattr(handler.wfile, "flush", None)
-    if callable(flush):
-        try:
-            flush()
-        except OSError:
-            pass
     return True

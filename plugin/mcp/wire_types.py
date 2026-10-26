@@ -23,13 +23,12 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, cast
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, _profile, ascii_bounded, str_bounded, deal
 
 # Aligned with upstream python-sdk LATEST_PROTOCOL_VERSION.
 MCP_PROTOCOL_VERSION = "2025-11-25"
 
 # Standard JSON-RPC error codes (JSON-RPC 2.0 + MCP extensions).
-PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
@@ -37,7 +36,6 @@ INTERNAL_ERROR = -32603
 SERVER_BUSY = -32000
 EXECUTION_TIMEOUT = -32001
 
-ProgressToken = str | int
 RequestId = int | str | None
 
 
@@ -47,7 +45,7 @@ class ParsedJsonRpcRequest:
 
     method: str
     params: dict[str, Any]
-    req_id: RequestId
+    req_id: int | str
     raw: dict[str, Any]
 
 
@@ -59,21 +57,32 @@ class JsonRpcParseError:
     code: int = INVALID_REQUEST
 
 
-def _deal_jsonrpc_msg_ok_pytest(msg: object) -> bool:
-    # A client message with extra keys or a non-ASCII key is still JSON-RPC.
-    # The old cap raised PreContractError instead of JsonRpcParseError.
-    # The body returns that parse error. CrossHair keeps the short dict.
-    # ``msg`` is unused.
-    return True
-
-
 def _deal_jsonrpc_msg_ok_crosshair(msg: object) -> bool:
     return not isinstance(msg, dict) or (
         len(msg) <= DEAL_MAX_CMD_ARGS and all(type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) for k in msg)
     )
 
 
-_deal_jsonrpc_msg_ok = _deal_jsonrpc_msg_ok_crosshair if UNDER_CROSSHAIR else _deal_jsonrpc_msg_ok_pytest
+_deal_jsonrpc_msg_ok = _profile(_deal_jsonrpc_msg_ok_crosshair)
+
+
+def _jsonrpc_parts(msg: object) -> tuple[str, dict[str, Any], Any] | None:
+    # Validate common JSON-RPC 2.0 structure for requests and notifications.
+    # The old notification check accepted methodless/non-string-method messages as 202.
+    if not isinstance(msg, dict):
+        return None
+    raw = cast("dict[str, Any]", msg)
+    if raw.get("jsonrpc") != "2.0":
+        return None
+    method = raw.get("method")
+    if not isinstance(method, str) or not method:
+        return None
+    params = raw.get("params", {})
+    if params is None:
+        params = {}
+    if not isinstance(params, dict):
+        return None
+    return (method, dict(params), raw.get("id"))
 
 
 @deal.pre(lambda msg: _deal_jsonrpc_msg_ok(msg))
@@ -82,31 +91,20 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseErr
     """Parse and validate a single JSON-RPC request object.
 
     Notifications (missing ``id`` or ``id`` is null) are not requests — callers should
-    treat ``req_id is None`` before calling this, or check ``"id" not in msg``.
+    treat ``req_id is None`` before calling this; a notification is a valid message with
+    a missing or null id, and is_jsonrpc_notification uses the same validation.
     """
     # crosshair: off
     # Do not sniff sys.modules["crosshair"] (deal_shim): if that module is
     # loaded, the old branch returned JsonRpcParseError("mock") for every
     # valid request.
-    if not isinstance(msg, dict):
+    parts = _jsonrpc_parts(msg)
+    if parts is None:
         return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
-    raw = cast("dict[str, Any]", msg)
-    if raw.get("jsonrpc") != "2.0":
+    method, params, req_id = parts
+    if req_id is None or isinstance(req_id, bool) or not isinstance(req_id, (str, int)):
         return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
-    method = raw.get("method")
-    if not isinstance(method, str) or not method:
-        return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
-    if "id" not in raw or raw.get("id") is None:
-        return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
-    req_id = raw.get("id")
-    if not isinstance(req_id, (str, int)) or isinstance(req_id, bool):
-        return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
-    params = raw.get("params", {})
-    if params is None:
-        params = {}
-    if not isinstance(params, dict):
-        return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
-    return ParsedJsonRpcRequest(method=method, params=dict(params), req_id=raw.get("id"), raw=raw)
+    return ParsedJsonRpcRequest(method=method, params=params, req_id=req_id, raw=cast("dict[str, Any]", msg))
 
 
 @deal.post(lambda result: isinstance(result, bool))
@@ -114,12 +112,8 @@ def is_jsonrpc_notification(msg: object) -> bool:
     """True when *msg* is a JSON-RPC notification (no response expected)."""
     # CrossHair TypeError on typing.Literal['a','b','rc'] (FV §8.1 D).
     # crosshair: off
-    if not isinstance(msg, dict):
-        return False
-    raw = cast("dict[str, Any]", msg)
-    if raw.get("jsonrpc") != "2.0":
-        return False
-    return "id" not in raw or raw.get("id") is None
+    parts = _jsonrpc_parts(msg)
+    return parts is not None and parts[2] is None
 
 
 @deal.pre(lambda req_id, result: isinstance(result, dict) and len(result) <= DEAL_MAX_CMD_ARGS)
@@ -138,9 +132,7 @@ def _deal_jsonrpc_failure_ok_crosshair(message: object, code: object) -> bool:
     return str_bounded(message, DEAL_MAX_SOURCE) and isinstance(code, int)
 
 
-_deal_jsonrpc_failure_ok = (
-    _deal_jsonrpc_failure_ok_crosshair if UNDER_CROSSHAIR else _deal_jsonrpc_failure_ok_pytest
-)
+_deal_jsonrpc_failure_ok = _profile(_deal_jsonrpc_failure_ok_crosshair, _deal_jsonrpc_failure_ok_pytest)
 
 
 @deal.pre(lambda req_id, code, message, data=None: _deal_jsonrpc_failure_ok(message, code))
@@ -154,7 +146,7 @@ def jsonrpc_failure(req_id: RequestId, code: int, message: str, data: Any | None
 
 @dataclasses.dataclass
 class InitializeResult:
-    protocol_version: str | int
+    protocol_version: str
     capabilities: dict[str, Any]
     server_info: dict[str, Any]
     instructions: str | None = None
@@ -166,21 +158,11 @@ class InitializeResult:
         return out
 
 
-def _deal_initialize_client_version_ok_pytest(client_protocol_version: object) -> bool:
-    # initialize params.protocolVersion is client input. A long or odd
-    # string used to raise PreContractError (DEAL_MAX_TOKEN). The body
-    # copies it into the result. CrossHair keeps the short token.
-    # ``client_protocol_version`` is unused.
-    return True
-
-
 def _deal_initialize_client_version_ok_crosshair(client_protocol_version: object) -> bool:
     return client_protocol_version is None or not isinstance(client_protocol_version, str) or str_bounded(client_protocol_version, DEAL_MAX_TOKEN)
 
 
-_deal_initialize_client_version_ok = (
-    _deal_initialize_client_version_ok_crosshair if UNDER_CROSSHAIR else _deal_initialize_client_version_ok_pytest
-)
+_deal_initialize_client_version_ok = _profile(_deal_initialize_client_version_ok_crosshair)
 
 
 @deal.pre(
@@ -192,7 +174,7 @@ _deal_initialize_client_version_ok = (
     )
 )
 @deal.post(lambda result: isinstance(result, dict) and "protocolVersion" in result and "capabilities" in result)
-def initialize_result(*, protocol_version: str | int, server_version: str, instructions: str, client_protocol_version: str | int | None = None) -> dict[str, Any]:
+def initialize_result(*, protocol_version: str, server_version: str, instructions: str, client_protocol_version: str | None = None) -> dict[str, Any]:
     negotiated = client_protocol_version if client_protocol_version is not None else protocol_version
     return InitializeResult(protocol_version=negotiated, capabilities={"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}}, server_info={"name": "WriterAgent MCP", "version": server_version}, instructions=instructions).to_dict()
 
@@ -229,14 +211,6 @@ _DEAL_CALL_KEY_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 _DEAL_CALL_VAL_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 
 
-def _deal_call_tool_params_ok_pytest(params: object) -> bool:
-    # tools/call arguments are arbitrary JSON: numbers, lists, long text,
-    # extra fields. The old pre raised PreContractError before the body
-    # could raise ValueError for a missing name. CrossHair keeps the
-    # closed name/args domain. ``params`` is unused.
-    return True
-
-
 def _deal_call_tool_params_ok_crosshair(params: object) -> bool:
     if type(params) is not dict:
         return False
@@ -263,9 +237,7 @@ def _deal_call_tool_params_ok_crosshair(params: object) -> bool:
     return True
 
 
-_deal_call_tool_params_ok = (
-    _deal_call_tool_params_ok_crosshair if UNDER_CROSSHAIR else _deal_call_tool_params_ok_pytest
-)
+_deal_call_tool_params_ok = _profile(_deal_call_tool_params_ok_crosshair)
 
 
 @deal.pre(lambda params: _deal_call_tool_params_ok(params))
@@ -299,7 +271,7 @@ def _deal_image_b64_ok_crosshair(data_b64: object, mime_type: object = "image/pn
     return str_bounded(data_b64, DEAL_MAX_SOURCE) and ascii_bounded(mime_type, DEAL_MAX_TOKEN, min_len=1)
 
 
-_deal_image_b64_ok = _deal_image_b64_ok_crosshair if UNDER_CROSSHAIR else _deal_image_b64_ok_pytest
+_deal_image_b64_ok = _profile(_deal_image_b64_ok_crosshair, _deal_image_b64_ok_pytest)
 
 
 @deal.pre(lambda data_b64, mime_type="image/png", is_error=False: _deal_image_b64_ok(data_b64, mime_type))
@@ -314,24 +286,3 @@ def call_tool_result_image(data_b64: str, mime_type: str = "image/png", *, is_er
         out["isError"] = True
     return out
 
-
-@dataclasses.dataclass(frozen=True)
-class ProgressNotificationParams:
-    progress_token: ProgressToken
-    progress: float
-    total: float | None = None
-    message: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"progressToken": self.progress_token, "progress": self.progress}
-        if self.total is not None:
-            out["total"] = self.total
-        if self.message is not None:
-            out["message"] = self.message
-        return out
-
-
-def progress_notification(*, progress_token: ProgressToken, progress: float, total: float | None = None, message: str | None = None) -> dict[str, Any]:
-    """Build a notifications/progress JSON-RPC notification (for future SSE streaming)."""
-    params = ProgressNotificationParams(progress_token=progress_token, progress=progress, total=total, message=message)
-    return {"jsonrpc": "2.0", "method": "notifications/progress", "params": params.to_dict()}

@@ -128,7 +128,8 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
     chunked is HTTP 400 and is not read, including when Content-Length is
     missing, zero, or set. Negative Content-Length stays 400. A length above
     :data:`MCP_HTTP_MAX_BODY_BYTES` is 413 and is not read. A socket timeout
-    while reading a body that is under the cap is 408. An empty body with no
+    (``TimeoutError``, or pre-3.10 ``socket.timeout``) while reading a body
+    under the cap is 408. An empty body with no
     chunked coding is still ``{}`` and does not touch ``rfile``.
     """
     from plugin.framework.errors import AgentParsingError
@@ -178,7 +179,8 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
     try:
         raw_bytes = handler.rfile.read(content_length)
         setattr(handler, "_body_read", True)
-    except TimeoutError:
+    # Before Python 3.10 socket.timeout is a distinct class (same rule as http_server.handle_error).
+    except (TimeoutError, socket.timeout):
         log.warning("Timed out reading HTTP body (%s bytes declared)", content_length)
         err = AgentParsingError("Timed out reading HTTP body", details={"length": content_length})
         return None, (408, err)
@@ -408,6 +410,11 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                 result = route.handler(body, self.headers, query)
                 status, data = cast("tuple[int, Any]", result)
                 self._send_json(status, data)
+        except ConnectionError:
+            # Peer went away (RST/EPIPE) during the body read or a write.
+            # That is a closed request, not a server bug: no 500, no traceback.
+            self.close_connection = True
+            log.info("%s %s: client disconnected", method, path)
         except Exception as e:
             log.exception("%s %s failed", method, path)
             if not self._response_started:
