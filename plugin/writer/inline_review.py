@@ -137,7 +137,7 @@ def scan_redline_view(model: Any, *, preview: bool = False) -> RedlineView:
 
     def on_item(rl: Any) -> bool:
         comment_raw = rl.getPropertyValue("RedlineComment")
-        comment_str = str(comment_raw) if comment_raw is not None else None
+        comment_str = _review_scan.normalize_redline_comment(comment_raw)
         token = comment_str if (comment_str and _review_scan.is_agent_token(comment_str)) else None
         start = rl.getPropertyValue("RedlineStart")
         end = rl.getPropertyValue("RedlineEnd")

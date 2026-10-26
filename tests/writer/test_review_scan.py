@@ -8,6 +8,7 @@ from plugin.writer.review_scan import (
     TOKEN_PREFIX,
     document_has_tracked_deletions,
     is_agent_token,
+    read_redline_comment,
     make_agent_token,
     redline_is_agent_change,
     scan_redlines,
@@ -32,6 +33,21 @@ def test_is_agent_token():
     assert is_agent_token("user note") is False
     assert is_agent_token("") is False
     assert is_agent_token(None) is False
+
+
+def test_is_agent_token_accepts_odf_reload_trailing_newline():
+    # LibreOffice reads <text:p>token</text:p> back with a trailing newline on reopen.
+    assert is_agent_token("wa-review:s:0\n") is True
+    assert is_agent_token("wa-review:s:0\r\n") is True
+    assert is_agent_token("\n") is False
+    assert is_agent_token("wa-review:s:0 \n") is False
+
+
+def test_read_redline_comment_strips_odf_reload_newline():
+    from types import SimpleNamespace
+
+    rl = SimpleNamespace(getPropertyValue=lambda name: "wa-review:s:3\n")
+    assert read_redline_comment(rl) == ("wa-review:s:3", True)
 
 
 def test_redline_is_agent_change_unreadable():
