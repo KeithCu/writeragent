@@ -434,7 +434,7 @@ def test_settings_explicit_tooltip_overrides_helper(tmp_path: Path) -> None:
 # module YAML; the fallback in manifest_registry is unchanged.
 _LONG_CHECKBOXES = (
     ("audio", "tts_enabled", 220),
-    ("doc", "chat_enter_key_sends_message", 300),
+    ("chatbot", "chat_enter_key_sends_message", 200),
     ("calc", "ods_cache_enabled", 220),
     ("chatbot", "rich_text_control_sidebar", 200),
     ("chatbot", "humanizer_enabled", 240),
@@ -456,6 +456,18 @@ def test_long_checkbox_captions_are_wider_than_the_default(tmp_path: Path) -> No
         assert int(ctrl["left"]) + int(ctrl["width"]) <= dlg_width
     # The known-good Speech checkbox is untouched.
     assert attrs["audio__tts_sentence_mode"]["width"] == "168"
+
+
+def test_enter_sends_message_shares_row_right_of_rich_text(tmp_path: Path) -> None:
+    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
+    attrs = _control_attrs(xdl_path)
+    rich = attrs["chatbot__rich_text_control_sidebar"]
+    enter = attrs["chatbot__chat_enter_key_sends_message"]
+    assert enter["top"] == rich["top"]
+    assert int(enter["left"]) >= int(rich["left"]) + int(rich["width"])
+    assert int(enter["left"]) + int(enter["width"]) <= 440
+    assert int(attrs["chatbot__humanizer_enabled"]["top"]) > int(enter["top"])
+    assert "doc__chat_enter_key_sends_message" not in attrs
 
 
 def test_settings_cancel_sits_beside_ok_and_does_not_take_default(tmp_path: Path) -> None:

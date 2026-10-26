@@ -115,6 +115,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `deep_research_quality_threshold` | `int` | `7` | `1`–`10` | Internal. Stop when LLM coverage score reaches this value (1-10, internal). |
 | `deep_research_sub_agent_steps` | `int` | `0` | `0`–`50` | Internal. Max ReAct steps per sub-query (0 = 150% of chatbot.max_tool_rounds, internal). |
 | `rich_text_control_sidebar` | `boolean` | `true` |  | Formatted chat via RichTextControl. Requires restart. |
+| `chat_enter_key_sends_message` | `boolean` | `true` |  | When on, Enter in the sidebar query runs the same action as Send; Shift+Enter inserts a newline. When off, Enter inserts a newline. |
 | `librarian_invoked` | `boolean` | `false` |  | Internal |
 | `humanizer_enabled` | `boolean` | `false` |  | When enabled, injects guidance into the system prompt so the model makes generated or revised document text sound more natural and human (removes AI slop patterns). Edit the rules in your LibreOffice profile under writeragent/skills/humanizer/SKILL.md (the file is auto-created on first use). A dedicated Skills tab can be added later. |
 | `audio_silence_stop_ms` | `int` | `3000` | `0`–`15000` | Pause after you stop talking, then auto-stop and send (Record). 0 = wait until you click Stop Rec. |
@@ -130,7 +131,6 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `grammar_proofreader_batch_sentences` | `int` | `1` | `1`–`8` | Number of sentences to send per LLM request (1-8). 1 (default) is most reliable; higher values are faster and cheaper but may hit token limits or cause model errors. |
 | `grammar_proofreader_max_in_flight` | `int` | `1` | `1`–`8` | Max simultaneous background grammar API calls (1-8). 1 matches prior behavior. Raise for OpenRouter or other providers that allow parallel requests; use with care alongside sidebar chat. |
 | `grammar_proofreader_detect_language` | `string` | `"off"` |  | Verify each complete sentence's language against the document locale. AI uses your grammar/chat API; Local uses langdetect in your Python venv (Settings → Python; no API call). Mismatches update CharLocale and re-check grammar. Options: off (Off), llm (AI (LLM)), langdetect (Local (langdetect)) |
-| `chat_enter_key_sends_message` | `boolean` | `true` |  | When on, Enter in the sidebar query runs the same action as Send; Shift+Enter inserts a newline. When off, Enter inserts a newline. |
 | `agent_edit_review_mode` | `string` | `"off"` |  | Off = direct edits. Record = tracked changes you accept/reject yourself. Wait = apply_document_content blocks (on chat/MCP worker thread) until you review. Options: off (Off), record (Record (track changes)), wait (Wait for review) |
 | `edit_review_timeout` | `int` | `900` | ≥ `0` | Internal. Only used when mode is Wait. Max time apply_document_content blocks before returning with pending changes. |
 

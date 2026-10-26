@@ -244,9 +244,20 @@ config:
     default: true
     widget: checkbox
     label: Rich Text Control Sidebar
+    inline: true
     # Default checkbox width is 120 and clips this caption.
     width: 200
     helper: "Formatted chat via RichTextControl. Requires restart."
+
+  chat_enter_key_sends_message:
+    type: boolean
+    default: true
+    widget: checkbox
+    label: Enter sends message
+    # Same row as rich_text_control_sidebar (inline above), to its right.
+    x: 220
+    width: 200
+    helper: "When on, Enter in the sidebar query runs the same action as Send; Shift+Enter inserts a newline. When off, Enter inserts a newline."
     
   librarian_invoked:
     type: boolean
