@@ -29,7 +29,7 @@ import threading
 from types import SimpleNamespace
 from typing import Any, Iterator
 
-from plugin.framework.errors import uno_probe
+from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.uno_listeners import BaseModifyListener
 
 log = logging.getLogger(__name__)
@@ -112,12 +112,21 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
     return None
 
 
+# Bugfix: What was wrong: posted pass outlives the doc; empty sheet name became "Sheet1".
+# How it happened: unguarded UNO getURL()/getName() calls, and `or "Sheet1"` fallback on empty names.
+# Why this change fixes it: best_effort returns "" on failure/disposal, and run_sheet_modify_pass aborts when name is empty.
 def _doc_url_of(doc: Any) -> str:
-    return str(getattr(doc, "getURL", lambda: "")() or "")
+    """URL, or "" when the document is gone. A posted pass can outlive it."""
+    if doc is None:
+        return ""
+    return str(best_effort(lambda: doc.getURL(), "sheet_modify: getURL failed", "") or "")
 
 
 def _sheet_name_of(sheet: Any) -> str:
-    return str(sheet.getName() or "") or "Sheet1"
+    """Sheet name, or "" when the read fails. Never invent a default name."""
+    if sheet is None:
+        return ""
+    return str(best_effort(lambda: sheet.getName(), "sheet_modify: getName failed", "") or "")
 
 
 def _lookup_sheet(doc: Any, sheet_name: str) -> Any | None:
@@ -334,6 +343,9 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
         return
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
+    if not name:
+        log.debug("run_sheet_modify_pass: unreadable sheet name; skipping (%s)", url or "?")
+        return
     with sheet_modify_scope():
         from plugin.calc.python.function import CalcSpillModifyListener, _spill_registry_doc_key
 

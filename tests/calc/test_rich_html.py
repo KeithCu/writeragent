@@ -14,6 +14,12 @@ import pytest
 from plugin.framework.errors import ToolExecutionError
 
 
+@pytest.fixture(autouse=True)
+def _reset_keeper(monkeypatch):
+    from plugin.calc import rich_html as rh
+    monkeypatch.setattr(rh, "_keeper_loaded", False)
+
+
 def _cell_and_docs():
     """Minimal Calc + hidden Writer mocks for ``insert_cell_html_rich``."""
     cell = MagicMock()
@@ -31,6 +37,12 @@ def _cell_and_docs():
     temp_doc = MagicMock()
     temp_doc.getText.return_value = body
     temp_doc.getCurrentController.return_value = writer_ctrl
+    temp_doc.getTextTables.return_value.getElementNames.return_value = ()
+    temp_doc.getTextTables.return_value.getCount.return_value = 0
+    temp_doc.getTextFrames.return_value.getElementNames.return_value = ()
+    temp_doc.getTextFrames.return_value.getCount.return_value = 0
+    temp_doc.getDrawPage.return_value.getCount.return_value = 0
+    body.getString.return_value = ""
 
     desktop = MagicMock()
     desktop.loadComponentFromURL.return_value = temp_doc
@@ -50,9 +62,10 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
 
     order: list[str] = []
 
-    def _record_clear(doc: object) -> None:
+    def _record_clear(doc: object) -> bool:
         order.append("clear")
         assert doc is temp_doc
+        return True
 
     with (
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
@@ -93,20 +106,15 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     if is_release_build():
         return
     for step in (
-        "loadComponentFromURL",
-        "HTML insert",
-        "getTransferable",
+        "load hidden Writer",
+        "clear hidden Writer",
+        "insert HTML into hidden Writer",
+        "get transferable",
         "select cell",
-        "insertTransferable",
-        "clipboard release",
+        "insert transferable",
+        "release clipboard",
     ):
-        assert f"insert_cell_html_rich: {step} start" in caplog.text
-        assert f"insert_cell_html_rich: {step} done" in caplog.text
-    assert "target=_wa_calc_html" in caplog.text
-    assert "reused_existing=" in caplog.text
-    assert "close_temp=" in caplog.text
-    assert "close skipped pasted=True" in caplog.text
-    assert "xfer_id=" in caplog.text
+        assert f"insert_cell_html_rich: {step}" in caplog.text
 
 
 def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
@@ -129,57 +137,23 @@ def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
         mock_fmt.create_property_value.return_value = object()
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "Plain <b>BoldBit</b> tail")
     err = capsys.readouterr().err
-    assert "insert_cell_html_rich: loadComponentFromURL start target=_wa_calc_html" in err
-    assert "insert_cell_html_rich: writers_open=" in err
-    assert "insert_cell_html_rich: loadComponentFromURL done" in err
-    assert "reused_existing=" in err
-    assert "insert_cell_html_rich: insertTransferable start" in err
-    assert "insert_cell_html_rich: clipboard release start" in err
-    assert "insert_cell_html_rich: clipboard release done" in err
-    assert "insert_cell_html_rich: close skipped pasted=True" in err
-    assert "insert_cell_html_rich: close done" not in err
+    assert "insert_cell_html_rich: load hidden Writer" in err
+    assert "insert_cell_html_rich: insert transferable" in err
+    assert "insert_cell_html_rich: release clipboard" in err
+    assert "insert_cell_html_rich: close hidden Writer" not in err
 
 
-def test_desktop_writer_uids_stops_on_mock_enumeration():
-    """MagicMock.hasMoreElements() is truthy; must not spin."""
-    from plugin.calc.rich_html import _desktop_writer_uids
-
-    assert _desktop_writer_uids(MagicMock()) == []
-
-
-def test_desktop_writer_uids_records_writer_runtime_uid():
-    from plugin.calc.rich_html import _desktop_writer_uids
-
-    writer = MagicMock()
-    writer.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextDocument"
-    writer.RuntimeUID = "keeper-1"
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, False]
-    enum.nextElement.return_value = writer
-    desktop = MagicMock()
-    desktop.getComponents.return_value.createEnumeration.return_value = enum
-    assert _desktop_writer_uids(desktop) == ["keeper-1"]
-
-
-def test_insert_cell_html_rich_skips_close_when_uid_matches_open_writer():
-    """If the load handed back the keeper, closing it would kill the UNO bridge."""
+def test_insert_cell_html_rich_error_names_the_last_step():
     from plugin.calc.rich_html import insert_cell_html_rich
 
-    calc_doc, cell, desktop, temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
-    temp_doc.RuntimeUID = "keeper-1"
-    writer = MagicMock()
-    writer.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextDocument"
-    writer.RuntimeUID = "keeper-1"
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, False]
-    enum.nextElement.return_value = writer
-    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    calc_doc, cell, desktop, _temp_doc, _calc_ctrl, writer_ctrl = _cell_and_docs()
+    writer_ctrl.getTransferable.side_effect = RuntimeError("no transferable")
 
     with (
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.format_support") as mock_fmt,
-        patch("plugin.calc.rich_html.clear_writer_body") as mock_clear,
+        pytest.raises(ToolExecutionError, match="get transferable"),
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_active_sheet.return_value = MagicMock()
@@ -187,8 +161,57 @@ def test_insert_cell_html_rich_skips_close_when_uid_matches_open_writer():
         mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.create_property_value.return_value = object()
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
-    mock_clear.assert_called_once_with(temp_doc)
-    temp_doc.close.assert_not_called()
+
+
+def test_failure_after_a_paste_keeps_the_keeper():
+    """A failure after a live paste must keep the reused keeper open."""
+    from plugin.calc.rich_html import insert_cell_html_rich
+
+    calc_doc, cell, desktop, temp_doc, _calc_ctrl, writer_ctrl = _cell_and_docs()
+
+    with (
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+    ):
+        mock_bridge = mock_bridge_cls.return_value
+        mock_bridge.get_active_sheet.return_value = MagicMock()
+        mock_bridge.get_cell.return_value = cell
+        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.create_property_value.return_value = object()
+
+        insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
+        assert desktop.loadComponentFromURL.call_count == 1
+        temp_doc.close.assert_not_called()
+
+        writer_ctrl.getTransferable.side_effect = RuntimeError("no transferable")
+        with pytest.raises(ToolExecutionError):
+            insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
+
+        assert desktop.loadComponentFromURL.call_count == 2
+        temp_doc.close.assert_not_called()
+
+
+def test_insert_cell_html_rich_raises_when_hidden_writer_stays_dirty():
+    from plugin.calc.rich_html import insert_cell_html_rich
+
+    calc_doc, cell, desktop, temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
+
+    with (
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.clear_writer_body", return_value=False),
+        pytest.raises(ToolExecutionError, match="Could not clear the hidden Writer"),
+    ):
+        mock_bridge = mock_bridge_cls.return_value
+        mock_bridge.get_active_sheet.return_value = MagicMock()
+        mock_bridge.get_cell.return_value = cell
+        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.create_property_value.return_value = object()
+        insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
+
+    temp_doc.close.assert_called_once_with(True)
 
 
 def test_insert_cell_html_rich_empty_html_raises():
@@ -217,40 +240,6 @@ def test_release_clipboard_if_holds_only_when_ours():
     clip.getContents.return_value = object()
     assert _release_clipboard_if_holds(ctx, xfer).startswith("not_ours")
     clip.setContents.assert_not_called()
-
-
-def test_insert_cell_html_rich_enumerates_desktop_only_before_load():
-    """Product must not call _desktop_writer_uids after closing a post-paste Writer.
-
-    GHA 33772063173: writers_after_close returned in ~10ms, then teardown
-    getComponents ~450ms later hung forever on Windows. Enumeration after close
-    is unsafe; success path should only count writers before loadComponentFromURL.
-    """
-    from plugin.calc import rich_html as rh
-
-    calc_doc, cell, desktop, temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
-    enum_calls: list[str] = []
-    real_enum = rh._desktop_writer_uids
-
-    def _counting_enum(desk):
-        enum_calls.append("enum")
-        return real_enum(desk)
-
-    with (
-        patch.object(rh, "_desktop_writer_uids", side_effect=_counting_enum),
-        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
-        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
-        patch("plugin.calc.rich_html.format_support") as mock_fmt,
-    ):
-        mock_bridge = mock_bridge_cls.return_value
-        mock_bridge.get_active_sheet.return_value = MagicMock()
-        mock_bridge.get_cell.return_value = cell
-        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
-        mock_fmt.create_property_value.return_value = object()
-        rh.insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
-
-    assert enum_calls == ["enum"]
-    temp_doc.close.assert_not_called()
 
 
 def test_insert_cell_html_rich_releases_clipboard_and_keeps_writer():

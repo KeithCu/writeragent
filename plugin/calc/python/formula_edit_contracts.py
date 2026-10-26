@@ -2,6 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
+# pyright: reportUnusedFunction=false
 """Formal verification domains and contract predicates for formula_edit."""
 
 from __future__ import annotations
@@ -54,19 +55,8 @@ def _parts_result_ok(result: Any) -> bool:
     data_suffix = getattr(result, "data_suffix", None)
     return (
         isinstance(prefix, str)
-        and bool(prefix)
+        and prefix.endswith("(")
         and isinstance(code, str)
         and isinstance(data_suffix, str)
         and data_suffix.endswith(")")
     )
-
-
-__all__ = [
-    "_DEAL_SHEET_TOKEN",
-    "_DEAL_UNQUOTED_CODE",
-    "_RANGE_ADDR_CHARS",
-    "_deal_data_args_ok",
-    "_deal_range_addr_ok",
-    "_parts_result_ok",
-    "_quoted_parse_result_ok",
-]

@@ -57,6 +57,9 @@ from plugin.calc.datetime_wire import (
         ("123", None),
         ("", None),
         ("2026-02-30", "date"),  # shape ok; Calc rejects later
+        ("\u0662\u0660\u0662\u0666-08-08", None),  # Arabic-Indic year digits
+        ("2026-08-0\u0668", None),  # Arabic-Indic day digit
+        ("08:0\u0663", None),  # Arabic-Indic minute digit
     ],
 )
 def test_match_iso_temporal_gate(text, expected):
@@ -70,8 +73,14 @@ def test_match_iso_temporal_gate(text, expected):
         ("[H]:MM", True),
         ("[MM]:SS", True),
         ("[TT]:MM:SS", True),
+        ("[RED][HH]:MM", True),
+        ("[UU]:MM", True),
+        ("[HHH]:MM", True),
         ("HH:MM:SS", False),
         ("YYYY-MM-DD", False),
+        ("HH:MM:SS;[RED]-HH:MM:SS", False),
+        ("[NatNum1]HH:MM", False),
+        ("[ROT]-HH:MM", False),
         ("", False),
         (None, False),
         (4, False),
@@ -144,6 +153,10 @@ def test_is_compatible_temporal_template(input_cat, template, format_code, compa
         ("PT0S", True),
         ("PT1H30M5S", True),
         ("PT30H0M0S", True),
+        ("PT999999H", True),
+        ("PT1000000H", False),
+        ("PT" + "9" * 400 + "H", False),
+        ("PT\u0663\u0660H", False),  # Arabic-Indic digits
         ("P1D", False),
         ("PT30H0.5S", False),
         ("-PT1H", False),
@@ -155,6 +168,10 @@ def test_is_compatible_temporal_template(input_cat, template, format_code, compa
 )
 def test_match_iso_duration_gate(text, ok):
     assert match_iso_duration(text) is ok
+
+
+def test_duration_digit_cap_bounds_serial():
+    assert abs(duration_serial_from_iso("PT999999H") - 999999 / 24) < 1e-9
 
 
 def test_duration_serial_iso_round_trip():

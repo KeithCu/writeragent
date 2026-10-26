@@ -22,7 +22,6 @@ sheets, cells, and ranges. Ported from core/calc_bridge.py for the
 plugin framework.
 """
 
-import logging
 from typing import Any, NamedTuple
 
 from plugin.framework.errors import UnoObjectError, uno_read
@@ -35,8 +34,6 @@ from plugin.calc.address_utils import (
     split_sheet_prefix,
 )
 from plugin.doc.doc_type import is_calc
-
-log = logging.getLogger("writeragent.calc")
 
 
 def is_agent_visible_sheet(name: str) -> bool:
@@ -61,47 +58,59 @@ class NamedRangeHit(NamedTuple):
     named_range: Any
 
 
+def _named_range_hit(container: Any, name: str, scope: str, sheet: Any | None) -> NamedRangeHit | None:
+    """Return the hit when *container* has a NamedRanges entry called *name*."""
+    nrs = getattr(container, "NamedRanges", None)
+    if nrs is None or not hasattr(nrs, "hasByName") or not nrs.hasByName(name):
+        return None
+    return NamedRangeHit(nrs, scope, sheet, nrs.getByName(name))
+
+
 def find_named_range(doc: Any, name: str) -> NamedRangeHit | None:
     """Resolve a Calc named range in documented priority order.
 
     Order:
-    1. If sheet-prefixed (e.g. ``Sheet1.Name`` or ``'Sheet1'!Name``) and the
-       prefix matches an existing sheet, look only in that sheet's NamedRanges.
+    1. Sheet-prefixed (e.g. ``Sheet1.Name`` or ``'Sheet1'!Name``): if prefix
+       matches an existing sheet, look only in that sheet's NamedRanges.
     2. Active sheet local NamedRanges.
     3. Workbook global NamedRanges.
-    4. Other visible sheets (in sheet index order; skips active and ``_``-prefixed sheets).
+    4. Other agent-visible (leading ``_`` skipped) sheets in index order.
     """
     clean_name = name.strip()
     if not clean_name:
         return None
 
     prefix, bare_name = split_sheet_prefix(clean_name)
-    if prefix:
-        sheets = uno_read(lambda: doc.getSheets() if hasattr(doc, "getSheets") else None, None)
-        if sheets is not None and hasattr(sheets, "hasByName") and sheets.hasByName(prefix):
-            target_sheet = sheets.getByName(prefix)
-            nrs = getattr(target_sheet, "NamedRanges", None)
-            if nrs is not None and hasattr(nrs, "hasByName") and nrs.hasByName(bare_name):
-                return NamedRangeHit(nrs, prefix, target_sheet, nrs.getByName(bare_name))
-            return None
+    if ":" in bare_name:
+        return None
 
-    # 1. Active sheet
+    sheets = uno_read(lambda: doc.getSheets() if hasattr(doc, "getSheets") else None, None)
+
+    # 1. Sheet prefix
+    if prefix and sheets is not None and hasattr(sheets, "hasByName") and sheets.hasByName(prefix):
+        target_sheet = sheets.getByName(prefix)
+        return _named_range_hit(target_sheet, bare_name, prefix, target_sheet)
+
+    # 2. Active sheet
     active_sheet = uno_read(lambda: CalcBridge(doc).get_active_sheet(), None)
     if active_sheet is not None:
-        nrs = getattr(active_sheet, "NamedRanges", None)
-        if nrs is not None and hasattr(nrs, "hasByName") and nrs.hasByName(clean_name):
-            scope = active_sheet.getName() if hasattr(active_sheet, "getName") else ""
-            return NamedRangeHit(nrs, scope, active_sheet, nrs.getByName(clean_name))
+        scope = active_sheet.getName() if hasattr(active_sheet, "getName") else ""
+        hit = _named_range_hit(active_sheet, clean_name, scope, active_sheet)
+        if hit is not None:
+            return hit
 
-    # 2. Workbook global
-    global_nrs = getattr(doc, "NamedRanges", None)
-    if global_nrs is not None and hasattr(global_nrs, "hasByName") and global_nrs.hasByName(clean_name):
-        return NamedRangeHit(global_nrs, "global", None, global_nrs.getByName(clean_name))
+    # 3. Workbook global
+    hit = _named_range_hit(doc, clean_name, "global", None)
+    if hit is not None:
+        return hit
 
-    # 3. Other visible sheets in index order
-    sheets = uno_read(lambda: doc.getSheets() if hasattr(doc, "getSheets") else None, None)
+    # 4. Other agent-visible sheets in index order
     if sheets is not None and hasattr(sheets, "getCount"):
-        active_name = active_sheet.getName() if (active_sheet is not None and hasattr(active_sheet, "getName")) else None
+        active_name = (
+            active_sheet.getName()
+            if (active_sheet is not None and hasattr(active_sheet, "getName"))
+            else None
+        )
         for idx in range(sheets.getCount()):
             sheet = sheets.getByIndex(idx)
             s_name = sheet.getName() if hasattr(sheet, "getName") else ""
@@ -109,9 +118,9 @@ def find_named_range(doc: Any, name: str) -> NamedRangeHit | None:
                 continue
             if not is_agent_visible_sheet(s_name):
                 continue
-            nrs = getattr(sheet, "NamedRanges", None)
-            if nrs is not None and hasattr(nrs, "hasByName") and nrs.hasByName(clean_name):
-                return NamedRangeHit(nrs, s_name, sheet, nrs.getByName(clean_name))
+            hit = _named_range_hit(sheet, clean_name, s_name, sheet)
+            if hit is not None:
+                return hit
 
     return None
 
@@ -131,10 +140,10 @@ class CalcBridge:
         *getActiveSheet* (e.g. headless mode).
 
         Raises:
-            RuntimeError: Document is not a spreadsheet or no sheet found.
+            UnoObjectError: Document is not a spreadsheet, or no sheet was found.
         """
         if not hasattr(self.doc, "getSheets"):
-            raise RuntimeError("Active document is not a spreadsheet.")
+            raise UnoObjectError("Active document is not a spreadsheet.")
 
         controller = self.doc.getCurrentController()
         if hasattr(controller, "getActiveSheet"):
@@ -144,7 +153,7 @@ class CalcBridge:
             sheet = sheets.getByIndex(0)
 
         if sheet is None:
-            raise RuntimeError("No active sheet found.")
+            raise UnoObjectError("No active sheet found.")
         return sheet
 
     def get_sheet(self, name: str) -> Any:

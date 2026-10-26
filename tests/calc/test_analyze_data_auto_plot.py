@@ -11,7 +11,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.analysis import AnalyzeDataTool
-from plugin.calc.viz_auto_plot import build_viz_request, should_auto_plot, task_hint_implies_plot
+from plugin.calc.viz_auto_plot import (
+    apply_auto_plot_result,
+    build_viz_request,
+    should_auto_plot,
+    task_hint_implies_plot,
+)
+from plugin.framework.errors import DocumentDisposedError
 
 
 @pytest.fixture
@@ -128,3 +134,31 @@ def test_analyze_data_auto_plot_does_not_marshal_viz_read(
     assert result["status"] == "ok"
     assert result.get("image_inserted") is True
     mock_auto_plot.assert_called_once()
+
+
+def _disposed():
+    class DisposedException(Exception):
+        pass
+
+    return DisposedException("Binary URP bridge disposed during call")
+
+
+def test_apply_auto_plot_result_reraises_disposed():
+    with (
+        patch(
+            "plugin.framework.queue_executor.execute_on_main_thread",
+            side_effect=_disposed(),
+        ),
+        pytest.raises(DocumentDisposedError),
+    ):
+        apply_auto_plot_result({"status": "ok"}, {"status": "ok"}, lambda pr: None)
+
+
+def test_apply_auto_plot_result_records_ordinary_insert_error():
+    with patch(
+        "plugin.framework.queue_executor.execute_on_main_thread",
+        side_effect=RuntimeError("no draw page"),
+    ):
+        out = apply_auto_plot_result({"status": "ok"}, {"status": "ok"}, lambda pr: None)
+    assert out["plot_error"] == "no draw page"
+    assert "image_inserted" not in out

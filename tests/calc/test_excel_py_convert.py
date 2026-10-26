@@ -42,6 +42,7 @@ from plugin.calc.excel_py_convert.to_dag import (
     _OBJECT_SUPPRESS,
     _prefer_excel_dep_token,
     _skip_string,
+    convert_cell_to_dag,
     convert_model_to_dag,
     rewrite_excel_code,
 )
@@ -282,13 +283,21 @@ def test_rewrite_non_ascii_prefix_offsets():
 
 def test_rewrite_ignores_attribute_xl_calls():
     """``obj.xl(...)`` is not the Excel data-bridge builtin — leave it alone."""
-    src = "x = obj.xl(%P2%)\ny = xl(%P2%)\n"
+    src = "x = obj.xl(existing)\ny = xl(%P2%)\n"
     res = rewrite_excel_code(src, num_deps=1)
-    # Bare ``%Pn%`` is normalized to ``_Pn_`` for AST; attribute call is not rewritten.
-    assert "obj.xl(_P2_)" in res.code or "obj.xl(%P2%)" in res.code
+    assert "obj.xl(existing)" in res.code
     assert 'y = xl("%P2%")' in res.code
     assert res.used == ["0"]
     assert not any("dynamic" in i for i in res.issues)
+
+
+def test_rewrite_attribute_xl_with_placeholder_is_fatal():
+    """``obj.xl(%P2%)`` has placeholder outside xl(); fatal and returns source unchanged."""
+    src = "x = obj.xl(%P2%)"
+    res = rewrite_excel_code(src, num_deps=1)
+    assert res.fatal is True
+    assert res.code == src
+    assert any("outside xl()" in i for i in res.issues)
 
 
 def test_rewrite_keeps_xl_statement_under_if():
@@ -387,8 +396,17 @@ def test_resolve_table_and_anchor():
     )
     t = resolve_dep("Table1[#All]", model)
     assert t.a1 == "Data!A3:F23" and t.kind == "table_snapshot"
+    assert resolve_dep("TABLE1[#All]", model).a1 == "Data!A3:F23"
     a = resolve_dep("_xlfn.ANCHORARRAY(A6)", model)
     assert a.a1 == "A6:B20" and a.kind == "anchor_snapshot"
+
+
+def test_resolve_quoted_sheet_name_with_apostrophe():
+    model = ExcelWorkbookModel()
+    r = resolve_dep("'O''Brien'!A1", model)
+    assert r.kind == "range" and r.a1 == "'O''Brien'!A1"
+    assert resolve_dep("'O''Brien'!A1:B2", model).a1 == "'O''Brien'!A1:B2"
+    assert resolve_dep("''!A1", model).kind == "unresolved"
 
 
 def test_resolve_whole_column_and_row():
@@ -999,6 +1017,100 @@ def test_parse_and_convert_synthetic_workbook_with_table(tmp_path: Path):
     assert by_cell["H4"].data_args[0].endswith("A6:B10") or "A6:B10" in by_cell["H4"].data_args[0]
 
 
+def test_parse_ooxml_malformed_xml_parts_recorded_in_issues(tmp_path: Path):
+    content_types = """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/tables/table1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>
+  <Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>
+</Types>"""
+    wb_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Data" sheetId="1" r:id="rId1"/>
+    <sheet name="Pivots" sheetId="2" r:id="rId2"/>
+  </sheets>
+</workbook>"""
+    wb_rels = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+</Relationships>"""
+    sheet1 = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetData/>
+  <tableParts count="1"><tablePart r:id="rId1"/></tableParts>
+</worksheet>"""
+    sheet1_rels = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/>
+</Relationships>"""
+    sheet2 = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1"><c r="C1"><f>_xlfn._xlws.PY(0,1,tradeData[#All])</f></c></row>
+  </sheetData>
+</worksheet>"""
+    table = """<?xml version="1.0" encoding="UTF-8"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="tradeData" displayName="tradeData" ref="A1:AA10"/>"""
+    scripts = """<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript><code>df = xl(%P2%, headers=True)</code></pythonScript>
+</pythonScripts>"""
+
+    # (a) replace xl/worksheets/sheet2.xml with malformed XML: sheet1's table still parses
+    path_corrupt_sheet = tmp_path / "corrupt_sheet2.xlsx"
+    with zipfile.ZipFile(path_corrupt_sheet, "w") as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", """<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>""")
+        zf.writestr("xl/workbook.xml", wb_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet1)
+        zf.writestr("xl/worksheets/_rels/sheet1.xml.rels", sheet1_rels)
+        zf.writestr("xl/worksheets/sheet2.xml", b"<worksheet")
+        zf.writestr("xl/tables/table1.xml", table)
+        zf.writestr("xl/pythonScripts.xml", scripts)
+
+    model1 = load_excel_model(path_corrupt_sheet)
+    assert model1.tables.get("tradeData") == "Data!A1:AA10"
+    assert any("worksheets/sheet2.xml:" in iss for iss in model1.issues)
+
+    # (b) malformed scripts_xml yields model.scripts == [] plus xl/pythonScripts.xml: issue
+    path_corrupt_scripts = tmp_path / "corrupt_scripts.xlsx"
+    path_corrupt_scripts.write_bytes(_minimal_xlsx_bytes(
+        sheet_xml="""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>""",
+        workbook_xml=wb_xml,
+        rels_xml=wb_rels,
+        scripts_xml="<pythonScripts",
+    ))
+    model2 = load_excel_model(path_corrupt_scripts)
+    assert model2.scripts == []
+    assert any("xl/pythonScripts.xml:" in iss for iss in model2.issues)
+
+    # (c) corrupt xl/tables/table1.xml: issue names table part, tables is empty
+    path_corrupt_table = tmp_path / "corrupt_table.xlsx"
+    with zipfile.ZipFile(path_corrupt_table, "w") as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", """<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>""")
+        zf.writestr("xl/workbook.xml", wb_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet1)
+        zf.writestr("xl/worksheets/_rels/sheet1.xml.rels", sheet1_rels)
+        zf.writestr("xl/worksheets/sheet2.xml", sheet2)
+        zf.writestr("xl/tables/table1.xml", b"<table")
+        zf.writestr("xl/pythonScripts.xml", scripts)
+
+    model3 = load_excel_model(path_corrupt_table)
+    assert model3.tables == {}
+    assert any("xl/tables/table1.xml:" in iss for iss in model3.issues)
+
+
 @pytest.mark.slow
 def test_libreoffice_import_smoke(tmp_path: Path):
     """When soffice is available, a converted synthetic XLSX must open without crash."""
@@ -1123,25 +1235,14 @@ def test_cli_excel_write_xlsx(tmp_path: Path):
     assert has_excel_python_xlsx(out)
 
 
-def test_single_line_package_files_survive_strip(tmp_path: Path):
-    """Single-line [Content_Types].xml and .rels from Excel/LO must survive _strip_python_in_excel_parts."""
+def test_single_line_rels_survive_strip():
+    """Single-line .rels from Excel/LO must survive _strip_rels_python."""
     from xml.etree import ElementTree as ET
-    from plugin.calc.excel_py_convert.xlsx_write import _strip_python_in_excel_parts
+    from plugin.calc.excel_py_convert.xlsx_write import _strip_rels_python
 
-    ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
     rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
 
-    # Minified single-line content types and rels as emitted by Excel / LibreOffice
-    single_line_ct = (
-        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        f'<Types xmlns="{ct_ns}">'
-        f'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-        f'<Default Extension="xml" ContentType="application/xml"/>'
-        f'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-        f'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-        f'<Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>'
-        f'</Types>'
-    )
+    # Minified single-line rels as emitted by Excel / LibreOffice
     single_line_rels = (
         f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f'<Relationships xmlns="{rel_ns}">'
@@ -1150,43 +1251,15 @@ def test_single_line_package_files_survive_strip(tmp_path: Path):
         f'</Relationships>'
     )
 
-    xlsx = tmp_path / "single_line_strip.xlsx"
-    with zipfile.ZipFile(xlsx, "w") as zf:
-        zf.writestr("[Content_Types].xml", single_line_ct)
-        zf.writestr("xl/_rels/workbook.xml.rels", single_line_rels)
-        zf.writestr("xl/pythonScripts.xml", "<pythonScripts/>")
-        zf.writestr("xl/worksheets/sheet1.xml", "<worksheet/>")
-        zf.writestr("xl/workbook.xml", "<workbook/>")
-
-    _strip_python_in_excel_parts(xlsx)
-
-    with zipfile.ZipFile(xlsx, "r") as zf:
-        assert "xl/pythonScripts.xml" not in zf.namelist()
-        ct_root = ET.fromstring(zf.read("[Content_Types].xml"))
-        ct_overrides = [
-            c.attrib.get("PartName")
-            for c in ct_root
-            if c.tag.endswith("Override")
-        ]
-        assert "/xl/workbook.xml" in ct_overrides
-        assert "/xl/worksheets/sheet1.xml" in ct_overrides
-        assert "/xl/pythonScripts.xml" not in ct_overrides
-        defaults = [
-            c.attrib.get("Extension")
-            for c in ct_root
-            if c.tag.endswith("Default")
-        ]
-        assert "rels" in defaults
-        assert "xml" in defaults
-
-        rels_root = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
-        rel_targets = [
-            c.attrib.get("Target")
-            for c in rels_root
-            if c.tag.endswith("Relationship")
-        ]
-        assert "worksheets/sheet1.xml" in rel_targets
-        assert "pythonScripts.xml" not in rel_targets
+    res = _strip_rels_python(single_line_rels.encode("utf-8"))
+    rels_root = ET.fromstring(res)
+    rel_targets = [
+        c.attrib.get("Target")
+        for c in rels_root
+        if c.tag.endswith("Relationship")
+    ]
+    assert "worksheets/sheet1.xml" in rel_targets
+    assert "pythonScripts.xml" not in rel_targets
 
 
 def test_write_excel_python_xlsx_single_line_content_types(tmp_path: Path):
@@ -1348,6 +1421,41 @@ def test_resolve_refs_lookup_anchor_sheet_qualified_priority():
     # Without sheet hint, bare A1 resolves bare key
     assert _lookup_anchor(model, "A1", sheet_hint="") == "Sheet1!A1:B10"
 
+    # Multi-sheet model: hint for a sheet with no snapshot must NOT leak another sheet's bare key
+    from plugin.calc.excel_py_convert.models import SheetInfo
+    model_multi = ExcelWorkbookModel(
+        sheets=[SheetInfo("Sheet1", 0, ""), SheetInfo("Sheet2", 1, "")],
+        anchor_snapshots={"Sheet1!A6": "Sheet1!A6:B10", "A6": "A6:B10", "Sheet2!A6": "Sheet2!A6:B12"},
+    )
+    assert _lookup_anchor(model_multi, "A6", sheet_hint="Sheet3") is None
+
+    # Hint with apostrophe (e.g. O'Brien) resolves "'O''Brien'!A6"
+    model_obrien = ExcelWorkbookModel(
+        sheets=[SheetInfo("O'Brien", 0, "")],
+        anchor_snapshots={"'O''Brien'!A6": "O'Brien!A6:C20"},
+    )
+    assert _lookup_anchor(model_obrien, "A6", sheet_hint="O'Brien") == "O'Brien!A6:C20"
+
+    # Hint with hyphen (e.g. My-Sheet) resolves "'My-Sheet'!A6"
+    model_hyphen = ExcelWorkbookModel(
+        sheets=[SheetInfo("My-Sheet", 0, "")],
+        anchor_snapshots={"'My-Sheet'!A6": "My-Sheet!A6:C20"},
+    )
+    assert _lookup_anchor(model_hyphen, "A6", sheet_hint="My-Sheet") == "My-Sheet!A6:C20"
+
+    # Explicit sheet with literal '$' in sheet name
+    model_dollar = ExcelWorkbookModel(
+        anchor_snapshots={"'A$B'!A6": "'A$B'!A6:D30"},
+    )
+    assert _lookup_anchor(model_dollar, "'A$B'!A6") == "'A$B'!A6:D30"
+
+    # Single-sheet model with only bare key still resolves with a hint
+    model_single = ExcelWorkbookModel(
+        sheets=[SheetInfo("Sheet1", 0, "")],
+        anchor_snapshots={"A6": "A6:B10"},
+    )
+    assert _lookup_anchor(model_single, "A6", sheet_hint="Sheet1") == "A6:B10"
+
 
 def test_parse_excel_xlsx_bare_anchor_first_wins(tmp_path: Path):
     """parse_excel_xlsx must keep first-wins for bare keys across sheets."""
@@ -1401,12 +1509,12 @@ def test_parse_excel_xlsx_bare_anchor_first_wins(tmp_path: Path):
 
 
 def test_script_bank_name_collision_raises():
-    """Two source sheets mapping to the same py_code_* bank name must raise ValueError."""
+    """Two source sheets that previously collided must receive distinct bank sheet names."""
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
-    from plugin.calc.excel_py_convert.script_bank import collect_script_bank, code_sheet_name_for
+    from plugin.calc.excel_py_convert.script_bank import code_sheet_name_for, collect_script_bank
 
-    # 'My Sheet' and 'My_Sheet' both sanitize to 'py_code_My_Sheet'
-    assert code_sheet_name_for("My Sheet") == code_sheet_name_for("My_Sheet")
+    assert code_sheet_name_for("My_Sheet") == "py_code_My_Sheet"
+    assert code_sheet_name_for("My Sheet") != code_sheet_name_for("My_Sheet")
 
     long_code_1 = "x = 1\n" * 250  # >1000 chars
     long_code_2 = "y = 2\n" * 250
@@ -1429,21 +1537,25 @@ def test_script_bank_name_collision_raises():
     )
     report = ConversionReport(direction="dag", cells=[cell1, cell2])
 
-    with pytest.raises(ValueError, match="script-bank sheet name collision"):
-        collect_script_bank(report)
-
-    assert not report.ok
-    assert any("collision" in issue for issue in report.issues)
+    banks, warns = collect_script_bank(report)
+    assert code_sheet_name_for("My Sheet") in banks
+    assert code_sheet_name_for("My_Sheet") in banks
+    assert warns == []
+    assert report.issues == []
 
 
 def test_script_bank_truncation_collision_raises():
-    """Two long sheet names truncating to the same bank name must raise ValueError."""
+    """Two long sheet names truncating must receive distinct bank names <= 31 chars."""
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
-    from plugin.calc.excel_py_convert.script_bank import collect_script_bank, code_sheet_name_for
+    from plugin.calc.excel_py_convert.script_bank import code_sheet_name_for, collect_script_bank
 
     name1 = "VeryLongSheetNameThatWillTruncate1"
     name2 = "VeryLongSheetNameThatWillTruncate2"
-    assert code_sheet_name_for(name1) == code_sheet_name_for(name2)
+    bank1 = code_sheet_name_for(name1)
+    bank2 = code_sheet_name_for(name2)
+    assert bank1 != bank2
+    assert len(bank1) <= 31
+    assert len(bank2) <= 31
 
     cell1 = ConvertedCell(
         sheet=name1,
@@ -1463,8 +1575,11 @@ def test_script_bank_truncation_collision_raises():
     )
     report = ConversionReport(direction="dag", cells=[cell1, cell2])
 
-    with pytest.raises(ValueError, match="script-bank sheet name collision"):
-        collect_script_bank(report)
+    banks, warns = collect_script_bank(report)
+    assert bank1 in banks
+    assert bank2 in banks
+    assert warns == []
+    assert report.issues == []
 
 
 def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
@@ -1492,25 +1607,14 @@ def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
 
 
 def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
-    """Temporary files (.tmpstrip, .tmprewrite, .tmpexcelpy) must be cleaned up on exception."""
+    """Temporary files (.tmprewrite, .tmpexcelpy) must be cleaned up on exception."""
     from plugin.calc.excel_py_convert.convert import write_excel_python_xlsx
-    from plugin.calc.excel_py_convert.xlsx_write import _strip_python_in_excel_parts
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
     src = tmp_path / "temp_clean_src.xlsx"
     src.write_bytes(_dag_xlsx_bytes())
 
-    # 1. Test .tmpstrip cleanup
-    def fail_writestr(*_args, **_kwargs):
-        raise RuntimeError("simulated write error")
-
-    monkeypatch.setattr(zipfile.ZipFile, "writestr", fail_writestr)
-
-    with pytest.raises(RuntimeError):
-        _strip_python_in_excel_parts(src)
-    assert not (src.with_suffix(src.suffix + ".tmpstrip")).exists()
-
-    # 2. Test rewrite_zip cleanup
+    # 1. Test rewrite_zip cleanup
     from plugin.calc.excel_py_convert.ooxml_util import rewrite_zip
 
     def fail_transform(zin, zout):
@@ -1520,8 +1624,10 @@ def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
         rewrite_zip(src, src.with_suffix(src.suffix + ".out"), fail_transform, temp_suffix=".tmprewrite")
     assert not (src.with_suffix(src.suffix + ".out.tmprewrite")).exists()
 
-    # 3. Test .tmpexcelpy cleanup
-    monkeypatch.undo()
+    # 2. Test .tmpexcelpy cleanup
+    def fail_writestr(*_args, **_kwargs):
+        raise RuntimeError("simulated write error")
+
     cell = ConvertedCell(
         sheet="Sheet1",
         cell="A1",
@@ -1602,19 +1708,21 @@ def test_single_line_content_types_with_mc_ignorable():
         b'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
         b'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
         b'<Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>'
+        b'<Override PartName="/xl/pythonScripts/script1.py" ContentType="application/xml"/>'
         b'</Types>'
     )
-    from plugin.calc.excel_py_convert.xlsx_write import _patch_content_types, _strip_content_types_python
+    from plugin.calc.excel_py_convert.xlsx_write import _patch_content_types
 
     # 1. Test stripping python parts
-    stripped = _strip_content_types_python(ct_data)
+    stripped = _patch_content_types(ct_data, strip_python=True)
     assert b"pythonScripts.xml" not in stripped
+    assert b"pythonScripts/script1.py" not in stripped
     assert b'mc:Ignorable="x14ac xr"' in stripped
     assert b'xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"' in stripped
     assert b'xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision"' in stripped
 
     # 2. Test patching python parts
-    patched = _patch_content_types(stripped)
+    patched = _patch_content_types(stripped, ensure_python_scripts=True)
     assert b"pythonScripts.xml" in patched
     assert b'mc:Ignorable="x14ac xr"' in patched
     assert b'xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"' in patched
@@ -1908,6 +2016,75 @@ def test_convert_cell_unresolved_deps_and_syntax_error_both_reported():
     assert any("unresolved" in i for i in cell.issues)
 
 
+def test_convert_cell_bare_placeholder_outside_xl_fails_closed():
+    """Bare %P2% outside xl() must fail closed."""
+    for script in ["df = %P2%", "df = %P2% + 1"]:
+        model = ExcelWorkbookModel(
+            scripts=[script],
+            cells=[_cell("Sheet1", "A1", 0, deps=["B1"], row=1, col=1)],
+            sheets=[_sheet("Sheet1")],
+        )
+        report = convert_model_to_dag(model)
+        cell = report.cells[0]
+        assert not cell.converted
+        assert cell.dag_formula == ""
+        assert any("outside xl()" in i for i in cell.issues)
+
+
+def test_convert_cell_real_sentinel_identifier_fails_closed():
+    """Real user identifier _P2_ passed to xl() must fail closed."""
+    model = ExcelWorkbookModel(
+        scripts=["_P2_ = 5\ndf = xl(_P2_)"],
+        cells=[_cell("Sheet1", "A1", 0, deps=["B1"], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    report = convert_model_to_dag(model)
+    cell = report.cells[0]
+    assert not cell.converted
+    assert cell.dag_formula == ""
+    assert any("collides with the placeholder sentinel" in i for i in cell.issues)
+
+
+def test_convert_cell_bare_placeholder_in_fstring_fails_closed():
+    """Placeholder inside f-string produces syntax error and fails closed."""
+    model = ExcelWorkbookModel(
+        scripts=['x = f"{%P2%}"'],
+        cells=[_cell("Sheet1", "A1", 0, deps=["B1"], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    report = convert_model_to_dag(model)
+    cell = report.cells[0]
+    assert not cell.converted
+    assert cell.dag_formula == ""
+    assert any("syntax error" in i.lower() for i in cell.issues)
+
+
+def test_convert_cell_long_script_bad_cell_fails_closed():
+    """1,100-char script with malformed cell or empty sheet fails closed without raising."""
+    long_script = "x = 1\n" * 220  # 1320 chars (> 1000)
+    model = ExcelWorkbookModel(
+        scripts=[long_script],
+        cells=[_cell("Sheet1", "not-a1", 0, deps=[], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    res = convert_cell_to_dag(model, model.cells[0])
+    assert res.converted is False
+    assert res.dag_formula == ""
+    assert res.converted_code == long_script
+    assert any("script too long" in i for i in res.issues)
+
+    model_no_sheet = ExcelWorkbookModel(
+        scripts=[long_script],
+        cells=[_cell("", "A1", 0, deps=[], row=1, col=1)],
+        sheets=[],
+    )
+    res_no_sheet = convert_cell_to_dag(model_no_sheet, model_no_sheet.cells[0])
+    assert res_no_sheet.converted is False
+    assert res_no_sheet.dag_formula == ""
+    assert res_no_sheet.converted_code == long_script
+    assert any("to inline" in i for i in res_no_sheet.issues)
+
+
 def test_dedup_merge_rules_header_mode_true_wins():
     """Dedup merge: when two deps snap to the same A1, headers=True wins over False/omit."""
     model = ExcelWorkbookModel(
@@ -1953,6 +2130,13 @@ def test_shift_xlws_py_dep_variants():
     assert shift_xlws_py_dep("_xlfn.ANCHORARRAY(B1)", 1, 0) == "_xlfn.ANCHORARRAY(B2)"
     assert shift_xlws_py_dep("B1+C1", 1, 0) is None
     assert shift_xlws_py_dep("MyNamedRange", 1, 0) == "MyNamedRange"
+    assert shift_xlws_py_dep("A:A", 1, 0) == "A:A"
+    assert shift_xlws_py_dep("A:C", 0, 1) == "B:D"
+    assert shift_xlws_py_dep("$A:$C", 0, 1) == "$A:$C"
+    assert shift_xlws_py_dep("1:5", 1, 0) == "2:6"
+    assert shift_xlws_py_dep("1:5", 0, 1) == "1:5"
+    assert shift_xlws_py_dep("Sheet1!A:A", 1, 0) == "Sheet1!A:A"
+    assert shift_xlws_py_dep("Sheet1!MyName", 1, 0) == "Sheet1!MyName"
 
 
 def test_shared_xlws_py_group_shifts_dependencies(tmp_path: Path):
@@ -1961,7 +2145,7 @@ def test_shared_xlws_py_group_shifts_dependencies(tmp_path: Path):
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <sheetData>
     <row r="1">
-      <c r="A1"><f t="shared" ref="A1:A3" si="0">_xlfn._xlws.PY(0,0,B1,$B$1,B$1,Table1[Col],Sheet1!B1)</f></c>
+      <c r="A1"><f t="shared" ref="A1:A3" si="0">_xlfn._xlws.PY(0,0,B1,$B$1,B$1,Table1[Col],Sheet1!B1,A:A,1:5,Sheet1!MyName)</f></c>
     </row>
     <row r="2">
       <c r="A2"><f t="shared" si="0"/></c>
@@ -1993,11 +2177,11 @@ def test_shared_xlws_py_group_shifts_dependencies(tmp_path: Path):
     assert len(model.cells) == 3
     c1, c2, c3 = model.cells
     assert c1.cell == "A1"
-    assert c1.deps == ["B1", "$B$1", "B$1", "Table1[Col]", "Sheet1!B1"]
+    assert c1.deps == ["B1", "$B$1", "B$1", "Table1[Col]", "Sheet1!B1", "A:A", "1:5", "Sheet1!MyName"]
     assert c2.cell == "A2"
-    assert c2.deps == ["B2", "$B$1", "B$1", "Table1[Col]", "Sheet1!B2"]
+    assert c2.deps == ["B2", "$B$1", "B$1", "Table1[Col]", "Sheet1!B2", "A:A", "2:6", "Sheet1!MyName"]
     assert c3.cell == "A3"
-    assert c3.deps == ["B3", "$B$1", "B$1", "Table1[Col]", "Sheet1!B3"]
+    assert c3.deps == ["B3", "$B$1", "B$1", "Table1[Col]", "Sheet1!B3", "A:A", "3:7", "Sheet1!MyName"]
 
 
 def test_shared_xlws_py_group_invalid_dep_refused(tmp_path: Path):
@@ -2331,6 +2515,25 @@ def test_formula_for_converted_cell_over_1000_chars_refuses_inline():
         formula_for_converted_cell(cell)
 
 
+def test_dag_write_rejects_xml_noncharacter_in_formula(tmp_path: Path):
+    src = tmp_path / "src.xlsx"
+    out = tmp_path / "out.xlsx"
+    src.write_bytes(_dag_xlsx_bytes())
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="dag",
+        original_code="",
+        converted_code="x = '\uffff'",
+        data_args=[],
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+    with pytest.raises(ValueError, match="illegal XML character in formula"):
+        write_dag_formulas_xlsx(src, report, out)
+    assert not out.exists()
+
+
 def test_write_dag_formulas_atomic_save_failure_leaves_dest(tmp_path: Path):
     """Failure during rewrite_zip / replace leaves destination file untouched and cleans up temp files."""
     src = tmp_path / "src.xlsx"
@@ -2397,7 +2600,8 @@ def test_clear_spill_uno_single_range_clear():
     report = ConversionReport(direction="dag", cells=[cell])
     errors = apply_dag_formulas_to_calc_doc(doc, report)
     assert errors == []
-    spill_range.clearContents.assert_called_once()
+    spill_range.clearContents.assert_called_once_with(55)
+    assert anchor_cell.getFormula.call_count == 1
     assert anchor_cell.setFormula.call_args[0][0] == '=PY("x = 1")'
 
 
@@ -2424,6 +2628,17 @@ def test_worksheet_cell_index_sparse_order():
         cells = list(r)
         cell_rs = [c.attrib.get("r", "") for c in cells]
         assert cell_rs == sorted(cell_rs, key=lambda a1: (len(a1), a1))
+
+
+def test_worksheet_cell_index_inserts_before_trailing_extlst():
+    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex
+
+    xml = '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"/><extLst/></sheetData></worksheet>'
+    root = ET.fromstring(xml)
+    idx = _WorksheetCellIndex(root)
+    idx.ensure_cell("A5")
+    assert [local_name(c.tag) for c in idx.sheet_data] == ["row", "row", "extLst"]
+    assert [r.attrib.get("r") for r in idx.sheet_data if local_name(r.tag) == "row"] == ["1", "5"]
 
 
 def test_worksheet_cell_index_no_r_attribute():
@@ -2454,10 +2669,10 @@ def test_worksheet_cell_index_no_r_attribute():
 
 def test_bad_package_xml_raises_value_error():
     """Malformed [Content_Types].xml or .rels raises ValueError with part name."""
-    from plugin.calc.excel_py_convert.xlsx_write import _strip_content_types_python, _strip_rels_python
+    from plugin.calc.excel_py_convert.xlsx_write import _patch_content_types, _strip_rels_python
 
     with pytest.raises(ValueError, match=r"\[Content_Types\]\.xml"):
-        _strip_content_types_python(b"<malformed XML")
+        _patch_content_types(b"<malformed XML", strip_python=True)
     with pytest.raises(ValueError, match=r"\.rels"):
         _strip_rels_python(b"<malformed XML")
 
@@ -2477,6 +2692,22 @@ def test_strip_rels_preserves_python_notes():
     assert "rId2" not in res
     assert "rId3" in res
     assert "python_notes.xml" in res
+
+
+def test_strip_rels_keeps_python_when_not_stripping():
+    from plugin.calc.excel_py_convert.xlsx_write import _strip_rels_python
+
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain" Target="calcChain.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.microsoft.com/office/2022/relationships/pythonScript" Target="pythonScripts.xml"/>
+</Relationships>"""
+    res = _strip_rels_python(xml, strip_python=False).decode("utf-8")
+    assert "rId1" in res
+    assert "rId2" not in res
+    assert "rId3" in res
+    assert "pythonScripts.xml" in res
 
 
 def test_xml_namespace_lock_thread_safety():
@@ -2844,27 +3075,6 @@ def test_clear_spill_xml_touches_stored_cells_only():
     assert v_o_found is not None and v_o_found.text == "outside"
 
 
-def test_strip_python_in_excel_parts_preserves_python_notes(tmp_path: Path):
-    from plugin.calc.excel_py_convert.xlsx_write import _strip_python_in_excel_parts
-
-    src = tmp_path / "notes_test.xlsx"
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("[Content_Types].xml", """<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>""")
-        zf.writestr("xl/pythonScripts.xml", "<scripts/>")
-        zf.writestr("xl/pythonScripts/script1.py", "x = 1")
-        zf.writestr("xl/python_notes.xml", "<notes/>")
-    src.write_bytes(buf.getvalue())
-
-    _strip_python_in_excel_parts(src)
-
-    with zipfile.ZipFile(src, "r") as zf:
-        names = zf.namelist()
-        assert "xl/python_notes.xml" in names
-        assert "xl/pythonScripts.xml" not in names
-        assert "xl/pythonScripts/script1.py" not in names
-
-
 def test_drop_py_code_sheets_sets_full_calc_on_load():
     from plugin.calc.excel_py_convert.xlsx_write import _drop_py_code_sheets_from_workbook
 
@@ -3089,9 +3299,41 @@ def test_parse_python_scripts_normal_and_hostile_indices():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("xl/pythonScripts.xml", hostile_xml)
+    issues: list[str] = []
     with zipfile.ZipFile(buf, "r") as zf:
-        with pytest.raises(ValueError, match="invalid script index 1000000000 in xl/pythonScripts.xml"):
-            _parse_python_scripts(zf)
+        scripts = _parse_python_scripts(zf, issues)
+        assert scripts == []
+        assert any("out of range" in iss for iss in issues)
+
+    # Duplicate index: last-wins and issue recorded
+    dup_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript index="0"><code>x = 1</code></pythonScript>
+  <pythonScript index="0"><code>x = 2</code></pythonScript>
+</pythonScripts>"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("xl/pythonScripts.xml", dup_xml)
+    issues = []
+    with zipfile.ZipFile(buf, "r") as zf:
+        scripts = _parse_python_scripts(zf, issues)
+        assert scripts == ["x = 2"]
+        assert any("duplicate script index 0" in iss for iss in issues)
+
+    # Mixed: good script parses while bad index is skipped
+    mixed_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">
+  <pythonScript index="0"><code>x = 1</code></pythonScript>
+  <pythonScript index="1000000000"><code>x = 2</code></pythonScript>
+</pythonScripts>"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("xl/pythonScripts.xml", mixed_xml)
+    issues = []
+    with zipfile.ZipFile(buf, "r") as zf:
+        scripts = _parse_python_scripts(zf, issues)
+        assert scripts == ["x = 1"]
+        assert any("out of range" in iss for iss in issues)
 
 
 def test_standard_namespaces_x16_mapping():

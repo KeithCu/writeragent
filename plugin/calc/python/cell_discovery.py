@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.calc.address_utils import index_to_column
+from plugin.calc.address_utils import format_address, qualify_a1
 from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
 from plugin.calc.python.formula_edit import (
     extract_python_code_loose,
@@ -64,6 +64,9 @@ def canonicalize_py_formula_for_parse(formula: str) -> str:
 
 def python_code_from_formula(formula: str) -> str | None:
     """Extract Python code from a PY/PYTHON formula, or None if not a PY formula."""
+    # Every PY/PYTHON add-in spelling contains "PY"; reject the rest before parsing.
+    if "PY" not in (formula or "").upper():
+        return None
     return extract_python_code_loose(canonicalize_py_formula_for_parse(formula))
 
 
@@ -72,13 +75,10 @@ def is_py_formula_text(formula: str) -> bool:
     return python_code_from_formula(formula) is not None
 
 
-def extract_code_from_formula(formula: str) -> str:
-    """Best-effort Python source from a PY/PYTHON formula."""
-    return python_code_from_formula(formula) or ""
-
-
 def _cell_address(sheet_name: str, row: int, column: int) -> str:
-    return f"{sheet_name}.{index_to_column(column)}{row + 1}"
+    # Unquoted sheet names (e.g. Data.2024 or names with spaces) broke downstream
+    # address parsing and navigation; qualify_a1 quotes the sheet prefix when needed.
+    return qualify_a1(sheet_name, format_address(column, row))
 
 
 def list_python_cells_on_sheet(sheet: Any) -> list[PythonCellInfo]:
@@ -128,16 +128,12 @@ def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
         return True
 
     for i in range(count):
-        if truncated or scanned_count >= _MAX_CELLS_TO_SCAN:
-            if scanned_count >= _MAX_CELLS_TO_SCAN:
-                truncated = True
-            break
         cell_range = formula_cells.getByIndex(i)
         for row, col, formula in iter_range_formula_texts(sheet, cell_range):
-            scanned_count += 1
-            if scanned_count > _MAX_CELLS_TO_SCAN:
+            if scanned_count >= _MAX_CELLS_TO_SCAN:
                 truncated = True
                 break
+            scanned_count += 1
             if not _consider(formula, row, col):
                 break
         if truncated:

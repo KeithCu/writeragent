@@ -151,7 +151,15 @@ def _parse_unquoted_code_arg(inner_body: str) -> str | None:
     if not s or s.startswith('"'):
         return None
     depth = 0
-    for i, ch in enumerate(s):
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if ch == '"':
+            parsed = _parse_quoted_string(s, i)
+            if parsed is None:
+                return None
+            i = parsed[1]
+            continue
         if ch == "(":
             depth += 1
         elif ch == ")":
@@ -160,6 +168,7 @@ def _parse_unquoted_code_arg(inner_body: str) -> str | None:
             depth -= 1
         elif ch in (";", ",") and depth == 0:
             return s[:i].strip()
+        i += 1
     return s
 
 
@@ -192,19 +201,33 @@ def extract_python_code_loose(formula: str) -> str | None:
     return _parse_unquoted_code_arg(body)
 
 
-# Nested curly-quote membership hung deep check (~17m, 105k lines). Skip under
-# CrossHair (import-time inverse_ensure no-op); cheap @deal.post still runs.
 @deal.pre(lambda formula: str_bounded(formula, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
-@inverse_ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result and "\u2018" not in result and "\u2019" not in result)
 def normalize_formula_string(formula: str) -> str:
     """Normalize LibreOffice ``getFormula()`` / ``FormulaLocal`` variants for parsing."""
-    raw = (formula or "").strip().translate(_QUOTE_NORMALIZE)
+    raw = (formula or "").strip()
     if raw.startswith("{") and raw.endswith("}"):
         raw = raw[1:-1].strip()
     if raw and not raw.startswith("=") and py_call_open_end(raw, require_equals=False) is not None:
         raw = "=" + raw
-    return raw
+    start = py_call_open_end(raw, require_equals=True)
+    if start is None:
+        return raw.translate(_QUOTE_NORMALIZE)
+    i = start
+    while i < len(raw) and raw[i].isspace():
+        i += 1
+    # Only the code argument's delimiters are rewritten; curly quotes inside the
+    # Python source (print(“hi”)) must survive a load→save round trip.
+    if i < len(raw) and raw[i] == '"':
+        parsed = _parse_quoted_string(raw, i)
+        if parsed is not None:
+            end = parsed[1]
+            return raw[:i].translate(_QUOTE_NORMALIZE) + raw[i:end] + raw[end:].translate(_QUOTE_NORMALIZE)
+    elif i < len(raw) and raw[i] == "\u201c":
+        close = raw.rfind("\u201d", i + 1)
+        if close > i:
+            return raw[:i].translate(_QUOTE_NORMALIZE) + '"' + raw[i + 1 : close] + '"' + raw[close + 1 :].translate(_QUOTE_NORMALIZE)
+    return raw.translate(_QUOTE_NORMALIZE)
 
 
 def build_new_python_formula(code: str) -> str:
@@ -212,6 +235,33 @@ def build_new_python_formula(code: str) -> str:
     # crosshair: off
     escaped = escape_code_for_formula(code)
     return f'={CALC_PYTHON_FN}("{escaped}")'
+
+
+def _split_data_binding_tokens(raw: str) -> list[str]:
+    """Split on ``,``/``;`` outside single-quoted sheet names and double-quoted strings.
+
+    Returns stripped tokens (empties included; the caller drops them).
+    """
+    tokens: list[str] = []
+    start = 0
+    quote = ""
+    i = 0
+    while i < len(raw):
+        ch = raw[i]
+        if quote:
+            if ch == quote:
+                if i + 1 < len(raw) and raw[i + 1] == quote:
+                    i += 2
+                    continue
+                quote = ""
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch in (",", ";"):
+            tokens.append(raw[start:i])
+            start = i + 1
+        i += 1
+    tokens.append(raw[start:])
+    return [t.strip() for t in tokens]
 
 
 def _data_suffix_from_rest(rest: str) -> str | None:
@@ -425,7 +475,7 @@ def format_data_binding_display(data_suffix: str) -> str:
 
 # Editor textbox of A1 / range tokens; re.split on unbounded Unicode hung deep check.
 @deal.pre(lambda text: ascii_bounded(text, DEAL_MAX_SOURCE))
-@deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) and '"' not in x for x in result))
+@deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 def parse_data_binding_text(text: str) -> list[str]:
     """Parse editor textbox content into formula data arguments."""
     # crosshair: off
@@ -434,8 +484,7 @@ def parse_data_binding_text(text: str) -> list[str]:
         return []
     if raw.startswith("[") and raw.endswith("]"):
         raw = raw[1:-1].strip()
-    parts = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
-    return [p for p in parts if '"' not in p]
+    return [t for t in _split_data_binding_tokens(raw) if t]
 
 
 @deal.pre(lambda *args, **kwargs: bool(args) and _deal_data_args_ok(args[0]))
@@ -454,9 +503,9 @@ def _is_ascii_letter(c: str) -> bool:
 
 @deal.pre(lambda s: _DEAL_SHEET_TOKEN(s, DEAL_MAX_TOKEN))
 def _is_a1_cell_prefix(s: str) -> bool:
-    """Optional ``$`` + letters + optional ``$`` + a digit.
+    """Optional ``$`` + 1–3 letters + optional ``$`` + a digit.
 
-    Replaces ``re.match(r'^\\$?[A-Z]+\\$?\\d', s, re.I)``. CrossHair's relib
+    Replaces ``re.match(r'^\\$?[A-Z]{1,3}\\$?\\d', s, re.I)``. CrossHair's relib
     raises ``TypeError: ord() expected a character, but string of length 0``
     on NUL/control ASCII in that pattern.
     """
@@ -469,6 +518,9 @@ def _is_a1_cell_prefix(s: str) -> bool:
         letters += 1
         i += 1
     if letters == 0:
+        return False
+    # Max column letters in Calc / Excel is XFD (3 letters).
+    if letters > 3:
         return False
     if i < n and s[i] == "$":
         i += 1
@@ -493,8 +545,8 @@ def _split_sheet_range(range_addr: str) -> tuple[str, str] | None:
     """Split a sheet-qualified range into (unquoted_or_escaped_sheet, rest), or None if not qualified.
 
     A quoted sheet may contain `.` and `!`; `''` inside quotes is one apostrophe;
-    an unquoted left side that looks like an A1 cell (`A1.B5`, and also `Sheet1.A1`
-    because `_is_a1_cell_prefix` treats letters-plus-digit as a cell) is not a sheet
+    an unquoted left side that looks like an A1 cell (`A1.B5`, but not `Sheet1.A1`
+    whose column letters exceed 3) is not a sheet
     on the dot form; this function does not call `split_sheet_prefix` (regex, drops
     `$`, rejects `O'Brien.A1`).
     """
@@ -547,6 +599,7 @@ def _format_qualified_range(range_addr: str, *, separator: str) -> str:
     if split is None:
         return str(range_addr).strip()
     sheet, rest = split
+    # Calc absolute-sheet '$' (e.g. $Sheet1) is intentionally preserved.
     clean_sheet = sheet.replace("$", "")
     needs_quotes = not _is_sheet_identifier(clean_sheet) if separator == "." else (bool(clean_sheet) and not _is_sheet_identifier(clean_sheet))
     if needs_quotes:

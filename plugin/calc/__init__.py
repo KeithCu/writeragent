@@ -29,11 +29,6 @@ class CalcModule(ModuleBase):
     """Registers Calc tools for cells, sheets, formulas, charts."""
 
     def initialize(self, services: Any) -> None:
-        # Side-effect imports break cycles: calc.forms -> writer.specialized_base -> calc.base
-        from . import forms  # noqa: F401  # pyright: ignore[reportUnusedImport]
-        from . import specialized as specialized  # noqa: F401  # pyright: ignore[reportUnusedImport]
-        from . import shapes  # noqa: F401  # pyright: ignore[reportUnusedImport]
-
         services.tools.auto_discover_package(
             __name__,
             skip=frozenset({"python", "spreadsheet_import", "excel_py_convert", "prompt_addin"}),

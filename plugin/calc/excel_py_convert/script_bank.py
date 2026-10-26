@@ -3,7 +3,7 @@
 
 Microsoft keeps Python in ``xl/pythonScripts.xml`` and cells only hold a short
 ``_xlws.PY(…)`` formula. Calc formula string symbols are capped near
-``MAXSTRLEN`` (1024), so **rewritten code longer than**
+``MAXSTRLEN`` (1024), so **rewritten =PY("…") formula longer than**
 ``INLINE_CODE_MAX_CHARS`` (1000) is parked on a visible sheet **per source
 worksheet** at the **same A1** as the caller (``Pivots!H4`` →
 ``py_code_Pivots!H4``) and the formula becomes ``=PY(py_code_Pivots.H4; …)``.
@@ -16,10 +16,11 @@ different long scripts. Raising Calc ``MAXSTRLEN`` later can retire the bank.
 from __future__ import annotations
 
 import ast
+import hashlib
 import logging
 import re
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_code_ref, rebuild_python_formula_with_data
@@ -54,16 +55,18 @@ _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 def code_sheet_name_for(source_sheet: str) -> str:
     """Bank sheet name for *source_sheet* (``Pivots`` → ``py_code_Pivots``).
 
-    Sanitizes non-word characters and truncates to 31 chars. Callers like
-    ``collect_script_bank`` detect collisions when distinct source sheets
-    map to the same bank sheet name.
+    Titles that need sanitising or truncation get a short stable hash suffix,
+    so distinct source sheets cannot share a bank name. Note that renaming a
+    sheet (or changing this mapping) leaves an old bank sheet behind on
+    re-apply; only a bank with the computed name is reused.
     """
     raw = (source_sheet or "Sheet1").strip() or "Sheet1"
     safe = _SAFE_SHEET.sub("_", raw).strip("_") or "Sheet"
-    name = f"{CODE_SHEET_PREFIX}{safe}"
-    if len(name) > _CODE_SHEET_MAX_LEN:
-        name = name[:_CODE_SHEET_MAX_LEN]
-    return name
+    if safe == raw and len(f"{CODE_SHEET_PREFIX}{safe}") <= _CODE_SHEET_MAX_LEN:
+        return f"{CODE_SHEET_PREFIX}{safe}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:4]
+    budget = _CODE_SHEET_MAX_LEN - len(CODE_SHEET_PREFIX) - len(digest) - 1
+    return f"{CODE_SHEET_PREFIX}{safe[:budget]}_{digest}"
 
 
 def normalize_bank_a1(cell: str) -> str:
@@ -109,35 +112,31 @@ def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) 
     return f"{sheet}{sep}{a1}"
 
 
-def should_inline_code(code: str) -> bool:
-    """True when *code* fits in ``=PY(\"…\")`` under Calc ``MAXSTRLEN`` (budget 1000)."""
-    return len(code or "") <= INLINE_CODE_MAX_CHARS
+def should_inline_code(code: str, data_args: Sequence[str] = ()) -> bool:
+    """True when the escaped ``=PY("…")`` formula for *code* fits Calc ``MAXSTRLEN`` (budget 1000)."""
+    return len(rebuild_python_formula_with_data(code or "", list(data_args))) <= INLINE_CODE_MAX_CHARS
 
 
 def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";", excel_escape: bool = False) -> str:
     """Build ``=PY`` for a converted cell.
 
-    Inline when ``len(converted_code) <= 1000``; otherwise reference
+    Inline when the escaped formula is <= 1000 chars; otherwise reference
     ``py_code_<Sheet>.A1`` (same address as the caller).
     """
-    # Data bindings only — ordering_args are legacy/empty (never formula args).
     args = list(cell.data_args)
     excel_syntax = excel_escape or separator == ","
-    if cell.cell and cell.sheet and not should_inline_code(cell.converted_code):
-        try:
-            return rebuild_python_formula_with_code_ref(code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax), args, separator=separator, excel_ranges=excel_syntax)
-        except ValueError as exc:
-            if len(cell.converted_code) > INLINE_CODE_MAX_CHARS:
-                err = f"script too long ({len(cell.converted_code)} chars) and bank ref failed: {exc}"
-                raise ValueError(err) from exc
-    if len(cell.converted_code) > INLINE_CODE_MAX_CHARS:
-        err = f"script too long ({len(cell.converted_code)} chars) to inline"
-        raise ValueError(err)
-    return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator, excel_escape=excel_escape)
+    if should_inline_code(cell.converted_code, args):
+        return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator, excel_escape=excel_escape)
+    if not cell.cell or not cell.sheet:
+        raise ValueError(f"script too long ({len(cell.converted_code)} chars) to inline")
+    try:
+        return rebuild_python_formula_with_code_ref(code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax), args, separator=separator, excel_ranges=excel_syntax)
+    except ValueError as exc:
+        raise ValueError(f"script too long ({len(cell.converted_code)} chars) and bank ref failed: {exc}") from exc
 
 
 def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, str]], list[str]]:
-    """Map ``code_sheet_name → {A1 → code}`` for cells that need banking (>1000 chars)."""
+    """Map ``code_sheet_name → {A1 → code}`` for cells whose escaped =PY formula needs banking (>1000 chars)."""
     banks: dict[str, dict[str, str]] = {}
     owners: dict[tuple[str, str], str] = {}
     warnings: list[str] = []
@@ -145,7 +144,7 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
     for cell in report.cells:
         if not cell.converted or not cell.converted_code or not cell.cell or not cell.sheet:
             continue
-        if should_inline_code(cell.converted_code):
+        if should_inline_code(cell.converted_code, cell.data_args):
             continue
         try:
             a1 = normalize_bank_a1(cell.cell)
@@ -203,6 +202,9 @@ def collect_safety_warnings(code: str) -> list[str]:
     except SyntaxError as exc:
         warnings.append(f"syntax error: {exc.msg}")
         return warnings
+    except (ValueError, TypeError, MemoryError, RecursionError) as exc:
+        warnings.append(f"source is not parseable: {exc}")
+        return warnings
 
     try:
         from plugin.scripting.sandbox import build_sandbox_policy, import_authorized, policy_blocked_imports
@@ -211,7 +213,7 @@ def collect_safety_warnings(code: str) -> list[str]:
 
         def is_blocked(name: str) -> bool:
             return not import_authorized(name, (), blocked)
-    except ImportError:
+    except Exception:
         _FALLBACK_BLOCKED = (
             "subprocess",
             "socket",
@@ -244,10 +246,16 @@ def collect_safety_warnings(code: str) -> list[str]:
 def report_safety_warnings(report: ConversionReport) -> list[str]:
     """Flatten per-cell safety warnings for logging (does not fail conversion)."""
     out: list[str] = []
+    by_code: dict[str, list[str]] = {}
     for cell in report.cells:
         if not cell.converted or not cell.converted_code:
             continue
-        for w in collect_safety_warnings(cell.converted_code):
+        code = cell.converted_code
+        ws = by_code.get(code)
+        if ws is None:
+            ws = collect_safety_warnings(code)
+            by_code[code] = ws
+        for w in ws:
             out.append(f"{cell.sheet}!{cell.cell}: {w}")
     return out
 

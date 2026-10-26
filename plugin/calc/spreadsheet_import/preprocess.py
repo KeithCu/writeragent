@@ -28,40 +28,49 @@ def _deal_lo_formula_ok_crosshair(formula: object) -> bool:
 _deal_lo_formula_ok = _deal_lo_formula_ok_crosshair if _PREPROCESS_CROSSHAIR else _deal_lo_formula_ok_pytest
 
 
+# What was wrong: only "..." was tracked, so a ';' in a quoted sheet name
+# ('My;Sheet'.A1) or an array constant ({1;2|3;4}) was rewritten to ','.
+# Why this fixes it: single-quoted names and {...} are copied verbatim.
 def _scan_quotes(s: str, replace_semi: str | None) -> str | None:
     out: list[str] | None = None if replace_semi is None else []
     i = 0
-    in_quote = False
+    quote = ""  # open text literal or quoted sheet name
+    depth = 0  # inside {...}: ';' is the array column separator
     while i < len(s):
         ch = s[i]
-        if ch == '"':
-            if in_quote and i + 1 < len(s) and s[i + 1] == '"':
-                if out is not None:
-                    out.append('""')
-                i += 2
-                continue
-            in_quote = not in_quote
-            if out is not None:
-                out.append(ch)
-            i += 1
-            continue
-        if ch == ";" and not in_quote:
+        if quote:
+            doubled = ch == quote and i + 1 < len(s) and s[i + 1] == quote
+            if ch == quote and not doubled:
+                quote = ""
+            step = 2 if doubled else 1
+        elif ch in ('"', "'"):
+            quote = ch
+            step = 1
+        elif ch == "{":
+            depth += 1
+            step = 1
+        elif ch == "}" and depth:
+            depth -= 1
+            step = 1
+        elif ch == ";" and depth == 0:
             if replace_semi is None:
                 return None
             if out is not None:
                 out.append(replace_semi)
             i += 1
             continue
+        else:
+            step = 1
         if out is not None:
-            out.append(ch)
-        i += 1
+            out.append(s[i : i + step])
+        i += step
     return s if out is None else "".join(out)
 
 
 @deal.pre(lambda s: _deal_lo_formula_ok(s))
 @deal.post(lambda result: isinstance(result, bool))
 def _no_unquoted_semicolon(s: str) -> bool:
-    """True when every ``;`` in *s* sits inside a Calc double-quoted string (or none exist)."""
+    """True when every ``;`` in *s* is inside a text literal, a quoted sheet name, or an array constant (or none exist)."""
     return _scan_quotes(s, None) is not None
 
 
@@ -74,8 +83,9 @@ def _no_unquoted_semicolon(s: str) -> bool:
 def normalize_lo_formula_for_parse(formula: str) -> str:
     """Map LO ``;`` argument separators to ``,`` for parse-only backends.
 
-    Only replaces ``;`` outside double-quoted strings. Array literals ``{=…}``
-    braces are not special-cased in v1 (rare in P1 corpus).
+    Only replaces ``;`` outside double-quoted strings, single-quoted sheet
+    names, and ``{...}`` array constants (the tokenizer uses ``;`` as the
+    array column separator).
     """
     raw = normalize_formula_string(formula)
     if not raw:

@@ -456,6 +456,8 @@ Excel’s *saved* static bridges already put ranges on `_xlws.PY` trailing args 
 
 Workbook initialization scripts can be defined via **Edit Initialization Script…** (Calc only). This stores a workbook startup script in document properties (`calc:…:init`). It runs once per workbook session even when the session mode is **Isolated**, making its imports and helper functions available to all `=PY()` cells.
 
+Saving in the init editor only updates the document property. The new script takes effect on the next `=PY()` evaluation, when the worker sees the new script hash and re-seeds; saving does not reset the workbook session.
+
 In the worker sandbox:
 - Functions and variables defined in the init script are executed in the companion `calc:…:init` session and snapshot into cell executors.
 - The init executor does not receive data, ranges, xl, host bindings, scoped_dir, or the injected names session_duckdb, run_sql, and invalidate_session_tables. Those are applied to the cell after the snapshot is copied. An init assignment to one of those names is not copied into the cell.
@@ -697,7 +699,7 @@ Do not wrap returns in `float()` / `int()` / `str()` for Calc’s sake — [`to_
 | **ASCII quotes only** | Always when pasting / generating formulas | Normalize curly `“”` → `"` (WriterAgent does this on parse) |
 | **Comma vs semicolon** | Match file/locale | XLSX OOXML → commas; Calc UI often `;` |
 | **XLSX test sheets** | Manual serialization regression | See [`scripts/generate_serialization_spreadsheet.py`](../scripts/generate_serialization_spreadsheet.py) |
-| **Excel Python-in-Excel `.xlsx`** | Open in Calc with the Python/`=PY` extension | Auto-rewrites to DAG `=PY` on load; scripts **>1000 chars** parked on visible `py_code_<Sheet>` at the same A1, shorter stay inline ([`script_bank.py`](../plugin/calc/excel_py_convert/script_bank.py)) — see [ms-py §5.8](scripting/ms-py-compatibility.md#58-ooxml--xlfnpy-import) |
+| **Excel Python-in-Excel `.xlsx`** | Open in Calc with the Python/`=PY` extension | Auto-rewrites to DAG `=PY` on load; `=PY(...)` formulas **>1000 chars** parked on visible `py_code_<Sheet>` at the same A1, shorter stay inline ([`script_bank.py`](../plugin/calc/excel_py_convert/script_bank.py)) — see [ms-py §5.8](scripting/ms-py-compatibility.md#58-ooxml--xlfnpy-import) |
 
 **XLSX input cells must be numeric, not text:** if the sheet stores values as strings (e.g. `"1.0"` from `str()` in a generator), Calc passes them as text, `split_grid` lands them in the `strings` map, and `np.sum(data)` fails with a Unicode dtype `TypeError`. Regenerate [`serialization_tests.xlsx`](../tests/fixtures/serialization_tests.xlsx) after fixing the generator so ints/floats are written as native cell types.
 

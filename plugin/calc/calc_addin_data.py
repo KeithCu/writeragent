@@ -10,6 +10,10 @@
 Every range is preserved as ``list[list]`` (including 1×N, N×1, and 1×1).
 Wire packing wraps each range in a ``calc_range`` envelope; ``split_grid``
 remains a private storage optimization inside that envelope.
+
+A bare column ``((1.0,), (2.0,))`` is one range; two 1×1 varargs
+``(((1.0,),), ((2.0,),))`` stay two. ``_is_legacy_single_column_range``
+decides; do not "simplify" it away.
 """
 
 # crosshair: off
@@ -18,7 +22,6 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.scripting.calc_range import ensure_rectangular_2d, pack_calc_range_envelope
-from plugin.scripting.config_limits import python_max_data_cells_default
 from plugin.scripting.payload_codec import ForceBinary, host_pack_data, wire_cell_count
 
 
@@ -48,13 +51,8 @@ def _unwrap_cell(value: Any, true_strings: set[str] | None = None, false_strings
 
 
 def _is_row_sequence(value: Any) -> bool:
-    if isinstance(value, (str, bytes)):
-        return False
-    try:
-        iter(value)
-    except TypeError:
-        return False
-    return True
+    """Plain list/tuple rows only; dict/set/generator/namedtuple is one scalar cell."""
+    return type(value) is list or type(value) is tuple
 
 
 @deal.post(lambda result: result is None or isinstance(result, list))
@@ -198,25 +196,19 @@ def count_cells(data: Any) -> int:
     return wire_cell_count(data)
 
 
-def check_python_multi_data_size(data: list[Any], *, max_cells: int | None = None) -> str | None:
+def check_python_multi_data_size(data: list[Any], *, max_cells: int) -> str | None:
     """Return an error message if combined multi-range *data* exceeds *max_cells*."""
-    limit = python_max_data_cells_default() if max_cells is None else max_cells
     n = sum(count_cells(item) for item in data)
-    if n > limit:
-        return f"Data ranges have {n} cells combined; maximum is {limit}."
+    if n > max_cells:
+        return f"Data ranges have {n} cells combined; maximum is {max_cells}."
     return None
 
 
-def check_python_data_size(data: Any, *, max_cells: int | None = None) -> str | None:
-    """Return an error message if *data* exceeds *max_cells*, else ``None``.
-
-    *max_cells* defaults to schema default for ``scripting.python_max_data_cells``; callers can pass
-    ``configured_python_max_data_cells()``.
-    """
-    limit = python_max_data_cells_default() if max_cells is None else max_cells
+def check_python_data_size(data: Any, *, max_cells: int) -> str | None:
+    """Return an error message if *data* exceeds *max_cells*, else ``None``."""
     n = count_cells(data)
-    if n > limit:
-        return f"Data range has {n} cells; maximum is {limit}."
+    if n > max_cells:
+        return f"Data range has {n} cells; maximum is {max_cells}."
     return None
 
 
@@ -229,16 +221,23 @@ def values_from_inspector_range(range_data: list[list[dict[str, Any]]]) -> list[
 def _normalize_data_range_addresses(data_range: Any) -> list[str]:
     """Normalize chat/RPS ``data_range`` into one or more A1 addresses.
 
-    Accepts a single string (optionally comma/semicolon-separated), or a list/tuple of strings.
+    A string (optionally comma/semicolon-separated) or a list/tuple of strings; non-string members are ignored.
     """
     if data_range is None:
         return []
+    from plugin.calc.python.formula_edit import parse_data_binding_text
+
     if isinstance(data_range, (list, tuple)):
-        return [str(a).strip() for a in data_range if str(a).strip()]
+        out: list[str] = []
+        for item in data_range:
+            if not isinstance(item, str) or not item.strip():
+                continue
+            parts = parse_data_binding_text(item)
+            out.extend(parts if parts else [item.strip()])
+        return out
     text = str(data_range).strip()
     if not text:
         return []
-    from plugin.calc.python.formula_edit import parse_data_binding_text
 
     parts = parse_data_binding_text(text)
     return parts if parts else [text]

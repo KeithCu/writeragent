@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Bounded per-workbook log of ``=PY()`` stdout / errors for the LibrePy sidebar.
+Long stdout / message / traceback are clipped at record time; at most 16 workbooks are kept.
 
 Recording from formula evaluation must stay UNO-light: only plain Python data.
 Cell addresses are matched later when the sidebar refreshes.
@@ -12,7 +13,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -22,6 +23,17 @@ DiagnosticFilter = Literal["all", "errors", "output"]
 
 _MAX_ENTRIES_PER_WORKBOOK = 200
 _CODE_SNIPPET_MAX = 240
+_CLIP_STDOUT = 8000
+_CLIP_MESSAGE = 2000
+_CLIP_TRACEBACK = 8000
+_MAX_WORKBOOKS = 16
+
+
+def _clip(text: Any, limit: int) -> str:
+    s = str(text or "")
+    if len(s) <= limit:
+        return s
+    return f"{s[:limit]}\n… (truncated, {len(s) - limit} more characters)"
 
 
 @dataclass(frozen=True)
@@ -74,18 +86,32 @@ class PythonDiagnosticsStore:
     def __init__(self, *, max_entries: int = _MAX_ENTRIES_PER_WORKBOOK) -> None:
         self._max = max(1, int(max_entries))
         self._lock = threading.Lock()
-        self._by_workbook: dict[str, deque[DiagnosticEntry]] = {}
+        self._by_workbook: OrderedDict[str, deque[DiagnosticEntry]] = OrderedDict()
         self._listeners: list[Any] = []
 
     def record(self, *, workbook_key: str, code: str, status: str, message: str = "", stdout: str = "", traceback: str = "", sheet: str = "", address: str = "") -> DiagnosticEntry:
         key = (workbook_key or "unknown").strip() or "unknown"
         snippet = (code or "")[:_CODE_SNIPPET_MAX]
-        entry = DiagnosticEntry(workbook_key=key, code=snippet, status="ok" if status == "ok" else "error", message=str(message or ""), stdout=str(stdout or ""), traceback=str(traceback or ""), sheet=str(sheet or ""), address=str(address or ""))
+        entry = DiagnosticEntry(
+            workbook_key=key,
+            code=snippet,
+            status="ok" if status == "ok" else "error",
+            message=_clip(message, _CLIP_MESSAGE),
+            stdout=_clip(stdout, _CLIP_STDOUT),
+            traceback=_clip(traceback, _CLIP_TRACEBACK),
+            sheet=str(sheet or ""),
+            address=str(address or ""),
+        )
         with self._lock:
             bucket = self._by_workbook.get(key)
             if bucket is None:
+                # The store is a process-wide singleton and an evicted bucket is simply no longer listed.
+                if len(self._by_workbook) >= _MAX_WORKBOOKS:
+                    self._by_workbook.pop(next(iter(self._by_workbook)))
                 bucket = deque(maxlen=self._max)
                 self._by_workbook[key] = bucket
+            else:
+                self._by_workbook.move_to_end(key)
             bucket.append(entry)
             listeners = list(self._listeners)
         for cb in listeners:
@@ -101,12 +127,17 @@ class PythonDiagnosticsStore:
         return [e for e in bucket if e.matches_filter(filt)]
 
     def latest_for_code(self, workbook_key: str, code: str) -> DiagnosticEntry | None:
-        """Return the newest entry whose code prefix matches *code*."""
+        """Return the newest entry for exactly *code* (both sides clipped to 240 chars).
+
+        Two different cells whose first 240 characters are identical are
+        indistinguishable here (the cell list's locate_formula_cell_in_doc has
+        the same limitation for duplicate code).
+        """
         needle = (code or "")[:_CODE_SNIPPET_MAX]
         if not needle:
             return None
         for entry in self.list_entries(workbook_key, filt="all", newest_first=True):
-            if entry.code.startswith(needle) or needle.startswith(entry.code):
+            if entry.code == needle:
                 return entry
         return None
 

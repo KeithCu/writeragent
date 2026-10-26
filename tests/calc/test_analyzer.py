@@ -95,7 +95,7 @@ def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
     assert "Active Sheet: Sheet1" in text
 
 
-def test_get_full_calc_text_skips_internal_active_sheet():
+def test_get_full_calc_text_names_internal_active_tab():
     visible = {"sheet_name": "Sales", "used_range": "A1:C3", "headers": ["A", "B", "C"]}
     analyzer = MagicMock()
     analyzer.get_sheet_summary.return_value = visible
@@ -110,9 +110,12 @@ def test_get_full_calc_text_skips_internal_active_sheet():
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
     ):
-        text = get_full_calc_text(model, max_chars=100)
+        text = get_full_calc_text(model, max_chars=500)
     assert "Sheet: Sales" in text
-    assert "__Anonymous_Sheet_DB__0" not in text
+    assert "Active Tab: __Anonymous_Sheet_DB__0 (internal; not summarized)" in text
+    assert "Inspected Sheet: Sales" in text
+    assert 'Pass sheet="Sales"' in text
+    assert "Active Sheet: Sales" not in text
     analyzer.get_sheet_summary.assert_called_once_with(sheet_name="Sales", include_extras=False)
 
 
@@ -139,9 +142,17 @@ def test_get_sheet_summary_header_normalization():
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=4, EndRow=1)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
-    sheet.getCellRangeByPosition.return_value.getDataArray.return_value = (
+    header_range = sheet.getCellRangeByPosition.return_value
+    header_range.getDataArray.return_value = (
         ("Name", 2024.0, 0.0, "A, B", ""),
     )
+
+    def _header_cell(col, _row):
+        cell = MagicMock()
+        cell.getString.return_value = "2024" if col == 1 else "0"
+        return cell
+
+    header_range.getCellByPosition.side_effect = _header_cell
     sheet.getCharts.return_value.getCount.return_value = 0
     sheet.getCharts.return_value.getElementNames.return_value = ()
     sheet.getAnnotations.return_value.getCount.return_value = 0
@@ -150,6 +161,26 @@ def test_get_sheet_summary_header_normalization():
 
     summary = SheetAnalyzer(bridge).get_sheet_summary()
     assert summary["headers"] == ["Name", "2024", "0", "A, B", None]
+
+
+def test_get_sheet_summary_header_uses_display_string_for_formatted_dates():
+    bridge = MagicMock()
+    sheet = bridge.get_active_sheet.return_value
+    sheet.getName.return_value = "Sheet1"
+    addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=2, EndRow=1)
+    sheet.createCursor.return_value.getRangeAddress.return_value = addr
+    header_range = sheet.getCellRangeByPosition.return_value
+    header_range.getDataArray.return_value = (("Name", 46239.0, "Amount"),)
+    header_range.getCellByPosition.return_value.getString.return_value = "2026-08-05"
+    sheet.getCharts.return_value.getCount.return_value = 0
+    sheet.getCharts.return_value.getElementNames.return_value = ()
+    sheet.getAnnotations.return_value.getCount.return_value = 0
+    sheet.getPropertyValue.return_value = False
+    sheet.DrawPage.getCount.return_value = 0
+
+    summary = SheetAnalyzer(bridge).get_sheet_summary()
+    assert summary["headers"] == ["Name", "2026-08-05", "Amount"]
+    header_range.getCellByPosition.assert_called_once_with(1, 0)
 
 
 def test_get_calc_context_for_chat_caps_columns_at_100():
@@ -302,8 +333,11 @@ def test_get_calc_context_for_chat_hidden_active_sheet_omits_selection():
     ):
         text = get_calc_context_for_chat(model, ctx=object())
 
-    assert "Active Sheet: Sales" in text
-    assert "Selection omitted: active tab is an internal sheet." in text
+    assert "Active Tab: __Anonymous_Sheet_DB__0 (internal; not summarized)" in text
+    assert "Inspected Sheet: Sales" in text
+    assert 'Pass sheet="Sales"' in text
+    assert "Selection omitted: the selection belongs to the internal active tab, not the inspected sheet." in text
+    assert "Active Sheet: Sales" not in text
     assert "Selection Content (CSV-like):" not in text
     analyzer.get_sheet_summary.assert_called_once_with(sheet_name="Sales", include_extras=False)
 

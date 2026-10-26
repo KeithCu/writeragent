@@ -253,7 +253,12 @@ def _apply_formula_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts
     if isinstance(rewritten, dict):
         return rewritten
     new_code, data_binding_text = rewritten
-    new_formula = build_editor_formula_save(parsed_parts=parsed_parts, new_code=new_code, cell_has_unparsed_python=_cell_has_unparsed_python(cell), data_binding_text=data_binding_text)
+    new_formula = build_editor_formula_save(
+        parsed_parts=parsed_parts,
+        new_code=new_code,
+        cell_has_unparsed_python=data_binding_text is None and _cell_has_unparsed_python(cell),
+        data_binding_text=data_binding_text,
+    )
     if isinstance(new_formula, dict):
         return new_formula
     cell.setFormula(new_formula)
@@ -266,6 +271,12 @@ def _apply_formula_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts
 
 def _apply_plain_text_save(doc: Any, cell: Any, *, new_code: str) -> dict[str, Any]:
     cell.setString(new_code)
+    # Bugfix: Plain text saves previously skipped after_py_cell_save, leaving
+    # stale geometric registry records for downgraded =PY() cells. Reconciling
+    # here prunes them.
+    from plugin.calc.python.geometric_recalc import after_py_cell_save
+
+    after_py_cell_save(doc, cell)
     _recalculate_after_save(doc)
     return {"type": "saved", "ok": True, "save_as_plain": True, "status_ok_text": _("Saved without =PY().")}
 
@@ -307,11 +318,17 @@ def editor_load_save_as_plain(*, parsed_parts: PythonFormulaParts | None, initia
 
 
 def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | None, new_code: str, save_as_plain: bool, data_binding_text: str | None = None, code_cell: Any | None = None, code_ref: str | None = None) -> dict[str, Any]:
-    if code_cell is not None and code_ref and not _same_calc_cell(code_cell, cell):
-        return _apply_followed_ref_save(doc, cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
-    if save_as_plain:
-        return _apply_plain_text_save(doc, cell, new_code=new_code)
-    return _apply_formula_save(doc, cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
+    # Bugfix: Follow saves rewrite both code and formula cells (plus geometric
+    # recalc) without grouping, so undo only reverted the last write. Wrapping
+    # in WriterCompoundUndo groups all writes into a single undo step.
+    from plugin.doc.compound_undo import WriterCompoundUndo
+
+    with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
+        if code_cell is not None and code_ref and not _same_calc_cell(code_cell, cell):
+            return _apply_followed_ref_save(doc, cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
+        if save_as_plain:
+            return _apply_plain_text_save(doc, cell, new_code=new_code)
+        return _apply_formula_save(doc, cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
 
 
 def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str, parsed_parts: PythonFormulaParts | None, exe: str, code_cell: Any | None = None, code_ref: str | None = None) -> None:

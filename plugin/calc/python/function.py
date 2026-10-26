@@ -900,6 +900,13 @@ def _spill_registry_doc_key(doc: Any) -> str:
         return ""
 
 
+def _spill_value_from_json(kind: str, value: Any) -> Any:
+    """Restore the "nan" / "inf" / "-inf" text written by save_spill_registry_for_doc (JSON has no non-finite floats)."""
+    if kind != "n" or not isinstance(value, str):
+        return value
+    return {"nan": math.nan, "inf": math.inf, "-inf": -math.inf}.get(value.lower(), value)
+
+
 def load_spill_registry_for_doc(doc: Any) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
     try:
@@ -938,7 +945,7 @@ def load_spill_registry_for_doc(doc: Any) -> None:
                                         c_val = c.get("col", 0)
                                     col = int(c_val or 0)
                                     t = str(c.get("t", c.get("kind", "u")))
-                                    v = c.get("v", c.get("value"))
+                                    v = _spill_value_from_json(t, c.get("v", c.get("value")))
                                     cells.append(SpillCell(row=r, col=col, kind=t, value=v))
                             SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = SpillRecord(code=code, cells=cells)
                         elif isinstance(value, list):
@@ -966,13 +973,16 @@ def save_spill_registry_for_doc(doc: Any) -> None:
             if k_url == doc_key:
                 cells_data = []
                 for c in record.cells:
+                    item: dict[str, Any] = {"r": c.row, "c": c.col, "t": c.kind}
                     if c.kind == "n" and isinstance(c.value, float) and not math.isfinite(c.value):
-                        cells_data.append({"r": c.row, "c": c.col, "t": "u"})
-                    else:
-                        item: dict[str, Any] = {"r": c.row, "c": c.col, "t": c.kind}
-                        if c.value is not None:
-                            item["v"] = c.value
-                        cells_data.append(item)
+                        # Bugfix: this used to be saved as kind "u" (unknown). Cleanup clears "u"
+                        # unconditionally, so saving and reloading made a later user edit of a NaN
+                        # spill cell disappear when the formula was deleted. Keep kind "n" and
+                        # write the value as text because JSON has no NaN/inf.
+                        item["v"] = "nan" if math.isnan(c.value) else ("inf" if c.value > 0 else "-inf")
+                    elif c.value is not None:
+                        item["v"] = c.value
+                    cells_data.append(item)
                 doc_spills[f"{sheet_name}:{frow},{fcol}"] = {
                     "code": record.code,
                     "cells": cells_data,

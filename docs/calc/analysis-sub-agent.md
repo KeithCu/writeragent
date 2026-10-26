@@ -30,7 +30,7 @@ This is the focused evolution of the high-level analysis ideas previously sketch
 ## Current Code State (grounded in actual implementation)
 
 **Existing narrow analysis (as of inspection of `plugin/calc/`):**
-- `plugin/calc/analysis.py`: `AnalyzeDataTool` (`analyze_data`), `GoalSeekTool` (`calc_goal_seek`), and `SolverTool` (`calc_solver`). Trusted helpers call `analysis_client.run_analysis` → venv worker; solvers use direct UNO (`doc.seekGoal`, `XSolver`). All under `specialized_domain = "analysis"` (`ToolCalcAnalysisBase` in `plugin/calc/base.py`).
+- `plugin/calc/analysis.py`: `AnalyzeDataTool` (`analyze_data`), `GoalSeekTool` (`calc_goal_seek`), and `SolverTool` (`calc_solver`). Trusted helpers call `plugin.scripting.client.run_analysis` → venv worker; solvers use direct UNO (`doc.seekGoal`, `XSolver`). These are `ToolBaseDummy` and are not registered for chat (see the module docstring).
 - `plugin/calc/analyzer.py`: `SheetAnalyzer.get_sheet_summary()` — structural (used range, row/col counts, headers, chart_count, annotations, merges, shapes). Not numeric analysis.
 - `plugin/calc/calc_addin_data.py` + `inspector.py`: Solid data extraction and shaping for Python (`read_range` → values, `pack_calc_data_for_wire`, NaN handling, size limits).
 - Python execution (the current "escape hatch" for real numpy work):
@@ -243,7 +243,7 @@ Existing Calc analysis (Goal Seek/Solver in `analysis-tools.md`) can be exposed 
 
 ## Implementation notes and phasing (Code-Grounded)
 
-**Trusted module + standard helpers (Phase 0 — implemented, interim)** — [`plugin/scripting/analysis.py`](../../plugin/scripting/analysis.py) + [`plugin/scripting/analysis_coerce.py`](../../plugin/scripting/analysis_coerce.py). Host RPC: [`plugin/framework/client/analysis_client.py`](../../plugin/framework/client/analysis_client.py) (`run_trusted_analysis` re-export). Follows the [`embeddings_index.py`](../../plugin/scripting/embeddings_index.py) pattern: fixed venv stub, unsandboxed numpy/pandas/sklearn/statsmodels stack. Helper *names* and the result contract stay stable; **implementations will be replaced** with battle-tested FOSS (see External code sources below).
+**Trusted module + standard helpers (Phase 0 — implemented, interim)** — [`plugin/scripting/analysis.py`](../../plugin/scripting/analysis.py) + [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py). Host RPC: [`plugin/scripting/client.py`](../../plugin/scripting/client.py) (`run_analysis`). Follows the [`embeddings_index.py`](../../plugin/scripting/embeddings_index.py) pattern: fixed venv stub, unsandboxed numpy/pandas/sklearn/statsmodels stack. Helper *names* and the result contract stay stable; **implementations will be replaced** with battle-tested FOSS (see External code sources below).
 
 ### External code sources — planned FOSS replacements
 
@@ -336,7 +336,7 @@ Useful FOSS to pull grouping/KPI/pipeline patterns into future helpers.
 
 | Library | Why excluded |
 |---------|--------------|
-| **pyjanitor** | Method-chaining ergonomics are great for humans but unneeded for RPC LLM spec calls. `clean_names()` destroys user-provided LibreOffice column names (we preserve them). Existing Calc-aware coercion (`analysis_coerce.py`) handles `#DIV/0!`, percentages, and currencies cell-by-cell better than generic pandas/pyjanitor equivalents. We stick to standard pandas for basic cleaning (`drop_duplicates`, `fillna`). |
+| **pyjanitor** | Method-chaining ergonomics are great for humans but unneeded for RPC LLM spec calls. `clean_names()` destroys user-provided LibreOffice column names (we preserve them). Existing Calc-aware coercion (`plugin/scripting/venv/coerce.py`) handles `#DIV/0!`, percentages, and currencies cell-by-cell better than generic pandas/pyjanitor equivalents. We stick to standard pandas for basic cleaning (`drop_duplicates`, `fillna`). |
 
 **Default Calc init-script snippet** (paste manually; not auto-injected):
 
@@ -415,7 +415,7 @@ Table rows capped at 50 (`MAX_TABLE_ROWS`). Errors use `code` + `message` (e.g. 
 Previously planned helpers (not yet separate tools):
 
 **Tool / domain surface (reuse existing machinery)**:
-- In `plugin/calc/analysis.py` (the existing file): Keep the solvers. Add a few high-level tools (`analyze_data`, `find_and_analyze_relevant_ranges`, `get_analysis_result_for_writer_cleanup`, etc.) that call the trusted helpers or fall back to the python domain. Register them under a `ToolCalcAnalysisBase` (or expand the "solvers" base + rename the domain to "analysis" for discoverability; see `base.py`).
+- In `plugin/calc/analysis.py` (the existing file): Keep the solvers. Add a few high-level tools (`analyze_data`, `find_and_analyze_relevant_ranges`, `get_analysis_result_for_writer_cleanup`, etc.) that call the trusted helpers or fall back to the python domain. Register them under a new base derived from ToolCalcSpecialBase (or expand the "solvers" base + rename the domain to "analysis" for discoverability; see `base.py`).
 - `plugin/calc/base.py`: Add the base class + domain definition (reuse the "intent = 'analyze'" pattern).
 - The delegation gateway (`specialized.py`) and smol sub-agent path (`specialized_base.py`) will automatically pick up the new tools when `domain="analysis"`.
 - For Calc callers: full power (high-level helpers preferred; raw python domain as escape hatch).
@@ -501,7 +501,7 @@ A critical architectural issue is how to pass large datasets to the analysis sub
    - *Pros:* Very close to how human analysts work in notebooks. The LLM gets immediate situational awareness from the summary.
    - *Cons:* Adds statefulness to the LLM interaction loop, which can be brittle.
 
-**Current enforcement (preferred path):** For the `analysis` domain, `ToolCalcAnalysisBase.required_core_tools` only pulls in `get_sheet_summary` (cheap structural metadata). `read_cell_range` is deliberately excluded so the sub-agent LLM never receives full cell values in its tool results / observations. Analysis tools (`analyze_data`, and `run_venv_python_script` for the python domain) accept `data_range` (A1 address); the host resolves + shapes via the existing main-thread + `calc_addin_data` + `payload_codec` path before the IPC hop to the venv. Tool descriptions and sub-agent hints were updated to guide toward addresses. This realizes Option 1 for Calc-resident data without new state or I/O.
+**Current enforcement (preferred path):** For the python/sql surface, `ToolCalcPythonSqlBase.required_core_tools` carries the "no read_cell_range" rule and only pulls in `get_sheet_summary` (cheap structural metadata). `read_cell_range` is deliberately excluded so the sub-agent LLM never receives full cell values in its tool results / observations. Analysis tools (`analyze_data`, and `run_venv_python_script` for the python domain) accept `data_range` (A1 address); the host resolves + shapes via the existing main-thread + `calc_addin_data` + `payload_codec` path before the IPC hop to the venv. Tool descriptions and sub-agent hints were updated to guide toward addresses. This realizes Option 1 for Calc-resident data without new state or I/O.
 
 ---
 

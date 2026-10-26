@@ -119,11 +119,15 @@ class ConversionReport:
     normalized_py: list[str] = field(default_factory=list)
     pass_through: list[str] = field(default_factory=list)
 
-    def conversion_rate(self, *, formula_denominator: int | None = None) -> float:
-        denom = formula_denominator if formula_denominator is not None else (len(self.converted) + len(self.skipped) + len(self.pass_through))
-        if denom <= 0:
+    def formula_total(self) -> int:
+        """Distinct formula-like cells considered; a cell with a reason is counted once."""
+        return len(set(self.converted) | set(self.pass_through) | {todo.address for todo in self.skipped})
+
+    def conversion_rate(self) -> float:
+        total = self.formula_total()
+        if total <= 0:
             return 0.0
-        return len(self.converted) / denom
+        return len(self.converted) / total
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -131,7 +135,7 @@ class ConversionReport:
         return payload
 
     def summary(self) -> str:
-        total = len(self.converted) + len(self.skipped) + len(self.pass_through)
+        total = self.formula_total()
         pct = 100.0 * self.conversion_rate() if total else 0.0
         return f"Converted {len(self.converted)} / {total} formula cells ({pct:.1f}%)"
 

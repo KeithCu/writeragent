@@ -145,10 +145,33 @@ def test_apply_output_to_sheet():
 
     cells[(0, 0)].setFormula.assert_called_once_with("=SUM(1, 2)")
     cells[(1, 0)].setFormula.assert_called_once_with("{=A1:A2}")
-    cells[(2, 0)].setString.assert_called_once_with("")
+    assert (2, 0) not in cells
     cells[(3, 0)].setValue.assert_called_once_with(42.5)
     cells[(3, 0)].setPropertyValue.assert_called_once_with("NumberFormat", 5)
     cells[(4, 0)].setString.assert_called_once_with("hello")
+
+
+def test_apply_output_empty_model_does_not_raise():
+    model = ingest_from_arrays(sheet_name="S", start_col=0, start_row=0, data_array=[], formula_array=[])
+    output = build_output_model(model)
+    sheet = MagicMock()
+    apply_output_to_sheet(sheet, output)
+    assert sheet.getCellByPosition.call_count == 0
+
+
+def test_apply_output_ragged_model_writes_only_existing_cells():
+    model = ingest_from_arrays(
+        sheet_name="S",
+        start_col=0,
+        start_row=0,
+        data_array=[[1.0, 2.0], [3.0]],
+        formula_array=[["", ""], [""]],
+    )
+    output = build_output_model(model)
+    sheet = MagicMock()
+    apply_output_to_sheet(sheet, output)
+    assert sheet.getCellByPosition.call_count == 3
+    assert ("B2" in output.cells) is False
 
 
 def test_apply_output_keeps_text_that_looks_numeric():

@@ -13,6 +13,7 @@ Provides the runtime state, UNO listeners, and document reconciliation for:
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import logging
 import threading
@@ -33,7 +34,6 @@ from plugin.calc.python.geometric_recalc_core import (
     SheetRepairResult,
     compute_eval_index,
     compute_sheet_repair,
-    discovery_cap_hit,
     geometric_cap_hit_user_message,
     local_a1,
     resolved_code_for_formula,
@@ -261,14 +261,18 @@ def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
     """Cell contents of an unquoted ``=PY($A$1)`` code ref (resolved source)."""
     sheet_name, rest = split_sheet_prefix(ref)
     local = rest.replace("$", "").strip()
-    sheet = default_sheet
-    if sheet_name and doc is not None:
+    if sheet_name:
+        if doc is None:
+            return ""
         try:
             sheet = doc.getSheets().getByName(sheet_name)
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
             log.warning("geometric_recalc: getByName(%s) failed", sheet_name, exc_info=True)
+            return ""
+    else:
+        sheet = default_sheet
     if sheet is None or not local:
         return ""
     try:
@@ -391,9 +395,10 @@ def _rebuild_strip_safe_from_doc(
             cells = known[sheet_name]
         else:
             cells, sheet_name, truncated = geometric_cells_on_sheet(doc, sheet)
-            if discovery_cap_hit(len(cells), truncated=truncated):
+            if truncated:
                 notify_geometric_cap_hit(ctx, sheet_name, workbook_key=workbook_key)
-                continue
+                replace_geometric_strip_safe(workbook_key, frozenset())
+                return
         for cell in cells:
             scoped = f"{sheet_name}:{local_a1(cell.address)}"
             all_cells.append(GeometricCell(scoped, cell.formula, cell.resolved_code))
@@ -408,15 +413,12 @@ def _repair_one_sheet(
     doc: Any,
     sheet: Any,
     workbook_key: str,
-    *,
-    apply_patches: bool = True,
 ) -> tuple[SheetRepairResult, list[GeometricCell]]:
     cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
     incoming = records_for_sheet(workbook_key, name)
     result = compute_sheet_repair(
         cells,
         incoming,
-        workbook_key=workbook_key,
         sheet_name=name,
         truncated=truncated,
     )
@@ -426,7 +428,7 @@ def _repair_one_sheet(
 
     final_records = dict(result.records)
     actual_cells = cells
-    if apply_patches and result.patches:
+    if result.patches:
         applied_addrs = _apply_patches_to_sheet(sheet, result.patches)
         # An unapplied patch reverts its key to the pre-patch state: keep
         # the incoming record when there was one, otherwise leave the key
@@ -447,16 +449,7 @@ def _repair_one_sheet(
         for patch in result.patches:
             if local_a1(patch.address) in applied_addrs:
                 actual_formulas[patch.address] = patch.new_formula
-        strip_safe = compute_eval_index(cells, actual_formulas, final_records, workbook_key)
-        result = SheetRepairResult(
-            skipped=result.skipped,
-            skip_reason=result.skip_reason,
-            patches=result.patches,
-            records=final_records,
-            strip_safe=strip_safe,
-            user_message=result.user_message,
-            sheet_name=result.sheet_name,
-        )
+        result = replace(result, records=final_records)
         actual_cells = [
             GeometricCell(
                 address=cell.address,
@@ -465,8 +458,6 @@ def _repair_one_sheet(
             )
             for cell in cells
         ]
-    elif not apply_patches:
-        final_records = dict(incoming)
 
     replace_records_for_sheet(workbook_key, name, final_records)
     return result, actual_cells
@@ -496,7 +487,7 @@ def reconcile(
             sheet_list = _iter_sheets(doc) if target_sheets is None else list(target_sheets)
             for sheet in sheet_list:
                 ensure_sheet_modify_listener(ctx, doc, sheet)
-                res, live_cells = _repair_one_sheet(ctx, doc, sheet, workbook_key, apply_patches=True)
+                res, live_cells = _repair_one_sheet(ctx, doc, sheet, workbook_key)
                 if not res.skipped:
                     repaired_sheets[res.sheet_name] = live_cells
             save_geometric_registry_for_doc(doc, workbook_key)
@@ -556,6 +547,11 @@ def ensure_geometric_strip_index_for_eval(doc: Any, ctx: Any = None) -> None:
     if geometric_flag_enabled() and any(key.workbook_key == workbook_key for key in current_geometric_strip_safe()):
         return
     load_geometric_registry_for_doc(doc)
+    with _RUNTIME.lock:
+        has_records = any(key[0] == workbook_key for key in _RUNTIME.records)
+    if not has_records:
+        replace_geometric_strip_safe(workbook_key, frozenset())
+        return
     _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
 
 

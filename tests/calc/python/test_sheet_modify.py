@@ -21,12 +21,15 @@ from plugin.calc.python.function import (
 from plugin.calc.python.sheet_modify import (
     SheetModifyDispatcher,
     _PENDING_TIMERS,
+    _doc_url_of,
+    _sheet_name_of,
     cancel_pending_sheet_timers,
     dispatch_sheet_modified,
     ensure_sheet_modify_listener,
     flush_sheet_modify_pass_for_tests,
     migrate_sheet_rename,
     reset_sheet_modify_runtime_for_tests,
+    run_sheet_modify_pass,
     schedule_sheet_modify_pass,
 )
 from plugin.tests.testing_utils import CalcDocStub
@@ -371,5 +374,41 @@ def test_unload_drops_pending_sheet_timer(monkeypatch: pytest.MonkeyPatch) -> No
     cancel_pending_sheet_timers("")
     assert ("uid-keep", "Sheet1") in _PENDING_TIMERS
     assert timer_keep.cancelled is False
+
+
+def test_doc_url_and_sheet_name_read_failures_return_empty() -> None:
+    class FailingUNO:
+        def getURL(self) -> str:
+            raise RuntimeError("DisposedException")
+
+        def getName(self) -> str:
+            raise RuntimeError("DisposedException")
+
+    obj = FailingUNO()
+    assert _doc_url_of(obj) == ""
+    assert _sheet_name_of(obj) == ""
+    assert _doc_url_of(None) == ""
+    assert _sheet_name_of(None) == ""
+
+    class EmptyName:
+        def getName(self) -> str:
+            return ""
+
+    assert _sheet_name_of(EmptyName()) == ""
+
+
+def test_posted_pass_with_unreadable_sheet_name_skips_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///gone.ods", props={"RuntimeUID": "uid-gone"})
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getName = lambda: ""
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
+
+    def fail_cleanup(*args, **kwargs):
+        raise AssertionError("spill cleanup must not run")
+
+    monkeypatch.setattr("plugin.calc.python.function.CalcSpillModifyListener", fail_cleanup)
+    run_sheet_modify_pass("ctx", doc, sheet)
+
 
 

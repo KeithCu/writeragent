@@ -109,7 +109,7 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 |----|--------|---------|----------|
 | US1 | Calc user | to convert the **active sheet** to Python | I can use NumPy on existing logic without retyping |
 | US2 | Calc user | to convert **only my selection** | I can migrate one table at a time |
-| US3 | Calc user | output on a **new sheet** `PythonImport` | I can diff against the original before replacing |
+| US3 | Calc user | output on a **new sheet** `PythonImport` (suffixed `PythonImport 2`, … if taken) | I can diff against the original before replacing |
 | US4 | Calc user | a **conversion report** | I know which formulas still need manual work |
 | US5 | Chat user | to say “convert this range to Python” | the agent runs the tool and shows the report |
 | US6 | Power user | existing `=PY()` cells **normalized** not duplicated | Monaco-edited code stays canonical |
@@ -149,7 +149,7 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 | LibreOffice `;` vs Excel `,` in formulas | Wrong AST / wrong Python | Normalize at ingest; corpus includes `.ods` and `.xlsx` |
 | Localized function names (`SOMME`, `WENN`) | Translator misses calls | Map via `FunctionOpCodeMapper` + English canonical names |
 | Array / matrix formulas | Low automation | Leave as Calc + TODO; document in report |
-| Circular references | Infinite recalc | Detect cycle in graph; skip with `CIRCULAR_REF` |
+| Circular references | Infinite recalc | Only true cycle cells are skipped with `CIRCULAR_REF`; cells downstream of a cycle convert normally and Calc propagates the error through the `data` range |
 | Float / date semantics | False verify failures | Use same rules as [calc-py-data-shapes](py-data-shapes.md#empty-cells-vs-nan) |
 | Main-thread UNO on large sheets | UI freeze | Batch reads (`getDataArray`); optional background ingest later |
 | 90% marketing vs reality | User trust | Report exact %; never silent fallback |

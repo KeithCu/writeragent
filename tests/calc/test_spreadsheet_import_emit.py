@@ -76,3 +76,37 @@ def test_emit_unparseable_formula_handled_gracefully():
     assert any(todo.address == "A1" for todo in report.skipped)
 
 
+def test_emit_deep_formula_does_not_abort_sheet():
+    deep = "=" + "1+" * 3000 + "1"
+    cells = {
+        "A1": CellRecord(address="A1", type="formula", value=0, formula=deep, number_format=None),
+        "B1": CellRecord(address="B1", type="constant", value=3, formula=None, number_format=None),
+    }
+    model = SheetModel(sheet_name="Sheet1", used_range="A1:B1", cells=cells)
+    output, report = build_converted_output_model(model)
+
+    assert output.cells["A1"].formula == deep
+    assert output.cells["B1"].value == 3
+    assert any(todo.address == "A1" and todo.reason == "EMIT_ERROR" for todo in report.skipped)
+
+
+def test_emit_one_bad_cell_does_not_abort_sheet(monkeypatch):
+    import plugin.calc.spreadsheet_import.emit as emit_mod
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("emitter exploded")
+
+    monkeypatch.setattr(emit_mod, "emit_py_formula", _boom)
+    cells = {
+        "A1": CellRecord(address="A1", type="formula", value=0, formula="=ABS(1)*2", number_format=None),
+        "B1": CellRecord(address="B1", type="formula", value=0, formula="=ROUNDUP(1;0)", number_format=None),
+        "C1": CellRecord(address="C1", type="constant", value=7, formula=None, number_format=None),
+    }
+    model = SheetModel(sheet_name="Sheet1", used_range="A1:C1", cells=cells)
+    output, report = build_converted_output_model(model)
+
+    assert output.cells["C1"].value == 7
+    assert output.cells["A1"].formula == "=ABS(1)*2"
+    assert output.cells["B1"].formula == "=ROUNDUP(1;0)"
+    assert sorted(t.address for t in report.skipped if t.reason == "EMIT_ERROR") == ["A1", "B1"]
+    assert report.converted == []

@@ -15,7 +15,11 @@ from plugin.framework.errors import uno_probe
 
 CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
 
-_LOCATE_MEMO: contextvars.ContextVar[dict[tuple[int, str], tuple[Any, Any, tuple[int, int]] | None] | None] = contextvars.ContextVar("_LOCATE_MEMO", default=None)
+_Location = tuple[Any, Any, tuple[int, int]]
+_LocateMemo = dict[tuple[int, str], _Location | None]
+
+# One memo per add-in execution (bind_formula_locate_memo); a None value means no unique origin.
+_LOCATE_MEMO: contextvars.ContextVar[_LocateMemo | None] = contextvars.ContextVar("_LOCATE_MEMO", default=None)
 
 
 @contextmanager
@@ -73,13 +77,8 @@ def _resolve_ref_cell(sheet: Any, doc: Any | None, code_ref: str) -> Any | None:
                 target_sheet = sheet
             elif doc is not None and hasattr(doc, "getSheets"):
                 sheets = doc.getSheets()
-                if hasattr(sheets, "hasByName") and sheets.hasByName(sheet_prefix):
-                    target_sheet = sheets.getByName(sheet_prefix)
-                elif hasattr(sheets, "getByName"):
-                    target_sheet = uno_probe(lambda: sheets.getByName(sheet_prefix), None)
-                    if target_sheet is None:
-                        return None
-                else:
+                target_sheet = uno_probe(lambda: sheets.getByName(sheet_prefix), None) if hasattr(sheets, "getByName") else None
+                if target_sheet is None:
                     return None
             else:
                 return None
@@ -112,13 +111,13 @@ def is_matching_py_formula(formula: str, code_str: str, *, sheet: Any | None = N
 
 
 def iter_range_formula_texts(sheet: Any, cell_range: Any, *, skip_cell_errors: bool = False) -> Iterator[tuple[int, int, str]]:
-    """Yield (row, col, formula_text). getFormulas() runs before the first yield.
+    """Yield (row, col, formula_text). getFormulaArray() runs before the first yield.
     Fallback getFormula() errors propagate unless skip_cell_errors."""
     addr = cell_range.getRangeAddress()
-    formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
+    formula_matrix = uno_probe(cell_range.getFormulaArray, None) if hasattr(cell_range, "getFormulaArray") else None
 
     def _gen() -> Iterator[tuple[int, int, str]]:
-        if formula_matrix is not None and len(formula_matrix) > 0:
+        if isinstance(formula_matrix, (list, tuple)) and len(formula_matrix) > 0:
             for r_idx, row_formulas in enumerate(formula_matrix):
                 row = addr.StartRow + r_idx
                 for c_idx, formula in enumerate(row_formulas):
@@ -173,24 +172,9 @@ def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | Non
 
 def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
     """Matching formula cells in *cell_range*. A multi-cell array formula of the same code is one origin."""
-    addr = cell_range.getRangeAddress()
     raw_hits: list[tuple[Any, int, int]] = []
 
-    formula_array: Any = uno_probe(cell_range.getFormulaArray, None) if hasattr(cell_range, "getFormulaArray") else None
-
-    def _candidates() -> Iterator[tuple[str, int, int]]:
-        if formula_array is not None and isinstance(formula_array, (list, tuple)):
-            for r_offset, row_formulas in enumerate(formula_array):
-                r = addr.StartRow + r_offset
-                for c_offset, formula in enumerate(row_formulas):
-                    yield (str(formula or ""), r, addr.StartColumn + c_offset)
-        else:
-            for r in range(addr.StartRow, addr.EndRow + 1):
-                for c in range(addr.StartColumn, addr.EndColumn + 1):
-                    cell = sheet.getCellByPosition(c, r)
-                    yield (str(cell.getFormula() or ""), r, c)
-
-    for formula_str, r, c in _candidates():
+    for r, c, formula_str in iter_range_formula_texts(sheet, cell_range):
         if not formula_str:
             continue
         upper = formula_str.upper()
@@ -225,13 +209,13 @@ def search_sheet_for_formula(sheet: Any, code_str: str, doc: Any | None = None) 
     first-match would spill into the wrong formula. Matrix/array formulas are one origin
     (top-left of the formula range).
     """
-    matches = collect_matching_formula_origins(sheet, code_str, doc=doc)
+    matches = _collect_matching_formula_origins(sheet, code_str, doc=doc)
     if len(matches) == 1:
         return matches[0]
     return None
 
 
-def collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
+def _collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
     """All matching formula origins on *sheet* (one per queryContentCells range)."""
     found: list[tuple[Any, int, int]] = []
     formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
@@ -244,7 +228,7 @@ def collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None 
     return found
 
 
-def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str) -> tuple[Any, Any, tuple[int, int]] | None:
+def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str) -> _Location | None:
     """Find unique (sheet, cell, (row, col)) for this Python formula in *doc*.
 
     Returns None when zero or two+ origins match: XAddIn has no calling cell, so
@@ -258,7 +242,7 @@ def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str) -> tuple[Any, 
     if memo is not None and cache_key in memo:
         return memo[cache_key]
 
-    collected: list[tuple[Any, Any, tuple[int, int]]] = []
+    collected: list[_Location] = []
     seen: set[tuple[str, int, int]] = set()
 
     def _add(sheet: Any, cell: Any, row: int, col: int) -> None:
@@ -269,13 +253,13 @@ def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str) -> tuple[Any, 
         seen.add(key)
         collected.append((sheet, cell, (row, col)))
 
-    res: tuple[Any, Any, tuple[int, int]] | None = None
+    res: _Location | None = None
     sheets = doc.getSheets() if hasattr(doc, "getSheets") else None
     if sheets is not None:
         count = sheets.getCount() if hasattr(sheets, "getCount") else 0
         for i in range(count):
             sheet = sheets.getByIndex(i)
-            for cell, r, c in collect_matching_formula_origins(sheet, code_str, doc=doc):
+            for cell, r, c in _collect_matching_formula_origins(sheet, code_str, doc=doc):
                 _add(sheet, cell, r, c)
                 if len(collected) > 1:
                     if memo is not None and cache_key is not None:

@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.contrib.calc_formula_parser import FunctionNode, OperandNode, OperatorNode, RangeNode, parse_formula
-from plugin.calc.python.formula_edit import sanitize_inline_py_code
 from plugin.calc.spreadsheet_import.models import TranslationResult
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.calc.address_utils import parse_address, parse_range_string, split_sheet_prefix
@@ -172,11 +171,11 @@ def _emit_row_col(axis: int, is_count: bool, node: FunctionNode, state: _Codegen
             clean_ref = bare.replace("$", "")
             try:
                 (sc, sr), (ec, er) = parse_range_string(clean_ref)
-                return f"float({abs(er - sr) + 1})" if axis == 0 else f"float({abs(ec - sc) + 1})"
+                return f"np.float64({abs(er - sr) + 1})" if axis == 0 else f"np.float64({abs(ec - sc) + 1})"
             except ValueError:
                 pass
         expr = _emit_expr(arg, state, cell_addr)
-        return f"float(np.asarray({expr}).shape[{axis}])"
+        return f"np.float64(np.asarray({expr}).shape[{axis}])"
 
     # ROW / COLUMN:
     if not node.args:
@@ -187,7 +186,7 @@ def _emit_row_col(axis: int, is_count: bool, node: FunctionNode, state: _Codegen
             raise UnsupportedRef("ROW/COLUMN without reference requires cell_addr")
         try:
             col_idx, row_idx = parse_address(cell_addr.replace("$", ""))
-            return f"float({row_idx + 1})" if axis == 0 else f"float({col_idx + 1})"
+            return f"np.float64({row_idx + 1})" if axis == 0 else f"np.float64({col_idx + 1})"
         except ValueError as exc:
             raise UnsupportedRef(f"Cannot parse cell address {cell_addr}") from exc
 
@@ -208,12 +207,12 @@ def _emit_row_col(axis: int, is_count: bool, node: FunctionNode, state: _Codegen
 
     if axis == 0:
         if sr == er:
-            return f"float({sr + 1})"
+            return f"np.float64({sr + 1})"
         rows = [float(r) for r in range(sr + 1, er + 2)]
         return f"np.array({rows}, dtype=float)"
     else:
         if sc == ec:
-            return f"float({sc + 1})"
+            return f"np.float64({sc + 1})"
         cols = [float(c) for c in range(sc + 1, ec + 2)]
         return f"np.array({cols}, dtype=float)"
 
@@ -356,7 +355,7 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "MAX": lambda a: (f"np.nanmax({a[0]})" if len(a) == 1 else f"np.nanmax([np.nanmax(x) for x in [{', '.join(a)}]])") if len(a) >= 1 else _bad_arity("MAX", ">=1", 0),
     "MIN": lambda a: (f"np.nanmin({a[0]})" if len(a) == 1 else f"np.nanmin([np.nanmin(x) for x in [{', '.join(a)}]])") if len(a) >= 1 else _bad_arity("MIN", ">=1", 0),
     "COUNT": lambda a: (f"np.sum(np.isfinite(np.asarray({a[0]}, dtype=float).ravel()))" if len(a) == 1 else f"sum(np.sum(np.isfinite(np.asarray(x, dtype=float).ravel())) for x in [{', '.join(a)}])") if len(a) >= 1 else _bad_arity("COUNT", ">=1", 0),
-    "COUNTA": lambda a: (f"sum(1 for x in np.asarray({a[0]}).ravel() if x is not None and str(x) != '')" if len(a) == 1 else f"sum(sum(1 for val in np.asarray(x).ravel() if val is not None and str(val) != '') for x in [{', '.join(a)}])") if len(a) >= 1 else _bad_arity("COUNTA", ">=1", 0),
+    "COUNTA": lambda a: (f"sum(1 for x in np.asarray({a[0]}).ravel() if x is not None and calc.py_str(x) != '')" if len(a) == 1 else f"sum(sum(1 for val in np.asarray(x).ravel() if val is not None and calc.py_str(val) != '') for x in [{', '.join(a)}])") if len(a) >= 1 else _bad_arity("COUNTA", ">=1", 0),
     "ABS": _exact("ABS", 1, "np.abs({0})"),
     "SQRT": _exact("SQRT", 1, "np.sqrt({0})"),
     "SIGN": _exact("SIGN", 1, "np.sign({0})"),
@@ -371,7 +370,7 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     # becomes (1/np.log(a)/np.log(b)).
     "MOD": _exact("MOD", 2, "({0} % {1})"),
     "POWER": _exact("POWER", 2, "({0} ** {1})"),
-    "ROUND": lambda a: (f"np.round({a[0]}, {a[1]})" if len(a) > 1 else f"np.round({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("ROUND", "1-2", len(a)),
+    "ROUND": lambda a: (f"(np.sign({a[0]}) * np.floor(np.abs({a[0]}) * 10.0**np.asarray({a[1]}, dtype=np.int64) + 0.5) / 10.0**np.asarray({a[1]}, dtype=np.int64))" if len(a) > 1 else f"(np.sign({a[0]}) * np.floor(np.abs({a[0]}) + 0.5))") if 1 <= len(a) <= 2 else _bad_arity("ROUND", "1-2", len(a)),
     "SIN": _exact("SIN", 1, "np.sin({0})"),
     "COS": _exact("COS", 1, "np.cos({0})"),
     "TAN": _exact("TAN", 1, "np.tan({0})"),
@@ -383,27 +382,27 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "AND": lambda a: f"all([{', '.join(a)}])" if len(a) >= 1 else _bad_arity("AND", ">=1", 0),
     "OR": lambda a: f"any([{', '.join(a)}])" if len(a) >= 1 else _bad_arity("OR", ">=1", 0),
     # Text (P2)
-    "CONCATENATE": lambda a: f'"".join(str(x) for x in [{", ".join(a)}])',
-    "CONCAT": lambda a: f'"".join(str(x) for x in np.asarray([{", ".join(a)}]).ravel())',
-    "LEFT": lambda a: (f"str({a[0]})[:int({a[1]})]" if len(a) > 1 else f"str({a[0]})[:1]") if 1 <= len(a) <= 2 else _bad_arity("LEFT", "1-2", len(a)),
-    "RIGHT": lambda a: (f"str({a[0]})[-int({a[1]}):]" if len(a) > 1 else f"str({a[0]})[-1:]") if 1 <= len(a) <= 2 else _bad_arity("RIGHT", "1-2", len(a)),
-    "MID": _exact("MID", 3, "str({0})[max(0, int({1})-1) : max(0, int({1})-1) + int({2})]"),
-    "LEN": _exact("LEN", 1, "float(len(str({0})))"),
-    "LOWER": _exact("LOWER", 1, "str({0}).lower()"),
-    "UPPER": _exact("UPPER", 1, "str({0}).upper()"),
-    "PROPER": _exact("PROPER", 1, "str({0}).title()"),
-    "TRIM": _exact("TRIM", 1, "str({0}).strip()"),
-    "SUBSTITUTE": lambda a: (f"str({a[0]}).replace(str({a[1]}), str({a[2]}))" if len(a) > 2 else f'str({a[0]}).replace(str({a[1]}), "")') if 2 <= len(a) <= 4 else _bad_arity("SUBSTITUTE", "2-4", len(a)),
-    "REPLACE": lambda a: f"(str({a[0]})[:max(0, int({a[1]})-1)] + str({a[3]}) + str({a[0]})[max(0, int({a[1]})-1) + int({a[2]}):])" if len(a) == 4 else _bad_arity("REPLACE", 4, len(a)),
-    "FIND": lambda a: f"float(str({a[1]}).find(str({a[0]})) + 1)" if 2 <= len(a) <= 3 else _bad_arity("FIND", "2-3", len(a)),
-    "SEARCH": lambda a: f"float(str({a[1]}).lower().find(str({a[0]}).lower()) + 1)" if 2 <= len(a) <= 3 else _bad_arity("SEARCH", "2-3", len(a)),
-    "VALUE": _exact("VALUE", 1, "float({0})"),
+    "CONCATENATE": lambda a: f'"".join(calc.py_str(x) for x in [{", ".join(a)}])',
+    "CONCAT": lambda a: f'"".join(calc.py_str(x) for x in np.asarray([{", ".join(a)}]).ravel())',
+    "LEFT": lambda a: (f"calc.py_str({a[0]})[:np.int64({a[1]})]" if len(a) > 1 else f"calc.py_str({a[0]})[:1]") if 1 <= len(a) <= 2 else _bad_arity("LEFT", "1-2", len(a)),
+    "RIGHT": lambda a: (f"calc.py_str({a[0]})[-np.int64({a[1]}):]" if len(a) > 1 else f"calc.py_str({a[0]})[-1:]") if 1 <= len(a) <= 2 else _bad_arity("RIGHT", "1-2", len(a)),
+    "MID": _exact("MID", 3, "calc.py_str({0})[max(0, np.int64({1})-1) : max(0, np.int64({1})-1) + np.int64({2})]"),
+    "LEN": _exact("LEN", 1, "np.float64(len(calc.py_str({0})))"),
+    "LOWER": _exact("LOWER", 1, "calc.py_str({0}).lower()"),
+    "UPPER": _exact("UPPER", 1, "calc.py_str({0}).upper()"),
+    "PROPER": _exact("PROPER", 1, "calc.py_str({0}).title()"),
+    "TRIM": _exact("TRIM", 1, "calc.py_str({0}).strip()"),
+    "SUBSTITUTE": lambda a: (f"calc.py_str({a[0]}).replace(calc.py_str({a[1]}), calc.py_str({a[2]}))" if len(a) > 2 else f'calc.py_str({a[0]}).replace(calc.py_str({a[1]}), "")') if 2 <= len(a) <= 4 else _bad_arity("SUBSTITUTE", "2-4", len(a)),
+    "REPLACE": lambda a: f"(calc.py_str({a[0]})[:max(0, np.int64({a[1]})-1)] + calc.py_str({a[3]}) + calc.py_str({a[0]})[max(0, np.int64({a[1]})-1) + np.int64({a[2]}):])" if len(a) == 4 else _bad_arity("REPLACE", 4, len(a)),
+    "FIND": lambda a: f"np.float64(calc.py_str({a[1]}).find(calc.py_str({a[0]})) + 1)" if 2 <= len(a) <= 3 else _bad_arity("FIND", "2-3", len(a)),
+    "SEARCH": lambda a: f"np.float64(calc.py_str({a[1]}).lower().find(calc.py_str({a[0]}).lower()) + 1)" if 2 <= len(a) <= 3 else _bad_arity("SEARCH", "2-3", len(a)),
+    "VALUE": _exact("VALUE", 1, "np.asarray({0}, dtype=np.float64)"),
     # Date & Time (P2) — use auto-imported ``dt`` (datetime as dt)
-    "TODAY": lambda _a: "float(dt.date.today().toordinal() - 693594)",
-    "NOW": lambda _a: "float(dt.datetime.now().toordinal() - 693594)",
-    "YEAR": _exact("YEAR", 1, "float(dt.date.fromordinal(int({0}) + 693594).year)"),
-    "MONTH": _exact("MONTH", 1, "float(dt.date.fromordinal(int({0}) + 693594).month)"),
-    "DAY": _exact("DAY", 1, "float(dt.date.fromordinal(int({0}) + 693594).day)"),
+    "TODAY": lambda _a: "np.float64(dt.date.today().toordinal() - 693594)",
+    "NOW": lambda _a: "np.float64(dt.datetime.now().toordinal() - 693594)",
+    "YEAR": _exact("YEAR", 1, "np.float64(dt.date.fromordinal(np.int64({0}) + 693594).year)"),
+    "MONTH": _exact("MONTH", 1, "np.float64(dt.date.fromordinal(np.int64({0}) + 693594).month)"),
+    "DAY": _exact("DAY", 1, "np.float64(dt.date.fromordinal(np.int64({0}) + 693594).day)"),
     # Statistical (P2)
     "STDEV": _at_least_one("STDEV", "np.std({0}, ddof=1)"),
     "STDEVP": _at_least_one("STDEVP", "np.std({0}, ddof=0)"),
@@ -411,10 +410,10 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "VARP": _at_least_one("VARP", "np.var({0}, ddof=0)"),
     "TRANSPOSE": _exact("TRANSPOSE", 1, "np.asarray({0}).T.tolist()"),
     # Lookup & Reference (P2)
-    "VLOOKUP": lambda a: f"next((r[int({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), None)" if 3 <= len(a) <= 4 else _bad_arity("VLOOKUP", "3-4", len(a)),
-    "HLOOKUP": lambda a: f"next((np.asarray({a[1]})[int({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), None)" if 3 <= len(a) <= 4 else _bad_arity("HLOOKUP", "3-4", len(a)),
-    "INDEX": lambda a: (f"np.asarray({a[0]})[int({a[1]})-1, int({a[2]})-1]" if len(a) > 2 else f"np.asarray({a[0]})[int({a[1]})-1]") if 2 <= len(a) <= 4 else _bad_arity("INDEX", "2-4", len(a)),
-    "MATCH": lambda a: f"float(next((i+1 for i, val in enumerate(np.asarray({a[1]}).ravel()) if val == {a[0]}), -1))" if 2 <= len(a) <= 3 else _bad_arity("MATCH", "2-3", len(a)),
+    "VLOOKUP": lambda a: f"next((r[np.int64({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), None)" if 3 <= len(a) <= 4 else _bad_arity("VLOOKUP", "3-4", len(a)),
+    "HLOOKUP": lambda a: f"next((np.asarray({a[1]})[np.int64({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), None)" if 3 <= len(a) <= 4 else _bad_arity("HLOOKUP", "3-4", len(a)),
+    "INDEX": lambda a: (f"np.asarray({a[0]})[np.int64({a[1]})-1, np.int64({a[2]})-1]" if len(a) > 2 else f"np.asarray({a[0]})[np.int64({a[1]})-1]") if 2 <= len(a) <= 4 else _bad_arity("INDEX", "2-4", len(a)),
+    "MATCH": lambda a: f"np.float64(next((i+1 for i, val in enumerate(np.asarray({a[1]}).ravel()) if val == {a[0]}), -1))" if 2 <= len(a) <= 3 else _bad_arity("MATCH", "2-3", len(a)),
     # Logical (P2)
     "IFERROR": _exact("IFERROR", 2, "calc.iferror(lambda: {0}, {1})"),
     "IFNA": _exact("IFNA", 2, "calc.ifna(lambda: {0}, {1})"),
@@ -432,11 +431,11 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "DEGREES": _exact("DEGREES", 1, "np.degrees({0})"),
     "RADIANS": _exact("RADIANS", 1, "np.radians({0})"),
     "GCD": lambda a: f"math.gcd({', '.join(a)})" if len(a) > 1 else (f"math.gcd({a[0]}, 0)" if len(a) == 1 else _bad_arity("GCD", ">=1", 0)),
-    "LCM": lambda a: f"math.lcm({', '.join(a)})" if len(a) > 1 else (f"int({a[0]})" if len(a) == 1 else _bad_arity("LCM", ">=1", 0)),
+    "LCM": lambda a: f"math.lcm({', '.join(a)})" if len(a) > 1 else (f"np.int64({a[0]})" if len(a) == 1 else _bad_arity("LCM", ">=1", 0)),
     "FACT": _calc("fact", 1, 1),
     "COMBIN": _calc("combin", 2, 2),
     "REPT": _calc("rept", 2, 2),
-    "EXACT": _exact("EXACT", 2, "(str({0}) == str({1}))"),
+    "EXACT": _exact("EXACT", 2, "(calc.py_str({0}) == calc.py_str({1}))"),
     "ARABIC": _calc("arabic", 1, 1),
     "CLEAN": _calc("clean", 1, 1),
     "DOLLAR": _calc("dollar", 1, 2),
@@ -453,10 +452,10 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "BESSELI": _calc("besseli", 2, 2),
     "BESSELJ": _calc("besselj", 2, 2),
     # Date & Time (P2)
-    "DATE": _exact("DATE", 3, "float(dt.date(int({0}), int({1}), int({2})).toordinal() - 693594)"),
-    "HOUR": _exact("HOUR", 1, "float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({0}))).hour)"),
-    "MINUTE": _exact("MINUTE", 1, "float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({0}))).minute)"),
-    "SECOND": _exact("SECOND", 1, "float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({0}))).second)"),
+    "DATE": _exact("DATE", 3, "np.float64(dt.date(np.int64({0}), np.int64({1}), np.int64({2})).toordinal() - 693594)"),
+    "HOUR": _exact("HOUR", 1, "np.float64((dt.datetime.fromordinal(693594) + dt.timedelta(days=np.float64({0}))).hour)"),
+    "MINUTE": _exact("MINUTE", 1, "np.float64((dt.datetime.fromordinal(693594) + dt.timedelta(days=np.float64({0}))).minute)"),
+    "SECOND": _exact("SECOND", 1, "np.float64((dt.datetime.fromordinal(693594) + dt.timedelta(days=np.float64({0}))).second)"),
     "DATEVALUE": _calc("datevalue", 1, 1),
     "TIMEVALUE": _calc("timevalue", 1, 1),
     # Conditional Aggregates
@@ -485,8 +484,8 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "LOOKUP": _calc("lookup", 2, 3),
     "MEDIAN": _at_least_one("MEDIAN", "np.median({0})"),
     "COUNTBLANK": _exact("COUNTBLANK", 1, "sum(1 for x in np.asarray({0}).ravel() if x is None or x == '')"),
-    "ROUNDUP": lambda a: (f"(np.ceil({a[0]} * 10**int({a[1]})) / 10**int({a[1]}))" if len(a) > 1 else f"np.ceil({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("ROUNDUP", "1-2", len(a)),
-    "ROUNDDOWN": lambda a: (f"(np.floor({a[0]} * 10**int({a[1]})) / 10**int({a[1]}))" if len(a) > 1 else f"np.floor({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("ROUNDDOWN", "1-2", len(a)),
+    "ROUNDUP": lambda a: (f"(np.sign({a[0]}) * np.ceil(np.abs({a[0]}) * 10.0**np.asarray({a[1]}, dtype=np.int64)) / 10.0**np.asarray({a[1]}, dtype=np.int64))" if len(a) > 1 else f"(np.sign({a[0]}) * np.ceil(np.abs({a[0]})))") if 1 <= len(a) <= 2 else _bad_arity("ROUNDUP", "1-2", len(a)),
+    "ROUNDDOWN": lambda a: (f"(np.sign({a[0]}) * np.floor(np.abs({a[0]}) * 10.0**np.asarray({a[1]}, dtype=np.int64)) / 10.0**np.asarray({a[1]}, dtype=np.int64))" if len(a) > 1 else f"(np.sign({a[0]}) * np.floor(np.abs({a[0]})))") if 1 <= len(a) <= 2 else _bad_arity("ROUNDDOWN", "1-2", len(a)),
     "CEILING": lambda a: (f"np.ceil({a[0]})" if len(a) == 1 else f"(np.ceil({a[0]} / {a[1]}) * {a[1]})") if 1 <= len(a) <= 2 else _bad_arity("CEILING", "1-2", len(a)),
     "FLOOR": lambda a: (f"np.floor({a[0]})" if len(a) == 1 else f"(np.floor({a[0]} / {a[1]}) * {a[1]})") if 1 <= len(a) <= 2 else _bad_arity("FLOOR", "1-2", len(a)),
     "LOG": lambda a: (f"(np.log({a[0]}) / np.log({a[1]}))" if len(a) > 1 else f"np.log10({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("LOG", "1-2", len(a)),
@@ -499,7 +498,7 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "ISLOGICAL": _calc("islogical", 1, 1),
     "ISERR": _calc("iserr", 1, 1),
     "ISNONTEXT": _calc("isnontext", 1, 1),
-    "PERCENTILE": _exact("PERCENTILE", 2, "np.percentile(np.asarray({0}, dtype=float).ravel(), float({1}) * 100)"),
+    "PERCENTILE": _exact("PERCENTILE", 2, "np.percentile(np.asarray({0}, dtype=float).ravel(), np.asarray({1}, dtype=np.float64) * 100)"),
     "QUARTILE": _calc("quartile", 2, 2),
     "RANK": _calc("rank", 2, 3),
     "LARGE": _calc("large", 2, 2),
@@ -511,8 +510,8 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "TEXT": lambda a: (f"calc.fmt({a[0]}, {a[1]})" if len(a) > 1 else f"calc.py_str({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("TEXT", "1-2", len(a)),
     "EVEN": _calc("even", 1, 1),
     "ODD": _calc("odd", 1, 1),
-    "RAND": lambda _a: "float(np.random.random())",
-    "RANDBETWEEN": _exact("RANDBETWEEN", 2, "float(np.random.randint(int({0}), int({1}) + 1))"),
+    "RAND": lambda _a: "np.float64(np.random.random())",
+    "RANDBETWEEN": _exact("RANDBETWEEN", 2, "np.float64(np.random.randint(np.int64({0}), np.int64({1}) + 1))"),
     "XMATCH": _calc("xmatch", 2, 4),
     "WEEKDAY": _calc("weekday", 1, 2),
     "WEEKNUM": _calc("weeknum", 1, 2),
@@ -723,4 +722,4 @@ def translate_formula(formula: str, cell_addr: str | None = None) -> Translation
     except (ValueError, TypeError):
         return TranslationResult(ok=False, reason="PARSE_ERROR")
 
-    return TranslationResult(ok=True, code=sanitize_inline_py_code(body), data_ranges=list(state.ranges))
+    return TranslationResult(ok=True, code=body, data_ranges=list(state.ranges))

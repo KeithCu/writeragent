@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from typing import TYPE_CHECKING, Any, cast
 
 from plugin.calc.address_utils import format_range_address, qualify_a1, split_sheet_prefix
@@ -26,6 +27,7 @@ from plugin.scripting.venv.duckdb_sql import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from plugin.calc.ods_cache import OdsCacheEntry
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc.duckdb")
@@ -116,7 +118,9 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
 
         tables_raw = kwargs.get("tables") or {}
         tables = dict(tables_raw) if isinstance(tables_raw, dict) else {}
-        if data_range and "data" not in tables:
+        if data_range:
+            if "data" in tables:
+                return self._tool_error("data_range and tables['data'] both define table 'data'; pass only one", code="DUCKDB_SQL_ERROR")
             tables["data"] = {"range": data_range, "headers": headers}
 
         task_hint = str(kwargs.get("task_hint") or "") or None
@@ -156,18 +160,19 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                 spec = str(fspec).strip() if fspec else ""
                 if not spec:
                     continue
-                # Parse optional #sheet hint
-                if "#" in spec:
-                    bn_part, sheet_part = spec.rsplit("#", 1)
-                    sheet_hint = sheet_part.strip() or None
-                    bn = os.path.basename(bn_part.strip())
-                else:
-                    bn = os.path.basename(spec)
-                    sheet_hint = None
+                try:
+                    file_spec = parse_table_source_spec({"file": spec}, default_headers=headers)
+                except ToolExecutionError as exc:
+                    return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
+                bn = str(file_spec.get("file") or "")
+                sheet_hint = file_spec.get("sheet")
 
                 ext = os.path.splitext(bn)[1].lower()
                 if not scoped:
                     return self._tool_error("A saved document folder is required to read sibling files", code="MISSING_SCOPED_DIR")
+                table_name = name_hint or bn
+                if table_name in preloaded or table_name in flat_files:
+                    return self._tool_error(f"Duplicate SQL table name {table_name!r} for {spec!r}; give each tables/files source a distinct name", code="DUCKDB_SQL_ERROR")
                 full_path = os.path.join(scoped, bn)
                 if not os.path.isfile(full_path):
                     # Used to append the basename to direct_files so DuckDB failed
@@ -181,12 +186,10 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                         office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, sheet_hint=sheet_hint)
                     except ToolExecutionError as exc:
                         return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
-                    use_name = name_hint or bn
-                    preloaded[use_name] = {"grid": office_grid, "headers": headers}
+                    preloaded[table_name] = {"grid": office_grid, "headers": headers}
                     continue
                 if ext in FLAT_FILE_EXTS:
-                    use_name = name_hint or bn
-                    flat_files[use_name] = full_path
+                    flat_files[table_name] = full_path
                     continue
                 return self._tool_error(unsupported_flat_type_message(bn, ext), code="UNSUPPORTED_FILE_TYPE")
 
@@ -457,13 +460,16 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
     if not callable(store):
         raise TypeError("document cannot storeToURL")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(dest.name + ".partial")
+    # Unique per writer: a fixed ".partial" name let two cache writes unlink
+    # each other's in-progress export.
+    tmp = dest.parent / f"{dest.name}.{uuid.uuid4().hex}.partial"
     try:
-        if tmp.exists():
-            tmp.unlink()
         url = uno.systemPathToFileUrl(str(tmp.resolve()))
         props = (create_property_value("FilterName", "calc8"), create_property_value("Overwrite", True))
         store(url, props)
+        # Bugfix: a storeToURL that wrote nothing used to be published as a hit.
+        if not tmp.is_file() or tmp.stat().st_size == 0:
+            raise OSError(f"storeToURL wrote no data to {tmp}")
         os.replace(str(tmp), str(dest))
     except Exception:
         try:
@@ -473,25 +479,25 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
         raise
 
 
-def _resolve_sibling_open_path(ctx: Any, full_path: str) -> tuple[str, bool]:
-    """Return ``(path_to_open, cache_hit)`` for a sibling spreadsheet.
+def _resolve_sibling_open_path(ctx: Any, full_path: str) -> tuple[str, bool, OdsCacheEntry | None]:
+    """Return ``(path_to_open, cache_hit, entry)`` for a sibling spreadsheet.
 
     Cache only ``.xlsx``/``.xls`` that are not already open. Native ``.ods``
     and the live workbook always open the source path.
     """
-    from plugin.calc.ods_cache import is_cacheable_office_source, lookup_cached_ods, ods_cache_enabled
+    from plugin.calc.ods_cache import cache_entry, is_cacheable_office_source, lookup_cached_ods, ods_cache_enabled
 
     if not is_cacheable_office_source(full_path) or not ods_cache_enabled():
-        return full_path, False
+        return full_path, False, None
     if _source_is_open_workbook(ctx, full_path):
-        return full_path, False
+        return full_path, False, None
     hit = lookup_cached_ods(full_path)
     if hit is not None:
-        return str(hit), True
-    return full_path, False
+        return str(hit), True, None
+    return full_path, False, cache_entry(full_path)
 
 
-def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cache_hit: bool) -> None:
+def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cache_hit: bool, entry: OdsCacheEntry | None) -> None:
     """On a conversion miss, Save As the imported XLSX/XLS into the folder cache.
 
     ``opened_flag`` is the live-workbook guard: False means we reused a
@@ -499,17 +505,21 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cac
     ``_source_is_open_workbook`` here — after a hidden open the source
     *is* loaded, which would skip every miss write.
     """
-    from plugin.calc.ods_cache import cache_entry, is_cacheable_office_source, ods_cache_enabled, write_sidecar_meta
+    from plugin.calc.ods_cache import cache_entry, write_sidecar_meta
 
-    if cache_hit or not opened_flag:
-        return
-    if not is_cacheable_office_source(full_path) or not ods_cache_enabled():
-        return
-    entry = cache_entry(full_path)
-    if entry is None:
+    if cache_hit or not opened_flag or entry is None:
         return
     try:
         _export_model_to_cached_ods(model, entry.ods)
+        if cache_entry(full_path) != entry:
+            # Bugfix: the source changed while it was imported; this ODS holds
+            # the old content, so a sidecar would make the next lookup stale.
+            log.debug("ODS cache write skipped: source changed during import: %s", full_path)
+            try:
+                entry.ods.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
         write_sidecar_meta(entry.meta, entry.abs_path, entry.mtime_ns, entry.size)
     except Exception:
         log.exception("Failed to write ODS cache for %s", full_path)
@@ -536,7 +546,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
     else:
         parsed = {"kind": "sheet", "sheet": (sheet_hint or "").strip() or None, "named_range": None, "range": None, "file": os.path.basename(full_path), "headers": True}
 
-    open_path, cache_hit = _resolve_sibling_open_path(ctx, full_path)
+    open_path, cache_hit, entry = _resolve_sibling_open_path(ctx, full_path)
     model = None
     opened_flag = False
     try:
@@ -550,6 +560,9 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
             model = None
             opened_flag = False
             cache_hit = False
+            from plugin.calc.ods_cache import cache_entry
+
+            entry = cache_entry(full_path)
             model, doc_type, err, opened_flag = open_document_for_read(ctx, full_path)
         if err or model is None:
             raise _sibling_office_error(full_path, err or "LibreOffice failed to open the file")
@@ -565,7 +578,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
             identity = parsed.get("named_range") or parsed.get("sheet") or os.path.basename(full_path)
             raise _sibling_office_error(full_path, "used range is empty; nothing to register for SQL", sheet=str(identity) if identity else None)
 
-        _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, cache_hit=cache_hit)
+        _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, cache_hit=cache_hit, entry=entry)
 
         return grid
     except ToolExecutionError:

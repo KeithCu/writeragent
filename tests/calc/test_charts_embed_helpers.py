@@ -786,7 +786,8 @@ def test_writer_duplicate_name_embed_and_draw_page_deduped():
         # Delete removes from embeds container first
         del_res = DeleteChart().execute(ctx, name="Chart_0")
         assert del_res["status"] == "ok"
-        doc.getText.return_value.removeTextContent.assert_called_once_with(embed_obj)
+        embed_obj.getAnchor().getText.return_value.removeTextContent.assert_called_once_with(embed_obj)
+        doc.getText.return_value.removeTextContent.assert_not_called()
         embeds.removeByName.assert_not_called()
         page.remove.assert_not_called()
 
@@ -809,9 +810,58 @@ def test_delete_writer_embed_does_not_call_remove_on_collection():
     with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
         del_res = DeleteChart().execute(ctx, name="Chart_0")
         assert del_res["status"] == "ok"
-        doc.getText.return_value.removeTextContent.assert_called_once_with(embed_obj)
+        embed_obj.getAnchor().getText.return_value.removeTextContent.assert_called_once_with(embed_obj)
+        doc.getText.return_value.removeTextContent.assert_not_called()
         embeds1.removeByName.assert_not_called()
         embeds2.removeByName.assert_not_called()
+
+
+def test_delete_writer_embed_frame_anchored():
+    embed_obj = MagicMock()
+    embed_obj.CLSID = CHART_CLSID
+    frame_text = MagicMock()
+    embed_obj.getAnchor.return_value.getText.return_value = frame_text
+
+    embeds = MagicMock()
+    embeds.hasByName.side_effect = lambda n: n == "Chart_Frame"
+    embeds.getByName.return_value = embed_obj
+
+    doc = MagicMock()
+    doc.getEmbeddedObjects.return_value = embeds
+    ctx = MagicMock(doc=doc)
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        lookup = _lookup_chart(doc, "Chart_Frame")
+        assert lookup.ref is not None
+        assert lookup.ref.kind == "writer_embed"
+
+        del_res = DeleteChart().execute(ctx, name="Chart_Frame")
+        assert del_res["status"] == "ok"
+        assert del_res["deleted"] == "Chart_Frame"
+        frame_text.removeTextContent.assert_called_once_with(embed_obj)
+        doc.getText.return_value.removeTextContent.assert_not_called()
+        embeds.removeByName.assert_not_called()
+
+
+def test_delete_writer_embed_fallback_to_embedded_objects():
+    embed_obj = MagicMock()
+    embed_obj.CLSID = CHART_CLSID
+    embed_obj.getAnchor.return_value.getText.return_value.removeTextContent.side_effect = RuntimeException("not anchored")
+
+    embeds = MagicMock()
+    embeds.hasByName.side_effect = lambda n: n == "Chart_Fallback"
+    embeds.getByName.return_value = embed_obj
+
+    doc = MagicMock()
+    doc.getEmbeddedObjects.return_value = embeds
+    ctx = MagicMock(doc=doc)
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        del_res = DeleteChart().execute(ctx, name="Chart_Fallback")
+        assert del_res["status"] == "ok"
+        assert del_res["deleted"] == "Chart_Fallback"
+        embeds.removeByName.assert_called_once_with("Chart_Fallback")
+        doc.getText.return_value.removeTextContent.assert_not_called()
 
 
 def test_predicate_disposal_propagates():

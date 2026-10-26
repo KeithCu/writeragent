@@ -35,14 +35,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
-from plugin.calc.calc_utils import (
-    EMPTY as EMPTY,
-    FORMULA as FORMULA,
-    TEXT as TEXT,
-    VALUE as VALUE,
-    cell_value_and_type,
-    resolve_sheet,
-)
+from plugin.calc.array_formula import returns_array
+from plugin.calc.calc_utils import cell_value_and_type, resolve_sheet
 from plugin.calc.error_detector import ERROR_TYPES
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 from plugin.framework.tool import ToolBase
@@ -282,6 +276,12 @@ class EvaluateFormula(ToolCalcErrorBase):
                 )
 
                 eval_result = {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
+                if returns_array(formula_string):
+                    eval_result["requires_array"] = True
+                    eval_result["note"] = (
+                        "Calc does not spill arrays: only the top-left value is reported. "
+                        "Write it with write_formula_range to get the full result."
+                    )
                 return eval_result
             except Exception as exc:
                 # Held until cleanup runs; a cleanup failure is reported instead.

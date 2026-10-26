@@ -126,6 +126,11 @@ def test_py_formula_has_unquoted_code_ref():
     assert py_formula_has_unquoted_code_ref("=PY(A1+B1)") is False
 
 
+def test_unquoted_code_arg_skips_string_literals():
+    parts = parse_python_formula('=PY(foo(")"); A1)')
+    assert parts is not None and parts.code == 'foo(")")'
+
+
 def test_parse_fully_qualified_addin_original_name():
     """LibreOffice getFormula() stores service.method, not the short PY token."""
     fq = "=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY($A$1; C1:C1)"
@@ -199,6 +204,22 @@ def test_parse_data_binding_text_empty():
     assert parse_data_binding_text("   ") == []
 
 
+def test_parse_data_binding_text_quoted_sheet_names():
+    from unittest.mock import patch
+    import plugin.calc.python.formula_edit as fe
+
+    assert parse_data_binding_text("'My,Sheet'.A1, B2") == ["'My,Sheet'.A1", "B2"]
+    assert parse_data_binding_text("'My;Sheet'!A1") == ["'My;Sheet'!A1"]
+    assert parse_data_binding_text("'O''Brien'.A1; B2") == ["'O''Brien'.A1", "B2"]
+    with patch.object(fe, "_deal_data_args_ok", return_value=True), patch.object(
+        fe, "_deal_range_addr_ok", return_value=True
+    ):
+        built = rebuild_python_formula_with_data("x", ["'My,Sheet'.A1", "B2"])
+    parsed = parse_python_formula(built)
+    assert parsed is not None
+    assert parse_data_binding_text(format_data_binding_display(parsed.data_suffix)) == ["'My,Sheet'.A1", "B2"]
+
+
 def test_build_data_suffix():
     assert build_data_suffix([]) == ")"
     assert build_data_suffix(["A1:B10"]) == ";A1:B10)"
@@ -230,7 +251,12 @@ def test_format_py_and_excel_data_range_real_sheets():
     assert format_py_data_range("A1.B5") == "A1.B5"
     assert format_excel_data_range("A1.B5") == "A1.B5"
     assert format_py_data_range("$Sheet1.$A$1") == "$Sheet1.$A$1"
-    assert format_excel_data_range("$Sheet1.$A$1") == "$Sheet1.$A$1"
+    assert format_excel_data_range("$Sheet1.$A$1") == "$Sheet1!$A$1"
+    assert format_excel_data_range("Sheet1.A1") == "Sheet1!A1"
+    assert format_excel_data_range("Sheet1.A1:B10") == "Sheet1!A1:B10"
+    assert format_excel_data_range("Data2.A1") == "Data2!A1"
+    assert format_excel_data_range("Q1.A1") == "Q1.A1"
+    assert format_py_data_range("Sheet1.A1") == "Sheet1.A1"
     assert format_excel_data_range("!A1") == "!A1"
     assert format_py_data_range("!A1") == "''.A1"
     assert build_data_suffix(["Sheet.A1"]) == ";Sheet.A1)"
@@ -291,6 +317,17 @@ def test_normalize_curly_quotes_around_code_string():
     parts = parse_python_formula(normalized)
     assert parts is not None
     assert parts.code == "result = 1"
+
+
+def test_normalize_keeps_curly_quotes_in_code_payload():
+    formula = '=PY("print(\u201chi\u201d)")'
+    assert normalize_formula_string(formula) == formula
+    parts = parse_python_formula(formula)
+    assert parts is not None and parts.code == 'print(\u201chi\u201d)'
+    parts2 = parse_python_formula('=PY("x = \u2018a\u2019")')
+    assert parts2 is not None and parts2.code == "x = \u2018a\u2019"
+    parts3 = parse_python_formula('=PY(\u201cx\u201d; A1)')
+    assert parts3 is not None and parts3.code == "x" and "A1" in parts3.data_suffix
 
 
 def test_normalize_and_parse_bare_py_token():

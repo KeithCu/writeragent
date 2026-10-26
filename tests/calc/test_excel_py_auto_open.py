@@ -7,10 +7,12 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
 from plugin.calc.excel_py_convert.auto_open import (
-    _CONVERTED_PROP,
     _doc_from_event,
+    _issue_summary,
     has_excel_python_xlsx,
     install_excel_py_auto_convert,
     maybe_convert_excel_py_document,
@@ -100,6 +102,29 @@ def test_apply_dag_formulas_sets_calc_semicolon_formula():
     assert sheet.getCellRangeByName("D1").getFormula() == ""  # spill cells cleared
 
 
+def test_apply_dag_formulas_invalid_array_ref_fails_preflight():
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="C1",
+        direction="dag",
+        original_code="x",
+        converted_code="df = pd.DataFrame(data)",
+        data_args=["A1:B2"],
+        converted=True,
+        array_ref="not-a-ref",
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellRangeByName("C1").setFormula("=ORIGINAL")
+
+    errors = apply_dag_formulas_to_calc_doc(doc, report)
+    assert any("invalid array_ref" in e for e in errors)
+    assert sheet.getCellRangeByName("C1").getFormula() == "=ORIGINAL"
+    assert not doc.getSheets().hasByName("py_code_Sheet1")
+
+
 def test_apply_dag_formulas_banks_long_scripts():
     long_code = "x = data\n" + ("# pad\n" * 200)
     assert len(long_code) > 1000
@@ -123,6 +148,37 @@ def test_apply_dag_formulas_banks_long_scripts():
     formula = doc.getSheets().getByName("Sheet1").getCellRangeByName("C1").getFormula()
     assert "py_code_Sheet1.C1" in formula
     assert not formula.startswith('=PY("')
+
+
+def test_apply_dag_formulas_defined_name_add_failure_rolls_back(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    long_code = "x = data\n" + ("# pad\n" * 200)
+    assert len(long_code) > 1000
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="C1",
+        direction="dag",
+        original_code="x",
+        converted_code=long_code,
+        data_args=["A1:B2"],
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+
+    doc = CalcDocStub()
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("names locked")
+
+    doc.NamedRanges = SimpleNamespace(hasByName=lambda _name: False, addNewByName=_boom)
+    monkeypatch.setitem(sys.modules, "uno", SimpleNamespace(createUnoStruct=lambda _name: None))
+
+    errors = apply_dag_formulas_to_calc_doc(doc, report)
+    assert any("script bank write failed" in e for e in errors)
+    assert not doc.getSheets().hasByName("py_code_Sheet1")
+
 
 def test_script_bank_only_long_scripts_and_mirrors_a1():
     from plugin.calc.excel_py_convert.script_bank import (
@@ -187,20 +243,40 @@ def test_script_bank_only_long_scripts_and_mirrors_a1():
     assert any("blocked" in w for w in collect_safety_warnings("import requests\nx=1"))
 
 
+def test_should_inline_code_measures_escaped_formula():
+    from plugin.calc.excel_py_convert.script_bank import (
+        collect_script_bank,
+        formula_for_converted_cell,
+        should_inline_code,
+    )
+
+    assert should_inline_code("x = data", ["C4"]) is True
+    quote_heavy = 'x = "' + ('ab"' * 250)
+    assert len(quote_heavy) == 755
+    assert should_inline_code(quote_heavy, ["A1"]) is False
+
+    cell = ConvertedCell(
+        sheet="Quoted",
+        cell="A1",
+        direction="dag",
+        original_code="",
+        converted_code=quote_heavy,
+        data_args=["A1"],
+        converted=True,
+    )
+    banks, _ = collect_script_bank(ConversionReport(direction="dag", cells=[cell]))
+    assert banks == {"py_code_Quoted": {"A1": quote_heavy}}
+    assert formula_for_converted_cell(cell).startswith("=PY(py_code_Quoted.A1")
+
+
 def test_maybe_convert_skips_non_candidate(tmp_path: Path):
     doc = CalcDocStub()
-    with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=None),
-        patch("plugin.doc.udprops.get_document_property", return_value=None),
-    ):
+    with patch("plugin.doc.text_helpers.get_document_path", return_value=None):
         assert maybe_convert_excel_py_document(doc) is False
 
     plain = tmp_path / "plain.xlsx"
     _minimal_xlsx(plain)
-    with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(plain)),
-        patch("plugin.doc.udprops.get_document_property", return_value=None),
-    ):
+    with patch("plugin.doc.text_helpers.get_document_path", return_value=str(plain)):
         assert maybe_convert_excel_py_document(doc) is False
 
 
@@ -233,7 +309,6 @@ def test_maybe_convert_fail_closed_leaves_original(tmp_path: Path):
     )
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(src)),
-        patch("plugin.doc.udprops.get_document_property", return_value=None),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=bad),
         patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc") as apply_uno,
     ):
@@ -242,7 +317,7 @@ def test_maybe_convert_fail_closed_leaves_original(tmp_path: Path):
         assert doc._close_calls == []
 
 
-def test_maybe_convert_uno_marks_converted(tmp_path: Path):
+def test_maybe_convert_uno_applies_dag_and_ignores_stale_marker(tmp_path: Path):
     src = tmp_path / "py.xlsx"
     _minimal_xlsx(src, with_scripts=True)
     doc = CalcDocStub()
@@ -258,17 +333,97 @@ def test_maybe_convert_uno_marks_converted(tmp_path: Path):
     report = ConversionReport(direction="dag", cells=[ok_cell])
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(src)),
-        patch("plugin.doc.udprops.get_document_property", return_value=None),
+        patch("plugin.doc.udprops.get_document_property", return_value="1"),
         patch("plugin.doc.udprops.set_document_property") as set_prop,
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
         patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]) as apply_uno,
     ):
         assert maybe_convert_excel_py_document(doc) is True
         apply_uno.assert_called_once()
-        names = [c.args[1] for c in set_prop.call_args_list]
-        assert _CONVERTED_PROP in names
-        assert "ExcelPyDagMeta" in names
-        set_prop.assert_any_call(doc, _CONVERTED_PROP, "1")
+        assert [c.args[1] for c in set_prop.call_args_list] == ["ExcelPyDagMeta"]
+
+
+def test_maybe_convert_restores_unmodified_flag(tmp_path: Path):
+    src = tmp_path / "py.xlsx"
+    _minimal_xlsx(src, with_scripts=True)
+    doc = CalcDocStub()
+    ok_cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="dag",
+        original_code="1",
+        converted_code="1",
+        converted=True,
+        dag_formula='=PY("1")',
+    )
+    report = ConversionReport(direction="dag", cells=[ok_cell])
+    with (
+        patch("plugin.doc.text_helpers.get_document_path", return_value=str(src)),
+        patch("plugin.doc.udprops.get_document_property", return_value="1"),
+        patch("plugin.doc.udprops.set_document_property"),
+        patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
+        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]),
+    ):
+        assert maybe_convert_excel_py_document(doc) is True
+        assert doc.isModified() is False
+
+
+def test_maybe_convert_keeps_already_modified_flag(tmp_path: Path):
+    src = tmp_path / "py.xlsx"
+    _minimal_xlsx(src, with_scripts=True)
+    doc = CalcDocStub()
+    doc.setModified(True)
+    ok_cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="dag",
+        original_code="1",
+        converted_code="1",
+        converted=True,
+        dag_formula='=PY("1")',
+    )
+    report = ConversionReport(direction="dag", cells=[ok_cell])
+    with (
+        patch("plugin.doc.text_helpers.get_document_path", return_value=str(src)),
+        patch("plugin.doc.udprops.get_document_property", return_value="1"),
+        patch("plugin.doc.udprops.set_document_property"),
+        patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
+        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]),
+    ):
+        assert maybe_convert_excel_py_document(doc) is True
+        assert doc.isModified() is True
+
+
+def test_maybe_convert_logs_parse_issue_when_nothing_converts(tmp_path: Path):
+    src = tmp_path / "py.xlsx"
+    _minimal_xlsx(src, with_scripts=True)
+    doc = CalcDocStub()
+    report = ConversionReport(direction="dag", cells=[], issues=["Sheet1!A1: _xlws.PY could not be parsed"])
+    with (
+        patch("plugin.doc.text_helpers.get_document_path", return_value=str(src)),
+        patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
+        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc") as apply_uno,
+        patch("plugin.calc.excel_py_convert.auto_open.log.warning") as mock_warn,
+        patch("plugin.calc.excel_py_convert.auto_open.log.info") as mock_info,
+    ):
+        assert maybe_convert_excel_py_document(doc) is False
+        apply_uno.assert_not_called()
+        assert any("could not be parsed" in str(arg) for call in mock_warn.call_args_list for arg in call.args)
+        assert not any("no convertible PY cells" in str(arg) for call in mock_info.call_args_list for arg in call.args)
+
+
+def test_issue_summary_caps_long_issue_lists():
+    seven = ConversionReport(direction="dag", cells=[], issues=[f"issue {i}" for i in range(1, 8)])
+    summary = _issue_summary(seven)
+    assert "(+2 more)" in summary
+    assert "issue 6" not in summary
+
+    cell_only = ConversionReport(
+        direction="dag",
+        cells=[ConvertedCell(sheet="S", cell="A1", direction="dag", original_code="x", converted_code="", issues=["boom"])],
+        issues=[],
+    )
+    assert _issue_summary(cell_only) == "S!A1: boom"
 
 def test_install_excel_py_auto_convert_once():
     ctx = MagicMock()
@@ -778,10 +933,52 @@ def test_apply_dag_formulas_rollback_on_cell_failure(tmp_path: Path):
     ):
         result = maybe_convert_excel_py_document(doc)
         assert result is False
-        from plugin.doc.udprops import get_document_property
-        assert get_document_property(doc, _CONVERTED_PROP) is None
         assert sheet.getCellRangeByName("A1").getFormula() == "=ORIGINAL_A1"
         assert not doc.getSheets().hasByName("py_code_Sheet1")
+
+
+def test_apply_dag_formulas_rollback_failure_is_reported():
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    a1_cell = sheet.getCellRangeByName("A1")
+    b1_cell = sheet.getCellRangeByName("B1")
+    a1_cell.setFormula("=ORIGINAL_A1")
+    b1_cell.setFormula("=ORIGINAL_B1")
+
+    c1 = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="dag",
+        original_code="x = 1",
+        converted_code="x = 1",
+        converted=True,
+    )
+    c2 = ConvertedCell(
+        sheet="Sheet1",
+        cell="B1",
+        direction="dag",
+        original_code="y = 2",
+        converted_code="y = 2",
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[c1, c2])
+
+    orig_a1_set = a1_cell.setFormula
+
+    def _a1_set_formula(val: str):
+        if val == "=ORIGINAL_A1":
+            raise RuntimeError("simulated rollback failure on A1")
+        orig_a1_set(val)
+
+    def _b1_set_formula(val: str):
+        raise RuntimeError("simulated write failure on B1")
+
+    a1_cell.setFormula = _a1_set_formula
+    b1_cell.setFormula = _b1_set_formula
+
+    errors = apply_dag_formulas_to_calc_doc(doc, report)
+    assert any("rollback incomplete" in e and "A1" in e for e in errors)
+    assert doc.calculate_all_count == 1
 
 
 def test_apply_dag_formulas_preflight_failure_writes_nothing():
@@ -854,7 +1051,42 @@ def test_maybe_convert_excel_py_document_meta_store_warning(tmp_path: Path):
     ):
         result = maybe_convert_excel_py_document(doc)
         assert result is True
-        from plugin.doc.udprops import get_document_property
-        assert get_document_property(doc, _CONVERTED_PROP) == "1"
         assert mock_warn.called
         assert any("ExcelPyDagMeta" in str(arg) for call in mock_warn.call_args_list for arg in call.args)
+
+
+def test_collect_safety_warnings_nul_byte_does_not_raise(monkeypatch: pytest.MonkeyPatch):
+    from plugin.calc.excel_py_convert import script_bank
+
+    warns = script_bank.collect_safety_warnings("x = 1\x00")
+    assert any("not parseable" in w or "syntax error" in w for w in warns)
+
+    # On Python <=3.11, ast.parse raises ValueError on NUL bytes; verify that branch directly
+    def fake_parse(src: str):
+        raise ValueError("embedded null byte")
+
+    monkeypatch.setattr(script_bank.ast, "parse", fake_parse)
+    warns_val = script_bank.collect_safety_warnings("x = 1\x00")
+    assert any("not parseable" in w for w in warns_val)
+
+
+def test_report_safety_warnings_parses_each_script_once(monkeypatch: pytest.MonkeyPatch):
+    from plugin.calc.excel_py_convert import script_bank
+    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
+
+    calls: list[str] = []
+
+    def fake_collect(code: str) -> list[str]:
+        calls.append(code)
+        return ["warn"]
+
+    monkeypatch.setattr(script_bank, "collect_safety_warnings", fake_collect)
+
+    c1 = ConvertedCell(sheet="S1", cell="A1", direction="dag", original_code="c1", converted_code="code_a", converted=True)
+    c2 = ConvertedCell(sheet="S1", cell="A2", direction="dag", original_code="c2", converted_code="code_b", converted=True)
+    c3 = ConvertedCell(sheet="S1", cell="A3", direction="dag", original_code="c3", converted_code="code_a", converted=True)
+    report = ConversionReport(direction="dag", cells=[c1, c2, c3])
+
+    out = script_bank.report_safety_warnings(report)
+    assert len(calls) == 2
+    assert out == ["S1!A1: warn", "S1!A2: warn", "S1!A3: warn"]

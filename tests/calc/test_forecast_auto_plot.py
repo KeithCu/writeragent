@@ -260,3 +260,70 @@ def test_auto_plot_reads_sheet_on_main_and_passes_doc():
     assert result["status"] == "ok"
     mock_resolve.assert_called_once()
     mock_viz.assert_called_once()
+
+
+def test_auto_plot_viz_failure_is_non_fatal():
+    envelope = {
+        "__wa_payload__": PAYLOAD_CALC_RANGE,
+        "shape": [3, 2],
+        "address": "Sheet1.A1:B3",
+        "data": [
+            ["Date", "Value"],
+            ["2024-01-01", 100.0],
+            ["2024-02-01", 110.0],
+        ],
+    }
+    with (
+        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(envelope, None)),
+        patch("plugin.scripting.viz.run_trusted_viz", side_effect=RuntimeError("viz ipc down")),
+    ):
+        result = run_auto_plot_after_forecast(
+            MagicMock(),
+            MagicMock(),
+            forecast_helper="forecast_time_series",
+            forecast_result=_forecast_band_result(),
+            forecast_params={"date_col": "Date", "value_col": "Value"},
+            data_range="Sheet1.A1:B3",
+            auto_plot=True,
+            task_hint=None,
+        )
+
+    assert result is not None
+    assert result["status"] == "error"
+    assert "viz ipc down" in result["message"]
+
+
+def test_auto_plot_sheet_read_failure_returns_reason():
+    with patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(None, "bad range")):
+        result = run_auto_plot_after_forecast(
+            MagicMock(),
+            MagicMock(),
+            forecast_helper="forecast_time_series",
+            forecast_result=_forecast_band_result(),
+            forecast_params={"date_col": "Date", "value_col": "Value"},
+            data_range="Sheet1.A1:B3",
+            auto_plot=True,
+            task_hint=None,
+        )
+
+    assert result is not None
+    assert result["status"] == "error"
+    assert result["message"] == "Could not read forecast history: bad range"
+
+
+def test_auto_plot_merge_failure_returns_reason():
+    with patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["Nope", "Other"], [1, 2]], None)):
+        result = run_auto_plot_after_forecast(
+            MagicMock(),
+            MagicMock(),
+            forecast_helper="forecast_time_series",
+            forecast_result=_forecast_band_result(),
+            forecast_params={"date_col": "Date", "value_col": "Value"},
+            data_range="Sheet1.A1:B3",
+            auto_plot=True,
+            task_hint=None,
+        )
+
+    assert result is not None
+    assert result["status"] == "error"
+    assert result["message"] == "Could not merge forecast history with the forecast table"

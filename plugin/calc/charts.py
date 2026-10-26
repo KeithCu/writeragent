@@ -734,20 +734,29 @@ def _drop_failed_chart_insert(remove: Callable[[], None], name: str) -> None:
         log.exception("Failed to remove chart %r after a create error", name)
 
 
-def _drop_writer_chart_insert(doc: Any, text: Any, chart_obj: Any, name: str) -> None:
+def _remove_writer_chart(doc: Any, chart_obj: Any, name: str) -> None:
+    """Remove a Writer chart from the text that anchors it (body, frame, or cell).
+
+    doc.getText() only holds body anchors, so a chart in a frame or table cell
+    stayed in the document while delete reported success. The embedded objects
+    container is the fallback used by create rollback.
+    """
+    try:
+        chart_obj.getAnchor().getText().removeTextContent(chart_obj)
+        return
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
+        log.debug("chart anchor removal failed for '%s'; using embedded objects", name, exc_info=True)
+    objects = doc.getEmbeddedObjects()
+    if not objects.hasByName(name):
+        raise ValueError(f"Chart '{name}' is not in the embedded objects container.")
+    objects.removeByName(name)
+
+
+def _drop_writer_chart_insert(doc: Any, chart_obj: Any, name: str) -> None:
     """Remove a Writer chart embedded before a later create step failed."""
-
-    def _remove() -> None:
-        try:
-            text.removeTextContent(chart_obj)
-        except Exception:
-            objects = doc.getEmbeddedObjects()
-            if objects.hasByName(name):
-                objects.removeByName(name)
-            else:
-                raise
-
-    _drop_failed_chart_insert(_remove, name)
+    _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, name), name)
 
 
 def _format_chart_exception_msg(e: Exception) -> str:
@@ -1185,7 +1194,7 @@ class UpsertChart(ToolBaseDummy):
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["create", "edit"], "description": "Action to perform: 'create' a new chart, or 'edit' an existing one."},
-            "name": {"type": "string", "description": "Name of the chart to edit (required for action='edit', optional for action='create')."},
+            "name": {"type": "string", "description": "Name of the chart to edit (required for action='edit'); create always uses the next free 'Chart_N' name."},
             **CHART_PROPERTIES,
         },
         "required": ["action"],
@@ -1208,7 +1217,8 @@ class UpsertChart(ToolBaseDummy):
 
         if action == "create":
             chart_type = kwargs["chart_type"]
-            chart_service = CHART_SERVICE_MAP.get(chart_type, CHART_SERVICE_MAP["column"])
+            assert chart_type in CHART_SERVICE_MAP, chart_type
+            chart_service = CHART_SERVICE_MAP[chart_type]
             rect = uno.createUnoStruct("com.sun.star.awt.Rectangle", X=1000, Y=1000, Width=12000, Height=8000)
 
             try:
@@ -1287,9 +1297,8 @@ class UpsertChart(ToolBaseDummy):
                 # If chart_type is provided, update the diagram first
                 chart_type = kwargs.get("chart_type")
                 if chart_type:
-                    service = CHART_SERVICE_MAP.get(chart_type)
-                    if service:
-                        chart_doc.setDiagram(chart_doc.createInstance(service))
+                    assert chart_type in CHART_SERVICE_MAP, chart_type
+                    chart_doc.setDiagram(chart_doc.createInstance(CHART_SERVICE_MAP[chart_type]))
 
                 styling_warnings = _apply_chart_styling(chart_doc, **kwargs)
                 warnings.extend(styling_warnings)
@@ -1556,10 +1565,10 @@ class UpsertChart(ToolBaseDummy):
                 warnings = _apply_chart_styling(chart_doc, **kwargs)
             except Exception:
                 # Diagram installation and styling must succeed or the embed is rolled back.
-                _drop_writer_chart_insert(doc, text, chart_obj, name)
+                _drop_writer_chart_insert(doc, chart_obj, name)
                 raise
         else:
-            _drop_writer_chart_insert(doc, text, chart_obj, name)
+            _drop_writer_chart_insert(doc, chart_obj, name)
             return self._tool_error("Cannot access chart content.")
 
         # Force a refresh of the chart model using direct UNO calls on the chart document itself.
@@ -1693,7 +1702,7 @@ class DeleteChart(ToolBaseDummy):
                 ref.parent.getCharts().removeByName(chart_name)
                 return {"status": "ok", "deleted": chart_name, "sheet": ref.parent.getName()}
             elif ref.kind == "writer_embed":
-                doc.getText().removeTextContent(ref.host)
+                _remove_writer_chart(doc, ref.host, chart_name)
                 return {"status": "ok", "deleted": chart_name}
             elif ref.kind in ("writer_draw_page", "draw_page"):
                 ref.parent.remove(ref.host)
@@ -1737,6 +1746,11 @@ class ManageCharts(ToolCalcChartBase):
     }
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
     is_mutation: bool | None = True
+
+    def requires_document_lock(self, arguments: Any = None) -> bool:
+        """Read actions must not take the MCP per-document write gate."""
+        action = arguments.get("action") if isinstance(arguments, dict) else None
+        return action not in ("list", "get_info")
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         return _chart_parameters(self.parameters, doc_type)

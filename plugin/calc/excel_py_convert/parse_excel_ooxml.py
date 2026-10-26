@@ -23,7 +23,6 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     workbook_sheets,
 )
 
-_RE_A1_CELL = re.compile(r"^\$?([A-Za-z]+)\$?(\d+)$")
 _A1_SPAN_CELL_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 _RE_XLWS_PY = re.compile(r"(?:_xlfn\.)?_xlws\.PY\s*\(\s*(\d+)\s*,\s*(\d+)(.*)\)$", re.IGNORECASE | re.DOTALL)
 
@@ -46,7 +45,7 @@ def col_index_to_letters(col: int) -> str:
 
 
 def _col_row(a1: str) -> tuple[int, int]:
-    m = _RE_A1_CELL.match(a1.replace("$", "").strip())
+    m = _A1_SPAN_CELL_RE.match(a1.replace("$", "").strip())
     if not m:
         return 0, 0
     col = letters_to_col_index(m.group(1))
@@ -165,7 +164,23 @@ _RE_DEFINED_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 def _shift_single_coord(coord: str, delta_row: int, delta_col: int) -> str | None:
     m = _RE_COORD.match(coord.strip())
     if not m:
+        part = coord.strip()
+        bare = part.replace("$", "")
+        locked = part.startswith("$")
+        if bare.isalpha():
+            c = letters_to_col_index(bare)
+            new_c = c if locked else c + delta_col
+            if new_c < 1 or new_c > 16384:
+                return None
+            return ("$" if locked else "") + col_index_to_letters(new_c)
+        elif bare.isdigit():
+            r = int(bare)
+            new_r = r if locked else r + delta_row
+            if new_r < 1 or new_r > 1048576:
+                return None
+            return ("$" if locked else "") + str(new_r)
         return None
+
     col_locked = bool(m.group(1))
     col_str = m.group(2)
     row_locked = bool(m.group(3))
@@ -188,6 +203,9 @@ def _shift_cell_or_range_ref(ref: str, delta_row: int, delta_col: int) -> str | 
     if "!" in target:
         sheet_part, sep, target = target.rpartition("!")
         sheet_prefix = f"{sheet_part}{sep}"
+
+    if _RE_DEFINED_NAME.match(target) and not _A1_SPAN_CELL_RE.match(target.replace("$", "")):
+        return ref.strip()
 
     if ":" in target:
         c1, _sep, c2 = target.partition(":")
@@ -221,10 +239,6 @@ def shift_xlws_py_dep(dep: str, delta_row: int, delta_col: int) -> str | None:
 
     # Structured ref (e.g. Table1[Col] or [#This Row])
     if dep.endswith("]") and "[" in dep:
-        return dep
-
-    # Defined name (row-invariant identifier not matching A1 cell pattern)
-    if _RE_DEFINED_NAME.match(dep) and not _RE_A1_CELL.match(dep.replace("$", "")):
         return dep
 
     # A1 or A1:B2 (with optional sheet prefix)
@@ -262,18 +276,29 @@ def _rel_type_is_table(rel_type: str) -> bool:
     return rel_type.rstrip("/").endswith("table")
 
 
-def _parse_python_scripts(zf: zipfile.ZipFile) -> list[str]:
+def _read_xml(zf: zipfile.ZipFile, part: str, issues: list[str] | None = None) -> ET.Element | None:
+    try:
+        raw = zf.read(part)
+    except KeyError:
+        return None
+    try:
+        return ET.fromstring(raw)
+    except ET.ParseError as exc:
+        if issues is not None:
+            issues.append(f"{part}: {exc}")
+        return None
+
+
+def _parse_python_scripts(zf: zipfile.ZipFile, issues: list[str] | None = None) -> list[str]:
     """Parse ``xl/pythonScripts.xml``.
 
     Map each script to its index (the explicit attribute, or document
     order). Dropping indexed scripts whenever any sequential script is
     present throws away the indexed bank.
     """
-    try:
-        raw = zf.read("xl/pythonScripts.xml")
-    except KeyError:
+    root = _read_xml(zf, "xl/pythonScripts.xml", issues)
+    if root is None:
         return []
-    root = ET.fromstring(raw)
     script_els = [el for el in list(root) if local_name(el.tag) == "pythonScript"]
     if not script_els:
         script_els = [el for el in root.iter() if local_name(el.tag) == "pythonScript"]
@@ -288,9 +313,15 @@ def _parse_python_scripts(zf: zipfile.ZipFile) -> list[str]:
             try:
                 idx = int(idx_s)
             except ValueError:
-                raise ValueError(f"invalid script index {idx_s!r} in xl/pythonScripts.xml")
+                if issues is not None:
+                    issues.append(f"invalid script index {idx_s!r} in xl/pythonScripts.xml")
+                continue
             if idx < 0 or idx > 100_000 or idx > len(script_els) + 10_000:
-                raise ValueError(f"invalid script index {idx} in xl/pythonScripts.xml")
+                if issues is not None:
+                    issues.append(f"script index {idx} out of range in xl/pythonScripts.xml")
+                continue
+        if idx in scripts_by_idx and issues is not None:
+            issues.append(f"duplicate script index {idx} in xl/pythonScripts.xml")
         scripts_by_idx[idx] = text
 
     if not scripts_by_idx:
@@ -314,10 +345,9 @@ def _qualify_sheet_ref(sheet_title: str, ref: str) -> str:
     return f"{q}!{ref}"
 
 
-def _parse_table_ref(zf: zipfile.ZipFile, table_part: str, sheet_title: str) -> tuple[str, str] | None:
-    try:
-        root = ET.fromstring(zf.read(table_part))
-    except KeyError:
+def _parse_table_ref(zf: zipfile.ZipFile, table_part: str, sheet_title: str, issues: list[str] | None = None) -> tuple[str, str] | None:
+    root = _read_xml(zf, table_part, issues)
+    if root is None:
         return None
     name = root.attrib.get("displayName") or root.attrib.get("name") or ""
     ref = root.attrib.get("ref") or ""
@@ -478,16 +508,15 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
     issues: list[str] = []
     with zipfile.ZipFile(path, "r") as zf:
         sheets = workbook_sheets(zf)
-        scripts = _parse_python_scripts(zf)
+        scripts = _parse_python_scripts(zf, issues)
         tables: dict[str, str] = {}
         anchors: dict[str, str] = {}
         cells: list[ExcelPyCell] = []
         for sh in sheets:
             if not sh.part_name:
                 continue
-            try:
-                ws_root = ET.fromstring(zf.read(sh.part_name))
-            except KeyError:
+            ws_root = _read_xml(zf, sh.part_name, issues)
+            if ws_root is None:
                 continue
             cells.extend(_iter_py_cells(ws_root, sh.title, issues=issues))
             # Sheet-qualified keys (they contain "!") update in place. Bare
@@ -501,7 +530,7 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
             for _rid, rtype, target in parse_rels_with_types(zf, sheet_rels_path(sh.part_name)):
                 if not _rel_type_is_table(rtype) and "tables/table" not in target:
                     continue
-                parsed = _parse_table_ref(zf, target, sh.title)
+                parsed = _parse_table_ref(zf, target, sh.title, issues)
                 if parsed:
                     name, qref = parsed
                     tables[name] = qref

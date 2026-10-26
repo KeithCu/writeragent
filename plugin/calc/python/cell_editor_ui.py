@@ -95,6 +95,7 @@ class NativePythonCellEditorDialog:
         self._code_ref = code_ref
         self._apply_load(initial_code)
         self._dirty = False
+        self._focus_code()
 
     def close(self, *, toolkit_teardown: bool = False) -> None:
         """Hide/dispose. Esc/title-bar X already tears the peer down — do not dispose again."""
@@ -157,8 +158,6 @@ class NativePythonCellEditorDialog:
         self._set_status(_("Ready"))
         self._loading = False
         self._dirty = False
-        if code_ctrl is not None:
-            code_ctrl.setFocus()
 
     def _sync_data_enabled(self) -> None:
         # Twin of editor.js updateDataBindingEnabled: Data: is off when Save
@@ -174,6 +173,11 @@ class NativePythonCellEditorDialog:
         if model is not None and hasattr(model, "HelpText"):
             model.HelpText = title
 
+    def _focus_code(self) -> None:
+        ctrl = self._ctrl("CodeEdit")
+        if ctrl is not None:
+            ctrl.setFocus()
+
     def _set_status(self, body: str) -> None:
         set_control_text(self._ctrl("StatusEdit"), _status_text(body))
 
@@ -186,24 +190,32 @@ class NativePythonCellEditorDialog:
     def _save(self) -> None:
         from plugin.calc.python.editor import _apply_cell_save
 
-        self._set_status(_("Saving…"))
-        save_as_plain = bool(get_checkbox_state(self._ctrl("ChkPlainText")))
-        follow = self._following_ref()
-        # Same rule as editor.js btn-save: follow still sends Data while
-        # Save without =PY() is checked (the code cell is plain text).
-        binding = self._data_text() if follow or not save_as_plain else None
-        outcome = _apply_cell_save(self._doc, self._cell, parsed_parts=self._parsed_parts, new_code=self._code_text(), save_as_plain=save_as_plain, data_binding_text=binding, code_cell=self._code_cell if follow else None, code_ref=self._code_ref if follow else None)
-        if outcome.get("type") == "error":
-            self._set_status(str(outcome.get("message") or _("Error")))
-            return
-        self._dirty = False
-        ok_text = outcome.get("status_ok_text")
-        if not ok_text:
-            if outcome.get("save_as_plain"):
-                ok_text = _("Saved without =PY().")
-            else:
-                ok_text = _("Saved.")
-        self._set_status(str(ok_text))
+        try:
+            self._set_status(_("Saving…"))
+            save_as_plain = bool(get_checkbox_state(self._ctrl("ChkPlainText")))
+            follow = self._following_ref()
+            # Same rule as editor.js btn-save: follow still sends Data while
+            # Save without =PY() is checked (the code cell is plain text).
+            binding = self._data_text() if follow or not save_as_plain else None
+            outcome = _apply_cell_save(self._doc, self._cell, parsed_parts=self._parsed_parts, new_code=self._code_text(), save_as_plain=save_as_plain, data_binding_text=binding, code_cell=self._code_cell if follow else None, code_ref=self._code_ref if follow else None)
+            if outcome.get("type") == "error":
+                self._set_status(str(outcome.get("message") or _("Error")))
+                return
+            self._dirty = False
+            ok_text = outcome.get("status_ok_text")
+            if not ok_text:
+                if outcome.get("save_as_plain"):
+                    ok_text = _("Saved without =PY().")
+                else:
+                    ok_text = _("Saved.")
+            self._set_status(str(ok_text))
+        except Exception as exc:
+            # Catch save errors directly in _save so retargeting and button clicks
+            # both report the failure reason in status, and leave _dirty untouched.
+            from plugin.scripting.editor_errors import failure_message
+
+            log.exception("Native Python cell editor save failed")
+            self._set_status(failure_message(_("Could not save the cell."), detail=str(exc)))
 
     def _open(self, initial_code: str) -> bool:
         try:
@@ -222,9 +234,18 @@ class NativePythonCellEditorDialog:
                 def on_window_closing(self, rEvent: Any) -> None:
                     owner.close(toolkit_teardown=True)
 
+                def on_disposing(self, Source: Any) -> None:
+                    # External dispose (e.g. toolkit shutdown) must clear the singleton so
+                    # subsequent opens do not target a dead dialog. toolkit_teardown=True
+                    # avoids calling dispose() again on an already disposing peer.
+                    owner.close(toolkit_teardown=True)
+
             self._top_listener = _TopWindowListener()
             dlg.addTopWindowListener(self._top_listener)
             dlg.setVisible(True)
+            # Focus after visible: setFocus() before the modeless dialog is visible
+            # does not take on some platforms.
+            self._focus_code()
             return True
         except Exception as exc:
             from plugin.scripting.editor_errors import exception_traceback
@@ -239,11 +260,7 @@ class NativePythonCellEditorDialog:
 
         class _SaveListener(BaseActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
-                try:
-                    owner._save()
-                except Exception:
-                    log.exception("Native Python cell editor Save failed")
-                    owner._set_status(_("Error"))
+                owner._save()
 
         class _CancelListener(BaseActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:

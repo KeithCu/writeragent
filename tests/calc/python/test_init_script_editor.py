@@ -11,6 +11,10 @@ from unittest.mock import MagicMock, patch
 from plugin.calc.python.init_script_editor import open_init_script_editor
 
 
+class _DisposedException(Exception):
+    pass
+
+
 def test_open_init_script_editor_no_calc_doc():
     ctx = MagicMock()
     with (
@@ -88,7 +92,7 @@ def test_open_init_script_editor_success_and_on_save():
         patch("plugin.calc.python.init_script_editor.document_scripts_identity", return_value="doc_1"),
         patch("plugin.calc.python.init_script_editor.launch_monaco_editor", side_effect=capture_launch),
         patch("plugin.calc.python.init_script_editor.set_calc_init_script") as mock_set,
-        patch("plugin.calc.python.init_script_editor.reset_workbook_python_session") as mock_reset,
+        patch("plugin.calc.python.function.clear_python_addin_cache") as mock_clear,
     ):
         open_init_script_editor(ctx)
         assert saved_cb is not None
@@ -97,11 +101,74 @@ def test_open_init_script_editor_success_and_on_save():
         mock_set.return_value = "write error"
         res_err = saved_cb("bad code", True, None, "save")
         assert res_err == {"type": "error", "message": "write error"}
-        mock_reset.assert_not_called()
+        mock_clear.assert_not_called()
 
-        # Test on_save success branch
+        # Test on_save success branch with changed code
+        mock_set.reset_mock()
         mock_set.return_value = None
         res_ok = saved_cb("good code", True, None, "save")
         assert res_ok.get("type") == "saved"
         assert res_ok.get("ok") is True
-        mock_reset.assert_called_once_with(ctx)
+        mock_set.assert_called_once_with(doc, "good code")
+        mock_clear.assert_called_once()
+
+        # Save "good code" again (unchanged write)
+        mock_set.reset_mock()
+        mock_clear.reset_mock()
+        res_unchanged = saved_cb("good code", True, None, "save")
+        assert res_unchanged.get("type") == "saved"
+        assert res_unchanged.get("ok") is True
+        mock_set.assert_not_called()
+        mock_clear.assert_not_called()
+
+        # Save "# init script" (back to original)
+        res_back = saved_cb("# init script", True, None, "save")
+        assert res_back.get("type") == "saved"
+        assert res_back.get("ok") is True
+        mock_set.assert_called_once_with(doc, "# init script")
+
+
+def test_open_init_script_editor_disposed_save_returns_error_frame():
+    ctx = MagicMock()
+    doc = MagicMock()
+    saved_cb = None
+
+    def capture_launch(uno_ctx, *, exe, load_message, on_save):
+        nonlocal saved_cb
+        saved_cb = on_save
+        return True
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
+        patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=("/bin/python", True)),
+        patch("plugin.calc.python.init_script_editor.get_calc_init_script", return_value="# init script"),
+        patch("plugin.calc.python.init_script_editor.document_scripts_identity", return_value="doc_1"),
+        patch("plugin.calc.python.init_script_editor.launch_monaco_editor", side_effect=capture_launch),
+        patch("plugin.calc.python.init_script_editor.set_calc_init_script", side_effect=_DisposedException("gone")),
+        patch("plugin.calc.python.function.clear_python_addin_cache") as mock_clear,
+    ):
+        open_init_script_editor(ctx)
+        assert saved_cb is not None
+
+        res = saved_cb("changed code", True, None, "save")
+        assert res.get("type") == "error"
+        assert "no longer open" in res.get("message", "")
+        mock_clear.assert_not_called()
+
+
+def test_open_init_script_editor_disposed_at_open_shows_message():
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
+        patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=("/bin/python", True)),
+        patch("plugin.calc.python.init_script_editor.get_calc_init_script", side_effect=_DisposedException("gone")),
+        patch("plugin.calc.python.init_script_editor.msgbox") as mock_box,
+        patch("plugin.calc.python.init_script_editor.launch_monaco_editor") as mock_launch,
+    ):
+        open_init_script_editor(ctx)
+        mock_box.assert_called_once()
+        assert "no longer open" in mock_box.call_args[0][2]
+        mock_launch.assert_not_called()

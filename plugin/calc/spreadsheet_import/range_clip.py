@@ -2,61 +2,65 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Clip whole-column/row PY data refs to a workbook sheet's used area."""
+"""Clip whole-column/row PY data refs to a workbook sheet's used area.
+
+Bounds are 0-based, end-inclusive. Clipping freezes the data extent so whole-axis
+references do not materialize full spreadsheet dimensions.
+"""
 
 from __future__ import annotations
 
-import re
+from plugin.calc.address_utils import index_to_column, split_sheet_prefix
 
-# ACTUAL.F:F, 'Dashboard Finished'.C:C, or local F:F
-_QUOTED_COL_ONLY_RE = re.compile(r"^'([^']+)'.([A-Z]+):\2$", re.IGNORECASE)
-_SHEET_COL_ONLY_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_ ]*)\.([A-Z]+):\2$", re.IGNORECASE)
-_LOCAL_COL_ONLY_RE = re.compile(r"^([A-Z]+):\1$", re.IGNORECASE)
+
+def _split_axis(address: str) -> tuple[str, str, str] | None:
+    address = address.replace("$", "")
+    start, has_sep, end = address.partition(":")
+    if not has_sep or not start or not end:
+        return None
+    if start.isascii() and end.isascii() and start.isalpha() and end.isalpha():
+        return "col", start.upper(), end.upper()
+    if start.isascii() and end.isascii() and start.isdigit() and end.isdigit():
+        return "row", start, end
+    return None
+
+
+def _quote_sheet_reference(name: str, was_quoted: bool) -> str:
+    if was_quoted or not name.isidentifier():
+        return "'" + name.replace("'", "''") + "'"
+    return name
 
 
 def clip_workbook_data_ranges(ranges: list[str], *, sheet_bounds: dict[str, tuple[int, int]] | None, current_sheet: str | None = None) -> list[str]:
     """Clip ``SHEET.F:F`` style refs to ``SHEET.F1:F{used_row}`` when bounds are known."""
     if not sheet_bounds:
         return list(ranges)
-    return [_clip_one_range(r, sheet_bounds, current_sheet=current_sheet) for r in ranges]
+    bounds = {str(key).upper(): value for key, value in sheet_bounds.items()}
+    return [_clip_one_range(r, bounds, current_sheet=current_sheet) for r in ranges]
 
 
 def _clip_one_range(range_ref: str, sheet_bounds: dict[str, tuple[int, int]], *, current_sheet: str | None = None) -> str:
-    normalized = str(range_ref).strip().replace("$", "")
-    quoted_sheet: str | None = None
-    bare_sheet: str | None = None
-    col: str | None = None
-    current_sheet_key = ""
+    text = str(range_ref).strip()
+    sheet, address = split_sheet_prefix(text)
+    axis_info = _split_axis(address)
+    if axis_info is None:
+        return range_ref
 
-    quoted = _QUOTED_COL_ONLY_RE.match(normalized)
-    if quoted:
-        quoted_sheet = str(quoted.group(1))
-        col = str(quoted.group(2))
-        current_sheet_key = quoted_sheet.upper()
+    kind, start, end = axis_info
+    resolved_sheet = (sheet or current_sheet or "").upper()
+    if not resolved_sheet or resolved_sheet not in sheet_bounds:
+        return range_ref
+
+    end_col, end_row = sheet_bounds[resolved_sheet]
+
+    if sheet:
+        was_quoted = text.lstrip().startswith("'") or text.lstrip().startswith("$'")
+        quoted_name = _quote_sheet_reference(sheet, was_quoted)
+        sep = "." if text[:text.rfind(address)].rstrip().endswith(".") else "!"
+        prefix = f"{quoted_name}{sep}"
     else:
-        sheet_col = _SHEET_COL_ONLY_RE.match(normalized)
-        if sheet_col:
-            bare_sheet = str(sheet_col.group(1))
-            col = str(sheet_col.group(2))
-            current_sheet_key = bare_sheet.upper()
-        else:
-            local = _LOCAL_COL_ONLY_RE.match(normalized)
-            if local:
-                col = str(local.group(1))
-                if current_sheet:
-                    current_sheet_key = current_sheet.upper()
+        prefix = ""
 
-    if not col:
-        return range_ref
-
-    sheet_key = current_sheet_key
-    if not sheet_key or sheet_key not in sheet_bounds:
-        return range_ref
-    _end_col, end_row = sheet_bounds[sheet_key]
-    end_row += 1  # 0-based → 1-based A1
-    col = col.upper()
-    if quoted_sheet:
-        return f"'{quoted_sheet}'.{col}1:{col}{end_row}"
-    if bare_sheet:
-        return f"{bare_sheet}.{col}1:{col}{end_row}"
-    return f"{col}1:{col}{end_row}"
+    if kind == "col":
+        return f"{prefix}{start}1:{end}{end_row + 1}"
+    return f"{prefix}A{start}:{index_to_column(end_col)}{end}"

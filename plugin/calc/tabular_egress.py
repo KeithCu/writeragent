@@ -18,6 +18,12 @@ def _cell(value: Any) -> Any:
     return to_calc_compatible(value)
 
 
+def pad_grid(grid: list[list[Any]]) -> list[list[Any]]:
+    """Pad ragged rows with "" so write_formula_range gets a rectangular array."""
+    width = max((len(row) for row in grid), default=0)
+    return [list(row) + [""] * (width - len(row)) for row in grid]
+
+
 def _append_blank(rows: list[list[Any]]) -> None:
     if rows and rows[-1]:
         rows.append([])
@@ -139,5 +145,6 @@ def insert_tabular_result_into_calc(
     if sheet_name:
         addr = qualify_a1(sheet_name, addr)
 
-    manipulator.write_formula_range(addr, grid)
+    grid = pad_grid(grid)
+    manipulator.write_formula_range(addr, grid, data_text=True)
     return len(grid)

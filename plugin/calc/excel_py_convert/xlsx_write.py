@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_ILLEGAL_XML_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_INVALID_XML_CHARS_RE = re.compile(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
 
 
 def _xlsx_formula_for_cell(cell: ConvertedCell) -> str:
@@ -136,64 +136,52 @@ def _unshare_groups_touching(ws_root: ET.Element, sheet_title: str, write_addrs:
                         del m_f.attrib["ref"]
 
 
-def _patch_content_types_dag(data: bytes, new_overrides: list[str], *, strip_python: bool) -> bytes:
-    """Patch [Content_Types].xml for DAG export: inject worksheet Overrides and optionally strip Python."""
+def _patch_content_types(
+    data: bytes,
+    *,
+    drop_parts: set[str] | None = None,
+    strip_python: bool = False,
+    add_sheet_parts: Sequence[str] = (),
+    ensure_python_scripts: bool = False,
+) -> bytes:
+    """Remove Overrides for dropped parts/calcChain, add bank sheets, and optionally toggle Python parts."""
     try:
         root, ns_map = parse_and_extract_namespaces(data)
     except ET.ParseError as exc:
         raise ValueError(f"malformed [Content_Types].xml: {exc}") from exc
+    drop = {p.lstrip("/") for p in drop_parts} if drop_parts else set()
+    drop.add("xl/calcChain.xml")
     changed = False
     for child in list(root):
-        if local_name(child.tag) == "Override":
-            part_name = child.attrib.get("PartName", "")
-            if part_name == "/xl/calcChain.xml" or (
-                strip_python
-                and (
-                    part_name == "/xl/pythonScripts.xml"
-                    or part_name.startswith("/xl/pythonScripts/")
-                )
-            ):
-                root.remove(child)
-                changed = True
-    existing_parts = {child.attrib.get("PartName", "") for child in root if local_name(child.tag) == "Override"}
-    for part in new_overrides:
-        if part not in existing_parts:
-            tag = f"{{{CONTENT_TYPES_NS}}}Override" if root.tag.startswith("{") else "Override"
+        if local_name(child.tag) != "Override":
+            continue
+        part_name = (child.attrib.get("PartName") or "").lstrip("/")
+        if part_name in drop or (
+            strip_python
+            and (part_name == "xl/pythonScripts.xml" or part_name.startswith("xl/pythonScripts/"))
+        ):
+            root.remove(child)
+            changed = True
+    existing = {(c.attrib.get("PartName") or "") for c in root if local_name(c.tag) == "Override"}
+    tag = f"{{{CONTENT_TYPES_NS}}}Override" if root.tag.startswith("{") else "Override"
+    for part in add_sheet_parts:
+        if part not in existing:
             ET.SubElement(
                 root,
                 tag,
                 attrib={"PartName": part, "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"},
             )
-            existing_parts.add(part)
+            existing.add(part)
             changed = True
+    if ensure_python_scripts and "/xl/pythonScripts.xml" not in existing:
+        ET.SubElement(root, tag, attrib={"PartName": "/xl/pythonScripts.xml", "ContentType": "application/xml"})
+        changed = True
     if not changed:
         return data
     return serialize_xml_preserving_namespaces(root, ns_map)
 
 
-def _strip_content_types_python(data: bytes) -> bytes:
-    """Remove Python-in-Excel Override elements from [Content_Types].xml."""
-    # Parse the XML: Excel and LibreOffice write this file as one line, so line filtering deletes it.
-    try:
-        root, ns_map = parse_and_extract_namespaces(data)
-    except ET.ParseError as exc:
-        raise ValueError(f"malformed [Content_Types].xml: {exc}") from exc
-    changed = False
-    for child in list(root):
-        if local_name(child.tag) == "Override":
-            part_name = child.attrib.get("PartName", "")
-            if (
-                part_name in ("/xl/pythonScripts.xml", "/xl/calcChain.xml")
-                or part_name.startswith("/xl/pythonScripts/")
-            ):
-                root.remove(child)
-                changed = True
-    if not changed:
-        return data
-    return serialize_xml_preserving_namespaces(root, ns_map)
-
-
-def _strip_rels_python(data: bytes) -> bytes:
+def _strip_rels_python(data: bytes, *, strip_python: bool = True) -> bytes:
     """Remove Python-in-Excel Relationship elements from .rels files."""
     # Parse the XML: a single-line .rels file loses its whole body under line filtering.
     try:
@@ -206,35 +194,15 @@ def _strip_rels_python(data: bytes) -> bytes:
             target = child.attrib.get("Target", "").replace("\\", "/").rstrip("/").split("/")[-1]
             rel_type = child.attrib.get("Type", "")
             if (
-                rel_type == PYTHON_SCRIPT_REL_TYPE
-                or target == "pythonScripts.xml"
+                (strip_python and (rel_type == PYTHON_SCRIPT_REL_TYPE or target == "pythonScripts.xml"))
                 or rel_type.endswith(CALC_CHAIN_REL_TYPE_SUFFIX)
+                or target == "calcChain.xml"
             ):
                 root.remove(child)
                 changed = True
     if not changed:
         return data
     return serialize_xml_preserving_namespaces(root, ns_map)
-
-
-def _strip_python_in_excel_parts(out_path: Path) -> None:  # pyright: ignore[reportUnusedFunction]  # tests call _strip_python_in_excel_parts
-    """Remove obsolete Python-in-Excel package parts after formula rewrite."""
-    drop_prefixes = ("xl/pythonScripts/",)
-    drop_exact = {"xl/pythonScripts.xml", "xl/calcChain.xml"}
-
-    def _transform(zin: zipfile.ZipFile, zout: zipfile.ZipFile) -> None:
-        for info in zin.infolist():
-            name = info.filename
-            if name in drop_exact or any(name.startswith(p) for p in drop_prefixes):
-                continue
-            data = zin.read(name)
-            if name == "[Content_Types].xml":
-                data = _strip_content_types_python(data)
-            elif name.endswith(".rels"):
-                data = _strip_rels_python(data)
-            zout.writestr(info, data)
-
-    rewrite_zip(out_path, out_path, _transform, temp_suffix=".tmpstrip")
 
 
 
@@ -333,12 +301,14 @@ class _WorksheetCellIndex:
                 self.sheet_data.append(row_el)
                 self.max_row = target_row
             else:
-                insert_row_idx = len(self.sheet_data)
+                # Insert after the last <row>, not at the end: sheetData may end with extLst.
+                insert_row_idx = 0
                 current_row_num = 0
                 for idx, r in enumerate(list(self.sheet_data)):
                     if local_name(r.tag) != "row":
                         self.has_non_row = True
                         continue
+                    insert_row_idx = idx + 1
                     r_attr = r.attrib.get("r")
                     if r_attr is not None:
                         try:
@@ -498,33 +468,6 @@ def _clear_spill_xml(ws_root: ET.Element, anchor: str, array_ref: str, index: _W
                     del c.attrib["t"]
 
 
-def _patch_content_types(data: bytes, drop_parts: set[str] | None = None) -> bytes:
-    """Ensure pythonScripts.xml Override is present and remove Overrides for drop_parts and calcChain."""
-    try:
-        root, ns_map = parse_and_extract_namespaces(data)
-    except ET.ParseError as exc:
-        raise ValueError(f"malformed [Content_Types].xml: {exc}") from exc
-    norm_drop = {p.lstrip("/") for p in drop_parts} if drop_parts else set()
-    norm_drop.add("xl/calcChain.xml")
-    for child in list(root):
-        if local_name(child.tag) == "Override":
-            pn = (child.attrib.get("PartName") or "").lstrip("/")
-            if pn in norm_drop:
-                root.remove(child)
-    has_py = any(
-        local_name(c.tag) == "Override" and c.attrib.get("PartName") == "/xl/pythonScripts.xml"
-        for c in root
-    )
-    if not has_py:
-        tag = f"{{{CONTENT_TYPES_NS}}}Override" if root.tag.startswith("{") else "Override"
-        ET.SubElement(
-            root,
-            tag,
-            attrib={"PartName": "/xl/pythonScripts.xml", "ContentType": "application/xml"},
-        )
-    return serialize_xml_preserving_namespaces(root, ns_map)
-
-
 _WORKBOOK_AFTER_CALC_PR = (
     "oleSize",
     "customWorkbookViews",
@@ -646,7 +589,6 @@ def _require_workbook_sheets(zin: zipfile.ZipFile) -> list[SheetInfo]:
 
 
 _PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
-_INVALID_XML_CHARS_RE = re.compile(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
 
 
 def _xml_text_escape(text: str) -> str:
@@ -770,14 +712,12 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
         original_namespaces: dict[str, dict[str, str]] = {}
         for part, cells in by_part.items():
             cells.sort(key=lambda c: _a1_row_col(c.cell) or (0, 0))
-            root = patched.get(part)
-            if root is None:
-                try:
-                    root, ns_map = parse_and_extract_namespaces(zin.read(part))
-                    original_namespaces[part] = ns_map
-                except KeyError:
-                    errors.append(f"missing worksheet part {part!r}")
-                    continue
+            try:
+                root, ns_map = parse_and_extract_namespaces(zin.read(part))
+                original_namespaces[part] = ns_map
+            except KeyError:
+                errors.append(f"missing worksheet part {part!r}")
+                continue
 
             ws_index = _WorksheetCellIndex(root)
             sheet_write_set = {cell.cell.replace("$", "").upper() for cell in cells}
@@ -816,7 +756,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
                 written_scripts = True
                 continue
             if name == "[Content_Types].xml":
-                data = _patch_content_types(zin.read(name), drop_parts=drop_parts)
+                data = _patch_content_types(zin.read(name), drop_parts=drop_parts, ensure_python_scripts=True)
                 zout.writestr(info, data)
                 continue
             if name == "xl/workbook.xml":
@@ -921,7 +861,7 @@ def write_dag_formulas_xlsx(
                     if cell.array_ref:
                         _clear_spill_xml(root, cell.cell, cell.array_ref, index=ws_index)
                     formula = _xlsx_formula_for_cell(cell)
-                    if _ILLEGAL_XML_CHARS_RE.search(formula):
+                    if _INVALID_XML_CHARS_RE.search(formula):
                         raise ValueError(f"illegal XML character in formula: {formula!r}")
                     _set_cell_xlws_formula(root, cell.cell, formula, array_ref="", index=ws_index)
                 except Exception as exc:
@@ -1024,7 +964,7 @@ def write_dag_formulas_xlsx(
 
             sorted_bank_entries = sorted(bank_entries.items(), key=lambda item: _a1_row_col(item[0]) or (0, 0))
             for a1, text in sorted_bank_entries:
-                if _ILLEGAL_XML_CHARS_RE.search(text):
+                if _INVALID_XML_CHARS_RE.search(text):
                     errors.append(f"{code_sheet}!{a1}: string contains illegal XML character")
                     continue
                 c_el = bank_index.ensure_cell(a1)
@@ -1047,19 +987,10 @@ def write_dag_formulas_xlsx(
         if errors:
             raise ValueError("write_dag_formulas_xlsx failed:\n" + "\n".join(errors))
 
-        # Drop calcChain relationship so Excel does not attempt stale chain evaluation.
-        for rel in list(rels_root):
-            if local_name(rel.tag) != "Relationship":
-                continue
-            rel_type = rel.attrib.get("Type") or ""
-            target = rel.attrib.get("Target", "").replace("\\", "/").rstrip("/").split("/")[-1]
-            if rel_type.endswith(CALC_CHAIN_REL_TYPE_SUFFIX) or target == "calcChain.xml":
-                rels_root.remove(rel)
-
         wb_bytes = serialize_xml_preserving_namespaces(wb_root, wb_ns)
         rels_bytes = serialize_xml_preserving_namespaces(rels_root, rels_ns)
-        if strip_python_parts:
-            rels_bytes = _strip_rels_python(rels_bytes)
+        # calcChain always goes; python parts only when stripping (see _strip_rels_python).
+        rels_bytes = _strip_rels_python(rels_bytes, strip_python=strip_python_parts)
 
     drop_prefixes = ("xl/pythonScripts/",) if strip_python_parts else ()
     drop_exact = {"xl/calcChain.xml"}
@@ -1072,7 +1003,7 @@ def write_dag_formulas_xlsx(
             if name in drop_exact or any(name.startswith(p) for p in drop_prefixes):
                 continue
             if name == "[Content_Types].xml":
-                data = _patch_content_types_dag(zin.read(name), new_content_types_overrides, strip_python=strip_python_parts)
+                data = _patch_content_types(zin.read(name), strip_python=strip_python_parts, add_sheet_parts=new_content_types_overrides)
                 zout.writestr(info, data)
                 continue
             if name == "xl/workbook.xml":

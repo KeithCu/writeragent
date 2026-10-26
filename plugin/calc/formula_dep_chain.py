@@ -9,15 +9,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.calc.address_utils import format_address
+from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_prefix
 from plugin.calc.calc_utils import cell_value_and_type, query_interface
 from plugin.calc.calc_utils import resolve_sheet_and_cell as _resolve_sheet_and_cell
 from plugin.framework.errors import best_effort, safe_json_loads
 
 _FORMULA_DEP_CHAIN_CMD = ".uno:FormulaDepChain"
 # A full-column precedent such as A:Z is about 27 million cells. Walking
-# every one with getCellByPosition freezes the UI. Stop after this many snapshots.
-_MAX_PRECEDENT_CELLS = 10_000
+# every one with getCellByPosition freezes the UI, and each snapshot is a
+# verbose dict. 80 matches the chat range budget in cells.py; a whole-column
+# SUM used to return 10,000 dicts. Stop after this many snapshots.
+_MAX_PRECEDENT_CELLS = 80
 
 
 def _sheet_name(sheet: Any) -> str:
@@ -26,21 +28,6 @@ def _sheet_name(sheet: Any) -> str:
         return ""
     name = getter()
     return name if isinstance(name, str) else ""
-
-
-def _address_on_sheet(sheet: Any, col: int, row: int) -> str:
-    """Cell address, qualified with the sheet when its name is known.
-
-    Cross-sheet precedents used to be emitted as a bare ``A1`` read from the
-    formula's sheet. The sheet name makes ``Sheet2.A1`` distinct from ``A1``.
-    """
-    local = format_address(col, row)
-    name = _sheet_name(sheet)
-    if not name:
-        return local
-    if any(ch in name for ch in " .!'"):
-        return "'%s'!%s" % (name.replace("'", "''"), local)
-    return "%s.%s" % (name, local)
 
 
 def _sheet_for_precedent(doc: Any, fallback: Any, sheet_index: Any) -> Any:
@@ -56,10 +43,12 @@ def _sheet_for_precedent(doc: Any, fallback: Any, sheet_index: Any) -> Any:
     return doc.getSheets().getByIndex(int(sheet_index))
 
 
-def _cell_snapshot(sheet: Any, col: int, row: int) -> dict[str, Any]:
+def _cell_snapshot(sheet: Any, col: int, row: int, sheet_name: str | None = None) -> dict[str, Any]:
     cell = sheet.getCellByPosition(col, row)
     val, type_name = cell_value_and_type(cell, empty_as_none=False)
-    addr = _address_on_sheet(sheet, col, row)
+    if sheet_name is None:
+        sheet_name = _sheet_name(sheet)
+    addr = qualify_a1(sheet_name, format_address(col, row)) if sheet_name else format_address(col, row)
     snapshot: dict[str, Any] = {"address": addr, "type": type_name, "value": val}
 
     err = cell.getError()
@@ -91,21 +80,24 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any = Non
     truncated = False
     ranges = best_effort(lambda: fq.queryPrecedents(False), "queryPrecedents failed")
     if ranges is None:
-        return {"source": "formula_query", "precedents": precedents, "truncated": False}
-    for addr in ranges.getRangeAddresses():
+        return {"source": "formula_query", "precedents": precedents, "truncated": False, "total_cells": 0}
+    addresses = ranges.getRangeAddresses()
+    total_cells = sum((addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) for addr in addresses)
+    for addr in addresses:
         # Sheet 0 is a real sheet. Only a missing index means "this sheet".
         prec_sheet = _sheet_for_precedent(doc, sheet, getattr(addr, "Sheet", None))
+        prec_name = _sheet_name(prec_sheet)
         for r in range(addr.StartRow, addr.EndRow + 1):
             for c in range(addr.StartColumn, addr.EndColumn + 1):
                 if len(precedents) >= _MAX_PRECEDENT_CELLS:
                     truncated = True
                     break
-                precedents.append(_cell_snapshot(prec_sheet, c, r))
+                precedents.append(_cell_snapshot(prec_sheet, c, r, sheet_name=prec_name))
             if truncated:
                 break
         if truncated:
             break
-    return {"source": "formula_query", "precedents": precedents, "truncated": truncated}
+    return {"source": "formula_query", "precedents": precedents, "truncated": truncated, "total_cells": total_cells}
 
 
 def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] | None:
@@ -131,7 +123,7 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
     if hasattr(doc, "getCommandValues"):
         raw = best_effort(lambda: doc.getCommandValues(_FORMULA_DEP_CHAIN_CMD), f"getCommandValues({_FORMULA_DEP_CHAIN_CMD}) failed")
         if raw:
-            parsed = safe_json_loads(raw, default=None) if isinstance(raw, str) else raw
+            parsed = safe_json_loads(raw, default=None, strict=True) if isinstance(raw, str) else raw
             if isinstance(parsed, dict):
                 chain = parsed.get("commandValues") if "commandValues" in parsed else parsed
                 if chain:
@@ -142,5 +134,8 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
         chain = _precedents_via_formula_query(sheet, col, row, doc)
 
     if chain is not None:
-        chain.setdefault("cell", address.upper())
+        local = format_address(col, row)
+        sheet_name = _sheet_name(sheet)
+        cell = qualify_a1(sheet_name, local) if split_sheet_prefix(address)[0] is not None and sheet_name else local
+        chain.setdefault("cell", cell)
     return chain
