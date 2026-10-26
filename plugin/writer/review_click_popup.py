@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any
 
 import unohelper
@@ -111,6 +112,14 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         log.warning("review_click_popup: popup failed", exc_info=True)
 
 
+def _post_after_double_click_window(fire: Any, *args: Any) -> None:
+    """Background: sleep out the double-click window, then hand *fire* to the main thread."""
+    from plugin.framework.queue_executor import post_to_main_thread
+
+    time.sleep(_DOUBLE_CLICK_SEC)
+    post_to_main_thread(fire, *args)
+
+
 def _make_handler(model: Any, controller: Any) -> Any:
     global _handler_cls
     if _handler_cls is None:
@@ -148,13 +157,11 @@ def _make_handler(model: Any, controller: Any) -> Any:
                     if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:  # plain left click
                         if not _same_click_point(self._press, e.X, e.Y):
                             return False
-                        from plugin.framework.queue_executor import post_to_main_thread
+                        from plugin.framework.worker_pool import run_in_background
 
                         # Defer past the double-click window (a second press bumps _click_gen
                         # and cancels), so the view finishes caret placement / word select first.
-                        timer = threading.Timer(_DOUBLE_CLICK_SEC, post_to_main_thread, (self._fire_if_single, self._click_gen, e.Source, e.X, e.Y))
-                        timer.daemon = True
-                        timer.start()
+                        run_in_background(_post_after_double_click_window, self._fire_if_single, self._click_gen, e.Source, e.X, e.Y, name="review-click-popup")
                 except Exception:
                     log.debug("review_click_popup: mouseReleased failed", exc_info=True)
                 return False  # never consume
