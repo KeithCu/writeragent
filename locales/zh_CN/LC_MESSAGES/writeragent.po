@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Simplified) <LL@li.org>\n"
@@ -29,24 +29,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "正在对所选图像执行本地 OCR..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr "文档研究读取需要专门的任务委派 (USE_SUB_AGENT)。请在配置中启用此项。"
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"工具调用已切换到 '{0}'。您现在处于专用工具集模式。完成时必须调用 'specialized_workflow_finished' 以恢复完整的 "
-"API 集。"
+msgid "Specialized task ({domain}) completed."
+msgstr "专用任务 ({domain}) 已完成。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "单元格执行失败。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "文档上没有笔记本注册表。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "未知的笔记本单元格。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "缺少代码字段。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "代码单元格为空。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -216,7 +221,7 @@ msgstr "TLS/SSL 错误：{0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "服务器错误 ({0})。AI 提供商出现问题。"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "HTTP 错误 {0}: {1}"
@@ -271,18 +276,24 @@ msgstr "连接错误: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "AI 提供商报告了错误。请重试。"
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "错误：{0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} 未找到：{identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "正在等待其他文档的回复..."
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO 线程违规"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "正在等待其他文档的回复..."
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -332,12 +343,6 @@ msgstr " 如果您的 API 密钥来自 GLM 编码计划订阅，请将端点设�
 msgid " Request model was: {0}."
 msgstr " 请求模型为：{0}。"
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "错误：{0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -368,10 +373,20 @@ msgstr "正在间隔自由模型请求，下次发送将在 {0} 秒后……"
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "未设置 Anthropic 模型。请在“设置”中选择一个模型。"
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}：{1} 通过，{2} 失败。"
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "测试运行失败：{0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -409,12 +424,6 @@ msgid "Transcribing audio..."
 msgstr "正在转录音频..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr "无法检查是否已安装 faster-whisper。设置 → Python 解释器超时或无法启动。"
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "本地 Whisper 失败：{0}"
@@ -422,6 +431,18 @@ msgstr "本地 Whisper 失败：{0}"
 #: plugin/audio/stt_service.py
 msgid "Local Whisper did not return a transcript."
 msgstr "本地 Whisper 未返回转录内容。"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr "本地 Whisper 超时。请重试，或在“设置”→“语音”中选择较小的本地模型。"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr "本地 Whisper 超时。首次运行需要下载模型权重；请重试，或在“设置”→“语音”中选择较小的本地模型。"
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -433,6 +454,15 @@ msgstr ""
 "venv，然后使用以下命令安装：{0}"
 
 #: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "扩展程序中缺少本地 Whisper 脚本。"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "无法启动本地 Whisper ({0})。"
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "faster-whisper is not installed in the Settings → Python venv. Install with:"
@@ -442,24 +472,17 @@ msgstr ""
 "测试”会在“音频可选包”下列出它。"
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "扩展程序中缺少本地 Whisper 脚本。"
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr "本地 Whisper 超时或无法启动。请重试，或在“设置”→“语音”中选择较小的本地模型。"
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr "本地 Whisper 超时或无法启动。首次运行会下载模型权重；请重试，或在“设置”→“语音”中选择较小的本地模型。"
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr "没有可用于语音转文本端点的语言模型客户端。"
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "正在下载… {0}%"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr "磁盘空间不足，无法下载语音模型。"
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -503,13 +526,21 @@ msgstr "语音请求失败 ({0})。"
 msgid "Speech request failed."
 msgstr "语音请求失败。"
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "语音端点未返回音频。"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "对于非英语语音，已使用 Kokoro 的英语音素"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "未找到 Misaki；已使用 Kokoro 的英语音素"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "对于非英语语音，已使用 Kokoro 的英语音素"
+msgid "Could not save speech audio."
+msgstr "无法保存语音音频。"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -556,6 +587,10 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "无法在配置的虚拟环境中导入 webview (pywebview)。"
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr "电子表格已关闭。请重新打开后再试。"
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "初始化脚本已保存。"
@@ -594,17 +629,12 @@ msgid "Saved."
 msgstr "已保存。"
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "无法保存单元格。"
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr "无法从扩展中加载 PythonCellEditorDialog。"
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"无法保留此单元格的 PY 公式参数（例如数据区域）。请在 Calc 中编辑公式，或使用带引号的代码字符串，例如 =PY(\"code\"; "
-"A1:B10)。"
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -630,6 +660,10 @@ msgstr "无法将 xl() 范围字面量重写为 =PY 数据参数：%s"
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "代码已保存至 {0}。"
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent：保存 Python 单元格"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -712,6 +746,15 @@ msgstr ""
 "几何重算顺序跳过了工作表“%(sheet)s”：发现 %(cap)s 个或更多 Python "
 "单元格（发现上限）。该工作表保持未链接状态，因此部分列表不会被视为完整。"
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"无法保留此单元格的 PY 公式参数（例如数据区域）。请在 Calc 中编辑公式，或使用带引号的代码字符串，例如 =PY(\"code\"; "
+"A1:B10)。"
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -737,7 +780,17 @@ msgstr "WriterAgent: 编辑选区 (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 扩展选区 (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "请选择一个或多个非空单元格。"
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "仅编辑前 {0} 个非空单元格。"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -961,6 +1014,12 @@ msgid "Reject this change"
 msgstr "拒绝此更改"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr "此选区包含已追踪的插入或删除内容。请先接受或拒绝这些更改。选区未被修改。"
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "无法将流式文本写入文档：{0}"
@@ -992,18 +1051,12 @@ msgid ""
 msgstr "无法将流式续写合并为单个跟踪修订。文本已保留，但可能无法审阅。"
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr "此选区包含已追踪的插入或删除内容。请先接受或拒绝这些更改。选区未被修改。"
+msgid "Select text first"
+msgstr "请先选择文本"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: 扩展选区"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "请先选择文本"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1029,6 +1082,10 @@ msgstr "在下方选择一个替换项。"
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "AI 语法"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "无法打开 LaTeX 输入对话框。"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1338,6 +1395,41 @@ msgstr "为何"
 msgid "you"
 msgstr "您"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "端点 URL 不能为空。"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "无效的端点 URL。"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr "身份验证设置失败。请检查 API 密钥。"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ 连接成功！({0}毫秒，可用模型：{1})"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "服务器返回 HTTP {0}。"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr "身份验证失败 (401 未授权)。请检查您的 API 密钥。"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr "未找到模型端点 (404)。请检查端点 URL。"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "连接失败：{0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "代理请求批准"
@@ -1351,7 +1443,7 @@ msgstr "继续此操作吗？"
 msgid "Tool: %s"
 msgstr "工具：%s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "已复制！"
 
@@ -1411,6 +1503,10 @@ msgstr "评估仪表板"
 msgid "Debug"
 msgstr "调试"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[未检测到语音。]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[语音消息]"
@@ -1447,6 +1543,52 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "图书管理员"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr "AI：我可以进行网络搜索来回答任何问题，或总结网页内容，且不会查看或更改您的文档。我们聊聊吧。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI：深度研究模式会执行多步骤的网络调查（规划、多次搜索、综合），并将格式化后的报告插入到您的文档中。这需要更长时间，但能产生更详尽的结果。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr "AI：让我们一起探索和设计您的想法。我会提出问题、建议方案，并在您准备好后帮助您在文档中构建一份经批准的规范。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr "AI：让我们逐节起草您的文档。我会帮助您创建写作计划大纲，并在您的批准下逐步实施。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI：PPT-Master 模式 — 我将在您配置的 Python venv 中运行 ppt-master 工作流（脚本 + 导出至 "
+"Impress）。请描述您的主题或指定一个项目文件夹。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI：我是 WriterAgent 图书馆员 — "
+"我可以记住您的名字、喜欢的颜色，并为您提供简短的导览。当您想处理文档时，请随时在下拉菜单中选择“聊天”。"
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "打印命令列表"
@@ -1479,47 +1621,6 @@ msgstr "切换模型 (模拟)"
 msgid "Slash commands:"
 msgstr "斜杠命令："
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "发送"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "接受"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "更改"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "拒绝"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "等待批准中…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "免提已关闭"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "正在录音… (%d 毫秒静音)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "录制"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "停止录制"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "正在启动..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "正在获取文档..."
@@ -1541,20 +1642,9 @@ msgstr "[内部错误：无法识别 {0} 的文档类型。请报告此问题！
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[音频错误：录音已停止，未生成声音文件。]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[未检测到语音。]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[免提已关闭：未检测到语音。]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr "[模型 {0} 不支持原生音频。请在设置中选择 STT 模型。]"
+msgid "Starting..."
+msgstr "正在启动..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1564,6 +1654,10 @@ msgstr "[代理后端错误：{0}]"
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[对等发送需要在此侧边栏中开启聊天模式。]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "停止录制"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1656,10 +1750,69 @@ msgstr "未找到编辑器（请安装 Kate 或 Gedit，或设置 EDITOR）。�
 msgid "Could not start editor: {0}"
 msgstr "无法启动编辑器：{0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "接受"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "更改"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "拒绝"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "等待批准中…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "MCP 服务器已启动"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "MCP 服务器已停止"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[转录错误：{0}]"
+msgid "Unknown librarian error."
+msgstr "未知图书管理员错误。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "完美！现在我将您切换到主助手。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "未知的头脑风暴错误。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "头脑风暴已完成。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "未知的写作计划错误。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "写作计划已完成。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "未知的 PPT-Master 错误。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master 会话已完成。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "未知的深度研究错误。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "未知研究错误。"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1677,74 +1830,14 @@ msgid "Thinking..."
 msgstr "思考中..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "完美！现在我将您切换到主助手。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "未知图书管理员错误。"
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[图书馆员错误：{0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0} 错误：{1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "头脑风暴已完成。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "未知的头脑风暴错误。"
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[头脑风暴错误：{0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "写作计划已完成。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "未知的写作计划错误。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[写作计划错误：{0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master 会话已完成。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "未知的 PPT-Master 错误。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[PPT-Master 错误：{0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "未知的深度研究错误。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[深度研究错误：{0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "未知研究错误。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[研究错误：{0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr "深度研究第 {round}/{rounds} 轮，查询 {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1756,8 +1849,21 @@ msgid "Sources consulted:"
 msgstr "参考来源："
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "正在规划 {count} 个研究查询..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "深度研究：正在评估覆盖范围..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "网络研究未收集到可用证据。"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "深度研究：正在合成报告..."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1837,51 +1943,30 @@ msgstr "（此端点上没有图像模型）"
 msgid "(Connection failed)"
 msgstr "(连接失败)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr "AI：我可以进行网络搜索来回答任何问题，或总结网页内容，且不会查看或更改您的文档。我们聊聊吧。"
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "免提已关闭"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI：深度研究模式会执行多步骤的网络调查（规划、多次搜索、综合），并将格式化后的报告插入到您的文档中。这需要更长时间，但能产生更详尽的结果。"
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "正在录音… (%d 毫秒静音)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr "AI：让我们一起探索和设计您的想法。我会提出问题、建议方案，并在您准备好后帮助您在文档中构建一份经批准的规范。"
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[转录错误：{0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr "AI：让我们逐节起草您的文档。我会帮助您创建写作计划大纲，并在您的批准下逐步实施。"
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[免提已关闭：未检测到语音。]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
-msgstr ""
-"AI：PPT-Master 模式 — 我将在您配置的 Python venv 中运行 ppt-master 工作流（脚本 + 导出至 "
-"Impress）。请描述您的主题或指定一个项目文件夹。"
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"AI：我是 WriterAgent 图书馆员 — "
-"我可以记住您的名字、喜欢的颜色，并为您提供简短的导览。当您想处理文档时，请随时在下拉菜单中选择“聊天”。"
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
+msgstr "[模型 {0} 不支持原生音频。请在设置中选择 STT 模型。]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2162,10 +2247,6 @@ msgid "The document is no longer open."
 msgstr "文档已关闭。"
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "脚本准备失败。"
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "无法从扩展中加载 PythonScriptDialog。"
 
@@ -2231,6 +2312,14 @@ msgstr "成功"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "输出"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python 测试"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr "无法打开 Python 测试进度对话框。"
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2481,8 +2570,36 @@ msgid "Using LibreOffice process Python..."
 msgstr "正在使用 LibreOffice 进程 Python..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"未找到进程解释器：sys.executable 缺失、不是文件或不可执行。请在“设置”→“Python”中设置虚拟环境路径，或修复 "
+"LibreOffice 安装。"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "正在解析 venv Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "不是有效的 Python 可执行文件：{0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"未找到 Python。请使用虚拟环境根目录（包含 bin/ 或 Scripts/ 的文件夹）、bin/ 或 Scripts/ 文件夹、环境根目录下的 "
+"python.exe (conda/pyenv-win)，或解释器的完整路径。"
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "路径未找到：{0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2550,8 +2667,8 @@ msgid "No Writer document to insert into."
 msgstr "没有可供插入的 Writer 文档。"
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "请先运行分析。"
+msgid "Nothing to insert. Run an analysis first."
+msgstr "没有可插入的内容。请先运行分析。"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -2825,6 +2942,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "脚本执行成功。（耗时 {time}）"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "脚本准备失败。"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status}（已打印 {count} 行。）"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "脚本已保存。"
 
@@ -2851,10 +2977,6 @@ msgstr "无法打开内置脚本对话框。"
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "打开“运行 Python 脚本”时发生意外错误。"
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "调度错误"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2953,53 +3075,6 @@ msgid "Start MCP Server"
 msgstr "启动 MCP 服务器"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "通过 {0} 的公共隧道（无身份验证）"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "通过 {0} 的公共隧道：{1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "正在重新连接…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "通过 {0} 的公共隧道失败：%1"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "正在启动通过 {0} 的公共隧道…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr "通过 {0} 的公共隧道未运行（是否已安装提供程序二进制文件？）"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCP 服务器已停止"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCP 服务器已启动"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "通过 {0} 的公共隧道"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr "正在启动通过 {0} 的公共隧道…准备就绪后请使用 MCP 服务器状态。"
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "MCP 服务器未运行"
 
@@ -3073,6 +3148,35 @@ msgstr "测试隧道"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "MCP 隧道测试"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "通过 {0} 的公共隧道（无身份验证）"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "通过 {0} 的公共隧道：{1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "正在重新连接…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "通过 {0} 的公共隧道失败：%1"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "正在启动通过 {0} 的公共隧道…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr "通过 {0} 的公共隧道未运行（是否已安装提供程序二进制文件？）"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3170,14 +3274,8 @@ msgstr ""
 "注意：MCP 服务器当前未在端口 {3} 上运行。"
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}：{1} 通过，{2} 失败。"
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "测试运行失败：{0}"
+msgid "Dispatch Error"
+msgstr "调度错误"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3424,10 +3522,6 @@ msgid "Python Settings…"
 msgstr "Python 设置…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Python 测试"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "Python 单元格（活动工作表）："
 
@@ -3482,6 +3576,10 @@ msgstr "种子："
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "所选内容"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "发送"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4192,6 +4290,44 @@ msgid ""
 msgstr ""
 "在保存“单元格内编辑 Python”时，将静态 xl(\"A1:…\") 提升至 =PY 数据参数，并重写为 data / data[i] / "
 ".to_pandas()。"
+
+msgid "Allow network access"
+msgstr "允许网络访问"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr "除非勾选此项，否则将阻止网络导入（socket、requests、http、urllib、ssl 等）。"
+
+msgid "Allow file access"
+msgstr "允许文件访问"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"除非勾选，否则将阻止文件写入操作（os write 调用、shutil、tempfile、sqlite3 和 open() 内置函数）。通过 "
+"pathlib、glob、io 和 logging 进行的读取操作仍被允许。"
+
+msgid "Allow OS access"
+msgstr "允许操作系统访问"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr "允许原始 os、subprocess、multiprocessing 和 pty（运行其他程序和进程）；包含文件访问权限。"
+
+msgid "Extra allowed modules"
+msgstr "额外允许的模块"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"Python 可导入的额外模块（以逗号分隔，每个名称也允许其子模块 name.*）。将覆盖内置的黑名单，包括 os、socket 和 "
+"subprocess。"
 
 msgid "Vision / OCR"
 msgstr "视觉 / OCR"

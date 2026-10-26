@@ -57,6 +57,28 @@ DESELECTED_K = (
     "test_hamburger_menu_commands_parity_with_addons_xcu",
     # --strip drops log.info calls, so the TLS-error caplog check sees nothing.
     "test_handle_error_connection_error_does_not_call_super",
+    # The stripped tree has no extension/Dialogs/*.xdl to parse.
+    "test_xdl_controls_match_controller",
+    "test_xdl_all_ids_classified",
+    # --strip drops asserts, so these pytest.raises(AssertionError) checks never fire.
+    "test_send_event_post_init_assertions",
+    "test_text_updated_without_has_text_raises",
+    "test_start_unknown_handler_type_raises",
+    "test_spec_validation_asserts",
+    "test_on_main_thread_or_post_asserts_callable",
+    "test_aggregate_stubs_and_bools",
+    "test_materialize_calc_range_shape_assertion",
+    "test_harper_try_lint_reenter_during_wait_asserts",
+    # --strip drops log.debug/log.info and grammar_obs calls these checks look for.
+    "test_resize_logging_behavior",
+    "test_peer_not_chat_mode_logs_probe_failure",
+    "test_header_case_insensitivity_and_none",
+    "test_log_mcp_transport_entry_casing_and_defaults",
+    "test_dispatch_client_disconnect_is_not_a_500",
+    "test_dispatch_body_read_reset_does_not_write_a_500",
+    "test_fail_open_logs_capability_error",
+    "test_resolve_work_spans",
+    "test_split_debug_summary_is_one_gated_line",
 )
 
 

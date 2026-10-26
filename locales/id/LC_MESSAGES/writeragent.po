@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -30,27 +30,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "Menjalankan OCR lokal pada gambar yang dipilih..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr ""
-"Pembacaan riset dokumen memerlukan pendelegasian tugas khusus "
-"(USE_SUB_AGENT). Aktifkan ini di konfigurasi."
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"Panggilan alat beralih ke '{0}'. Anda berada dalam mode perangkat alat "
-"khusus. Anda harus memanggil 'specialized_workflow_finished' setelah selesai"
-" untuk memulihkan rangkaian API lengkap."
+msgid "Specialized task ({domain}) completed."
+msgstr "Tugas khusus ({domain}) selesai."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "Eksekusi sel gagal."
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "Tidak ada registri buku catatan pada dokumen."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "Sel buku catatan tidak dikenal."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "Bidang kode hilang."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "Sel kode kosong."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -227,7 +229,7 @@ msgstr "Kesalahan TLS/SSL: {0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "Kesalahan server ({0}). Penyedia AI sedang mengalami masalah."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "Kesalahan HTTP {0}: {1}"
@@ -293,18 +295,24 @@ msgstr "Kesalahan Koneksi: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "Penyedia AI melaporkan kesalahan. Coba lagi."
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Kesalahan: {0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} tidak ditemukan: {identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "Menunggu balasan dokumen lain..."
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "Pelanggaran Thread UNO"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "Menunggu balasan dokumen lain..."
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -366,12 +374,6 @@ msgstr ""
 msgid " Request model was: {0}."
 msgstr " Model permintaan adalah: {0}."
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Kesalahan: {0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -407,10 +409,20 @@ msgstr ""
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Model Anthropic belum diatur. Pilih model di Pengaturan."
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} berhasil, {2} gagal."
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Pengujian gagal dijalankan: {0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -450,14 +462,6 @@ msgid "Transcribing audio..."
 msgstr "Mentranskripsikan audio..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr ""
-"Tidak dapat memeriksa apakah faster-whisper terinstal. Pengaturan → "
-"Interpreter Python kehabisan waktu atau tidak dapat dimulai."
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "Whisper lokal gagal: {0}"
@@ -465,6 +469,23 @@ msgstr "Whisper lokal gagal: {0}"
 #: plugin/audio/stt_service.py
 msgid "Local Whisper did not return a transcript."
 msgstr "Whisper lokal tidak mengembalikan transkrip."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr ""
+"Local Whisper kehabisan waktu. Coba lagi, atau pilih Model Lokal yang lebih "
+"kecil di Pengaturan → Ucapan."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Local Whisper kehabisan waktu. Penggunaan pertama akan mengunduh bobot "
+"model; coba lagi, atau pilih Model Lokal yang lebih kecil di Pengaturan → "
+"Ucapan."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -476,6 +497,15 @@ msgstr ""
 "LibreOffice. Atur venv, lalu instal dengan: {0}"
 
 #: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Skrip Whisper lokal hilang dari ekstensi."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "Local Whisper tidak dapat dimulai ({0})."
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "faster-whisper is not installed in the Settings → Python venv. Install with:"
@@ -485,30 +515,18 @@ msgstr ""
 "{0}. Pengaturan → Uji Python mencantumkannya di bawah paket opsional Audio."
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "Skrip Whisper lokal hilang dari ekstensi."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr ""
-"Whisper lokal kehabisan waktu atau tidak dapat dimulai. Coba lagi, atau "
-"pilih Model Lokal yang lebih kecil di Pengaturan → Ucapan."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr ""
-"Whisper lokal kehabisan waktu atau tidak dapat dimulai. Penggunaan pertama "
-"akan mengunduh bobot model; coba lagi, atau pilih Model Lokal yang lebih "
-"kecil di Pengaturan → Ucapan."
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "Tidak ada klien model bahasa yang tersedia untuk titik akhir ucapan-ke-teks."
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "Mengunduh… {0}%"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr "Ruang disk tidak cukup untuk mengunduh model suara."
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -552,13 +570,21 @@ msgstr "Permintaan ucapan gagal ({0})."
 msgid "Speech request failed."
 msgstr "Permintaan ucapan gagal."
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "Titik akhir ucapan tidak mengembalikan audio."
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Kokoro menggunakan fonem bahasa Inggris untuk suara non-Inggris"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "Misaki tidak ditemukan; Kokoro menggunakan fonem bahasa Inggris"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "Kokoro menggunakan fonem bahasa Inggris untuk suara non-Inggris"
+msgid "Could not save speech audio."
+msgstr "Tidak dapat menyimpan audio ucapan."
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -607,6 +633,10 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Tidak dapat mengimpor webview (pywebview) di venv yang dikonfigurasi."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr "Lembar kerja tidak lagi terbuka. Buka kembali dan coba lagi."
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Skrip inisialisasi disimpan."
@@ -645,18 +675,12 @@ msgid "Saved."
 msgstr "Tersimpan."
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "Tidak dapat menyimpan sel."
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr "PythonCellEditorDialog tidak dapat dimuat dari ekstensi."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Tidak dapat mempertahankan argumen rumus PY sel ini (misalnya rentang data)."
-" Edit rumus di Calc, atau gunakan string kode dalam tanda kutip seperti "
-"=PY(\"kode\"; A1:B10)."
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -683,6 +707,10 @@ msgstr ""
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "Kode disimpan di {0}."
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent: Simpan sel Python"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -771,6 +799,16 @@ msgstr ""
 " sel Python atau lebih (batas penemuan). Lembar dibiarkan tidak berantai "
 "sehingga daftar parsial tidak dianggap lengkap."
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"Tidak dapat mempertahankan argumen rumus PY sel ini (misalnya rentang data)."
+" Edit rumus di Calc, atau gunakan string kode dalam tanda kutip seperti "
+"=PY(\"kode\"; A1:B10)."
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -796,7 +834,17 @@ msgstr "WriterAgent: Sunting Pilihan (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Perluas Pilihan (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "Pilih satu atau beberapa sel yang tidak kosong."
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Hanya {0} sel tidak kosong pertama yang disunting."
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -1037,6 +1085,14 @@ msgid "Reject this change"
 msgstr "Tolak perubahan ini"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Pilihan ini berisi penyisipan atau penghapusan yang dilacak. Terima atau "
+"tolak perubahan tersebut terlebih dahulu. Pilihan tidak diubah."
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Gagal menulis teks yang dialirkan ke dokumen: {0}"
@@ -1077,20 +1133,12 @@ msgstr ""
 "terlacak. Teks tetap disimpan, namun mungkin tidak dapat ditinjau."
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr ""
-"Pilihan ini berisi penyisipan atau penghapusan yang dilacak. Terima atau "
-"tolak perubahan tersebut terlebih dahulu. Pilihan tidak diubah."
+msgid "Select text first"
+msgstr "Pilih teks terlebih dahulu"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Perluas Pilihan"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "Pilih teks terlebih dahulu"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1118,6 +1166,10 @@ msgstr "Pilih penggantian di bawah."
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "Tata Bahasa AI"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "Tidak dapat membuka dialog masukan LaTeX."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1429,6 +1481,42 @@ msgstr "mengapa"
 msgid "you"
 msgstr "Anda"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "URL titik akhir tidak boleh kosong."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "URL titik akhir tidak valid."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr "Pengaturan autentikasi gagal. Periksa kunci API."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ Berhasil terhubung! ({0}ms, {1} model tersedia)"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "Server mengembalikan HTTP {0}."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr ""
+"Autentikasi gagal (401 Tidak Diotorisasi). Harap periksa kunci API Anda."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr "Endpoint model tidak ditemukan (404). Periksa URL endpoint."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "Koneksi gagal: {0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "Agen meminta persetujuan"
@@ -1442,7 +1530,7 @@ msgstr "Lanjutkan tindakan ini?"
 msgid "Tool: %s"
 msgstr "Alat: %s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Tersalin!"
 
@@ -1502,6 +1590,10 @@ msgstr "Dasbor Evaluasi"
 msgid "Debug"
 msgstr "Debug"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[Tidak ada ucapan terdeteksi.]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[Pesan suara]"
@@ -1538,6 +1630,66 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "Pustakawan"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Saya dapat melakukan riset web untuk menjawab pertanyaan apa pun, atau "
+"meringkas halaman web, tanpa melihat atau mengubah dokumen Anda. Mari "
+"mengobrol."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Mode Riset Mendalam menjalankan investigasi web multi-langkah "
+"(perencanaan, beberapa pencarian, sintesis) dan dapat menyisipkan laporan "
+"terformat ke dalam dokumen Anda. Proses ini memakan waktu lebih lama tetapi "
+"menghasilkan hasil yang lebih menyeluruh."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr ""
+"AI: Mari jelajahi dan rancang ide Anda bersama. Saya akan mengajukan "
+"pertanyaan, menyarankan pendekatan, dan membantu Anda menyusun spesifikasi "
+"yang disetujui dalam dokumen Anda saat Anda siap."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr ""
+"AI: Mari susun draf dokumen Anda bagian demi bagian. Saya akan membantu Anda"
+" membuat kerangka rencana penulisan, lalu menerapkannya secara bertahap "
+"dengan persetujuan Anda."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: Mode PPT-Master — Saya akan menjalankan alur kerja ppt-master di venv "
+"Python Anda yang telah dikonfigurasi (skrip + ekspor ke Impress). Jelaskan "
+"topik Anda atau arahkan saya ke folder proyek."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI: Saya adalah Pustakawan WriterAgent — pemandu yang dapat mempelajari nama"
+" Anda, warna favorit, dan memberikan tur singkat. Pilih Obrolan di menu "
+"tarik-turun kapan pun Anda ingin mengerjakan dokumen."
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Cetak daftar perintah"
@@ -1570,47 +1722,6 @@ msgstr "Ganti model (mock)"
 msgid "Slash commands:"
 msgstr "Perintah garis miring:"
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Kirim"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "Terima"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "Ubah"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "Tolak"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "Menunggu persetujuan…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "Hands-free nonaktif"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "Merekam audio… (%d ms hening)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "Rekam"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "Berhenti Rekam"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Memulai..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Mengambil dokumen..."
@@ -1636,21 +1747,9 @@ msgstr ""
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[Kesalahan audio: perekaman dihentikan tanpa berkas suara.]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[Tidak ada ucapan terdeteksi.]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[Hands-free nonaktif: tidak ada ucapan yang terdengar.]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr ""
-"[Model {0} tidak mendukung audio asli. Harap pilih Model STT di Pengaturan.]"
+msgid "Starting..."
+msgstr "Memulai..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1660,6 +1759,10 @@ msgstr "[Kesalahan backend agen: {0}]"
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Pengiriman rekan memerlukan mode Obrolan pada bilah sisi ini.]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "Berhenti Rekam"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1760,10 +1863,69 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "Tidak dapat memulai editor: {0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "Terima"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "Ubah"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "Tolak"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "Menunggu persetujuan…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "Server MCP dijalankan"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "Server MCP dihentikan"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Kesalahan transkripsi: {0}]"
+msgid "Unknown librarian error."
+msgstr "Kesalahan pustakawan tidak dikenal."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Sempurna! Saya akan mengalihkan Anda ke asisten utama sekarang."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Kesalahan brainstorming tidak diketahui."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Brainstorming selesai."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Kesalahan rencana penulisan tidak diketahui."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Rencana penulisan selesai."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Kesalahan PPT-Master tidak dikenal."
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "Sesi PPT-Master selesai."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Kesalahan deep research tidak diketahui."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Kesalahan riset tidak dikenal."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1782,74 +1944,14 @@ msgid "Thinking..."
 msgstr "Sedang berpikir..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Sempurna! Saya akan mengalihkan Anda ke asisten utama sekarang."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Kesalahan pustakawan tidak dikenal."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Kesalahan pustakawan: {0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0} kesalahan: {1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Brainstorming selesai."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Kesalahan brainstorming tidak diketahui."
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Kesalahan brainstorming: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Rencana penulisan selesai."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Kesalahan rencana penulisan tidak diketahui."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Kesalahan rencana penulisan: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "Sesi PPT-Master selesai."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Kesalahan PPT-Master tidak dikenal."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[Kesalahan PPT-Master: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Kesalahan deep research tidak diketahui."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Kesalahan deep research: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Kesalahan riset tidak dikenal."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Kesalahan riset: {0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr "Riset mendalam putaran {round}/{rounds}, kueri {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1861,8 +1963,21 @@ msgid "Sources consulted:"
 msgstr "Sumber yang dikonsultasikan:"
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "Merencanakan {count} kueri riset..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "Riset mendalam: menilai cakupan..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Penelitian web tidak mengumpulkan bukti yang dapat digunakan."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "Riset mendalam: menyintesis laporan..."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1946,65 +2061,31 @@ msgstr "(Tidak ada model gambar pada titik akhir ini)"
 msgid "(Connection failed)"
 msgstr "(Koneksi gagal)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: Saya dapat melakukan riset web untuk menjawab pertanyaan apa pun, atau "
-"meringkas halaman web, tanpa melihat atau mengubah dokumen Anda. Mari "
-"mengobrol."
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "Hands-free nonaktif"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: Mode Riset Mendalam menjalankan investigasi web multi-langkah "
-"(perencanaan, beberapa pencarian, sintesis) dan dapat menyisipkan laporan "
-"terformat ke dalam dokumen Anda. Proses ini memakan waktu lebih lama tetapi "
-"menghasilkan hasil yang lebih menyeluruh."
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Merekam audio… (%d ms hening)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"AI: Mari jelajahi dan rancang ide Anda bersama. Saya akan mengajukan "
-"pertanyaan, menyarankan pendekatan, dan membantu Anda menyusun spesifikasi "
-"yang disetujui dalam dokumen Anda saat Anda siap."
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Kesalahan transkripsi: {0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"AI: Mari susun draf dokumen Anda bagian demi bagian. Saya akan membantu Anda"
-" membuat kerangka rencana penulisan, lalu menerapkannya secara bertahap "
-"dengan persetujuan Anda."
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Hands-free nonaktif: tidak ada ucapan yang terdengar.]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
 msgstr ""
-"AI: Mode PPT-Master — Saya akan menjalankan alur kerja ppt-master di venv "
-"Python Anda yang telah dikonfigurasi (skrip + ekspor ke Impress). Jelaskan "
-"topik Anda atau arahkan saya ke folder proyek."
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"AI: Saya adalah Pustakawan WriterAgent — pemandu yang dapat mempelajari nama"
-" Anda, warna favorit, dan memberikan tur singkat. Pilih Obrolan di menu "
-"tarik-turun kapan pun Anda ingin mengerjakan dokumen."
+"[Model {0} tidak mendukung audio asli. Harap pilih Model STT di Pengaturan.]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2306,10 +2387,6 @@ msgid "The document is no longer open."
 msgstr "Dokumen tidak lagi terbuka."
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "Persiapan skrip gagal."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog tidak dapat dimuat dari ekstensi."
 
@@ -2375,6 +2452,14 @@ msgstr "Berhasil"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Output"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Uji Python"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr "Tidak dapat membuka dialog progres tes Python."
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2637,8 +2722,38 @@ msgid "Using LibreOffice process Python..."
 msgstr "Menggunakan Python proses LibreOffice..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"Tidak ada interpreter proses: sys.executable hilang, bukan berkas, atau "
+"tidak dapat dieksekusi. Atur jalur venv di Pengaturan → Python, atau "
+"perbaiki instalasi LibreOffice."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "Menyelesaikan venv Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "Bukan eksekusi Python: {0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"Python tidak ditemukan. Gunakan root venv (folder yang berisi bin/ atau "
+"Scripts/), folder bin/ atau Scripts/, python.exe env-root (conda/pyenv-win),"
+" atau jalur lengkap ke interpreter."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "Jalur tidak ditemukan: {0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2706,8 +2821,8 @@ msgid "No Writer document to insert into."
 msgstr "Tidak ada dokumen Writer untuk disisipkan."
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Jalankan analisis terlebih dahulu."
+msgid "Nothing to insert. Run an analysis first."
+msgstr "Tidak ada yang disisipkan. Jalankan analisis terlebih dahulu."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -3008,6 +3123,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "Skrip berhasil dijalankan. (memakan waktu {time})"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "Persiapan skrip gagal."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status} ({count} baris dicetak.)"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Skrip disimpan."
 
@@ -3037,10 +3161,6 @@ msgstr "Tidak dapat membuka dialog skrip bawaan."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr ""
 "Terjadi kesalahan yang tidak terduga saat membuka Jalankan Skrip Python."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Kesalahan Pengiriman"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3146,57 +3266,6 @@ msgid "Start MCP Server"
 msgstr "Jalankan Server MCP"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Terowongan publik melalui {0} (tanpa autentikasi)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Terowongan publik melalui {0}: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "menghubungkan kembali…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Terowongan publik melalui {0} gagal: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Terowongan publik melalui {0} sedang dimulai…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Terowongan publik melalui {0} tidak berjalan (apakah biner penyedia sudah "
-"terinstal?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "Server MCP dihentikan"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "Server MCP dijalankan"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "Terowongan publik melalui {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"Terowongan publik melalui {0} sedang dimulai… gunakan Status Server MCP saat"
-" siap."
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "Server MCP tidak berjalan"
 
@@ -3270,6 +3339,37 @@ msgstr "Uji Terowongan"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "Uji Terowongan MCP"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Terowongan publik melalui {0} (tanpa autentikasi)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Terowongan publik melalui {0}: {1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "menghubungkan kembali…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Terowongan publik melalui {0} gagal: {1}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Terowongan publik melalui {0} sedang dimulai…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Terowongan publik melalui {0} tidak berjalan (apakah biner penyedia sudah "
+"terinstal?)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3367,14 +3467,8 @@ msgstr ""
 "Catatan: Server MCP saat ini tidak berjalan pada port {3}."
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} berhasil, {2} gagal."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Pengujian gagal dijalankan: {0}"
+msgid "Dispatch Error"
+msgstr "Kesalahan Pengiriman"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3624,10 +3718,6 @@ msgid "Python Settings…"
 msgstr "Pengaturan Python…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Uji Python"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "Sel Python (lembar aktif):"
 
@@ -3682,6 +3772,10 @@ msgstr "Seed:"
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "Pilihan"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "Kirim"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4465,6 +4559,50 @@ msgid ""
 msgstr ""
 "Saat menyimpan Edit Python di Sel, angkat xl(\"A1:…\") statis ke argumen "
 "data =PY dan tulis ulang menjadi data / data[i] / .to_pandas()."
+
+msgid "Allow network access"
+msgstr "Izinkan akses jaringan"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr ""
+"Memblokir impor jaringan (socket, requests, http, urllib, ssl, …) kecuali "
+"dicentang."
+
+msgid "Allow file access"
+msgstr "Izinkan akses berkas"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"Memblokir penulisan berkas (panggilan tulis os, shutil, tempfile, sqlite3, "
+"dan bawaan open()) kecuali dicentang. Pembacaan melalui pathlib, glob, io, "
+"dan logging tetap diizinkan."
+
+msgid "Allow OS access"
+msgstr "Izinkan akses OS"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr ""
+"Mengizinkan os mentah, subprocess, multiprocessing, dan pty (menjalankan "
+"program dan proses lain); termasuk akses berkas."
+
+msgid "Extra allowed modules"
+msgstr "Modul tambahan yang diizinkan"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"Modul tambahan yang dipisahkan koma yang boleh diimpor oleh Python (setiap "
+"nama juga mengizinkan name.*). Mengabaikan daftar blokir bawaan, termasuk "
+"os, socket, dan subprocess."
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"

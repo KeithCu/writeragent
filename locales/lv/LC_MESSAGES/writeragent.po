@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -30,27 +30,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "Notiek vietējā OCR apstrāde atlasītajam(-iem) attēlam(-iem)..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr ""
-"Dokumentu izpētes lasījumiem ir nepieciešama specializēta uzdevumu "
-"deleģēšana (USE_SUB_AGENT). Iespējojiet to konfigurācijā."
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"Rīka izsaukums pārslēgts uz '{0}'. Jūs atrodaties specializētā rīkkopas "
-"režīmā. Jums jāizsauc 'specialized_workflow_finished', kad esat pabeidzis, "
-"lai atjaunotu pilnu API kopu."
+msgid "Specialized task ({domain}) completed."
+msgstr "Specializēts uzdevums ({domain}) pabeigts."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "Šūnas izpilde neizdevās."
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "Dokumentā nav piezīmju grāmatiņas reģistra."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "Nezināma piezīmju grāmatiņas šūna."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "Trūkst koda lauka."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "Koda šūna ir tukša."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -228,7 +230,7 @@ msgstr "TLS/SSL kļūda: {0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "Servera kļūda ({0}). AI pakalpojumu sniedzējam ir radušās problēmas."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "HTTP kļūda {0}: {1}"
@@ -293,18 +295,24 @@ msgstr "Savienojuma kļūda: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "AI pakalpojumu sniedzējs ziņoja par kļūdu. Mēģiniet vēlreiz."
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Kļūda: {0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} nav atrasts: {identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "Gaida atbildi no cita dokumenta..."
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO pavedas pārkāpums"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "Gaida atbildi no cita dokumenta..."
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -366,12 +374,6 @@ msgstr ""
 msgid " Request model was: {0}."
 msgstr " Pieprasītais modelis bija: {0}."
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Kļūda: {0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -407,10 +409,20 @@ msgstr ""
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Anthropic modelis nav iestatīts. Izvēlieties modeli iestatījumos."
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} izpildīts, {2} neizdevās."
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Neizdevās izpildīt testus: {0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -450,14 +462,6 @@ msgid "Transcribing audio..."
 msgstr "Notiek audio transkribēšana..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr ""
-"Nevarēja pārbaudīt, vai faster-whisper ir instalēts. Iestatījumi → Python "
-"interpretatoram iestājās noildze vai tas nevarēja startēties."
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "Lokālā Whisper kļūda: {0}"
@@ -467,6 +471,23 @@ msgid "Local Whisper did not return a transcript."
 msgstr "Lokālais Whisper neatgrieza transkripciju."
 
 #: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr ""
+"Local Whisper noildze. Mēģiniet vēlreiz vai izvēlieties mazāku lokālo modeli"
+" sadaļā Iestatījumi → Runas atpazīšana."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Local Whisper noildze. Pirmās palaišanas laikā tiek lejupielādēti modeļa "
+"svari; mēģiniet vēlreiz vai izvēlieties mazāku lokālo modeli sadaļā "
+"Iestatījumi → Runas atpazīšana."
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
@@ -474,6 +495,15 @@ msgid ""
 msgstr ""
 "Lokālais Whisper darbojas iestatījumu sadaļā „Settings → Python venv”, nevis"
 " LibreOffice Python vidē. Iestatiet venv un instalējiet ar: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Paplašinājumā trūkst lokālā Whisper skripta."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "Neizdevās palaist Local Whisper ({0})."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -486,32 +516,19 @@ msgstr ""
 "norādīts sadaļā „Audio optional packages”."
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "Paplašinājumā trūkst lokālā Whisper skripta."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr ""
-"Lokālais Whisper pārsniedza laika limitu vai nevarēja startēt. Mēģiniet "
-"vēlreiz vai izvēlieties mazāku lokālo modeli iestatījumu sadaļā „Settings → "
-"Speech”."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr ""
-"Lokālais Whisper pārsniedza laika limitu vai nevarēja startēt. Pirmajā reizē"
-" tiek lejupielādēti modeļa svari; mēģiniet vēlreiz vai izvēlieties mazāku "
-"lokālo modeli iestatījumu sadaļā „Settings → Speech”."
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "Nav pieejams valodas modeļa klients runas pārvēršanai tekstā (speech-to-"
 "text)."
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "Lejupielādē… {0}%"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr "Nepietiek vietas diskā balss modeļa lejupielādei."
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -555,13 +572,21 @@ msgstr "Runas pieprasījums neizdevās ({0})."
 msgid "Speech request failed."
 msgstr "Runas pieprasījums neizdevās."
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "Runas punkts neatgrieza audio."
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Kokoro izmanto angļu fonēmas neangļu balsij"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "Misaki nav atrasts; Kokoro izmanto angļu fonēmas"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "Kokoro izmanto angļu fonēmas neangļu balsij"
+msgid "Could not save speech audio."
+msgstr "Neizdevās saglabāt runas audio."
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -610,6 +635,11 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Nevar importēt webview (pywebview) konfigurētajā venv."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr ""
+"Izklājlapa vairs nav atvērta. Atveriet to atkārtoti un mēģiniet vēlreiz."
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Inicializācijas skripts saglabāts."
@@ -650,18 +680,12 @@ msgid "Saved."
 msgstr "Saglabāts."
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "Neizdevās saglabāt šūnu."
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr "PythonCellEditorDialog nevarēja ielādēt no paplašinājuma."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Neizdevās saglabāt šīs šūnas PY formulas argumentus (piem., datu apgabalus)."
-" Rediģējiet formulu programmā Calc vai izmantojiet citētu koda virkni, "
-"piemēram, =PY(\"kods\"; A1:B10)."
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -688,6 +712,10 @@ msgstr ""
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "Kods saglabāts {0}."
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent: Saglabāt Python šūnu"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -776,6 +804,16 @@ msgstr ""
 "vairāk Python šūnu (atklāšanas limits). Lapa tika atstāta nesaistīta, lai "
 "nepilnīgs saraksts netiktu uzskatīts par pilnīgu."
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"Neizdevās saglabāt šīs šūnas PY formulas argumentus (piem., datu apgabalus)."
+" Rediģējiet formulu programmā Calc vai izmantojiet citētu koda virkni, "
+"piemēram, =PY(\"kods\"; A1:B10)."
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -801,7 +839,17 @@ msgstr "WriterAgent: Rediģēt atlasi (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Paplašināt atlasi (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "Atlasiet vienu vai vairākas ne-tukšas šūnas."
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Tiek rediģētas tikai pirmās {0} ne-tukšās šūnas."
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -1042,6 +1090,14 @@ msgid "Reject this change"
 msgstr "Noraidīt šo izmaiņu"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Šī atlase satur izsekotus ievietojumus vai dzēsumus. Vispirms pieņemiet vai "
+"noraidiet šīs izmaiņas. Atlase netika modificēta."
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Neizdevās ierakstīt straumēto tekstu dokumentā: {0}"
@@ -1078,20 +1134,12 @@ msgstr ""
 " saglabāts, taču to var nebūt iespējams pārskatīt."
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr ""
-"Šī atlase satur izsekotus ievietojumus vai dzēsumus. Vispirms pieņemiet vai "
-"noraidiet šīs izmaiņas. Atlase netika modificēta."
+msgid "Select text first"
+msgstr "Vispirms atlasiet tekstu"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Paplašināt atlasi"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "Vispirms atlasiet tekstu"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1119,6 +1167,10 @@ msgstr "Izvēlieties aizstāšanu zemāk."
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "AI gramatika"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "Neizdevās atvērt LaTeX ievades dialoglodziņu."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1431,6 +1483,43 @@ msgstr "kāpēc"
 msgid "you"
 msgstr "jūs"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "Galapunkta URL nevar būt tukšs."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "Nederīgs galapunkta URL."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr "Autentifikācijas iestatīšana neizdevās. Pārbaudiet API atslēgu."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ Savienojums izveidots! ({0}ms, pieejami {1} modeļi)"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "Serveris atgrieza HTTP {0}."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr ""
+"Autentifikācija neizdevās (401 Unauthorized). Lūdzu, pārbaudiet savu API "
+"atslēgu."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr "Modeļu galapunkts nav atrasts (404). Pārbaudiet galapunkta URL."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "Savienojuma kļūda: {0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "Aģents pieprasa apstiprinājumu"
@@ -1444,7 +1533,7 @@ msgstr "Vai turpināt šo darbību?"
 msgid "Tool: %s"
 msgstr "Rīks: %s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Nokopēts!"
 
@@ -1504,6 +1593,10 @@ msgstr "Novērtēšanas informācijas panelis"
 msgid "Debug"
 msgstr "Atkļūdot"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[Runas nav konstatētas.]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[Balss ziņojums]"
@@ -1540,6 +1633,63 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "Bibliotekārs"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Es varu veikt tīmekļa izpēti, lai atbildētu uz jebkuru jautājumu, vai "
+"apkopot tīmekļa lapu, neredzot un nemainot jūsu dokumentu. Parunāsim."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Deep Research režīms veic daudzpakāpju tīmekļa izmeklēšanu (plānošana, "
+"vairāki meklējumi, sintēze) un var ievietot formatētu pārskatu jūsu "
+"dokumentā. Tas aizņem ilgāku laiku, bet sniedz pamatīgākus rezultātus."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr ""
+"AI: Izpētīsim un izstrādāsim jūsu ideju kopā. Es uzdošu jautājumus, ieteikšu"
+" pieejas un palīdzēšu izveidot apstiprinātu specifikāciju jūsu dokumentā, "
+"kad būsiet gatavs."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr ""
+"AI: Sastādīsim jūsu dokumentu pa daļām. Es palīdzēšu izveidot rakstīšanas "
+"plāna izklāstu un pēc tam to pakāpeniski īstenot ar jūsu apstiprinājumu."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: PPT-Master režīms — es palaidīšu ppt-master darbplūsmu jūsu "
+"konfigurētajā Python venv (skripti + eksportēšana uz Impress). Aprakstiet "
+"savu tēmu vai norādiet uz projekta mapi."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI: Es esmu WriterAgent bibliotekārs — saimnieks, kurš var uzzināt jūsu "
+"vārdu, iecienītākās krāsas un sniegt īsu ekskursiju. Izvēlieties Chat "
+"nolaižamajā izvēlnē, kad vien vēlaties strādāt ar dokumentu."
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Drukāt komandu sarakstu"
@@ -1572,47 +1722,6 @@ msgstr "Mainīt modeli (pagaidu)"
 msgid "Slash commands:"
 msgstr "Slīpsvītras komandas:"
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Sūtīt"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "Pieņemt"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "Mainīt"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "Noraidīt"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "Gaida apstiprinājumu…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "Brīvroku režīms izslēgts"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "Ieraksta audio… (%d ms klusums)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "Ierakstīt"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "Pārtraukt ierakstu"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Notiek palaišana..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Iegūst dokumentu..."
@@ -1638,22 +1747,9 @@ msgstr ""
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[Audio kļūda: ierakstīšana pārtraukta bez skaņas faila.]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[Runas nav konstatētas.]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[Brīvroku režīms izslēgts: runa nav sadzirdēta.]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr ""
-"[Modelis {0} neatbalsta vietējo audio. Lūdzu, iestatījumos atlasiet STT "
-"modeli.]"
+msgid "Starting..."
+msgstr "Notiek palaišana..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1664,6 +1760,10 @@ msgstr "[Aģenta aizmugursistēmas kļūda: {0}]"
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[Vienādranga sūtīšanai šajā sānjoslā ir nepieciešams tērzēšanas režīms.]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "Pārtraukt ierakstu"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1764,10 +1864,69 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "Neizdevās palaist redaktoru: {0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "Pieņemt"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "Mainīt"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "Noraidīt"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "Gaida apstiprinājumu…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "MCP serveris startēts"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "MCP serveris apturēts"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Transkribēšanas kļūda: {0}]"
+msgid "Unknown librarian error."
+msgstr "Nezināma bibliotekāra kļūda."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Lieliski! Tagad pārslēdzu jūs uz galveno asistentu."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Nezināma prāta vētras kļūda."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Prāta vētra pabeigta."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Nezināma rakstīšanas plāna kļūda."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Rakstīšanas plāns pabeigts."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Nezināma PPT-Master kļūda."
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master sesija pabeigta."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Nezināma Deep Research kļūda."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Nezināma izpētes kļūda."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1787,74 +1946,15 @@ msgid "Thinking..."
 msgstr "Notiek domāšana..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Lieliski! Tagad pārslēdzu jūs uz galveno asistentu."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Nezināma bibliotekāra kļūda."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Bibliotekāra kļūda: {0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0} kļūda: {1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Prāta vētra pabeigta."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Nezināma prāta vētras kļūda."
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Prāta vētras kļūda: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Rakstīšanas plāns pabeigts."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Nezināma rakstīšanas plāna kļūda."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Rakstīšanas plāna kļūda: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master sesija pabeigta."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Nezināma PPT-Master kļūda."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[PPT-Master kļūda: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Nezināma Deep Research kļūda."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Deep research kļūda: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Nezināma izpētes kļūda."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Izpētes kļūda: {0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr ""
+"Padziļinātās izpētes kārta {round}/{rounds}, vaicājums {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1867,8 +1967,21 @@ msgid "Sources consulted:"
 msgstr "Izmantotie avoti:"
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "Plāno {count} izpētes vaicājumus..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "Padziļinātā izpēte: novērtē pārklājumu..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Tīmekļa izpētē netika atrasti izmantojami pierādījumi."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "Padziļināta izpēte: tiek sintezēts pārskats..."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1953,62 +2066,32 @@ msgstr "(Šajā galapunktā nav attēlu modeļu)"
 msgid "(Connection failed)"
 msgstr "(Savienojuma kļūda)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: Es varu veikt tīmekļa izpēti, lai atbildētu uz jebkuru jautājumu, vai "
-"apkopot tīmekļa lapu, neredzot un nemainot jūsu dokumentu. Parunāsim."
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "Brīvroku režīms izslēgts"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: Deep Research režīms veic daudzpakāpju tīmekļa izmeklēšanu (plānošana, "
-"vairāki meklējumi, sintēze) un var ievietot formatētu pārskatu jūsu "
-"dokumentā. Tas aizņem ilgāku laiku, bet sniedz pamatīgākus rezultātus."
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Ieraksta audio… (%d ms klusums)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"AI: Izpētīsim un izstrādāsim jūsu ideju kopā. Es uzdošu jautājumus, ieteikšu"
-" pieejas un palīdzēšu izveidot apstiprinātu specifikāciju jūsu dokumentā, "
-"kad būsiet gatavs."
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Transkribēšanas kļūda: {0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"AI: Sastādīsim jūsu dokumentu pa daļām. Es palīdzēšu izveidot rakstīšanas "
-"plāna izklāstu un pēc tam to pakāpeniski īstenot ar jūsu apstiprinājumu."
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Brīvroku režīms izslēgts: runa nav sadzirdēta.]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
 msgstr ""
-"AI: PPT-Master režīms — es palaidīšu ppt-master darbplūsmu jūsu "
-"konfigurētajā Python venv (skripti + eksportēšana uz Impress). Aprakstiet "
-"savu tēmu vai norādiet uz projekta mapi."
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"AI: Es esmu WriterAgent bibliotekārs — saimnieks, kurš var uzzināt jūsu "
-"vārdu, iecienītākās krāsas un sniegt īsu ekskursiju. Izvēlieties Chat "
-"nolaižamajā izvēlnē, kad vien vēlaties strādāt ar dokumentu."
+"[Modelis {0} neatbalsta vietējo audio. Lūdzu, iestatījumos atlasiet STT "
+"modeli.]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2312,10 +2395,6 @@ msgid "The document is no longer open."
 msgstr "Dokuments vairs nav atvērts."
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "Skripta sagatavošana neizdevās."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog nevarēja ielādēt no paplašinājuma."
 
@@ -2381,6 +2460,14 @@ msgstr "Veiksmīgi"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Izvade"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python tests"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr "Neizdevās atvērt Python testa progresa dialoglodziņu."
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2647,8 +2734,38 @@ msgid "Using LibreOffice process Python..."
 msgstr "Izmanto LibreOffice procesa Python..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"Nav procesa interpretatora: trūkst sys.executable, tas nav fails vai nav "
+"izpildāms. Iestatiet venv ceļu sadaļā Iestatījumi → Python vai labojiet "
+"LibreOffice instalāciju."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "Atrisina venv Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "Nav Python izpildāmais fails: {0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"Python nav atrasts. Izmantojiet venv sakni (mapi, kurā ir bin/ vai "
+"Scripts/), bin/ vai Scripts/ mapi, env-root python.exe (conda/pyenv-win) vai"
+" pilnu ceļu līdz interpretatoram."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "Ceļš nav atrasts: {0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2716,8 +2833,8 @@ msgid "No Writer document to insert into."
 msgstr "Nav Writer dokumenta, kurā ievietot."
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Vispirms palaidiet analīzi."
+msgid "Nothing to insert. Run an analysis first."
+msgstr "Nav ko ievietot. Vispirms palaidiet analīzi."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -3021,6 +3138,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "Skripts izpildīts veiksmīgi. (aizņēma {time})"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "Skripta sagatavošana neizdevās."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status} (izdrukāta(-as) {count} rinda(-as).)"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Skripts saglabāts."
 
@@ -3049,10 +3175,6 @@ msgstr "Nevarēja atvērt iebūvēto skriptu dialoglodziņu."
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Atverot Python skripta palaišanu, radās neparedzēta kļūda."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Nosūtīšanas kļūda"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3158,57 +3280,6 @@ msgid "Start MCP Server"
 msgstr "Startēt MCP serveri"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Publiskais tunelis, izmantojot {0} (bez autentifikācijas)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Publiskais tunelis, izmantojot {0}: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "pārveido savienojumu…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Publiskais tunelis, izmantojot {0}, neizdevās: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Publiskais tunelis, izmantojot {0}, tiek startēts…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Publiskais tunelis, izmantojot {0}, nedarbojas (vai pakalpojumu sniedzēja "
-"binārais fails ir instalēts?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCP serveris apturēts"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCP serveris startēts"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "Publiskais tunelis, izmantojot {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"Publiskais tunelis, izmantojot {0}, tiek startēts… izmantojiet MCP servera "
-"statusu, kad tas būs gatavs."
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "MCP serveris nedarbojas"
 
@@ -3282,6 +3353,37 @@ msgstr "Testēt tuneli"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "MCP tuneļa tests"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Publiskais tunelis, izmantojot {0} (bez autentifikācijas)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Publiskais tunelis, izmantojot {0}: {1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "pārveido savienojumu…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Publiskais tunelis, izmantojot {0}, neizdevās: {1}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Publiskais tunelis, izmantojot {0}, tiek startēts…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Publiskais tunelis, izmantojot {0}, nedarbojas (vai pakalpojumu sniedzēja "
+"binārais fails ir instalēts?)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3379,14 +3481,8 @@ msgstr ""
 "Piezīme: MCP serveris pašlaik nedarbojas portā {3}."
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} izpildīts, {2} neizdevās."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Neizdevās izpildīt testus: {0}"
+msgid "Dispatch Error"
+msgstr "Nosūtīšanas kļūda"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3636,10 +3732,6 @@ msgid "Python Settings…"
 msgstr "Python iestatījumi…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Python tests"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "Python šūnas (aktīvā lapa):"
 
@@ -3694,6 +3786,10 @@ msgstr "Sēkla:"
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "Atlase"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "Sūtīt"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4480,6 +4576,50 @@ msgid ""
 msgstr ""
 "Saglabājot Python šūnā, pacelt statiskos xl(\"A1:…\") uz =PY datu "
 "argumentiem un pārrakstīt uz data / data[i] / .to_pandas()."
+
+msgid "Allow network access"
+msgstr "Atļaut piekļuvi tīklam"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr ""
+"Bloķē tīkla importus (socket, requests, http, urllib, ssl, …), ja nav "
+"atzīmēts."
+
+msgid "Allow file access"
+msgstr "Atļaut piekļuvi failiem"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"Bloķē failu rakstīšanu (os write izsaukumi, shutil, tempfile, sqlite3 un "
+"iebūvētā funkcija open()), ja vien nav atzīmēts. Lasīšana, izmantojot "
+"pathlib, glob, io un logging, paliek atļauta."
+
+msgid "Allow OS access"
+msgstr "Atļaut piekļuvi operētājsistēmai"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr ""
+"Atļauj neapstrādātus os, subprocess, multiprocessing un pty izsaukumus (citu"
+" programmu un procesu palaišana); ietver piekļuvi failiem."
+
+msgid "Extra allowed modules"
+msgstr "Papildu atļautie moduļi"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"Ar komatiem atdalīti papildu moduļi, kurus Python var importēt (katrs "
+"nosaukums atļauj arī name.*). Pārraksta iebūvēto bloķēšanas sarakstu, "
+"tostarp os, socket un subprocess."
 
 msgid "Vision / OCR"
 msgstr "Vīzija / OCR"

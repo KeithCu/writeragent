@@ -11,11 +11,19 @@ pytestmark = pytest.mark.xdist_group("audio_recorder_control")
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.chatbot.audio_recorder import AudioRecorder
 from plugin.chatbot.audio_recorder_state import AudioStatus
-from plugin.chatbot.sidebar_test_hooks import (
-    clear_stub_recorder_control,
-    get_stub_start_count,
-    write_stub_recorder_control,
-)
+try:
+    # Release builds delete sidebar_test_hooks; the stub-recorder tests skip there.
+    from plugin.chatbot.sidebar_test_hooks import (
+        clear_stub_recorder_control,
+        get_stub_start_count,
+        write_stub_recorder_control,
+    )
+except ImportError:
+    _HAS_TEST_HOOKS = False
+else:
+    _HAS_TEST_HOOKS = True
+
+needs_test_hooks = pytest.mark.skipif(not _HAS_TEST_HOOKS, reason="sidebar_test_hooks is omitted from release builds")
 
 
 def _recording_child(proc: MagicMock, drain: Any = None) -> ManagedSubprocess:
@@ -87,6 +95,7 @@ def test_audio_recorder_multiple_sessions(ctx, recording_mocks):
         assert first != second
 
 
+@needs_test_hooks
 def test_audio_recorder_skip_spawn_from_control_file(ctx, tmp_path, monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     fixture = tmp_path / "inject.wav"
@@ -104,6 +113,7 @@ def test_audio_recorder_skip_spawn_from_control_file(ctx, tmp_path, monkeypatch)
             os.remove(recorder.temp_filename)
 
 
+@needs_test_hooks
 def test_audio_recorder_stub_auto_stop_fires_after_start_returns(ctx, tmp_path, monkeypatch):
     """G4 stub auto-stop is reported from a tagged worker, like the stdout monitor.
 
@@ -147,6 +157,7 @@ def test_audio_recorder_stub_auto_stop_fires_after_start_returns(ctx, tmp_path, 
             os.remove(recorder.temp_filename)
 
 
+@needs_test_hooks
 def test_audio_recorder_skip_spawn_injects_wav(ctx, tmp_path, monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     fixture = tmp_path / "inject.wav"
@@ -166,6 +177,7 @@ def test_audio_recorder_skip_spawn_injects_wav(ctx, tmp_path, monkeypatch):
         clear_stub_recorder_control()
 
 
+@needs_test_hooks
 def test_audio_recorder_skip_spawn_hang_ready(ctx, monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     recorder = AudioRecorder(ctx)
@@ -178,6 +190,7 @@ def test_audio_recorder_skip_spawn_hang_ready(ctx, monkeypatch):
         clear_stub_recorder_control()
 
 
+@needs_test_hooks
 def test_audio_recorder_control_file_clears_hang_ready(ctx, tmp_path, monkeypatch):
     """G21 hang_ready must not stick on the live recorder for later Packet G cases."""
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
@@ -199,6 +212,7 @@ def test_audio_recorder_control_file_clears_hang_ready(ctx, tmp_path, monkeypatc
             os.remove(recorder.temp_filename)
 
 
+@needs_test_hooks
 def test_audio_recorder_skip_spawn_fail_start(ctx, monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     recorder = AudioRecorder(ctx)
@@ -211,6 +225,7 @@ def test_audio_recorder_skip_spawn_fail_start(ctx, monkeypatch):
         clear_stub_recorder_control()
 
 
+@needs_test_hooks
 def test_audio_recorder_control_file_clears_fail_start(ctx, tmp_path, monkeypatch):
     """Same live recorder: JSON fail_start=null must not keep G12's crash flag."""
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
@@ -867,6 +882,7 @@ def test_wav_file_has_bytes_treats_header_only_as_empty(tmp_path):
     assert _wav_file_has_bytes(str(with_audio)) is True
 
 
+@needs_test_hooks
 def test_stub_control_file_ignored_without_testing_env(ctx, recording_mocks, monkeypatch, tmp_path):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     fixture = tmp_path / "inject.wav"
@@ -881,6 +897,7 @@ def test_stub_control_file_ignored_without_testing_env(ctx, recording_mocks, mon
         clear_stub_recorder_control()
 
 
+@needs_test_hooks
 def test_unset_testing_env_never_touches_stub_control_file(ctx, recording_mocks, monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     from plugin.chatbot.sidebar_test_hooks import stub_recorder_control_path
@@ -894,6 +911,7 @@ def test_unset_testing_env_never_touches_stub_control_file(ctx, recording_mocks,
     assert not os.path.exists(path)
 
 
+@needs_test_hooks
 def test_notify_auto_stop_once_per_take(ctx, monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     recorder = AudioRecorder(ctx)
@@ -964,6 +982,7 @@ def test_error_after_ready_reaps_with_the_stdout_monitor(ctx, tmp_path):
     assert wav_path.is_file()
 
 
+@needs_test_hooks
 def test_next_recording_deletes_wav_kept_after_stdout_error(ctx, tmp_path, monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     from plugin.chatbot.audio_recorder_state import AudioRecorderState

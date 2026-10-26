@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -31,27 +31,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "Helyi OCR futtatása a kijelölt képen/képeken..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr ""
-"A dokumentumkutatási olvasások speciális feladatdelegálást igényelnek "
-"(USE_SUB_AGENT). Engedélyezze ezt a konfigurációban."
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"Az eszközhívás átváltva erre: „{0}”. Speciális eszközkészlet módban van. A "
-"teljes API-készlet visszaállításához a munka végeztével meg kell hívnia a "
-"„specialized_workflow_finished” parancsot."
+msgid "Specialized task ({domain}) completed."
+msgstr "Speciális feladat ({domain}) befejeződött."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "A cella végrehajtása sikertelen."
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "Nincs jegyzetfüzet-nyilvántartás a dokumentumon."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "Ismeretlen jegyzetfüzet-cella."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "A kódmező hiányzik."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "A kódcella üres."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -230,7 +232,7 @@ msgstr "TLS/SSL hiba: {0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "Kiszolgálóhiba ({0}). Az MI-szolgáltatónál problémák léptek fel."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "HTTP-hiba {0}: {1}"
@@ -298,18 +300,24 @@ msgstr "Kapcsolati hiba: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "Az MI-szolgáltató hibát jelzett. Próbálja újra."
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Hiba: {0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "A(z) {resource_type} nem található: {identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "Várakozás egy másik dokumentum válaszára…"
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO szál-szabálysértés"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "Várakozás egy másik dokumentum válaszára…"
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -371,12 +379,6 @@ msgstr ""
 msgid " Request model was: {0}."
 msgstr " A kért modell a következő volt: {0}."
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Hiba: {0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -413,10 +415,20 @@ msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr ""
 "Az Anthropic modell nincs beállítva. Válasszon modellt a Beállításokban."
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} sikeres, {2} sikertelen."
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "A tesztek futtatása sikertelen: {0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -455,14 +467,6 @@ msgid "Transcribing audio..."
 msgstr "Hang átírása..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr ""
-"Nem sikerült ellenőrizni, hogy a faster-whisper telepítve van-e. A "
-"Beállítások → Python-értelmező időtúllépést okozott vagy nem indítható."
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "A helyi Whisper sikertelen: {0}"
@@ -470,6 +474,23 @@ msgstr "A helyi Whisper sikertelen: {0}"
 #: plugin/audio/stt_service.py
 msgid "Local Whisper did not return a transcript."
 msgstr "A helyi Whisper nem adott vissza átiratot."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr ""
+"A helyi Whisper időtúllépést okozott. Próbálja újra, vagy válasszon egy "
+"kisebb helyi modellt a Beállítások → Beszéd menüpontban."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"A helyi Whisper időtúllépést okozott. Az első futtatás letölti a modell "
+"súlyait; próbálja újra, vagy válasszon egy kisebb helyi modellt a "
+"Beállítások → Beszéd menüpontban."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -482,6 +503,15 @@ msgstr ""
 "{0}"
 
 #: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "A helyi Whisper szkript hiányzik a kiterjesztésből."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "A helyi Whisper nem tudott elindulni ({0})."
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "faster-whisper is not installed in the Settings → Python venv. Install with:"
@@ -492,29 +522,17 @@ msgstr ""
 "hangcsomagok között megtalálható."
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "A helyi Whisper szkript hiányzik a kiterjesztésből."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr ""
-"A helyi Whisper túllépte az időkeretet vagy nem indítható. Próbálja újra, "
-"vagy válasszon kisebb helyi modellt a Beállítások → Beszéd menüben."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr ""
-"A helyi Whisper túllépte az időkeretet vagy nem indítható. Az első futtatás "
-"letölti a modell súlyait; próbálja újra, vagy válasszon kisebb helyi modellt"
-" a Beállítások → Beszéd menüben."
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr "Nem érhető el nyelvi modell kliens a beszéd-szöveg végponthoz."
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "Letöltés… {0}%"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr "Nincs elég lemezterület a hangmodell letöltéséhez."
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -562,13 +580,21 @@ msgstr "A beszédkérés sikertelen ({0})."
 msgid "Speech request failed."
 msgstr "A beszédkérés sikertelen."
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "A beszédvégpont nem adott vissza hangot."
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "A Kokoro angol fonémákat használt a nem angol nyelvű hanghoz"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "A Misaki nem található; a Kokoro angol fonémákat használt"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "A Kokoro angol fonémákat használt a nem angol nyelvű hanghoz"
+msgid "Could not save speech audio."
+msgstr "A beszédhang nem menthető."
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -618,6 +644,11 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "A webview (pywebview) nem importálható a konfigurált venv-ben."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr ""
+"A táblázat már nincs megnyitva. Nyissa meg újra, és próbálja meg ismét."
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Az inicializációs szkript mentve."
@@ -658,18 +689,12 @@ msgid "Saved."
 msgstr "Mentve."
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "A cella nem menthető."
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr "A PythonCellEditorDialog nem tölthető be a kiterjesztésből."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Nem sikerült megőrizni a cella PY-képletargumentumait (pl. "
-"adattartományokat). Szerkessze a képletet a Calcban, vagy használjon "
-"idézőjeles kódsztringet, például =PY(\"kód\"; A1:B10)."
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -696,6 +721,10 @@ msgstr ""
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "Kód mentve ide: {0}."
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent: Python-cella mentése"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -786,6 +815,16 @@ msgstr ""
 "%(cap)vagy több Python-cella található (felderítési korlát). A munkalap "
 "láncolatlan maradt, így a részleges lista nem lesz teljesnek tekintve."
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"Nem sikerült megőrizni a cella PY-képletargumentumait (pl. "
+"adattartományokat). Szerkessze a képletet a Calcban, vagy használjon "
+"idézőjeles kódsztringet, például =PY(\"kód\"; A1:B10)."
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -811,7 +850,17 @@ msgstr "WriterAgent: Kijelölés szerkesztése (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Kijelölés kiterjesztése (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "Jelöljön ki egy vagy több nem üres cellát."
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Csak az első {0} nem üres cella kerül szerkesztésre."
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -1052,6 +1101,14 @@ msgid "Reject this change"
 msgstr "Módosítás elutasítása"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"A kijelölés követett beszúrásokat vagy törléseket tartalmaz. Előbb fogadja "
+"el vagy utasítsa el ezeket a módosításokat. A kijelölés nem módosult."
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Nem sikerült a streamelt szöveget a dokumentumba írni: {0}"
@@ -1092,20 +1149,12 @@ msgstr ""
 "összevonni. A szöveg megmaradt, de lehet, hogy nem ellenőrizhető."
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr ""
-"A kijelölés követett beszúrásokat vagy törléseket tartalmaz. Előbb fogadja "
-"el vagy utasítsa el ezeket a módosításokat. A kijelölés nem módosult."
+msgid "Select text first"
+msgstr "Először jelöljön ki szöveget"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Kijelölés kiterjesztése"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "Először jelöljön ki szöveget"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1131,6 +1180,10 @@ msgstr "Válasszon egy cserét az alábbiak közül."
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "AI nyelvhelyesség"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "A LaTeX beviteli párbeszédpanel nem nyitható meg."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1444,6 +1497,43 @@ msgstr "miért"
 msgid "you"
 msgstr "ön"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "A végpont URL-je nem lehet üres."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "Érvénytelen végpont URL."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr "A hitelesítés beállítása sikertelen. Ellenőrizze az API-kulcsot."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ Sikeresen csatlakoztatva! ({0}ms, {1} modell érhető el)"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "A kiszolgáló HTTP {0} választ küldött."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr ""
+"A hitelesítés sikertelen (401 Unauthorized). Kérjük, ellenőrizze az API-"
+"kulcsot."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr "A modellvégpont nem található (404). Ellenőrizze a végpont URL-jét."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "Kapcsolati hiba: {0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "Az ügynök jóváhagyást kér"
@@ -1457,7 +1547,7 @@ msgstr "Folytatja ezt a műveletet?"
 msgid "Tool: %s"
 msgstr "Eszköz: %s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Másolva!"
 
@@ -1517,6 +1607,10 @@ msgstr "Értékelési irányítópult"
 msgid "Debug"
 msgstr "Hibakeresés"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[Nem észlelhető beszéd.]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[Hangüzenet]"
@@ -1553,6 +1647,64 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "Könyvtáros"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Képes vagyok webes kutatást végezni bármilyen kérdés megválaszolásához, "
+"vagy összefoglalni egy weboldalt anélkül, hogy látnám vagy módosítanám a "
+"dokumentumodat. Beszélgessünk."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: A mélykutatás (Deep Research) mód többlépcsős webes vizsgálatot futtat "
+"(tervezés, több keresés, szintézis), és képes formázott jelentést beszúrni a"
+" dokumentumodba. Ez tovább tart, de alaposabb eredményeket ad."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr ""
+"AI: Fedezzük fel és tervezzük meg együtt az ötletedet. Kérdéseket teszek "
+"fel, megközelítéseket javaslok, és segítek egy jóváhagyott specifikációt "
+"összeállítani a dokumentumban, amikor készen állsz."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr ""
+"AI: Vázoljuk fel a dokumentumodat szakaszról szakaszra. Segítek létrehozni "
+"egy írási tervet, majd a jóváhagyásoddal fokozatosan megvalósítom azt."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: PPT-Master mód — Futtatom a ppt-master munkafolyamatot a konfigurált "
+"Python venv környezetedben (szkriptek + exportálás az Impressbe). Írd le a "
+"témádat, vagy mutass egy projektmappára."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI: Én vagyok a WriterAgent könyvtáros – egy házigazda, aki megtanulhatja a "
+"nevedet, a kedvenc színeidet, és rövid körbevezetést tarthat. Válaszd a "
+"Csevegést a legördülő menüből, amikor a dokumentumon szeretnél dolgozni."
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Parancslista nyomtatása"
@@ -1585,47 +1737,6 @@ msgstr "Modellváltás (próba)"
 msgid "Slash commands:"
 msgstr "Perjelparancsok:"
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Küldés"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "Elfogadás"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "Módosítás"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "Elutasítás"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "Jóváhagyásra vár…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "Kihangosítás kikapcsolva"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "Hang rögzítése… (%d ms csend)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "Felvétel"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "Felvétel leállítása"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Indítás..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Dokumentum lekérése…"
@@ -1651,22 +1762,9 @@ msgstr ""
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[Hanghiba: a felvétel hangfájl nélkül leállt.]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[Nem észlelhető beszéd.]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[Kihangosítás kikapcsolva: nem érkezett beszédhang.]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr ""
-"[A(z) {0} modell nem támogatja a natív hangot. Kérjük, válasszon egy STT-"
-"modellt a Beállításokban.]"
+msgid "Starting..."
+msgstr "Indítás..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1676,6 +1774,10 @@ msgstr "[Ügynök háttérrendszer-hiba: {0}]"
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[A társnak küldéshez csevegő mód szükséges ezen az oldalsávon.]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "Felvétel leállítása"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1776,10 +1878,69 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "A szerkesztő nem indítható: {0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "Elfogadás"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "Módosítás"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "Elutasítás"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "Jóváhagyásra vár…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "MCP-kiszolgáló elindítva"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "MCP-kiszolgáló leállítva"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Átírási hiba: {0}]"
+msgid "Unknown librarian error."
+msgstr "Ismeretlen könyvtárosi hiba."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Tökéletes! Átkapcsolom a fő asszisztensre."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Ismeretlen ötletbörze-hiba."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Ötletbörze kész."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Ismeretlen írási terv hiba."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Az írási terv elkészült."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Ismeretlen PPT-Master hiba."
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "A PPT-Master munkamenet befejeződött."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Ismeretlen deep research hiba."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Ismeretlen kutatási hiba."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1799,74 +1960,14 @@ msgid "Thinking..."
 msgstr "Gondolkodik..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Tökéletes! Átkapcsolom a fő asszisztensre."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Ismeretlen könyvtárosi hiba."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Könyvtárosi hiba: {0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0} hiba: {1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Ötletbörze kész."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Ismeretlen ötletbörze-hiba."
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Ötletbörze-hiba: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Az írási terv elkészült."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Ismeretlen írási terv hiba."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Írási terv hiba: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "A PPT-Master munkamenet befejeződött."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Ismeretlen PPT-Master hiba."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[PPT-Master hiba: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Ismeretlen deep research hiba."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Deep research hiba: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Ismeretlen kutatási hiba."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Kutatási hiba: {0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr "Mélykutatás {round}/{rounds}. kör, lekérdezés {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1880,8 +1981,21 @@ msgid "Sources consulted:"
 msgstr "Felhasznált források:"
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "{count} kutatási lekérdezés tervezése..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "Mélykutatás: lefedettség felmérése..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "A webes kutatás nem talált használható bizonyítékot."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "Mélyreható kutatás: jelentés szintetizálása…"
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1966,63 +2080,32 @@ msgstr "(Nincsenek képmodellek ezen a végponton)"
 msgid "(Connection failed)"
 msgstr "(A kapcsolat sikertelen)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: Képes vagyok webes kutatást végezni bármilyen kérdés megválaszolásához, "
-"vagy összefoglalni egy weboldalt anélkül, hogy látnám vagy módosítanám a "
-"dokumentumodat. Beszélgessünk."
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "Kihangosítás kikapcsolva"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: A mélykutatás (Deep Research) mód többlépcsős webes vizsgálatot futtat "
-"(tervezés, több keresés, szintézis), és képes formázott jelentést beszúrni a"
-" dokumentumodba. Ez tovább tart, de alaposabb eredményeket ad."
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Hang rögzítése… (%d ms csend)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"AI: Fedezzük fel és tervezzük meg együtt az ötletedet. Kérdéseket teszek "
-"fel, megközelítéseket javaslok, és segítek egy jóváhagyott specifikációt "
-"összeállítani a dokumentumban, amikor készen állsz."
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Átírási hiba: {0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"AI: Vázoljuk fel a dokumentumodat szakaszról szakaszra. Segítek létrehozni "
-"egy írási tervet, majd a jóváhagyásoddal fokozatosan megvalósítom azt."
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Kihangosítás kikapcsolva: nem érkezett beszédhang.]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
 msgstr ""
-"AI: PPT-Master mód — Futtatom a ppt-master munkafolyamatot a konfigurált "
-"Python venv környezetedben (szkriptek + exportálás az Impressbe). Írd le a "
-"témádat, vagy mutass egy projektmappára."
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"AI: Én vagyok a WriterAgent könyvtáros – egy házigazda, aki megtanulhatja a "
-"nevedet, a kedvenc színeidet, és rövid körbevezetést tarthat. Válaszd a "
-"Csevegést a legördülő menüből, amikor a dokumentumon szeretnél dolgozni."
+"[A(z) {0} modell nem támogatja a natív hangot. Kérjük, válasszon egy STT-"
+"modellt a Beállításokban.]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2333,10 +2416,6 @@ msgid "The document is no longer open."
 msgstr "A dokumentum már nincs megnyitva."
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "A parancsfájl előkészítése sikertelen."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "A PythonScriptDialog nem tölthető be a kiterjesztésből."
 
@@ -2402,6 +2481,14 @@ msgstr "Siker"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Kimenet"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python-teszt"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr "A Python tesztfolyamat-párbeszédpanel nem nyitható meg."
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2666,8 +2753,38 @@ msgid "Using LibreOffice process Python..."
 msgstr "LibreOffice-folyamat Python használata..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"Nincs folyamat-értelmező: a sys.executable hiányzik, nem fájl vagy nem "
+"futtatható. Adjon meg egy virtuális környezet (venv) útvonalat a Beállítások"
+" → Python menüpontban, vagy javítsa a LibreOffice telepítését."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "venv Python feloldása..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "Nem Python futtatható fájl: {0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"Nem található Python. Használja a venv gyökerét (a bin/ vagy Scripts/ mappát"
+" tartalmazó mappa), a bin/ vagy Scripts/ mappát, az env-root python.exe "
+"fájlt (conda/pyenv-win), vagy az értelmező teljes elérési útját."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "Az útvonal nem található: {0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2736,8 +2853,8 @@ msgid "No Writer document to insert into."
 msgstr "Nincs Writer-dokumentum, amelybe be lehetne szúrni."
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Először futtasson egy elemzést."
+msgid "Nothing to insert. Run an analysis first."
+msgstr "Nincs mit beszúrni. Először futtasson egy elemzést."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -3048,6 +3165,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "A szkript sikeresen lefutott. ({time} alatt)"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "A parancsfájl előkészítése sikertelen."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status} ({count} sor kiírva.)"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Parancsfájl mentve."
 
@@ -3076,10 +3202,6 @@ msgstr "Nem sikerült megnyitni a beépített szkriptpárbeszédpanelt."
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Váratlan hiba történt a Python-szkript futtatása megnyitásakor."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Küldési hiba"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3185,57 +3307,6 @@ msgid "Start MCP Server"
 msgstr "MCP-kiszolgáló indítása"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Nyilvános alagút a következőn keresztül: {0} (nincs hitelesítés)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Nyilvános alagút ezen keresztül: {0}: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "újracsatlakozás…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "A nyilvános alagút a következőn keresztül: {0} sikertelen: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Nyilvános alagút a következőn keresztül: {0} indítása…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"A nyilvános alagút a következőn keresztül: {0} nem fut (telepítve van a "
-"szolgáltató bináris fájlja?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCP-kiszolgáló leállítva"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCP-kiszolgáló elindítva"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "Nyilvános alagút a következőn keresztül: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"Nyilvános alagút a következőn keresztül: {0} indítása… használja az MCP-"
-"kiszolgáló állapotát, ha kész."
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "Az MCP-kiszolgáló nem fut"
 
@@ -3309,6 +3380,37 @@ msgstr "Alagút tesztelése"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "MCP-alagút tesztje"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Nyilvános alagút a következőn keresztül: {0} (nincs hitelesítés)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Nyilvános alagút ezen keresztül: {0}: {1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "újracsatlakozás…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "A nyilvános alagút a következőn keresztül: {0} sikertelen: {1}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Nyilvános alagút a következőn keresztül: {0} indítása…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"A nyilvános alagút a következőn keresztül: {0} nem fut (telepítve van a "
+"szolgáltató bináris fájlja?)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3406,14 +3508,8 @@ msgstr ""
 "Megjegyzés: Az MCP-kiszolgáló jelenleg nem fut a(z) {3} porton."
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} sikeres, {2} sikertelen."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "A tesztek futtatása sikertelen: {0}"
+msgid "Dispatch Error"
+msgstr "Küldési hiba"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3662,10 +3758,6 @@ msgid "Python Settings…"
 msgstr "Python-beállítások…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Python-teszt"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "Python-cellák (aktív munkalap):"
 
@@ -3720,6 +3812,10 @@ msgstr "Kiinduló érték (seed):"
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "Kijelölés"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "Küldés"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4512,6 +4608,51 @@ msgstr ""
 "Python cellában történő szerkesztésekor a statikus xl(\"A1:…\") hivatkozások"
 " =PY adatargumentumokká emelése, valamint átírása data / data[i] / "
 ".to_pandas() formátumra."
+
+msgid "Allow network access"
+msgstr "Hálózati hozzáférés engedélyezése"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr ""
+"Blokkolja a hálózati importokat (socket, requests, http, urllib, ssl, …), "
+"kivéve, ha be van jelölve."
+
+msgid "Allow file access"
+msgstr "Fájlhozzáférés engedélyezése"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"Blokkolja a fájlírási műveleteket (os write hívások, shutil, tempfile, "
+"sqlite3 és az open() beépített függvény), kivéve, ha be van jelölve. A "
+"pathlib, glob, io és logging modulokon keresztüli olvasás továbbra is "
+"engedélyezett."
+
+msgid "Allow OS access"
+msgstr "Operációsrendszer-hozzáférés engedélyezése"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr ""
+"Engedélyezi a nyers os, subprocess, multiprocessing és pty modulokat (más "
+"programok és folyamatok futtatása); tartalmazza a fájlhozzáférést is."
+
+msgid "Extra allowed modules"
+msgstr "További engedélyezett modulok"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"Vesszővel elválasztott további modulok, amelyeket a Python importálhat "
+"(minden név engedélyezi a név.* almodulokat is). Felülbírálja a beépített "
+"tiltólistát, beleértve az os, socket és subprocess modulokat is."
 
 msgid "Vision / OCR"
 msgstr "Látásmód / OCR"

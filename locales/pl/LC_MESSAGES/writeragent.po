@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Polish <LL@li.org>\n"
@@ -31,27 +31,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "Uruchamianie lokalnego OCR dla wybranych obrazów..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr ""
-"Odczyty badań dokumentów wymagają specjalistycznej delegacji zadań "
-"(USE_SUB_AGENT). Włącz to w konfiguracji."
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"Wywołanie narzędzia przełączone na „{0}”. Jesteś w trybie specjalistycznego "
-"zestawu narzędzi. Musisz wywołać „specialized_workflow_finished” po "
-"zakończeniu, aby przywrócić pełny zestaw interfejsów API."
+msgid "Specialized task ({domain}) completed."
+msgstr "Zadanie specjalistyczne ({domain}) ukończone."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "Wykonanie komórki nie powiodło się."
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "Brak rejestru notatnika w dokumencie."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "Nieznana komórka notatnika."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "Brakuje pola kodu."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "Komórka kodu jest pusta."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -228,7 +230,7 @@ msgstr "Błąd TLS/SSL: {0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "Błąd serwera ({0}). Dostawca AI ma problemy."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "Błąd HTTP {0}: {1}"
@@ -292,18 +294,24 @@ msgstr "Błąd połączenia: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "Dostawca AI zgłosił błąd. Spróbuj ponownie."
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Błąd: {0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "Nie znaleziono {resource_type}: {identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "Oczekiwanie na odpowiedź innego dokumentu..."
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "Naruszenie wątku UNO"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "Oczekiwanie na odpowiedź innego dokumentu..."
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -365,12 +373,6 @@ msgstr ""
 msgid " Request model was: {0}."
 msgstr " Żądany model to: {0}."
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Błąd: {0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -405,10 +407,20 @@ msgstr "Odstępy między żądaniami modelu, następne wysłanie za {0} s…"
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Model Anthropic nie jest ustawiony. Wybierz model w Ustawieniach."
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} zakończonych powodzeniem, {2} zakończonych niepowodzeniem."
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Nie udało się uruchomić testów: {0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -448,14 +460,6 @@ msgid "Transcribing audio..."
 msgstr "Transkrypcja dźwięku..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr ""
-"Nie można sprawdzić, czy zainstalowano faster-whisper. Upłynął limit czasu "
-"lub nie można było uruchomić interpretera Python w Ustawieniach."
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "Lokalny Whisper nie powiódł się: {0}"
@@ -465,6 +469,23 @@ msgid "Local Whisper did not return a transcript."
 msgstr "Lokalny Whisper nie zwrócił transkrypcji."
 
 #: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr ""
+"Przekroczono limit czasu lokalnego Whisper. Spróbuj ponownie lub wybierz "
+"mniejszy model lokalny w Ustawienia → Mowa."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Przekroczono limit czasu lokalnego Whisper. Pierwsze uruchomienie pobiera "
+"wagi modelu; spróbuj ponownie lub wybierz mniejszy model lokalny w "
+"Ustawienia → Mowa."
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
@@ -472,6 +493,15 @@ msgid ""
 msgstr ""
 "Lokalny Whisper działa w środowisku Python venv z Ustawień, a nie w Pythonie"
 " LibreOffice. Skonfiguruj venv, a następnie zainstaluj za pomocą: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Skrypt lokalnego Whispera nie znajduje się w rozszerzeniu."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "Nie można uruchomić lokalnego Whisper ({0})."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -484,31 +514,20 @@ msgstr ""
 "ją w opcjonalnych pakietach audio."
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "Skrypt lokalnego Whispera nie znajduje się w rozszerzeniu."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr ""
-"Lokalny Whisper przekroczył limit czasu lub nie mógł się uruchomić. Spróbuj "
-"ponownie lub wybierz mniejszy model lokalny w Ustawienia → Mowa."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr ""
-"Lokalny Whisper przekroczył limit czasu lub nie mógł się uruchomić. Pierwsze"
-" uruchomienie pobiera wagi modelu; spróbuj ponownie lub wybierz mniejszy "
-"model lokalny w Ustawienia → Mowa."
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "Brak dostępnego klienta modelu językowego dla punktu końcowego zamiany mowy "
 "na tekst."
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "Pobieranie… {0}%"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr ""
+"Brak wystarczającej ilości miejsca na dysku, aby pobrać model głosowy."
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -552,13 +571,21 @@ msgstr "Żądanie mowy nie powiodło się ({0})."
 msgid "Speech request failed."
 msgstr "Żądanie mowy nie powiodło się."
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "Punkt końcowy mowy nie zwrócił dźwięku."
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Kokoro użyło fonemów angielskich dla głosu nieanglojęzycznego"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "Nie znaleziono Misaki; użyto fonemów angielskich Kokoro"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "Kokoro użyło fonemów angielskich dla głosu nieanglojęzycznego"
+msgid "Could not save speech audio."
+msgstr "Nie można zapisać dźwięku mowy."
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -610,6 +637,12 @@ msgstr ""
 "wirtualnym."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr ""
+"Arkusz kalkulacyjny nie jest już otwarty. Otwórz go ponownie i spróbuj "
+"jeszcze raz."
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Skrypt inicjujący zapisany."
@@ -651,20 +684,14 @@ msgid "Saved."
 msgstr "Zapisano."
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "Nie można zapisać komórki."
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr ""
 "Nie udało się załadować okna dialogowego PythonCellEditorDialog z "
 "rozszerzenia."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Nie można zachować argumentów formuły PY tej komórki (np. zakresów danych). "
-"Edytuj formułę w programie Calc lub użyj ciągu znaków w cudzysłowie, np. "
-"=PY(\"kod\"; A1:B10)."
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -691,6 +718,10 @@ msgstr ""
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "Zapisano kod w {0}."
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent: Zapisz komórkę Python"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -781,6 +812,16 @@ msgstr ""
 "pozostawiono bez zmian, aby częściowa lista nie była traktowana jako "
 "kompletna."
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"Nie można zachować argumentów formuły PY tej komórki (np. zakresów danych). "
+"Edytuj formułę w programie Calc lub użyj ciągu znaków w cudzysłowie, np. "
+"=PY(\"kod\"; A1:B10)."
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -806,7 +847,17 @@ msgstr "WriterAgent: Edytuj zaznaczenie (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Rozszerz zaznaczenie (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "Wybierz jedną lub więcej niepustych komórek."
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Edytowane są tylko pierwsze {0} niepuste komórki."
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -1046,6 +1097,14 @@ msgid "Reject this change"
 msgstr "Odrzuć tę zmianę"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Zaznaczenie zawiera śledzone wstawienia lub usunięcia. Najpierw zaakceptuj "
+"lub odrzuć te zmiany. Zaznaczenie nie zostało zmodyfikowane."
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Nie udało się zapisać strumieniowego tekstu do dokumentu: {0}"
@@ -1086,20 +1145,12 @@ msgstr ""
 " Tekst został zachowany, ale może nie być możliwy do przejrzenia."
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr ""
-"Zaznaczenie zawiera śledzone wstawienia lub usunięcia. Najpierw zaakceptuj "
-"lub odrzuć te zmiany. Zaznaczenie nie zostało zmodyfikowane."
+msgid "Select text first"
+msgstr "Najpierw zaznacz tekst"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Rozszerz zaznaczenie"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "Najpierw zaznacz tekst"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1125,6 +1176,10 @@ msgstr "Wybierz zamianę poniżej."
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "Gramatyka AI"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "Nie można otworzyć okna dialogowego wprowadzania LaTeX."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1436,6 +1491,45 @@ msgstr "dlaczego"
 msgid "you"
 msgstr "ty"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "Adres URL punktu końcowego nie może być pusty."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "Nieprawidłowy adres URL punktu końcowego."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr "Konfiguracja uwierzytelniania nie powiodła się. Sprawdź klucz API."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ Połączono pomyślnie! ({0}ms, dostępnych modeli: {1})"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "Serwer zwrócił kod HTTP {0}."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr ""
+"Uwierzytelnianie nie powiodło się (401 Unauthorized). Sprawdź swój klucz "
+"API."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr ""
+"Nie znaleziono punktu końcowego modeli (404). Sprawdź adres URL punktu "
+"końcowego."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "Połączenie nie powiodło się: {0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "Agent prosi o zatwierdzenie"
@@ -1449,7 +1543,7 @@ msgstr "Kontynuować tę czynność?"
 msgid "Tool: %s"
 msgstr "Narzędzie: %s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Skopiowano!"
 
@@ -1509,6 +1603,10 @@ msgstr "Panel oceny"
 msgid "Debug"
 msgstr "Debugowanie"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[Nie wykryto mowy.]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[Wiadomość głosowa]"
@@ -1545,6 +1643,65 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "Bibliotekarz"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Mogę przeprowadzić wyszukiwanie w sieci, aby odpowiedzieć na każde "
+"pytanie lub podsumować stronę internetową, bez podglądania i zmieniania "
+"Twojego dokumentu. Porozmawiajmy."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Tryb głębokiego wyszukiwania (Deep Research) uruchamia wieloetapowe "
+"badanie internetowe (planowanie, kilka wyszukiwań, synteza) i może wstawić "
+"sformatowany raport do Twojego dokumentu. Trwa to dłużej, ale daje bardziej "
+"szczegółowe wyniki."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr ""
+"AI: Odkryjmy i zaprojektujmy Twój pomysł razem. Będę zadawać pytania, "
+"sugerować podejścia i pomogę Ci stworzyć zatwierdzoną specyfikację w Twoim "
+"dokumencie, gdy będziesz gotowy."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr ""
+"AI: Przygotujmy Twój dokument sekcja po sekcji. Pomogę Ci stworzyć plan "
+"pisania, a następnie wdrożyć go stopniowo za Twoją zgodą."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: Tryb PPT-Master — uruchomię przepływ pracy ppt-master w Twoim "
+"skonfigurowanym środowisku Python venv (skrypty + eksport do Impress). Opisz"
+" swój temat lub wskaż folder projektu."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI: Jestem bibliotekarzem WriterAgent — gospodarzem, który może poznać Twoje"
+" imię, ulubione kolory i oprowadzić Cię po programie. Wybierz Czat z menu "
+"rozwijanego, kiedy tylko zechcesz popracować nad dokumentem."
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Drukuj listę poleceń"
@@ -1577,47 +1734,6 @@ msgstr "Przełącz model (mock)"
 msgid "Slash commands:"
 msgstr "Polecenia slash:"
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Wyślij"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "Akceptuj"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "Zmień"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "Odrzuć"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "Oczekiwanie na zatwierdzenie…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "Tryb głośnomówiący wyłączony"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "Nagrywanie dźwięku… (%d ms ciszy)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "Nagrywaj"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "Zatrzymaj nagrywanie"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Uruchamianie..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Pobieranie dokumentu…"
@@ -1643,22 +1759,9 @@ msgstr ""
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[Błąd dźwięku: nagrywanie zatrzymane bez pliku dźwiękowego.]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[Nie wykryto mowy.]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[Tryb głośnomówiący wyłączony: nie wykryto mowy.]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr ""
-"[Model {0} nie obsługuje natywnego dźwięku. Proszę wybrać model STT w "
-"ustawieniach.]"
+msgid "Starting..."
+msgstr "Uruchamianie..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1668,6 +1771,10 @@ msgstr "[Błąd zaplecza agenta: {0}]"
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Wysyłanie do partnera wymaga trybu czatu na tym pasku bocznym.]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "Zatrzymaj nagrywanie"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1768,10 +1875,69 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "Nie można uruchomić edytora: {0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "Akceptuj"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "Zmień"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "Odrzuć"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "Oczekiwanie na zatwierdzenie…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "Serwer MCP uruchomiony"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "Serwer MCP zatrzymany"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Błąd transkrypcji: {0}]"
+msgid "Unknown librarian error."
+msgstr "Nieznany błąd bibliotekarza."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Doskonale! Przełączam Cię teraz do głównego asystenta."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Nieznany błąd burzy mózgów."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Burza mózgów zakończona."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Nieznany błąd planu pisania."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Plan pisania ukończony."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Nieznany błąd PPT-Master."
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "Sesja PPT-Master zakończona."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Nieznany błąd Deep Research."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Nieznany błąd badań."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1791,74 +1957,14 @@ msgid "Thinking..."
 msgstr "Myślenie..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Doskonale! Przełączam Cię teraz do głównego asystenta."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Nieznany błąd bibliotekarza."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Błąd bibliotekarza: {0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0} błąd: {1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Burza mózgów zakończona."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Nieznany błąd burzy mózgów."
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Błąd burzy mózgów: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Plan pisania ukończony."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Nieznany błąd planu pisania."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Błąd planu pisania: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "Sesja PPT-Master zakończona."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Nieznany błąd PPT-Master."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[Błąd PPT-Master: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Nieznany błąd Deep Research."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Błąd Deep Research: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Nieznany błąd badań."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Błąd badań: {0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr "Głębokie badanie, runda {round}/{rounds}, zapytanie {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1870,8 +1976,21 @@ msgid "Sources consulted:"
 msgstr "Wykorzystane źródła:"
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "Planowanie {count} zapytań badawczych..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "Głębokie badanie: ocena zakresu..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Wyszukiwanie w sieci nie przyniosło użytecznych dowodów."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "Głęboka analiza: tworzenie raportu..."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1956,64 +2075,32 @@ msgstr "(Brak modeli obrazów w tym punkcie końcowym)"
 msgid "(Connection failed)"
 msgstr "(Połączenie nieudane)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: Mogę przeprowadzić wyszukiwanie w sieci, aby odpowiedzieć na każde "
-"pytanie lub podsumować stronę internetową, bez podglądania i zmieniania "
-"Twojego dokumentu. Porozmawiajmy."
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "Tryb głośnomówiący wyłączony"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: Tryb głębokiego wyszukiwania (Deep Research) uruchamia wieloetapowe "
-"badanie internetowe (planowanie, kilka wyszukiwań, synteza) i może wstawić "
-"sformatowany raport do Twojego dokumentu. Trwa to dłużej, ale daje bardziej "
-"szczegółowe wyniki."
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Nagrywanie dźwięku… (%d ms ciszy)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"AI: Odkryjmy i zaprojektujmy Twój pomysł razem. Będę zadawać pytania, "
-"sugerować podejścia i pomogę Ci stworzyć zatwierdzoną specyfikację w Twoim "
-"dokumencie, gdy będziesz gotowy."
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Błąd transkrypcji: {0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"AI: Przygotujmy Twój dokument sekcja po sekcji. Pomogę Ci stworzyć plan "
-"pisania, a następnie wdrożyć go stopniowo za Twoją zgodą."
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Tryb głośnomówiący wyłączony: nie wykryto mowy.]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
 msgstr ""
-"AI: Tryb PPT-Master — uruchomię przepływ pracy ppt-master w Twoim "
-"skonfigurowanym środowisku Python venv (skrypty + eksport do Impress). Opisz"
-" swój temat lub wskaż folder projektu."
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"AI: Jestem bibliotekarzem WriterAgent — gospodarzem, który może poznać Twoje"
-" imię, ulubione kolory i oprowadzić Cię po programie. Wybierz Czat z menu "
-"rozwijanego, kiedy tylko zechcesz popracować nad dokumentem."
+"[Model {0} nie obsługuje natywnego dźwięku. Proszę wybrać model STT w "
+"ustawieniach.]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2318,10 +2405,6 @@ msgid "The document is no longer open."
 msgstr "Dokument nie jest już otwarty."
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "Przygotowanie skryptu nie powiodło się."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "Nie można załadować PythonScriptDialog z rozszerzenia."
 
@@ -2387,6 +2470,14 @@ msgstr "Sukces"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Wyjście"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Test Pythona"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr "Nie można otworzyć okna dialogowego postępu testu Python."
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2656,8 +2747,38 @@ msgid "Using LibreOffice process Python..."
 msgstr "Używanie procesu Python programu LibreOffice..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"Brak interpretera procesu: sys.executable nie istnieje, nie jest plikiem lub"
+" nie jest wykonywalny. Ustaw ścieżkę venv w Ustawienia → Python lub napraw "
+"instalację LibreOffice."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "Rozpoznawanie środowiska venv języka Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "Nie jest plikiem wykonywalnym Python: {0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"Nie znaleziono interpretera Python. Użyj katalogu głównego venv (folder "
+"zawierający bin/ lub Scripts/), folderu bin/ lub Scripts/, pliku python.exe "
+"w środowisku (conda/pyenv-win) lub pełnej ścieżki do interpretera."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "Nie znaleziono ścieżki: {0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2725,8 +2846,8 @@ msgid "No Writer document to insert into."
 msgstr "Brak dokumentu Writer, do którego można wstawić tekst."
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Najpierw uruchom analizę."
+msgid "Nothing to insert. Run an analysis first."
+msgstr "Brak danych do wstawienia. Najpierw uruchom analizę."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -3033,6 +3154,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "Skrypt wykonano pomyślnie. (czas trwania: {time})"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "Przygotowanie skryptu nie powiodło się."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status} (wydrukowano {count} wiersz(y).)"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Skrypt zapisano."
 
@@ -3061,10 +3191,6 @@ msgstr "Nie można otworzyć wbudowanego okna dialogowego skryptu."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr ""
 "Wystąpił nieoczekiwany błąd podczas otwierania skryptu Uruchom Python."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Błąd wysyłania"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3171,57 +3297,6 @@ msgid "Start MCP Server"
 msgstr "Uruchom serwer MCP"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Publiczny tunel przez {0} (brak autoryzacji)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Publiczny tunel przez {0}: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "ponowne łączenie…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Publiczny tunel przez {0} nie powiódł się: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Uruchamianie publicznego tunelu przez {0}…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Publiczny tunel przez {0} nie działa (czy zainstalowano plik binarny "
-"dostawcy?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "Serwer MCP zatrzymany"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "Serwer MCP uruchomiony"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "Publiczny tunel przez {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"Uruchamianie publicznego tunelu przez {0}… użyj stanu serwera MCP, gdy "
-"będzie gotowy."
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "Serwer MCP nie jest uruchomiony"
 
@@ -3295,6 +3370,37 @@ msgstr "Test tunelu"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "Test tunelu MCP"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Publiczny tunel przez {0} (brak autoryzacji)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Publiczny tunel przez {0}: {1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "ponowne łączenie…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Publiczny tunel przez {0} nie powiódł się: {1}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Uruchamianie publicznego tunelu przez {0}…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Publiczny tunel przez {0} nie działa (czy zainstalowano plik binarny "
+"dostawcy?)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3392,14 +3498,8 @@ msgstr ""
 "Uwaga: serwer MCP nie działa obecnie na porcie {3}."
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} zakończonych powodzeniem, {2} zakończonych niepowodzeniem."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Nie udało się uruchomić testów: {0}"
+msgid "Dispatch Error"
+msgstr "Błąd wysyłania"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3649,10 +3749,6 @@ msgid "Python Settings…"
 msgstr "Ustawienia Pythona…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Test Pythona"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "Komórki Pythona (aktywny arkusz):"
 
@@ -3707,6 +3803,10 @@ msgstr "Ziarno:"
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "Zaznaczenie"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "Wyślij"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4497,6 +4597,50 @@ msgid ""
 msgstr ""
 "Przy zapisie edycji Python w komórce, przenieś statyczne xl(\"A1:…\") do "
 "argumentów danych =PY i przepisz na data / data[i] / .to_pandas()."
+
+msgid "Allow network access"
+msgstr "Zezwalaj na dostęp do sieci"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr ""
+"Blokuje importy sieciowe (socket, requests, http, urllib, ssl, …), jeśli "
+"opcja nie jest zaznaczona."
+
+msgid "Allow file access"
+msgstr "Zezwalaj na dostęp do plików"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"Blokuje zapisywanie plików (wywołania zapisu systemu operacyjnego, shutil, "
+"tempfile, sqlite3 oraz wbudowana funkcja open()), chyba że zaznaczono. "
+"Odczyty przez pathlib, glob, io i logging pozostają dozwolone."
+
+msgid "Allow OS access"
+msgstr "Zezwalaj na dostęp do systemu operacyjnego"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr ""
+"Zezwala na surowe wywołania os, subprocess, multiprocessing i pty "
+"(uruchamianie innych programów i procesów); obejmuje dostęp do plików."
+
+msgid "Extra allowed modules"
+msgstr "Dodatkowe dozwolone moduły"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"Rozdzielona przecinkami lista dodatkowych modułów, które Python może "
+"importować (każda nazwa zezwala również na name.*). Nadpisuje wbudowaną "
+"listę blokowanych elementów, w tym os, socket i subprocess."
 
 msgid "Vision / OCR"
 msgstr "Wizja / OCR"

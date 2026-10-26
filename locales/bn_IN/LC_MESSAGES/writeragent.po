@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bengali <LL@li.org>\n"
@@ -30,27 +30,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "নির্বাচিত ছবি(গুলি)-তে স্থানীয় OCR চালানো হচ্ছে..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr ""
-"ডকুমেন্ট গবেষণার জন্য বিশেষ টাস্ক ডেলিগেশন (USE_SUB_AGENT) প্রয়োজন। "
-"কনফিগারেশনে এটি সক্রিয় করুন।"
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"টুল কল '{0}'-এ পরিবর্তিত হয়েছে। আপনি একটি বিশেষ টুলসেট মোডে আছেন। সম্পূর্ণ "
-"API সেট পুনরুদ্ধার করতে কাজ শেষ হলে আপনাকে অবশ্যই "
-"'specialized_workflow_finished' কল করতে হবে।"
+msgid "Specialized task ({domain}) completed."
+msgstr "বিশেষায়িত কাজ ({domain}) সম্পন্ন হয়েছে।"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "সেল কার্যকর করতে ব্যর্থ হয়েছে।"
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "নথিতে কোনো নোটবুক রেজিস্ট্রি নেই।"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "অজানা নোটবুক সেল।"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "কোড ফিল্ড অনুপস্থিত।"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "কোড সেল খালি।"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -228,7 +230,7 @@ msgstr "TLS/SSL ত্রুটি: {0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "সার্ভার ত্রুটি ({0})। AI প্রোভাইডারের সমস্যা হচ্ছে।"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "HTTP ত্রুটি {0}: {1}"
@@ -294,18 +296,24 @@ msgstr "সংযোগ ত্রুটি: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "AI প্রোভাইডার একটি ত্রুটির রিপোর্ট করেছে। আবার চেষ্টা করুন।"
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "ত্রুটি: {0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} পাওয়া যায়নি: {identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "অন্য নথির উত্তরের জন্য অপেক্ষা করা হচ্ছে..."
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO থ্রেড লঙ্ঘন"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "অন্য নথির উত্তরের জন্য অপেক্ষা করা হচ্ছে..."
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -367,12 +375,6 @@ msgstr ""
 msgid " Request model was: {0}."
 msgstr " অনুরোধ করা মডেলটি ছিল: {0}।"
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "ত্রুটি: {0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -410,10 +412,20 @@ msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr ""
 "অ্যানথ্রোপিক (Anthropic) মডেল সেট করা নেই। সেটিংস থেকে একটি মডেল বেছে নিন।"
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} সফল, {2} ব্যর্থ।"
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "পরীক্ষা চালাতে ব্যর্থ: {0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -453,14 +465,6 @@ msgid "Transcribing audio..."
 msgstr "অডিও ট্রান্সক্রাইব করা হচ্ছে..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr ""
-"faster-whisper ইনস্টল করা আছে কিনা তা যাচাই করা যায়নি। সেটিংস → পাইথন "
-"ইন্টারপ্রেটার সময়সীমা অতিক্রম করেছে অথবা শুরু হতে পারেনি।"
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "স্থানীয় Whisper ব্যর্থ হয়েছে: {0}"
@@ -470,6 +474,23 @@ msgid "Local Whisper did not return a transcript."
 msgstr "স্থানীয় Whisper কোনো প্রতিলিপি প্রদান করেনি।"
 
 #: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr ""
+"লোকাল হুইস্পার (Local Whisper) সময়সীমা অতিক্রম করেছে। আবার চেষ্টা করুন, অথবা"
+" সেটিংস → স্পিচ-এ একটি ছোট লোকাল মডেল নির্বাচন করুন।"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"লোকাল হুইস্পার (Local Whisper) সময়সীমা অতিক্রম করেছে। প্রথমবার চালানোর সময় "
+"মডেলের ওজন ডাউনলোড হয়; আবার চেষ্টা করুন, অথবা সেটিংস → স্পিচ-এ একটি ছোট "
+"লোকাল মডেল নির্বাচন করুন।"
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
@@ -477,6 +498,15 @@ msgid ""
 msgstr ""
 "স্থানীয় Whisper LibreOffice-এর Python-এ নয়, বরং Settings → Python venv-এ "
 "চলে। venv সেট করুন, তারপর এটি দিয়ে ইনস্টল করুন: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "এক্সটেনশনটিতে স্থানীয় Whisper স্ক্রিপ্টটি অনুপস্থিত।"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "লোকাল হুইস্পার (Local Whisper) শুরু করা যায়নি ({0})।"
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -489,31 +519,19 @@ msgstr ""
 "তালিকাভুক্ত থাকে।"
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "এক্সটেনশনটিতে স্থানীয় Whisper স্ক্রিপ্টটি অনুপস্থিত।"
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr ""
-"স্থানীয় Whisper-এর সময় শেষ হয়েছে বা শুরু হতে পারেনি। আবার চেষ্টা করুন, অথবা "
-"Settings → Speech-এ একটি ছোট স্থানীয় মডেল নির্বাচন করুন।"
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr ""
-"স্থানীয় Whisper-এর সময় শেষ হয়েছে বা শুরু হতে পারেনি। প্রথমবার চালানোর সময় "
-"মডেলের ওয়েট (weights) ডাউনলোড হয়; আবার চেষ্টা করুন, অথবা Settings → Speech-এ"
-" একটি ছোট স্থানীয় মডেল নির্বাচন করুন।"
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "স্পিচ-টু-টেক্সট এন্ডপয়েন্টের জন্য কোনো ল্যাঙ্গুয়েজ-মডেল ক্লায়েন্ট উপলব্ধ "
 "নেই।"
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "ডাউনলোড হচ্ছে… {0}%"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr "ভয়েস মডেল ডাউনলোড করার জন্য পর্যাপ্ত ডিস্ক স্পেস নেই।"
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -557,13 +575,21 @@ msgstr "স্পিচ অনুরোধ ব্যর্থ হয়েছে ({
 msgid "Speech request failed."
 msgstr "স্পিচ অনুরোধ ব্যর্থ হয়েছে।"
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "স্পিচ এন্ডপয়েন্ট কোনো অডিও প্রদান করেনি।"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "অ-ইংরেজি কণ্ঠস্বরের জন্য Kokoro ইংরেজি ধ্বনি ব্যবহার করা হয়েছে"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "Misaki খুঁজে পাওয়া যায়নি; Kokoro ইংরেজি ধ্বনি ব্যবহার করা হয়েছে"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "অ-ইংরেজি কণ্ঠস্বরের জন্য Kokoro ইংরেজি ধ্বনি ব্যবহার করা হয়েছে"
+msgid "Could not save speech audio."
+msgstr "স্পিচ অডিও সংরক্ষণ করা যায়নি।"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -612,6 +638,10 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "কনফিগার করা venv-এ ওয়েবভিউ (pywebview) ইমপোর্ট করা যাচ্ছে না।"
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr "স্প্রেডশিটটি আর খোলা নেই। এটি পুনরায় খুলুন এবং আবার চেষ্টা করুন।"
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "ইনিশিয়ালাইজেশন স্ক্রিপ্ট সংরক্ষিত হয়েছে।"
@@ -651,18 +681,12 @@ msgid "Saved."
 msgstr "সংরক্ষিত।"
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "সেলটি সংরক্ষণ করা যায়নি।"
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr "PythonCellEditorDialog এক্সটেনশন থেকে লোড করা যায়নি।"
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"এই সেলের PY ফর্মুলা আর্গুমেন্টগুলি (যেমন ডেটা রেঞ্জ) সংরক্ষণ করা সম্ভব হয়নি।"
-" Calc-এ ফর্মুলাটি এডিট করুন অথবা =PY(\"code\"; A1:B10)-এর মতো কোটেড কোড "
-"স্ট্রিং ব্যবহার করুন।"
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -689,6 +713,10 @@ msgstr ""
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "{0}-এ কোড সংরক্ষণ করা হয়েছে।"
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent: পাইথন সেল সংরক্ষণ করুন"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -777,6 +805,16 @@ msgstr ""
 "পাইথন সেল পাওয়া গেছে (ডিসকভারি ক্যাপ)। শিটটি অপরিবর্তিত রাখা হয়েছে যাতে "
 "আংশিক তালিকাকে সম্পূর্ণ হিসেবে গণ্য না করা হয়।"
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"এই সেলের PY ফর্মুলা আর্গুমেন্টগুলি (যেমন ডেটা রেঞ্জ) সংরক্ষণ করা সম্ভব হয়নি।"
+" Calc-এ ফর্মুলাটি এডিট করুন অথবা =PY(\"code\"; A1:B10)-এর মতো কোটেড কোড "
+"স্ট্রিং ব্যবহার করুন।"
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -802,7 +840,17 @@ msgstr "WriterAgent: নির্বাচন সম্পাদনা করু
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: নির্বাচন প্রসারিত করুন (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "এক বা একাধিক খালি নয় এমন সেল নির্বাচন করুন।"
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "শুধুমাত্র প্রথম {0}টি খালি নয় এমন সেল সম্পাদনা করা হয়েছে।"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -1044,6 +1092,14 @@ msgid "Reject this change"
 msgstr "এই পরিবর্তন প্রত্যাখ্যান করুন"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"এই নির্বাচনে ট্র্যাক করা সন্নিবেশ বা মুছে ফেলা অংশ রয়েছে। প্রথমে সেই "
+"পরিবর্তনগুলি গ্রহণ বা প্রত্যাখ্যান করুন। নির্বাচনটি পরিবর্তন করা হয়নি।"
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "ডকুমেন্টে স্ট্রিম করা টেক্সট লিখতে ব্যর্থ হয়েছে: {0}"
@@ -1084,20 +1140,12 @@ msgstr ""
 "ব্যর্থ। পাঠ্যটি রাখা হয়েছে, তবে তা পর্যালোচনাযোগ্য নাও হতে পারে।"
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr ""
-"এই নির্বাচনে ট্র্যাক করা সন্নিবেশ বা মুছে ফেলা অংশ রয়েছে। প্রথমে সেই "
-"পরিবর্তনগুলি গ্রহণ বা প্রত্যাখ্যান করুন। নির্বাচনটি পরিবর্তন করা হয়নি।"
+msgid "Select text first"
+msgstr "প্রথমে পাঠ্য নির্বাচন করুন"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: নির্বাচন প্রসারিত করুন"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "প্রথমে পাঠ্য নির্বাচন করুন"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1126,6 +1174,10 @@ msgstr "নিচে থেকে একটি প্রতিস্থাপন
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "AI ব্যাকরণ"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "LaTeX ইনপুট ডায়ালগ খোলা যায়নি।"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1438,6 +1490,43 @@ msgstr "কেন"
 msgid "you"
 msgstr "আপনি"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "এন্ডপয়েন্ট URL খালি রাখা যাবে না।"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "অবৈধ এন্ডপয়েন্ট URL।"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr "প্রমাণীকরণ সেটআপ ব্যর্থ হয়েছে। API কী (key) পরীক্ষা করুন।"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ সফলভাবে সংযুক্ত হয়েছে! ({0}ms, {1}টি মডেল উপলব্ধ)"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "সার্ভার HTTP {0} ফেরত পাঠিয়েছে।"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr ""
+"প্রমাণীকরণ ব্যর্থ হয়েছে (401 অননুমোদিত)। অনুগ্রহ করে আপনার API কী (key) "
+"পরীক্ষা করুন।"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr "মডেল এন্ডপয়েন্ট পাওয়া যায়নি (404)। এন্ডপয়েন্ট URL পরীক্ষা করুন।"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "সংযোগ ব্যর্থ হয়েছে: {0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "এজেন্ট অনুমোদনের অনুরোধ করছে"
@@ -1451,7 +1540,7 @@ msgstr "এই কাজটি চালিয়ে যাবেন?"
 msgid "Tool: %s"
 msgstr "টুল: %s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "কপি করা হয়েছে!"
 
@@ -1511,6 +1600,10 @@ msgstr "মূল্যায়ন ড্যাশবোর্ড"
 msgid "Debug"
 msgstr "ডিবাগ"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[কোনো স্পিচ শনাক্ত হয়নি।]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[ভয়েস বার্তা]"
@@ -1547,6 +1640,65 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "লাইব্রেরিয়ান"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: আমি আপনার নথি না দেখেই বা পরিবর্তন না করেই যেকোনো প্রশ্নের উত্তর দিতে "
+"ওয়েব অনুসন্ধান করতে পারি অথবা কোনো ওয়েব পৃষ্ঠার সারাংশ তৈরি করতে পারি। চলুন "
+"কথা বলি।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Deep Research মোড একটি বহু-ধাপের ওয়েব অনুসন্ধান (পরিকল্পনা, একাধিক "
+"অনুসন্ধান, সংশ্লেষণ) চালায় এবং আপনার নথিতে একটি ফরম্যাট করা প্রতিবেদন যুক্ত "
+"করতে পারে। এতে সময় বেশি লাগে কিন্তু আরও পুঙ্খানুপুঙ্খ ফলাফল পাওয়া যায়।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr ""
+"AI: চলুন আপনার আইডিয়াটি একসাথে অন্বেষণ এবং ডিজাইন করি। আমি প্রশ্ন করব, "
+"পদ্ধতির পরামর্শ দেব এবং আপনি প্রস্তুত হলে আপনার নথিতে একটি অনুমোদিত "
+"স্পেসিফিকেশন তৈরি করতে সাহায্য করব।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr ""
+"AI: চলুন আপনার নথিটি অংশ অনুযায়ী খসড়া করি। আমি আপনাকে একটি লেখার পরিকল্পনার "
+"রূপরেখা তৈরি করতে সাহায্য করব এবং তারপর আপনার অনুমোদনের সাথে তা ধাপে ধাপে "
+"বাস্তবায়ন করব।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: PPT-Master মোড — আমি আপনার কনফিগার করা Python venv-এ ppt-master "
+"ওয়ার্কফ্লো চালাব (স্ক্রিপ্ট + Impress-এ এক্সপোর্ট)। আপনার বিষয় বর্ণনা করুন "
+"অথবা আমাকে একটি প্রজেক্ট ফোল্ডারের নির্দেশ দিন।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI: আমি WriterAgent লাইব্রেরিয়ান — একজন হোস্ট যে আপনার নাম, প্রিয় রঙ মনে "
+"রাখতে পারে এবং আপনাকে একটি সংক্ষিপ্ত ট্যুর দিতে পারে। আপনি যখনই নথিতে কাজ "
+"করতে চান, ড্রপডাউন থেকে Chat নির্বাচন করুন।"
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "কমান্ড তালিকা প্রিন্ট করুন"
@@ -1579,47 +1731,6 @@ msgstr "মডেল পরিবর্তন করুন (মক)"
 msgid "Slash commands:"
 msgstr "স্ল্যাশ কমান্ড:"
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "পাঠান"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "স্বীকার করুন"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "পরিবর্তন করুন"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "প্রত্যাখ্যান করুন"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "অনুমোদনের অপেক্ষায়…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "হ্যান্ডস-ফ্রি বন্ধ"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "অডিও রেকর্ড করা হচ্ছে… (%d মি.সে. নীরবতা)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "রেকর্ড"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "রেকর্ড বন্ধ করুন"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "শুরু হচ্ছে..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "ডকুমেন্ট পাওয়া যাচ্ছে..."
@@ -1645,22 +1756,9 @@ msgstr ""
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[অডিও ত্রুটি: সাউন্ড ফাইল ছাড়াই রেকর্ডিং বন্ধ হয়ে গেছে।]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[কোনো স্পিচ শনাক্ত হয়নি।]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[হ্যান্ডস-ফ্রি বন্ধ: কোনো কথা শোনা যায়নি।]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr ""
-"[মডেল {0} নেটিভ অডিও সমর্থন করে না। অনুগ্রহ করে সেটিংস-এ একটি STT মডেল "
-"নির্বাচন করুন।]"
+msgid "Starting..."
+msgstr "শুরু হচ্ছে..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1670,6 +1768,10 @@ msgstr "[এজেন্ট ব্যাকএন্ড ত্রুটি: {0}]
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[পিয়ার সেন্ডের জন্য এই সাইডবারে চ্যাট মোড প্রয়োজন।]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "রেকর্ড বন্ধ করুন"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1770,10 +1872,69 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "এডিটর শুরু করা যায়নি: {0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "স্বীকার করুন"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "পরিবর্তন করুন"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "প্রত্যাখ্যান করুন"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "অনুমোদনের অপেক্ষায়…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "MCP সার্ভার শুরু হয়েছে"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "MCP সার্ভার বন্ধ হয়েছে"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[ট্রান্সক্রিপশন ত্রুটি: {0}]"
+msgid "Unknown librarian error."
+msgstr "অজানা লাইব্রেরিয়ান ত্রুটি।"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "চমৎকার! আমি এখন আপনাকে প্রধান সহকারীর কাছে স্থানান্তর করছি।"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "অজানা ব্রেইনস্টর্মিং ত্রুটি।"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "ব্রেইনস্টর্মিং সম্পন্ন।"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "লেখার পরিকল্পনায় অজানা ত্রুটি।"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "লেখার পরিকল্পনা সম্পন্ন হয়েছে।"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "অজানা PPT-Master ত্রুটি।"
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master সেশন সম্পন্ন হয়েছে।"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "অজানা ডিপ রিসার্চ ত্রুটি।"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "অজানা গবেষণা ত্রুটি।"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1792,74 +1953,14 @@ msgid "Thinking..."
 msgstr "ভাবছি..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "চমৎকার! আমি এখন আপনাকে প্রধান সহকারীর কাছে স্থানান্তর করছি।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "অজানা লাইব্রেরিয়ান ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[লাইব্রেরিয়ান ত্রুটি: {0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0} ত্রুটি: {1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "ব্রেইনস্টর্মিং সম্পন্ন।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "অজানা ব্রেইনস্টর্মিং ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[ব্রেইনস্টর্মিং ত্রুটি: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "লেখার পরিকল্পনা সম্পন্ন হয়েছে।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "লেখার পরিকল্পনায় অজানা ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[লেখার পরিকল্পনায় ত্রুটি: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master সেশন সম্পন্ন হয়েছে।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "অজানা PPT-Master ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[PPT-Master ত্রুটি: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "অজানা ডিপ রিসার্চ ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[ডিপ রিসার্চ ত্রুটি: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "অজানা গবেষণা ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[গবেষণা ত্রুটি: {0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr "গভীর গবেষণা রাউন্ড {round}/{rounds}, কুয়েরি {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1871,8 +1972,21 @@ msgid "Sources consulted:"
 msgstr "পরামর্শ করা উৎসসমূহ:"
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "{count}টি গবেষণার কুয়েরি পরিকল্পনা করা হচ্ছে..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "গভীর গবেষণা: কভারেজ মূল্যায়ন করা হচ্ছে..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "ওয়েব গবেষণা কোনো ব্যবহারযোগ্য প্রমাণ সংগ্রহ করতে পারেনি।"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "গভীর গবেষণা: প্রতিবেদন সংশ্লেষণ করা হচ্ছে..."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1956,64 +2070,32 @@ msgstr "(এই এন্ডপয়েন্টে কোনো ইমেজ �
 msgid "(Connection failed)"
 msgstr "(সংযোগ ব্যর্থ হয়েছে)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: আমি আপনার নথি না দেখেই বা পরিবর্তন না করেই যেকোনো প্রশ্নের উত্তর দিতে "
-"ওয়েব অনুসন্ধান করতে পারি অথবা কোনো ওয়েব পৃষ্ঠার সারাংশ তৈরি করতে পারি। চলুন "
-"কথা বলি।"
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "হ্যান্ডস-ফ্রি বন্ধ"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: Deep Research মোড একটি বহু-ধাপের ওয়েব অনুসন্ধান (পরিকল্পনা, একাধিক "
-"অনুসন্ধান, সংশ্লেষণ) চালায় এবং আপনার নথিতে একটি ফরম্যাট করা প্রতিবেদন যুক্ত "
-"করতে পারে। এতে সময় বেশি লাগে কিন্তু আরও পুঙ্খানুপুঙ্খ ফলাফল পাওয়া যায়।"
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "অডিও রেকর্ড করা হচ্ছে… (%d মি.সে. নীরবতা)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"AI: চলুন আপনার আইডিয়াটি একসাথে অন্বেষণ এবং ডিজাইন করি। আমি প্রশ্ন করব, "
-"পদ্ধতির পরামর্শ দেব এবং আপনি প্রস্তুত হলে আপনার নথিতে একটি অনুমোদিত "
-"স্পেসিফিকেশন তৈরি করতে সাহায্য করব।"
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[ট্রান্সক্রিপশন ত্রুটি: {0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"AI: চলুন আপনার নথিটি অংশ অনুযায়ী খসড়া করি। আমি আপনাকে একটি লেখার পরিকল্পনার "
-"রূপরেখা তৈরি করতে সাহায্য করব এবং তারপর আপনার অনুমোদনের সাথে তা ধাপে ধাপে "
-"বাস্তবায়ন করব।"
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[হ্যান্ডস-ফ্রি বন্ধ: কোনো কথা শোনা যায়নি।]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
 msgstr ""
-"AI: PPT-Master মোড — আমি আপনার কনফিগার করা Python venv-এ ppt-master "
-"ওয়ার্কফ্লো চালাব (স্ক্রিপ্ট + Impress-এ এক্সপোর্ট)। আপনার বিষয় বর্ণনা করুন "
-"অথবা আমাকে একটি প্রজেক্ট ফোল্ডারের নির্দেশ দিন।"
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"AI: আমি WriterAgent লাইব্রেরিয়ান — একজন হোস্ট যে আপনার নাম, প্রিয় রঙ মনে "
-"রাখতে পারে এবং আপনাকে একটি সংক্ষিপ্ত ট্যুর দিতে পারে। আপনি যখনই নথিতে কাজ "
-"করতে চান, ড্রপডাউন থেকে Chat নির্বাচন করুন।"
+"[মডেল {0} নেটিভ অডিও সমর্থন করে না। অনুগ্রহ করে সেটিংস-এ একটি STT মডেল "
+"নির্বাচন করুন।]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2318,10 +2400,6 @@ msgid "The document is no longer open."
 msgstr "নথিটি আর খোলা নেই।"
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "স্ক্রিপ্ট প্রস্তুতির কাজ ব্যর্থ হয়েছে।"
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog এক্সটেনশন থেকে লোড করা যায়নি।"
 
@@ -2387,6 +2465,14 @@ msgstr "সফল"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "আউটপুট"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "পাইথন পরীক্ষা"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr "পাইথন টেস্ট প্রগ্রেস ডায়ালগ খোলা যায়নি।"
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2652,8 +2738,38 @@ msgid "Using LibreOffice process Python..."
 msgstr "LibreOffice প্রসেস Python ব্যবহার করা হচ্ছে..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"কোনো প্রসেস ইন্টারপ্রেটার নেই: sys.executable অনুপস্থিত, ফাইল নয়, অথবা "
+"এক্সিকিউটেবল নয়। সেটিংস → পাইথন-এ একটি venv পাথ সেট করুন, অথবা লিব্রেঅফিস "
+"ইনস্টলেশন ঠিক করুন।"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "venv Python সমাধান করা হচ্ছে..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "পাইথন এক্সিকিউটেবল নয়: {0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"কোনো পাইথন পাওয়া যায়নি। venv রুট (bin/ বা Scripts/ ধারণকারী ফোল্ডার), bin/ "
+"বা Scripts/ ফোল্ডার, env-root python.exe (conda/pyenv-win), অথবা "
+"ইন্টারপ্রেটারের সম্পূর্ণ পাথ ব্যবহার করুন।"
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "পাথ পাওয়া যায়নি: {0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2722,8 +2838,8 @@ msgid "No Writer document to insert into."
 msgstr "ইনসার্ট করার জন্য কোনো Writer ডকুমেন্ট নেই।"
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "প্রথমে একটি বিশ্লেষণ চালান।"
+msgid "Nothing to insert. Run an analysis first."
+msgstr "ইনসার্ট করার মতো কিছু নেই। প্রথমে একটি বিশ্লেষণ চালান।"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -3027,6 +3143,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "স্ক্রিপ্ট সফলভাবে কার্যকর হয়েছে। ({time} সময় লেগেছে)"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "স্ক্রিপ্ট প্রস্তুতির কাজ ব্যর্থ হয়েছে।"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status} ({count} লাইন প্রিন্ট করা হয়েছে।)"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "স্ক্রিপ্ট সংরক্ষিত হয়েছে।"
 
@@ -3055,10 +3180,6 @@ msgstr "বিল্ট-ইন স্ক্রিপ্ট ডায়ালগ �
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Run Python Script খোলার সময় একটি অপ্রত্যাশিত ত্রুটি ঘটেছে।"
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "ডিসপ্যাচ ত্রুটি"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3161,56 +3282,6 @@ msgid "Start MCP Server"
 msgstr "MCP সার্ভার শুরু করুন"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "{0} এর মাধ্যমে পাবলিক টানেল (কোনো প্রমাণীকরণ নেই)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "{0} এর মাধ্যমে পাবলিক টানেল: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "পুনরায় সংযোগ করা হচ্ছে…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "{0} এর মাধ্যমে পাবলিক টানেল ব্যর্থ হয়েছে: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "{0} এর মাধ্যমে পাবলিক টানেল শুরু হচ্ছে…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"{0} এর মাধ্যমে পাবলিক টানেল চলছে না (প্রোভাইডার বাইনারি কি ইনস্টল করা আছে?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCP সার্ভার বন্ধ হয়েছে"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCP সার্ভার শুরু হয়েছে"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "{0} এর মাধ্যমে পাবলিক টানেল"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"{0} এর মাধ্যমে পাবলিক টানেল শুরু হচ্ছে… প্রস্তুত হলে MCP সার্ভারের স্থিতি "
-"ব্যবহার করুন।"
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "MCP সার্ভার চলছে না"
 
@@ -3284,6 +3355,36 @@ msgstr "টানেল পরীক্ষা করুন"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "MCP টানেল পরীক্ষা"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "{0} এর মাধ্যমে পাবলিক টানেল (কোনো প্রমাণীকরণ নেই)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "{0} এর মাধ্যমে পাবলিক টানেল: {1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "পুনরায় সংযোগ করা হচ্ছে…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "{0} এর মাধ্যমে পাবলিক টানেল ব্যর্থ হয়েছে: {1}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "{0} এর মাধ্যমে পাবলিক টানেল শুরু হচ্ছে…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"{0} এর মাধ্যমে পাবলিক টানেল চলছে না (প্রোভাইডার বাইনারি কি ইনস্টল করা আছে?)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3381,14 +3482,8 @@ msgstr ""
 "দ্রষ্টব্য: MCP সার্ভার বর্তমানে {3} পোর্টে চলছে না।"
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} সফল, {2} ব্যর্থ।"
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "পরীক্ষা চালাতে ব্যর্থ: {0}"
+msgid "Dispatch Error"
+msgstr "ডিসপ্যাচ ত্রুটি"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3635,10 +3730,6 @@ msgid "Python Settings…"
 msgstr "পাইথন সেটিংস…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "পাইথন পরীক্ষা"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "পাইথন সেল (সক্রিয় শিট):"
 
@@ -3693,6 +3784,10 @@ msgstr "সিড:"
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "নির্বাচন"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "পাঠান"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4471,6 +4566,50 @@ msgid ""
 msgstr ""
 "সেল সেভ-এ Python এডিট করার সময়, স্ট্যাটিক xl(\"A1:…\") কে =PY ডেটা "
 "আর্গুমেন্টে তুলুন এবং ডেটা / ডেটা[i] / .to_pandas()-এ পুনরায় লিখুন।"
+
+msgid "Allow network access"
+msgstr "নেটওয়ার্ক অ্যাক্সেসের অনুমতি দিন"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr ""
+"চেক করা না থাকলে নেটওয়ার্ক ইমপোর্ট (socket, requests, http, urllib, ssl, …) "
+"ব্লক করে।"
+
+msgid "Allow file access"
+msgstr "ফাইল অ্যাক্সেসের অনুমতি দিন"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"চেক না করা পর্যন্ত ফাইল লেখা (os write কল, shutil, tempfile, sqlite3, এবং "
+"open() বিল্টইন) ব্লক করে। pathlib, glob, io, এবং logging-এর মাধ্যমে পড়া "
+"অনুমোদিত থাকে।"
+
+msgid "Allow OS access"
+msgstr "OS অ্যাক্সেসের অনুমতি দিন"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr ""
+"raw os, subprocess, multiprocessing, এবং pty (অন্যান্য প্রোগ্রাম এবং প্রসেস "
+"চালানোর জন্য) অনুমতি দেয়; এতে ফাইল অ্যাক্সেস অন্তর্ভুক্ত।"
+
+msgid "Extra allowed modules"
+msgstr "অতিরিক্ত অনুমোদিত মডিউল"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"কমা দিয়ে আলাদা করা অতিরিক্ত মডিউল যা পাইথন ইমপোর্ট করতে পারে (প্রতিটি নাম "
+"name.*-কেও অনুমতি দেয়)। এটি os, socket এবং subprocess সহ বিল্ট-ইন "
+"ব্লকলিস্টকে ওভাররাইড করে।"
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"

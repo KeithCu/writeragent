@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -30,27 +30,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "Se rulează OCR local pe imaginea/imaginile selectată/e..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr ""
-"Citirile pentru cercetarea documentelor necesită delegarea sarcinilor "
-"specializate (USE_SUB_AGENT). Activați acest lucru în configurație."
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"Apelul instrumentului a comutat la „{0}”. Sunteți într-un mod de set de "
-"instrumente specializat. Trebuie să apelați „specialized_workflow_finished” "
-"când ați terminat pentru a restaura setul complet de API-uri."
+msgid "Specialized task ({domain}) completed."
+msgstr "Sarcină specializată ({domain}) finalizată."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "Execuția celulei a eșuat."
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "Nu există niciun registru de notebook pe document."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "Celulă de notebook necunoscută."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "Câmpul de cod lipsește."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "Celula de cod este goală."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -228,7 +230,7 @@ msgstr "Eroare TLS/SSL: {0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "Eroare de server ({0}). Furnizorul AI întâmpină probleme."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "Eroare HTTP {0}: {1}"
@@ -293,18 +295,24 @@ msgstr "Eroare de conexiune: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "Furnizorul AI a raportat o eroare. Încercați din nou."
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Eroare: {0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} nu a fost găsit: {identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "Se așteaptă răspunsul altui document..."
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "Încălcare a firului de execuție UNO"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "Se așteaptă răspunsul altui document..."
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -366,12 +374,6 @@ msgstr ""
 msgid " Request model was: {0}."
 msgstr " Modelul solicitat a fost: {0}."
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Eroare: {0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -406,10 +408,20 @@ msgstr "Se spațiază cererile modelului liber, următoarea trimitere în {0}s�
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Modelul Anthropic nu este setat. Alegeți un model în Setări."
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} reușite, {2} eșuate."
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Testele nu au putut fi executate: {0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -447,14 +459,6 @@ msgid "Transcribing audio..."
 msgstr "Se transcrie conținutul audio..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr ""
-"Nu s-a putut verifica dacă faster-whisper este instalat. Setări → "
-"Interpretorul Python a expirat sau nu a putut porni."
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "Whisper local a eșuat: {0}"
@@ -462,6 +466,22 @@ msgstr "Whisper local a eșuat: {0}"
 #: plugin/audio/stt_service.py
 msgid "Local Whisper did not return a transcript."
 msgstr "Whisper local nu a returnat nicio transcriere."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr ""
+"Local Whisper a expirat. Încercați din nou sau alegeți un model local mai "
+"mic în Setări → Vorbire."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Local Whisper a expirat. Prima rulare descarcă ponderile modelului; "
+"încercați din nou sau alegeți un model local mai mic în Setări → Vorbire."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -473,6 +493,15 @@ msgstr ""
 "LibreOffice. Configurați venv, apoi instalați cu: {0}"
 
 #: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Scriptul Whisper local lipsește din extensie."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "Local Whisper nu a putut porni ({0})."
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "faster-whisper is not installed in the Settings → Python venv. Install with:"
@@ -482,31 +511,19 @@ msgstr ""
 "Setări → Test Python îl listează sub pachete opționale Audio."
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "Scriptul Whisper local lipsește din extensie."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr ""
-"Whisper local a expirat sau nu a putut porni. Încercați din nou sau alegeți "
-"un model local mai mic în Setări → Vorbire."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr ""
-"Whisper local a expirat sau nu a putut porni. Prima rulare descarcă "
-"ponderile modelului; încercați din nou sau alegeți un model local mai mic în"
-" Setări → Vorbire."
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "Niciun client de model lingvistic nu este disponibil pentru punctul final de"
 " transformare a vorbirii în text."
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "Se descarcă… {0}%"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr "Spațiu pe disc insuficient pentru a descărca modelul vocal."
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -554,13 +571,21 @@ msgstr "Cererea vocală a eșuat ({0})."
 msgid "Speech request failed."
 msgstr "Cererea vocală a eșuat."
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "Punctul final de vorbire nu a returnat niciun sunet."
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Kokoro a folosit foneme engleze pentru o voce non-engleză"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "Misaki nu a fost găsit; Kokoro a folosit foneme engleze"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "Kokoro a folosit foneme engleze pentru o voce non-engleză"
+msgid "Could not save speech audio."
+msgstr "Nu s-a putut salva sunetul vorbirii."
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -609,6 +634,11 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Nu se poate importa webview (pywebview) în venv-ul configurat."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr ""
+"Foaia de calcul nu mai este deschisă. Redeschideți-o și încercați din nou."
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Scriptul de inițializare a fost salvat."
@@ -649,18 +679,12 @@ msgid "Saved."
 msgstr "Salvat."
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "Nu s-a putut salva celula."
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr "PythonCellEditorDialog nu a putut fi încărcat din extensie."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Nu s-au putut păstra argumentele formulei PY ale acestei celule (de ex. "
-"intervale de date). Editați formula în Calc sau utilizați un șir de cod "
-"între ghilimele, cum ar fi =PY(\"cod\"; A1:B10)."
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -688,6 +712,10 @@ msgstr ""
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "Cod salvat în {0}."
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent: Salvare celulă Python"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -778,6 +806,16 @@ msgstr ""
 "lăsată neînlănțuită, astfel încât o listă parțială să nu fie tratată ca "
 "fiind completă."
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"Nu s-au putut păstra argumentele formulei PY ale acestei celule (de ex. "
+"intervale de date). Editați formula în Calc sau utilizați un șir de cod "
+"între ghilimele, cum ar fi =PY(\"cod\"; A1:B10)."
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -803,7 +841,17 @@ msgstr "WriterAgent: Editare selecție (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Extindere selecție (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "Selectați una sau mai multe celule care nu sunt goale."
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Doar primele {0} celule care nu sunt goale sunt editate."
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -1044,6 +1092,14 @@ msgid "Reject this change"
 msgstr "Respinge această modificare"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Această selecție conține inserări sau ștergeri urmărite. Acceptați sau "
+"respingeți mai întâi acele modificări. Selecția nu a fost modificată."
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Nu s-a putut scrie textul transmis în document: {0}"
@@ -1083,20 +1139,12 @@ msgstr ""
 "urmărită. Textul a fost păstrat, dar s-ar putea să nu poată fi revizuit."
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr ""
-"Această selecție conține inserări sau ștergeri urmărite. Acceptați sau "
-"respingeți mai întâi acele modificări. Selecția nu a fost modificată."
+msgid "Select text first"
+msgstr "Selectați mai întâi textul"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Extindere selecție"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "Selectați mai întâi textul"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1125,6 +1173,10 @@ msgstr "Alegeți o înlocuire de mai jos."
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "Gramatică AI"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "Nu s-a putut deschide dialogul de introducere LaTeX."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1438,6 +1490,44 @@ msgstr "de ce"
 msgid "you"
 msgstr "dumneavoastră"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "URL-ul punctului final nu poate fi gol."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "URL punct final invalid."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr "Configurarea autentificării a eșuat. Verificați cheia API."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ Conectat cu succes! ({0}ms, {1} modele disponibile)"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "Serverul a returnat HTTP {0}."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr ""
+"Autentificarea a eșuat (401 Neautorizat). Vă rugăm să verificați cheia API."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr ""
+"Endpoint-ul pentru modele nu a fost găsit (404). Verificați URL-ul endpoint-"
+"ului."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "Conexiunea a eșuat: {0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "Agentul solicită aprobarea"
@@ -1451,7 +1541,7 @@ msgstr "Continuați cu această acțiune?"
 msgid "Tool: %s"
 msgstr "Instrument: %s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Copiat!"
 
@@ -1511,6 +1601,10 @@ msgstr "Tablou de bord evaluare"
 msgid "Debug"
 msgstr "Depanare"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[Nu a fost detectată nicio voce.]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[Mesaj vocal]"
@@ -1547,6 +1641,66 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "Bibliotecar"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Pot efectua cercetări pe web pentru a răspunde la orice întrebare sau "
+"pot rezuma o pagină web, fără a vedea sau modifica documentul tău. Hai să "
+"discutăm."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Modul de cercetare aprofundată (Deep Research) rulează o investigație "
+"web în mai mulți pași (planificare, căutări multiple, sinteză) și poate "
+"insera un raport formatat în documentul tău. Durează mai mult, dar produce "
+"rezultate mai detaliate."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr ""
+"AI: Hai să explorăm și să concepem ideea ta împreună. Îți voi pune "
+"întrebări, voi sugera abordări și te voi ajuta să construiești o "
+"specificație aprobată în documentul tău când ești gata."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr ""
+"AI: Hai să redactăm documentul tău secțiune cu secțiune. Te voi ajuta să "
+"creezi o schiță a planului de scriere, apoi o vom implementa incremental, cu"
+" aprobarea ta."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: Modul PPT-Master — voi rula fluxul de lucru ppt-master în mediul tău "
+"Python venv configurat (scripturi + export în Impress). Descrie subiectul "
+"tău sau indică-mi un dosar de proiect."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI: Sunt bibliotecarul WriterAgent — o gazdă care îți poate învăța numele, "
+"culorile preferate și îți poate oferi un scurt tur. Alege Chat din meniul "
+"derulant oricând dorești să lucrezi la document."
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Imprimă lista de comenzi"
@@ -1579,47 +1733,6 @@ msgstr "Schimbare model (mock)"
 msgid "Slash commands:"
 msgstr "Comenzi slash:"
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Trimite"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "Acceptă"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "Modifică"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "Respinge"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "Se așteaptă aprobarea…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "Hands-free oprit"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "Se înregistrează audio… (%d ms liniște)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "Înregistrare"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "Oprire înregistrare"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Se pornește..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Se preia documentul..."
@@ -1645,22 +1758,9 @@ msgstr ""
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[Eroare audio: înregistrarea s-a oprit fără un fișier de sunet.]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[Nu a fost detectată nicio voce.]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[Hands-free oprit: nu s-a auzit nicio voce.]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr ""
-"[Modelul {0} nu acceptă audio nativ. Vă rugăm să selectați un model STT în "
-"Setări.]"
+msgid "Starting..."
+msgstr "Se pornește..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1671,6 +1771,10 @@ msgstr "[Eroare backend agent: {0}]"
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[Trimiterea între egali necesită modul Chat în această bară laterală.]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "Oprire înregistrare"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1772,10 +1876,69 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "Nu s-a putut porni editorul: {0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "Acceptă"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "Modifică"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "Respinge"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "Se așteaptă aprobarea…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "Serverul MCP a fost pornit"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "Serverul MCP a fost oprit"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Eroare de transcriere: {0}]"
+msgid "Unknown librarian error."
+msgstr "Eroare necunoscută a bibliotecarului."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Perfect! Vă trec acum la asistentul principal."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Eroare necunoscută de brainstorming."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Brainstorming finalizat."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Eroare necunoscută a planului de scriere."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Plan de scriere finalizat."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Eroare PPT-Master necunoscută."
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "Sesiune PPT-Master finalizată."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Eroare necunoscută în Deep Research."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Eroare necunoscută de cercetare."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1795,74 +1958,15 @@ msgid "Thinking..."
 msgstr "Se gândește..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Perfect! Vă trec acum la asistentul principal."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Eroare necunoscută a bibliotecarului."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Eroare bibliotecar: {0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0} eroare: {1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Brainstorming finalizat."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Eroare necunoscută de brainstorming."
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Eroare de brainstorming: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Plan de scriere finalizat."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Eroare necunoscută a planului de scriere."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Eroare plan de scriere: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "Sesiune PPT-Master finalizată."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Eroare PPT-Master necunoscută."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[Eroare PPT-Master: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Eroare necunoscută în Deep Research."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Eroare Deep research: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Eroare necunoscută de cercetare."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Eroare cercetare: {0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr ""
+"Cercetare aprofundată runda {round}/{rounds}, interogare {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1874,8 +1978,21 @@ msgid "Sources consulted:"
 msgstr "Surse consultate:"
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "Se planifică {count} interogări de cercetare..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "Cercetare aprofundată: se evaluează acoperirea..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Cercetarea web nu a colectat nicio dovadă utilizabilă."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "Cercetare aprofundată: se sintetizează raportul..."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1960,65 +2077,32 @@ msgstr "(Nu există modele de imagine pe acest endpoint)"
 msgid "(Connection failed)"
 msgstr "(Conexiunea a eșuat)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: Pot efectua cercetări pe web pentru a răspunde la orice întrebare sau "
-"pot rezuma o pagină web, fără a vedea sau modifica documentul tău. Hai să "
-"discutăm."
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "Hands-free oprit"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: Modul de cercetare aprofundată (Deep Research) rulează o investigație "
-"web în mai mulți pași (planificare, căutări multiple, sinteză) și poate "
-"insera un raport formatat în documentul tău. Durează mai mult, dar produce "
-"rezultate mai detaliate."
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Se înregistrează audio… (%d ms liniște)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"AI: Hai să explorăm și să concepem ideea ta împreună. Îți voi pune "
-"întrebări, voi sugera abordări și te voi ajuta să construiești o "
-"specificație aprobată în documentul tău când ești gata."
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Eroare de transcriere: {0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"AI: Hai să redactăm documentul tău secțiune cu secțiune. Te voi ajuta să "
-"creezi o schiță a planului de scriere, apoi o vom implementa incremental, cu"
-" aprobarea ta."
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Hands-free oprit: nu s-a auzit nicio voce.]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
 msgstr ""
-"AI: Modul PPT-Master — voi rula fluxul de lucru ppt-master în mediul tău "
-"Python venv configurat (scripturi + export în Impress). Descrie subiectul "
-"tău sau indică-mi un dosar de proiect."
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"AI: Sunt bibliotecarul WriterAgent — o gazdă care îți poate învăța numele, "
-"culorile preferate și îți poate oferi un scurt tur. Alege Chat din meniul "
-"derulant oricând dorești să lucrezi la document."
+"[Modelul {0} nu acceptă audio nativ. Vă rugăm să selectați un model STT în "
+"Setări.]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2326,10 +2410,6 @@ msgid "The document is no longer open."
 msgstr "Documentul nu mai este deschis."
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "Pregătirea scriptului a eșuat."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog nu a putut fi încărcat din extensie."
 
@@ -2395,6 +2475,14 @@ msgstr "Succes"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Ieșire"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Test Python"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr "Nu s-a putut deschide dialogul de progres al testului Python."
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2658,8 +2746,38 @@ msgid "Using LibreOffice process Python..."
 msgstr "Se utilizează procesul Python din LibreOffice..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"Niciun interpretor de proces: sys.executable lipsește, nu este un fișier sau"
+" nu este executabil. Setați o cale venv în Setări → Python sau reparați "
+"instalarea LibreOffice."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "Se rezolvă Python din venv..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "Nu este un executabil Python: {0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"Nu a fost găsit niciun Python. Utilizați rădăcina venv (folderul care "
+"conține bin/ sau Scripts/), folderul bin/ sau Scripts/, python.exe din "
+"rădăcina mediului (conda/pyenv-win) sau calea completă către interpretor."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "Calea nu a fost găsită: {0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2727,8 +2845,8 @@ msgid "No Writer document to insert into."
 msgstr "Nu există niciun document Writer în care să se insereze."
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Rulați mai întâi o analiză."
+msgid "Nothing to insert. Run an analysis first."
+msgstr "Nimic de inserat. Rulați mai întâi o analiză."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -3035,6 +3153,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "Scriptul a fost executat cu succes. (a durat {time})"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "Pregătirea scriptului a eșuat."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status} ({count} linie(i) tipărită(e).)"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Script salvat."
 
@@ -3064,10 +3191,6 @@ msgstr "Nu s-a putut deschide dialogul de script încorporat."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr ""
 "A apărut o eroare neașteptată la deschiderea Executării scriptului Python."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Eroare de expediere"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3174,56 +3297,6 @@ msgid "Start MCP Server"
 msgstr "Pornire server MCP"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Tunel public prin {0} (fără autentificare)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Tunel public prin {0}: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "se reconectează…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Tunelul public prin {0} a eșuat: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Tunelul public prin {0} pornește…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Tunelul public prin {0} nu rulează (este instalat binarul furnizorului?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "Serverul MCP a fost oprit"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "Serverul MCP a fost pornit"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "Tunel public prin {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"Tunelul public prin {0} pornește… utilizați Starea serverului MCP când este "
-"gata."
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "Serverul MCP nu rulează"
 
@@ -3297,6 +3370,36 @@ msgstr "Testare tunel"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "Testare tunel MCP"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Tunel public prin {0} (fără autentificare)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Tunel public prin {0}: {1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "se reconectează…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Tunelul public prin {0} a eșuat: {1}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Tunelul public prin {0} pornește…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Tunelul public prin {0} nu rulează (este instalat binarul furnizorului?)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3394,14 +3497,8 @@ msgstr ""
 "Notă: Serverul MCP nu rulează în prezent pe portul {3}."
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} reușite, {2} eșuate."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Testele nu au putut fi executate: {0}"
+msgid "Dispatch Error"
+msgstr "Eroare de expediere"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3652,10 +3749,6 @@ msgid "Python Settings…"
 msgstr "Setări Python…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Test Python"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "Celule Python (foaia activă):"
 
@@ -3710,6 +3803,10 @@ msgstr "Seed:"
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "Selecție"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "Trimite"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4503,6 +4600,50 @@ msgid ""
 msgstr ""
 "La salvarea Edit Python in Cell, ridică xl(\"A1:…\") static în argumentele "
 "de date =PY și rescrie în data / data[i] / .to_pandas()."
+
+msgid "Allow network access"
+msgstr "Permite accesul la rețea"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr ""
+"Blochează importurile de rețea (socket, requests, http, urllib, ssl, …) dacă"
+" nu este bifat."
+
+msgid "Allow file access"
+msgstr "Permite accesul la fișiere"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"Blochează scrierea fișierelor (apeluri os write, shutil, tempfile, sqlite3 "
+"și funcția încorporată open()) dacă nu este bifat. Citirea prin pathlib, "
+"glob, io și logging rămâne permisă."
+
+msgid "Allow OS access"
+msgstr "Permite accesul la sistemul de operare"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr ""
+"Permite utilizarea modulelor brute os, subprocess, multiprocessing și pty "
+"(pentru a rula alte programe și procese); include accesul la fișiere."
+
+msgid "Extra allowed modules"
+msgstr "Module suplimentare permise"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"Module suplimentare separate prin virgulă pe care Python le poate importa "
+"(fiecare nume permite și name.*). Suprascrie lista de blocare încorporată, "
+"inclusiv os, socket și subprocess."
 
 msgid "Vision / OCR"
 msgstr "Viziune / OCR"

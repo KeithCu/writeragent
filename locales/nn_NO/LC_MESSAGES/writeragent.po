@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -30,27 +30,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "Køyrer lokal OCR på valt bilete/bilete..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr ""
-"Dokumentforsking krev spesialisert oppgåvedelegering (USE_SUB_AGENT). "
-"Aktiver dette i oppsettet."
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"Verktøykall bytta til '{0}'. Du er i ein spesialisert verktøymodus. Du må "
-"kalle 'specialized_workflow_finished' når du er ferdig for å gjenopprette "
-"det fulle settet med API-ar."
+msgid "Specialized task ({domain}) completed."
+msgstr "Spesialisert oppgåve ({domain}) fullført."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "Cellekøyring mislukkast."
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "Ingen notatbok-register på dokumentet."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "Ukjend notatbok-celle."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "Kodefelt manglar."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "Kodecelle er tom."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -227,7 +229,7 @@ msgstr "TLS/SSL-feil: {0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "Tenarfeil ({0}). AI-leverandøren har problem."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "HTTP-feil {0}: {1}"
@@ -293,18 +295,24 @@ msgstr "Tilkoblingsfeil: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "AI-leverandøren rapporterte ein feil. Prøv på nytt."
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Feil: {0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} ikkje funnen: {identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "Ventar på svar frå eit anna dokument..."
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO-tråd-brot"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "Ventar på svar frå eit anna dokument..."
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -366,12 +374,6 @@ msgstr ""
 msgid " Request model was: {0}."
 msgstr " Førespurt modell var: {0}."
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Feil: {0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -406,10 +408,20 @@ msgstr "Ventar mellom førespurnader til fri modell, neste sending om {0} s…"
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Anthropic-modell er ikkje vald. Vel ein modell i Innstillingar."
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} bestått, {2} feila."
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Testane kunne ikkje køyrast: {0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -448,14 +460,6 @@ msgid "Transcribing audio..."
 msgstr "Transkriberer lyd..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr ""
-"Kunne ikkje kontrollere om faster-whisper er installert. Innstillingar → "
-"Python-tolk fekk tidsavbrot eller kunne ikkje starte."
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "Lokal Whisper feila: {0}"
@@ -463,6 +467,22 @@ msgstr "Lokal Whisper feila: {0}"
 #: plugin/audio/stt_service.py
 msgid "Local Whisper did not return a transcript."
 msgstr "Lokal Whisper returnerte inga transkripsjon."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr ""
+"Lokal Whisper fekk tidsavbrot. Prøv på nytt, eller vel ein mindre lokal "
+"modell i Innstillingar → Tale."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Lokal Whisper fekk tidsavbrot. Fyrste køyring lastar ned modellvekter; prøv "
+"på nytt, eller vel ein mindre lokal modell i Innstillingar → Tale."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -474,6 +494,15 @@ msgstr ""
 "Python. Set venv, og installer deretter med: {0}"
 
 #: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Lokalt Whisper-skript manglar i utvidinga."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "Lokal Whisper kunne ikkje starta ({0})."
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "faster-whisper is not installed in the Settings → Python venv. Install with:"
@@ -483,30 +512,18 @@ msgstr ""
 "med: {0}. Innstillingar → Python-test listar ho under valfrie lydpakkar."
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "Lokalt Whisper-skript manglar i utvidinga."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr ""
-"Lokal Whisper fekk tidsavbrot eller kunne ikkje starte. Prøv på nytt, eller "
-"vel ein mindre lokal modell i Innstillingar → Tale."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr ""
-"Lokal Whisper fekk tidsavbrot eller kunne ikkje starte. Fyrste køyring "
-"lastar ned modellvekter; prøv på nytt, eller vel ein mindre lokal modell i "
-"Innstillingar → Tale."
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "Ingen språkmodellklient er tilgjengeleg for endepunktet tale-til-tekst."
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "Lastar ned… {0}%"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr "Ikkje nok diskplass til å lasta ned talemodellen."
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -550,13 +567,21 @@ msgstr "Tale-førespurnad mislukkast ({0})."
 msgid "Speech request failed."
 msgstr "Tale-førespurnad mislukkast."
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "Tale-endepunktet returnerte ikkje lyd."
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Kokoro brukte engelske fonem for ikkje-engelsk stemme"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "Fann ikkje Misaki; Kokoro brukte engelske fonem"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "Kokoro brukte engelske fonem for ikkje-engelsk stemme"
+msgid "Could not save speech audio."
+msgstr "Klarte ikkje å lagra talelyd."
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -606,6 +631,10 @@ msgstr ""
 "Kan ikkje importere webview (pywebview) i det konfigurerte venv-miljøet."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr "Reknearket er ikkje lenger ope. Opna det på nytt og prøv igjen."
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Initialiseringsskript lagra."
@@ -645,18 +674,12 @@ msgid "Saved."
 msgstr "Lagra."
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "Klarte ikkje å lagra cella."
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr "PythonCellEditorDialog kunne ikkje lastast frå utvidinga."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Kunne ikkje ta vare på PY-formelargumenta til denne cella (t.d. dataområde)."
-" Rediger formelen i Calc, eller bruk ein sitert kodestreng som =PY(\"kode\";"
-" A1:B10)."
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -682,6 +705,10 @@ msgstr "Klarte ikkje skriva om xl()-områdereferansar til =PY-dataargument: %s"
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "Lagra kode i {0}."
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent: Lagra Python-celle"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -770,6 +797,16 @@ msgstr ""
 "fleire Python-celler (oppdagingsgrense). Arket vart ikkje endra, slik at ei "
 "delvis liste ikkje vert behandla som fullstendig."
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"Kunne ikkje ta vare på PY-formelargumenta til denne cella (t.d. dataområde)."
+" Rediger formelen i Calc, eller bruk ein sitert kodestreng som =PY(\"kode\";"
+" A1:B10)."
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -795,7 +832,17 @@ msgstr "WriterAgent: Rediger utval (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Utvid utval (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "Vel ei eller fleire celler som ikkje er tomme."
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Berre dei første {0} cellene som ikkje er tomme, vert redigerte."
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -1034,6 +1081,14 @@ msgid "Reject this change"
 msgstr "Avvis denne endringa"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Dette utvalet inneheld spora innsetjingar eller slettingar. Godta eller "
+"avvis desse endringane først. Utvalet vart ikkje endra."
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Klarte ikkje skrive strøymd tekst til dokumentet: {0}"
@@ -1074,20 +1129,12 @@ msgstr ""
 "endring. Teksten vart teken vare på, men kan vere vanskeleg å gå gjennom."
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr ""
-"Dette utvalet inneheld spora innsetjingar eller slettingar. Godta eller "
-"avvis desse endringane først. Utvalet vart ikkje endra."
+msgid "Select text first"
+msgstr "Marker tekst først"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Utvid utval"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "Marker tekst først"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1117,6 +1164,10 @@ msgstr "Vel ei erstatning under."
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "AI-grammatikk"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "Klarte ikkje å opna dialogen for LaTeX-inndata."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1429,6 +1480,41 @@ msgstr "kvifor"
 msgid "you"
 msgstr "du"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "Endepunkt-URL kan ikkje vera tom."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "Ugyldig endepunkt-URL."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr "Autentiseringsoppsettet feila. Kontroller API-nøkkelen."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ Tilkopla! ({0}ms, {1} modellar tilgjengelege)"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "Tenaren returnerte HTTP {0}."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr "Autentisering feila (401 Unauthorized). Kontroller API-nøkkelen din."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr "Modell-endepunkt ikkje funne (404). Kontroller endepunkt-URL-en."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "Tilkopling feila: {0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "Agenten ber om godkjenning"
@@ -1442,7 +1528,7 @@ msgstr "Vil du halde fram med denne handlinga?"
 msgid "Tool: %s"
 msgstr "Verktøy: %s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Kopiert!"
 
@@ -1502,6 +1588,10 @@ msgstr "Evalueringspanel"
 msgid "Debug"
 msgstr "Feilsøking"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[Ingen tale oppdaga.]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[Talemelding]"
@@ -1538,6 +1628,64 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "Bibliotekar"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Eg kan gjera nettsøk for å svara på kva som helst, eller oppsummera ei "
+"nettside, utan å sjå eller endra dokumentet ditt. La oss chatta."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: «Deep Research»-modus køyrer ei undersøking på nettet i fleire steg "
+"(planlegging, fleire søk, syntese) og kan setja inn ein formatert rapport i "
+"dokumentet ditt. Det tek lengre tid, men gir meir grundige resultat."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr ""
+"AI: La oss utforska og utforma ideen din saman. Eg stiller spørsmål, "
+"føreslår framgangsmåtar og hjelper deg med å byggja ein godkjend "
+"spesifikasjon i dokumentet når du er klar."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr ""
+"AI: La oss skriva dokumentet ditt seksjon for seksjon. Eg hjelper deg med å "
+"laga ein disposisjon for skriveplanen, og så gjennomfører vi han stegvis med"
+" di godkjenning."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: PPT-Master-modus — eg køyrer ppt-master-arbeidsflyten i det konfigurerte"
+" Python-miljøet ditt (skript + eksport til Impress). Beskriv emnet ditt "
+"eller vis meg til ei prosjektmappe."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI: Eg er WriterAgent-bibliotekaren — ein vert som kan læra namnet ditt, "
+"favorittfargane dine og gi deg ei kort omvising. Vel «Chat» i "
+"nedtrekksmenyen når du vil jobba med dokumentet."
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Skriv ut kommandolista"
@@ -1570,47 +1718,6 @@ msgstr "Bytt modell (mock)"
 msgid "Slash commands:"
 msgstr "Skråstrekkommandoar:"
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Send"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "Godta"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "Endre"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "Avvis"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "Venter på godkjenning…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "Handsfree av"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "Tek opp lyd… (%d ms stille)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "Ta opp"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "Stopp opptak"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Startar..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Hentar dokument…"
@@ -1636,22 +1743,9 @@ msgstr ""
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[Lydfeil: opptaket stoppa utan ei lydfil.]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[Ingen tale oppdaga.]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[Handsfree av: ingen tale registrert.]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr ""
-"[Modellen {0} støttar ikkje innebygd lyd. Vel ein STT-modell i "
-"innstillingane.]"
+msgid "Starting..."
+msgstr "Startar..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1661,6 +1755,10 @@ msgstr "[Feil i agent-bakgrunnsprogram: {0}]"
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Peer-sending krev Chat-modus i dette sidepanelet.]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "Stopp opptak"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1761,10 +1859,69 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "Kunne ikkje starte redigeringsprogram: {0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "Godta"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "Endre"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "Avvis"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "Venter på godkjenning…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "MCP-tenar starta"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "MCP-tenar stoppa"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Transkriberingsfeil: {0}]"
+msgid "Unknown librarian error."
+msgstr "Ukjend bibliotekarfeil."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Perfekt! Eg koplar deg til hovudassistenten no."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Ukjend feil ved idémyldring."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Idémyldring fullført."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Ukjend feil med skriveplanen."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Skriveplan fullført."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Ukjend PPT-Master-feil."
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master-økt fullført."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Ukjend feil ved Deep Research."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Ukjend forskingsfeil."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1784,74 +1941,14 @@ msgid "Thinking..."
 msgstr "Tenkjer..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Perfekt! Eg koplar deg til hovudassistenten no."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Ukjend bibliotekarfeil."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Bibliotekarfeil: {0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0}-feil: {1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Idémyldring fullført."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Ukjend feil ved idémyldring."
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Feil ved idémyldring: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Skriveplan fullført."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Ukjend feil med skriveplanen."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Feil med skriveplan: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master-økt fullført."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Ukjend PPT-Master-feil."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[PPT-Master-feil: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Ukjend feil ved Deep Research."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Feil ved Deep Research: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Ukjend forskingsfeil."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Forskingsfeil: {0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr "Djupdykk-runde {round}/{rounds}, spørjing {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1863,8 +1960,21 @@ msgid "Sources consulted:"
 msgstr "Kjelder som er brukte:"
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "Planlegg {count} forskingsspørjingar..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "Djupdykk: vurderer dekning..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Nettsøk samla ikkje inn noko brukbart bevis."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "Djupanalyse: syntetiserer rapport..."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1948,63 +2058,32 @@ msgstr "(Ingen bilete-modellar på dette endepunktet)"
 msgid "(Connection failed)"
 msgstr "(Tilkoplinga mislukkast)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: Eg kan gjera nettsøk for å svara på kva som helst, eller oppsummera ei "
-"nettside, utan å sjå eller endra dokumentet ditt. La oss chatta."
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "Handsfree av"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: «Deep Research»-modus køyrer ei undersøking på nettet i fleire steg "
-"(planlegging, fleire søk, syntese) og kan setja inn ein formatert rapport i "
-"dokumentet ditt. Det tek lengre tid, men gir meir grundige resultat."
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Tek opp lyd… (%d ms stille)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"AI: La oss utforska og utforma ideen din saman. Eg stiller spørsmål, "
-"føreslår framgangsmåtar og hjelper deg med å byggja ein godkjend "
-"spesifikasjon i dokumentet når du er klar."
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Transkriberingsfeil: {0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"AI: La oss skriva dokumentet ditt seksjon for seksjon. Eg hjelper deg med å "
-"laga ein disposisjon for skriveplanen, og så gjennomfører vi han stegvis med"
-" di godkjenning."
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Handsfree av: ingen tale registrert.]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
 msgstr ""
-"AI: PPT-Master-modus — eg køyrer ppt-master-arbeidsflyten i det konfigurerte"
-" Python-miljøet ditt (skript + eksport til Impress). Beskriv emnet ditt "
-"eller vis meg til ei prosjektmappe."
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"AI: Eg er WriterAgent-bibliotekaren — ein vert som kan læra namnet ditt, "
-"favorittfargane dine og gi deg ei kort omvising. Vel «Chat» i "
-"nedtrekksmenyen når du vil jobba med dokumentet."
+"[Modellen {0} støttar ikkje innebygd lyd. Vel ein STT-modell i "
+"innstillingane.]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2307,10 +2386,6 @@ msgid "The document is no longer open."
 msgstr "Dokumentet er ikkje lenger ope."
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "Førebuing av skriptet mislukkast."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog kunne ikkje lastast frå utvidinga."
 
@@ -2376,6 +2451,14 @@ msgstr "Vellukka"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Utdata"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python-test"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr "Klarte ikkje opne dialogen for Python-testframgang."
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2638,8 +2721,38 @@ msgid "Using LibreOffice process Python..."
 msgstr "Brukar LibreOffice-prosess Python..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"Ingen prosess-tolk: sys.executable manglar, er ikkje ei fil, eller er ikkje "
+"køyrbar. Set ein venv-sti i Innstillingar → Python, eller fiks LibreOffice-"
+"installasjonen."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "Finn venv Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "Ikkje ei køyrbar Python-fil: {0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"Fann ikkje Python. Bruk venv-rota (mappa som inneheld bin/ eller Scripts/), "
+"bin/- eller Scripts/-mappa, env-root python.exe (conda/pyenv-win), eller den"
+" fulle stien til tolken."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "Fann ikkje stien: {0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2708,8 +2821,8 @@ msgid "No Writer document to insert into."
 msgstr "Ingen Writer-dokument å setja inn i."
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Køyr ein analyse først."
+msgid "Nothing to insert. Run an analysis first."
+msgstr "Ingenting å setje inn. Køyr ein analyse først."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -3010,6 +3123,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "Skriptet vart køyrt utan feil. (tok {time})"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "Førebuing av skriptet mislukkast."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status} ({count} linje(r) skrive ut.)"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Skript lagra."
 
@@ -3037,10 +3159,6 @@ msgstr "Kunne ikkje opne det innebygde skriptdialogvindauget."
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Ein uventa feil oppstod under opning av Køyr Python-skript."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Utsendingsfeil"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3144,55 +3262,6 @@ msgid "Start MCP Server"
 msgstr "Start MCP-tenar"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Offentleg tunnel via {0} (ingen autentisering)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Offentleg tunnel via {0}: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "koplar til på nytt…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Offentleg tunnel via {0} feila: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Offentleg tunnel via {0} startar…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Offentleg tunnel via {0} køyrer ikkje (er leverandøren sin binærfil "
-"installert?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCP-tenar stoppa"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCP-tenar starta"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "Offentleg tunnel via {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr "Offentleg tunnel via {0} startar… bruk MCP-tenarstatus når klar."
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "MCP-tenar køyrer ikkje"
 
@@ -3266,6 +3335,37 @@ msgstr "Test tunnel"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "MCP-tunneltest"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Offentleg tunnel via {0} (ingen autentisering)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Offentleg tunnel via {0}: {1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "koplar til på nytt…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Offentleg tunnel via {0} feila: {1}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Offentleg tunnel via {0} startar…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Offentleg tunnel via {0} køyrer ikkje (er leverandøren sin binærfil "
+"installert?)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3363,14 +3463,8 @@ msgstr ""
 "Merk: MCP-tenar køyrer ikkje for tida på port {3}."
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} bestått, {2} feila."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Testane kunne ikkje køyrast: {0}"
+msgid "Dispatch Error"
+msgstr "Utsendingsfeil"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3619,10 +3713,6 @@ msgid "Python Settings…"
 msgstr "Python-innstillingar…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Python-test"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "Python-celler (aktivt ark):"
 
@@ -3677,6 +3767,10 @@ msgstr "Startverdi:"
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "Utval"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "Send"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4456,6 +4550,50 @@ msgid ""
 msgstr ""
 "Ved lagring av Python i celle, løft statiske xl(\"A1:…\") til =PY-"
 "dataargument og skriv om til data / data[i] / .to_pandas()."
+
+msgid "Allow network access"
+msgstr "Tillat nettverkstilgang"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr ""
+"Blokkerer nettverksimportar (socket, requests, http, urllib, ssl, …) med "
+"mindre dette er valt."
+
+msgid "Allow file access"
+msgstr "Tillat filtilgang"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"Blokkerer filskriving (os-skrivekall, shutil, tempfile, sqlite3 og den "
+"innebygde open()) med mindre dette er merka av. Lesing via pathlib, glob, io"
+" og logging er framleis tillate."
+
+msgid "Allow OS access"
+msgstr "Tillat OS-tilgang"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr ""
+"Tillat rå os, subprocess, multiprocessing og pty (køyr andre program og "
+"prosessar); inkluderer filtilgang."
+
+msgid "Extra allowed modules"
+msgstr "Ekstra tillatne modular"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"Kommaseparerte ekstra modular som Python kan importera (kvart namn tillèt òg"
+" namn.*). Overstyrer den innebygde blokkeringslista, inkludert os, socket og"
+" subprocess."
 
 msgid "Vision / OCR"
 msgstr "Visjon / OCR"

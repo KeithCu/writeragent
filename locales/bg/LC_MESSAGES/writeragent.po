@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bulgarian <LL@li.org>\n"
@@ -30,28 +30,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "Изпълнение на локален OCR върху избраното/ите изображение/я..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr ""
-"Проучването на документи изисква специализирано делегиране на задачи "
-"(USE_SUB_AGENT). Активирайте това в конфигурацията."
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"Извикването на инструмента превключи на „{0}“. Вие сте в режим на "
-"специализиран набор от инструменти. Трябва да извикате "
-"„specialized_workflow_finished“, когато приключите, за да възстановите "
-"пълния набор от API."
+msgid "Specialized task ({domain}) completed."
+msgstr "Специализираната задача ({domain}) е завършена."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "Изпълнението на клетката е неуспешно."
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "Липсва регистър на бележника в документа."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "Непозната клетка в бележника."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "Липсва поле за код."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "Клетката за код е празна."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -231,7 +232,7 @@ msgstr "TLS/SSL грешка: {0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "Сървърна грешка ({0}). Доставчикът на AI има проблеми."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "HTTP грешка {0}: {1}"
@@ -297,18 +298,24 @@ msgstr "Грешка при свързване: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "AI доставчикът съобщи за грешка. Опитайте отново."
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Грешка: {0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} не е намерен: {identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "Изчакване на отговор от друг документ..."
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO Thread Violation"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "Изчакване на отговор от друг документ..."
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -370,12 +377,6 @@ msgstr ""
 msgid " Request model was: {0}."
 msgstr " Заявен модел: {0}."
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Грешка: {0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -410,10 +411,20 @@ msgstr "Интервал между заявките към модела, сле
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Моделът на Anthropic не е зададен. Изберете модел в „Настройки“."
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} успешни, {2} неуспешни."
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Тестовете не успяха да се изпълнят: {0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -452,14 +463,6 @@ msgid "Transcribing audio..."
 msgstr "Транскрибиране на аудио..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr ""
-"Неуспешна проверка дали faster-whisper е инсталиран. Времето за изпълнение "
-"на „Настройки → Python интерпретатор“ изтече или той не можа да се стартира."
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "Локалният Whisper не успя: {0}"
@@ -467,6 +470,23 @@ msgstr "Локалният Whisper не успя: {0}"
 #: plugin/audio/stt_service.py
 msgid "Local Whisper did not return a transcript."
 msgstr "Локалният Whisper не върна транскрипция."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr ""
+"Локалният Whisper прекъсна поради изтичане на времето. Опитайте отново или "
+"изберете по-малък локален модел в Настройки → Реч."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Локалният Whisper прекъсна поради изтичане на времето. Първото стартиране "
+"изтегля теглата на модела; опитайте отново или изберете по-малък локален "
+"модел в Настройки → Реч."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -478,6 +498,15 @@ msgstr ""
 "LibreOffice. Задайте venv и инсталирайте с: {0}"
 
 #: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Скриптът за локален Whisper липсва в разширението."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "Локалният Whisper не можа да се стартира ({0})."
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "faster-whisper is not installed in the Settings → Python venv. Install with:"
@@ -487,31 +516,19 @@ msgstr ""
 "{0}. Settings → Python Test го изброява в допълнителните пакети за аудио."
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "Скриптът за локален Whisper липсва в разширението."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr ""
-"Локалният Whisper прекъсна по време или не успя да стартира. Опитайте отново"
-" или изберете по-малък локален модел в Settings → Speech."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr ""
-"Локалният Whisper прекъсна по време или не успя да стартира. Първото "
-"изпълнение изтегля теглата на модела; опитайте отново или изберете по-малък "
-"локален модел в Settings → Speech."
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "Няма наличен клиент за езиков модел за крайната точка за преобразуване на "
 "реч в текст."
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "Изтегляне… {0}%"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr "Няма достатъчно дисково пространство за изтегляне на гласовия модел."
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -555,13 +572,21 @@ msgstr "Заявката за реч не бе успешна ({0})."
 msgid "Speech request failed."
 msgstr "Заявката за реч не бе успешна."
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "Крайната точка за реч не върна аудио."
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Kokoro използва английски фонеми за глас, който не е английски"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "Misaki не е намерен; използвани са английски фонеми на Kokoro"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "Kokoro използва английски фонеми за глас, който не е английски"
+msgid "Could not save speech audio."
+msgstr "Неуспешно записване на аудиото от речта."
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -613,6 +638,11 @@ msgstr ""
 "среда."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr ""
+"Електронната таблица вече не е отворена. Отворете я отново и опитайте пак."
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Скриптът за инициализация е записан."
@@ -652,18 +682,12 @@ msgid "Saved."
 msgstr "Записано."
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "Неуспешно записване на клетката."
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr "PythonCellEditorDialog не можа да бъде зареден от разширението."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Неуспешно запазване на аргументите на PY формулата в тази клетка (напр. "
-"диапазони от данни). Редактирайте формулата в Calc или използвайте цитиран "
-"кодов низ, като =PY(\"код\"; A1:B10)."
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -691,6 +715,10 @@ msgstr ""
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "Кодът е записан в {0}."
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent: Записване на Python клетка"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -781,6 +809,16 @@ msgstr ""
 "%(cap)s или повече клетки на Python (лимит за откриване). Листът е оставен "
 "без промени, за да не се третира частичен списък като пълен."
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"Неуспешно запазване на аргументите на PY формулата в тази клетка (напр. "
+"диапазони от данни). Редактирайте формулата в Calc или използвайте цитиран "
+"кодов низ, като =PY(\"код\"; A1:B10)."
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -806,7 +844,17 @@ msgstr "WriterAgent: Редактиране на селекцията (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Разширяване на селекцията (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "Изберете една или повече непразни клетки."
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Редактират се само първите {0} непразни клетки."
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -1047,6 +1095,14 @@ msgid "Reject this change"
 msgstr "Отхвърляне на тази промяна"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Тази селекция съдържа проследени вмъквания или изтривания. Първо приемете "
+"или отхвърлете тези промени. Селекцията не беше променена."
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Неуспешно записване на поточен текст в документа: {0}"
@@ -1087,20 +1143,12 @@ msgstr ""
 "промяна. Текстът е запазен, но може да не подлежи на преглед."
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr ""
-"Тази селекция съдържа проследени вмъквания или изтривания. Първо приемете "
-"или отхвърлете тези промени. Селекцията не беше променена."
+msgid "Select text first"
+msgstr "Първо изберете текст"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Разширяване на селекцията"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "Първо изберете текст"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1128,6 +1176,10 @@ msgstr "Изберете замяна по-долу."
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "AI граматика"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "Неуспешно отваряне на диалоговия прозорец за LaTeX вход."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1440,6 +1492,43 @@ msgstr "защо"
 msgid "you"
 msgstr "вие"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "URL адресът на крайната точка не може да бъде празен."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "Невалиден URL адрес на крайната точка."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr "Настройката за удостоверяване е неуспешна. Проверете API ключа."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ Успешно свързване! ({0}ms, налични {1} модела)"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "Сървърът върна HTTP {0}."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr ""
+"Удостоверяването е неуспешно (401 Unauthorized). Моля, проверете своя API "
+"ключ."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr "Крайният адрес за моделите не е намерен (404). Проверете URL адреса."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "Връзката е неуспешна: {0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "Агентът изисква одобрение"
@@ -1453,7 +1542,7 @@ msgstr "Да се продължи ли с това действие?"
 msgid "Tool: %s"
 msgstr "Инструмент: %s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Копирано!"
 
@@ -1513,6 +1602,10 @@ msgstr "Табло за оценка"
 msgid "Debug"
 msgstr "Отстраняване на грешки"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[Не е засегната реч.]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[Гласово съобщение]"
@@ -1549,6 +1642,65 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "Библиотекар"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Мога да направя уеб проучване, за да отговоря на всеки въпрос, или да "
+"обобщя уеб страница, без да виждам или променям вашия документ. Нека "
+"поговорим."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Режимът „Дълбоко проучване“ изпълнява многоетапно уеб разследване "
+"(планиране, няколко търсения, синтез) и може да вмъкне форматиран отчет във "
+"вашия документ. Отнема повече време, но дава по-задълбочени резултати."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr ""
+"AI: Нека проучим и проектираме вашата идея заедно. Ще задавам въпроси, ще "
+"предлагам подходи и ще ви помогна да изградите одобрена спецификация във "
+"вашия документ, когато сте готови."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr ""
+"AI: Нека съставим вашия документ раздел по раздел. Ще ви помогна да "
+"създадете план за писане и след това ще го изпълнявам постепенно с ваше "
+"одобрение."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: Режим PPT-Master — ще изпълня работния процес ppt-master във вашата "
+"конфигурирана Python venv (скриптове + експортиране в Impress). Опишете "
+"темата си или ме насочете към папка с проект."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI: Аз съм библиотекар на WriterAgent — домакин, който може да научи името "
+"ви, любимите ви цветове и да ви направи кратка обиколка. Изберете „Чат“ от "
+"падащото меню, когато искате да работите по документа."
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Отпечатай списъка с команди"
@@ -1581,47 +1733,6 @@ msgstr "Превключване на модел (симулация)"
 msgid "Slash commands:"
 msgstr "Команди с наклонена черта:"
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Изпращане"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "Приемане"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "Промяна"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "Отхвърляне"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "Изчакване на одобрение…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "Hands-free изключено"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "Записване на аудио… (%d мс тишина)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "Запис"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "Спиране на записа"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Стартиране..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Извличане на документа..."
@@ -1647,22 +1758,9 @@ msgstr ""
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[Аудио грешка: записът спря без звуков файл.]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[Не е засегната реч.]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[Hands-free изключено: не е чута реч.]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr ""
-"[Моделът {0} не поддържа собствен аудио формат. Моля, изберете модел за "
-"преобразуване на реч в текст (STT) в настройките.]"
+msgid "Starting..."
+msgstr "Стартиране..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1673,6 +1771,10 @@ msgstr "[Грешка в бекенда на агента: {0}]"
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[Изпращането към партньор изисква режим „Чат“ в тази странична лента.]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "Спиране на записа"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1771,10 +1873,69 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "Редакторът не можа да се стартира: {0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "Приемане"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "Промяна"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "Отхвърляне"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "Изчакване на одобрение…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "MCP сървърът е стартиран"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "MCP сървърът е спрян"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Грешка при транскрибиране: {0}]"
+msgid "Unknown librarian error."
+msgstr "Неизвестна грешка на библиотекаря."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Перфектно! Сега ви прехвърлям към основния асистент."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Неизвестна грешка при брейнсторминг."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Брейнстормингът е завършен."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Неизвестна грешка в плана за писане."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Планът за писане е завършен."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Неизвестна грешка в PPT-Master."
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "Сесията на PPT-Master приключи."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Неизвестна грешка при задълбочено проучване."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Неизвестна грешка при проучването."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1794,74 +1955,14 @@ msgid "Thinking..."
 msgstr "Мислене..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Перфектно! Сега ви прехвърлям към основния асистент."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Неизвестна грешка на библиотекаря."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Грешка на библиотекаря: {0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0} грешка: {1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Брейнстормингът е завършен."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Неизвестна грешка при брейнсторминг."
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Грешка при брейнсторминг: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Планът за писане е завършен."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Неизвестна грешка в плана за писане."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Грешка в плана за писане: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "Сесията на PPT-Master приключи."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Неизвестна грешка в PPT-Master."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[Грешка в PPT-Master: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Неизвестна грешка при задълбочено проучване."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Грешка при задълбочено проучване: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Неизвестна грешка при проучването."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Грешка при проучването: {0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr "Дълбоко проучване, кръг {round}/{rounds}, заявка {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1873,8 +1974,21 @@ msgid "Sources consulted:"
 msgstr "Използвани източници:"
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "Планиране на {count} заявки за проучване..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "Дълбоко проучване: оценяване на обхвата..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Уеб проучването не събра използваеми доказателства."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "Задълбочено проучване: синтезиране на отчет..."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1959,64 +2073,32 @@ msgstr "(Няма модели за изображения в тази край�
 msgid "(Connection failed)"
 msgstr "(Неуспешна връзка)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: Мога да направя уеб проучване, за да отговоря на всеки въпрос, или да "
-"обобщя уеб страница, без да виждам или променям вашия документ. Нека "
-"поговорим."
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "Hands-free изключено"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: Режимът „Дълбоко проучване“ изпълнява многоетапно уеб разследване "
-"(планиране, няколко търсения, синтез) и може да вмъкне форматиран отчет във "
-"вашия документ. Отнема повече време, но дава по-задълбочени резултати."
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Записване на аудио… (%d мс тишина)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"AI: Нека проучим и проектираме вашата идея заедно. Ще задавам въпроси, ще "
-"предлагам подходи и ще ви помогна да изградите одобрена спецификация във "
-"вашия документ, когато сте готови."
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Грешка при транскрибиране: {0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"AI: Нека съставим вашия документ раздел по раздел. Ще ви помогна да "
-"създадете план за писане и след това ще го изпълнявам постепенно с ваше "
-"одобрение."
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Hands-free изключено: не е чута реч.]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
 msgstr ""
-"AI: Режим PPT-Master — ще изпълня работния процес ppt-master във вашата "
-"конфигурирана Python venv (скриптове + експортиране в Impress). Опишете "
-"темата си или ме насочете към папка с проект."
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"AI: Аз съм библиотекар на WriterAgent — домакин, който може да научи името "
-"ви, любимите ви цветове и да ви направи кратка обиколка. Изберете „Чат“ от "
-"падащото меню, когато искате да работите по документа."
+"[Моделът {0} не поддържа собствен аудио формат. Моля, изберете модел за "
+"преобразуване на реч в текст (STT) в настройките.]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2327,10 +2409,6 @@ msgid "The document is no longer open."
 msgstr "Документът вече не е отворен."
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "Подготовката на скрипта е неуспешна."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog не можа да бъде зареден от разширението."
 
@@ -2396,6 +2474,15 @@ msgstr "Успех"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Изход"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python тест"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr ""
+"Неуспешно отваряне на диалоговия прозорец за напредъка на теста на Python."
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2663,8 +2750,38 @@ msgid "Using LibreOffice process Python..."
 msgstr "Използване на Python процеса на LibreOffice..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"Липсва интерпретатор на процеси: sys.executable липсва, не е файл или не е "
+"изпълним. Задайте път до виртуална среда (venv) в Настройки → Python или "
+"поправете инсталацията на LibreOffice."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "Разрешаване на venv Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "Не е изпълним файл на Python: {0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"Не е намерен Python. Използвайте корена на venv (папката, съдържаща bin/ или"
+" Scripts/), папката bin/ или Scripts/, python.exe в корена на средата "
+"(conda/pyenv-win) или пълния път до интерпретатора."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "Пътят не е намерен: {0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2733,8 +2850,8 @@ msgid "No Writer document to insert into."
 msgstr "Няма документ на Writer, в който да се вмъкне."
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Първо изпълнете анализ."
+msgid "Nothing to insert. Run an analysis first."
+msgstr "Няма нищо за вмъкване. Първо изпълнете анализ."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -3038,6 +3155,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "Скриптът беше изпълнен успешно. (отне {time})"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "Подготовката на скрипта е неуспешна."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status} ({count} ред(а) отпечатани.)"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Скриптът е записан."
 
@@ -3067,10 +3193,6 @@ msgstr "Неуспешно отваряне на вградения диалог
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr ""
 "Възникна неочаквана грешка при отваряне на „Изпълнение на Python скрипт“."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Грешка при изпращане"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3178,57 +3300,6 @@ msgid "Start MCP Server"
 msgstr "Стартиране на MCP сървър"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Публичен тунел чрез {0} (без удостоверяване)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Публичен тунел чрез {0}: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "свързване отново…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Публичният тунел чрез {0} е неуспешен: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Публичният тунел чрез {0} се стартира…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Публичният тунел чрез {0} не работи (инсталиран ли е двоичният файл на "
-"доставчика?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCP сървърът е спрян"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCP сървърът е стартиран"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "Публичен тунел чрез {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"Публичният тунел чрез {0} се стартира… използвайте „Състояние на MCP "
-"сървъра“, когато е готов."
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "MCP сървърът не работи"
 
@@ -3302,6 +3373,37 @@ msgstr "Тест на тунел"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "Тест на MCP тунел"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Публичен тунел чрез {0} (без удостоверяване)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Публичен тунел чрез {0}: {1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "свързване отново…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Публичният тунел чрез {0} е неуспешен: {1}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Публичният тунел чрез {0} се стартира…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Публичният тунел чрез {0} не работи (инсталиран ли е двоичният файл на "
+"доставчика?)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3399,14 +3501,8 @@ msgstr ""
 "Забележка: MCP сървърът в момента не работи на порт {3}."
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} успешни, {2} неуспешни."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Тестовете не успяха да се изпълнят: {0}"
+msgid "Dispatch Error"
+msgstr "Грешка при изпращане"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3655,10 +3751,6 @@ msgid "Python Settings…"
 msgstr "Настройки на Python…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Python тест"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "Клетки с Python (активен лист):"
 
@@ -3713,6 +3805,10 @@ msgstr "Начално число (Seed):"
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "Селекция"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "Изпращане"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4507,6 +4603,50 @@ msgid ""
 msgstr ""
 "При запис на Python в клетка, извеждане на статични xl(\"A1:…\") към =PY "
 "аргументи за данни и пренаписване към data / data[i] / .to_pandas()."
+
+msgid "Allow network access"
+msgstr "Разрешаване на мрежов достъп"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr ""
+"Блокира мрежови импорти (socket, requests, http, urllib, ssl, …), освен ако "
+"не е отметнато."
+
+msgid "Allow file access"
+msgstr "Разрешаване на достъп до файлове"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"Блокира записването на файлове (системни извиквания за запис, shutil, "
+"tempfile, sqlite3 и вградената функция open()), освен ако не е отметнато. "
+"Четенето чрез pathlib, glob, io и logging остава разрешено."
+
+msgid "Allow OS access"
+msgstr "Разрешаване на достъп до ОС"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr ""
+"Разрешава използването на сурови os, subprocess, multiprocessing и pty "
+"(стартиране на други програми и процеси); включва достъп до файлове."
+
+msgid "Extra allowed modules"
+msgstr "Допълнителни разрешени модули"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"Списък с допълнителни модули за Python, разделени със запетая (всяко име "
+"разрешава и name.*). Презаписва вградения списък с блокирани модули, "
+"включително os, socket и subprocess."
 
 msgid "Vision / OCR"
 msgstr "Визия / OCR"

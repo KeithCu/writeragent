@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -30,27 +30,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "Yerel OCR seçili resim(ler) üzerinde çalıştırılıyor..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr ""
-"Belge araştırması okumaları özel görev delegasyonu (USE_SUB_AGENT) "
-"gerektirir. Bunu yapılandırmadan etkinleştirin."
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam"
-" API setini geri yüklemek için işiniz bittiğinde "
-"'specialized_workflow_finished' komutunu çağırmalısınız."
+msgid "Specialized task ({domain}) completed."
+msgstr "Özelleştirilmiş görev ({domain}) tamamlandı."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "Hücre yürütme başarısız oldu."
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "Belgede not defteri kaydı yok."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "Bilinmeyen not defteri hücresi."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "Kod alanı eksik."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "Kod hücresi boş."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -228,7 +230,7 @@ msgstr "TLS/SSL Hatası: {0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "Sunucu hatası ({0}). Yapay zeka sağlayıcısında sorunlar yaşanıyor."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "HTTP Hatası {0}: {1}"
@@ -294,18 +296,24 @@ msgstr "Bağlantı Hatası: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "Yapay zeka sağlayıcısı bir hata bildirdi. Tekrar deneyin."
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Hata: {0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} bulunamadı: {identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "Başka bir belgenin yanıtı bekleniyor..."
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO İş Parçacığı İhlali"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "Başka bir belgenin yanıtı bekleniyor..."
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -367,12 +375,6 @@ msgstr ""
 msgid " Request model was: {0}."
 msgstr " İstenen model: {0}."
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Hata: {0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -408,10 +410,20 @@ msgstr ""
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Anthropic modeli ayarlanmadı. Ayarlar'dan bir model seçin."
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} başarılı, {2} başarısız."
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Testler çalıştırılamadı: {0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -450,14 +462,6 @@ msgid "Transcribing audio..."
 msgstr "Ses dökümü alınıyor..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr ""
-"faster-whisper'ın yüklü olup olmadığı kontrol edilemedi. Ayarlar → Python "
-"yorumlayıcısı zaman aşımına uğradı veya başlatılamadı."
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "Yerel Whisper başarısız oldu: {0}"
@@ -467,6 +471,23 @@ msgid "Local Whisper did not return a transcript."
 msgstr "Yerel Whisper bir döküm döndürmedi."
 
 #: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr ""
+"Yerel Whisper zaman aşımına uğradı. Tekrar deneyin veya Ayarlar → Konuşma "
+"bölümünden daha küçük bir Yerel Model seçin."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Yerel Whisper zaman aşımına uğradı. İlk çalıştırmada model ağırlıkları "
+"indirilir; tekrar deneyin veya Ayarlar → Konuşma bölümünden daha küçük bir "
+"Yerel Model seçin."
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
@@ -474,6 +495,15 @@ msgid ""
 msgstr ""
 "Yerel Whisper, LibreOffice'in Python'unda değil, Ayarlar → Python venv "
 "içinde çalışır. Venv'i ayarlayın, ardından şu komutla yükleyin: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Yerel Whisper betiği eklentide eksik."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "Yerel Whisper başlatılamadı ({0})."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -486,30 +516,18 @@ msgstr ""
 "listelenir."
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "Yerel Whisper betiği eklentide eksik."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr ""
-"Yerel Whisper zaman aşımına uğradı veya başlatılamadı. Tekrar deneyin veya "
-"Ayarlar → Konuşma bölümünden daha küçük bir Yerel Model seçin."
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr ""
-"Yerel Whisper zaman aşımına uğradı veya başlatılamadı. İlk çalıştırmada "
-"model ağırlıkları indirilir; tekrar deneyin veya Ayarlar → Konuşma "
-"bölümünden daha küçük bir Yerel Model seçin."
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "Konuşmadan metne uç noktası için hiçbir dil modeli istemcisi mevcut değil."
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "İndiriliyor… %{0}"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr "Ses modelini indirmek için yeterli disk alanı yok."
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -553,13 +571,21 @@ msgstr "Konuşma isteği başarısız oldu ({0})."
 msgid "Speech request failed."
 msgstr "Konuşma isteği başarısız oldu."
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "Konuşma uç noktası ses döndürmedi."
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Kokoro, İngilizce olmayan ses için İngilizce fonemleri kullandı"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "Misaki bulunamadı; Kokoro İngilizce fonemleri kullanıldı"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "Kokoro, İngilizce olmayan ses için İngilizce fonemleri kullandı"
+msgid "Could not save speech audio."
+msgstr "Konuşma sesi kaydedilemedi."
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -607,6 +633,10 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Yapılandırılan sanal ortamda webview (pywebview) içe aktarılamıyor."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr "Hesap tablosu artık açık değil. Yeniden açın ve tekrar deneyin."
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Başlatma betiği kaydedildi."
@@ -647,18 +677,12 @@ msgid "Saved."
 msgstr "Kaydedildi."
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "Hücre kaydedilemedi."
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr "PythonCellEditorDialog eklentiden yüklenemedi."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Bu hücrenin PY formül bağımsız değişkenleri (örneğin veri aralıkları) "
-"korunamadı. Formülü Calc içinde düzenleyin veya =PY(\"kod\"; A1:B10) gibi "
-"tırnak içinde bir kod dizisi kullanın."
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -686,6 +710,10 @@ msgstr ""
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "Kod {0} konumuna kaydedildi."
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent: Python hücresini kaydet"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -774,6 +802,16 @@ msgstr ""
 "veya daha fazla Python hücresi bulundu (keşif sınırı). Kısmi bir listenin "
 "tam olarak kabul edilmemesi için sayfa zincirlenmemiş halde bırakıldı."
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"Bu hücrenin PY formül bağımsız değişkenleri (örneğin veri aralıkları) "
+"korunamadı. Formülü Calc içinde düzenleyin veya =PY(\"kod\"; A1:B10) gibi "
+"tırnak içinde bir kod dizisi kullanın."
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -799,7 +837,17 @@ msgstr "WriterAgent: Seçimi Düzenle (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Seçimi Genişlet (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "Boş olmayan bir veya daha fazla hücre seçin."
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Sadece boş olmayan ilk {0} hücre düzenlendi."
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -1040,6 +1088,14 @@ msgid "Reject this change"
 msgstr "Bu değişikliği reddet"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Bu seçim, izlenen eklemeler veya silmeler içeriyor. Önce bu değişiklikleri "
+"kabul edin veya reddedin. Seçim değiştirilmedi."
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Belgeye akış metni yazılamadı: {0}"
@@ -1078,20 +1134,12 @@ msgstr ""
 " korundu ancak gözden geçirilemeyebilir."
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr ""
-"Bu seçim, izlenen eklemeler veya silmeler içeriyor. Önce bu değişiklikleri "
-"kabul edin veya reddedin. Seçim değiştirilmedi."
+msgid "Select text first"
+msgstr "Önce metni seçin"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Seçimi Genişlet"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "Önce metni seçin"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1118,6 +1166,10 @@ msgstr "Aşağıdan bir değiştirme seçin."
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "YZ Dilbilgisi"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "LaTeX giriş iletişim kutusu açılamadı."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1429,6 +1481,44 @@ msgstr "neden"
 msgid "you"
 msgstr "siz"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "Uç nokta URL'si boş olamaz."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "Geçersiz uç nokta URL'si."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr ""
+"Kimlik doğrulama kurulumu başarısız oldu. API anahtarını kontrol edin."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ Başarıyla bağlandı! ({0}ms, {1} model mevcut)"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "Sunucu HTTP {0} döndürdü."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr ""
+"Kimlik doğrulama başarısız (401 Yetkisiz). Lütfen API anahtarınızı kontrol "
+"edin."
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr "Modeller uç noktası bulunamadı (404). Uç nokta URL'sini kontrol edin."
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "Bağlantı başarısız: {0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "Ajan onay istiyor"
@@ -1442,7 +1532,7 @@ msgstr "Bu işleme devam edilsin mi?"
 msgid "Tool: %s"
 msgstr "Araç: %s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Kopyalandı!"
 
@@ -1502,6 +1592,10 @@ msgstr "Değerlendirme Panosu"
 msgid "Debug"
 msgstr "Hata Ayıklama"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[Konuşma algılanmadı.]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[Sesli mesaj]"
@@ -1538,6 +1632,65 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "Kütüphaneci"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"YZ: Belgenizi görmeden veya değiştirmeden, herhangi bir soruyu yanıtlamak "
+"için web araştırması yapabilir veya bir web sayfasını özetleyebilirim. Hadi "
+"sohbet edelim."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"YZ: Derin Araştırma modu, çok adımlı bir web incelemesi (planlama, çeşitli "
+"aramalar, sentez) yürütür ve belgenize biçimlendirilmiş bir rapor "
+"ekleyebilir. Daha uzun sürer ancak daha kapsamlı sonuçlar üretir."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr ""
+"YZ: Fikrinizi birlikte keşfedelim ve tasarlayalım. Sorular soracağım, "
+"yaklaşımlar önereceğim ve hazır olduğunuzda belgenizde onaylanmış bir "
+"şartname oluşturmanıza yardımcı olacağım."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr ""
+"YZ: Belgenizi bölüm bölüm taslak haline getirelim. Bir yazma planı taslağı "
+"oluşturmanıza ve ardından onayınızla bunu aşamalı olarak uygulamanıza "
+"yardımcı olacağım."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"YZ: PPT-Master modu — Yapılandırılmış Python sanal ortamınızda (betikler + "
+"Impress'e dışa aktarma) ppt-master iş akışını çalıştıracağım. Konunuzu "
+"tanımlayın veya beni bir proje klasörüne yönlendirin."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"YZ: Ben WriterAgent Kütüphanecisiyim; adınızı, favori renklerinizi "
+"öğrenebilen ve size kısa bir tur yaptırabilen bir rehberim. Belge üzerinde "
+"çalışmak istediğinizde açılır menüden Sohbet'i seçin."
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Komut listesini yazdır"
@@ -1570,47 +1723,6 @@ msgstr "Model değiştir (taslak)"
 msgid "Slash commands:"
 msgstr "Eğik çizgi komutları:"
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Gönder"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "Kabul Et"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "Değiştir"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "Reddet"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "Onay bekleniyor…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "Eller serbest kapalı"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "Ses kaydediliyor… (%d ms sessizlik)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "Kaydet"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "Kaydı Durdur"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Başlatılıyor..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Belge alınıyor..."
@@ -1635,22 +1747,9 @@ msgstr ""
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[Ses hatası: kayıt bir ses dosyası olmadan durduruldu.]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[Konuşma algılanmadı.]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[Eller serbest kapalı: konuşma duyulmadı.]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr ""
-"[{0} modeli yerel sesi desteklemiyor. Lütfen Ayarlar'dan bir STT Modeli "
-"seçin.]"
+msgid "Starting..."
+msgstr "Başlatılıyor..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1660,6 +1759,10 @@ msgstr "[Aracı arka uç hatası: {0}]"
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Eşler arası gönderim, bu kenar çubuğunda Sohbet modunu gerektirir.]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "Kaydı Durdur"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1760,10 +1863,69 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "Düzenleyici başlatılamadı: {0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "Kabul Et"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "Değiştir"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "Reddet"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "Onay bekleniyor…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "MCP sunucusu başlatıldı"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "MCP sunucusu durduruldu"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Döküm hatası: {0}]"
+msgid "Unknown librarian error."
+msgstr "Bilinmeyen kütüphaneci hatası."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Harika! Sizi şimdi ana asistana yönlendiriyorum."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Bilinmeyen beyin fırtınası hatası."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Beyin fırtınası tamamlandı."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Bilinmeyen yazma planı hatası."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Yazma planı tamamlandı."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Bilinmeyen PPT-Master hatası."
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master oturumu tamamlandı."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Bilinmeyen derin araştırma hatası."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Bilinmeyen araştırma hatası."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1782,74 +1944,14 @@ msgid "Thinking..."
 msgstr "Düşünülüyor..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Harika! Sizi şimdi ana asistana yönlendiriyorum."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Bilinmeyen kütüphaneci hatası."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Kütüphaneci hatası: {0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0} hatası: {1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Beyin fırtınası tamamlandı."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Bilinmeyen beyin fırtınası hatası."
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Beyin fırtınası hatası: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Yazma planı tamamlandı."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Bilinmeyen yazma planı hatası."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Yazma planı hatası: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master oturumu tamamlandı."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Bilinmeyen PPT-Master hatası."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[PPT-Master hatası: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Bilinmeyen derin araştırma hatası."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Derin araştırma hatası: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Bilinmeyen araştırma hatası."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Araştırma hatası: {0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr "Derin araştırma turu {round}/{rounds}, sorgu {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1862,8 +1964,21 @@ msgid "Sources consulted:"
 msgstr "Danışılan kaynaklar:"
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "{count} araştırma sorgusu planlanıyor..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "Derin araştırma: kapsam değerlendiriliyor..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Web araştırması kullanılabilir bir kanıt toplamadı."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "Derin araştırma: rapor sentezleniyor..."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1947,64 +2062,32 @@ msgstr "(Bu uç noktada görüntü modeli yok)"
 msgid "(Connection failed)"
 msgstr "(Bağlantı başarısız)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"YZ: Belgenizi görmeden veya değiştirmeden, herhangi bir soruyu yanıtlamak "
-"için web araştırması yapabilir veya bir web sayfasını özetleyebilirim. Hadi "
-"sohbet edelim."
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "Eller serbest kapalı"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"YZ: Derin Araştırma modu, çok adımlı bir web incelemesi (planlama, çeşitli "
-"aramalar, sentez) yürütür ve belgenize biçimlendirilmiş bir rapor "
-"ekleyebilir. Daha uzun sürer ancak daha kapsamlı sonuçlar üretir."
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Ses kaydediliyor… (%d ms sessizlik)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"YZ: Fikrinizi birlikte keşfedelim ve tasarlayalım. Sorular soracağım, "
-"yaklaşımlar önereceğim ve hazır olduğunuzda belgenizde onaylanmış bir "
-"şartname oluşturmanıza yardımcı olacağım."
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Döküm hatası: {0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"YZ: Belgenizi bölüm bölüm taslak haline getirelim. Bir yazma planı taslağı "
-"oluşturmanıza ve ardından onayınızla bunu aşamalı olarak uygulamanıza "
-"yardımcı olacağım."
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Eller serbest kapalı: konuşma duyulmadı.]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
 msgstr ""
-"YZ: PPT-Master modu — Yapılandırılmış Python sanal ortamınızda (betikler + "
-"Impress'e dışa aktarma) ppt-master iş akışını çalıştıracağım. Konunuzu "
-"tanımlayın veya beni bir proje klasörüne yönlendirin."
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"YZ: Ben WriterAgent Kütüphanecisiyim; adınızı, favori renklerinizi "
-"öğrenebilen ve size kısa bir tur yaptırabilen bir rehberim. Belge üzerinde "
-"çalışmak istediğinizde açılır menüden Sohbet'i seçin."
+"[{0} modeli yerel sesi desteklemiyor. Lütfen Ayarlar'dan bir STT Modeli "
+"seçin.]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2306,10 +2389,6 @@ msgid "The document is no longer open."
 msgstr "Belge artık açık değil."
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "Betik hazırlığı başarısız oldu."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog eklentiden yüklenemedi."
 
@@ -2375,6 +2454,14 @@ msgstr "Başarılı"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Çıktı"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python Testi"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr "Python test ilerleme iletişim kutusu açılamadı."
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2649,8 +2736,38 @@ msgid "Using LibreOffice process Python..."
 msgstr "LibreOffice işlem Python'u kullanılıyor..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"İşlem yorumlayıcısı yok: sys.executable eksik, dosya değil veya "
+"çalıştırılabilir değil. Ayarlar → Python kısmından bir venv yolu belirleyin "
+"veya LibreOffice kurulumunu onarın."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "venv Python çözümleniyor..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "Python çalıştırılabilir dosyası değil: {0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"Python bulunamadı. Venv kök dizinini (bin/ veya Scripts/ klasörünü içeren "
+"klasör), bin/ veya Scripts/ klasörünü, env-root python.exe dosyasını "
+"(conda/pyenv-win) veya yorumlayıcının tam yolunu kullanın."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "Yol bulunamadı: {0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2718,8 +2835,8 @@ msgid "No Writer document to insert into."
 msgstr "İçine eklenecek bir Writer belgesi yok."
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Önce bir analiz çalıştırın."
+msgid "Nothing to insert. Run an analysis first."
+msgstr "Eklenecek bir şey yok. Önce bir analiz çalıştırın."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -3021,6 +3138,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "Betik başarıyla çalıştırıldı. ({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "Betik hazırlığı başarısız oldu."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status} ({count} satır yazdırıldı.)"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Betik kaydedildi."
 
@@ -3049,10 +3175,6 @@ msgstr "Yerleşik betik iletişim kutusu açılamadı."
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Python Betiğini Çalıştır açılırken beklenmeyen bir hata oluştu."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Gönderim Hatası"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3159,56 +3281,6 @@ msgid "Start MCP Server"
 msgstr "MCP Sunucusunu Başlat"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "{0} üzerinden genel tünel (kimlik doğrulaması yok)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "{0} üzerinden genel tünel: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "yeniden bağlanıyor…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "{0} üzerinden genel tünel başarısız oldu: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "{0} üzerinden genel tünel başlatılıyor…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"{0} üzerinden genel tünel çalışmıyor (sağlayıcı ikili dosyası yüklü mü?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCP sunucusu durduruldu"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCP sunucusu başlatıldı"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "{0} üzerinden genel tünel"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"{0} üzerinden genel tünel başlatılıyor… hazır olduğunda MCP Sunucu Durumu'nu"
-" kullanın."
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "MCP sunucusu çalışmıyor"
 
@@ -3282,6 +3354,36 @@ msgstr "Tünel Testi"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "MCP Tünel Testi"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "{0} üzerinden genel tünel (kimlik doğrulaması yok)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "{0} üzerinden genel tünel: {1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "yeniden bağlanıyor…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "{0} üzerinden genel tünel başarısız oldu: {1}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "{0} üzerinden genel tünel başlatılıyor…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"{0} üzerinden genel tünel çalışmıyor (sağlayıcı ikili dosyası yüklü mü?)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3379,14 +3481,8 @@ msgstr ""
 "Not: MCP sunucusu şu anda {3} numaralı bağlantı noktasında çalışmıyor."
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} başarılı, {2} başarısız."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Testler çalıştırılamadı: {0}"
+msgid "Dispatch Error"
+msgstr "Gönderim Hatası"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3636,10 +3732,6 @@ msgid "Python Settings…"
 msgstr "Python Ayarları…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Python Testi"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "Python hücreleri (etkin sayfa):"
 
@@ -3694,6 +3786,10 @@ msgstr "Çekirdek:"
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "Seçim"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "Gönder"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4485,6 +4581,50 @@ msgstr ""
 "Hücrede Python düzenlemesi kaydedildiğinde, statik xl(\"A1:…\") ifadelerini "
 "=PY veri bağımsız değişkenlerine taşı ve bunları data / data[i] / "
 ".to_pandas() şeklinde yeniden yaz."
+
+msgid "Allow network access"
+msgstr "Ağ erişimine izin ver"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr ""
+"İşaretlenmediği sürece ağ içe aktarmalarını (socket, requests, http, urllib,"
+" ssl, …) engeller."
+
+msgid "Allow file access"
+msgstr "Dosya erişimine izin ver"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"İşaretlenmediği sürece dosya yazma işlemlerini (os write çağrıları, shutil, "
+"tempfile, sqlite3 ve open() yerleşik işlevi) engeller. pathlib, glob, io ve "
+"logging üzerinden okuma işlemleri izinli kalır."
+
+msgid "Allow OS access"
+msgstr "İşletim sistemi erişimine izin ver"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr ""
+"Ham os, subprocess, multiprocessing ve pty (diğer programları ve süreçleri "
+"çalıştırma) erişimine izin verir; dosya erişimini de kapsar."
+
+msgid "Extra allowed modules"
+msgstr "Ek izin verilen modüller"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"Python'ın içe aktarabileceği, virgülle ayrılmış ek modüller (her isim, "
+"name.* alt modüllerine de izin verir). os, socket ve subprocess dahil olmak "
+"üzere yerleşik engelleme listesini geçersiz kılar."
 
 msgid "Vision / OCR"
 msgstr "Vizyon / OCR"

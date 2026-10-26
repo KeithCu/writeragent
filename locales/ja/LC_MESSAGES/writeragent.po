@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 12:57-0400\n"
+"POT-Creation-Date: 2026-10-26 12:14-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -29,24 +29,29 @@ msgid "Running local OCR on selected image(s)..."
 msgstr "選択した画像に対してローカルOCRを実行中..."
 
 #: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr "ドキュメントのリサーチ読み取りには専門的なタスク委任（USE_SUB_AGENT）が必要です。設定でこれを有効にしてください。"
-
-#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っています。完了したら "
-"'specialized_workflow_finished' を呼び出して、APIのフルセットを復元してください。"
+msgid "Specialized task ({domain}) completed."
+msgstr "専門的なタスク ({domain}) が完了しました。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
 msgstr "セルの実行に失敗しました。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "No notebook registry on document."
+msgstr "ドキュメントにノートブックレジストリがありません。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Unknown notebook cell."
+msgstr "不明なノートブックセルです。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code field is missing."
+msgstr "コードフィールドが見つかりません。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Code cell is empty."
+msgstr "コードセルが空です。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
@@ -218,7 +223,7 @@ msgstr "TLS/SSL エラー: {0}"
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "サーバーエラー ({0})。 AI プロバイダーに問題が発生しています。"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/chatbot/quick_setup.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "HTTP エラー {0}: {1}"
@@ -273,18 +278,24 @@ msgstr "接続エラー: {0}"
 msgid "The AI provider reported an error. Try again."
 msgstr "AI プロバイダーがエラーを報告しました。もう一度やり直してください。"
 
+#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "エラー: {0}"
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} が見つかりません: {identifier}"
 
-#: plugin/framework/queue_executor.py
-msgid "Waiting for another document's reply..."
-msgstr "他のドキュメントからの応答を待機中..."
-
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO スレッド違反"
+
+#: plugin/framework/llm_lanes.py
+msgid "Waiting for another document's reply..."
+msgstr "他のドキュメントからの応答を待機中..."
 
 #: plugin/framework/prompts.py
 msgid ""
@@ -336,12 +347,6 @@ msgstr ""
 msgid " Request model was: {0}."
 msgstr " リクエストしたモデル: {0}"
 
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "エラー: {0}"
-
 #: plugin/framework/client/llm_client.py
 #: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
@@ -372,10 +377,20 @@ msgstr "フリーモデルのリクエスト間隔を調整中。次の送信ま
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Anthropicモデルが設定されていません。設定でモデルを選択してください。"
 
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} 成功、{2} 失敗。"
+
+#: plugin/framework/main_shared.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "テストの実行に失敗しました: {0}"
+
 #: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Error"
@@ -413,14 +428,6 @@ msgid "Transcribing audio..."
 msgstr "音声を文字起こし中..."
 
 #: plugin/audio/stt_service.py
-msgid ""
-"Could not check whether faster-whisper is installed. The Settings → Python "
-"interpreter timed out or could not start."
-msgstr ""
-"faster-"
-"whisperがインストールされているか確認できませんでした。「設定」→「Pythonインタープリター」がタイムアウトしたか、起動できませんでした。"
-
-#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid "Local Whisper failed: {0}"
 msgstr "ローカルのWhisperが失敗しました: {0}"
@@ -428,6 +435,20 @@ msgstr "ローカルのWhisperが失敗しました: {0}"
 #: plugin/audio/stt_service.py
 msgid "Local Whisper did not return a transcript."
 msgstr "ローカルのWhisperから文字起こし結果が返されませんでした。"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. Try again, or pick a smaller Local Model in "
+"Settings → Speech."
+msgstr "ローカルWhisperがタイムアウトしました。再試行するか、設定 → 音声 でより小さなローカルモデルを選択してください。"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out. The first run downloads model weights; try again, "
+"or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"ローカルWhisperがタイムアウトしました。初回実行時はモデルの重みをダウンロードするため時間がかかります。再試行するか、設定 → 音声 "
+"でより小さなローカルモデルを選択してください。"
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -439,6 +460,15 @@ msgstr ""
 "venvで実行されます。venvを設定し、以下でインストールしてください: {0}"
 
 #: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "ローカルのWhisperスクリプトが拡張機能に見当たりません。"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper could not start ({0})."
+msgstr "ローカルWhisperを開始できませんでした ({0})。"
+
+#: plugin/audio/stt_service.py
 #, python-brace-format
 msgid ""
 "faster-whisper is not installed in the Settings → Python venv. Install with:"
@@ -448,27 +478,17 @@ msgstr ""
 "Pythonテストの「音声関連のオプションパッケージ」にリストされています。"
 
 #: plugin/audio/stt_service.py
-msgid "Local Whisper script is missing from the extension."
-msgstr "ローカルのWhisperスクリプトが拡張機能に見当たりません。"
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. Try again, or pick a smaller "
-"Local Model in Settings → Speech."
-msgstr ""
-"ローカルのWhisperがタイムアウトしたか、起動できませんでした。再試行するか、設定 → 音声でより小さなローカルモデルを選択してください。"
-
-#: plugin/audio/stt_service.py
-msgid ""
-"Local Whisper timed out or could not start. The first run downloads model "
-"weights; try again, or pick a smaller Local Model in Settings → Speech."
-msgstr ""
-"ローカルのWhisperがタイムアウトしたか、起動できませんでした。初回実行時はモデルの重みをダウンロードします。再試行するか、設定 → "
-"音声でより小さなローカルモデルを選択してください。"
-
-#: plugin/audio/stt_service.py
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr "音声認識エンドポイント用の言語モデルクライアントが利用できません。"
+
+#: plugin/audio/tts_models.py
+#, python-brace-format
+msgid "Downloading… {0}%"
+msgstr "ダウンロード中… {0}%"
+
+#: plugin/audio/tts_models.py
+msgid "Not enough disk space to download the voice model."
+msgstr "音声モデルをダウンロードするためのディスク容量が不足しています。"
 
 #: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
@@ -512,13 +532,21 @@ msgstr "音声リクエストが失敗しました ({0})。"
 msgid "Speech request failed."
 msgstr "音声リクエストが失敗しました。"
 
+#: plugin/audio/tts_endpoint.py
+msgid "Speech endpoint returned no audio."
+msgstr "音声エンドポイントから音声が返されませんでした。"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "英語以外の音声に対してKokoroの英語音素を使用しました"
+
 #: plugin/audio/tts_service.py
 msgid "Misaki not found; Kokoro used English phonemes"
 msgstr "Misakiが見つかりません。Kokoroの英語音素を使用します"
 
 #: plugin/audio/tts_service.py
-msgid "Kokoro used English phonemes for non-English voice"
-msgstr "英語以外の音声に対してKokoroの英語音素を使用しました"
+msgid "Could not save speech audio."
+msgstr "音声データを保存できませんでした。"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -566,6 +594,10 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "設定された仮想環境でwebview (pywebview) をインポートできません。"
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The spreadsheet is no longer open. Reopen it and try again."
+msgstr "スプレッドシートが開かれていません。開き直してから再試行してください。"
+
+#: plugin/calc/python/init_script_editor.py
 #: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "初期化スクリプトを保存しました。"
@@ -604,17 +636,12 @@ msgid "Saved."
 msgstr "保存しました。"
 
 #: plugin/calc/python/cell_editor_ui.py
+msgid "Could not save the cell."
+msgstr "セルを保存できませんでした。"
+
+#: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr "拡張機能から PythonCellEditorDialog を読み込めませんでした。"
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"このセルのPY数式の引数（データ範囲など）を保持できませんでした。Calcで数式を編集するか、=PY(\"code\"; A1:B10) "
-"のように引用符で囲まれたコード文字列を使用してください。"
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -640,6 +667,10 @@ msgstr "xl() 範囲リテラルを =PY データ引数に書き換えられま�
 #, python-brace-format
 msgid "Saved code in {0}."
 msgstr "コードを {0} に保存しました。"
+
+#: plugin/calc/python/editor.py
+msgid "WriterAgent: Save Python cell"
+msgstr "WriterAgent: Pythonセルを保存"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -724,6 +755,15 @@ msgstr ""
 "幾何学的再計算順序はシート '%(sheet)s' をスキップしました: %(cap)s 個以上の Python "
 "セルが見つかりました（検出上限）。部分的なリストが完全なものとして扱われないよう、シートは変更されませんでした。"
 
+#: plugin/calc/python/formula_edit.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"このセルのPY数式の引数（データ範囲など）を保持できませんでした。Calcで数式を編集するか、=PY(\"code\"; A1:B10) "
+"のように引用符で囲まれたコード文字列を使用してください。"
+
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
 msgid ""
@@ -749,7 +789,17 @@ msgstr "WriterAgent: 選択範囲の編集 (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 選択範囲の拡張 (Calc)"
 
+#: plugin/calc/editselection.py
+msgid "Select one or more non-empty cells."
+msgstr "空ではないセルを1つ以上選択してください。"
+
+#: plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "空ではない最初の {0} 個のセルのみが編集されます。"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
@@ -976,6 +1026,12 @@ msgid "Reject this change"
 msgstr "この変更を拒否"
 
 #: plugin/writer/edit_review.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr "選択範囲に追跡された挿入または削除が含まれています。先にそれらの変更を承諾または拒否してください。選択範囲は変更されませんでした。"
+
+#: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "ドキュメントへのストリームテキストの書き込みに失敗しました: {0}"
@@ -1008,18 +1064,12 @@ msgid ""
 msgstr "ストリーミングされた継続部分を単一の追跡変更に統合できませんでした。テキストは保持されましたが、レビューできない可能性があります。"
 
 #: plugin/writer/editselection.py
-msgid ""
-"This selection contains tracked insertions or deletions. Accept or reject "
-"those changes first. The selection was not modified."
-msgstr "選択範囲に追跡された挿入または削除が含まれています。先にそれらの変更を承諾または拒否してください。選択範囲は変更されませんでした。"
+msgid "Select text first"
+msgstr "先にテキストを選択してください"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: 選択範囲の拡張"
-
-#: plugin/writer/editselection.py
-msgid "Select text first"
-msgstr "先にテキストを選択してください"
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
@@ -1045,6 +1095,10 @@ msgstr "以下から置換を選択してください。"
 #: plugin/writer/locale/ai_grammar_proofreader.py
 msgid "AI Grammar"
 msgstr "AI 文法チェック"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "LaTeX入力ダイアログを開けませんでした。"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Update"
@@ -1354,6 +1408,41 @@ msgstr "なぜ"
 msgid "you"
 msgstr "あなた"
 
+#: plugin/chatbot/quick_setup.py
+msgid "Endpoint URL cannot be empty."
+msgstr "エンドポイントURLを空にすることはできません。"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Invalid endpoint URL."
+msgstr "無効なエンドポイントURLです。"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication setup failed. Check the API key."
+msgstr "認証の設定に失敗しました。APIキーを確認してください。"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "✓ Connected successfully! ({0}ms, {1} models available)"
+msgstr "✓ 接続に成功しました！ ({0}ms, {1} 個のモデルが利用可能)"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Server returned HTTP {0}."
+msgstr "サーバーが HTTP {0} を返しました。"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Authentication failed (401 Unauthorized). Please check your API key."
+msgstr "認証に失敗しました (401 Unauthorized)。APIキーを確認してください。"
+
+#: plugin/chatbot/quick_setup.py
+msgid "Models endpoint not found (404). Check the endpoint URL."
+msgstr "モデルのエンドポイントが見つかりません (404)。エンドポイントのURLを確認してください。"
+
+#: plugin/chatbot/quick_setup.py
+#, python-brace-format
+msgid "Connection failed: {0}"
+msgstr "接続失敗: {0}"
+
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
 msgstr "エージェントが承認を要求"
@@ -1367,7 +1456,7 @@ msgstr "このアクションを続行しますか?"
 msgid "Tool: %s"
 msgstr "ツール: %s"
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "コピーしました！"
 
@@ -1427,6 +1516,10 @@ msgstr "評価ダッシュボード"
 msgid "Debug"
 msgstr "デバッグ"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
+msgid "[No speech detected.]"
+msgstr "[音声が検出されませんでした。]"
+
 #: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
 msgid "[Voice message]"
 msgstr "[音声メッセージ]"
@@ -1463,6 +1556,53 @@ msgstr "PPT-Master"
 msgid "Librarian"
 msgstr "ライブラリアン"
 
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr "AI: 文書を見たり変更したりせずに、ウェブ調査で質問に答えたりウェブページを要約したりできます。さあ、話しましょう。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Deep Research "
+"モードは複数ステップのウェブ調査（計画、複数検索、まとめ）を行い、整形したレポートを文書に挿入できます。時間はかかりますが、より徹底した結果になります。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr "AI: 一緒にアイデアを探り、設計しましょう。質問し、方針を提案し、準備ができたら承認済みの仕様を文書にまとめるお手伝いをします。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr "AI: 文書をセクションごとに起草しましょう。執筆プランのアウトライン作成から、承認を得ながら段階的な実装までお手伝いします。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: PPT-Master モード — 設定済みの Python venv で ppt-master ワークフロー（スクリプト + Impress "
+"へのエクスポート）を実行します。トピックを書くか、プロジェクトフォルダを指定してください。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI: WriterAgent の Librarian です。お名前や好きな色を覚えて短いツアーもできます。文書作業に戻るときはドロップダウンで "
+"Chat を選んでください。"
+
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "コマンドリストを印刷"
@@ -1495,47 +1635,6 @@ msgstr "Switch model (mock)"
 msgid "Slash commands:"
 msgstr "Slash commands:"
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "送信"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "承認"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "変更"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "拒否"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "承認を待っています…"
-
-#: plugin/chatbot/panel.py
-msgid "Hands-free off"
-msgstr "ハンズフリーオフ"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "音声を録音中… (%d ms の無音)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "録音"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Stop Rec"
-msgstr "録音停止"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "起動..."
-
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "ドキュメントを取得しています..."
@@ -1558,20 +1657,9 @@ msgstr "[内部エラー: {0} のドキュメント タイプを識別できま�
 msgid "[Audio error: recording stopped without a sound file.]"
 msgstr "[オーディオエラー: 音声ファイルなしで録音が停止しました。]"
 
-#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
-msgid "[No speech detected.]"
-msgstr "[音声が検出されませんでした。]"
-
 #: plugin/chatbot/panel.py
-msgid "[Hands-free off: no speech heard.]"
-msgstr "[ハンズフリーオフ: 音声が検出されませんでした。]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr "[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデルを選択してください。]"
+msgid "Starting..."
+msgstr "起動..."
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1581,6 +1669,10 @@ msgstr "[エージェントバックエンドエラー: {0}]"
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[ピア送信には、このサイドバーでチャットモードが必要です。]"
+
+#: plugin/chatbot/sidebar_test_hooks.py
+msgid "Stop Rec"
+msgstr "録音停止"
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
@@ -1679,10 +1771,69 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "エディタを開始できませんでした: {0}"
 
+#: plugin/chatbot/panel_events.py
+msgid "Accept"
+msgstr "承認"
+
+#: plugin/chatbot/panel_events.py
+msgid "Change"
+msgstr "変更"
+
+#: plugin/chatbot/panel_events.py
+msgid "Reject"
+msgstr "拒否"
+
+#: plugin/chatbot/panel_events.py
+msgid "Waiting for approval…"
+msgstr "承認を待っています…"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server started"
+msgstr "MCPサーバーが起動しました"
+
+#: plugin/chatbot/panel_events.py
+msgid "MCP server stopped"
+msgstr "MCPサーバーが停止しました"
+
 #: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[文字起こしエラー: {0}]"
+msgid "Unknown librarian error."
+msgstr "不明なライブラリアンエラー。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "完璧！今からメインアシスタントに切り替えます。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "不明なブレインストーミングエラーが発生しました。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "ブレインストーミング完了。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "不明な執筆計画エラーが発生しました。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "執筆計画が完了しました。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "不明な PPT-Master エラーが発生しました。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master セッションが完了しました。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "不明なDeep Researchエラーが発生しました。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "不明な研究エラー。"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1700,74 +1851,14 @@ msgid "Thinking..."
 msgstr "思考中..."
 
 #: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "完璧！今からメインアシスタントに切り替えます。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "不明なライブラリアンエラー。"
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[ライブラリアンエラー：{0}]"
+msgid "[{0} error: {1}]"
+msgstr "[{0} エラー: {1}]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "ブレインストーミング完了。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "不明なブレインストーミングエラーが発生しました。"
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/web_research_deep.py
 #, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[ブレインストーミングエラー: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "執筆計画が完了しました。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "不明な執筆計画エラーが発生しました。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[執筆計画エラー: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master セッションが完了しました。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "不明な PPT-Master エラーが発生しました。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[PPT-Master エラー: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "不明なDeep Researchエラーが発生しました。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Deep Researchエラー: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "不明な研究エラー。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[研究エラー: {0}]"
+msgid "Deep research round {round}/{rounds}, query {started}/{max}"
+msgstr "ディープリサーチ ラウンド {round}/{rounds}、クエリ {started}/{max}"
 
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
@@ -1779,8 +1870,21 @@ msgid "Sources consulted:"
 msgstr "参照元:"
 
 #: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Planning {count} research queries..."
+msgstr "{count} 件の調査クエリを計画中..."
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: assessing coverage..."
+msgstr "ディープリサーチ: カバレッジを評価中..."
+
+#: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Webリサーチで利用可能な証拠は見つかりませんでした。"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Deep research: synthesizing report..."
+msgstr "詳細調査中: レポートを統合しています..."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
 msgid "Assistant:"
@@ -1862,52 +1966,30 @@ msgstr "(このエンドポイントには画像モデルがありません)"
 msgid "(Connection failed)"
 msgstr "(接続に失敗しました)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr "AI: 文書を見たり変更したりせずに、ウェブ調査で質問に答えたりウェブページを要約したりできます。さあ、話しましょう。"
+#: plugin/chatbot/panel_voice.py
+msgid "Hands-free off"
+msgstr "ハンズフリーオフ"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: Deep Research "
-"モードは複数ステップのウェブ調査（計画、複数検索、まとめ）を行い、整形したレポートを文書に挿入できます。時間はかかりますが、より徹底した結果になります。"
+#: plugin/chatbot/panel_voice.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "音声を録音中… (%d ms の無音)"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr "AI: 一緒にアイデアを探り、設計しましょう。質問し、方針を提案し、準備ができたら承認済みの仕様を文書にまとめるお手伝いをします。"
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[文字起こしエラー: {0}]"
 
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr "AI: 文書をセクションごとに起草しましょう。執筆プランのアウトライン作成から、承認を得ながら段階的な実装までお手伝いします。"
+#: plugin/chatbot/panel_voice.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[ハンズフリーオフ: 音声が検出されませんでした。]"
 
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_voice.py
+#, python-brace-format
 msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
-msgstr ""
-"AI: PPT-Master モード — 設定済みの Python venv で ppt-master ワークフロー（スクリプト + Impress "
-"へのエクスポート）を実行します。トピックを書くか、プロジェクトフォルダを指定してください。"
-
-#: plugin/chatbot/panel_factory.py
-msgid ""
-"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
-" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
-"to work on the document."
-msgstr ""
-"AI: WriterAgent の Librarian です。お名前や好きな色を覚えて短いツアーもできます。文書作業に戻るときはドロップダウンで "
-"Chat を選んでください。"
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
+msgstr "[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデルを選択してください。]"
 
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
@@ -2188,10 +2270,6 @@ msgid "The document is no longer open."
 msgstr "ドキュメントは開かれていません。"
 
 #: plugin/scripting/python_runner_ui.py
-msgid "Script preparation failed."
-msgstr "スクリプトの準備に失敗しました。"
-
-#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialogを拡張機能から読み込めませんでした。"
 
@@ -2257,6 +2335,14 @@ msgstr "成功"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "出力"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python テスト"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Could not open the Python test progress dialog."
+msgstr "Pythonテスト進捗ダイアログを開けませんでした。"
 
 #: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
@@ -2512,8 +2598,36 @@ msgid "Using LibreOffice process Python..."
 msgstr "LibreOffice プロセスの Python を使用中..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No process interpreter: sys.executable is missing, not a file, or not "
+"executable. Set a venv path in Settings → Python, or fix the LibreOffice "
+"install."
+msgstr ""
+"プロセスインタープリターが見つかりません: sys.executable "
+"が欠落しているか、ファイルではないか、実行可能ではありません。「設定」→「Python」で仮想環境（venv）のパスを設定するか、LibreOfficeのインストールを確認してください。"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "venv Python を解決中..."
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Not a Python executable: {0}"
+msgstr "Python実行可能ファイルではありません: {0}"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"No python found. Use the venv root (folder containing bin/ or Scripts/), the"
+" bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), or the full"
+" path to the interpreter."
+msgstr ""
+"Pythonが見つかりません。仮想環境のルート（bin/ または Scripts/ を含むフォルダ）、bin/ または Scripts/ "
+"フォルダ、環境ルートの python.exe (conda/pyenv-win)、またはインタープリターへのフルパスを指定してください。"
+
+#: plugin/scripting/venv_diagnostics.py
+#, python-brace-format
+msgid "Path not found: {0}"
+msgstr "パスが見つかりません: {0}"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
@@ -2581,8 +2695,8 @@ msgid "No Writer document to insert into."
 msgstr "挿入先のWriterドキュメントがありません。"
 
 #: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "先に分析を実行してください。"
+msgid "Nothing to insert. Run an analysis first."
+msgstr "挿入する内容がありません。先に分析を実行してください。"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid ""
@@ -2865,6 +2979,15 @@ msgid "Script executed successfully. (took {time})"
 msgstr "スクリプトは正常に実行されました。(所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
+msgid "Script preparation failed."
+msgstr "スクリプトの準備に失敗しました。"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "{status} ({count} line(s) printed.)"
+msgstr "{status} ({count} 行出力されました。)"
+
+#: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "スクリプトが保存されました。"
 
@@ -2891,10 +3014,6 @@ msgstr "組み込みのスクリプトダイアログを開けませんでした
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "「Pythonスクリプトの実行」を開く際に予期しないエラーが発生しました。"
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "ディスパッチエラー"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2993,53 +3112,6 @@ msgid "Start MCP Server"
 msgstr "MCPサーバーを起動"
 
 #: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "{0} 経由のパブリックトンネル (認証なし)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "{0} 経由のパブリックトンネル: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "再接続中…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "{0} 経由のパブリックトンネルに失敗しました: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "{0} 経由のパブリックトンネルを開始しています…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr "{0} 経由のパブリックトンネルは実行されていません (プロバイダーバイナリはインストールされていますか?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCPサーバーが停止しました"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCPサーバーが起動しました"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "{0} 経由のパブリックトンネル"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr "{0} 経由のパブリックトンネルを開始しています… 準備ができたら「MCP サーバーの状態」を使用してください。"
-
-#: plugin/mcp/__init__.py
 msgid "MCP server is not running"
 msgstr "MCPサーバーは実行されていません"
 
@@ -3113,6 +3185,35 @@ msgstr "トンネルのテスト"
 #: plugin/mcp/mcp_ui.py
 msgid "MCP Tunnel Test"
 msgstr "MCP トンネルのテスト"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "{0} 経由のパブリックトンネル (認証なし)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "{0} 経由のパブリックトンネル: {1}"
+
+#: plugin/mcp/tunnel.py
+msgid "reconnecting…"
+msgstr "再接続中…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "{0} 経由のパブリックトンネルに失敗しました: {1}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "{0} 経由のパブリックトンネルを開始しています…"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr "{0} 経由のパブリックトンネルは実行されていません (プロバイダーバイナリはインストールされていますか?)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -3210,14 +3311,8 @@ msgstr ""
 "注: MCPサーバーは現在ポート {3} で実行されていません。"
 
 #: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} 成功、{2} 失敗。"
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "テストの実行に失敗しました: {0}"
+msgid "Dispatch Error"
+msgstr "ディスパッチエラー"
 
 #: plugin/xdl_strings.py
 msgid "-1"
@@ -3464,10 +3559,6 @@ msgid "Python Settings…"
 msgstr "Python 設定…"
 
 #: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Python テスト"
-
-#: plugin/xdl_strings.py
 msgid "Python cells (active sheet):"
 msgstr "Python セル (アクティブなシート):"
 
@@ -3522,6 +3613,10 @@ msgstr "シード:"
 #: plugin/xdl_strings.py
 msgid "Selection"
 msgstr "選択範囲"
+
+#: plugin/xdl_strings.py
+msgid "Send"
+msgstr "送信"
 
 #: plugin/xdl_strings.py
 msgid "Sentiment"
@@ -4251,6 +4346,44 @@ msgid ""
 msgstr ""
 "セル内の Python 編集を保存する際、静的な xl(\"A1:…\") を =PY データ引数に引き上げ、data / data[i] / "
 ".to_pandas() に書き換えます。"
+
+msgid "Allow network access"
+msgstr "ネットワークアクセスを許可"
+
+msgid ""
+"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
+"checked."
+msgstr "チェックを入れない限り、ネットワークインポート（socket、requests、http、urllib、sslなど）をブロックします。"
+
+msgid "Allow file access"
+msgstr "ファイルアクセスを許可"
+
+msgid ""
+"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
+"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
+" stay allowed."
+msgstr ""
+"チェックしない場合、ファイルへの書き込み（os "
+"write呼び出し、shutil、tempfile、sqlite3、組み込みのopen()）をブロックします。pathlib、glob、io、loggingを通じた読み取りは許可されたままとなります。"
+
+msgid "Allow OS access"
+msgstr "OSアクセスを許可"
+
+msgid ""
+"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
+"processes); includes file access."
+msgstr ""
+"生のos、subprocess、multiprocessing、pty（他のプログラムやプロセスの実行）を許可します。ファイルアクセスも含まれます。"
+
+msgid "Extra allowed modules"
+msgstr "追加の許可モジュール"
+
+msgid ""
+"Comma-separated extra modules Python may import (each name also allows "
+"name.*). Overrides the built-in blocklist, including os, socket and "
+"subprocess."
+msgstr ""
+"Pythonがインポートを許可するモジュールをカンマ区切りで指定します（各名前はname.*も許可します）。os、socket、subprocessを含む組み込みのブロックリストを上書きします。"
 
 msgid "Vision / OCR"
 msgstr "ビジョン / OCR"
