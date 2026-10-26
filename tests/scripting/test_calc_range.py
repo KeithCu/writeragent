@@ -610,3 +610,22 @@ def test_result_to_calc_grid_total_egress():
 
 
 
+
+def test_whole_number_cells_arrive_as_int():
+    import operator
+
+    import numpy as np
+    import pytest
+
+    from plugin.scripting.calc_range import materialize_calc_range, pack_calc_range_envelope
+
+    data = materialize_calc_range(pack_calc_range_envelope(10.0, address="Sheet1.A1"))
+    assert type(data.values[0][0]) is int and operator.index(data) == 10
+    whole = materialize_calc_range(pack_calc_range_envelope([[1.0], [2.0], [None], ["x"]]))
+    assert whole.values == [[1], [2], [None], ["x"]] and type(whole.values[0][0]) is int
+    ints = materialize_calc_range(pack_calc_range_envelope([[1.0, 2.0], [3.0, 4.0]]))
+    assert ints.to_numpy().dtype == np.int64
+    mixed = materialize_calc_range(pack_calc_range_envelope([[1.0, 2.5]]))
+    assert all(type(c) is float for c in mixed.values[0]) and mixed.to_numpy().dtype == np.float64
+    sp = pytest.importorskip("sympy")
+    assert sp.prime(data) == 29
