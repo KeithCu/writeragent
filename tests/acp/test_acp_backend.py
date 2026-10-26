@@ -540,6 +540,8 @@ def _bare_backend():
     """ACPBackend without config or a live process."""
     backend = ACPBackend.__new__(ACPBackend)
     backend._stop_requested = False
+    backend._closed = False
+    backend._inflight_token = None
     backend._session_id = None
     backend._session_url = None
     backend._session_mcp_url = None
@@ -915,7 +917,7 @@ class TestStopAndShutdown:
         with patch.object(backend, "_arm_cancel_grace") as arm:
             backend.stop()
         conn.send_notification.assert_called_once_with("session/cancel", {"sessionId": "sess-1"})
-        arm.assert_called_once_with(backend._turn)
+        arm.assert_called_once_with(backend._inflight_token, conn)
         conn.stop.assert_not_called()
         assert (backend._conn) is conn
 
@@ -948,7 +950,7 @@ class TestStopAndShutdown:
 
         assert recorded == [("session/cancel", {"sessionId": "sess-old"})]
         replacement.send_notification.assert_not_called()
-        arm.assert_called_once_with(4)
+        arm.assert_called_once_with(backend._inflight_token, old)
 
     def test_send_keeps_the_cli_after_success(self):
         backend = _bare_backend()
@@ -1124,15 +1126,18 @@ class TestStopAndShutdown:
 
     def test_grace_kills_only_the_turn_that_is_still_inflight(self):
         backend = _bare_backend()
+        token = object()
+        backend._inflight_token = token
         backend._turn = 3
         backend._prompt_inflight = True
         backend._session_id = "sess"
         backend._ready = True
-        conn = MagicMock()
+        conn = _mock_conn()
         conn.is_alive = True
+        conn.is_healthy = True
         backend._conn = conn
         backend._pending_permissions[9] = (conn, [])
-        backend._kill_turn_if_still_inflight(3)
+        backend._kill_turn_if_still_inflight(token, conn)
         conn.send_response.assert_called_once_with(9, result={"outcome": {"outcome": "cancelled"}})
         conn.stop.assert_called_once()
         assert (backend._conn) is None
@@ -1141,15 +1146,93 @@ class TestStopAndShutdown:
 
     def test_grace_does_not_kill_after_the_turn_moves(self):
         backend = _bare_backend()
+        token = object()
+        other_token = object()
+        backend._inflight_token = token
         backend._turn = 4
         backend._prompt_inflight = True
         backend._session_id = "sess"
-        conn = MagicMock()
+        conn = _mock_conn()
+        conn.is_alive = True
+        conn.is_healthy = True
         backend._conn = conn
-        backend._kill_turn_if_still_inflight(3)
+        backend._kill_turn_if_still_inflight(other_token, conn)
         conn.stop.assert_not_called()
         assert (backend._conn) is conn
         assert (backend._session_id) == ("sess")
+
+        backend._kill_turn_if_still_inflight(token, conn)
+        conn.stop.assert_called_once()
+        assert (backend._conn) is None
+        assert (backend._session_id) is None
+
+    def test_stop_grace_with_overlapping_second_send(self):
+        backend = _bare_backend()
+        backend._binary_path = "/usr/bin/test-agent"
+        backend._extra_args = []
+        backend._session_id = "sess-1"
+
+        conn1 = _mock_conn()
+        conn1.is_alive = True
+        conn1.is_healthy = True
+
+        started = threading.Event()
+        release = threading.Event()
+
+        def send_request1(method, params=None, timeout=120):
+            if method == "session/prompt":
+                started.set()
+                if not release.wait(timeout=2):
+                    raise TimeoutError("prompt still blocked")
+                conn1.is_alive = False
+                conn1.is_healthy = False
+                raise RuntimeError("ACP process stopped")
+            return {"sessionId": "sess-1"}
+
+        conn1.send_request.side_effect = send_request1
+        conn1.stop.side_effect = lambda: release.set()
+        backend._conn = conn1
+        backend._ready = True
+
+        conn2 = _mock_conn()
+        conn2.is_alive = True
+        conn2.is_healthy = True
+
+        def send_request2(method, params=None, timeout=120):
+            if method == "initialize":
+                return {"protocolVersion": 1}
+            if method == "session/new":
+                return {"sessionId": "sess-new"}
+            if method == "session/prompt":
+                return {"stopReason": "end_turn"}
+            raise AssertionError(f"unexpected method: {method}")
+
+        conn2.send_request.side_effect = send_request2
+
+        q1 = queue.Queue()
+        q2 = queue.Queue()
+
+        t1 = threading.Thread(target=lambda: backend.send(queue=q1, user_message="first", document_context=None, document_url=None))
+        t1.start()
+        assert started.wait(timeout=2)
+
+        def run_second_send():
+            backend.prepare_turn()
+            backend.send(queue=q2, user_message="second", document_context=None, document_url=None)
+
+        t2 = threading.Thread(target=run_second_send)
+
+        with patch("plugin.acp.acp_backend._CANCEL_GRACE_SEC", 0.05), patch("plugin.acp.acp_backend.ACPConnection", return_value=conn2):
+            backend.stop()
+            t2.start()
+            t1.join(timeout=2)
+            t2.join(timeout=2)
+
+        assert not t1.is_alive()
+        assert not t2.is_alive()
+        conn1.stop.assert_called()
+        kinds2 = [item[0] for item in _drain(q2)]
+        assert StreamQueueKind.STREAM_DONE in kinds2
 
     def test_stop_before_send_does_not_start_cli(self):
         backend = _bare_backend()
@@ -1460,6 +1543,60 @@ class TestStartupWait:
         backend._extra_args = []
         return backend
 
+    def test_shutdown_during_start_kills_child_and_stops_send(self):
+        backend = self._backend()
+        conn = _startup_conn()
+        spawned = False
+        stopped_with_spawned = False
+
+        def start():
+            nonlocal spawned
+            backend.shutdown()
+            spawned = True
+
+        def stop():
+            nonlocal stopped_with_spawned
+            if spawned:
+                stopped_with_spawned = True
+
+        conn.start.side_effect = start
+        conn.stop.side_effect = stop
+
+        q = queue.Queue()
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+
+        kinds = [event[0] for event in _drain(q)]
+        assert StreamQueueKind.STOPPED in kinds
+        assert StreamQueueKind.ERROR not in kinds
+        assert stopped_with_spawned is True
+        assert backend._conn is None
+        assert backend._closed is True
+        # A second shutdown does not raise
+        backend.shutdown()
+
+    def test_shutdown_during_initialize_kills_child_and_stops_send(self):
+        backend = self._backend()
+        conn = _startup_conn()
+
+        def send_request(method, params=None, timeout=120):
+            if method == "initialize":
+                backend.shutdown()
+                raise RuntimeError("gone")
+            return {"sessionId": "s"}
+
+        conn.send_request.side_effect = send_request
+
+        q = queue.Queue()
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+
+        kinds = [event[0] for event in _drain(q)]
+        assert StreamQueueKind.STOPPED in kinds
+        assert StreamQueueKind.ERROR not in kinds
+        conn.stop.assert_called()
+        assert backend._conn is None
+
     def test_stop_during_spawn_does_not_initialize_or_prompt(self):
         backend = self._backend()
         conn = _startup_conn()
@@ -1695,6 +1832,78 @@ class TestUnknownAcpRequest:
 
 
 class TestSessionId:
+    def test_session_prompted_latched_only_when_manual_included(self):
+        backend = _bare_backend()
+        conn = _mock_conn()
+        calls = []
+
+        def send_request(method, params=None, timeout=120):
+            calls.append((method, params))
+            if method == "session/new":
+                return {"sessionId": "sess-1"}
+            if method == "session/prompt":
+                return {"stopReason": "end_turn"}
+            raise AssertionError(method)
+
+        conn.send_request.side_effect = send_request
+
+        def ensure_connection(stop_checker=None):
+            backend._conn = conn
+            backend._ready = True
+
+        backend._ensure_connection = ensure_connection
+        q = queue.Queue()
+        with patch("plugin.framework.config.get_config", return_value="false"):
+            # Slash-first send puts only command text, does not latch _session_prompted
+            backend.send(queue=q, user_message="/compact", document_context="doc", document_url="file:///a.odt", system_prompt="MANUAL")
+            assert backend._session_prompted is False
+            prompts = [params["prompt"] for method, params in calls if method == "session/prompt"]
+            assert len(prompts) == 1
+            assert prompts[0] == [{"type": "text", "text": "/compact"}]
+
+            # Second send with normal prompt now includes MANUAL
+            backend.send(queue=q, user_message="hello", document_context="doc", document_url="file:///a.odt", system_prompt="MANUAL")
+            assert backend._session_prompted is True
+            prompts = [params["prompt"] for method, params in calls if method == "session/prompt"]
+            assert len(prompts) == 2
+            second_texts = [block["text"] for block in prompts[1]]
+            assert "MANUAL" in second_texts
+
+            # Slash command after that normal send leaves flag True
+            backend.send(queue=q, user_message="/compact", document_context="doc", document_url="file:///a.odt", system_prompt="MANUAL")
+            assert backend._session_prompted is True
+
+        # Also: first send with system_prompt=None leaves flag False; next send with system_prompt="MANUAL" includes MANUAL
+        backend2 = _bare_backend()
+        calls2 = []
+
+        def send_request2(method, params=None, timeout=120):
+            calls2.append((method, params))
+            if method == "session/new":
+                return {"sessionId": "sess-2"}
+            if method == "session/prompt":
+                return {"stopReason": "end_turn"}
+            raise AssertionError(method)
+
+        conn2 = _mock_conn()
+        conn2.send_request.side_effect = send_request2
+
+        def ensure_connection2(stop_checker=None):
+            backend2._conn = conn2
+            backend2._ready = True
+
+        backend2._ensure_connection = ensure_connection2
+        q2 = queue.Queue()
+        with patch("plugin.framework.config.get_config", return_value="false"):
+            backend2.send(queue=q2, user_message="hello", document_context="doc", document_url="file:///a.odt", system_prompt=None)
+            assert backend2._session_prompted is False
+
+            backend2.send(queue=q2, user_message="hello again", document_context="doc", document_url="file:///a.odt", system_prompt="MANUAL")
+            assert backend2._session_prompted is True
+            prompts2 = [params["prompt"] for method, params in calls2 if method == "session/prompt"]
+            assert len(prompts2) == 2
+            assert "MANUAL" in [b["text"] for b in prompts2[1]]
+
     def test_same_url_reuses_the_session_and_omits_the_manual(self):
         backend = _bare_backend()
         conn = _mock_conn()

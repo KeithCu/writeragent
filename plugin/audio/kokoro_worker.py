@@ -21,6 +21,7 @@ parent; only Kokoro pays the ONNX + voices load this worker exists to avoid.
 from __future__ import annotations
 
 import io
+import json
 import os
 import sys
 from typing import Any
@@ -134,8 +135,7 @@ def _fallback_voice(kokoro: Any, requested: str) -> str:
     in the archive').
     How it happened: kokoro_onnx stores np.load of the voices pack (NpzFile);
     the tests used a list and a pack that still contained af_sky.
-    Why this change: next(iter(...)) yields the archive keys, matching
-    KOKORO_ONNX_SCRIPT which lists keys from iteration.
+    Why this change: next(iter(...)) is the NpzFile key walk (voices[0] raises KeyError).
     """
     family = requested[:1].lower()
     if family in KOKORO_VOICE_PREFIX_TO_LANG:
@@ -222,6 +222,7 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
     phonemes, g2p_warning = misaki_frontend(text, lang)
     if g2p_warning:
         warning = f"{warning} {g2p_warning}".strip() if warning else g2p_warning
+    g2p = "misaki" if phonemes else "espeak"
 
     try:
         if phonemes:
@@ -242,18 +243,57 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
                 "status": "error",
                 "error": "Kokoro returned no audio samples",
                 "warning": warning,
+                "g2p": g2p,
             }
         sf.write(out_path, samples, rate)
     except Exception as exc:
-        return {"status": "error", "error": f"Kokoro synthesis failed: {exc}", "warning": warning}
+        return {
+            "status": "error",
+            "error": f"Kokoro synthesis failed: {exc}",
+            "warning": warning,
+            "g2p": g2p,
+        }
 
-    result: dict[str, Any] = {"status": "ok", "path": out_path}
+    result: dict[str, Any] = {"status": "ok", "path": out_path, "g2p": g2p}
     if warning:
         result["warning"] = warning
     return result
 
 
+def run_kokoro_once(argv: list[str]) -> int:
+    if len(argv) != 9:
+        sys.stdout.write(
+            json.dumps({"status": "error", "error": f"Invalid arguments count: expected 9, got {len(argv)}"})
+            + "\n"
+        )
+        return 1
+    try:
+        speed = float(argv[4])
+    except (ValueError, TypeError) as exc:
+        sys.stdout.write(
+            json.dumps({"status": "error", "error": f"Invalid speed: {exc}"})
+            + "\n"
+        )
+        return 1
+    text_or_dash = argv[2]
+    text = sys.stdin.read() if text_or_dash == "-" else text_or_dash
+    req = {
+        "text": text,
+        "voice": argv[3],
+        "speed": speed,
+        "out_path": argv[5],
+        "model_path": argv[6],
+        "voices_path": argv[7],
+        "lang": argv[8],
+    }
+    res = handle_kokoro_job(req)
+    sys.stdout.write(json.dumps(res) + "\n")
+    return 0 if res.get("status") == "ok" else 1
+
+
 def main() -> int:
+    if len(sys.argv) >= 2 and sys.argv[1] == "--once":
+        return run_kokoro_once(sys.argv)
     return run_kokoro_stdio_loop(handle_kokoro_job)
 
 

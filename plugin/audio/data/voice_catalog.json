@@ -440,6 +440,48 @@
         "short_name": "Sky"
       },
       {
+        "id": "af_alloy",
+        "label": "af_alloy (US Female - Alloy)",
+        "lang": "en",
+        "short_name": "Alloy"
+      },
+      {
+        "id": "af_aoede",
+        "label": "af_aoede (US Female - Aoede)",
+        "lang": "en",
+        "short_name": "Aoede"
+      },
+      {
+        "id": "af_jessica",
+        "label": "af_jessica (US Female - Jessica)",
+        "lang": "en",
+        "short_name": "Jessica"
+      },
+      {
+        "id": "af_kore",
+        "label": "af_kore (US Female - Kore)",
+        "lang": "en",
+        "short_name": "Kore"
+      },
+      {
+        "id": "af_nicole",
+        "label": "af_nicole (US Female - Nicole)",
+        "lang": "en",
+        "short_name": "Nicole"
+      },
+      {
+        "id": "af_nova",
+        "label": "af_nova (US Female - Nova)",
+        "lang": "en",
+        "short_name": "Nova"
+      },
+      {
+        "id": "af_river",
+        "label": "af_river (US Female - River)",
+        "lang": "en",
+        "short_name": "River"
+      },
+      {
         "id": "am_adam",
         "label": "am_adam (US Male - Adam)",
         "lang": "en",
@@ -450,6 +492,48 @@
         "label": "am_michael (US Male - Michael)",
         "lang": "en",
         "short_name": "Michael"
+      },
+      {
+        "id": "am_echo",
+        "label": "am_echo (US Male - Echo)",
+        "lang": "en",
+        "short_name": "Echo"
+      },
+      {
+        "id": "am_eric",
+        "label": "am_eric (US Male - Eric)",
+        "lang": "en",
+        "short_name": "Eric"
+      },
+      {
+        "id": "am_fenrir",
+        "label": "am_fenrir (US Male - Fenrir)",
+        "lang": "en",
+        "short_name": "Fenrir"
+      },
+      {
+        "id": "am_liam",
+        "label": "am_liam (US Male - Liam)",
+        "lang": "en",
+        "short_name": "Liam"
+      },
+      {
+        "id": "am_onyx",
+        "label": "am_onyx (US Male - Onyx)",
+        "lang": "en",
+        "short_name": "Onyx"
+      },
+      {
+        "id": "am_puck",
+        "label": "am_puck (US Male - Puck)",
+        "lang": "en",
+        "short_name": "Puck"
+      },
+      {
+        "id": "am_santa",
+        "label": "am_santa (US Male - Santa)",
+        "lang": "en",
+        "short_name": "Santa"
       },
       {
         "id": "bf_emma",
@@ -464,6 +548,18 @@
         "short_name": "Isabella"
       },
       {
+        "id": "bf_alice",
+        "label": "bf_alice (UK Female - Alice)",
+        "lang": "en",
+        "short_name": "Alice"
+      },
+      {
+        "id": "bf_lily",
+        "label": "bf_lily (UK Female - Lily)",
+        "lang": "en",
+        "short_name": "Lily"
+      },
+      {
         "id": "bm_george",
         "label": "bm_george (UK Male - George)",
         "lang": "en",
@@ -474,6 +570,18 @@
         "label": "bm_lewis (UK Male - Lewis)",
         "lang": "en",
         "short_name": "Lewis"
+      },
+      {
+        "id": "bm_daniel",
+        "label": "bm_daniel (UK Male - Daniel)",
+        "lang": "en",
+        "short_name": "Daniel"
+      },
+      {
+        "id": "bm_fable",
+        "label": "bm_fable (UK Male - Fable)",
+        "lang": "en",
+        "short_name": "Fable"
       },
       {
         "id": "ef_dora",
@@ -524,6 +632,18 @@
         "short_name": "Gongitsune"
       },
       {
+        "id": "jf_nezumi",
+        "label": "jf_nezumi (Japanese Female - Nezumi)",
+        "lang": "ja",
+        "short_name": "Nezumi"
+      },
+      {
+        "id": "jf_tebukuro",
+        "label": "jf_tebukuro (Japanese Female - Tebukuro)",
+        "lang": "ja",
+        "short_name": "Tebukuro"
+      },
+      {
         "id": "jm_kumo",
         "label": "jm_kumo (Japanese Male - Kumo)",
         "lang": "ja",
@@ -536,16 +656,64 @@
         "short_name": "Xiaobei"
       },
       {
+        "id": "zf_xiaoni",
+        "label": "zf_xiaoni (Chinese Female - Xiaoni)",
+        "lang": "zh",
+        "short_name": "Xiaoni"
+      },
+      {
+        "id": "zf_xiaoxiao",
+        "label": "zf_xiaoxiao (Chinese Female - Xiaoxiao)",
+        "lang": "zh",
+        "short_name": "Xiaoxiao"
+      },
+      {
+        "id": "zf_xiaoyi",
+        "label": "zf_xiaoyi (Chinese Female - Xiaoyi)",
+        "lang": "zh",
+        "short_name": "Xiaoyi"
+      },
+      {
         "id": "zm_yunjian",
         "label": "zm_yunjian (Chinese Male - Yunjian)",
         "lang": "zh",
         "short_name": "Yunjian"
       },
       {
+        "id": "zm_yunxi",
+        "label": "zm_yunxi (Chinese Male - Yunxi)",
+        "lang": "zh",
+        "short_name": "Yunxi"
+      },
+      {
+        "id": "zm_yunxia",
+        "label": "zm_yunxia (Chinese Male - Yunxia)",
+        "lang": "zh",
+        "short_name": "Yunxia"
+      },
+      {
+        "id": "zm_yunyang",
+        "label": "zm_yunyang (Chinese Male - Yunyang)",
+        "lang": "zh",
+        "short_name": "Yunyang"
+      },
+      {
         "id": "pf_dora",
         "label": "pf_dora (Portuguese Female - Dora)",
         "lang": "pt",
         "short_name": "Dora"
+      },
+      {
+        "id": "pm_alex",
+        "label": "pm_alex (Portuguese Male - Alex)",
+        "lang": "pt",
+        "short_name": "Alex"
+      },
+      {
+        "id": "pm_santa",
+        "label": "pm_santa (Portuguese Male - Santa)",
+        "lang": "pt",
+        "short_name": "Santa"
       },
       {
         "id": "hf_alpha",

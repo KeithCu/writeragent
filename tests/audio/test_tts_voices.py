@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 from plugin.audio.tts_voices import (
     TTS_TEST_SAMPLE,
+    VoiceContext,
     _preferred_harvested_voice,
+    canonical_voice_id,
     catalog_voice_display_label,
     clean_provider_name,
     clean_voice_name,
@@ -16,9 +18,13 @@ from plugin.audio.tts_voices import (
     get_scoped_tts_voice,
     get_voice_catalog,
     get_voice_family,
+    match_voice_id,
     parse_tts_speed,
+    pick_voice_id,
+    resolve_voice_context,
     set_scoped_tts_voice,
     settings_voice_options,
+    split_display_label,
     tts_test_sample,
     voice_choice_to_id,
     voice_options_for_provider,
@@ -26,6 +32,7 @@ from plugin.audio.tts_voices import (
 from plugin.audio.voice_catalog import (
     CATALOG_PATH,
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
+    LOCALE_TO_PIPER_DEFAULT,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
     VOICE_CATALOGS,
     voice_short_name,
@@ -52,6 +59,8 @@ def test_clean_voice_name_parenthesized_path():
     assert clean_voice_name(win_path) == win_path
     unix_path = "/opt/tts (voices)/piper/en_US-lessac-medium.onnx"
     assert clean_voice_name(unix_path) == unix_path
+    assert clean_voice_name(r"C:\Program Files (x86)") == r"C:\Program Files (x86)"
+    assert clean_voice_name("/opt/tts (voices)") == "/opt/tts (voices)"
     labeled_path = r"C:\Program Files (x86)\Piper\model.onnx (Custom Voice)"
     assert clean_voice_name(labeled_path) == r"C:\Program Files (x86)\Piper\model.onnx"
 
@@ -330,15 +339,23 @@ def test_voice_catalog_asset_drives_runtime_maps():
     import json
     import os
 
+    from plugin.audio.voice_catalog import _parse_catalog
+
     assert os.path.isfile(CATALOG_PATH)
     with open(CATALOG_PATH, encoding="utf-8") as handle:
         raw = json.load(handle)
+
+    parsed = _parse_catalog(raw)
+    assert len(parsed.kokoro) == 54
 
     piper_ids = [row["id"] for row in raw["piper"]["voices"]]
     assert list(_PIPER_VOICE_MODELS) == piper_ids
     assert [item["value"] for item in VOICE_CATALOGS["piper"]] == piper_ids
     kokoro_ids = [row["id"] for row in raw["kokoro"]["voices"]]
+    assert len(kokoro_ids) == 54
     assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == kokoro_ids
+    for vid in ("af_alloy", "am_puck", "bm_fable", "jf_tebukuro", "zf_xiaoyi", "zm_yunyang", "pm_santa"):
+        assert vid in kokoro_ids
     assert "af_sky" in kokoro_ids
     assert "af_bella" in kokoro_ids
     assert raw["kokoro"]["fallback_voice"] == "af_sky"
@@ -414,8 +431,8 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
 
         cfg._tts_supported_voices.pop(gemini, None)
         cfg._model_fetch_tts_cache["speech"] = [grok]
-        assert voice_options_for_provider("endpoint", grok) == []
-        assert get_voice_family("endpoint", grok) == "openrouter"
+        assert voice_options_for_provider("endpoint", grok, endpoint="https://openrouter.ai/api") == []
+        assert get_voice_family("endpoint", grok, endpoint="https://openrouter.ai/api") == "openrouter"
 
         cfg._model_fetch_tts_cache.clear()
         with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"):
@@ -494,3 +511,153 @@ def test_all_writeragent_locales_have_piper_model_mapping():
     for loc in locale_dirs:
         voice = get_default_voice_for_locale("piper", loc)
         assert voice in PIPER_VOICE_MODELS, f"Locale {loc} resolved to unmapped voice {voice}"
+
+
+def test_cold_openrouter_gemini_no_alloy():
+    gemini = "google/gemini-2.5-flash-preview-tts"
+    cfg._tts_supported_voices.pop(gemini, None)
+    cfg._model_fetch_tts_cache.clear()
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+         patch("plugin.framework.config.get_config", return_value=""):
+        ctx = resolve_voice_context("endpoint", gemini, endpoint="https://openrouter.ai/api")
+        assert isinstance(ctx, VoiceContext)
+        assert ctx.family == "openrouter"
+        assert list(ctx.rows) == []
+        assert ctx.editable is True
+        voice = get_scoped_tts_voice("endpoint", gemini, endpoint="https://openrouter.ai/api")
+        assert voice == ""
+        assert voice != "alloy"
+
+
+def test_unsaved_endpoint_uses_passed_endpoint():
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com"):
+        fam = get_voice_family("endpoint", "meta-llama/Llama-3-8B-Instruct", endpoint="https://api.together.xyz")
+        assert fam == "together"
+        opts = voice_options_for_provider("endpoint", "meta-llama/Llama-3-8B-Instruct", endpoint="https://api.together.xyz")
+        assert opts == []
+
+
+def test_together_kokoro_returns_kokoro_catalog():
+    cfg._tts_supported_voices.pop("hexgrad/Kokoro-82M", None)
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"):
+        ctx = resolve_voice_context("endpoint", "hexgrad/Kokoro-82M", endpoint="https://api.together.xyz")
+        assert ctx.family == "kokoro"
+        assert ctx.rows == tuple(get_voice_catalog("kokoro"))
+
+
+def test_together_non_kokoro_no_voices_is_editable_and_empty():
+    cartesia = "cartesia/sonic"
+    cfg._tts_supported_voices.pop(cartesia, None)
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"), \
+         patch("plugin.framework.config.get_config", return_value=""):
+        ctx = resolve_voice_context("endpoint", cartesia, endpoint="https://api.together.xyz")
+        assert ctx.family == "together"
+        assert ctx.rows == ()
+        assert ctx.editable is True
+        assert get_scoped_tts_voice("endpoint", cartesia, endpoint="https://api.together.xyz") == ""
+
+
+def test_piper_locale_defaults_authoritative():
+    piper_voices = {opt["value"] for opt in VOICE_CATALOGS["piper"]}
+    for loc, target_id in LOCALE_TO_PIPER_DEFAULT.items():
+        assert target_id in _PIPER_VOICE_MODELS, f"{loc} -> {target_id} not in PIPER_VOICE_MODELS"
+        assert target_id in piper_voices, f"{loc} -> {target_id} not in piper.voices"
+
+    # Patch a mapped id's label to male, but the JSON map value still wins over female scan
+    de_voice = LOCALE_TO_PIPER_DEFAULT["de"]
+    orig_tuple = _PIPER_VOICE_MODELS[de_voice]
+    male_de = (orig_tuple[0], orig_tuple[1], orig_tuple[2], "de_DE (Male)")
+    with patch.dict(_PIPER_VOICE_MODELS, {de_voice: male_de}):
+        assert get_default_voice_for_locale("piper", "de_DE") == de_voice
+
+    assert get_default_voice_for_locale("piper", "nb") == "no_NO-talesyntese-medium"
+    assert get_default_voice_for_locale("piper", "nn") == "no_NO-talesyntese-medium"
+    assert get_default_voice_for_locale("piper", "hr") == "sl_SI-artur-medium"
+
+
+def test_pick_voice_id_direct():
+    # current valid
+    opts = [{"value": "v1", "label": "Voice One"}, {"value": "v2", "label": "Voice Two"}]
+    assert pick_voice_id(family="piper", model=None, options=opts, current_id="v2", stored_id="v1") == "v2"
+
+    # stored valid when current is invalid
+    assert pick_voice_id(family="piper", model=None, options=opts, current_id="invalid", stored_id="v1") == "v1"
+
+    # empty options
+    assert pick_voice_id(family="openai", model=None, options=[], current_id="custom", stored_id="stored") == "custom"
+    assert pick_voice_id(family="openai", model=None, options=[], current_id="", stored_id="stored") == "stored"
+    assert pick_voice_id(family="openai", model=None, options=[], current_id="", stored_id="") == ""
+
+    # shared French label (French Female - Siwis) for Kokoro vs Piper
+    kokoro_rows = get_voice_catalog("kokoro")
+    piper_rows = get_voice_catalog("piper")
+    siwis_piper = voice_choice_to_id("French Female - Siwis", piper_rows)
+    assert siwis_piper == "fr_FR-siwis-medium"
+    chosen_piper = pick_voice_id(family="piper", model=None, options=piper_rows, current_id=siwis_piper)
+    assert chosen_piper == "fr_FR-siwis-medium"
+
+    # local locale-default fallback
+    assert pick_voice_id(family="kokoro", model=None, options=kokoro_rows, current_id="", stored_id="", locale="en_US") == "af_sky"
+
+    # remote harvested order
+    harvested = [{"value": "Zephyr", "label": "Zephyr"}, {"value": "Aoede", "label": "Aoede"}, {"value": "Achernar", "label": "Achernar"}]
+    assert pick_voice_id(family="openrouter", model="google/gemini-2.5", options=harvested) == "Aoede"
+    assert pick_voice_id(family="together", model="other", options=harvested) == "Achernar"
+
+    # empty remote list never returns local default
+    assert pick_voice_id(family="openrouter", model="gemini", options=[], current_id="", stored_id="") == ""
+    assert pick_voice_id(family="together", model="cartesia", options=[], current_id="", stored_id="") == ""
+
+
+def test_shown_saved_spoken_consistency():
+    for fam in ("kokoro", "piper", "openai"):
+        opts = get_voice_catalog(fam, "en_US")
+        first_opt = opts[0]
+        # Combo displays label
+        display = first_opt["label"]
+        # Combo selection mapped to id
+        mapped_id = voice_choice_to_id(display, opts)
+        # Saved id resolved via pick_voice_id
+        picked = pick_voice_id(family=fam, model=None, options=opts, current_id=mapped_id)
+        # Canonical id before storing
+        canonical = canonical_voice_id(fam, picked)
+        assert mapped_id == first_opt["value"]
+        assert picked == first_opt["value"]
+        assert canonical == first_opt["value"]
+
+
+def test_canonical_voice_id_and_match_voice_id():
+    # Saved mixed-case harvested aOeDe against ["Zephyr", "Achernar", "Aoede"] returns Aoede (for a non-Gemini model too)
+    assert match_voice_id("aOeDe", ["Zephyr", "Achernar", "Aoede"]) == "Aoede"
+    cfg._tts_supported_voices["non-gemini-model"] = ["Zephyr", "Achernar", "Aoede"]
+    try:
+        with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: "aOeDe" if "openrouter" in k else d):
+            assert get_scoped_tts_voice("endpoint", "non-gemini-model", endpoint="https://openrouter.ai/api") == "Aoede"
+    finally:
+        cfg._tts_supported_voices.pop("non-gemini-model", None)
+
+    # Kokoro case canonicalization
+    assert canonical_voice_id("kokoro", "AF_BELLA") == "af_bella"
+    assert canonical_voice_id("kokoro", "Af_Bella") == "af_bella"
+    assert canonical_voice_id("kokoro", "af_bella") == "af_bella"
+
+    # Piper case canonicalization
+    assert canonical_voice_id("piper", "EN_US-LESSAC-MEDIUM") == "en_US-lessac-medium"
+
+    # Unknown free text and absolute paths are returned stripped/unchanged
+    assert canonical_voice_id("openrouter", "  CustomVoice123  ") == "CustomVoice123"
+    assert canonical_voice_id("piper", r"C:\Voices\custom.onnx") == r"C:\Voices\custom.onnx"
+    assert canonical_voice_id("system", "/opt/voices/custom.onnx") == "/opt/voices/custom.onnx"
+
+
+def test_provider_labels_and_split_display_label():
+    assert get_default_voice_for_locale("Kokoro (Local Neural, ONNX CPU)", "en_US") == "af_sky"
+    assert get_voice_catalog("Piper (Local Fast Neural, CPU)") == get_voice_catalog("piper")
+
+    # split_display_label behavior for ordinary labels is unchanged
+    head, inside = split_display_label("en_US-lessac-medium (US English Female - Lessac)")
+    assert head == "en_US-lessac-medium"
+    assert inside == "US English Female - Lessac"
+    head, inside = split_display_label("plain_voice")
+    assert head == "plain_voice"
+    assert inside is None

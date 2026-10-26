@@ -12,7 +12,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -118,7 +118,7 @@ def test_idle_reaper_leaves_a_warm_child_before_ttl():
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     pool.idle_worker_ttl_sec = 300.0
     warm = _Warm()
-    pool._worker = warm  # type: ignore[assignment]
+    pool._worker = cast("Any", warm)
     pool._last_active = time.monotonic()
     try:
         pool._evict_idle_worker()
@@ -282,7 +282,7 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     stuck = _Stuck()
     token = object()
-    pool._worker = stuck
+    pool._worker = cast("Any", stuck)
     pool._inflight = True
     pool._exec_token = token
     try:
@@ -324,6 +324,9 @@ def test_failed_handshake_is_not_executed_and_a_later_job_may_spawn(monkeypatch)
 
         def respawn(self) -> None:
             return None
+
+        def stderr_tail(self) -> str:
+            return ""
 
         def execute(self, payload, timeout_sec):
             del payload, timeout_sec
@@ -410,7 +413,7 @@ def test_dead_warm_child_is_retired_and_replaced(monkeypatch) -> None:
     monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _Replacement)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     stuck = _Dead()
-    pool._worker = stuck  # type: ignore[assignment]
+    pool._worker = cast("Any", stuck)
     try:
         result = pool.execute({"text": "hi"})
         assert result["status"] == "ok"
@@ -449,6 +452,8 @@ def test_kokoro_worker_managed_subprocess_env_and_wrapper(monkeypatch):
     assert worker._managed._command_wrapper is None
     assert worker._managed._optimize_pipes is True
     assert worker._managed._scrub_env is False
+    assert worker._managed._stderr_name == "wa-kokoro"
+    assert worker._managed._stderr_name_with_pid is True
 
     worker._managed.start()
     worker.kill()
@@ -501,7 +506,7 @@ def test_cancel_inflight_returns_while_reap_blocks() -> None:
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     slow = _SlowKill()
     token = object()
-    pool._worker = slow  # type: ignore[assignment]
+    pool._worker = cast("Any", slow)
     pool._inflight = True
     pool._exec_token = token
     try:
@@ -617,7 +622,7 @@ def test_cancel_check_true_keeps_warm_worker() -> None:
 
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     stub = _Stub()
-    pool._worker = stub  # type: ignore[assignment]
+    pool._worker = cast("Any", stub)
     try:
         res = pool.execute({"text": "hi"}, cancel_check=lambda: True)
         assert res.get("code") == "WORKER_CANCELLED"
@@ -680,7 +685,7 @@ def test_execute_logs_each_warning_once(caplog) -> None:
     caplog.set_level(logging.DEBUG, logger="plugin.audio.kokoro_pool")
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     stub = _Stub()
-    pool._worker = stub  # type: ignore[assignment]
+    pool._worker = cast("Any", stub)
     try:
         pool.execute({"text": "one"})
         pool.execute({"text": "two"})
@@ -708,6 +713,233 @@ def test_execute_logs_each_warning_once(caplog) -> None:
         ]
         assert len(warning_records2) == 2
         assert warning_records2[1].getMessage() == "Kokoro: Different warning message"
+
+        # Emit up to 34 distinct warnings total
+        for idx in range(4, 36):
+            stub.warning = f"Warning {idx}"
+            pool.execute({"text": f"msg {idx}"})
+        assert len(pool._seen_warnings) <= 32
     finally:
         pool.shutdown()
+
+
+def test_kokoro_pool_spawn_failed_includes_stderr(tmp_path):
+    script = tmp_path / "broken_worker.py"
+    script.write_text(
+        "import sys\n"
+        "sys.stderr.write('ModuleNotFoundError: kokoro_onnx\\n')\n"
+        "sys.stderr.flush()\n"
+        "raise SystemExit(1)\n"
+    )
+    pool = KokoroProcessPool(sys.executable, script_path=str(script), idle_worker_ttl_sec=None)
+    try:
+        result = pool.execute({"text": "Hello", "out_path": str(tmp_path / "out.wav")})
+        assert result.get("status") == "error"
+        assert result.get("code") == "WORKER_SPAWN_FAILED"
+        assert (
+            "ModuleNotFoundError: kokoro_onnx" in result.get("stderr", "")
+            or "ModuleNotFoundError: kokoro_onnx" in result.get("error", "")
+        )
+    finally:
+        pool.shutdown()
+
+
+def test_delayed_ready_script_timeout_kills_child(tmp_path):
+    flag = tmp_path / "delay-ready"
+    flag.write_text("1", encoding="utf-8")
+    script = _delayed_ready_script(tmp_path, flag)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    t0 = time.monotonic()
+    result = pool.execute({"text": "Hi.", "out_path": str(tmp_path / "out.wav")}, timeout_sec=0.5)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 1.0
+    assert result.get("code") in ("EXECUTION_TIMEOUT", "WORKER_SPAWN_FAILED")
+    assert pool._worker is None or not pool._worker.is_alive()
+
+
+def test_alive_worker_execute_shares_clock(monkeypatch):
+    recorded_timeout: list[float] = []
+
+    class _AliveWorker:
+        def is_alive(self):
+            return True
+
+        def is_shutting_down(self):
+            return False
+
+        def execute(self, payload, timeout_sec):
+            recorded_timeout.append(timeout_sec)
+            return {"status": "ok"}
+
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    pool._worker = cast("Any", _AliveWorker())
+    res = pool.execute({"text": "Hi."}, timeout_sec=0.3)
+    assert res.get("status") == "ok"
+    assert len(recorded_timeout) == 1
+    assert recorded_timeout[0] < 0.5
+
+
+def test_respawn_uses_clock_and_expires(monkeypatch):
+    kills: list[bool] = []
+    executes: list[bool] = []
+
+    class _SlowSpawnWorker:
+        def __init__(self, *args, **kwargs):
+            self._alive = False
+
+        def respawn(self):
+            time.sleep(0.4)
+            self._alive = True
+
+        def is_alive(self):
+            return self._alive
+
+        def is_shutting_down(self):
+            return False
+
+        def request_shutdown(self):
+            pass
+
+        def kill(self):
+            kills.append(True)
+            self._alive = False
+            return True
+
+        def execute(self, payload, timeout_sec):
+            executes.append(True)
+            return {"status": "ok"}
+
+        def stderr_tail(self):
+            return ""
+
+    monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _SlowSpawnWorker)
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    res = pool.execute({"text": "Hi."}, timeout_sec=0.3)
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert not executes
+    assert kills
+
+
+def test_base_exception_during_handshake_or_read_drops_worker(tmp_path, monkeypatch):
+    import plugin.audio.kokoro_pool as kp
+    orig_read = kp.read_pickle_frame
+    first_call = True
+
+    def mock_read(*args, **kwargs):
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            raise KeyboardInterrupt()
+        return orig_read(*args, **kwargs)
+
+    monkeypatch.setattr(kp, "read_pickle_frame", mock_read)
+    script = _fake_worker_script(tmp_path)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            pool.execute({"text": "Hi.", "out_path": str(tmp_path / "out1.wav")})
+
+        assert pool._worker is None or not pool._worker.is_alive()
+
+        res = pool.execute({"text": "Hi.", "out_path": str(tmp_path / "out2.wav")})
+        assert res.get("status") == "ok"
+    finally:
+        pool.shutdown()
+
+
+def test_get_kokoro_pool_caches_for_configured_venv(monkeypatch):
+    from plugin.audio.kokoro_pool import get_kokoro_pool, shutdown_kokoro_pool
+
+    created_pools: list[Any] = []
+    shutdowns: list[Any] = []
+
+    class DummyPool:
+        def __init__(self, py_exe: str):
+            self.py_exe = py_exe
+            self.configured_venv = None
+            created_pools.append(self)
+
+        def shutdown(self):
+            shutdowns.append(self)
+
+    config_val = {"path": "/venv1"}
+    monkeypatch.setattr("plugin.framework.config.get_config_str", lambda key: config_val["path"])
+    resolve_calls: list[str] = []
+
+    def fake_resolve(path: str) -> str:
+        resolve_calls.append(path)
+        return path + "/bin/python"
+
+    monkeypatch.setattr("plugin.audio.kokoro_pool.resolve_venv_python", fake_resolve)
+    monkeypatch.setattr("plugin.audio.kokoro_pool.KokoroProcessPool", DummyPool)
+
+    try:
+        p1 = get_kokoro_pool()
+        assert p1 is not None
+        assert len(resolve_calls) == 1
+
+        p2 = get_kokoro_pool()
+        assert p2 is p1
+        assert len(resolve_calls) == 1
+
+        # Change venv path
+        config_val["path"] = "/venv2"
+        p3 = get_kokoro_pool()
+        assert p3 is not None
+        assert p3 is not p1
+        assert len(resolve_calls) == 2
+        assert p1 in shutdowns
+
+        # Empty string
+        config_val["path"] = ""
+        p4 = get_kokoro_pool()
+        assert p4 is None
+        assert p3 in shutdowns
+    finally:
+        shutdown_kokoro_pool()
+
+
+def test_worker_kill_dead_child_closes_and_unregisters():
+    from plugin.audio.kokoro_pool import _KokoroWorker
+
+    class PlainManaged:
+        def __init__(self, wait_result: bool):
+            self.wait_result = wait_result
+            self.calls: list[str] = []
+
+        def is_alive(self) -> bool:
+            return False
+
+        def kill_tree(self) -> None:
+            self.calls.append("kill_tree")
+
+        def close_stdio(self) -> None:
+            self.calls.append("close_stdio")
+
+        def wait_once(self) -> bool:
+            self.calls.append("wait_once")
+            return self.wait_result
+
+        def unregister(self) -> None:
+            self.calls.append("unregister")
+
+        def abandon(self) -> None:
+            self.calls.append("abandon")
+
+        def close(self) -> None:
+            self.calls.append("close")
+
+    # First object: wait_once returns True
+    m1 = PlainManaged(wait_result=True)
+    w1 = _KokoroWorker(sys.executable, "unused.py")
+    w1._managed = cast("Any", m1)
+    assert w1.kill() is True
+    assert m1.calls == ["kill_tree", "close_stdio", "wait_once", "unregister"]
+
+    # Second object: wait_once returns False
+    m2 = PlainManaged(wait_result=False)
+    w2 = _KokoroWorker(sys.executable, "unused.py")
+    w2._managed = cast("Any", m2)
+    assert w2.kill() is True
+    assert m2.calls == ["kill_tree", "close_stdio", "wait_once", "abandon"]
 

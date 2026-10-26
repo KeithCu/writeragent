@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import re
@@ -20,7 +21,6 @@ from typing import Any, Callable, ClassVar, cast
 
 from plugin.audio.kokoro_g2p import (
     G2P_FAILED_MARK,
-    KOKORO_ONNX_SCRIPT,
     KOKORO_PIP_INSTALL,
     ensure_kokoro_misaki,
     kokoro_g2p_lang,
@@ -371,8 +371,8 @@ def stop_speech() -> None:
         _tracked_temps.clear()
         _reply_misaki_ready.clear()
         clear_generation_downloads(_speech_generation - 1)
-
-    cancel_token = get_kokoro_inflight_token()
+        # The token is the job that was in flight during this Stop; reading it after the lock lets the next utterance publish a new token.
+        cancel_token = get_kokoro_inflight_token()
 
     # Non-blocking signal/kill on current thread
     stop_spd = _proc_running(play) and _is_spd_say(play)
@@ -680,6 +680,35 @@ def _chunk_text(text: str, max_chunk: int = 4000) -> list[str]:
     return chunks
 
 
+def _chunk_cut(text: str, max_chunk: int) -> int:
+    """Find the best cut index in text up to max_chunk characters."""
+    if len(text) <= max_chunk:
+        return len(text)
+    window = text[:max_chunk]
+    split_idx = -1
+    for match in _CHUNK_BREAK_RE.finditer(window):
+        split_idx = match.end()
+    if split_idx < max_chunk // 2:
+        split_idx = window.rfind(" ")
+        if split_idx <= 0:
+            split_idx = max_chunk
+    return split_idx
+
+
+def _endpoint_chunks(text: str) -> list[str]:
+    """Split text for endpoint speech into pieces.
+
+    Replies <= 4000 chars are split with _chunk_text(text, 4000). Longer replies
+    use a first chunk capped near 600 characters followed by 4000-character chunks.
+    """
+    if len(text) <= 4000:
+        return _chunk_text(text, 4000)
+    cut = _chunk_cut(text, 600)
+    first = text[:cut].strip()
+    rest = text[cut:].strip()
+    return [first] + _chunk_text(rest, 4000)
+
+
 def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) -> None:
     """Speak text using built-in OS speech synthesis utilities."""
     if _playback_blocked(generation):
@@ -791,15 +820,21 @@ def _venv_python() -> str | None:
 
 
 def _notify_kokoro_g2p_fallback(
-    stderr_text: str,
+    warning: str,
     misaki_ready: bool | None,
     on_status: Callable[[str], None] | None,
+    *,
+    g2p: str | None = None,
 ) -> None:
     """Surface Misaki fallback to the chat panel."""
-    if misaki_ready is False and on_status is not None:
-        _notify_tts_status(_("Misaki not found; Kokoro used English phonemes"), on_status)
-    elif G2P_FAILED_MARK in stderr_text and on_status is not None:
+    if on_status is None:
+        return
+    if g2p == "misaki":
+        return
+    if G2P_FAILED_MARK in warning:
         _notify_tts_status(_("Kokoro used English phonemes for non-English voice"), on_status)
+    elif misaki_ready is False:
+        _notify_tts_status(_("Misaki not found; Kokoro used English phonemes"), on_status)
 
 
 def _remember_misaki_ready(generation: int | None, lang: str, ready: bool) -> None:
@@ -921,6 +956,49 @@ def _run_synth(
         _clear_speech_proc(proc, "synth")
 
 
+def _run_synth_to_temp(
+    tmp_wav: str,
+    cmd: list[str],
+    generation: int | None,
+    *,
+    label: str,
+    stdin_text: str | None = None,
+    timeout: float | None = None,
+    missing_hint: str | None = None,
+) -> tuple[str | None, str]:
+    """Run a synth command into *tmp_wav*; return (path, stderr).
+
+    path is None on failure and the temp is released. stderr is returned
+    only for an exit-0 run (Kokoro uses it for the G2P fallback notice).
+    """
+    ok = False
+    try:
+        result = _run_synth(cmd, generation, stdin_text=stdin_text, timeout=timeout)
+        if result is None:
+            return None, ""
+        code, _stdout, stderr = result
+        if code != 0:
+            log.warning("%s failed (code %d): %s", label, code, stderr.strip())
+            return None, ""
+        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
+            ok = True
+            return tmp_wav, stderr
+        log.warning("%s produced empty audio", label)
+        return None, stderr
+    except FileNotFoundError as exc:
+        if missing_hint:
+            log.warning(missing_hint)
+        else:
+            log.warning("%s execution error: %s", label, exc)
+        return None, ""
+    except Exception as exc:
+        log.warning("%s execution error: %s", label, exc)
+        return None, ""
+    finally:
+        if not ok:
+            _release_temp(tmp_wav)
+
+
 def _kokoro_warm_to_file(
     text: str,
     voice: str,
@@ -977,7 +1055,12 @@ def _kokoro_warm_to_file(
     ):
         warning = result.get("warning") or ""
         if isinstance(warning, str) and warning.strip():
-            _notify_kokoro_g2p_fallback(warning, misaki_ready, on_status)
+            _notify_kokoro_g2p_fallback(
+                warning,
+                misaki_ready,
+                on_status,
+                g2p=result.get("g2p") if isinstance(result.get("g2p"), str) else None,
+            )
         return tmp_wav, False
     err = result.get("error") if isinstance(result, dict) else result
     log.warning("Warm Kokoro worker failed (%s); falling back to one-shot synthesis", err)
@@ -996,42 +1079,63 @@ def _kokoro_oneshot_to_file(
     on_status: Callable[[str], None] | None = None,
     misaki_ready: bool | None = True,
 ) -> str | None:
-    """Cold python -c Kokoro load. Used when the warm worker cannot start."""
+    """Cold Kokoro load. Used when the warm worker cannot start."""
     if _playback_blocked(generation):
         return None
     tmp_wav = _new_speech_temp(".wav", generation)
     if tmp_wav is None:
         return None
     lang = kokoro_g2p_lang(text, voice)
-    # Pass '-' for text argument and feed text via stdin to avoid argv limits.
-    # communicate used to wait with no timeout, so a hung child blocked the
-    # speech thread until something else called stop.
-    cmd = [py_exe, "-c", KOKORO_ONNX_SCRIPT, "-", voice, str(speed), tmp_wav, model_path, voices_path, lang]
+    worker_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kokoro_worker.py")
+    cmd = [py_exe, worker_py, "--once", "-", voice, str(speed), tmp_wav, model_path, voices_path, lang]
+    ok = False
     try:
-        result = _run_synth(
+        synth_res = _run_synth(
             cmd,
             generation,
             stdin_text=text,
             timeout=_kokoro_synth_timeout(text),
+            capture_stdout=True,
         )
-        if result is None:
-            _release_temp(tmp_wav)
+        if synth_res is None:
             return None
-        code, _stdout, stderr = result
+        code, stdout, stderr = synth_res
         if code != 0:
-            log.warning("Venv Kokoro failed (code %d): %s", code, stderr)
-            _release_temp(tmp_wav)
+            log.warning("Venv Kokoro failed (code %d): %s", code, stderr.strip())
             return None
-        stderr_text = stderr.strip()
-        if stderr_text:
-            log.warning("Kokoro: %s", stderr_text)
-            _notify_kokoro_g2p_fallback(stderr_text, misaki_ready, on_status)
-        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
-            return tmp_wav
+
+        if not (os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0):
+            log.warning("Venv Kokoro produced empty audio")
+            return None
+
+        g2p: str | None = None
+        warning = ""
+        out_str = stdout.strip()
+        if out_str:
+            try:
+                data = json.loads(out_str)
+                if isinstance(data, dict):
+                    if isinstance(data.get("g2p"), str):
+                        g2p = data["g2p"]
+                    if isinstance(data.get("warning"), str):
+                        warning = data["warning"]
+            except Exception:
+                log.debug("Kokoro once stdout was not JSON: %s", out_str)
+
+        if warning.strip():
+            log.warning("Kokoro: %s", warning.strip())
+
+        if warning.strip() or (misaki_ready is False and g2p != "misaki"):
+            _notify_kokoro_g2p_fallback(warning, misaki_ready, on_status, g2p=g2p)
+
+        ok = True
+        return tmp_wav
     except Exception as exc:
         log.warning("Venv Kokoro execution error: %s", exc)
-    _release_temp(tmp_wav)
-    return None
+        return None
+    finally:
+        if not ok:
+            _release_temp(tmp_wav)
 
 
 def _kokoro_cli_to_file(
@@ -1057,22 +1161,10 @@ def _kokoro_cli_to_file(
     if tmp_wav is None:
         return None
     cmd = [cand_cli, "--voice", voice, "--speed", str(speed), "--output", tmp_wav, text]
-    try:
-        result = _run_synth(cmd, generation, timeout=_kokoro_synth_timeout(text))
-        if result is None:
-            _release_temp(tmp_wav)
-            return None
-        code, _stdout, stderr = result
-        if code != 0:
-            log.warning("Kokoro CLI failed (code %d): %s", code, stderr.strip())
-            _release_temp(tmp_wav)
-            return None
-        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
-            return tmp_wav
-    except Exception as exc:
-        log.warning("Kokoro CLI execution error: %s", exc)
-    _release_temp(tmp_wav)
-    return None
+    wav_path, _stderr = _run_synth_to_temp(
+        tmp_wav, cmd, generation, label="Kokoro CLI", timeout=_kokoro_synth_timeout(text),
+    )
+    return wav_path
 
 
 def _kokoro_audio_file(
@@ -1205,30 +1297,16 @@ def _piper_audio_file(
     # Generous scaled timeout based on character count
     timeout = max(30.0, min(600.0, 30.0 + len(text) * 0.2))
 
-    try:
-        result = _run_synth(cmd, generation, stdin_text=text, timeout=timeout)
-        if result is None:
-            _release_temp(tmp_wav)
-            return None
-        code, _stdout, stderr = result
-        if code != 0:
-            log.warning("Piper process failed (code %d): %s", code, stderr)
-            # A non-zero exit used to return the file whenever getsize > 0, so
-            # a partial wav was played; Kokoro CLI was fixed the same way and
-            # Piper was left on the old path when both moved onto _run_synth.
-            _release_temp(tmp_wav)
-            return None
-        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
-            return tmp_wav
-        log.warning("Piper produced empty audio for voice %s", voice)
-    except FileNotFoundError:
-        log.warning(
-            "Local Piper executable not found in configured venv. Install via 'uv pip install piper-tts'."
-        )
-    except Exception as exc:
-        log.warning("Piper synthesis error: %s", exc)
-    _release_temp(tmp_wav)
-    return None
+    wav_path, _stderr = _run_synth_to_temp(
+        tmp_wav,
+        cmd,
+        generation,
+        label="Piper",
+        stdin_text=text,
+        timeout=timeout,
+        missing_hint="Local Piper executable not found in configured venv. Install via 'uv pip install piper-tts'.",
+    )
+    return wav_path
 
 
 def _speak_piper_local(
@@ -1391,31 +1469,135 @@ def _speak_endpoint(
     if _playback_blocked(generation):
         return
 
-    # Hosted /audio/speech rejects inputs around 4096 characters. One POST of
-    # a long reply used to 400 and fall back to OS speech for the whole thing.
-    chunks = _chunk_text(text, 4000)
-    for index, chunk in enumerate(chunks):
+    chunks = _endpoint_chunks(text)
+    if not chunks:
+        return
+
+    def stop_checker() -> bool:
+        return _playback_blocked(generation)
+
+    if len(chunks) == 1:
+        chunk = chunks[0]
+        clip = _download_endpoint_speech(
+            chunk,
+            endpoint_url,
+            api_key,
+            model,
+            voice,
+            speed=speed,
+            on_status=on_status,
+            stop_checker=stop_checker,
+        )
         if _playback_blocked(generation):
             return
-        # Pass on_status on every chunk: later chunks only hit on_status for a
-        # failed or empty download, and chunk 0 already shows that line.
-        wav_path = _download_endpoint_speech(
-            chunk, endpoint_url, api_key, model, voice, speed=speed, generation=generation,
-            on_status=on_status,
-        )
         played = False
-        if wav_path:
-            try:
-                played = _play_audio_file(wav_path, generation=generation)
-            finally:
-                _release_temp(wav_path)
+        if clip:
+            tmp_path = _new_speech_temp(clip.suffix, generation)
+            if tmp_path is None:
+                if not _playback_blocked(generation):
+                    _notify_tts_status(_("Could not save speech audio."), on_status)
+                played = False
+            else:
+                try:
+                    with open(tmp_path, "wb") as f_out:
+                        f_out.write(clip.audio)
+                    played = _play_audio_file(tmp_path, generation=generation)
+                except OSError:
+                    log.exception("Could not write TTS audio to %s", tmp_path)
+                    if not _playback_blocked(generation):
+                        _notify_tts_status(_("Could not save speech audio."), on_status)
+                    played = False
+                finally:
+                    _release_temp(tmp_path)
         if _playback_blocked(generation):
             return
         if played is False:
-            rest = " ".join(chunks[index:])
             log.warning("Endpoint TTS failed; falling back to OS system speech.")
-            _speak_system(rest, speed=speed, generation=generation)
+            _speak_system(chunk, speed=speed, generation=generation)
+        return
+
+    # Two or more chunks: pipeline prefetching
+    eff_gen = _speech_generation if generation is None else generation
+    global _ready_queue
+    with _speech_lock:
+        if _playback_blocked_locked(generation):
             return
+        ready = _ReadyQueue(SPEECH_READY_MAX_CLIPS, SPEECH_READY_MAX_BYTES)
+        _ready_queue = ready
+
+    def _produce() -> None:
+        try:
+            for index, chunk in enumerate(chunks):
+                if _playback_blocked(generation):
+                    return
+                clip = _download_endpoint_speech(
+                    chunk,
+                    endpoint_url,
+                    api_key,
+                    model,
+                    voice,
+                    speed=speed,
+                    on_status=on_status,
+                    stop_checker=stop_checker,
+                )
+                if _playback_blocked(generation):
+                    return
+                if clip is None:
+                    remaining = chunks[index:]
+                    if not _playback_blocked(generation):
+                        ready.put(_ReadyClip(None, " ".join(remaining), 0, True), eff_gen)
+                    return
+                tmp_path = _new_speech_temp(clip.suffix, generation)
+                if tmp_path is None:
+                    if not _playback_blocked(generation):
+                        _notify_tts_status(_("Could not save speech audio."), on_status)
+                    remaining = chunks[index:]
+                    if not _playback_blocked(generation):
+                        ready.put(_ReadyClip(None, " ".join(remaining), 0, True), eff_gen)
+                    return
+                try:
+                    with open(tmp_path, "wb") as f_out:
+                        f_out.write(clip.audio)
+                except OSError:
+                    log.exception("Could not write TTS audio to %s", tmp_path)
+                    _release_temp(tmp_path)
+                    if not _playback_blocked(generation):
+                        _notify_tts_status(_("Could not save speech audio."), on_status)
+                    remaining = chunks[index:]
+                    if not _playback_blocked(generation):
+                        ready.put(_ReadyClip(None, " ".join(remaining), 0, True), eff_gen)
+                    return
+                if not ready.put(_ReadyClip(tmp_path, chunk, len(clip.audio), False), eff_gen):
+                    _release_temp(tmp_path)
+                    return
+        except Exception:
+            log.exception("TTS endpoint prefetch thread failed")
+        finally:
+            ready.close()
+
+    run_in_background(_produce, dedicated=True, name="tts-endpoint-prefetch")
+    try:
+        while True:
+            item = ready.get(eff_gen)
+            if item is None:
+                break
+            try:
+                played = False
+                if item.path:
+                    played = _play_audio_file(item.path, generation=generation)
+                    if played is False and not _playback_blocked(generation):
+                        _speak_system(item.text, speed=speed, generation=generation)
+                elif item.speak_system and not _playback_blocked(generation):
+                    _speak_system(item.text, speed=speed, generation=generation)
+            finally:
+                _release_temp(item.path)
+    finally:
+        ready.close()
+        for path in ready.drain():
+            _unlink_quiet(path)
+        with _speech_lock:
+            if _ready_queue is ready:
+                _ready_queue = None
 
 
 def speak_text_async(

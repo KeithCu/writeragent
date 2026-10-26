@@ -14,7 +14,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.audio.kokoro_g2p import KOKORO_ONNX_SCRIPT
 from plugin.audio.tts_service import (
     clean_text_for_speech,
     is_speaking,
@@ -246,12 +245,11 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
         return launched[0], ensure
 
     ja_cmd, ja_ensure = _launch("こんにちは", "jf_alpha")
-    assert ja_cmd[1] == "-c"
-    assert ja_cmd[2] == KOKORO_ONNX_SCRIPT
+    assert ja_cmd[1].endswith("kokoro_worker.py")
+    assert ja_cmd[2] == "--once"
     assert ja_cmd[3] == "-"
     assert ja_cmd[4] == "jf_alpha"
     assert ja_cmd[9] == "ja"
-    assert "is_phonemes=True" in ja_cmd[2]
 
 
 def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tmp_path):
@@ -838,6 +836,27 @@ def test_piper_rejects_nonzero_exit_even_when_wav_is_nonempty(tmp_path):
     release.assert_called_with(str(wav))
 
 
+def test_run_synth_to_temp_returns_a_path_only_for_a_nonempty_file(tmp_path):
+    from plugin.audio.tts_service import _run_synth_to_temp
+
+    wav = tmp_path / "out.wav"
+    with patch("plugin.audio.tts_service._run_synth", return_value=(0, "", "")), \
+         patch("plugin.audio.tts_service._release_temp") as release:
+        assert _run_synth_to_temp(str(wav), ["cmd"], None, label="T") == (None, "")
+        release.assert_called_once_with(str(wav))
+
+    wav.write_bytes(b"RIFF")
+    with patch("plugin.audio.tts_service._run_synth", return_value=(2, "", "boom")), \
+         patch("plugin.audio.tts_service._release_temp") as release:
+        assert _run_synth_to_temp(str(wav), ["cmd"], None, label="T") == (None, "")
+        release.assert_called_once_with(str(wav))
+
+    with patch("plugin.audio.tts_service._run_synth", return_value=(0, "", "warn")), \
+         patch("plugin.audio.tts_service._release_temp") as release:
+        assert _run_synth_to_temp(str(wav), ["cmd"], None, label="T") == (str(wav), "warn")
+    release.assert_not_called()
+
+
 def test_play_audio_file_player_order_and_fallback(tmp_path):
     """Bug 3: Player chosen by suffix, exit code checked, fallback on failure."""
     from plugin.audio.tts_service import _play_audio_file
@@ -1410,4 +1429,58 @@ def test_stop_speech_reaps_inline_when_cleanup_thread_fails(tmp_path: Any) -> No
     finally:
         patcher.stop()
         tts.stop_speech()
+
+
+def test_notify_kokoro_g2p_fallback():
+    from plugin.audio.kokoro_g2p import g2p_fallback_warning
+    from plugin.audio.tts_service import _notify_kokoro_g2p_fallback
+
+    messages: list[str] = []
+
+    # warning with voice substitute, misaki_ready=False, g2p="misaki" -> list stays empty
+    _notify_kokoro_g2p_fallback(
+        "Kokoro voice 'jf_x' is not in /v; using af_sky",
+        False,
+        messages.append,
+        g2p="misaki",
+    )
+    assert messages == []
+
+    # warning with G2P_FAILED_MARK, misaki_ready=False, g2p="espeak" -> English-phonemes line
+    warn = g2p_fallback_warning("ja", RuntimeError("boom"))
+    _notify_kokoro_g2p_fallback(warn, False, messages.append, g2p="espeak")
+    assert len(messages) == 1
+    assert "Kokoro used English phonemes for non-English voice" in messages[0]
+    assert "Misaki not found" not in messages[0]
+
+    # warning="", misaki_ready=False, g2p=None -> "Misaki not found" line
+    messages.clear()
+    _notify_kokoro_g2p_fallback("", False, messages.append, g2p=None)
+    assert len(messages) == 1
+    assert "Misaki not found; Kokoro used English phonemes" in messages[0]
+
+
+def test_stop_speech_reads_cancel_token_under_speech_lock():
+    import plugin.audio.tts_service as tts
+
+    old_token = "token_old"
+    new_token = "token_new"
+    cancelled_tokens: list[str] = []
+
+    def fake_get_token():
+        acquired = tts._speech_lock.acquire(blocking=False)
+        if acquired:
+            tts._speech_lock.release()
+            return new_token
+        return old_token
+
+    def fake_cancel_token(token):
+        cancelled_tokens.append(token)
+
+    with patch("plugin.audio.tts_service.get_kokoro_inflight_token", side_effect=fake_get_token), \
+         patch("plugin.audio.tts_service.cancel_kokoro_inflight", side_effect=fake_cancel_token):
+        gen_before = tts._speech_generation
+        tts.stop_speech()
+        assert tts._speech_generation == gen_before + 1
+        assert cancelled_tokens == [old_token]
 

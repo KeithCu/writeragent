@@ -320,3 +320,47 @@ def test_write_oxt_zip_deterministic_and_atomic(tmp_path, monkeypatch):
         write_oxt_zip(str(bundle), str(out1))
     assert out1.read_bytes() == prev_bytes
 
+
+def test_verify_bundle_manifest_requires_audio_catalog(tmp_path):
+    meta_inf = tmp_path / "META-INF"
+    meta_inf.mkdir(parents=True)
+    (meta_inf / "manifest.xml").write_text(
+        '<manifest:manifest xmlns:manifest="http://openoffice.org/2001/manifest"/>',
+        encoding="utf-8",
+    )
+    plugin_dir = tmp_path / "plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "_manifest.py").write_text("", encoding="utf-8")
+    (tmp_path / "Addons.xcu").write_text("", encoding="utf-8")
+    (plugin_dir / "audio").mkdir(parents=True)
+
+    with pytest.raises(RuntimeError, match="voice_catalog.json"):
+        verify_bundle_manifest(str(tmp_path))
+
+
+def test_verify_bundle_manifest_accepts_audio_catalog(tmp_path):
+    meta_inf = tmp_path / "META-INF"
+    meta_inf.mkdir(parents=True)
+    (meta_inf / "manifest.xml").write_text(
+        '<manifest:manifest xmlns:manifest="http://openoffice.org/2001/manifest"/>',
+        encoding="utf-8",
+    )
+    plugin_dir = tmp_path / "plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "_manifest.py").write_text("", encoding="utf-8")
+    (tmp_path / "Addons.xcu").write_text("", encoding="utf-8")
+    audio_data = plugin_dir / "audio" / "data"
+    audio_data.mkdir(parents=True)
+    (audio_data / "voice_catalog.json").write_text("{}", encoding="utf-8")
+
+    verify_bundle_manifest(str(tmp_path))
+
+
+def test_audio_voice_catalog_is_included():
+    from scripts.build_oxt import get_always_include_plugin
+
+    assert os.path.isfile(os.path.join(PROJECT_ROOT, "plugin/audio/data/voice_catalog.json"))
+    assert should_exclude("plugin/audio/data/voice_catalog.json") is False
+    assert "plugin/audio/" in get_always_include_plugin(PROJECT_ROOT)
+
+

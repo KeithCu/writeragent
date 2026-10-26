@@ -862,13 +862,11 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
         self._syncing = True
         try:
             from plugin.audio.tts_voices import (
-                _preferred_harvested_voice,
                 clean_provider_name,
                 clean_voice_name,
-                get_default_voice_for_locale,
-                get_voice_family,
+                pick_voice_id,
+                resolve_voice_context,
                 voice_choice_to_id,
-                voice_options_for_provider,
             )
             from plugin.framework import config
 
@@ -885,9 +883,10 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 set_control_enabled(model_ctrl, provider == "endpoint")
 
             if voice_ctrl and hasattr(voice_ctrl, "getModel"):
-                catalog = voice_options_for_provider(
+                context = resolve_voice_context(
                     provider, raw_model, endpoint=endpoint,
                 )
+                catalog = context.rows
                 labels = tuple(opt["label"] for opt in catalog)
 
                 model = voice_ctrl.getModel()
@@ -906,32 +905,16 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 current_text = voice_ctrl.getText() if hasattr(voice_ctrl, "getText") else ""
                 # Display text is the parenthetical, not the id. Match this list.
                 current_id = voice_choice_to_id(current_text, catalog)
-                # Read the stored id so an empty combo can show it. Do not write
-                # it back: opening Settings or switching provider used to call
-                # set_scoped_tts_voice here, so Cancel could not undo the change
-                # and a stale id was "repaired" on disk just by showing the
-                # fallback. apply_settings_result persists the combo on OK.
-                family = get_voice_family(provider, raw_model, endpoint)
-                stored = clean_voice_name(str(config.get_config(f"audio.tts_voice_{family}") or ""))
-                by_value = {opt["value"]: opt["label"] for opt in catalog}
-                if current_id in by_value:
-                    chosen = current_id
-                elif not current_id and stored in by_value:
-                    chosen = stored
-                else:
-                    # Visible or saved voice belongs to another model (often alloy).
-                    # Remote lists share the speak fallback. Kokoro and Piper use
-                    # the locale default when that id is in the catalog.
-                    if provider == "endpoint" and family not in ("kokoro", "piper"):
-                        chosen = _preferred_harvested_voice(
-                            raw_model, [opt["value"] for opt in catalog],
-                        )
-                    else:
-                        # Locale default (Piper female / Kokoro map), not merely
-                        # whichever row the catalog listed first.
-                        locale_default = get_default_voice_for_locale(family)
-                        chosen = locale_default if locale_default in by_value else catalog[0]["value"]
+                stored = clean_voice_name(str(config.get_config(f"audio.tts_voice_{context.family}") or ""))
+                chosen = pick_voice_id(
+                    family=context.family,
+                    model=raw_model,
+                    options=catalog,
+                    current_id=current_id,
+                    stored_id=stored,
+                )
 
+                by_value = {opt["value"]: opt["label"] for opt in catalog}
                 target_label = by_value.get(chosen, "")
                 # Promote a raw voice id (or a previous family's label) to the catalog label.
                 if target_label and current_text != target_label:

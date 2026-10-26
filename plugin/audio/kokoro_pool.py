@@ -41,6 +41,7 @@ from typing import Any, Callable
 
 from plugin.framework.errors import best_effort
 from plugin.framework.managed_subprocess import ManagedSubprocess
+from plugin.framework.process_worker import Deadline, error_dict
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.ipc import (
     IpcPartialFrameTimeout,
@@ -54,10 +55,13 @@ log = logging.getLogger(__name__)
 
 _SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kokoro_worker.py")
 _SPAWN_READY_TIMEOUT_SEC = 20.0
+_MIN_SPAWN_REMAINING_SEC = 0.25
 _DEFAULT_JOB_TIMEOUT_SEC = 120.0
 # Long enough to cover a chat reply, short enough that an abandoned CPU model
 # does not sit in RAM for the rest of the LibreOffice session.
 _DEFAULT_IDLE_TTL_SEC = 300.0
+_SEEN_WARNINGS_MAX = 32
+WORKER_CANCELLED = "WORKER_CANCELLED"
 
 
 def _extension_root() -> str:
@@ -72,6 +76,14 @@ def _child_env() -> dict[str, str]:
     # breaks venv imports). Put it back as only the extension root.
     env["PYTHONPATH"] = root
     return env
+
+
+def _error_with_tail(code: str, msg: str, tail: str, *, with_message: bool = False) -> dict[str, Any]:
+    """``error_dict`` whose ``error`` ends with the child's stderr tail (also under ``stderr``)."""
+    res = error_dict(code, f"{msg}\n{tail}" if tail else msg, message=msg if with_message else None)
+    if tail:
+        res["stderr"] = tail
+    return res
 
 
 class _KokoroWorker:
@@ -102,10 +114,18 @@ class _KokoroWorker:
             base_env=env,
             command_wrapper=None,
             optimize_pipes=True,
+            stderr_name="wa-kokoro",
+            stderr_name_with_pid=True,
             label="Kokoro",
         )
         self._shutting_down = False
         self._killed = False
+
+    def stderr_tail(self) -> str:
+        text = self._managed.stderr_text()
+        if not text.strip() and not self.is_alive():
+            text = self._managed.join_stderr(0.5)
+        return text.strip()[-500:]
 
     def respawn(self) -> None:
         if self._shutting_down:
@@ -147,62 +167,56 @@ class _KokoroWorker:
         except Exception as exc:
             log.error("Kokoro spawn handshake timed out or failed: %s", exc)
             self.kill()
+        except BaseException:
+            # Bugfix: an interrupt used to skip kill() because it is not an Exception;
+            # the worker stayed published and the next job consumed its unread frame.
+            # kill() sets _killed, so is_alive() is false and the next job spawns.
+            self.kill()
+            raise
 
     def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
         stdin = self._managed.stdin
         stdout = self._managed.stdout
         if stdin is None or stdout is None or not self.is_alive():
             self.kill()
-            return {
-                "status": "error",
-                "code": "WORKER_CRASHED",
-                "error": "Kokoro worker has no stdio pipes or is not alive.",
-                "message": "Kokoro worker has no stdio pipes or is not alive.",
-            }
+            return _error_with_tail("WORKER_CRASHED", "Kokoro worker has no stdio pipes or is not alive.", self.stderr_tail(), with_message=True)
 
         start_time = time.monotonic()
         try:
             frame = pack_pickle_frame(payload)
         except Exception as exc:
-            return {
-                "status": "error",
-                "code": "REQUEST_NOT_SERIALIZABLE",
-                "error": str(exc),
-            }
+            return error_dict("REQUEST_NOT_SERIALIZABLE", str(exc))
 
         try:
             write_packed_frame_with_timeout(stdin, frame, timeout_sec, is_alive=self.is_alive)
         except subprocess.TimeoutExpired:
             self.kill()
-            msg = f"Execution exceeded maximum timeout of {timeout_sec} seconds."
-            return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
+            return _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {timeout_sec} seconds.", self.stderr_tail(), with_message=True)
         except Exception as exc:
             self.kill()
-            msg = f"Failed to send request to Kokoro: {exc}"
-            return {"status": "error", "code": "WORKER_PIPE_BROKEN", "error": msg}
+            return _error_with_tail("WORKER_PIPE_BROKEN", f"Failed to send request to Kokoro: {exc}", self.stderr_tail())
 
         elapsed = time.monotonic() - start_time
         remaining = timeout_sec - elapsed
         if remaining <= 0:
             self.kill()
-            msg = f"Execution exceeded maximum timeout of {timeout_sec} seconds."
-            return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
+            return _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {timeout_sec} seconds.", self.stderr_tail(), with_message=True)
 
         try:
             resp = read_pickle_frame(stdout, remaining, is_alive=self.is_alive, require_dict=True)
             if not isinstance(resp, dict):
                 self.kill()
-                msg = "No response returned from Kokoro."
-                return {"status": "error", "code": "EMPTY_RESPONSE", "error": msg}
+                return _error_with_tail("EMPTY_RESPONSE", "No response returned from Kokoro.", self.stderr_tail())
             return resp
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
             self.kill()
-            msg = f"Execution exceeded maximum timeout of {timeout_sec} seconds."
-            return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
+            return _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {timeout_sec} seconds.", self.stderr_tail(), with_message=True)
         except Exception as exc:
             self.kill()
-            msg = f"Kokoro error: {exc}"
-            return {"status": "error", "code": "WORKER_CRASHED", "error": msg, "message": msg}
+            return _error_with_tail("WORKER_CRASHED", f"Kokoro error: {exc}", self.stderr_tail(), with_message=True)
+        except BaseException:
+            self.kill()
+            raise
 
     def is_alive(self) -> bool:
         return not self._killed and self._managed.is_alive()
@@ -225,6 +239,11 @@ class _KokoroWorker:
         # immediately, surfacing spawn failures as WORKER_SPAWN_FAILED.
         self._killed = True
         self._managed.kill_tree()
+        if not bool(self._managed.is_alive()):
+            self._managed.close_stdio()
+            if self._managed.wait_once():
+                self._managed.unregister()
+                return True
         self._managed.abandon()
         return True
 
@@ -264,7 +283,7 @@ class KokoroProcessPool:
     _shutdown: bool
     _last_active: float
     _reaper_stop: threading.Event
-    _seen_warnings: set[str]
+    _seen_warnings: dict[str, None]
 
     def __init__(
         self,
@@ -290,7 +309,7 @@ class KokoroProcessPool:
         self._shutdown = False
         self._last_active = time.monotonic()
         self._reaper_stop = threading.Event()
-        self._seen_warnings = set()
+        self._seen_warnings = {}
         if idle_worker_ttl_sec is not None and idle_worker_ttl_sec > 0:
             self._start_reaper()
 
@@ -326,7 +345,7 @@ class KokoroProcessPool:
         with self._job_lock:
             with self._lock:
                 if self._shutdown:
-                    return {"status": "error", "code": "WORKER_SHUTDOWN", "error": "Kokoro pool is shut down."}
+                    return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
 
             if cancel_check is not None and cancel_check():
                 # What was wrong: _inflight was set first, then cancel_inflight killed
@@ -336,16 +355,12 @@ class KokoroProcessPool:
                 # Why this fixes it: a true cancel_check returns WORKER_CANCELLED
                 # without publishing the token or setting _inflight, leaving the warm
                 # idle worker in place.
-                return {
-                    "status": "error",
-                    "code": "WORKER_CANCELLED",
-                    "error": "Kokoro worker was cancelled.",
-                }
+                return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
 
             token = object()
             with self._lock:
                 if self._shutdown:
-                    return {"status": "error", "code": "WORKER_SHUTDOWN", "error": "Kokoro pool is shut down."}
+                    return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
                 self._inflight = True
                 self._exec_token = token
                 self._last_active = time.monotonic()
@@ -354,71 +369,94 @@ class KokoroProcessPool:
                 # could not reap, so is_alive() is false and this job may spawn.
                 reuse = existing is not None and existing.is_alive() and not existing.is_shutting_down()
 
+            deadline = Deadline(eff_timeout)
             token_stolen = False
             result: dict[str, Any] = {}
+            spawned_worker: _KokoroWorker | None = None
             try:
                 if existing is not None and not reuse:
                     self._retire_worker(existing)
                     with self._lock:
                         if self._worker is existing:
                             self._worker = None
-                worker = existing if reuse else None
-                if worker is None:
-                    spawned = _KokoroWorker(
-                        self.python_executable,
-                        self.script_path,
-                        env=_child_env(),
-                        ready_timeout_sec=_SPAWN_READY_TIMEOUT_SEC,
-                    )
-                    spawn_aborted = False
-                    with self._lock:
-                        # Cancel during the gap before Popen: do not start the child.
-                        if self._shutdown or self._exec_token is not token:
-                            spawn_aborted = True
-                        else:
-                            # Visible to cancel_inflight before the ready handshake blocks.
-                            self._worker = spawned
-                    if spawn_aborted:
-                        result = {
-                            "status": "error",
-                            "code": "WORKER_CANCELLED",
-                            "error": "Kokoro worker spawn was cancelled.",
-                        }
+
+                if reuse:
+                    if deadline.left() <= 0:
+                        msg = f"Execution exceeded maximum timeout of {eff_timeout} seconds."
+                        result = error_dict("EXECUTION_TIMEOUT", msg, message=msg)
+                        worker = None
                     else:
-                        spawned.respawn()
-                        spawn_cancelled = False
-                        failed = False
+                        worker = existing
+                else:
+                    worker = None
+
+                if worker is None and not result:
+                    if deadline.left() < _MIN_SPAWN_REMAINING_SEC:
+                        msg = f"Execution exceeded maximum timeout of {eff_timeout} seconds."
+                        result = error_dict("EXECUTION_TIMEOUT", msg, message=msg)
+                    else:
+                        ready_timeout = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
+                        spawned = _KokoroWorker(
+                            self.python_executable,
+                            self.script_path,
+                            env=_child_env(),
+                            ready_timeout_sec=ready_timeout,
+                        )
+                        spawned_worker = spawned
+                        spawn_aborted = False
                         with self._lock:
-                            # Token drop means Stop or shutdown. A crashed handshake
-                            # kills the child without setting ``_shutting_down``, so
-                            # that flag is not "cancelled": a real spawn failure must
-                            # stay WORKER_SPAWN_FAILED and fall back to the one-shot clip.
-                            spawn_cancelled = self._shutdown or self._exec_token is not token
-                            # A handshake that could not reap has already dropped the
-                            # child, so is_alive() is false and this stays a failed spawn.
-                            failed = spawn_cancelled or not spawned.is_alive()
-                            if failed and self._worker is spawned:
-                                self._worker = None
-                        if failed:
-                            self._retire_worker(spawned)
-                            if spawn_cancelled:
-                                result = {
-                                    "status": "error",
-                                    "code": "WORKER_CANCELLED",
-                                    "error": "Kokoro worker spawn was cancelled.",
-                                }
+                            # Cancel during the gap before Popen: do not start the child.
+                            if self._shutdown or self._exec_token is not token:
+                                spawn_aborted = True
                             else:
-                                result = {
-                                    "status": "error",
-                                    "code": "WORKER_SPAWN_FAILED",
-                                    "error": "Kokoro worker could not be started.",
-                                }
+                                # Visible to cancel_inflight before the ready handshake blocks.
+                                self._worker = spawned
+                        if spawn_aborted:
+                            result = error_dict(WORKER_CANCELLED, "Kokoro worker spawn was cancelled.")
                         else:
-                            worker = spawned
+                            spawned.respawn()
+                            spawn_cancelled = False
+                            failed = False
+                            with self._lock:
+                                # Token drop means Stop or shutdown. A crashed handshake
+                                # kills the child without setting ``_shutting_down``, so
+                                # that flag is not "cancelled": a real spawn failure must
+                                # stay WORKER_SPAWN_FAILED and fall back to the one-shot clip.
+                                spawn_cancelled = self._shutdown or self._exec_token is not token
+                                # A handshake that could not reap has already dropped the
+                                # child, so is_alive() is false and this stays a failed spawn.
+                                failed = spawn_cancelled or not spawned.is_alive()
+                                if failed and self._worker is spawned:
+                                    self._worker = None
+                            if failed:
+                                self._retire_worker(spawned)
+                                if spawn_cancelled:
+                                    result = error_dict(WORKER_CANCELLED, "Kokoro worker spawn was cancelled.")
+                                elif deadline.left() < _MIN_SPAWN_REMAINING_SEC:
+                                    result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", spawned.stderr_tail(), with_message=True)
+                                else:
+                                    result = _error_with_tail("WORKER_SPAWN_FAILED", "Kokoro worker could not be started.", spawned.stderr_tail())
+                            else:
+                                if deadline.left() <= 0:
+                                    self._retire_worker(spawned)
+                                    with self._lock:
+                                        if self._worker is spawned:
+                                            self._worker = None
+                                    msg = f"Execution exceeded maximum timeout of {eff_timeout} seconds."
+                                    result = error_dict("EXECUTION_TIMEOUT", msg, message=msg)
+                                else:
+                                    worker = spawned
+
                 if worker is not None:
-                    result = worker.execute(payload, eff_timeout)
+                    result = worker.execute(payload, deadline.left())
             finally:
                 with self._lock:
+                    if (
+                        spawned_worker is not None
+                        and self._worker is spawned_worker
+                        and not spawned_worker.is_alive()
+                    ):
+                        self._worker = None
                     # Cancel drops the token; this finally must not clear a
                     # token cancel_inflight already cleared. A second execute
                     # waits on _job_lock until this finally releases it, so it
@@ -431,11 +469,7 @@ class KokoroProcessPool:
                         token_stolen = True
 
         if token_stolen:
-            return {
-                "status": "error",
-                "code": "WORKER_CANCELLED",
-                "error": "Kokoro worker was cancelled.",
-            }
+            return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
         raw_warning = result.get("warning")
         if isinstance(raw_warning, str):
             text = raw_warning.strip()
@@ -443,7 +477,9 @@ class KokoroProcessPool:
                 first = False
                 with self._lock:
                     if text not in self._seen_warnings:
-                        self._seen_warnings.add(text)
+                        if len(self._seen_warnings) >= _SEEN_WARNINGS_MAX:
+                            del self._seen_warnings[next(iter(self._seen_warnings))]
+                        self._seen_warnings[text] = None
                         first = True
                 if first:
                     log.warning("Kokoro: %s", text)
@@ -528,6 +564,7 @@ class KokoroProcessPool:
 _POOL: KokoroProcessPool | None = None
 _POOL_LOCK = threading.Lock()
 _POOL_PYTHON: str | None = None
+_POOL_CONFIG_VENV: str | None = None
 
 
 def resolve_kokoro_python() -> str | None:
@@ -542,27 +579,37 @@ def resolve_kokoro_python() -> str | None:
 
 def get_kokoro_pool() -> KokoroProcessPool | None:
     """Lazy singleton. None when no venv Python is configured."""
-    global _POOL, _POOL_PYTHON
-    py = resolve_kokoro_python()
-    if not py:
-        return None
+    global _POOL, _POOL_PYTHON, _POOL_CONFIG_VENV
+    from plugin.framework.config import get_config_str
+
+    venv_str = get_config_str("scripting.python_venv_path").strip()
     with _POOL_LOCK:
+        # Same configured path: reuse without re-resolving the interpreter.
+        if venv_str and _POOL is not None and _POOL_CONFIG_VENV == venv_str:
+            return _POOL
+        py = resolve_venv_python(venv_str) if venv_str else None
         if _POOL is not None and _POOL_PYTHON != py:
             _POOL.shutdown()
             _POOL = None
+        if not py:
+            _POOL_PYTHON = None
+            _POOL_CONFIG_VENV = None
+            return None
         if _POOL is None:
             _POOL = KokoroProcessPool(py)
             _POOL_PYTHON = py
+        _POOL_CONFIG_VENV = venv_str
         return _POOL
 
 
 def shutdown_kokoro_pool() -> None:
     """Tests and interpreter shutdown. Safe to call when the pool was never used."""
-    global _POOL, _POOL_PYTHON
+    global _POOL, _POOL_PYTHON, _POOL_CONFIG_VENV
     with _POOL_LOCK:
         pool = _POOL
         _POOL = None
         _POOL_PYTHON = None
+        _POOL_CONFIG_VENV = None
     if pool is not None:
         pool.shutdown()
 
