@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from plugin.calc.address_utils import format_address, qualify_a1
+from plugin.calc.address_utils import format_address, format_range, qualify_a1
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.python.function import to_calc_compatible
+from plugin.framework.errors import CalcError
 
 
 def _cell(value: Any) -> Any:
@@ -146,5 +147,26 @@ def insert_tabular_result_into_calc(
         addr = qualify_a1(sheet_name, addr)
 
     grid = pad_grid(grid)
+    rows = len(grid)
+    cols = len(grid[0]) if rows > 0 else 0
+    if rows > 0 and cols > 0:
+        # Refuse to overwrite user data, same as _write_array_formula in manipulator.py.
+        sheet = bridge.get_sheet(sheet_name) if sheet_name else bridge.get_active_sheet()
+        occupied: list[tuple[int, int]] = []
+        for r in range(start_row, start_row + rows):
+            for c in range(start_col, start_col + cols):
+                cell = sheet.getCellByPosition(c, r)
+                formula = cell.getFormula()
+                text = cell.getString()
+                if (isinstance(formula, str) and formula) or (isinstance(text, str) and text):
+                    occupied.append((c, r))
+        if occupied:
+            block_name = format_range(start_col, start_row, start_col + cols - 1, start_row + rows - 1, collapse_single=True)
+            block_c, block_r = occupied[0]
+            raise CalcError(
+                "The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere."
+                % (block_name, len(occupied), format_address(block_c, block_r))
+            )
+
     manipulator.write_formula_range(addr, grid, data_text=True)
     return len(grid)
