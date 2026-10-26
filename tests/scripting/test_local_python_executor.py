@@ -105,6 +105,12 @@ def test_executor_still_forbids_class_dunder():
         raise AssertionError("np.__class__ must remain forbidden")
 
 
+def test_executor_allows_repr_builtin():
+    executor = _executor_with_dummy_version()
+    executor("result = repr([1, 'a'])")
+    assert executor.state["result"] == "[1, 'a']"
+
+
 def test_local_python_executor_does_not_import_tools():
     """LibrePy ships LPE without the smolagents Tool chain."""
     from pathlib import Path
