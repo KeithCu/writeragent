@@ -65,7 +65,7 @@
   }
 
   // WARNING: If you change this starter template, also update starter_code in:
-  // plugin/scripting/python_runner_ui.py (_NewListener)
+  // plugin/scripting/python_runner_ui.py (_on_new)
   var NEW_SCRIPT_TEMPLATE = '# A simple script\nresult = "Hello from Python!"\n';
 
   function applyScriptManagerChrome() {
@@ -467,7 +467,7 @@
   }
 
   // WARNING: If you change script creation/save-as modal logic, also update:
-  // plugin/scripting/python_runner_ui.py (_NewListener, _SaveAsListener)
+  // plugin/scripting/python_runner_ui.py (_on_new, _on_save_as)
   // and dialog layout in extension/Dialogs/NewScriptDialog.xdl
   function onConfirmScriptModal() {
     var nameInput = document.getElementById("new-script-name-input");
@@ -507,13 +507,13 @@
     closeScriptModal();
   }
 
-  // WARNING: If you change Save As logic, also update _SaveAsListener in:
+  // WARNING: If you change Save As logic, also update _on_save_as in:
   // plugin/scripting/python_runner_ui.py
   function onSaveAs() {
     openScriptModal("save_as");
   }
 
-  // WARNING: If you change Delete logic, also update _DeleteListener in:
+  // WARNING: If you change Delete logic, also update _on_delete in:
   // plugin/scripting/python_runner_ui.py
   function onDeleteScript() {
     var name = currentSelectedName;

@@ -14,7 +14,7 @@ Derived from ``DANGEROUS_MODULES``, ``NETWORK_BLOCKED_MODULES``, and
 from __future__ import annotations
 
 from plugin.framework.constants import AUTO_IMPORTS
-from plugin.framework.deal_shim import UNDER_CROSSHAIR, ascii_bounded, deal
+from plugin.framework.deal_shim import deal
 from plugin.scripting.sandbox import (
     DANGEROUS_MODULES,
     FILE_BLOCKED_MODULES,
@@ -30,6 +30,11 @@ PYTHON_VENV_SANDBOX_CONTEXT_PREFIX = (
     "or dictionary with structured keys) to the 'result' variable. Prefer NumPy arrays in 'result' for faster serialization. "
     "Note: While the sandboxed venv has NumPy/Pandas, the LibreOffice host environment does not. "
     "Therefore, the specialized_workflow_finished tool API only accepts basic Python types (strings, lists, numbers, dicts)."
+)
+
+_ALLOW_ALL_NOTE = (
+    "All other non-internal imports are allowed. Extra modules in Settings override this list; "
+    "each also allows name.*."
 )
 
 
@@ -51,24 +56,7 @@ def _process_blocked_list() -> str:
     return ", ".join(m for m in DANGEROUS_MODULES if m in _PROCESS_MODULES)
 
 
-# _DEAL_ALIAS_MOD and _DEAL_ALIAS_STMT constrain string lengths of module names
-# and import statements passed into _auto_import_alias during formal contract
-# verification to avoid exponential SMT exploration while accommodating all
-# AUTO_IMPORTS entries.
-_DEAL_ALIAS_MOD = 32 if UNDER_CROSSHAIR else 64
-_DEAL_ALIAS_STMT = 48 if UNDER_CROSSHAIR else 128
-
-
-def _deal_auto_import_alias_ok(module_name: object, import_stmt: object) -> bool:
-    return ascii_bounded(module_name, _DEAL_ALIAS_MOD) and ascii_bounded(
-        import_stmt, _DEAL_ALIAS_STMT
-    )
-
-
-@deal.pre(lambda module_name, import_stmt: _deal_auto_import_alias_ok(module_name, import_stmt))
-@deal.post(lambda result: isinstance(result, str))
 def _auto_import_alias(module_name: str, import_stmt: str) -> str:
-    # crosshair: off
     marker = " as "
     if marker in import_stmt:
         return import_stmt.rsplit(marker, 1)[-1].strip()
@@ -91,7 +79,6 @@ def _auto_imports_prompt_lists() -> tuple[str, str]:
     return ", ".join(aliases), do_not
 
 
-@deal.post(lambda result: isinstance(result, str) and result.startswith(PYTHON_VENV_SANDBOX_CONTEXT_PREFIX))
 def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     """Sandbox context prefix first, then import rules for LLM prompts."""
     aliases, do_not_import = _auto_imports_prompt_lists()
@@ -113,15 +100,14 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
             f"Blocked in this sandbox: host escape ({host_escape}); "
             f"running programs ({processes}, raw os) unless Allow OS access; "
             f"networking ({networking}); "
-            f"file writes ({file_writes}, plus the open() builtin). "
-            "All other imports are allowed. Extra modules in Settings override this list; each also allows name.*."
+            f"file writes ({file_writes}, plus the open() builtin). {_ALLOW_ALL_NOTE}"
         )
     else:
-        parts.append(f"Blocked host escape (always): {host_escape}.")
+        parts.append(f"Blocked host escape (by default): {host_escape}.")
         parts.append(f"Blocked running programs (unless Allow OS access): {processes}, raw os.")
         parts.append(f"Blocked networking (unless Allow network access): {networking}.")
         parts.append(f"Blocked file writes (unless Allow file access): {file_writes} (plus the open() builtin).")
-        parts.append("All other imports are allowed. Extra modules in Settings override this list; each also allows name.*.")
+        parts.append(_ALLOW_ALL_NOTE)
 
     return " ".join(parts)
 

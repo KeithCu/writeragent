@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 import threading
 import wave
@@ -32,6 +33,8 @@ SOUNDDEVICE_MISSING_HINT = (
     "Install sounddevice in your Python venv: uv pip install sounddevice "
     "(Settings → Python → configure the venv path first)."
 )
+
+log = logging.getLogger(__name__)
 
 
 def _import_sounddevice() -> Any:
@@ -65,15 +68,22 @@ def record_to_wav(
     )
     auto_stopped = False
     write_error: BaseException | None = None
+    capture_error: BaseException | None = None
 
     # Open the WAV before PortAudio. A disk or permission error must not be
     # reported as PORTAUDIO_LINUX_HINT.
+    wav_file: Any = None
     try:
         wav_file = wave.open(output_path, "wb")
         wav_file.setnchannels(CHANNELS)
         wav_file.setsampwidth(SAMPLE_WIDTH)
         wav_file.setframerate(SAMPLE_RATE)
     except Exception as exc:
+        if wav_file is not None:
+            try:
+                wav_file.close()
+            except (OSError, ValueError):
+                pass
         raise RuntimeError(f"Failed to create audio WAV file at {output_path}: {exc}") from exc
 
     # Bugfix:
@@ -88,11 +98,18 @@ def record_to_wav(
         progress_after_ready.set()
 
     stream = None
+    device_aborted = False
+
+    def on_stream_finished() -> None:
+        nonlocal device_aborted
+        if not stop_event.is_set():
+            device_aborted = True
+            stop_event.set()
 
     def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
-        nonlocal auto_stopped, write_error
+        nonlocal auto_stopped, write_error, capture_error
         if status:
-            print(status, file=sys.stderr)
+            log.debug("audio capture status: %s", status)
         pcm = bytes(indata)
         try:
             wav_file.writeframes(pcm)
@@ -102,15 +119,20 @@ def record_to_wav(
             return
         if vad is None or auto_stopped:
             return
-        result = vad.process_chunk(pcm)
-        if (
-            progress_after_ready.is_set()
-            and on_ipc_emit is not None
-            and vad.should_emit_silence_progress(result)
-        ):
-            on_ipc_emit(
-                {"status": "silence_progress", "ms": result.silence_ms, "rms": round(result.rms, 5)}
-            )
+        try:
+            result = vad.process_chunk(pcm)
+            if (
+                progress_after_ready.is_set()
+                and on_ipc_emit is not None
+                and vad.should_emit_silence_progress(result)
+            ):
+                on_ipc_emit(
+                    {"status": "silence_progress", "ms": result.silence_ms, "rms": round(result.rms, 5)}
+                )
+        except Exception as exc:
+            capture_error = exc
+            stop_event.set()
+            return
         if result.should_stop:
             auto_stopped = True
             stop_event.set()
@@ -121,18 +143,24 @@ def record_to_wav(
             channels=CHANNELS,
             dtype="int16",
             callback=callback,
+            finished_callback=on_stream_finished,
         )
         stream.start()
         if on_stream_started is not None:
             on_stream_started()
         progress_after_ready.set()
-        stop_event.wait(timeout=MAX_RECORDING_DURATION_SEC)
+        if not stop_event.wait(timeout=MAX_RECORDING_DURATION_SEC):
+            # The 4-hour cap is a normal end of take, not a crash: reuse the
+            # auto-stop frame so the host commits the WAV instead of sitting
+            # in "recording" forever.
+            auto_stopped = True
+            stop_event.set()
     except AssertionError as exc:
         raise RuntimeError(
             "Audio recording is not available on this system (PortAudio backend error)."
         ) from exc
     except OSError as exc:
-        raise RuntimeError(portaudio_hint()) from exc
+        raise RuntimeError(f"Failed to start audio capture: {exc}") from exc
     finally:
         if stream is not None:
             try:
@@ -154,6 +182,12 @@ def record_to_wav(
         raise RuntimeError(
             f"Failed to write audio WAV file at {output_path}: {write_error}"
         ) from write_error
+    if capture_error is not None:
+        raise RuntimeError(f"Audio capture failed: {capture_error}") from capture_error
+    if device_aborted:
+        raise RuntimeError(
+            "Audio capture stopped unexpectedly; the microphone may have been disconnected."
+        )
 
     # Emit auto_stopped on the main thread after the WAV is closed. Emitting
     # from the PortAudio callback publishes a header whose length is still 0.

@@ -7,8 +7,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import types
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 import plugin.framework.config as config_mod
 from plugin.framework.event_bus import get_event_bus
@@ -363,47 +368,18 @@ def test_office_recycle_request_is_consumed_once() -> None:
     assert consume_office_recycle_request() is False
 
 
-def test_lifecycle_breadcrumb_adopts_from_minus_m_main(monkeypatch) -> None:
-    """GHA 34606276107: close_doc dispose printed previous=- current=-."""
-    import types
-
-    import plugin.testing_runner as tr
-
-    reset_lifecycle_breadcrumb()
+def test_alias_runner_module_points_package_name_at_main(monkeypatch) -> None:
     fake_main = types.ModuleType("__main__")
-    fake_main.__file__ = tr.__file__
-    fake_main._lifecycle_last_qual = "draw.test_draw_uno.test_get_draw_tree"
-    fake_main._lifecycle_last_result = "OK"
-    fake_main._lifecycle_last_end_pids = "7196,5792"
-    fake_main._lifecycle_last_ok_qual = "draw.test_draw_uno.test_get_draw_tree"
-    fake_main._lifecycle_last_end_mono = 1.0
-    fake_main._lifecycle_current_qual = "draw.test_draw_uno.test_insert_math_draw"
-    fake_main._lifecycle_current_start_pids = "7196,5792"
-    fake_main._lifecycle_current_start_mono = 2.0
-    fake_main._lifecycle_current_bridge = "alive"
+    monkeypatch.setattr(tr, "__name__", "__main__")
     monkeypatch.setitem(sys.modules, "__main__", fake_main)
-    crumb = format_lifecycle_breadcrumb()
-    assert "previous=draw.test_draw_uno.test_get_draw_tree" in crumb
-    assert "current=draw.test_draw_uno.test_insert_math_draw" in crumb
-    reset_lifecycle_breadcrumb()
+    monkeypatch.delitem(sys.modules, "plugin.testing_runner", raising=False)
+    tr._alias_runner_module()
+    assert sys.modules["plugin.testing_runner"] is fake_main
 
 
-def test_office_recycle_request_reaches_minus_m_main(monkeypatch) -> None:
-    """GHA 34549510317: ``-m`` is ``__main__``; tests import the package name."""
-    import types
-
-    import plugin.testing_runner as tr
-
-    fake_main = types.ModuleType("__main__")
-    fake_main.__file__ = tr.__file__
-    fake_main._recycle_office_after_suite = False
-    monkeypatch.setitem(sys.modules, "__main__", fake_main)
-    tr._recycle_office_after_suite = False
-    request_office_recycle_after_suite()
-    assert fake_main._recycle_office_after_suite is True
-    assert consume_office_recycle_request() is True
-    assert fake_main._recycle_office_after_suite is False
-    assert tr._recycle_office_after_suite is False
+def test_alias_runner_module_is_noop_when_imported() -> None:
+    tr._alias_runner_module()
+    assert sys.modules["plugin.testing_runner"] is tr
 
 
 def test_exit_after_summary_hard_exits_on_clean_pass(monkeypatch) -> None:
@@ -598,3 +574,158 @@ def test_mark_urp_dead_prints_office_log_tail(monkeypatch, tmp_path):
     assert tail[0] == "OFFICE LOG | line 10"
     assert tail[-1] == "OFFICE LOG | line 49"
     assert len(tail) == 40
+
+
+def test_clean_test_does_not_probe_pids(monkeypatch) -> None:
+    calls = []
+
+    def counting_pids() -> str:
+        calls.append(1)
+        return "1"
+
+    monkeypatch.setattr(tr, "_soffice_pids", counting_pids)
+    reset_office_death_signals(clear_proc=True)
+    reset_lifecycle_breadcrumb()
+    record_test_start("s.a")
+    assert len(calls) == 1
+    record_test_end("s.a", "OK")
+    assert len(calls) == 1
+
+    class FakeCtx:
+        def getServiceManager(self):
+            return object()
+
+    assert collect_post_test_death(FakeCtx()) is None
+    assert len(calls) == 1
+    record_test_start("s.b")
+    assert len(calls) == 1
+
+
+def test_dead_office_still_probes_pids(monkeypatch) -> None:
+    calls = []
+
+    def counting_pids() -> str:
+        calls.append(1)
+        return "1"
+
+    monkeypatch.setattr(tr, "_soffice_pids", counting_pids)
+
+    class DeadProc:
+        def poll(self):
+            return 1
+
+    monkeypatch.setattr(tr, "_soffice_proc", DeadProc())
+    reason = collect_post_test_death(None)
+    assert reason is not None
+    assert len(calls) > 0
+
+
+def test_soffice_pids_probe_passes_timeout(monkeypatch) -> None:
+    recorded_calls: list[dict[str, Any]] = []
+
+    def fake_check_output(*args: Any, **kwargs: Any) -> str:
+        recorded_calls.append(kwargs)
+        return ""
+
+    monkeypatch.setattr(tr.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(tr.sys, "platform", "linux")
+    assert tr._soffice_pids() == "-"
+    assert len(recorded_calls) == 2
+    assert all(kw.get("timeout") == 2 for kw in recorded_calls)
+
+    recorded_calls.clear()
+    monkeypatch.setattr(tr.sys, "platform", "win32")
+    assert tr._soffice_pids() == "-"
+    assert len(recorded_calls) == 1
+    assert recorded_calls[0].get("timeout") == 2
+
+
+def test_typo_filter_fails_the_run(monkeypatch, tmp_path) -> None:
+    plugin_dir = tmp_path / "plugin"
+    tests_dir = tmp_path / "tests"
+    plugin_dir.mkdir()
+    tests_dir.mkdir()
+    (tests_dir / "test_ok_uno.py").write_text(
+        "def test_unrelated(ctx):\n    pass\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr, "_parse_cli_args", lambda _argv: ["no_such_test_zzz"])
+    monkeypatch.setattr(tr, "_soak_repeat", 1)
+    monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
+    monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
+    monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
+    monkeypatch.setattr("plugin.main.bootstrap", lambda ctx=None: None)
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx=None: None)
+
+    summary = json.loads(tr.run_all_tests(object()))
+    assert summary.get("total_failed") == 1
+    discovery_suites = [s for s in summary["suites"] if s["name"] == "discovery"]
+    assert len(discovery_suites) == 1
+    assert discovery_suites[0]["failed"] == 1
+    assert any("No native test suites matched filters" in line for line in discovery_suites[0]["log"])
+
+
+def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
+    plugin_dir = tmp_path / "plugin"
+    plugin_dir.mkdir()
+
+    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr, "_parse_cli_args", lambda _argv: [])
+    monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
+    monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
+    monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
+    monkeypatch.setattr("plugin.main.bootstrap", lambda ctx=None: None)
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx=None: None)
+
+    summary = json.loads(tr.run_all_tests(object()))
+    assert summary.get("total_failed") == 1
+    discovery_suites = [s for s in summary["suites"] if s["name"] == "discovery"]
+    assert len(discovery_suites) == 1
+    assert discovery_suites[0]["failed"] == 1
+    assert any("Tests directory not found" in line for line in discovery_suites[0]["log"])
+
+
+def test_parse_cli_args_visible_and_filters(monkeypatch) -> None:
+    monkeypatch.delenv("WRITERAGENT_UNO_USER_PROFILE", raising=False)
+    monkeypatch.delenv("WRITERAGENT_UNO_SOAK", raising=False)
+    monkeypatch.setattr(tr, "show_window", False)
+    assert tr._parse_cli_args(["--visible", "tests/x/test_cells_uno.py", "E"]) == [
+        "tests/x/test_cells_uno.py",
+        "E",
+    ]
+    assert tr.show_window is True
+
+
+def test_parse_cli_args_repeat_forms() -> None:
+    assert tr._parse_cli_args(["--repeat", "3"]) == []
+    assert tr._soak_repeat == 3
+    assert tr._parse_cli_args(["--repeat=3"]) == []
+    assert tr._soak_repeat == 3
+
+
+def test_parse_cli_args_rejects_bad_repeat() -> None:
+    with pytest.raises(SystemExit):
+        tr._parse_cli_args(["--repeat", "abc"])
+
+
+def test_parse_cli_args_pair_expands() -> None:
+    assert tr._parse_cli_args(["--pair", "tree-math"]) == [
+        "test_get_draw_tree",
+        "test_insert_math_draw",
+    ]
+    assert tr._cli_exact_function_names == [
+        "test_get_draw_tree",
+        "test_insert_math_draw",
+    ]
+
+
+def test_parse_cli_args_user_profile_sets_env(monkeypatch) -> None:
+    monkeypatch.delenv("WRITERAGENT_UNO_USER_PROFILE", raising=False)
+    monkeypatch.setattr(tr, "use_user_profile", False)
+    tr._parse_cli_args(["--user-profile"])
+    assert tr.use_user_profile is True
+    assert os.environ["WRITERAGENT_UNO_USER_PROFILE"] == "1"

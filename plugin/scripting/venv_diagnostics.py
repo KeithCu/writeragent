@@ -122,13 +122,14 @@ _PROBE_KEY_TO_PIP: dict[str, str] = {
 _PROBE_JSON_PREFIX = "WA_PROBE_JSON "
 
 
+# SystemExit from a package at import must not drop the rest of the group's results.
 def _import_try_block(key: str, module: str, *, record_error: bool = False) -> str:
     """One child try/except for one import. Source is plain Python (no f-string, walrus, or match)."""
     lines = [
         "try:",
         f"    import {module}",
         f'    out["{key}"] = "present"',
-        "except Exception as exc:" if record_error else "except Exception:",
+        "except BaseException as exc:" if record_error else "except BaseException:",
         f'    out["{key}"] = None',
     ]
     if record_error:
@@ -158,7 +159,7 @@ _SOUNDDEVICE_PROBE_BODY = """\
 try:
     import sounddevice as sd
     out["sounddevice"] = "present"
-except Exception:
+except BaseException:
     sd = None
     out["sounddevice"] = None
     out["input_device"] = None
@@ -208,11 +209,11 @@ _RAPIDOCR_PROBE_BODY = """\
 try:
     import rapidocr
     out["rapidocr"] = "present"
-except Exception:
+except BaseException:
     try:
         import rapidocr_onnxruntime
         out["rapidocr"] = "present"
-    except Exception:
+    except BaseException:
         out["rapidocr"] = None
 """
 
@@ -338,8 +339,9 @@ def _run_json_probe(
     # turns it into flatpak-spawn --clear-env/--env, and subprocess.run(env=)
     # is what a non-Flatpak spawn uses. flatpak-spawn does not forward Popen env.
     try:
+        # One-shot probe: kill the host child on timeout, unlike the warm venv worker.
         proc = subprocess.run(
-            wrap_command_for_sandbox([python_exe, "-c", script], env=scrubbed_env),
+            wrap_command_for_sandbox([python_exe, "-c", script], env=scrubbed_env, watch_bus=True),
             capture_output=True,
             encoding="utf-8",
             errors="replace",
@@ -352,14 +354,16 @@ def _run_json_probe(
     except OSError as exc:
         log.warning("%s package probe could not run: %s", log_label, exc)
         return {}, fail_hint
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()[:200]
-        log.warning("%s package probe exit %s: %s", log_label, proc.returncode, stderr)
-        return {}, fail_hint
     parsed = _parse_probe_stdout(proc.stdout or "")
     if parsed is None:
-        log.warning("%s package probe returned invalid JSON: %r", log_label, (proc.stdout or "")[:200])
+        if proc.returncode != 0:
+            stderr = (proc.stderr or "").strip()[:200]
+            log.warning("%s package probe exit %s: %s", log_label, proc.returncode, stderr)
+        else:
+            log.warning("%s package probe returned invalid JSON: %r", log_label, (proc.stdout or "")[:200])
         return {}, fail_hint
+    if proc.returncode != 0:
+        log.warning("%s package probe printed a payload but exited %s", log_label, proc.returncode)
     return parsed, None
 
 
@@ -598,6 +602,8 @@ def _format_group_lines(
             found.append(key)
         elif key in optional_keys:
             optional_missing.append(key)
+        elif key in _NON_PIP_PROBE_KEYS:
+            continue
         else:
             missing.append(key)
     lines: list[str] = []
@@ -1085,14 +1091,9 @@ def run_venv_self_check_with_progress(
             # Qt/WebEngine in the warm worker would stay loaded for later =PY() cells.
             _status(_("UI / Monaco Libraries: checking outside the script worker..."))
             ui_probes, ui_failure = _probe_ui_packages(python_exe, timeout=float(per_pkg_timeout))
-            packages_map = data.setdefault("p", {})
-            if isinstance(packages_map, dict) and ui_probes:
-                packages_map.update(ui_probes)
-            if ui_failure:
-                data["ui_probe_failure"] = ui_failure
-                for pkg in packages:
-                    if isinstance(packages_map, dict):
-                        packages_map.setdefault(pkg, None)
+            _attach_probe_group(
+                data, ui_probes, ui_failure, group="ui", keys=packages, failure_key="ui_probe_failure"
+            )
             _refresh(data, completed_groups=group_index + 1, include_audio=include_audio)
             continue
         checked: list[str] = []
@@ -1216,7 +1217,7 @@ def probe_venv_path_with_progress(
         _status(_("Using LibreOffice process Python..."))
         exe = resolve_libreoffice_python()
         if not exe:
-            msg = "No process interpreter: sys.executable is missing, not a file, or not executable. Set a venv path in Settings → Python, or fix the LibreOffice install."
+            msg = _("No process interpreter: sys.executable is missing, not a file, or not executable. Set a venv path in Settings → Python, or fix the LibreOffice install.")
             on_display(msg)
             return False, msg
         ok, msg = run_venv_self_check_with_progress(
@@ -1235,15 +1236,15 @@ def probe_venv_path_with_progress(
     exe = resolve_venv_python(str(venv_dir).strip())
     if not exe:
         if os.path.isfile(expanded):
-            msg = f"Not a Python executable: {expanded}"
+            msg = _("Not a Python executable: {0}").format(expanded)
         elif os.path.isdir(expanded):
-            msg = (
+            msg = _(
                 "No python found. Use the venv root (folder containing bin/ or Scripts/), "
                 "the bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), "
                 "or the full path to the interpreter."
             )
         else:
-            msg = f"Path not found: {expanded}"
+            msg = _("Path not found: {0}").format(expanded)
         on_display(msg)
         return False, msg
     _status(f"{_('Using')} {exe}")

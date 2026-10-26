@@ -36,10 +36,12 @@ if TYPE_CHECKING:
 
 class _ActionListener(BaseActionListener):
     _action_fn: Callable[[], Any]
+    action_name: str
 
-    def __init__(self, action_fn: Callable[[], Any]) -> None:
+    def __init__(self, action_fn: Callable[[], Any], action_name: str = "") -> None:
         super().__init__()
         self._action_fn = action_fn
+        self.action_name = action_name
 
     def actionPerformed(self, rEvent: ActionEvent) -> None:
         try:
@@ -80,14 +82,10 @@ def close_modeless_dialog(dlg: Any, *, toolkit_teardown: bool = False, log_label
 
 
 def _action(fn: Callable[[], Any], name: str = "") -> _ActionListener:
-    # The class name is how tests find a button listener (_RunListener, _SaveListener,
-    # and the other _{Button}Listener names from btn_name[3:]).
-    # tests/scripting/test_python_runner_ui.py and tests/scripting/test_python_runner_monaco.py
-    # look up type(listener).__name__. Do not collapse these into _ActionListener.
-    cls = type(name, (_ActionListener,), {}) if name else _ActionListener
-    return cls(fn)
+    return _ActionListener(fn, name)
 
 from plugin.framework.config import get_config, get_config_str, set_config
+from plugin.framework.errors import is_tool_document_disposed, resolve_exception_message
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import (
     load_writeragent_dialog_detail,
@@ -104,6 +102,8 @@ from plugin.scripting.document_scripts import (
     build_xdl_script_picker_state,
     delete_document_script,
     delete_user_script,
+    document_script_display_name,
+    get_document_scripts,
     get_user_scripts,
     read_only_helper_message,
     readonly_fallback_name_taken_message,
@@ -115,6 +115,7 @@ from plugin.scripting.document_scripts import (
     script_origin_is_writable,
 )
 from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
+from plugin.scripting.editor_errors import exception_traceback
 from plugin.scripting.venv_worker import warm_venv_worker
 
 log = logging.getLogger("writeragent.scripting")
@@ -136,8 +137,6 @@ def _builtin_helpers_readonly_text() -> str:
 def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str, doc: Any = None) -> None:
     """Show Save / Save As / Delete / New failures. Those buttons used to only log."""
     log.exception("%s failed in dialog", where)
-    from plugin.framework.errors import is_tool_document_disposed, resolve_exception_message
-
     text = _("The document is no longer open.") if is_tool_document_disposed(exc, doc) else resolve_exception_message(exc)
     lbl = dlg.getControl("InstructionLbl")
     if lbl is not None:
@@ -264,9 +263,6 @@ class NativePythonScriptDialog:
         select_ctrl.addItems(tuple(names), 0)
 
         config_key = self._name_config_key
-        if not config_key:
-            config_key = resolve_run_script_name_config_key(self._doc)
-            self._name_config_key = config_key
 
         selected_name = ""
         if select_display and select_display in names:
@@ -345,14 +341,12 @@ class NativePythonScriptDialog:
             dlg.dispose()
             return True
         except Exception as exc:
-            from plugin.scripting.editor_errors import exception_traceback
-
             log.exception("NativePythonScriptDialog._open failed")
             self._open_failure_detail = exception_traceback(exc)
             self.close()
             return False
 
-    def _save_current_script(self, t: str) -> _ScriptSaveResult:
+    def _save_current_script(self, t: str, *, only_if_changed: bool = False) -> _ScriptSaveResult:
         select_ctrl = self._select_ctrl
         if select_ctrl is None:
             return _ScriptSaveResult(None, "none")
@@ -360,7 +354,8 @@ class NativePythonScriptDialog:
         if not display_name:
             return _ScriptSaveResult(None, "none")
         real_name, origin = resolve_script_picker_entry(display_name, self._script_origin_map)
-        self._current_scripts[display_name] = t
+        if only_if_changed and script_origin_is_writable(origin) and self._current_scripts.get(display_name) == t:
+            return _ScriptSaveResult(None, "none")
         if not script_origin_is_writable(origin):
             return _ScriptSaveResult(_builtin_helpers_readonly_text(), "builtin")
         if origin == SCRIPT_ORIGIN_DOCUMENT:
@@ -375,6 +370,7 @@ class NativePythonScriptDialog:
             # TOO_LARGE and reserved names are not skipped. This branch matches that,
             # and both READONLY sentences name the document failure.
             if err is None:
+                self._current_scripts[display_name] = t
                 return _ScriptSaveResult(_("Script '%s' saved to this document.") % real_name, "ok")
             if getattr(err, "code", None) != DocumentScriptErrorCode.READONLY:
                 return _ScriptSaveResult(str(err), "modal")
@@ -397,6 +393,7 @@ class NativePythonScriptDialog:
         user_err = save_user_script(real_name, t)
         if isinstance(user_err, str) and user_err:
             return _ScriptSaveResult(str(user_err), "modal")
+        self._current_scripts[display_name] = t
         return _ScriptSaveResult(_("Script '%s' saved successfully.") % real_name, "ok")
 
     def _store_script(
@@ -416,11 +413,6 @@ class NativePythonScriptDialog:
         lbl = dlg.getControl("InstructionLbl") if dlg is not None else None
 
         if attach_to_document and doc is not None:
-            from plugin.scripting.document_scripts import (
-                document_script_display_name,
-                get_document_scripts,
-            )
-
             overwrite = name in get_document_scripts(doc)
             if overwrite and not show_approval_dialog(
                 ctx,
@@ -480,7 +472,7 @@ class NativePythonScriptDialog:
                 # always set Running...
                 # Why this change: builtin stays on the label through a successful
                 # finish; every other warning is a Save box before Running...
-                save_res = owner._save_current_script(t)
+                save_res = owner._save_current_script(t, only_if_changed=True)
                 save_channel = save_res.channel
                 save_text = save_res.text
 
@@ -498,6 +490,9 @@ class NativePythonScriptDialog:
                     set_control_text(lbl, _("Running..."))
 
                 def _on_complete(outcome: dict[str, Any]) -> None:
+                    if owner._closed:
+                        log.debug("native script dialog: run finished after close: %s", outcome)
+                        return
                     try:
                         _report_run_outcome(ctx, lbl, outcome)
                         if not outcome.get("ok"):
@@ -650,7 +645,7 @@ class NativePythonScriptDialog:
         ):
             btn = dlg.getControl(btn_name)
             if btn is not None:
-                btn.addActionListener(_action(handler, f"_{btn_name[3:]}Listener"))
+                btn.addActionListener(_action(handler, btn_name))
 
 
 def show_python_input_dialog(
@@ -670,8 +665,6 @@ def show_python_input_dialog(
             modeless=modeless,
         )
     except Exception as exc:
-        from plugin.scripting.editor_errors import exception_traceback
-
         log.exception("show_python_input_dialog failed")
         return False, exception_traceback(exc)
 

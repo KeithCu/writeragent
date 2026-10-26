@@ -9,6 +9,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 import plugin.testing_runner as tr
 
 
@@ -282,8 +284,9 @@ def test_parse_cli_repeat_and_soak_env(monkeypatch) -> None:
     rest = tr._parse_cli_args(["--repeat", "2", "test_draw_uno"])
     assert tr._soak_repeat == 2
 
-    rest = tr._parse_cli_args(["--repeat", "nope", "test_draw_uno"])
-    assert tr._soak_repeat == 1
+    # K160 moved CLI parsing to argparse: a non-integer --repeat is a usage error.
+    with pytest.raises(SystemExit):
+        tr._parse_cli_args(["--repeat", "nope", "test_draw_uno"])
 
     rest = tr._parse_cli_args(["--pair", "tree-math", "--repeat", "4"])
     assert rest == ["test_get_draw_tree", "test_insert_math_draw"]

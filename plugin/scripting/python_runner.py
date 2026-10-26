@@ -17,14 +17,13 @@ Monaco on_save checks and updates it on the UI thread only. It is not locked.
 
 import ast
 import html as html_mod
-import json
 import logging
-import re
 import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.uno_context import get_ctx, get_desktop, get_runtime_uid
 from plugin.framework.config import get_config_str
+from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import msgbox
 from plugin.scripting.editor_errors import exception_traceback
@@ -39,6 +38,7 @@ from plugin.scripting.payload_codec import is_dataframe_payload
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
     format_elapsed_time,
+    parse_run_import_call_spec,
     plot_insert_ok_outcome,
     rps_error_outcome,
     rps_insert_failed_outcome,
@@ -58,12 +58,12 @@ def _monaco_run_document_key(doc: Any) -> str:
     """Document key for Monaco in-flight run tracking.
 
     Uses get_runtime_uid(doc). Non-empty UID becomes 'uid:' + uid;
-    otherwise 'no-uid'.
+    otherwise falls back to a per-object id ('id:' + id(doc)).
     """
     uid = get_runtime_uid(doc)
     if uid:
         return "uid:" + uid
-    return "no-uid"
+    return f"id:{id(doc)}"
 
 
 def _html_insert_text(value: Any) -> str:
@@ -268,126 +268,6 @@ def insert_result_into_draw(doc: Any, uno_ctx: Any, result: Any) -> None:
     msgbox(uno_ctx, _("Info"), _("Result insertion into Draw/Impress is not yet supported. PRs welcome!"))
 
 
-def _find_binding_insertion_line(code: str) -> int:
-    """Line index (0-based) where injected bindings should be inserted.
-
-    When *code* parses, bindings go after a leading module docstring and any
-    ``from __future__ import`` that follows it. A shebang or coding cookie above
-    those statements stays in the prefix because those lines are before
-    ``end_lineno``. When parsing fails, or the body has neither, the fallback
-    skips a shebang, a coding cookie, and a textual future import only.
-    """
-    lines = code.splitlines(keepends=True)
-    if not lines:
-        return 0
-
-    insert_after = 0
-    try:
-        tree = ast.parse(code)
-        for node in tree.body:
-            if isinstance(node, ast.ImportFrom) and node.module == "__future__":
-                end_line = getattr(node, "end_lineno", node.lineno)
-                if end_line > insert_after:
-                    insert_after = end_line
-            elif (
-                insert_after == 0
-                and isinstance(node, ast.Expr)
-                and isinstance(node.value, ast.Constant)
-                and isinstance(node.value.value, str)
-            ):
-                # First statement only. A string later in the body is not __doc__.
-                # What was wrong: this branch continued and left insert_after at 0
-                # when the module had a docstring and no future import, so the
-                # manual scan returned 0 and the assignments landed above __doc__.
-                # How it happened: only a __future__ end line was stored.
-                # Why this change: the docstring end line is the insertion point
-                # when nothing later (__future__) extends it.
-                insert_after = getattr(node, "end_lineno", node.lineno)
-            else:
-                break
-    except (SyntaxError, TypeError, ValueError):
-        insert_after = 0
-
-    if insert_after > 0:
-        return min(insert_after, len(lines))
-
-    # The manual scan runs when parse failed or the AST walk found neither a
-    # docstring nor a future import; it skips a shebang, a coding cookie, and
-    # a textual future import, and it does not try to find the end of a docstring.
-
-    idx = 0
-    in_future = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if i == 0 and line.startswith("#!"):
-            idx = i + 1
-            continue
-        if i < 2 and re.match(r"^#.*coding[:=]", stripped):
-            idx = i + 1
-            continue
-        if stripped.startswith("from __future__ import"):
-            in_future = True
-            idx = i + 1
-            if ")" in stripped or not ("(" in stripped or stripped.endswith("\\")):
-                in_future = False
-            continue
-        if in_future:
-            idx = i + 1
-            if ")" in stripped:
-                in_future = False
-            continue
-        break
-    return idx
-
-
-def _binding_literal(val: Any) -> str:
-    """Format an injected document binding as Python code.
-
-    json.dumps emits null, true, and false, which are NameErrors in Python.
-    Strings stay JSON (double-quoted). True, False, and None are Python keywords.
-    """
-    if val is None:
-        return "None"
-    if val is True:
-        return "True"
-    if val is False:
-        return "False"
-    if isinstance(val, str):
-        return json.dumps(val)
-    if isinstance(val, (int, float)):
-        return repr(val)
-    if isinstance(val, (list, tuple)):
-        items = ", ".join(_binding_literal(item) for item in val)
-        return f"[{items}]" if isinstance(val, list) else f"({items}{',' if len(val) == 1 else ''})"
-    if isinstance(val, dict):
-        parts = [f"{_binding_literal(k)}: {_binding_literal(v)}" for k, v in val.items()]
-        return "{" + ", ".join(parts) + "}"
-    return repr(val)
-
-
-def prepend_run_import_document_bindings(code: str, *, bindings: dict[str, Any]) -> str:
-    """Prepend literal variable assignments for host-injected Writer document inputs."""
-    if not bindings:
-        return code
-    lines = ["# Document inputs injected below — edit the run_*() call only."]
-    for name, value in bindings.items():
-        # _binding_literal emits Python (None, True, False, JSON strings).
-        # json.dumps emits null/true/false, which are NameErrors here.
-        lines.append(f"{name} = {_binding_literal(value)}")
-    lines.append("")
-    injection = "\n".join(lines) + "\n"
-
-    split_idx = _find_binding_insertion_line(code)
-    code_lines = code.splitlines(keepends=True)
-    if split_idx == 0:
-        return injection + code
-    prefix = "".join(code_lines[:split_idx])
-    suffix = "".join(code_lines[split_idx:])
-    if not prefix.endswith("\n"):
-        prefix += "\n"
-    return prefix + injection + suffix
-
-
 def script_uses_run_import(code: str, *, run_name: str) -> bool:
     """True when *code* contains a call to *run_name*.
 
@@ -435,8 +315,6 @@ def script_imports_module(code: str, module_name: str) -> bool:
     return False
 def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] | None:
     """Return prepared vision execution dict, early error dict, or None if not a vision script."""
-    from plugin.scripting.helper_domain import parse_run_import_call_spec
-
     if "run_vision" not in code or not script_uses_run_import(code, run_name="run_vision"):
         return None
 
@@ -461,13 +339,12 @@ def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] 
         "helper_name": helper_name,
         "params": params,
         "image_name": image_name,
-        "exec_code": code,
         "py_data": {},
         "session_id": "",
     }
 
 
-def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | None = None) -> dict[str, Any]:
+def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | None = None, pin_token: str | None = None) -> dict[str, Any]:
     """Main-thread document reads before the venv wait.
 
     Returns ``early_outcome`` when the script should not start. Otherwise the
@@ -501,6 +378,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         return [sel] if sel else None
 
     py_data = None
+    bindings: dict[str, Any] | None = None
     if is_calc(doc):
         drs = _resolve_data_ranges()
         if drs:
@@ -508,9 +386,6 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
             py_data, err = _resolve_python_data(doc, data_range=drs, data=None)
             if err:
                 return _early({"ok": False, "message": err})
-
-    exec_code = code
-    from plugin.scripting.helper_domain import parse_run_import_call_spec
 
     # A substring search matches comments and docstrings. Check the import
     # with script_imports_module (AST), or document bindings get prepended
@@ -527,18 +402,15 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         # topics/sentiment return list[str]. Do not str() that list.
         assert isinstance(text, (str, list)), type(text)
         assert isinstance(document_context, dict)
-        exec_code = prepend_run_import_document_bindings(code, bindings={"text": text, "document_context": document_context})
+        bindings = {"text": text, "document_context": document_context}
 
-    from plugin.scripting.session_manager import pin_script_document, release_script_document, rps_session_id
+    from plugin.scripting.session_manager import rps_session_id
     from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
 
-    pin_token = pin_script_document(doc)
     try:
         rps_sid = rps_session_id(ctx, doc)
         ensure_python_session_cleared_on_unload(ctx, doc, rps_sid)
     except Exception as e:
-        if pin_token:
-            release_script_document(pin_token)
         log.exception("prepare Run Python Script failed")
         return _early(rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e)))
 
@@ -548,7 +420,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         "doc": doc,
         "code": code,
         "t0": t0,
-        "exec_code": exec_code,
+        "bindings": bindings,
         "py_data": py_data,
         "session_id": rps_sid,
         "script_session_id": pin_token,
@@ -580,8 +452,9 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
 
     return run_code_in_user_venv(
         prepared["ctx"],
-        prepared["exec_code"],
+        prepared["code"],
         data=prepared["py_data"],
+        bindings=prepared.get("bindings"),
         session_id=prepared["session_id"],
         script_session_id=prepared.get("script_session_id"),
     )
@@ -641,6 +514,7 @@ def try_rps_post_venv(
     try:
         row_count = spec.insert(ctx, doc, result_data, **insert_kwargs)
     except Exception as e:
+        reraise_if_disposed(e)
         return rps_insert_failed_outcome(e, t0=t0)
 
     # Synthetic meta for format_ok when no header was used.
@@ -711,6 +585,7 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
             else:
                 return {"ok": False, "message": _("Unsupported document type for result insertion. (took {time})").format(time=formatted_time)}
         except Exception as e:
+            reraise_if_disposed(e)
             # Logging (type/str/repr + traceback) lives in rps_insert_failed_outcome —
             # previously this catch painted the RPS dialog with no debug-log line.
             return rps_insert_failed_outcome(e, t0=t0)
@@ -723,14 +598,9 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
 
 def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert. *response* is the venv worker payload."""
-    from plugin.scripting.session_manager import release_script_document
-
-    try:
-        if prepared.get("is_vision_selection"):
-            return _finish_vision_execution(prepared, response)
-        return _finish_script_execution(prepared, response)
-    finally:
-        release_script_document(prepared.get("script_session_id"))
+    if prepared.get("is_vision_selection"):
+        return _finish_vision_execution(prepared, response)
+    return _finish_script_execution(prepared, response)
 
 
 def execute_and_insert_result(ctx: Any, doc: Any, code: str, *, data_range: str | None = None) -> dict[str, Any]:
@@ -741,19 +611,22 @@ def execute_and_insert_result(ctx: Any, doc: Any, code: str, *, data_range: str 
     plugin.scripting.python_runner.start_native_script_run, which keeps
     the venv wait off the UNO event thread.
     """
-    prepared = _prepare_rps_execution(ctx, doc, code, data_range=data_range)
-    early = prepared.get("early_outcome")
-    if early is not None:
-        return early
-    try:
-        response = _run_prepared_rps(prepared)
-    except Exception as e:
-        from plugin.scripting.session_manager import release_script_document
+    from plugin.scripting.session_manager import pin_script_document, release_script_document
 
-        release_script_document(prepared.get("script_session_id"))
-        log.exception("execute_and_insert_result failed")
-        return rps_error_outcome(str(e), t0=prepared["t0"], traceback=exception_traceback(e))
-    return _finish_rps_execution(prepared, response)
+    pin_token = pin_script_document(doc)
+    try:
+        prepared = _prepare_rps_execution(ctx, doc, code, data_range=data_range, pin_token=pin_token)
+        early = prepared.get("early_outcome")
+        if early is not None:
+            return early
+        try:
+            response = _run_prepared_rps(prepared)
+        except Exception as e:
+            log.exception("execute_and_insert_result failed")
+            return rps_error_outcome(str(e), t0=prepared["t0"], traceback=exception_traceback(e))
+        return _finish_rps_execution(prepared, response)
+    finally:
+        release_script_document(pin_token)
 
 
 def start_native_script_run(
@@ -789,45 +662,37 @@ def start_native_script_run(
         post_to_main_thread(_apply)
 
     def _native_script_run_worker() -> None:
-        prepared: dict[str, Any] | None = None
+        from plugin.scripting.session_manager import pin_script_document, release_script_document
+
+        pin_token = pin_script_document(doc)
         try:
-            prepared = execute_on_main_thread(
-                _prepare_rps_execution, ctx, doc, code, data_range=data_range
-            )
-            if not isinstance(prepared, dict):
-                # What was wrong: a non-dict from prepare returned without on_complete, so BtnRun stayed disabled.
-                # How it happened: the isinstance guard avoided calling .get on a bad value and returned before _deliver.
-                # Why this change fixes it: the worker still posts one error outcome. A non-dict has no script_session_id, so nothing is released.
-                log.error("native script run: prepare returned %s", type(prepared).__name__)
-                _deliver({"ok": False, "message": _("Script preparation failed.")})
-                return
-            early = prepared.get("early_outcome")
-            if early is not None:
-                _deliver(early)
-                return
+            prepared: dict[str, Any] | None = None
             try:
-                response = _run_prepared_rps(prepared)
-            except Exception as exc:
-                from plugin.scripting.session_manager import release_script_document
-
-                release_script_document(prepared.get("script_session_id"))
-                log.exception("native script run failed")
-                _deliver(rps_error_outcome(str(exc), t0=prepared["t0"], traceback=exception_traceback(exc)))
-                return
-            try:
+                prepared = execute_on_main_thread(
+                    _prepare_rps_execution, ctx, doc, code, data_range=data_range, pin_token=pin_token
+                )
+                if not isinstance(prepared, dict):
+                    # Why this change fixes it: the worker still posts one error outcome. A non-dict has no script_session_id, so the pin is released by the outer finally instead.
+                    log.error("native script run: prepare returned %s", type(prepared).__name__)
+                    _deliver({"ok": False, "message": _("Script preparation failed.")})
+                    return
+                early = prepared.get("early_outcome")
+                if early is not None:
+                    _deliver(early)
+                    return
+                try:
+                    response = _run_prepared_rps(prepared)
+                except Exception as exc:
+                    log.exception("native script run failed")
+                    _deliver(rps_error_outcome(str(exc), t0=prepared["t0"], traceback=exception_traceback(exc)))
+                    return
                 outcome = execute_on_main_thread(_finish_rps_execution, prepared, response)
-            except Exception:
-                # What was wrong: Main-thread execution failure or timeout leaked the pinned document token.
-                # How it happened: When execute_on_main_thread raised (e.g. timeout), _finish_rps_execution's finally never ran.
-                # Why this change fixes it: Catch exceptions around finish marshal, release the pinned document token, and re-raise.
-                from plugin.scripting.session_manager import release_script_document
-
-                release_script_document(prepared.get("script_session_id"))
-                raise
-            _deliver(outcome)
-        except Exception as exc:
-            log.exception("native script run failed")
-            _deliver({"ok": False, "message": str(exc)})
+                _deliver(outcome)
+            except Exception as exc:
+                log.exception("native script run failed")
+                _deliver({"ok": False, "message": str(exc)})
+        finally:
+            release_script_document(pin_token)
 
     run_in_background(_native_script_run_worker, name="native-run-python-script", dedicated=True)
 
@@ -850,6 +715,9 @@ def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str) -> dic
     status = outcome.get("status_ok_text", run_ok_text)
     if not isinstance(status, str) or not status:
         status = run_ok_text
+    stdout = outcome.get("stdout")
+    if isinstance(stdout, str) and stdout.strip():
+        status = _("{status} ({count} line(s) printed.)").format(status=status, count=len(stdout.splitlines()))
     return {"type": "saved", "ok": True, "status_ok_text": status}
 
 

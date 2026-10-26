@@ -20,7 +20,8 @@ from plugin.scripting.excel_xl import make_xl
 def test_failure_message_formatting(summary: str, detail: str) -> None:
     msg = failure_message(summary, detail=detail)
     assert isinstance(msg, str)
-    assert len(msg) >= len(summary)
+    body = detail.strip()
+    assert msg == (summary if not body else f"{summary}\n\n{body}")
 
 
 @given(idx=st.integers(min_value=2, max_value=10))

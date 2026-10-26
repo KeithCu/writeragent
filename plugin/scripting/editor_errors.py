@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Editor failure detail and message formatting for user-visible dialogs."""
+"""Failure detail and message formatting for user-visible scripting dialogs (Monaco editor, Run Python Script, Calc cell editor)."""
 
 from __future__ import annotations
 
@@ -38,19 +38,8 @@ def _deal_optional_exc_ok_crosshair(exc: object) -> bool:
 _deal_optional_exc_ok = _profile(_deal_optional_exc_ok_crosshair, _deal_optional_exc_ok_pytest)
 
 
-def _deal_failure_detail_ok(detail: object = None, exc: object = None) -> bool:
+def _deal_failure_ok(detail: object = None, exc: object = None) -> bool:
     return (detail is None or _deal_text_ok(detail)) and _deal_optional_exc_ok(exc)
-
-
-def _deal_failure_message_ok_pytest(summary: object, detail: object = None, exc: object = None) -> bool:
-    return _deal_text_ok_pytest(summary) and _deal_failure_detail_ok(detail, exc)
-
-
-def _deal_failure_message_ok_crosshair(summary: object, detail: object = None, exc: object = None) -> bool:
-    return _deal_text_ok_crosshair(summary) and _deal_failure_detail_ok(detail, exc)
-
-
-_deal_failure_message_ok = _profile(_deal_failure_message_ok_crosshair, _deal_failure_message_ok_pytest)
 
 
 @deal.pre(lambda exc: isinstance(exc, BaseException))
@@ -66,7 +55,7 @@ def exception_traceback(exc: BaseException) -> str:
     return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
 
-@deal.pre(lambda detail=None, exc=None: _deal_failure_detail_ok(detail, exc))
+@deal.pre(lambda detail=None, exc=None: _deal_failure_ok(detail, exc))
 @deal.post(lambda result: isinstance(result, str))
 def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Combine subprocess stderr, probe output, and/or an exception traceback."""
@@ -80,7 +69,7 @@ def failure_detail(*, detail: str | None = None, exc: BaseException | None = Non
     return "\n\n".join(chunks)
 
 
-@deal.pre(lambda summary, detail=None, exc=None: _deal_failure_message_ok(summary, detail, exc))
+@deal.pre(lambda summary, detail=None, exc=None: _deal_text_ok(summary) and _deal_failure_ok(detail, exc))
 @deal.post(lambda result: isinstance(result, str))
 def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Build a msgbox body: *summary* plus optional detail/traceback blocks."""

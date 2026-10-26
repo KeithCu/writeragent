@@ -2,7 +2,7 @@
 
 **Status:** Leftover-stdout cause fixed in #546 (`smolagents` `__init__` no longer imports `huggingface_hub` on worker spawn). Hunt-only IPC breadcrumbs stripped after that. Do not reopen Hub/smolagents.
 
-**Also landed:** compute spawn requires a dict with `status == "ready"` (H6); `formula_worker` writes that frame before importing the sandbox (H3); `_idle` stores the spawn time after each handshake (H7); compute `Popen` passes `scrub_subprocess_env`; handshake timeout logs a stderr snippet; a non-ready frame is spawn failure. `worker_harness` still imports before its first stdin read and does not send `ready`.
+**Also landed:** compute spawn requires a dict with `status == "ready"` (H6); `formula_worker` writes that frame before importing the sandbox (H3); `_idle` stores the spawn time after each handshake (H7); compute `Popen` passes `scrub_subprocess_env`; handshake timeout logs a stderr snippet; a non-ready frame is spawn failure. `worker_harness` still does not send `ready`; it reads its first request immediately and imports the sandbox lazily, inside the execute handler.
 
 The call-path section below used to describe the pre-fix child (Cython load before `ready`, no stderr on timeout, non-ready counted as success). That is historical. Do not re-implement it. Current compute child: `formula_worker.py` writes `{status: ready}` in `run_worker_stdio_loop` before the sandbox import.  
 **Severity:** Unit-test flake that can fail ~30–40 tests at once; production spawn path is the same code  
@@ -135,7 +135,7 @@ formula_worker.py and vision.py (child), current:
       loop: read request, handler, write response
 ```
 
-Venv path is different: [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) **never sends ready**. Parent writes a request immediately; child only reads after importing `venv_sandbox` / payload_codec / alias importer. Warm timeout is `WARM_WORKER_TIMEOUT_SEC` (30s) plus grace — still fails in a full run when the child is stuck or stdout is not pickle.
+Venv path is different: [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) **never sends ready**. Parent writes a request immediately; the child reads it immediately and imports `venv_sandbox` lazily in the execute handler (asserted by `test_harness_library_import_does_not_claim_or_load_sandbox`). Warm timeout is `WARM_WORKER_TIMEOUT_SEC` (30s) plus grace — still fails in a full run when the child is stuck or stdout is not pickle.
 
 Handshake read passes `max_payload_bytes`. On `TimeoutExpired`, `IpcPartialFrameTimeout`, or a frame whose `status` is not `"ready"`, the spawn logs a stderr snippet and `kill()`s. That path is fail-closed.
 
@@ -163,7 +163,7 @@ Work these as **separate** experiments. Intermittency is the point.
 
 1. **Full xdist vs subset.** Other tests spawn Harper, embeddings, MCP, extra venv workers. FD count, import of the same `.pyc`/`.so`, and inherited env only collide in the full graph.
 2. **Stdout is not pickle.** Any `print`, warning, or logging to stdout before the ready frame desyncs the length prefix. Default logging is stderr; `WRITERAGENT_DEBUG_LOG_PATH`, pytest-cov, or `WRITERAGENT_PYTEST_PROGRESS` inherited by the child could change that. Compute Popen does **not** use `scrub_subprocess_env` (venv host does).
-3. **Import-before-ready.** `formula_worker` / `worker_harness` do a large import graph first. Usually <1s; under lock/contention it can exceed 15s with little CPU.
+3. **Import-before-ready.** `formula_worker` does a large import graph first; for `worker_harness` the initial import graph is small and `venv_sandbox` loads on the first execute. Usually <1s; under lock/contention it can exceed 15s with little CPU.
 4. **`select` + `read` treating empty as EOF.** In `read_pickle_frame_with_timeout`, `read()` returning `b''` after `select` ready returns a short header → `None`, not always `TimeoutExpired`. Fail-open spawn then looks like a later execute failure.
 5. **Idle reaper + stale `last_active`.** Only if TTL is short or tests mutate it. Check settings JSON / env on the failing machine.
 6. **xdist worker reuse / leaked pools.** `test_formula_pool.py` autouse-calls `shutdown_formula_pool`; `test_compute_service.py` HTTP tests may leave a global pool. Cross-module order on one gw can matter (`--dist=loadgroup` keeps a module on one worker, not the whole suite).
@@ -250,7 +250,7 @@ Revert the `Makefile` `test-run` `PYTEST_WORKERS=6` cap if it was only a workaro
 | [`compute_service/formula_worker.py`](../../compute_service/formula_worker.py) | Import + Cython before ready |
 | [`compute_service/vision.py`](../../compute_service/vision.py) | Same loop, lighter imports |
 | [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py) | `read_pickle_frame`, empty-read → EOF, `max_payload_bytes` |
-| [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) | No ready frame; import-before-read |
+| [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) | No ready frame; sandbox imported lazily |
 | [`plugin/scripting/venv_worker.py`](../../plugin/scripting/venv_worker.py) | Host spawn, `scrub_subprocess_env`, warm timeout |
 | [`plugin/framework/managed_subprocess.py`](../../plugin/framework/managed_subprocess.py) | `optimize_popen_pipes` |
 | [`plugin/framework/worker_pool.py`](../../plugin/framework/worker_pool.py) | `start_stderr_drain` |

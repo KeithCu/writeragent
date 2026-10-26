@@ -404,3 +404,35 @@ def test_latex_to_math_object_accepts_expression_alias():
     assert res["status"] == "ok"
     assert "sin" in res["latex"].lower()
 
+
+def test_name_error_with_other_wording_still_names_the_call(monkeypatch):
+    def boom(*args, **kwargs):
+        raise NameError("name 'Function' is not defined (wording changed)")
+
+    monkeypatch.setattr("sympy.parsing.sympy_parser.parse_expr", boom)
+    res = run_symbolic(
+        {"helper": "symbolic_simplify", "params": {"expression": "custom_fn(x)"}},
+        None,
+        {},
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "PARSE_ERROR"
+    assert res["message"] == "Undefined function in expression: custom_fn"
+
+
+def test_latex_to_math_object_caps_length():
+    from plugin.scripting.venv.symbolic import latex_to_math_object
+
+    res = run_symbolic(
+        {"helper": "latex_to_math_object", "params": {"latex": "x^{" + "a" * 10001}},
+        None,
+        {},
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "PARSE_ERROR"
+    assert "longer than" in res["message"]
+
+    res_cue = latex_to_math_object(latex="x^{2}")
+    assert res_cue["status"] == "ok"
+    assert res_cue["latex"] == "x^{2}"
+

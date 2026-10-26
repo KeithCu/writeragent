@@ -578,7 +578,7 @@ def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
     assets = os.path.abspath(os.environ.get("WRITERAGENT_EDITOR_ASSETS", _ASSETS_DIR))
     filepath = monaco_static_path(path, assets, rocher_root) or ""
 
-    if filepath and os.path.exists(filepath) and os.path.isfile(filepath):
+    if filepath and os.path.isfile(filepath):
         mime, _unused = mimetypes.guess_type(filepath)
         if not mime:
             mime = "application/octet-stream"
@@ -588,6 +588,7 @@ def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
             start_response("200 OK", [("Content-Type", mime), ("Content-Length", str(len(content)))])
             return [content]
         except Exception as e:
+            log.exception("editor_main: failed to serve %s", filepath)
             start_response("500 Internal Server Error", [("Content-Type", "text/plain")])
             return [str(e).encode("utf-8")]
     else:
@@ -605,6 +606,15 @@ def main() -> None:
     index_html = os.path.join(assets, "index.html")
     if not os.path.isfile(index_html):
         _fatal(f"Editor assets not found: {index_html}")
+
+    # index.html loads vs/loader.js, which wsgi_app serves from _ROCHER_ROOT.
+    # Without it the window never shows, so fail where the host shows stderr.
+    loader_js = os.path.join(_ROCHER_ROOT, "loader.js")
+    if not _ROCHER_ROOT or not os.path.isfile(loader_js):
+        _fatal(
+            f"Monaco assets not found: {loader_js} "
+            "(install the 'rocher' package in the configured venv)"
+        )
 
     try:
         import webview  # type: ignore[import-untyped]

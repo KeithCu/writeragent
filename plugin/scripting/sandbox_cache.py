@@ -28,12 +28,12 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
     DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
-    UNDER_CROSSHAIR,
+    _profile,
     ascii_bounded,
     deal,
     str_bounded,
 )
-from plugin.scripting.sandbox import import_authorized
+from plugin.scripting.sandbox import active_blocked_imports, import_authorized
 
 
 def _deal_sandbox_imports_ok_pytest(authorized_imports: object) -> bool:
@@ -52,9 +52,7 @@ def _deal_sandbox_imports_ok_crosshair(authorized_imports: object) -> bool:
     )
 
 
-_deal_sandbox_imports_ok = (
-    _deal_sandbox_imports_ok_crosshair if UNDER_CROSSHAIR else _deal_sandbox_imports_ok_pytest
-)
+_deal_sandbox_imports_ok = _profile(_deal_sandbox_imports_ok_crosshair, _deal_sandbox_imports_ok_pytest)
 
 
 def _deal_sandbox_blocked_ok(blocked_imports: object) -> bool:
@@ -83,9 +81,11 @@ def _deal_sandbox_code_ok_crosshair(code: object) -> bool:
     return isinstance(code, str) and ascii_bounded(code, DEAL_MAX_SOURCE) and "\0" not in code
 
 
-_deal_sandbox_code_ok = (
-    _deal_sandbox_code_ok_crosshair if UNDER_CROSSHAIR else _deal_sandbox_code_ok_pytest
-)
+_deal_sandbox_code_ok = _profile(_deal_sandbox_code_ok_crosshair, _deal_sandbox_code_ok_pytest)
+
+
+def _deal_sandbox_policy_ok(authorized_imports: object, blocked_imports: object = None) -> bool:
+    return _deal_sandbox_imports_ok(authorized_imports) and _deal_sandbox_blocked_ok(blocked_imports)
 
 # ExceptHandler is handled inside evaluate_try rather than in evaluate_ast.
 _STRUCTURAL_NODES: frozenset[type[ast.AST]] = frozenset({ast.ExceptHandler})
@@ -94,10 +94,7 @@ _DEFAULT_MAX_ENTRIES = 256
 _MAX_CACHED_SOURCE_CHARS = 65536
 
 
-@deal.pre(
-    lambda module, authorized_imports, blocked_imports=None: _deal_sandbox_imports_ok(authorized_imports)
-    and _deal_sandbox_blocked_ok(blocked_imports)
-)
+@deal.pre(lambda module, authorized_imports, blocked_imports=None: _deal_sandbox_policy_ok(authorized_imports, blocked_imports))
 @deal.post(lambda result: result is None or isinstance(result, str))
 def validate_sandbox_ast(
     module: ast.Module,
@@ -107,12 +104,7 @@ def validate_sandbox_ast(
     """Return an error message if *module* violates sandbox policy, else ``None``."""
     # AST walk on a symbolic module hangs deep check.
     # crosshair: off
-    if blocked_imports is not None:
-        effective_blocked = tuple(blocked_imports)
-    else:
-        from plugin.scripting.sandbox import active_blocked_imports
-
-        effective_blocked = tuple(active_blocked_imports())
+    effective_blocked = tuple(blocked_imports) if blocked_imports is not None else tuple(active_blocked_imports())
 
     for node in ast.walk(module):
         if isinstance(node, (ast.stmt, ast.expr)):
@@ -181,18 +173,11 @@ def _memoized_blocked_fingerprint(blocked_tuple: tuple[str, ...]) -> str:
 
 
 def _blocked_fingerprint(blocked_imports: Sequence[str] | None) -> str:
-    if blocked_imports is not None:
-        return _memoized_blocked_fingerprint(tuple(blocked_imports))
-    from plugin.scripting.sandbox import active_blocked_imports
-
-    return _memoized_blocked_fingerprint(tuple(active_blocked_imports()))
+    blocked = active_blocked_imports() if blocked_imports is None else blocked_imports
+    return _memoized_blocked_fingerprint(tuple(blocked))
 
 
-@deal.pre(
-    lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_code_ok(code)
-    and _deal_sandbox_imports_ok(authorized_imports)
-    and _deal_sandbox_blocked_ok(blocked_imports)
-)
+@deal.pre(lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_policy_ok(authorized_imports, blocked_imports) and _deal_sandbox_code_ok(code))
 def _cache_key(
     code: str,
     authorized_imports: Sequence[str],
@@ -226,11 +211,7 @@ def _format_syntax_error(exc: SyntaxError) -> str:
     )
 
 
-@deal.pre(
-    lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_code_ok(code)
-    and _deal_sandbox_imports_ok(authorized_imports)
-    and _deal_sandbox_blocked_ok(blocked_imports)
-)
+@deal.pre(lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_policy_ok(authorized_imports, blocked_imports) and _deal_sandbox_code_ok(code))
 def _build_entry(
     code: str,
     authorized_imports: Sequence[str],
@@ -269,11 +250,7 @@ def _build_entry(
         return HotEntry(module=None, error="Code parsing failed: expression is too deeply nested")
 
 
-@deal.pre(
-    lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_code_ok(code)
-    and _deal_sandbox_imports_ok(authorized_imports)
-    and _deal_sandbox_blocked_ok(blocked_imports)
-)
+@deal.pre(lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_policy_ok(authorized_imports, blocked_imports) and _deal_sandbox_code_ok(code))
 def get_hot_entry(
     code: str,
     authorized_imports: Sequence[str],

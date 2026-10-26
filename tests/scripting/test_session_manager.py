@@ -779,20 +779,18 @@ def test_save_as_skips_orphan_reset_when_property_remains() -> None:
     mock_reset.assert_not_called()
 
 
-def test_reset_off_main_inline_does_not_recurse() -> None:
+def test_reset_off_main_marshals_body_once() -> None:
     from unittest.mock import MagicMock, patch
-    import pytest
 
     ctx = MagicMock()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
-        patch("plugin.scripting.session_manager.get_desktop") as mock_get_desktop,
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False) as mock_main,
+        patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_exec,
     ):
-        with pytest.raises(RuntimeError) as exc_info:
-            session_manager.reset_workbook_python_session(ctx)
-        assert "reset_workbook_python_session cannot run off the main thread" in str(exc_info.value)
-    mock_get_desktop.assert_not_called()
+        session_manager.reset_workbook_python_session(ctx)
+    mock_main.assert_called_once()
+    mock_exec.assert_called_once()
+    assert mock_exec.call_args[0][0] is session_manager._reset_on_main
 
 
 def test_reset_off_main_runs_body_when_hop_lands_on_main() -> None:
@@ -1048,6 +1046,38 @@ def test_reset_headless_no_document_is_generic() -> None:
     mock_msgbox.assert_called_once()
     assert "Open a Writer, Calc, or Draw document and try again." in mock_msgbox.call_args[0][1]
     mock_reset_calc.assert_not_called()
+
+
+def test_find_document_reraises_disposed_focused() -> None:
+    import pytest
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import DocumentDisposedError
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getCurrentController.side_effect = DocumentDisposedError("closed", object_type="document")
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = doc
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_calc", return_value=True),
+    ):
+        with pytest.raises(DocumentDisposedError):
+            session_manager._calc_document(ctx)
+
+
+def test_rps_session_id_calc_uses_calc_namespace() -> None:
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///wb.ods"
+    with (
+        patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+        patch("plugin.scripting.session_manager.is_calc", return_value=True),
+    ):
+        assert session_manager.rps_session_id(ctx, doc) == "calc:file:///wb.ods"
+
 
 
 

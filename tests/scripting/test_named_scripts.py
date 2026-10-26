@@ -76,6 +76,38 @@ def test_extract_library_source_keeps_lambda_body_calls():
     src = extract_library_source("helper = lambda x: transform(x)\n")
     assert "lambda" in src
     assert "transform" in src
+    src2 = extract_library_source("helper = lambda: transform()\n")
+    assert "lambda" in src2
+    assert "transform" in src2
+
+
+def test_extract_library_source_rejects_calls_in_lambda_defaults():
+    for code in (
+        "helper = lambda x=wa.read(): x\n",
+        "def f(x=lambda y=wa.read(): y):\n    pass\n",
+        "class C:\n    F = lambda x=wa.read(): x\n",
+        "class C(metaclass=lambda x=wa.read(): x):\n    pass\n",
+        "helper = lambda x=(n := wa.read()): x\n",
+    ):
+        with pytest.raises(ValueError, match="not library definitions"):
+            extract_library_source(code)
+
+    assert "transform" in extract_library_source("helper = lambda x: transform(x)\n")
+    assert "transform" in extract_library_source("helper = lambda: transform()\n")
+
+    from plugin.scripting.named_scripts import _eval_library
+    from plugin.scripting.venv.venv_sandbox import _new_executor
+
+    recorded = []
+
+    def record():
+        recorded.append(1)
+
+    exe = _new_executor(10)
+    exe.custom_tools["evil"] = record
+    with pytest.raises(ValueError, match="not library definitions"):
+        _eval_library(exe, "helper = lambda x=evil(): x\n", "Evil")
+    assert not recorded
 
 
 def test_extract_library_source_rejects_class_import_time_calls():
@@ -794,6 +826,20 @@ def test_extract_library_source_empty_expression_library_is_an_error():
     assert extract_library_source("# c\n") == ""
 
 
+def test_extract_library_source_wraps_parse_failures():
+    with patch("plugin.scripting.named_scripts.ast.parse", side_effect=RecursionError("deep")):
+        with pytest.raises(ValueError, match="deeply nested"):
+            extract_library_source("def f():\n    pass\n")
+
+    with patch("plugin.scripting.named_scripts.ast.parse", side_effect=ValueError("null bytes")):
+        with pytest.raises(ValueError, match="not valid Python"):
+            extract_library_source("def f():\n    pass\n")
+
+    with patch("plugin.scripting.named_scripts.ast.unparse", side_effect=RecursionError("deep")):
+        with pytest.raises(ValueError, match="deeply nested"):
+            extract_library_source("def f():\n    pass\n")
+
+
 def test_eval_library_binds_unpack_and_class_docstring():
     from plugin.contrib.smolagents.local_python_executor import InterpreterError
     from plugin.scripting.named_scripts import _eval_library
@@ -871,7 +917,7 @@ def test_shared_session_namespace_mutation_persists():
 
 
 def test_named_script_tool_reads_document_scripts_only_when_needed():
-    from plugin.scripting.host_rpc import _execute_named_script_tool, execute_tool
+    from plugin.scripting.host_rpc import _dispatch_named_script, execute_tool
 
     allowed = frozenset({"apply_document_content"})
     code = "def n():\n    return 1\n"
@@ -950,12 +996,8 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
         assert "Cover" in out_list["document"]
         mock_get_doc.assert_called_once_with(sentinel_doc)
 
-    # Direct _execute_named_script_tool("not-a-tool", {})
-    with (
-        patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_fail_user),
-        patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
-    ):
-        with pytest.raises(RuntimeError, match="Unknown named-script tool"):
-            _execute_named_script_tool("not-a-tool", {})
+    # Direct _dispatch_named_script("not-a-tool", {})
+    with pytest.raises(RuntimeError, match="Unknown named-script tool"):
+        _dispatch_named_script("not-a-tool", {})
 
 

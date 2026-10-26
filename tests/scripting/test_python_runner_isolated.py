@@ -53,7 +53,7 @@ def test_reset_python_session_action_in_background():
 def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):
     import logging
     from unittest.mock import MagicMock, patch
-    from plugin.scripting.python_runner import _prepare_rps_execution
+    from plugin.scripting.python_runner import execute_and_insert_result
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -64,10 +64,31 @@ def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):
         patch("plugin.scripting.session_manager.rps_session_id", side_effect=RuntimeError("session lookup failed")),
         caplog.at_level(logging.ERROR, logger="writeragent.scripting"),
     ):
-        prepared = _prepare_rps_execution(ctx, doc, "x = 1")
+        outcome = execute_and_insert_result(ctx, doc, "x = 1")
 
-    assert prepared.get("early_outcome", {}).get("ok") is False
+    assert outcome.get("ok") is False
     mock_release.assert_called_once_with("doc:tok")
     assert "prepare Run Python Script failed" in caplog.text
     assert "execute_and_insert_result failed" not in caplog.text
+
+
+def test_execute_and_insert_result_releases_pin_when_venv_raises():
+    from unittest.mock import MagicMock, patch
+    from plugin.scripting.python_runner import execute_and_insert_result
+
+    ctx = MagicMock()
+    doc = MagicMock()
+
+    with (
+        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
+        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
+        patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "t0": 0.0}),
+        patch("plugin.scripting.python_runner._run_prepared_rps", side_effect=RuntimeError("boom")),
+    ):
+        outcome = execute_and_insert_result(ctx, doc, "x = 1")
+
+    assert outcome.get("ok") is False
+    assert "boom" in outcome.get("message", "")
+    mock_release.assert_called_once_with("doc:tok")
+
 

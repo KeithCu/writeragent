@@ -11,6 +11,9 @@ from unittest.mock import MagicMock, patch
 import sys
 import threading
 import time
+from typing import Any
+
+import pytest
 
 from plugin.writer.locale.grammar_ignore_rules import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
 from plugin.scripting.venv.languagetool import _match_wrong_text, run_languagetool_check
@@ -121,3 +124,79 @@ def test_lt_cache_constructs_one_client_under_contention() -> None:
     assert constructed["n"] == 1
     assert not first.is_alive()
     assert not second.is_alive()
+
+
+def test_lt_cache_canonicalizes_locale() -> None:
+    calls = []
+
+    def fake_lt_ctor(tag: str) -> MagicMock:
+        calls.append(tag)
+        m = MagicMock()
+        m.check.return_value = []
+        return m
+
+    fake_mod = MagicMock()
+    fake_mod.LanguageTool = fake_lt_ctor
+
+    cache: dict[str, Any] = {}
+    with patch.dict(sys.modules, {"language_tool_python": fake_mod}), patch(
+        "plugin.scripting.venv.languagetool._LT_CACHE", cache
+    ):
+        run_languagetool_check("hello", "en-us")
+        run_languagetool_check("hello", "en-US")
+
+    assert calls == ["en-US"]
+    assert list(cache.keys()) == ["en-US"]
+
+
+def test_check_failure_drops_cached_client() -> None:
+    tool1 = MagicMock()
+    tool1.check.side_effect = RuntimeError("server closed")
+    tool2 = MagicMock()
+    tool2.check.return_value = []
+
+    tools = [tool1, tool2]
+
+    def fake_lt_ctor(tag: str) -> MagicMock:
+        return tools.pop(0)
+
+    fake_mod = MagicMock()
+    fake_mod.LanguageTool = fake_lt_ctor
+
+    cache: dict[str, Any] = {}
+    with patch.dict(sys.modules, {"language_tool_python": fake_mod}), patch(
+        "plugin.scripting.venv.languagetool._LT_CACHE", cache
+    ):
+        with pytest.raises(RuntimeError) as exc_info:
+            run_languagetool_check("hello", "en-US")
+        assert "en-US" in str(exc_info.value)
+        assert "server closed" in str(exc_info.value)
+        assert len(cache) == 0
+
+        res = run_languagetool_check("hello", "en-US")
+        assert res == {"errors": []}
+        assert len(cache) == 1
+        assert cache["en-US"] is tool2
+
+
+def test_init_failure_names_locale_and_keeps_cause() -> None:
+    cause = RuntimeError("download failed")
+
+    def fake_lt_ctor(tag: str) -> None:
+        raise cause
+
+    fake_mod = MagicMock()
+    fake_mod.LanguageTool = fake_lt_ctor
+
+    cache: dict[str, Any] = {}
+    with patch.dict(sys.modules, {"language_tool_python": fake_mod}), patch(
+        "plugin.scripting.venv.languagetool._LT_CACHE", cache
+    ):
+        with pytest.raises(RuntimeError) as exc_info:
+            run_languagetool_check("hello", "fr-FR")
+        msg = str(exc_info.value)
+        assert "fr-FR" in msg
+        assert "download failed" in msg
+        assert exc_info.value.__cause__ is cause
+        assert len(cache) == 0
+

@@ -153,10 +153,13 @@ def run_trusted_spec(
 
 def _trusted_action_spec(helper: Any, params: Any, packet: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build a spec dict for spec-driven venv dispatchers."""
-    # The spec used to hold the packet's params object. A helper that pops
-    # or assigns keys would change the request. _require_str_list already
-    # returns a new list. Shallow copy only: nested values stay shared.
-    coerced_params = dict(params) if isinstance(params, dict) else {}
+    # What was wrong: non-dict params became {}, so a malformed packet ran
+    # the helper with defaults and reported a misleading helper-level error.
+    # How it happened: the boundary coerced any non-dict value instead of rejecting it.
+    # Why this change: fail at the boundary like _require_str does for bad fields.
+    if params is not None and not isinstance(params, dict):
+        raise ValueError("params must be a dict")
+    coerced_params = dict(params or {})
     spec: dict[str, Any] = {"helper": str(helper or ""), "params": coerced_params}
     spec.update(extract_sheet_layout(packet))
     return spec

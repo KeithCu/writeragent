@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import ast
+import importlib
 import os
 import subprocess
 import sys
@@ -30,6 +31,21 @@ _HOST_FACADE_PATHS = (
     "plugin/scripting/text_analytics.py",
     "plugin/scripting/units.py",
     "plugin/scripting/viz.py",
+)
+
+# facade module, its declared lazy export set, and the venv module those names
+# must resolve from. Without this, a typo or a venv-side rename is silent until
+# a caller first touches the name: _lazy_venv propagates the venv AttributeError.
+_FACADE_EXPORTS = (
+    ("plugin.scripting.analysis", "_ANALYSIS_VENV_EXPORTS", "plugin.scripting.venv.analysis"),
+    ("plugin.scripting.duckdb_sql", "_SQL_VENV_EXPORTS", "plugin.scripting.venv.duckdb_sql"),
+    ("plugin.scripting.forecast", "_FORECAST_VENV_EXPORTS", "plugin.scripting.venv.forecast"),
+    ("plugin.scripting.optimize", "_OPTIMIZE_VENV_EXPORTS", "plugin.scripting.venv.optimize"),
+    ("plugin.scripting.quant", "_QUANT_VENV_EXPORTS", "plugin.scripting.venv.quant"),
+    ("plugin.scripting.symbolic", "_SYMBOLIC_VENV_EXPORTS", "plugin.scripting.venv.symbolic"),
+    ("plugin.scripting.text_analytics", "_TEXT_VENV_EXPORTS", "plugin.scripting.venv.text_analytics"),
+    ("plugin.scripting.units", "_UNITS_VENV_EXPORTS", "plugin.scripting.venv.units"),
+    ("plugin.scripting.viz", "_VIZ_VENV_EXPORTS", "plugin.scripting.venv.viz"),
 )
 
 _DUCKDB_SNIPPET = """\
@@ -216,3 +232,14 @@ def test_host_facade_import_does_not_load_venv(snippet: str) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("facade_name, exports_attr, venv_name", _FACADE_EXPORTS)
+def test_declared_exports_exist_in_venv_module(facade_name: str, exports_attr: str, venv_name: str) -> None:
+    facade = importlib.import_module(facade_name)
+    venv = importlib.import_module(venv_name)
+    exports = getattr(facade, exports_attr)
+    assert exports, f"{facade_name}.{exports_attr} is empty"
+    missing = sorted(name for name in exports if not hasattr(venv, name))
+    assert not missing, f"{facade_name}: {missing} not defined in {venv_name}"
+

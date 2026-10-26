@@ -427,6 +427,35 @@ def test_pickle_frame_timeout_mid_frame_is_partial():
         os.close(write_fd)
 
 
+def test_header_only_stall_is_partial_timeout():
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, struct.pack("!I", 10))
+        with os.fdopen(read_fd, "rb", buffering=0) as reader:
+            t0 = time.monotonic()
+            with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
+                read_frame_payload(reader, 0.3)
+            assert time.monotonic() - t0 < 2.0
+    finally:
+        os.close(write_fd)
+
+
+def test_header_consumed_timeout_is_partial_timeout_no_fd():
+    class HeaderThenStall:
+        def __init__(self):
+            self.header = struct.pack("!I", 10)
+
+        def read(self, n):
+            if self.header:
+                out, self.header = self.header[:n], self.header[n:]
+                return out
+            time.sleep(10)
+            return b""
+
+    with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
+        read_frame_payload(HeaderThenStall(), 0.2)
+
+
 def test_read_frame_payload_pipe_eof_mid_header_raises_truncated_fast():
     read_fd, write_fd = os.pipe()
     try:

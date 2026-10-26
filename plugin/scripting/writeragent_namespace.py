@@ -8,4 +8,23 @@ LibrePy omits the generated tool-proxy module; ``AliasImporter`` loads this modu
 instead so ``from writeragent.scripting.* import ...`` can resolve child packages
 via the existing writeragent→plugin alias. ``wa.scripts`` / ``wa.doc`` are attached
 at execute time (``named_scripts.attach_named_script_libraries``).
+
+Outside a script, wa.<domain> raises an AttributeError that names wa.scripts / wa.doc instead of this module.
 """
+
+from typing import Any
+
+# scripts/doc are attached at execute time, so they are not module globals here.
+__all__ = ("scripts", "doc")  # noqa: F822  # pyright: ignore[reportUnsupportedDunderAll]
+
+
+def __getattr__(name: str) -> Any:
+    # Dunder lookups must stay standard so introspection and import machinery work.
+    if name.startswith("__"):
+        raise AttributeError(name)
+    if name in __all__:
+        raise AttributeError(f"writeragent.{name} is only available while a Python script is running.")
+    raise AttributeError(
+        f"writeragent.{name} is not available in this build. "
+        "Document tool APIs require WriterAgent; use wa.scripts / wa.doc for named scripts."
+    )

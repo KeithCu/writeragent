@@ -1136,3 +1136,112 @@ def test_analysis_lazy_exports_resolve():
         venv_obj = getattr(venv_coerce, name)
         host_obj = getattr(host_facade, name)
         assert venv_obj is host_obj, f"Coerce export {name} did not resolve to same object"
+
+
+def test_describe_and_quick_stats_reject_duplicate_labels():
+    import pandas as pd
+
+    df = pd.DataFrame([[1, 2], [3, 4]], columns=["a", "a"])
+    res = analysis.describe_data(df)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "Duplicate column names: a" in res["message"]
+
+    stats = analysis.quick_stats(df)
+    assert stats["status"] == "error"
+    assert stats["code"] == "INVALID_PARAM"
+
+
+def test_describe_columns_uses_one_iqr_pass(monkeypatch):
+    import pandas as pd
+
+    from plugin.scripting.venv import analysis as venv_analysis
+
+    df = pd.DataFrame(
+        {"x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 100], "y": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}
+    )
+    variables = {
+        "x": {"type": "Numeric", "p_missing": 0.0, "n_unique": 10},
+        "y": {"type": "Numeric", "p_missing": 0.0, "n_unique": 10},
+    }
+    real = venv_analysis.detect_outliers
+    calls: list[object] = []
+
+    def counting(*args, **kwargs):
+        calls.append(kwargs.get("columns"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(venv_analysis, "detect_outliers", counting)
+    summaries, _flags = venv_analysis._describe_columns_from_profile(df, variables, include_outliers=True)
+    assert calls == [None]
+    per_column = real(df, method="iqr")["metrics"]["per_column"]
+    assert {s["name"]: s.get("outlier_count", 0) for s in summaries} == per_column
+
+
+def test_safe_float_rejects_non_finite():
+    from plugin.scripting.venv.analysis import _safe_float
+
+    assert _safe_float(float("inf")) is None
+    assert _safe_float(float("-inf")) is None
+    assert _safe_float(float("nan")) is None
+    assert _safe_float("2.5") == 2.5
+
+
+def test_compare_periods_empty_month_is_a_gap():
+    grid = [
+        ["Date", "Revenue"],
+        ["2024-01-15", 100],
+        ["2024-02-15", 110],
+        ["2024-04-15", 130],
+    ]
+    result = analysis.compare_periods(grid, date_col="Date", value_col="Revenue", period="M", calc="pct_change")
+    assert result["status"] == "ok"
+    table = result["tables"][0]
+    revenue = [row[table["columns"].index("Revenue")] for row in table["rows"]]
+    change = [row[table["columns"].index("change")] for row in table["rows"]]
+    assert len(revenue) == 4
+    assert revenue[2] is None  # March had no rows
+    assert change[1] == pytest.approx(0.1)
+    assert change[2] is None
+    assert change[3] is None  # previous period is a gap
+    assert not any(isinstance(v, float) and v == float("inf") for v in change)
+
+
+def test_run_regression_rejects_target_and_duplicate_features():
+    res = analysis.run_regression(REGRESSION_GRID, target="y", features=["y", "x"])
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    res2 = analysis.run_regression(REGRESSION_GRID, target="y", features=["x", "x"])
+    assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_PARAM"
+
+
+def test_cluster_numeric_drops_all_empty_column():
+    import pandas as pd
+
+    df = pd.DataFrame({"a": [1.0, 1.1, 5.0, 5.2], "b": [float("nan")] * 4})
+    result = analysis.cluster_numeric(df, n_clusters=2)
+    assert result["status"] == "ok"
+    assert result["flags"] == ["Dropped all-empty columns: b"]
+    centroids = next(t for t in result["tables"] if t["name"] == "centroids")
+    assert centroids["columns"] == ["cluster", "a"]
+
+
+def test_kpi_summary_rejects_unknown_agg():
+    res = analysis.kpi_summary(SALES_GRID, ["Sales"], agg=["bogus"])
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    ok = analysis.kpi_summary(SALES_GRID, ["Sales"], agg="MEAN")
+    assert ok["status"] == "ok"
+
+
+def test_clean_and_prepare_rejects_unknown_fill_values():
+    res = analysis.clean_and_prepare(SALES_GRID, fill_numeric="meadian")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    res2 = analysis.clean_and_prepare(SALES_GRID, fill_categorical="bogus")
+    assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_PARAM"

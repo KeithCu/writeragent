@@ -137,6 +137,45 @@ def test_run_trusted_symbolic_rejects_draw(doc_type):
     assert "Writer or Calc" in str(exc_info.value)
 
 
+@patch("plugin.framework.thread_guard.on_main_thread", return_value=True)
+def test_run_trusted_symbolic_rejects_non_writer_calc_without_hint(mock_main_thread):
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.scripting.symbolic import run_trusted_symbolic
+
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    with pytest.raises(ToolExecutionError) as exc_info:
+        run_trusted_symbolic(
+            MagicMock(),
+            doc,
+            helper="symbolic_simplify",
+            params={"expression": "x"},
+        )
+    assert "Writer or Calc" in str(exc_info.value)
+
+
+@patch("plugin.framework.thread_guard.on_main_thread", return_value=True)
+@patch("plugin.scripting.symbolic.client_run_symbolic")
+def test_run_trusted_symbolic_accepts_writer_without_hint(mock_client_run, mock_main_thread):
+    from plugin.scripting.symbolic import run_trusted_symbolic
+
+    mock_client_run.return_value = {
+        "status": "ok",
+        "helper": "symbolic_simplify",
+        "latex": "x",
+        "text": "x",
+    }
+    doc = MagicMock()
+    result = run_trusted_symbolic(
+        MagicMock(),
+        doc,
+        helper="symbolic_simplify",
+        params={"expression": "x"},
+    )
+    assert result["status"] == "ok"
+    mock_client_run.assert_called_once()
+
+
 @patch("plugin.calc.symbolic_math.run_trusted_symbolic")
 def test_symbolic_math_forwards_tool_context_for_stop(mock_run, writer_ctx):
     mock_run.return_value = {"status": "ok", "helper": "symbolic_simplify", "latex": "x", "text": "x"}
@@ -156,6 +195,15 @@ def test_symbolic_math_does_not_insert_stopped_result(mock_run, mock_insert, wri
     assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped."}
     mock_insert.assert_not_called()
     assert "math_inserted" not in result
+
+
+@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+def test_symbolic_math_rejects_non_object_params(mock_run, writer_ctx):
+    tool = SymbolicMathTool()
+    result = tool.execute(writer_ctx, helper="symbolic_simplify", params="x^2")
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAM"
+    mock_run.assert_not_called()
 
 
 @patch("plugin.calc.symbolic_math.run_trusted_symbolic")

@@ -24,19 +24,15 @@ from typing import Any
 
 from plugin.framework.i18n import _
 
-# Top-level load keys copied into ui; the dict value is the ui key.
-# title, saved_ok_text, and status_ok_text stay top-level. document.title /
-# window.title read msg.title. The saved-status fallback reads msg.saved_ok_text,
-# then msg.status_ok_text, then t("saved_default"). Copying saved_ok_text into
-# ui.saved_default was shadowed by that top-level read, and the copy ran only
-# when the top-level field was present.
-_LOAD_UI_KEYS: dict[str, str] = {
-    "save_label": "save_label",
-    "run_label": "run_label",
-    "close_label": "close_label",
-    "plain_text_label": "plain_text_label",
-    "data_binding_title": "data_binding_title",
-}
+# Top-level load keys copied into ui. title, status_ok_text, and saved_ok_text
+# stay top-level; editor.js resolves the saved status itself.
+_UI_OVERRIDE_KEYS: tuple[str, ...] = (
+    "save_label",
+    "run_label",
+    "close_label",
+    "plain_text_label",
+    "data_binding_title",
+)
 
 
 def _shared_ui_strings() -> dict[str, str]:
@@ -172,13 +168,15 @@ def build_monaco_ui_strings(*, mode: str) -> dict[str, str]:
 def enrich_monaco_load_message(msg: dict[str, Any]) -> dict[str, Any]:
     """Attach ``ui`` dict and merge caller overrides from top-level load keys."""
     enriched = dict(msg)
+    # Always a bool: a reused Monaco window kept the previous mode's plain-save checkbox.
+    enriched["save_as_plain"] = bool(enriched.get("save_as_plain", False))
     mode = str(enriched.get("mode") or "calc_cell")
     ui = build_monaco_ui_strings(mode=mode)
 
-    for src, ui_key in _LOAD_UI_KEYS.items():
-        value = enriched.get(src)
+    for key in _UI_OVERRIDE_KEYS:
+        value = enriched.get(key)
         if isinstance(value, str) and value:
-            ui[ui_key] = value
+            ui[key] = value
 
     enriched["ui"] = ui
     return enriched

@@ -136,6 +136,14 @@ def test_js_t_and_fmt_keys_are_in_the_ui_catalog():
         catalog.update(build_monaco_ui_strings(mode=mode))
 
     assert keys <= catalog | _JS_UI_KEYS_NOT_IN_CATALOG
+    assert "=PYTHON()" not in editor_js
+
+
+def test_enrich_always_sends_a_boolean_save_as_plain():
+    run = enrich_monaco_load_message({"type": "load", "mode": "run_script"})
+    assert run["save_as_plain"] is False
+    cell = enrich_monaco_load_message({"type": "load", "mode": "calc_cell", "save_as_plain": True})
+    assert cell["save_as_plain"] is True
 
 
 def test_all_modes_return_non_empty_required_keys():

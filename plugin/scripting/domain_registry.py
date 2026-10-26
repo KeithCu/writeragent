@@ -146,15 +146,11 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
 
     def insert(ctx: Any, doc: Any, result: dict[str, Any], **kwargs: Any) -> Any:
         fn = _resolve_fn(w.insert)
-        if w.post_venv_calc_only:
-            # Sheet egress is (doc, uno_ctx, result). Calling it as (ctx, doc, result)
-            # passed the component context into calc_anchor_from_selection, which then
-            # failed and the Run Python Script dialog reported an insert error.
-            ret = fn(doc, ctx, result)
-        elif kwargs:
-            ret = fn(ctx, doc, result, **kwargs)
-        else:
-            ret = fn(ctx, doc, result)
+        # Sheet egress is (doc, uno_ctx, result). Calling it as (ctx, doc, result)
+        # passed the component context into calc_anchor_from_selection, which then
+        # failed and the Run Python Script dialog reported an insert error.
+        args = (doc, ctx) if w.post_venv_calc_only else (ctx, doc)
+        ret = fn(*args, result, **kwargs)
         # int(ret) raises when an inserter returns a non-integer after a
         # successful insert, and the UI shows "Failed to insert result".
         # Return ret only when it is already an int and not a bool, else None.

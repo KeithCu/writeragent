@@ -287,7 +287,7 @@ Required for NumPy domain helpers, Vision OCR, and any `run_trusted_worker_actio
 |------|------|
 | [`plugin/scripting/client.py`](../../plugin/scripting/client.py) | `run_*` host stubs, long-trusted timeout list |
 | [`plugin/scripting/trusted_rpc.py`](../../plugin/scripting/trusted_rpc.py) | `run_trusted_worker_action` |
-| [`plugin/scripting/sheet_layout.py`](../../plugin/scripting/sheet_layout.py) | `extract_sheet_layout` (host client and venv child; no `venv_worker` import) |
+| [`plugin/scripting/sheet_layout.py`](../../plugin/scripting/sheet_layout.py) | `SHEET_LAYOUT_KEYS` and `extract_sheet_layout` (host client and venv child; no `venv_worker` import) |
 | [`plugin/scripting/trusted_action_registry.py`](../../plugin/scripting/trusted_action_registry.py) | Domain → venv dispatcher wiring |
 | [`plugin/scripting/venv/trusted_dispatch.py`](../../plugin/scripting/venv/trusted_dispatch.py) | Routes `run_trusted_action` to domain `run_*` |
 | [`plugin/scripting/venv/worker_heartbeat.py`](../../plugin/scripting/venv/worker_heartbeat.py) | Child heartbeat emitter and result-frame writer. `FRAME_HEARTBEAT` and `FRAME_RESULT` live in `ipc.py`; `parse_worker_stdout_frame` lives in `venv_worker.py`. |
@@ -757,7 +757,8 @@ Makefile
 | [`tests/scripting/test_venv_worker.py`](../../tests/scripting/test_venv_worker.py) | `run_code_in_user_venv`, warm worker |
 | [`tests/scripting/test_payload_codec.py`](../../tests/scripting/test_payload_codec.py) | `split_grid` codec |
 | [`tests/scripting/test_config_limits.py`](../../tests/scripting/test_config_limits.py) | Timeout / budget schema |
-| [`tests/scripting/test_venv_probe_progress.py`](../../tests/scripting/test_venv_probe_progress.py) | Venv Test UI progress |
+| [`tests/scripting/test_venv_probe_progress.py`](../../tests/scripting/test_venv_probe_progress.py) | Venv self-check group progress |
+| [`tests/scripting/test_venv_probe_ui.py`](../../tests/scripting/test_venv_probe_ui.py) | Settings → Python progress dialog |
 | [`tests/scripting/test_venv_diagnostics.py`](../../tests/scripting/test_venv_diagnostics.py) | Self-check probe groups |
 | [`tests/scripting/test_worker_harness_trusted_action.py`](../../tests/scripting/test_worker_harness_trusted_action.py) | Trusted RPC dispatch |
 | [`tests/scripting/test_python_runner_config.py`](../../tests/scripting/test_python_runner_config.py) | `last_python_script_name_*` keys |

@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -316,6 +317,63 @@ def test_insert_viz_result_into_doc() -> None:
         mock_insert.assert_called_once_with(ctx, doc, payload, title="Plot")
 
 
+def test_insert_viz_result_error_details_strip_image():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.scripting.viz import insert_viz_result_into_doc
+
+    doc = MagicMock()
+    ctx = MagicMock()
+    result = {
+        "status": "error",
+        "code": "VIZ_ERROR",
+        "message": "boom",
+        "image": {"__wa_payload__": "image", "format": "png", "data": b"x" * 64},
+    }
+    with pytest.raises(ToolExecutionError) as exc:
+        insert_viz_result_into_doc(ctx, doc, result)
+    assert exc.value.details["viz_result"]["image"] == "<image>"
+
+    def _has_bytes(obj: Any) -> bool:
+        if isinstance(obj, bytes):
+            return True
+        if isinstance(obj, dict):
+            return any(_has_bytes(v) for v in obj.values())
+        if isinstance(obj, (list, tuple)):
+            return any(_has_bytes(item) for item in obj)
+        return False
+
+    assert not _has_bytes(exc.value.details)
+
+
+def test_insert_viz_result_deep_image_details_stripped():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.scripting.viz import insert_viz_result_into_doc
+
+    doc = MagicMock()
+    ctx = MagicMock()
+    img = {"__wa_payload__": "image", "format": "png", "data": b"x" * 64}
+    node: Any = img
+    # 12 wrappers puts find_image_payloads past its depth limit (reporting no image),
+    # while strip_image_payloads replaces the image payload with '<image>'.
+    for _ in range(12):
+        node = {"n": node}
+    result = {"status": "ok", "helper": "quick_plot", "deep": node}
+
+    with pytest.raises(ToolExecutionError, match="Viz helper returned no image payload.") as exc:
+        insert_viz_result_into_doc(ctx, doc, result)
+
+    def _has_bytes(obj: Any) -> bool:
+        if isinstance(obj, bytes):
+            return True
+        if isinstance(obj, dict):
+            return any(_has_bytes(v) for v in obj.values())
+        if isinstance(obj, (list, tuple)):
+            return any(_has_bytes(item) for item in obj)
+        return False
+
+    assert not _has_bytes(exc.value.details)
+
+
 def test_run_viz_bad_header_row_is_invalid_spec():
     result = run_viz({"helper": "quick_plot", "header_row": "nope"}, [])
     assert result["status"] == "error"
@@ -376,16 +434,62 @@ def test_plot_data_scatter_non_numeric_x(mock_plt):
 
 @patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
 @patch("plugin.scripting.venv.viz._require_matplotlib")
-def test_plot_data_missing_y_uses_first_numeric(mock_plt, _mock_payload):
+def test_plot_data_omitted_y_uses_first_numeric(mock_plt, _mock_payload):
     plt_mod = _mock_plt_module()
     mock_plt.return_value = plt_mod
     fig, ax = plt_mod.subplots.return_value
     df = pd.DataFrame({"Sales": [10.0, 20.0, 30.0], "Region": ["A", "B", "C"]})
 
-    result = run_viz({"helper": "plot_data", "params": {"spec": {"y": "nope"}}}, df, {})
+    result = run_viz({"helper": "plot_data", "params": {"spec": {"chart_type": "line"}}}, df, {})
 
     assert result["status"] == "ok"
     ax.set_ylabel.assert_called_with("Sales")
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_plot_data_unknown_y_is_unknown_column(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"Sales": [10.0, 20.0, 30.0], "Region": ["A", "B", "C"]})
+
+    result = run_viz({"helper": "plot_data", "params": {"spec": {"chart_type": "line", "y": "nope"}}}, df, {})
+
+    assert result["status"] == "error"
+    assert result["code"] == "UNKNOWN_COLUMN"
+    assert result["message"] == "Unknown columns: nope"
+    assert result["helper"] == "plot_data"
+    plt_mod.subplots.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_plot_data_scatter_single_numeric_is_not_enough(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"Sales": [1.0, 2.0, 3.0], "Region": ["A", "B", "C"]})
+
+    result = run_viz({"helper": "plot_data", "params": {"spec": {"chart_type": "scatter"}}}, df, {})
+
+    assert result["status"] == "error"
+    assert result["code"] == "NOT_ENOUGH_NUMERIC"
+    assert result["message"] == "Need at least two numeric columns."
+    assert result["helper"] == "plot_data"
+    plt_mod.subplots.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_plot_data_scatter_skips_y_for_default_x(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    fig, ax = plt_mod.subplots.return_value
+    df = pd.DataFrame({"A": [1.0, 2.0, 3.0], "B": [4.0, 5.0, 6.0]})
+
+    result = run_viz({"helper": "plot_data", "params": {"spec": {"chart_type": "scatter", "y": "B"}}}, df, {})
+
+    assert result["status"] == "ok"
+    assert list(ax.scatter.call_args[0][0]) == [1.0, 2.0, 3.0]
 
 
 @patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
@@ -532,6 +636,71 @@ def test_time_series_insufficient_data_does_not_open_figure(mock_plt):
     plt_mod.subplots.assert_not_called()
 
 
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_stray_text_cell_is_skipped(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"date": ["2024-01-01", "2024-02-01", "2024-03-01"], "Value": [1.0, "n/a", 3.0]})
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {"date_col": "date", "value_col": "Value"},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "ok"
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_non_numeric_value_is_non_numeric_column(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"date": ["2024-01-01", "2024-02-01"], "Value": ["oops", "nope"]})
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {"date_col": "date", "value_col": "Value"},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "error"
+    assert result["code"] == "NON_NUMERIC_COLUMN"
+    assert result["message"] == "Non-numeric columns: Value"
+    assert result["helper"] == "time_series_plot"
+    plt_mod.subplots.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_plots_rows_in_date_order(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    fig, ax = plt_mod.subplots.return_value
+    ax.get_legend_handles_labels.return_value = ([], [])
+    df = pd.DataFrame({"date": ["2024-03-01", "2024-01-01", "2024-02-01"], "Value": [3.0, 1.0, 2.0]})
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {"date_col": "date", "value_col": "Value"},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "ok"
+    assert [pd.Timestamp(d).month for d in ax.plot.call_args[0][0]] == [1, 2, 3]
+    assert list(ax.plot.call_args[0][1]) == [1.0, 2.0, 3.0]
+
+
 @patch("plugin.scripting.venv.venv_sandbox._figure_to_image_payload", side_effect=RuntimeError("render failed"))
 @patch("plugin.scripting.venv.viz._require_matplotlib")
 def test_figure_closes_when_savefig_raises(mock_plt, _mock_payload):
@@ -545,6 +714,46 @@ def test_figure_closes_when_savefig_raises(mock_plt, _mock_payload):
         run_viz({"helper": "quick_plot", "params": {}}, df, {})
 
     plt_mod.close.assert_called_once_with(fig)
+
+
+@patch("plugin.scripting.venv.viz._MAX_SVG_BYTES", 10)
+@patch(
+    "plugin.scripting.venv.venv_sandbox._figure_to_image_payload",
+    side_effect=[
+        {"__wa_payload__": "image", "format": "svg", "data": b"x" * 11},
+        {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"},
+    ],
+)
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_figure_payload_rerenders_oversized_svg_as_png(mock_plt, mock_render):
+    mock_plt.return_value = _mock_plt_module()
+    df = pd.DataFrame({"Sales": [10.0, 20.0, 30.0]})
+
+    result = run_viz({"helper": "quick_plot", "params": {}}, df, {})
+
+    assert result["status"] == "ok"
+    assert result["image"]["format"] == "png"
+    assert len(mock_render.call_args_list) == 2
+    assert mock_render.call_args_list[1].kwargs.get("fmt") == "png"
+
+
+@patch("plugin.scripting.venv.viz._MAX_SVG_BYTES", 10)
+@patch(
+    "plugin.scripting.venv.venv_sandbox._figure_to_image_payload",
+    side_effect=[
+        {"__wa_payload__": "image", "format": "svg", "data": b"x" * 5},
+    ],
+)
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_figure_payload_keeps_svg_under_the_cap(mock_plt, mock_render):
+    mock_plt.return_value = _mock_plt_module()
+    df = pd.DataFrame({"Sales": [10.0, 20.0, 30.0]})
+
+    result = run_viz({"helper": "quick_plot", "params": {}}, df, {})
+
+    assert result["status"] == "ok"
+    assert result["image"]["format"] == "svg"
+    assert len(mock_render.call_args_list) == 1
 
 
 @pytest.mark.parametrize("method", ["nope", None, "", "covariance"])
@@ -728,6 +937,25 @@ def test_insert_image_payload_calc_does_not_write_its_own_temp():
 
     mock_write.assert_not_called()
     mock_insert.assert_called_once()
+
+
+def test_insert_image_payload_unsupported_doc_raises():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.scripting.viz import insert_image_payload_for_doc
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    payload = {"__wa_payload__": "image", "format": "png", "data": b"x"}
+    with (
+        patch("plugin.scripting.viz.is_calc", return_value=False),
+        patch("plugin.scripting.viz.is_writer", return_value=False),
+        patch("plugin.scripting.viz.is_draw", return_value=False),
+        patch("plugin.scripting.viz.write_image_payload_to_temp") as mock_write,
+        pytest.raises(ToolExecutionError, match="Unsupported document type"),
+    ):
+        insert_image_payload_for_doc(ctx, doc, payload)
+
+    mock_write.assert_not_called()
 
 
 @patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())

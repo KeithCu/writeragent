@@ -262,6 +262,20 @@ def test_run_vec_pack_download_bind_host_false_skips_path_and_modules(tmp_path):
     mock_inv.assert_not_called()
 
 
+def test_run_vec_pack_download_invalidates_import_caches(tmp_path):
+    from plugin.scripting.native_binaries import run_vec_pack_download
+
+    with (
+        patch("plugin.scripting.native_binaries.importlib.invalidate_caches") as mock_inval,
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
+        patch("plugin.scripting.native_binaries._download_url_to_file"),
+    ):
+        ok = run_vec_pack_download(lambda _t: None, lambda _s: None, bind_host=False)
+    assert ok is True
+    mock_inval.assert_called_once()
+
+
 def test_atomic_replace_native_posix_uses_os_replace(tmp_path):
     partial = tmp_path / "pack.so.partial"
     dest = tmp_path / "pack.so"
@@ -580,6 +594,35 @@ def test_run_audio_download_selects_cffi_and_portaudio(
 
     if system == "Linux":
         assert not any("portaudio" in dest for dest in actual_dests)
+
+
+def test_run_audio_download_invalidates_import_caches(tmp_path):
+    from plugin.scripting.native_binaries import run_audio_download
+
+    class _MockZip:
+        def __init__(self, path, mode):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def extractall(self, target):
+            pass
+
+    with (
+        patch("plugin.scripting.native_binaries.importlib.invalidate_caches") as mock_inval,
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
+        patch("plugin.scripting.native_binaries._download_url_to_file"),
+        patch("zipfile.ZipFile", _MockZip),
+        patch("plugin.scripting.native_binaries.run_vec_pack_download", return_value=True),
+    ):
+        ok = run_audio_download(lambda _t: None, lambda _s: None)
+    assert ok is True
+    mock_inval.assert_called_once()
 
 
 def test_run_audio_download_forwards_bind_host_false(tmp_path):

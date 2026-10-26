@@ -978,13 +978,6 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
     return blocks
 
 
-def _wrap_html_fragment(html: str) -> str:
-    body = (html or "").strip()
-    if re.search(r"(?is)<\s*html\b", body):
-        return body
-    return f"<html><body>{body}</body></html>"
-
-
 def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool, exit_list: bool = False) -> bool:
     """Insert an HTML fragment at the document end. Returns False on failure."""
     text = doc.getText()
@@ -1006,7 +999,7 @@ def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool, exit_list
     from plugin.writer.html_import import insert_html_fragment_at_cursor
 
     try:
-        insert_html_fragment_at_cursor(cursor, _wrap_html_fragment(html), wrap=False)
+        insert_html_fragment_at_cursor(cursor, html, wrap=True)
         if ol_start is not None:
             target = _last_nonempty_para_cursor(text)
             if target is not None:
@@ -1696,8 +1689,6 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
         "shapes": 0,
         "images": 0,
         "outputs": 0,
-        # Legacy key for dialog/tests
-        "controls": 0,
     }
 
     notebook_in = _ensure_notebook_import_styles(doc)
@@ -1735,7 +1726,6 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
         if ctx is not None:
             wire_all_notebook_run_buttons(ctx, doc)
 
-    stats["controls"] = stats["shapes"]
     total_ms = _mono_ms(run_t0)
     log.info("notebook import complete stats=%s total_ms=%d controls=%d avg_cell_ms=%d", stats, total_ms, stats["shapes"], total_ms // max(1, stats["cells"]))
     return stats

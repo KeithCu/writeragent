@@ -26,8 +26,9 @@ Depth caps differ on purpose. ``_MAX_UNPACK_DEPTH`` (128) bounds recursive
 unpack, pack, and ``wire_cell_count``. It stays well under CPython's default
 recursion limit (~1000) so a cycle raises ``ValueError`` here instead of
 ``RecursionError``.
-``find_image_payloads`` stops at ``_MAX_IMAGE_DEPTH`` (12) because image
-trees are shallow (past that it returns ``[]``). The venv
+``find_image_payloads`` and ``strip_image_payloads`` stop at
+``_MAX_IMAGE_DEPTH`` (12) because image trees are shallow (past that find
+returns ``[]`` and strip returns the subtree unchanged). The venv
 ``_CUSTOM_SERIALIZE_MAX_DEPTH`` (8)
 bounds custom-type walks and then treats the value as a plain container.
 """
@@ -654,14 +655,29 @@ def extract_image_payload(value: Any) -> dict[str, Any] | None:
 _IMAGE_PLACEHOLDER = "<image>"
 
 
-def strip_image_payloads(obj: Any) -> Any:
-    """Return result with image payloads replaced by '<image>', preserving structure."""
+def strip_image_payloads(obj: Any, *, _depth: int = 0) -> Any:
+    """Return result with image payloads replaced by '<image>', preserving structure.
+
+    Same depth cap as ``find_image_payloads``: a cycle or a very deep tree stops
+    at ``_MAX_IMAGE_DEPTH`` and returns that subtree unchanged instead of raising
+    ``RecursionError``. Dict keys go through ``wire_str_key`` so ``{1: .., "1": ..}``
+    raises instead of silently dropping a value.
+    """
+    # Bugfix: What was wrong: cyclic/deep structures raised RecursionError and colliding dict keys were dropped.
+    # How it happened: strip_image_payloads lacked a depth cap and coerced dict keys with last-wins {str(k): ...}.
+    # Why this change fixes it: bounded at _MAX_IMAGE_DEPTH (12) and uses wire_str_key to reject collisions.
     if is_image_payload(obj):
         return _IMAGE_PLACEHOLDER
+    if _depth > _MAX_IMAGE_DEPTH:
+        return obj
     if isinstance(obj, (list, tuple)):
-        return [strip_image_payloads(x) for x in obj]
+        return [strip_image_payloads(x, _depth=_depth + 1) for x in obj]
     if isinstance(obj, dict):
-        return {str(k): strip_image_payloads(v) for k, v in obj.items()}
+        used: set[str] = set()
+        out: dict[str, Any] = {}
+        for key, value in obj.items():
+            out[wire_str_key(key, used)] = strip_image_payloads(value, _depth=_depth + 1)
+        return out
     return obj
 
 

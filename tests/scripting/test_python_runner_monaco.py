@@ -359,6 +359,7 @@ def test_run_python_monaco_on_save_persists_and_executes():
                         from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
 
                         enriched = enrich_monaco_load_message(load)
+                        assert enriched["save_as_plain"] is False
                         assert enriched["ui"]["script_label"]
 
                         response = captured["on_save"]("result = 2", False, "A1:B2", "run")
@@ -665,7 +666,7 @@ def test_run_python_monaco_on_save_builtin_still_runs():
 
 def test_execute_and_insert_result_returns_error_on_failure():
     ctx = MagicMock()
-    with patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "exec_code": "bad()", "t0": 0.0, "py_data": None, "bindings": None, "doc": MagicMock(), "ctx": ctx, "code": "bad()"}):
+    with patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "t0": 0.0, "py_data": None, "bindings": None, "doc": MagicMock(), "ctx": ctx, "code": "bad()"}):
         with patch.object(pr, "_run_prepared_rps", return_value={"status": "error", "message": "boom"}):
             outcome = pr.execute_and_insert_result(ctx, MagicMock(), "bad()")
     assert outcome["ok"] is False
@@ -733,7 +734,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modal_native():
             with patch.object(ui, "set_config") as mock_set:
-                with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 42"}):
+                with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 0"}):
                     with patch.object(ui, "save_user_script") as mock_save:
                         with patch.object(ui, "get_config_str", return_value=""):
                             scheduled = {}
@@ -750,7 +751,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
                                 def fake_execute_dialog():
                                     assert code_edit.setFocus.called
                                     for listener in listeners:
-                                        if "RunListener" in type(listener).__name__:
+                                        if listener.action_name == "BtnRun":
                                             listener.actionPerformed(MagicMock())
 
                                 dlg.execute.side_effect = fake_execute_dialog
@@ -829,7 +830,7 @@ def test_show_python_input_dialog_save_button():
                         with patch.object(ui, "get_config_str", return_value=""):
                             def fake_execute():
                                 for listener in listeners:
-                                    if "SaveListener" in type(listener).__name__:
+                                    if listener.action_name == "BtnSave":
                                         listener.actionPerformed(MagicMock())
                             dlg.execute.side_effect = fake_execute
 
@@ -950,7 +951,7 @@ def test_show_python_input_dialog_save_as_button():
                             with patch.object(ui, "show_new_script_dialog", return_value=("scriptk", False)) as mock_input:
                                 def fake_execute():
                                     for listener in listeners:
-                                        if "SaveAsListener" in type(listener).__name__:
+                                        if listener.action_name == "BtnSaveAs":
                                             listener.actionPerformed(MagicMock())
                                 dlg.execute.side_effect = fake_execute
 
@@ -1020,7 +1021,7 @@ def test_native_dialog_btn_new_action_creates_script():
                             with patch.object(ui, "show_new_script_dialog", return_value=("BrandNewScript", False)) as mock_new_dlg:
                                 def fake_execute():
                                     for listener in listeners:
-                                        if "NewListener" in type(listener).__name__:
+                                        if listener.action_name == "BtnNew":
                                             listener.actionPerformed(MagicMock())
 
                                 dlg.execute.side_effect = fake_execute
@@ -1190,4 +1191,18 @@ def test_run_python_monaco_on_save_reports_save_user_script_failure():
 
     assert res["type"] == "error"
     assert "Permission denied" in res["message"]
+
+
+def test_monaco_run_document_key_unrelated_docs_without_uid_differ():
+    with patch.object(pr, "get_runtime_uid", return_value=""):
+        first, second = object(), object()
+        assert pr._monaco_run_document_key(first) != pr._monaco_run_document_key(second)
+        assert pr._monaco_run_document_key(first) == pr._monaco_run_document_key(first)
+
+
+def test_monaco_editor_run_payload_reports_printed_lines():
+    payload = pr._monaco_editor_run_payload({"ok": True, "status_ok_text": "done", "stdout": "a\nb\n"}, "ok")
+    assert payload["type"] == "saved" and payload["ok"] is True
+    assert "2 line(s) printed" in payload["status_ok_text"]
+
 

@@ -19,10 +19,7 @@ from plugin.scripting.helper_domain import (
     script_header_needs_data_binding,
     supports_calc_or_writer_manual,
 )
-from plugin.scripting.python_runner import (
-    prepend_run_import_document_bindings,
-    script_uses_run_import,
-)
+from plugin.scripting.python_runner import script_uses_run_import
 import pytest
 
 
@@ -51,31 +48,16 @@ def test_parse_bad_json_empty():
         code,
         tag="units",
         helper_names={"convert_quantity"},
-        on_bad_json="empty",
     )
     assert meta is not None
     assert meta.params == {}
 
 
-def test_parse_bad_json_none():
-    code = "# writeragent:forecast helper=forecast_time_series params={not-json}\n"
-    meta = parse_helper_script_header(
-        code,
-        tag="forecast",
-        helper_names=None,
-        require_prefix=False,
-        on_bad_json="none",
-    )
-    assert meta is None
-
-
 def test_build_run_import_template_has_header_and_import():
     body = build_helper_script_template(
-        tag="units",
         helper="convert_quantity",
         params={"value": 10, "from": "m/s", "to": "km/h"},
         description="Convert",
-        style="run_import",
         import_module="writeragent.scripting.units",
         run_name="run_units",
         data_expr="None",
@@ -90,11 +72,9 @@ def test_build_run_import_template_has_header_and_import():
 
 def test_build_run_import_template_with_data():
     body = build_helper_script_template(
-        tag="units",
         helper="convert_quantity",
         params={"value": "data", "from": "m/s", "to": "km/h"},
         description="Convert",
-        style="run_import",
         import_module="writeragent.scripting.units",
         run_name="run_units",
         data_expr="data",
@@ -225,34 +205,11 @@ def test_parse_run_import_call_null_byte_returns_none():
     assert parse_run_import_call_params("\x00", run_name="\x00") is None
 
 
-def test_build_header_only_template():
-    body = build_helper_script_template(
-        tag="forecast",
-        helper="forecast_time_series",
-        params={"periods": 12},
-        description="Forward",
-        style="header_only",
-        compact_json=False,
-        extra_comment_lines=("# Edit the JSON params above if needed. No other code runs.",),
-    )
-    assert body.startswith("# writeragent:forecast helper=forecast_time_series")
-    assert "from writeragent" not in body
-    assert "Forward" in body
-
-
 def test_format_elapsed_time_buckets():
     assert format_elapsed_time(0.0005) == "<1 ms"
     assert format_elapsed_time(0.05).endswith("ms")
     assert format_elapsed_time(2.5) == "2.50s"
     assert "m" in format_elapsed_time(65)
-
-
-def test_prepend_run_import_document_bindings_uses_generic_comment():
-    out = prepend_run_import_document_bindings("result = 1\n", bindings={"text": "hi"})
-    assert out.startswith("# Document inputs injected below")
-    assert "WriterAgent" not in out
-    assert 'text = "hi"' in out
-    assert out.endswith("result = 1\n")
 
 
 def test_parse_run_import_call_params_nested_unary():
@@ -304,74 +261,61 @@ def test_script_uses_run_import_in_comment_not_matched():
     assert script_uses_run_import(code, run_name="run_vision") is False
 
 
-def test_prepend_run_import_document_bindings_after_shebang_and_future():
-    # What was wrong: Injected bindings prepended at index 0 broke Python shebangs,
-    # encoding declarations, and __future__ imports (which must precede other code).
-    # Why this change: _find_binding_insertion_line inserts after shebang, encoding, and __future__.
-    code = (
-        "#!/usr/bin/env python3\n"
-        "# -*- coding: utf-8 -*-\n"
-        "from __future__ import annotations\n"
-        "result = 1\n"
-    )
-    res = prepend_run_import_document_bindings(code, bindings={"val": None, "active": True})
-    lines = res.splitlines()
-    assert lines[0] == "#!/usr/bin/env python3"
-    assert lines[1] == "# -*- coding: utf-8 -*-"
-    assert lines[2] == "from __future__ import annotations"
-    assert lines[3].startswith("# Document inputs injected below")
-    assert "val = None" in res
-    assert "active = True" in res
-
-
-def test_prepend_run_import_document_bindings_docstring_order():
-    code1 = '"""Module doc."""\nresult = 1\n'
-    res1 = prepend_run_import_document_bindings(code1, bindings={"text": "hi"})
-    lines1 = res1.splitlines()
-    assert lines1[0] == '"""Module doc."""'
-    assert lines1[1].startswith("# Document inputs injected below")
-    assert lines1[-1] == "result = 1"
-
-    code2 = '"""Line one.\n\nLine two.\n"""\nresult = 1\n'
-    res2 = prepend_run_import_document_bindings(code2, bindings={"text": "hi"})
-    lines2 = res2.splitlines()
-    assert lines2[3] == '"""'
-    assert lines2[4].startswith("# Document inputs injected below")
-    assert lines2[-1] == "result = 1"
-
-    code3 = '#!/usr/bin/env python3\n"""doc"""\nx = 1\n'
-    res3 = prepend_run_import_document_bindings(code3, bindings={"text": "hi"})
-    lines3 = res3.splitlines()
-    assert lines3[0] == "#!/usr/bin/env python3"
-    assert lines3[1] == '"""doc"""'
-    assert lines3[2].startswith("# Document inputs injected below")
-    assert lines3[-1] == "x = 1"
-
-    code4 = '"""doc"""\nfrom __future__ import annotations\nx = 1\n'
-    res4 = prepend_run_import_document_bindings(code4, bindings={"text": "hi"})
-    lines4 = res4.splitlines()
-    assert lines4[0] == '"""doc"""'
-    assert lines4[1] == "from __future__ import annotations"
-    assert lines4[2].startswith("# Document inputs injected below")
-    assert lines4[-1] == "x = 1"
-
-
 def test_build_helper_script_template_bare_data_only_for_injected_data():
     # What was wrong: val == "data" in template params caused literal "data" strings
     # for non-data parameters (like column="data") to be unquoted as bare variable references.
     # Why this change: Only unquote when the parameter key is a known data/value/quantity arg.
     template = build_helper_script_template(
-        tag="analysis",
         helper="describe_data",
         params={"column": "data", "data": "data"},
         description="Describe",
-        style="run_import",
         import_module="writeragent.scripting.analysis",
         run_name="run_analysis",
         data_expr="data",
     )
     assert "column='data'" in template
     assert "data=data" in template
+
+
+def test_direct_call_unresolved_name_is_omitted():
+    code = (
+        "from writeragent.scripting.units import convert_quantity\n"
+        "convert_quantity(user_var)\n"
+    )
+    assert parse_run_import_call_spec(code, run_name="run_units") == {
+        "helper": "convert_quantity",
+        "params": {},
+    }
+
+
+def test_unresolved_output_style_is_omitted():
+    code = (
+        "from writeragent.scripting.units import convert_quantity\n"
+        "convert_quantity(1, 'm', 'km', output_style=style_var)\n"
+    )
+    assert parse_run_import_call_params(code, run_name="run_units") == {
+        "value": 1,
+        "from": "m",
+        "to": "km",
+    }
+
+
+def test_literal_none_is_kept():
+    code = (
+        "from writeragent.scripting.units import convert_quantity\n"
+        "convert_quantity(None)\n"
+    )
+    assert parse_run_import_call_spec(code, run_name="run_units") == {
+        "helper": "convert_quantity",
+        "params": {"value": None},
+    }
+
+
+def test_unresolved_list_and_dict_value_are_omitted():
+    code = (
+        'result = run_units({"helper": "convert_quantity", "params": {"value": user_var, "to": "km", "items": [1, user_var]}}, None, {})\n'
+    )
+    assert parse_run_import_call_params(code, run_name="run_units") == {"to": "km"}
 
 
 def test_format_elapsed_time_boundary_rounding():

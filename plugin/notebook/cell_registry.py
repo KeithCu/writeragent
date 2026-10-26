@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Optional
 
 from plugin.doc.udprops import get_document_property, set_document_property
+from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.json_utils import safe_json_loads
 
 log = logging.getLogger("writeragent.notebook")
@@ -63,6 +64,13 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
+def _coerce_optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass
 class NotebookCodeCell:
     """One imported code cell — stable ``cell_id`` survives renumbering in Phase 3."""
@@ -79,7 +87,14 @@ class NotebookCodeCell:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NotebookCodeCell:
-        return cls(cell_id=str(data["cell_id"]), index=int(data["index"]), code_field_name=str(data["code_field_name"]), execution_count=data.get("execution_count"), output_start_bookmark=str(data.get("output_start_bookmark") or ""), last_run_status=data.get("last_run_status"))
+        return cls(
+            cell_id=str(data["cell_id"]),
+            index=int(data["index"]),
+            code_field_name=str(data["code_field_name"]),
+            execution_count=_coerce_optional_int(data.get("execution_count")),
+            output_start_bookmark=str(data.get("output_start_bookmark") or ""),
+            last_run_status=data.get("last_run_status"),
+        )
 
 
 @dataclass
@@ -102,14 +117,16 @@ class NotebookDocState:
                 cells.append(NotebookCodeCell.from_dict(c))
             except (KeyError, TypeError, ValueError, AttributeError):
                 log.warning("notebook registry: skipped invalid cell %r", c)
-        next_ec = data.get("next_execution_count")
+        next_ec = _coerce_optional_int(data.get("next_execution_count"))
         if next_ec is None:
-            max_ec = 0
-            for cell in cells:
-                if cell.execution_count is not None:
-                    max_ec = max(max_ec, int(cell.execution_count))
+            max_ec = max((int(c.execution_count) for c in cells if c.execution_count is not None), default=0)
             next_ec = max_ec + 1 if max_ec else 1
-        return cls(version=int(data.get("version") or _REGISTRY_VERSION), source_path=str(data.get("source_path") or ""), code_cells=cells, next_execution_count=int(next_ec))
+        return cls(
+            version=int(data.get("version") or _REGISTRY_VERSION),
+            source_path=str(data.get("source_path") or ""),
+            code_cells=cells,
+            next_execution_count=next_ec,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -179,15 +196,13 @@ def _bookmark_name_for_cell_id(cell_id: str) -> str:
 def new_code_cell_entry(index: int, execution_count: Any | None, code_field_name: str) -> NotebookCodeCell:
     """Create a registry entry with a new stable ``cell_id`` and output bookmark name."""
     cell_id = str(uuid.uuid4())
-    ec: int | None
-    if execution_count is None:
-        ec = None
-    else:
-        try:
-            ec = int(execution_count)
-        except (TypeError, ValueError):
-            ec = None
-    return NotebookCodeCell(cell_id=cell_id, index=index, code_field_name=code_field_name, execution_count=ec, output_start_bookmark=_bookmark_name_for_cell_id(cell_id))
+    return NotebookCodeCell(
+        cell_id=cell_id,
+        index=index,
+        code_field_name=code_field_name,
+        execution_count=_coerce_optional_int(execution_count),
+        output_start_bookmark=_bookmark_name_for_cell_id(cell_id),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +259,7 @@ def save_notebook_source_path(doc: Any, path: str) -> None:
 def insert_output_start_bookmark(doc: Any, bookmark_name: str) -> bool:
     """Insert a point bookmark at the document end (after the ▶+code field were appended).
 
-    Must run on the LO main thread. Returns False when bookmarks are unsupported or insert fails.
+    Must run on the LO main thread. Returns False when bookmarks are unsupported or insert fails; a disposed document raises DocumentDisposedError.
     The bookmark is invisible (no ``Output`` heading) so a field mark cannot leak as ``/``.
     """
     if not bookmark_name:
@@ -263,7 +278,9 @@ def insert_output_start_bookmark(doc: Any, bookmark_name: str) -> bool:
         bookmark.Name = bookmark_name
         text.insertTextContent(cursor, bookmark, False)
         return True
-    except Exception:
+    except Exception as exc:
+        # Disposal must reach the importer's reraise_if_disposed: False means "no bookmark", not "document closed".
+        reraise_if_disposed(exc)
         log.exception("notebook registry: failed to insert bookmark %r", bookmark_name)
         return False
 
