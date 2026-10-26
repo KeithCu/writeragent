@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.calc.tabular_egress import format_tabular_helper_for_calc, insert_tabular_result_into_calc
+from plugin.framework.errors import CalcError
 
 
 def test_truncated_table_shows_total_on_the_sheet():
@@ -185,3 +188,59 @@ def test_insert_quotes_sheet_name(mock_bridge, mock_manipulator_cls):
     manipulator.write_formula_range.assert_called_once()
     addr = manipulator.write_formula_range.call_args.args[0]
     assert addr == "'O''Brien'.A1"
+
+
+@patch("plugin.calc.tabular_egress.CellManipulator")
+@patch("plugin.calc.tabular_egress.CalcBridge")
+def test_insert_tabular_result_refuses_when_target_occupied(mock_bridge, mock_manipulator_cls):
+    manipulator = MagicMock()
+    mock_manipulator_cls.return_value = manipulator
+    doc = MagicMock()
+    ctx = MagicMock()
+    sheet = MagicMock()
+    mock_bridge.return_value.get_active_sheet.return_value = sheet
+
+    # Cell at A1 is occupied with existing user data
+    def get_cell(c, r):
+        cell = MagicMock()
+        if (c, r) == (0, 0):
+            cell.getFormula.return_value = ""
+            cell.getString.return_value = "user data"
+        else:
+            cell.getFormula.return_value = ""
+            cell.getString.return_value = ""
+        return cell
+
+    sheet.getCellByPosition.side_effect = get_cell
+
+    grid = [["differentiate"], ["Result", "2*x"]]
+    with pytest.raises(CalcError, match=r"The result needs A1:B2, but 1 cell\(s\) there are not empty \(first: A1\)\. Nothing was written; clear them or start elsewhere\."):
+        insert_tabular_result_into_calc(doc, ctx, grid, start_col=0, start_row=0)
+
+    # Invariant: non-empty target must not be overwritten
+    manipulator.write_formula_range.assert_not_called()
+
+
+@patch("plugin.calc.tabular_egress.CellManipulator")
+@patch("plugin.calc.tabular_egress.CalcBridge")
+def test_insert_tabular_result_succeeds_when_target_empty(mock_bridge, mock_manipulator_cls):
+    manipulator = MagicMock()
+    mock_manipulator_cls.return_value = manipulator
+    doc = MagicMock()
+    ctx = MagicMock()
+    sheet = MagicMock()
+    mock_bridge.return_value.get_active_sheet.return_value = sheet
+
+    def get_cell(c, r):
+        cell = MagicMock()
+        cell.getFormula.return_value = ""
+        cell.getString.return_value = ""
+        return cell
+
+    sheet.getCellByPosition.side_effect = get_cell
+
+    grid = [["differentiate"], ["Result", "2*x"]]
+    rows = insert_tabular_result_into_calc(doc, ctx, grid, start_col=0, start_row=0)
+    assert rows == 2
+    manipulator.write_formula_range.assert_called_once()
+

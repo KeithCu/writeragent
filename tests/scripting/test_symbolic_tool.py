@@ -265,3 +265,31 @@ def test_symbolic_math_calc_does_not_claim_math_inserted(mock_run, mock_main_thr
     assert result["math_inserted"] is False
     assert result["message"] == "Symbolic result written to active sheet"
 
+
+@patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
+@patch("plugin.calc.symbolic_math.execute_on_main_thread")
+@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+def test_symbolic_math_calc_refuses_when_target_occupied(mock_run, mock_main_thread, mock_insert, writer_ctx):
+    from plugin.framework.errors import CalcError
+
+    mock_run.return_value = {
+        "status": "ok",
+        "helper": "differentiate",
+        "latex": "2 x",
+        "text": "2*x",
+    }
+    mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    mock_insert.side_effect = CalcError(
+        "The result needs A1:B3, but 5 cell(s) there are not empty (first: A1). Nothing was written; clear them or start elsewhere."
+    )
+    writer_ctx.doc_type = "calc"
+
+    tool = SymbolicMathTool()
+    result = tool.execute(writer_ctx, helper="differentiate", params={"expression": "x^2", "variable": "x"})
+
+    assert result["status"] == "error"
+    assert "not empty" in result["message"]
+    assert "first: A1" in result["message"]
+    assert "clear them or start elsewhere" in result["message"]
+
+

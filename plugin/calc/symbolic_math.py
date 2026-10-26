@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import CalcError, ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.scripting.symbolic import (
     HELPER_NAMES,
@@ -112,6 +112,9 @@ class SymbolicMathTool(ToolCalcPythonBase):
                 out["message"] = "Symbolic result written to active sheet"
             else:
                 out["message"] = "Math formula inserted in document"
+        except CalcError as exc:
+            # Occupied target cells: nothing was written; tell the model to pick an empty target.
+            return self._tool_error(str(exc))
         except Exception as exc:
             out["insert_error"] = str(exc)
 
