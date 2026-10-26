@@ -83,6 +83,10 @@ class _FakeRl:
             if self._raise_comment:
                 raise RuntimeError("comment unreadable")
             return self.comment
+        if name == "RedlineDateTime":
+            return None
+        if name == "RedlineSuccessorData":
+            return ()
         assert name == "RedlineIdentifier"
         if self._rid is _RAISE:
             raise RuntimeError("identifier unreadable")
@@ -981,3 +985,60 @@ def test_string_skipping_redline_closed_portion_raises():
     span = _SkipRange([_SkipPara([_ClosedPortion("Text", text="x")])])
     with pytest.raises(DocumentDisposedError):
         _string_skipping_redline(span, "Delete")
+
+
+class _BlockPortion:
+    def __init__(self, portion_type):
+        self.TextPortionType = portion_type
+
+
+class _BlockEnum:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def hasMoreElements(self):
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
+class _BlockPara:
+    def __init__(self, portion_types):
+        self._portion_types = list(portion_types)
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.Paragraph"
+
+    def createEnumeration(self):
+        return _BlockEnum([_BlockPortion(t) for t in self._portion_types])
+
+
+class _Block:
+    def __init__(self, para_portion_types):
+        self._paras = [_BlockPara(t) for t in para_portion_types]
+
+    def getString(self):
+        raise AssertionError("_block_safe_for_surgical must not walk the block text")
+
+    def createEnumeration(self):
+        return _BlockEnum(self._paras)
+
+
+def test_block_safe_for_surgical_accepts_clean_single_paragraph():
+    from plugin.writer.edit_review import _block_safe_for_surgical
+
+    assert _block_safe_for_surgical(_Block([["Text", "Text"]])) is True
+
+
+def test_block_safe_for_surgical_rejects_redline_portion():
+    from plugin.writer.edit_review import _block_safe_for_surgical
+
+    assert _block_safe_for_surgical(_Block([["Text", "Redline", "Text"]])) is False
+
+
+def test_block_safe_for_surgical_rejects_multi_paragraph():
+    from plugin.writer.edit_review import _block_safe_for_surgical
+
+    assert _block_safe_for_surgical(_Block([["Text"], ["Text"]])) is False
+

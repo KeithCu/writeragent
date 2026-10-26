@@ -367,18 +367,10 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
         opcodes = sm.get_opcodes()
 
     # --- change fraction (by word count) ---------------------------------------
-    unchanged = 0
-    changed = 0
-    for tag, i1, i2, j1, j2 in opcodes:
-        if tag == "equal":
-            unchanged += (i2 - i1)
-        elif tag == "replace":
-            changed += (i2 - i1) + (j2 - j1)
-        elif tag == "delete":
-            changed += (i2 - i1)
-        elif tag == "insert":
-            changed += (j2 - j1)
-    total = unchanged + changed
+    # Opcodes partition both word lists, so unchanged words are the only shared count.
+    unchanged = sum(i2 - i1 for tag, i1, i2, _j1, _j2 in opcodes if tag == "equal")
+    changed = (len(old_words) - unchanged) + (len(new_words) - unchanged)
+    total = len(old_words) + len(new_words) - unchanged
     fraction = (changed / total) if total else 0.0
 
     # --- whole-block path ------------------------------------------------------

@@ -43,6 +43,7 @@ returns an empty complete result), and degrades to inert if tracking cannot be e
 from __future__ import annotations
 
 import contextlib
+from dataclasses import dataclass
 import itertools
 import logging
 import os
@@ -296,6 +297,7 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
     return "".join(parts)
 
 
+@dataclass(frozen=True)
 class ChangeRecord:
     """One reviewable change: its token, anchor, and the two expected end states."""
 
@@ -305,15 +307,6 @@ class ChangeRecord:
     rejected_text: str
     original_preview: str
     proposed_preview: str
-
-    def __init__(self, token: str, bookmark: str, accepted_text: str, rejected_text: str,
-                 original_preview: str, proposed_preview: str) -> None:
-        self.token = token
-        self.bookmark = bookmark
-        self.accepted_text = accepted_text
-        self.rejected_text = rejected_text
-        self.original_preview = original_preview
-        self.proposed_preview = proposed_preview
 
 
 class EditReviewSession:
@@ -419,14 +412,7 @@ class EditReviewSession:
         if not self._active:
             return apply_fn()
 
-        mgr = None
-        try:
-            um = self.doc.getUndoManager()
-            if um is not None and not um.isLocked():
-                um.enterUndoContext(_AGENT_EDIT_UNDO_TITLE)
-                mgr = um
-        except Exception:
-            mgr = None
+        mgr = _try_enter_undo_context(self.doc, _AGENT_EDIT_UNDO_TITLE)
         try:
             # We rescan all redlines per edit, not track deltas, because only a complete scan lets us fail closed; batches are capped at _MAX_SURGICAL_RUNS.
             before, before_ok = self._redline_idents()
@@ -823,8 +809,6 @@ def _block_safe_for_surgical(found: Any) -> bool:
     caller falls back to the whole-block replace (which handles every case).
     """
     try:
-        if found.getString() != _string_skipping_redline(found, "Delete"):
-            return False
         paras = found.createEnumeration()
         seen = 0
         while paras.hasMoreElements():

@@ -55,6 +55,7 @@ def _set_office_author(ctx: Any, given: str) -> bool:
     try:
         access = _author_access(ctx)
         _commit_author(access, given, "")
+        _state.last = given
         return True
     except Exception:
         log.debug("review_authors: could not set office author", exc_info=True)
@@ -85,22 +86,33 @@ def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DEL
         _state.ctx = ctx
         _state.insert = insert_author
         _state.delete = delete_author
+        _state.last = insert_author
     else:
         _state.ctx = None
         _state.insert = None
         _state.delete = None
+        _state.last = None
     return prior
 
 
 def end(ctx: Any, prior: tuple[str, str] | None) -> None:
     """Disarm split authoring and restore the prior office author."""
+    last = getattr(_state, "last", None)
     _state.ctx = None
     _state.insert = None
     _state.delete = None
+    _state.last = None
     if prior is None:
         return
     try:
         access = _author_access(ctx)
+        current = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
+        # Tip: a name the user changed in User Data during the edit is not ours to overwrite.
+        if current == prior:
+            return
+        if current[0] != last:
+            log.debug("review_authors.end: office author changed outside the edit; leaving %r", current)
+            return
         _commit_author(access, prior[0], prior[1])
     except Exception:
         log.warning("review_authors.end: failed to restore office author %r", prior, exc_info=True)

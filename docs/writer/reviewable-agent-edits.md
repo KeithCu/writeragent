@@ -65,12 +65,15 @@ chat worker or MCP HTTP thread). The main thread never block-waits so the user c
 `plugin/writer/review_scan.py` owns fail-closed `getRedlines()` enumeration and `wa-review:` token helpers. `plugin/writer/edit_review.py` owns the session via `EditReviewSession`:
 
 * `record_mutation()` snapshots the document's redline identifiers, runs the edit, and tags every
-  **new** redline's `RedlineComment` with a per-change token `wa-review:<session>:<n>`. `<n>` is the
-  session's per-attempt counter, not the number of registered changes, so a tag left behind on an
-  unregistered edit cannot be the token of the next registered change.
+  **new** redline's `RedlineComment` with a per-change token `wa-review:<session>:<n>`. Only an exact
+  `wa-review:<session>:<n>` comment (no whitespace, no extra colons, numeric `<n>`) counts as an
+  agent token; a user comment that merely starts with `wa-review:` does not. `<n>` is the session's
+  per-attempt counter, not the number of registered changes, so a tag left behind on an unregistered
+  edit cannot be the token of the next registered change.
 * Tagging is **fail-closed**: if the pre- or post-edit redline scan is incomplete, the edit still
   applies but its redlines are **not** tagged — they stay untagged (treated as the user's own) so
-  Accept/Reject All never touches a misclassified user redline.
+  Accept/Reject All never touches a misclassified user redline; an unreadable `RedlineDateTime` or
+  `RedlineSuccessorData` also makes tagging refuse (fail closed).
 * Completion is a reliable empty intersection of redline comments with tokens on **registered**
   changes — **not** "zero redlines in the document", and **not** "every `wa-review:<session>:`
   comment is gone". A tag left behind when the change was not registered (tagging failed, or the
@@ -93,7 +96,9 @@ chat worker or MCP HTTP thread). The main thread never block-waits so the user c
 ### Surgical word-level edits
 
 Small edits in long paragraphs use **surgical** tracked changes instead of one whole-block redline
-([`plugin/writer/word_diff_split.py`](../../plugin/writer/word_diff_split.py), integrated in
+([`plugin/writer/word_diff_split.py`](../../plugin/writer/word_diff_split.py); the split decision is
+made in `record_preserve_replace` in
+[`plugin/writer/edit_review.py`](../../plugin/writer/edit_review.py), called from
 [`plugin/writer/apply_document_content.py`](../../plugin/writer/apply_document_content.py)):
 
 * A word-level diff splits the replace into several tight Delete+Insert pairs — one reviewable
@@ -283,13 +288,13 @@ the `format.py` split-author pattern so by-author coloring distinguishes inserti
 * **Post-dispatch verification failure:** exact-bounds resolve may return failure after the
   document has already changed; consider user messaging or undo recovery.
 * **Toolbar navigation:** include changes with unreadable bounds (paragraph-level fallback).
-* **Click popup:** left-click inside every agent change opens the popup; right-click-only may be
-  less noisy if users find it intrusive.
+* **Click popup:** the popup opens only for a plain click that leaves a collapsed caret (drags,
+  Shift-click and word-select do not open it), and the click never changes the selection, so
+  dismissing it cannot leave the agent change selected.
 
 ### Review session behavior
 
 * Restore the user's prior **`ShowChanges`** after `EditReviewSession` / streamed session cleanup, or document permanently forcing markup visible as intentional.
-* Refuse change registration when anchor bookmark creation fails (mirror tagging fail-closed).
 
 ### Tests
 

@@ -925,3 +925,91 @@ def test_tracking_disposal_is_document_disposed():
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
 
+
+def test_track_changes_list_caps_at_100_and_reports_more():
+    ctx, _, _, _ = _create_mock_ctx()
+    tool = TrackChangesList()
+    text_mock = MagicMock()
+    cursor_mock = MagicMock()
+    cursor_mock.getString.return_value = "hello"
+    text_mock.createTextCursorByRange.return_value = cursor_mock
+
+    items = [_fake_redline("user %d" % i, text_mock=text_mock) for i in range(101)]
+    _install_redlines(ctx, items)
+    with patch("plugin.writer.tracking.describe_match_location", return_value="body"):
+        res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    assert res["count"] == 100
+    assert res["has_more"] is True
+    assert res["next_index"] == 100
+    assert res["changes"][-1]["index"] == 99
+
+    items_one = [_fake_redline("user 0", text_mock=text_mock)]
+    _install_redlines(ctx, items_one)
+    with patch("plugin.writer.tracking.describe_match_location", return_value="body"):
+        res_one = tool.execute(ctx)
+    assert res_one["status"] == "ok"
+    assert res_one["count"] == 1
+    assert res_one["has_more"] is False
+    assert "next_index" not in res_one
+
+
+def test_track_changes_list_start_index_keeps_global_indexes():
+    ctx, _, _, _ = _create_mock_ctx()
+    tool = TrackChangesList()
+    text_mock = MagicMock()
+    cursor_mock = MagicMock()
+    cursor_mock.getString.return_value = "hello"
+    text_mock.createTextCursorByRange.return_value = cursor_mock
+
+    items = [_fake_redline("user %d" % i, text_mock=text_mock) for i in range(3)]
+    _install_redlines(ctx, items)
+    with patch("plugin.writer.tracking.describe_match_location", return_value="body"):
+        res = tool.execute(ctx, start_index=2)
+    assert res["status"] == "ok"
+    assert res["count"] == 1
+    assert res["changes"][0]["index"] == 2
+
+
+def test_track_changes_list_shares_location_label_cache():
+    ctx, _, _, _ = _create_mock_ctx()
+    tool = TrackChangesList()
+    text_mock = MagicMock()
+    cursor_mock = MagicMock()
+    cursor_mock.getString.return_value = "hello"
+    text_mock.createTextCursorByRange.return_value = cursor_mock
+
+    items = [_fake_redline("user 0", text_mock=text_mock), _fake_redline("user 1", text_mock=text_mock)]
+    _install_redlines(ctx, items)
+    with patch("plugin.writer.tracking.describe_match_location", return_value="body") as mock_loc:
+        res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    assert mock_loc.call_count == 2
+    c0_cache = mock_loc.call_args_list[0].kwargs["label_cache"]
+    c1_cache = mock_loc.call_args_list[1].kwargs["label_cache"]
+    assert c0_cache is c1_cache
+    assert isinstance(c0_cache, dict)
+
+
+def test_single_accept_reread_failure_undoes_and_reports():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    text_mock = MagicMock()
+    text_mock.compareRegionStarts.return_value = 1
+    r = _fake_redline("user edit", text_mock=text_mock)
+    items = [r]
+    _install_redlines(ctx, items)
+
+    def do_dispatch(*args):
+        items.clear()
+        ctx.doc.getRedlines.return_value.getCount.side_effect = None
+        ctx.doc.getRedlines.return_value.getCount.return_value = 5
+        return MagicMock()
+
+    dispatcher.executeDispatch.side_effect = do_dispatch
+
+    res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
+    assert res["status"] == "error"
+    assert "re-read" in res["message"]
+    ctx.doc.getUndoManager().undo.assert_called_once()
+
+

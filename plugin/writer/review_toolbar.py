@@ -181,11 +181,12 @@ def _layout_manager(model: Any) -> Any | None:
 _DOCK_NEW_ROW_Y = 30000
 
 
-def _dock_top(lm: Any) -> None:
+def _dock_top(lm: Any) -> bool:
     """Dock the toolbar as its OWN full-width row at the top (the look you get by dragging it to
     the top edge), NOT squeezed into the existing toolbar row. The trick: dock at x=0 with a large
     y so LibreOffice opens a NEW row at the bottom of the top docking area instead of appending to
-    row 0 (which pushed it to the top-right corner). Best-effort."""
+    row 0 (which pushed it to the top-right corner). Returns True when docked; the caller records
+    the document only on success, so a transient failure is retried on the next show."""
     try:
         from com.sun.star.awt import Point
 
@@ -194,8 +195,10 @@ def _dock_top(lm: Any) -> None:
         pos.X = 0
         pos.Y = _DOCK_NEW_ROW_Y
         lm.dockWindow(TOOLBAR_RESOURCE_URL, area, pos)
+        return True
     except Exception:
         log.debug("review_toolbar: dock-to-top failed", exc_info=True)
+        return False
 
 
 def refresh_review_toolbar(model: Any) -> None:
@@ -224,10 +227,11 @@ def refresh_review_toolbar(model: Any) -> None:
             # toolbar appears, so it lands with the other toolbars. Only once per document: if the
             # pending count later cycles 0 -> N -> 0 -> N, we must NOT re-dock and override a user who
             # has since floated/moved it. If the uid can't be read, fall back to docking on show.
+            # If docking failed (e.g. LayoutManager not ready yet), do not record the uid
+            # so the next show can retry rather than leaving the toolbar permanently floating.
             uid = _runtime_uid(model)
             if uid is None or uid not in _docked_uids:
-                _dock_top(lm)
-                if uid is not None:
+                if _dock_top(lm) and uid is not None:
                     _docked_uids.add(uid)
         else:
             lm.hideElement(TOOLBAR_RESOURCE_URL)
@@ -265,7 +269,9 @@ def install_review_toolbar(ctx: Any) -> None:
                     except Exception:
                         log.debug("review_toolbar: frame %s skipped", i, exc_info=True)
     except Exception:
-        log.debug("review_toolbar: initial sweep failed", exc_info=True)
+        # Install failures are one-time events that would otherwise leave the review
+        # toolbar broken with no visible diagnostic trace at default log level.
+        log.warning("review_toolbar: initial sweep failed", exc_info=True)
 
     if _doc_listener is not None:
         return
@@ -310,4 +316,6 @@ def install_review_toolbar(ctx: Any) -> None:
         _doc_listener = listener
         log.debug("review_toolbar: visibility listener attached")
     except Exception:
-        log.debug("review_toolbar: listener install failed", exc_info=True)
+        # Install failures are one-time events that would otherwise leave the review
+        # toolbar broken with no visible diagnostic trace at default log level.
+        log.warning("review_toolbar: listener install failed", exc_info=True)
