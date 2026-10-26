@@ -54,7 +54,7 @@ def is_agent_token(comment: str | None) -> bool:
     A trailing newline from ODF load is ignored (see ``normalize_redline_comment``).
     """
     norm = normalize_redline_comment(comment)
-    return bool(norm) and _TOKEN_RE.match(norm) is not None
+    return norm is not None and _TOKEN_RE.match(norm) is not None
 
 
 def read_redline_comment(redline: Any) -> tuple[str | None, bool]:
