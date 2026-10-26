@@ -126,7 +126,7 @@ class _StubController:
     def registerContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
         self.registered.append(interceptor)
 
-    def removeContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
+    def releaseContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
         self.removed.append(interceptor)
 
 
@@ -182,7 +182,7 @@ def test_unload_swallows_removal_disposal():
     def _raise_gone(inter):
         raise RuntimeError("gone")
 
-    ctrl.removeContextMenuInterceptor = _raise_gone
+    ctrl.releaseContextMenuInterceptor = _raise_gone
     change_context_menu._registered = [(ctrl, interceptor)]
 
     change_context_menu._unregister_model(model)
