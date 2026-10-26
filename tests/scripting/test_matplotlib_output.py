@@ -549,3 +549,26 @@ def test_capture_open_figures_closes_when_render_raises(monkeypatch):
     with pytest.raises(RuntimeError, match="bad figure"):
         vs._capture_open_figures_payload()
     assert closed["n"] == 1
+
+
+def test_non_plot_cell_does_not_import_matplotlib():
+    """A non-plot cell must not pay the matplotlib import (font cache costs seconds)."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    pytest.importorskip("matplotlib")
+    root = Path(__file__).resolve().parents[2]
+    script = (
+        "import sys\n"
+        "from plugin.scripting.venv.venv_sandbox import run_sandboxed_code\n"
+        "res = run_sandboxed_code('result = 6 * 7')\n"
+        "assert res.get('status') == 'ok', res\n"
+        "assert res.get('result') == 42, res\n"
+        "assert 'matplotlib' not in sys.modules\n"
+        "res = run_sandboxed_code('plt.plot([1, 2])')\n"
+        "assert res.get('status') == 'ok', res\n"
+        "assert 'matplotlib.pyplot' in sys.modules\n"
+    )
+    proc = subprocess.run([sys.executable, "-c", script], cwd=root, capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr

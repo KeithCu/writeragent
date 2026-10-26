@@ -26,6 +26,7 @@ import hashlib
 import importlib
 import logging
 import math
+import os
 import sys
 import threading
 import time
@@ -381,6 +382,10 @@ def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
         alias = _auto_import_alias(module_name, import_stmt)
         if alias in bound_names or alias in executor.state:
             continue
+        # pyplot costs seconds (font cache) on first import. Bind plt only when
+        # the code names it or pyplot is already loaded.
+        if module_name == "matplotlib.pyplot" and alias not in code and module_name not in sys.modules:
+            continue
         # A cell that fails to parse never runs, but the executor is reused.
         already = (
             _code_says_imported(code, module_name)
@@ -571,6 +576,10 @@ def serialize_result(obj: Any, *, log_failure: bool = True) -> Any:
 
 def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] | None, str]:
     """Return (image payload from open pyplot figures, optional stdout note)."""
+    # No figure can be open before something imported pyplot; importing it
+    # here would cost the multi-second font cache load on non-plot cells.
+    if "matplotlib.pyplot" not in sys.modules:
+        return None, ""
     plt_mod = optional_module("matplotlib.pyplot")
     if plt_mod is None:
         return None, ""
@@ -640,7 +649,7 @@ _CUSTOM_SERIALIZE_MAX_DEPTH = 8
 
 
 def _custom_serialize_types() -> tuple[type, ...]:
-    mpl_fig = optional_module("matplotlib.figure")
+    mpl_fig = sys.modules.get("matplotlib.figure")
     pd_mod = optional_module("pandas")
     pil_mod = optional_module("PIL.Image")
     np_mod = optional_module("numpy")
@@ -837,7 +846,7 @@ def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = 
         return child_pack_result(obj.values)
     if is_calc_range_payload(obj):
         return obj
-    mpl_fig = optional_module("matplotlib.figure")
+    mpl_fig = sys.modules.get("matplotlib.figure")
     if mpl_fig is not None and isinstance(obj, mpl_fig.Figure):
         return _figure_to_image_payload(obj)
     pil_mod = optional_module("PIL.Image")
@@ -1403,7 +1412,7 @@ def _is_non_value_result(obj: Any) -> bool:
 
 def _is_mpl_artist_result(obj: Any) -> bool:
     """True for a pyplot artist or the list ``plt.plot`` returns."""
-    artist_mod = optional_module("matplotlib.artist")
+    artist_mod = sys.modules.get("matplotlib.artist")
     if artist_mod is None:
         return False
     artist = artist_mod.Artist
@@ -1413,6 +1422,8 @@ def _is_mpl_artist_result(obj: Any) -> bool:
 
 
 def _close_open_figures() -> None:
+    if "matplotlib.pyplot" not in sys.modules:
+        return
     plt_mod = optional_module("matplotlib.pyplot")
     if plt_mod is None:
         return
@@ -1672,7 +1683,12 @@ def run_sandboxed_code(
     policy_digest_val = policy_digest(policy)
 
     # Force non-interactive backend so plt.show() doesn't block in the subprocess.
-    _ensure_mpl_agg()
+    # Before matplotlib is loaded, MPLBACKEND makes any later import (plt binding,
+    # pandas .plot, seaborn) start on Agg without paying the import here.
+    if "matplotlib" in sys.modules:
+        _ensure_mpl_agg()
+    else:
+        os.environ["MPLBACKEND"] = "Agg"
 
     # Only the cell / RPS session_id is persistable. Isolated cells still have
     # init_session_id (calc:…:init); binding that would share DuckDB across cells.
