@@ -154,7 +154,7 @@ class TestEndpointImageProvider:
 
         paths, err = self.provider.generate("test prompt")
         assert (paths) == ([])
-        assert (err) == ("")
+        assert err == "No image data returned from provider"
 
     def test_fallback_logic_non_string_content(self):
         """When provider response content is non-string (e.g. dict or list), fallback should handle it gracefully."""
@@ -170,7 +170,7 @@ class TestEndpointImageProvider:
 
         paths, err = self.provider.generate("test prompt")
         assert (paths) == ([])
-        assert (err) == ("")
+        assert err == "No image data returned from provider"
 
     def test_generate_multi_image(self):
         """If provider returns multiple images, ensure paths preserves ordering and all paths are created/cleaned."""
@@ -211,7 +211,7 @@ class TestEndpointImageProvider:
         paths, err = self.provider.generate("test prompt")
 
         assert (paths) == ([])
-        assert (err) == ("")
+        assert err == "No image data returned from provider"
 
     @patch('plugin.writer.images.image_utils.LlmClient')
     def test_edit_image_openrouter_sends_multimodal_message(self, mock_client_cls):
@@ -482,6 +482,33 @@ class TestEndpointImageProvider:
         assert ("height") not in (data)
         assert (data["aspect_ratio"]) == ("1:1")
 
+    def test_failure_returns_non_empty_message_and_warns(self, caplog):
+        import logging
+        from plugin.framework.errors import NetworkError
+
+        self.mock_client.config.get.return_value = False  # not OpenRouter
+        self.mock_client.image_completion.side_effect = NetworkError("provider rejected the request")
+        with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
+            paths, err = self.provider.generate("test prompt")
+        assert paths == []
+        assert err == "provider rejected the request"
+        assert "provider rejected the request" in caplog.text
+        assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
+
+    def test_partial_multi_image_failure_cleans_up(self, tmp_path, monkeypatch):
+        import glob
+        import tempfile
+
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        self.mock_client.config.get.return_value = False  # not OpenRouter
+        good = base64.b64encode(b"\x89PNG\r\n\x1a\ngood-image").decode()
+        bad = base64.b64encode(b"not-an-image").decode()
+        self.mock_client.image_completion.return_value = [good, bad]
+        paths, err = self.provider.generate("test prompt")
+        assert paths == []
+        assert "not a recognized image format" in err
+        assert glob.glob(os.path.join(tempfile.gettempdir(), "wa-img-*")) == []
+
 class TestImageService:
     def test_endpoint_provider_with_none_config(self):
         """ImageService(..., None) must not call .get on None (regression: generate_image / endpoint)."""
@@ -496,7 +523,7 @@ class TestImageService:
             patch("plugin.framework.client.model_fetcher.get_image_model", return_value="image-model-fallback"),
         ):
             service = ImageService(mock_ctx, None)
-            provider = service.get_provider("endpoint")
+            provider = service.get_provider()
             assert isinstance(provider, EndpointImageProvider)
             assert (provider.model) == ("image-model-fallback")
 
@@ -505,8 +532,30 @@ class TestImageService:
             patch("plugin.framework.client.model_fetcher.get_image_model", return_value="image-model-fallback"),
         ):
             service = ImageService(mock_ctx, {"image_model": "  my-image-model  "})
-            provider = service.get_provider("endpoint")
+            provider = service.get_provider()
             assert (provider.model) == ("my-image-model")
+
+    def test_default_model_comes_from_provider_defaults(self):
+        with patch("plugin.framework.client.model_fetcher.get_image_model", return_value="provider-default-image"):
+            provider = EndpointImageProvider({"endpoint": "https://api.example/v1", "api_key": "k"}, MagicMock())
+        assert provider.model == "provider-default-image"
+
+    def test_generate_image_fills_none_dimensions(self, monkeypatch):
+        import plugin.writer.images.image_utils as image_utils_mod
+
+        sizes = {"image_base_size": 1024, "image_steps": 20}
+        monkeypatch.setattr(image_utils_mod, "get_config_int", lambda key: sizes.get(key, 0))
+        fake_provider = MagicMock()
+        fake_provider.generate.return_value = (["/tmp/x.png"], "")
+        service = ImageService(MagicMock(), None)
+        with patch.object(ImageService, "get_provider", return_value=fake_provider):
+            paths, err = service.generate_image("a cat", width=None, height=None)
+
+        assert (paths, err) == (["/tmp/x.png"], "")
+        kwargs = fake_provider.generate.call_args.kwargs
+        assert kwargs["width"] == 1024
+        assert kwargs["height"] == 1024
+        assert kwargs["steps"] == 20
 
     def test_openrouter_image_request_uses_resolved_model(self):
         """Per-request image_model must reach make_chat_request (OpenRouter modalities path)."""
@@ -732,6 +781,16 @@ def test_resolve_generation_size_omitted_and_explicit():
     assert resolve_generation_size(10, "square") == (64, 64, "1:1")
     assert resolve_generation_size(40, "16:9") == (64, 64, "1:1")
     assert resolve_generation_size(64, "16:9") == (64, 64, "1:1")
+
+
+def test_fill_missing_dimension():
+    from plugin.writer.images.images import _fill_missing_dimension
+
+    assert _fill_missing_dimension(512, None, 16, 9) == (512, 288)
+    assert _fill_missing_dimension(None, 288, 16, 9) == (512, 288)
+    assert _fill_missing_dimension(7, 9, 16, 9) == (7, 9)
+    assert _fill_missing_dimension(None, None, 16, 9) == (16, 9)
+    assert _fill_missing_dimension(10, None, 0, 5) == (10, 5)
 
 
 def test_write_temp_image_and_suffix():

@@ -31,7 +31,7 @@ from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.requests import sync_request
 from plugin.framework.config import get_config_int
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
-from plugin.framework.errors import NetworkError, ToolExecutionError
+from plugin.framework.errors import NetworkError, ToolExecutionError, resolve_exception_message
 
 log = logging.getLogger(__name__)
 
@@ -111,8 +111,12 @@ def _reraise_if_stopped(stop_checker: Any, exc: Exception) -> None:
 def _abandon_image_paths(paths: list[str], stop_checker: Any, exc: Exception, log_message: str) -> tuple[list[str], str]:
     _unlink_temp_paths(paths)
     _reraise_if_stopped(stop_checker, exc)
-    log.exception(log_message)
-    return [], str(exc)
+    message = resolve_exception_message(exc)
+    if isinstance(exc, (NetworkError, ToolExecutionError)):
+        log.warning("%s: %s", log_message, message)
+    else:
+        log.exception(log_message)
+    return [], message
 
 
 def _extract_b64(text: str) -> str | None:
@@ -127,8 +131,10 @@ class EndpointImageProvider:
     model: str
 
     def __init__(self, api_config: Any, ctx: Any) -> None:
+        from plugin.framework.client.model_fetcher import get_image_model
+
         self.client = LlmClient(api_config, ctx)
-        self.model = api_config.get("model", "google/gemini-3.1-flash-lite-preview")
+        self.model = str(api_config.get("model") or get_image_model() or "").strip()
 
     def _save_b64(self, b64_data: str) -> list[str]:
         if len(b64_data) > (IMAGE_DOWNLOAD_MAX_BYTES * 4) // 3 + 4:
@@ -302,7 +308,7 @@ class EndpointImageProvider:
                 except Exception as e:
                     return _abandon_image_paths(paths, stop_checker, e, "Image fallback content processing failed")
 
-            return [], ""
+            return [], "No image data returned from provider"
         finally:
             self.client._close_connection()
 
@@ -315,9 +321,7 @@ class ImageService:
         self.ctx = ctx
         self.config = config
 
-    def get_provider(self, name: str | None = None) -> Any | None:
-        if name and name not in ("endpoint", "openrouter"):
-            return None
+    def get_provider(self) -> EndpointImageProvider:
         from plugin.framework.config import get_api_config
         from plugin.framework.client.model_fetcher import get_image_model
 
@@ -326,24 +330,12 @@ class ImageService:
         api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model()
         return EndpointImageProvider(api_config, self.ctx)
 
-    def generate_image(self, prompt: str, provider_name: str | None = None, status_callback: Any = None, stop_checker: Any = None, **kwargs: Any) -> tuple[list[str], str]:
-        provider = self.get_provider(provider_name or "endpoint")
-        if not provider:
-            raise ValueError(f"Unknown provider: {provider_name}")
-
-        # Merge configuration defaults with kwargs
+    def generate_image(self, prompt: str, status_callback: Any = None, stop_checker: Any = None, **kwargs: Any) -> tuple[list[str], str]:
+        provider = self.get_provider()
         base_size = get_config_int("image_base_size")
-        steps = get_config_int("image_steps")
-
-
-        defaults: dict[str, Any] = {
-            "width": base_size,
-            "height": base_size,
-            "steps": steps,
-        }
-
-        for k, v in defaults.items():
-            if k not in kwargs:
-                kwargs[k] = v
+        for key in ("width", "height"):
+            if kwargs.get(key) is None:
+                kwargs[key] = base_size
+        kwargs.setdefault("steps", get_config_int("image_steps"))
 
         return provider.generate(prompt, status_callback=status_callback, stop_checker=stop_checker, **kwargs)

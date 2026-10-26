@@ -26,13 +26,30 @@ import bisect
 import logging
 from typing import Any
 
-from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import confirm_paragraph_index, paragraph_entries
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.service import ServiceBase
-from plugin.writer.tree import _collect_heading_indices, _heading_tree_fingerprint, heading_ref
+from plugin.framework.uno_context import uno_same
+from plugin.writer.tree import _collect_heading_indices, heading_ref
 
 log = logging.getLogger("writeragent.writer.nav.proximity")
+
+
+def _anchor_in_body(anchor: Any, text_obj: Any) -> bool:
+    """True when *anchor* is a range in the body text, not a header/footer/frame."""
+    try:
+        return anchor is not None and uno_same(anchor.getText(), text_obj)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return False
+
+
+def _validate_para_index(index: int, total: int) -> None:
+    """Reject a paragraph index outside the document before it becomes a wrong window."""
+    if index < 0 or index >= total:
+        raise ToolExecutionError(
+            "Paragraph %d out of range (document has %d paragraphs)" % (index, total)
+        )
 
 
 def _collect_anchored(
@@ -50,11 +67,14 @@ def _collect_anchored(
         try:
             obj = container.getByName(name)
             anchor = obj.getAnchor()
+            if not _anchor_in_body(anchor, text_obj):
+                continue
             raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
             pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
             if pi is not None and start_idx <= pi <= end_idx:
                 items.append(builder(obj, name, pi))
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("proximity: skipped object %r", name, exc_info=True)
     return items
 
@@ -72,57 +92,14 @@ class ProximityService(ServiceBase):
         self._doc_svc = services.document
         self._tree_svc = services.writer_tree
         self._bm_svc = services.writer_bookmarks
-        events = services.events
-        self._flat_cache: dict[Any, list[Any]] = {}  # doc_key -> [flat entries]
-        self._flat_fp: dict[Any, int | None] = {}  # doc_key -> CharacterCount at flatten time
-        self._flat_root: dict[Any, dict[str, Any]] = {}  # doc_key -> tree object that was flattened
-        events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
-
-    def _drop_flat_cache(self, key: Any | None = None) -> None:
-        if key is None:
-            self._flat_cache.clear()
-            self._flat_fp.clear()
-            self._flat_root.clear()
-            return
-        self._flat_cache.pop(key, None)
-        self._flat_fp.pop(key, None)
-        self._flat_root.pop(key, None)
-
-    def _on_cache_invalidated(self, doc: Any | None = None, key: Any | None = None, **_kw: Any) -> None:
-        # key= first: close/unload emits the stored key without a live model.
-        if key is not None:
-            self._drop_flat_cache(key)
-        elif doc is None:
-            self._drop_flat_cache()
-        else:
-            self._drop_flat_cache(self._doc_svc.doc_key(doc))
 
     # ==================================================================
     # Flattened tree (ordered heading list with parent pointers)
     # ==================================================================
 
-    def _flatten_tree(self, root: dict[str, Any], doc: Any) -> list[Any]:
-        key = self._doc_svc.doc_key(doc)
-        fingerprint = _heading_tree_fingerprint(doc)
-        if is_cacheable_doc_key(key) and key in self._flat_cache:
-            cached_fp = self._flat_fp.get(key)
-            # A cache hit must not return the previous flat list and ignore
-            # ``root``. A programmatic edit that XModifyListener misses still
-            # moves CharacterCount, so TreeService rebuilds and hands the new
-            # tree here. next/previous/sibling/parent would keep walking the
-            # old paragraphs. Same CharacterCount rule as
-            # TreeService.build_heading_tree (no count → listener-only). Also
-            # require this tree object: a rebuilt root must not reuse the list
-            # flattened from the previous one.
-            if (fingerprint is None or fingerprint == cached_fp) and self._flat_root.get(key) is root:
-                return self._flat_cache[key]
-
+    def _flatten_tree(self, root: dict[str, Any]) -> list[Any]:
         flat: list[Any] = []
         self._flatten_recurse(root["children"], None, flat)
-        if is_cacheable_doc_key(key):
-            self._flat_cache[key] = flat
-            self._flat_fp[key] = fingerprint
-            self._flat_root[key] = root
         return flat
 
     def _flatten_recurse(self, children: list[Any], parent_entry: dict[str, Any] | None, flat: list[Any]) -> None:
@@ -176,10 +153,14 @@ class ProximityService(ServiceBase):
         if para_index is None:
             raise ToolExecutionError("Cannot resolve locator: %s" % locator)
 
-        tree = self._tree_svc.build_heading_tree(doc)
+        para_ranges = self._doc_svc.get_paragraph_ranges(doc)
+        _validate_para_index(para_index, len(para_ranges))
+        tree = self._tree_svc.build_heading_tree(doc, elements=para_ranges)
         indices = _collect_heading_indices(tree)
-        bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc, heading_para_indices=indices)
-        flat = self._flatten_tree(tree, doc)
+        bookmark_map = self._bm_svc.ensure_heading_bookmarks(
+            doc, heading_para_indices=indices, para_ranges=para_ranges
+        )
+        flat = self._flatten_tree(tree)
 
         if not flat:
             return {"error": "Document has no headings"}
@@ -301,15 +282,18 @@ class ProximityService(ServiceBase):
         if center_idx is None:
             raise ToolExecutionError("Cannot resolve locator: %s" % locator)
 
-        radius = max(1, min(50, radius))
+        try:
+            radius = int(radius)
+        except (TypeError, ValueError) as exc:
+            raise ToolExecutionError("radius must be an integer") from exc
+        radius = max(0, min(50, radius))
         if include is None:
             include = ["paragraphs", "images", "tables", "frames", "comments", "headings"]
 
         para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         total = len(para_ranges)
 
-        if center_idx >= total:
-            raise ToolExecutionError("Paragraph %d out of range (document has %d paragraphs)" % (center_idx, total))
+        _validate_para_index(center_idx, total)
 
         start_idx = max(0, center_idx - radius)
         end_idx = min(total - 1, center_idx + radius)
@@ -324,7 +308,7 @@ class ProximityService(ServiceBase):
             bookmark_map = self._bm_svc.ensure_heading_bookmarks(
                 doc, heading_para_indices=indices, para_ranges=para_ranges
             )
-            flat = self._flatten_tree(tree, doc)
+            flat = self._flatten_tree(tree)
             ctx_idx, _unused = self._find_heading_context(flat, center_idx)
             result["heading_chain"] = self._get_heading_chain(flat, ctx_idx, bookmark_map)
 
@@ -380,34 +364,35 @@ class ProximityService(ServiceBase):
             )
 
         if "comments" in include:
-            from plugin.framework.uno_context import uno_same
-
             comments = []
             try:
                 fields = doc.getTextFields()
                 enum = fields.createEnumeration()
-                while enum.hasMoreElements():
-                    field = enum.nextElement()
-                    if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-                        continue
-                    anchor = field.getAnchor()
-                    # Skip non-body annotations so headers/footers do not map to paragraph 0.
-                    if anchor is None:
-                        continue
+                while enum.hasMoreElements() is True:
                     try:
-                        anchor_text = anchor.getText()
-                    except Exception:
-                        anchor_text = None
-                    if anchor_text is None or not uno_same(anchor_text, text_obj):
-                        continue
-                    raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                    pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
-                    if pi is not None and start_idx <= pi <= end_idx:
-                        author = field.getPropertyValue("Author")
-                        content = field.getPropertyValue("Content")
-                        resolved_flag = field.getPropertyValue("Resolved")
-                        comments.append({"author": author, "content": (content or "")[:200], "paragraph_index": pi, "resolved": resolved_flag})
-            except Exception:
+                        field = enum.nextElement()
+                        if not field.supportsService("com.sun.star.text.textfield.Annotation"):
+                            continue
+                        anchor = field.getAnchor()
+                        if not _anchor_in_body(anchor, text_obj):
+                            continue
+                        raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                        pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                        if pi is None or not (start_idx <= pi <= end_idx):
+                            continue
+                        comments.append(
+                            {
+                                "author": field.getPropertyValue("Author"),
+                                "content": (field.getPropertyValue("Content") or "")[:200],
+                                "paragraph_index": pi,
+                                "resolved": field.getPropertyValue("Resolved"),
+                            }
+                        )
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        log.debug("proximity: skipped annotation", exc_info=True)
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 log.debug("proximity: comment enumeration failed", exc_info=True)
             result["comments"] = comments
 

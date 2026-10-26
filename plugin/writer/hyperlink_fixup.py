@@ -55,6 +55,7 @@ from __future__ import annotations
 import logging
 from typing import Any, ClassVar, Iterator
 
+from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import uno_read
 
 log = logging.getLogger("writeragent.writer.hyperlink")
@@ -67,6 +68,10 @@ _TARGET = "HyperLinkTarget"
 # copy also treats them as the run's look. Other Char* (weight, font) stay
 # with the text replace / HTML import and must not be re-painted here.
 _CHAR_LOOK = ("CharColor", "CharUnderline")
+
+
+def _utf16_len(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
 
 
 class OutlineLink:
@@ -121,7 +126,8 @@ class OutlineSnapshot:
 
 
 def _prop(obj: Any, name: str) -> str:
-    value = obj.getPropertyValue(name)
+    # Marker portions may lack link properties; a failed read counts as empty.
+    value = uno_read(lambda: obj.getPropertyValue(name), None)
     return value if isinstance(value, str) else ""
 
 
@@ -282,7 +288,11 @@ def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
             continue
         portion_enum = para.createEnumeration()
         while _enum_has_more(portion_enum):
-            yield portion_enum.nextElement()
+            portion = portion_enum.nextElement()
+            # Skip tracked-change redline markers; they do not hold text or link properties.
+            if uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), "") == "Redline":
+                continue
+            yield portion
 
 
 def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
@@ -358,25 +368,7 @@ def _set_prop(cursor: Any, name: str, value: str) -> None:
         ) from exc
 
 
-def _step_right(cursor: Any, count: int, expand: bool) -> bool:
-    """Move or extend *cursor* right by *count*. False if the move stops short.
-
-    UNO caps one goRight at a C++ short, so a long run is taken in chunks.
-    """
-    remaining = count
-    while remaining > 0:
-        step = remaining if remaining < 32767 else 32767
-        try:
-            moved = cursor.goRight(step, expand)
-        except Exception:
-            return False
-        if moved is False:
-            return False
-        remaining -= step
-    return True
-
-
-def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, length: int) -> Any | None:
+def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_plain: str) -> Any | None:
     """Cursor covering the replaced characters, measured from the paragraph start.
 
     A cursor saved at the match start does not stay there: replace_preserving_format
@@ -385,16 +377,17 @@ def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, lengt
     onto the following bookmark. The paragraph start plus the saved prefix length
     is still the replacement, including after that drift.
     """
-    if not snapshot.single_paragraph or length < 0:
+    # goRight counts UTF-16 units, so an emoji is 2 (len() would stop short).
+    if not snapshot.single_paragraph:
         return None
     try:
         cursor = _cursor_at(text, anchor.getStart())
         cursor.gotoStartOfParagraph(False)
+        if snapshot.prefix and not go_right(cursor, _utf16_len(snapshot.prefix), False):
+            return None
+        if new_plain and not go_right(cursor, _utf16_len(new_plain), True):
+            return None
     except Exception:
-        return None
-    if snapshot.prefix and not _step_right(cursor, len(snapshot.prefix), False):
-        return None
-    if length and not _step_right(cursor, length, True):
         return None
     return cursor
 
@@ -429,7 +422,8 @@ def _read_char_look(obj: Any) -> dict[str, Any]:
     """Direct colour / underline on *obj*, or empty when the property is missing."""
     props: dict[str, Any] = {}
     for name in _CHAR_LOOK:
-        value = obj.getPropertyValue(name)
+        # Marker portions (bookmarks, redlines) may lack Char* properties.
+        value = uno_read(lambda: obj.getPropertyValue(name), None)
         if value is not None:
             props[name] = value
     return props
@@ -482,8 +476,9 @@ def _paint(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_plain: str,
     chrome on the title and the leftover punctuation/tab. CharColor set on a
     later cursor does not undo that.
     """
-    cursor = _select_replacement(text, anchor, snapshot, len(new_plain))
-    if cursor is None:
+    cursor = _select_replacement(text, anchor, snapshot, new_plain)
+    selected = None if cursor is None else uno_read(lambda: str(cursor.getString() or ""), None)
+    if cursor is None or selected != new_plain:
         if required:
             raise RuntimeError(
                 "Could not select the replaced text to update its outline hyperlink.")

@@ -18,6 +18,7 @@
 
 from typing import Any
 
+from plugin.framework.errors import reraise_if_disposed
 from ..specialized_base import ToolWriterShapeBase
 from plugin.draw.shapes import UpsertShape as DrawUpsertShape
 from plugin.draw.shapes import DeleteShape as DrawDeleteShape
@@ -53,11 +54,13 @@ def replace_text_in_shape(shape: Any, old: str, new: str) -> bool:
     preserving the formatting of the surrounding text via a text cursor. Returns True on success.
 
     Uses character-offset navigation (goRight) which aligns with getString() for single-paragraph
-    shape text (the common case for callouts / text boxes); fully defensive on any UNO failure."""
+    shape text (the common case for callouts / text boxes). Returns False on an ordinary UNO failure;
+    a disposed document propagates."""
     try:
         xtext = shape.getText()
         s = xtext.getString()
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc, object_type="Text")
         return False
     idx = s.find(old)
     if idx < 0:
@@ -75,7 +78,8 @@ def replace_text_in_shape(shape: Any, old: str, new: str) -> bool:
         cursor.goRight(old_units, True)
         cursor.setString(new)
         return True
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc, object_type="Text")
         return False
 
 

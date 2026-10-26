@@ -692,3 +692,123 @@ def test_parse_non_negative_int():
     assert parse_non_negative_int("-2", coerce=True) == (None, "occurrence must be a non-negative integer.")
     assert parse_non_negative_int("abc", coerce=True) == (None, "occurrence must be a non-negative integer.")
 
+
+def test_search_in_document_disposed_get_string_propagates():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.search import SearchInDocument
+
+    doc = MagicMock()
+    found = MagicMock()
+    found.getString.side_effect = DocumentDisposedError("gone")
+    doc.findFirst.return_value = found
+    res = SearchInDocument().execute_safe(MagicMock(doc=doc), pattern="x")
+    assert res.get("status") == "error"
+    assert res.get("code") == "DOCUMENT_DISPOSED"
+
+
+def test_iter_floating_shape_texts_disposed_draw_page_propagates():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.search import iter_floating_shape_texts
+
+    doc = MagicMock()
+    doc.getDrawPage.side_effect = DocumentDisposedError("gone")
+    with pytest.raises(DocumentDisposedError):
+        list(iter_floating_shape_texts(doc))
+
+
+def test_comment_matches_disposed_enumeration_propagates():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.search import comment_matches
+
+    doc = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = DocumentDisposedError("gone")
+    with pytest.raises(DocumentDisposedError):
+        list(comment_matches(doc, "x", False, False))
+
+
+def test_header_footer_label_disposed_style_walk_propagates():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.search import _header_footer_label
+
+    fake_text = MagicMock()
+    fake_text.ImplementationName = "SwXHeadFootText"
+    doc = MagicMock()
+    doc.getStyleFamilies.side_effect = DocumentDisposedError("gone")
+    with pytest.raises(DocumentDisposedError):
+        _header_footer_label(fake_text, doc)
+
+
+def test_search_in_document_and_sweep_shape_matches_parity():
+    from plugin.writer.search import SearchInDocument, sweep_draw_shape_preview_matches
+
+    doc = MagicMock()
+    doc.findFirst.return_value = None
+    shape = MagicMock()
+    shape.getString.return_value = "needle here"
+    shape.getPropertyValue.return_value = 0
+    shape.supportsService.return_value = False
+    shape.Name = "Box 1"
+    draw_page = MagicMock()
+    draw_page.getCount.return_value = 1
+    draw_page.getByIndex.return_value = shape
+    doc.getDrawPage.return_value = draw_page
+    del doc.getTextFields
+
+    ctx = MagicMock(doc=doc)
+    tool_matches = SearchInDocument().execute(ctx, pattern="needle", regex=False, case_sensitive=False)["matches"]
+    sweep_matches = sweep_draw_shape_preview_matches(doc, "needle", False, False)
+
+    tool_pairs = [(m["text"], m["location"]) for m in tool_matches]
+    sweep_pairs = [(m["text"], m["location"]) for m in sweep_matches]
+    assert tool_pairs == sweep_pairs == [("needle", "shape 'Box 1'")]
+
+
+def test_search_in_document_and_sweep_comment_matches_parity():
+    from plugin.writer.search import SearchInDocument, sweep_comment_preview_matches
+
+    doc = MagicMock()
+    draw_page = MagicMock()
+    draw_page.getCount.return_value = 0
+    doc.getDrawPage.return_value = draw_page
+    doc.findFirst.return_value = None
+
+    field = MagicMock()
+    field.supportsService.return_value = True
+    field.Content = "needle in comment"
+    field.Author = "Ana"
+
+    def make_enum():
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, False]
+        enum.nextElement.return_value = field
+        return enum
+
+    doc.getTextFields.return_value.createEnumeration.side_effect = make_enum
+
+    ctx = MagicMock(doc=doc)
+    tool_matches = SearchInDocument().execute(ctx, pattern="needle", regex=False, case_sensitive=False)["matches"]
+    sweep_matches = sweep_comment_preview_matches(doc, "needle", False, False)
+
+    tool_pairs = [(m["text"], m["location"]) for m in tool_matches]
+    sweep_pairs = [(m["text"], m["location"]) for m in sweep_matches]
+    assert tool_pairs == sweep_pairs == [("needle", "comment by 'Ana'")]
+
+
+def test_search_in_document_reads_each_hit_once():
+    from plugin.writer.search import SearchInDocument
+
+    doc = MagicMock()
+    found = MagicMock()
+    found.getString.return_value = "hit"
+    doc.findFirst.return_value = found
+    doc.findNext.return_value = None
+    del doc.getDrawPage
+    del doc.getTextFields
+
+    ctx = MagicMock(doc=doc)
+    res = SearchInDocument().execute(ctx, pattern="hit", regex=False, case_sensitive=False)
+    assert res["status"] == "ok"
+    assert res["count"] == 1
+    found.getString.assert_called_once()
+
+

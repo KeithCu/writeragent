@@ -10,6 +10,7 @@ the same markup the model sent. TeX islands use ``$...$``, ``$$...$$``,
 plus currency guards, so ``R$ 12.798,82`` stays prose.
 Unclosed ``<math`` tails are surfaced as a final HTML chunk (nothing silently
 dropped). Incomplete TeX delimiters are left as HTML by advancing the scan.
+HTML tags, comments, and ``<script>``/``<style>`` bodies are ignored while scanning, so a ``$`` in markup is prose.
 """
 
 from __future__ import annotations
@@ -20,6 +21,35 @@ from typing import Literal
 
 _MATH_OPEN_RE = re.compile(r"<math\b", re.IGNORECASE)
 _MATH_CLOSE_RE = re.compile(r"</math\s*>", re.IGNORECASE)
+
+TexDelim = Literal["$$", "$", "\\[", "\\("]
+_TEX_CLOSE: dict[TexDelim, str] = {"$$": "$$", "\\[": "\\]", "\\(": "\\)"}
+
+_MASK_CHAR = "\x00"
+_HTML_NONTEXT_RE = re.compile(
+    r"(?is)"
+    r"<!--.*?-->"
+    r"|<(script|style)\b[^>]*>(?:.*?</\1\s*>|.*\Z)"
+    # No ``$`` in the tag name or unquoted body: in ``$x<y$ and <i>`` the ``<y$...>`` run is TeX, not a tag.
+    r"|<(/?)([A-Za-z][^\s/>$]*)(?:\"[^\"]*\"|'[^']*'|[^'\"$>])*>"
+)
+
+
+def _mask_html_nontext(s: str) -> str:
+    """Blank HTML markup so a delimiter in it is prose, not math.
+
+    Attributes, comments, and ``<script>``/``<style>`` bodies are blanked; ``<math``
+    tags stay visible because the callers look for them. Same length, so indices
+    still address *s*. ``\\x00`` is not whitespace, alphanumeric, or a delimiter, so
+    the currency/escape rules next to a tag do not change.
+    """
+
+    def mask(m: re.Match[str]) -> str:
+        if (m.group(3) or "").lower().startswith("math"):
+            return m.group(0)
+        return _MASK_CHAR * (m.end() - m.start())
+
+    return _HTML_NONTEXT_RE.sub(mask, s)
 
 
 @dataclass(frozen=True)
@@ -36,7 +66,7 @@ def html_fragment_contains_mathml(fragment: str) -> bool:
     """Fast check for MathML root elements."""
     if not fragment or not isinstance(fragment, str):
         return False
-    return _MATH_OPEN_RE.search(fragment) is not None
+    return _MATH_OPEN_RE.search(_mask_html_nontext(fragment)) is not None
 
 
 def _preceding_backslashes(s: str, idx: int) -> int:
@@ -97,12 +127,13 @@ def _is_tex_dollar_close(s: str, body_start: int, j: int) -> bool:
 def html_fragment_contains_tex_math(fragment: str) -> bool:
     """True only when a *complete* TeX region exists (conservative ``$`` rules).
 
-    Mirrors :func:`segment_html_with_mixed_math` exactly, so the router never
-    sends currency prose down the math path.
+    Agrees with segment_html_with_mixed_math on prose and currency (a ``$`` pair
+    there is complete or not). A ``<math>`` span can swallow a complete TeX
+    region, so ``True`` here does not guarantee a ``tex`` segment.
     """
     if not fragment or not isinstance(fragment, str):
         return False
-    return _next_complete_tex_region(fragment, 0) is not None
+    return _next_complete_tex_region(_mask_html_nontext(fragment), 0) is not None
 
 
 def html_fragment_contains_mixed_math(fragment: str) -> bool:
@@ -146,11 +177,7 @@ def _display_block_from_open_tag(open_tag: str) -> bool:
     return False
 
 
-def _first_math_close(s: str, start: int) -> re.Match[str] | None:
-    return _MATH_CLOSE_RE.search(s, pos=start)
-
-
-def _scan_next_tex_open(s: str, pos: int) -> tuple[int, Literal["$$", "$", "\\[", "\\("], bool] | None:
+def _scan_next_tex_open(s: str, pos: int) -> tuple[int, TexDelim, bool] | None:
     """Return ``(index, delimiter, display_block)`` for the next TeX opener, or None."""
     n = len(s)
     i = pos
@@ -173,74 +200,73 @@ def _scan_next_tex_open(s: str, pos: int) -> tuple[int, Literal["$$", "$", "\\["
     return None
 
 
-def _try_close_tex(s: str, open_start: int, delim: Literal["$$", "$", "\\[", "\\("]) -> tuple[int, str] | None:
-    """If delimiters close, return ``(end_exclusive, inner_latex)`` else None."""
-    n = len(s)
-    if delim == "$$":
-        body_start = open_start + 2
+def _try_close_tex(s: str, open_start: int, delim: TexDelim) -> int | None:
+    """If *delim* closes, return the end index (exclusive); else None."""
+    body_start = open_start + len(delim)
+    if delim == "$":
         j = body_start
-        while j < n - 1:
-            if s[j : j + 2] == "$$" and not _is_escaped(s, j):
-                inner = s[body_start:j]
-                return (j + 2, inner)
+        while j < len(s):
+            if _is_escaped(s, j):
+                j += 1
+                continue
+            if s[j] == "$" and _is_tex_dollar_close(s, body_start, j):
+                return j + 1
             j += 1
         return None
-    if delim == "\\[":
-        body_start = open_start + 2
-        j = body_start
-        while j < n - 1:
-            if s[j : j + 2] == "\\]" and not _is_escaped(s, j):
-                return (j + 2, s[body_start:j])
-            j += 1
-        return None
-    if delim == "\\(":
-        body_start = open_start + 2
-        j = body_start
-        while j < n - 1:
-            if s[j : j + 2] == "\\)" and not _is_escaped(s, j):
-                return (j + 2, s[body_start:j])
-            j += 1
-        return None
-    # single $
-    body_start = open_start + 1
+    close = _TEX_CLOSE[delim]
     j = body_start
-    while j < n:
-        if _is_escaped(s, j):
-            j += 1
-            continue
-        if s[j] == "$" and _is_tex_dollar_close(s, body_start, j):
-            return (j + 1, s[body_start:j])
+    while j < len(s) - 1:
+        if s.startswith(close, j) and not _is_escaped(s, j):
+            return j + len(close)
         j += 1
     return None
 
 
-def _next_complete_tex_region(s: str, pos: int) -> tuple[int, int, str, bool] | None:
-    """First closed TeX region at/after *pos*: ``(start, end, inner, display)``."""
+def _next_complete_tex_region(
+    s: str, pos: int, no_close: set[TexDelim] | None = None
+) -> tuple[int, int, TexDelim, bool] | None:
+    """First closed TeX region at/after *pos*: ``(start, end, delimiter, display)``.
+
+    *no_close* holds delimiter kinds whose close scan already failed to the end of
+    *s*; such a kind cannot close later either. Share it across calls so prose with
+    unclosed ``$`` does not rescan the tail per opener.
+    """
+    no_close = set() if no_close is None else no_close
     while True:
         opened = _scan_next_tex_open(s, pos)
         if opened is None:
             return None
         open_start, delim, display_block = opened
-        closed = _try_close_tex(s, open_start, delim)
-        if closed is not None:
-            end_exc, inner = closed
-            return (open_start, end_exc, inner, display_block)
+        if delim not in no_close:
+            end = _try_close_tex(s, open_start, delim)
+            if end is not None:
+                return (open_start, end, delim, display_block)
+            no_close.add(delim)
         # Skip past this opener so e.g. unclosed ``$$`` does not re-scan the 2nd ``$``.
-        if delim == "$$" or delim in ("\\[", "\\("):
-            pos = open_start + 2
-        else:
-            pos = open_start + 1
+        pos = open_start + len(delim)
 
 
 def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
     """Split *fragment* into ``html``, ``math``, and ``tex`` segments in order."""
     if not fragment:
         return []
+    masked = _mask_html_nontext(fragment)
     out: list[MathSegment] = []
+    no_close: set[TexDelim] = set()
     pos = 0
+    # Cache the next TeX region: recomputing it per loop iteration rescanned the whole
+    # tail for every <math> segment (quadratic). ``no_more_tex`` is final because pos
+    # only moves forward, and a cached region whose start is still at/after pos is
+    # exactly what a fresh scan from pos would return.
+    tex_region: tuple[int, int, TexDelim, bool] | None = None
+    no_more_tex = False
     while pos < len(fragment):
-        m_open = _MATH_OPEN_RE.search(fragment, pos)
-        tex_region = _next_complete_tex_region(fragment, pos)
+        m_open = _MATH_OPEN_RE.search(masked, pos)
+        if tex_region is not None and tex_region[0] < pos:
+            tex_region = None
+        if tex_region is None and not no_more_tex:
+            tex_region = _next_complete_tex_region(masked, pos, no_close)
+            no_more_tex = tex_region is None
 
         math_start = m_open.start() if m_open else len(fragment) + 1
         tex_start = tex_region[0] if tex_region else len(fragment) + 1
@@ -261,7 +287,7 @@ def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
                 break
             open_tag = fragment[open_start : gt + 1]
             display = _display_block_from_open_tag(open_tag)
-            close_m = _first_math_close(fragment, gt + 1)
+            close_m = _MATH_CLOSE_RE.search(masked, gt + 1)
             if not close_m:
                 out.append(MathSegment(kind="html", text=fragment[open_start:]))
                 break
@@ -272,10 +298,16 @@ def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
 
         # TeX strictly before <math, or no math at this step
         assert tex_region is not None
-        t_start, t_end, inner, display_block = tex_region
+        t_start, t_end, t_delim, display_block = tex_region
         if t_start > pos:
             out.append(MathSegment(kind="html", text=fragment[pos:t_start]))
-        out.append(MathSegment(kind="tex", text=inner, display_block=display_block))
+        out.append(
+            MathSegment(
+                kind="tex",
+                text=fragment[t_start + len(t_delim) : t_end - len(t_delim)],
+                display_block=display_block,
+            )
+        )
         pos = t_end
 
     return out

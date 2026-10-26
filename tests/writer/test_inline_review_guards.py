@@ -1030,6 +1030,26 @@ def test_cursor_resolve_group_dispatch_with_mismatched_after_snapshot_is_partial
     assert "Edit > Track Changes > Manage" in msg
 
 
+def test_cursor_resolve_group_unreliable_reports_try_again():
+    model = MagicMock()
+    ctx = MagicMock()
+    fake_view = RedlineView(reliable=True, total=2, rows=(
+        RedlineRow(token="T", identifier="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()),
+        RedlineRow(token="S", identifier="S", start=FakeRange(15, 18), end=FakeRange(18, 25), kind="Insert", text=FakeText()),
+    ))
+    with patch("plugin.writer.inline_review.scan_redline_view", return_value=fake_view), \
+         patch("plugin.writer.inline_review.cursor_in_agent_change", return_value="T"), \
+         patch("plugin.writer.inline_review.resolve_agent_change",
+               return_value=(ResolveResult(ResolveStatus.REFUSED_SIBLING), fake_view)), \
+         patch("plugin.writer.inline_review._resolve_overlapping_agent_changes",
+               return_value=ResolveResult(ResolveStatus.UNRELIABLE, 0)):
+        ok, msg = resolve_change_at_cursor(model, ctx, True)
+    assert ok is False
+    assert "try again" in msg.lower()
+    assert "Couldn't read this document's tracked changes reliably" in msg
+    assert "may share a paragraph" not in msg
+
+
 def test_resolve_all_returns_unreliable_when_first_refused_before_dispatch_and_next_unreliable():
     rows = (RedlineRow(token="T", identifier="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()),)
     entry_view = RedlineView(reliable=True, total=1, rows=rows)

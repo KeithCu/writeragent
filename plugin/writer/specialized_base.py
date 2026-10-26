@@ -87,9 +87,7 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
     name: str | None = "delegate_to_specialized_writer_toolset"
     description: str = (
         "Delegates a specialized task with a focused toolset. "
-        f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. "
-        "Also: charts, fields, styles, page, textframes, embedded (active doc OLE only), shapes, indexes, "
-        "bookmarks, tracking, footnotes, tables, forms, images, mail_merge, vision (extract text and structure from images when configured)."
+        f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}."
     )
 
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -121,11 +119,14 @@ class ToolWriterPageBase(ToolWriterSpecialBase):
 
 class ToolWriterTextFramesBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "textframes"
-    specialized_domain_description: ClassVar[str | None] = "Manage text frames, their content, and positioning."
+    specialized_domain_description: ClassVar[str | None] = (
+        "List, inspect, resize, re-anchor, and set the orientation of existing text frames."
+    )
 
 
 class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "embedded"
+    # Parked (B3-A3): both embedded tools are ToolBaseDummy stubs, so no domain in the catalog.
+    specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = "OLE in active doc only (not sibling files on disk)."
 
 

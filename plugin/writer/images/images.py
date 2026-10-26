@@ -70,6 +70,7 @@ from plugin.framework.constants import USER_AGENT
 from plugin.framework.model_lru import update_lru_history
 from plugin.doc.document_research import list_nearby_files
 from plugin.doc import visual_helpers
+from plugin.doc.undo import commit_or_rollback_mutation
 from .image_tools import (
     _cursor_for_writer_view,
     add_image_to_gallery,
@@ -110,7 +111,7 @@ def resolve_image_generate_is_edit(source_image: typing.Any, *, selection_availa
     Explicit ``source_image='selection'`` always edits. Omitting ``source_image``
     also edits when a graphic is selected: the parent often rewrites
     "make it look like a wizard" into a generate-new task and drops the
-    argument; defaulting to the selection keeps ``replace_image_in_place``.
+    argument; defaulting to the selection keeps the in-place replace.
     Create-new when nothing is selected (clear the selection to force create).
     """
     if isinstance(source_image, str):
@@ -118,6 +119,30 @@ def resolve_image_generate_is_edit(source_image: typing.Any, *, selection_availa
     if source_image and str(source_image).lower() == "selection":
         return True
     return source_image is None and selection_available
+
+
+def _fill_missing_dimension(
+    width: Any,
+    height: Any,
+    base_width: Any,
+    base_height: Any,
+    *,
+    ndigits: int | None = None,
+    minimum: int | None = None,
+) -> tuple[Any, Any]:
+    """Fill the one missing side from base_width:base_height. Both or neither given are returned as-is."""
+    if width is not None and height is not None:
+        return width, height
+
+    def _scaled(value: float) -> Any:
+        out = round(value, ndigits) if ndigits is not None else int(round(value))
+        return out if minimum is None else max(minimum, out)
+
+    if width is not None:
+        return width, (_scaled(width * base_height / base_width) if base_width else base_height)
+    if height is not None:
+        return (_scaled(height * base_width / base_height) if base_height else base_width), height
+    return base_width, base_height
 
 
 def resolve_generation_size(
@@ -133,15 +158,8 @@ def resolve_generation_size(
 
     num, den = map(int, normalized.split(":"))
 
-    if width is not None and height is not None:
-        final_w = width
-        final_h = height
-    elif width is not None:
-        final_w = width
-        final_h = round(width * den / num)
-    elif height is not None:
-        final_w = round(height * num / den)
-        final_h = height
+    if width is not None or height is not None:
+        final_w, final_h = _fill_missing_dimension(width, height, num, den)
     else:
         if num > den:
             calc_w = int(base_size * num / den)
@@ -256,6 +274,8 @@ class ImageGenerate(ToolWriterImageBase):
                     raise
                 if not png_bytes:
                     return ("no_selection", None)
+                if len(png_bytes) > IMAGE_DOWNLOAD_MAX_BYTES:
+                    return ("too_large", None)
                 import base64
 
                 b64 = base64.b64encode(png_bytes).decode("ascii")
@@ -295,6 +315,13 @@ class ImageGenerate(ToolWriterImageBase):
                 return ("ok", (obj, b64, nw, nh, frame_w, frame_h))
 
             tag, payload = _run_on_main(_read_selection_for_edit, timeout=mt_timeout)
+            if tag == "too_large":
+                return self._tool_error(
+                    "Selected image is larger than %d MB; crop it or choose a smaller image to edit."
+                    % (IMAGE_DOWNLOAD_MAX_BYTES // (1024 * 1024)),
+                    code="INVALID_PARAMETER",
+                    parameter="source_image",
+                )
             selection_available = tag == "ok"
             is_edit = resolve_image_generate_is_edit(source_image, selection_available=selection_available)
             if explicit_edit and not selection_available:
@@ -309,18 +336,7 @@ class ImageGenerate(ToolWriterImageBase):
         if is_edit:
             arg_w = args.get("width")
             arg_h = args.get("height")
-            if arg_w is not None and arg_h is not None:
-                width = arg_w
-                height = arg_h
-            elif arg_w is not None:
-                width = arg_w
-                height = round(arg_w * edit_height / edit_width) if edit_width > 0 else edit_height
-            elif arg_h is not None:
-                height = arg_h
-                width = round(arg_h * edit_width / edit_height) if edit_height > 0 else edit_width
-            else:
-                width = edit_width
-                height = edit_height
+            width, height = _fill_missing_dimension(arg_w, arg_h, edit_width, edit_height)
             wire_ratio = None
         else:
             aspect = args.get("aspect_ratio") or get_config_str("image_default_aspect")
@@ -448,23 +464,14 @@ def _replacement_size_units(
     width_mm: int | float | None,
     height_mm: int | float | None,
 ) -> tuple[int, int]:
-    if width_mm is not None and height_mm is not None:
-        return visual_helpers.mm_to_unit(width_mm), visual_helpers.mm_to_unit(height_mm)
-    if width_mm is not None:
-        width_units = visual_helpers.mm_to_unit(width_mm)
-        if current_width == 0:
-            height_units = int(current_height)
-        else:
-            height_units = max(1, int(round(width_units * current_height / current_width)))
-        return width_units, height_units
-    if height_mm is not None:
-        height_units = visual_helpers.mm_to_unit(height_mm)
-        if current_height == 0:
-            width_units = int(current_width)
-        else:
-            width_units = max(1, int(round(height_units * current_width / current_height)))
-        return width_units, height_units
-    return int(current_width), int(current_height)
+    if width_mm is None and height_mm is None:
+        return int(current_width), int(current_height)
+    width_units = visual_helpers.mm_to_unit(width_mm) if width_mm is not None else None
+    height_units = visual_helpers.mm_to_unit(height_mm) if height_mm is not None else None
+    width_units, height_units = _fill_missing_dimension(
+        width_units, height_units, current_width, current_height, minimum=1
+    )
+    return int(width_units), int(height_units)
 
 
 # ------------------------------------------------------------------
@@ -907,6 +914,11 @@ class ImageSetProperties(ToolWriterImageBase):
                 parameter="anchor_type",
             )
 
+        for crop_key in ("crop_top_mm", "crop_bottom_mm", "crop_left_mm", "crop_right_mm"):
+            crop_val = kwargs.get(crop_key)
+            if crop_val is not None and (isinstance(crop_val, bool) or not isinstance(crop_val, (int, float)) or crop_val < 0):
+                return self._tool_error(f"{crop_key} must be 0 or greater.", code="INVALID_PARAMETER", parameter=crop_key)
+
         sheet_index = kwargs.get("sheet_index")
         graphic, resolve_err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
         if resolve_err is not None:
@@ -963,24 +975,13 @@ class ImageSetProperties(ToolWriterImageBase):
             curr_w, curr_h = current.Width, current.Height
 
             new_size = Size()
-            new_size.Width = visual_helpers.mm_to_unit(width_mm) if width_mm is not None else curr_w
-            new_size.Height = visual_helpers.mm_to_unit(height_mm) if height_mm is not None else curr_h
-
-        from plugin.doc.compound_undo import WriterCompoundUndo
-
-        undo_title = "WriterAgent: Set image properties"
-        mgr = None
-        try:
-            candidate = ctx.doc.getUndoManager()
-            if candidate is not None and candidate.isLocked() is not True:
-                mgr = candidate
-        except Exception:
-            mgr = None
+            new_size.Width = max(1, visual_helpers.mm_to_unit(width_mm)) if width_mm is not None else curr_w
+            new_size.Height = max(1, visual_helpers.mm_to_unit(height_mm)) if height_mm is not None else curr_h
 
         updated = []
-        error_msg: str | None = None
-        try:
-            with WriterCompoundUndo(ctx.doc, undo_title):
+
+        def _mutate() -> dict[str, Any] | None:
+            try:
                 # Size
                 if new_size is not None:
                     if visual_helpers.safe_set_property(graphic, "Size", new_size) or visual_helpers.safe_try_method(graphic, "setSize", new_size):
@@ -1036,24 +1037,21 @@ class ImageSetProperties(ToolWriterImageBase):
                     crop.Right = right
                     graphic.setPropertyValue("GraphicCrop", crop)
                     updated.append("crop")
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            error_msg = str(exc)
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                return self._tool_error(str(exc), code="SET_PROPERTIES_FAILED")
+            return None
 
-        if error_msg is not None:
-            undone = False
-            if mgr is not None:
-                try:
-                    titles = mgr.getAllUndoActionTitles()
-                    if titles and titles[0] == undo_title:
-                        mgr.undo()
-                        undone = True
-                except Exception:
-                    log.exception("image_set_properties rollback failed")
-            msg = error_msg
-            if not undone:
-                msg = "the properties were written and could not be rolled back: " + msg
-            return self._tool_error(msg, code="SET_PROPERTIES_FAILED")
+        mutation_err = commit_or_rollback_mutation(
+            self,
+            ctx.doc,
+            "WriterAgent: Set image properties",
+            _mutate,
+            "Undo is locked; the image properties were not changed.",
+            "Could not roll back the image properties",
+        )
+        if mutation_err is not None:
+            return mutation_err
 
         return {"status": "ok", "image_name": image_name, "updated": updated}
 
@@ -1152,7 +1150,6 @@ class ImageCropAndHighlight(ToolWriterImageBase):
 
         from com.sun.star.awt import Size
         from com.sun.star.text import GraphicCrop
-        from plugin.doc.compound_undo import WriterCompoundUndo
 
         size = _object_size(obj)
         width_mm = kwargs.get("width_mm")
@@ -1171,23 +1168,27 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         except ValueError as e:
             return _invalid_param_error(str(e))
 
-        with WriterCompoundUndo(ctx.doc, "WriterAgent: Crop and highlight image"):
-            saved_graphic = visual_helpers.safe_get_property(obj, "Graphic")
-            saved_crop = visual_helpers.safe_get_property(obj, "GraphicCrop") if visual_helpers.has_uno_property(obj, "GraphicCrop") else None
+        def _mutate() -> dict[str, Any] | None:
             obj.setPropertyValue("Graphic", baked)
             # The old crop referred to the old picture; the region is already cut out of the new one.
             if visual_helpers.has_uno_property(obj, "GraphicCrop"):
                 if not visual_helpers.safe_set_property(obj, "GraphicCrop", GraphicCrop()):
-                    if saved_graphic is not None:
-                        obj.setPropertyValue("Graphic", saved_graphic)
                     return self._tool_error("Failed to reset image crop.", code="SET_CROP_FAILED")
             new_size = Size(width_100mm, height_100mm)
             if not (visual_helpers.safe_set_property(obj, "Size", new_size) or visual_helpers.safe_try_method(obj, "setSize", new_size)):
-                if saved_graphic is not None:
-                    obj.setPropertyValue("Graphic", saved_graphic)
-                if saved_crop is not None:
-                    visual_helpers.safe_set_property(obj, "GraphicCrop", saved_crop)
                 return self._tool_error("Failed to set image size.", code="SET_SIZE_FAILED")
+            return None
+
+        err = commit_or_rollback_mutation(
+            self,
+            ctx.doc,
+            "WriterAgent: Crop and highlight image",
+            _mutate,
+            "Undo is locked; the image was not cropped or marked.",
+            "Could not roll back the image crop",
+        )
+        if err is not None:
+            return err
         return {
             "status": "ok",
             "image_name": image_name,
@@ -1348,13 +1349,14 @@ class ImageInsert(ToolWriterImageBase):
                         else:
                             height_mm = 80.0
                             width_mm = round(80.0 * px_w / px_h, 2)
-                    elif width_mm_val is not None:
-                        width_mm = float(width_mm_val)
-                        height_mm = round(width_mm * px_h / px_w, 2)
                     else:
-                        assert height_mm_val is not None
-                        height_mm = float(height_mm_val)
-                        width_mm = round(height_mm * px_w / px_h, 2)
+                        width_mm, height_mm = _fill_missing_dimension(
+                            float(width_mm_val) if width_mm_val is not None else None,
+                            float(height_mm_val) if height_mm_val is not None else None,
+                            px_w,
+                            px_h,
+                            ndigits=2,
+                        )
                 else:
                     if width_mm_val is None and height_mm_val is None:
                         width_mm, height_mm = 80.0, 80.0

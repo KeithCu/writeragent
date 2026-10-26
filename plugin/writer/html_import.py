@@ -36,10 +36,17 @@ log = logging.getLogger("writeragent.writer")
 _FAILED: Any = object()
 
 
-_BLOCK_MARKUP_RE = re.compile(
-    r"<(?:p|div|h[1-6]|ul|ol|li|table|thead|tbody|tfoot|tr|td|th|blockquote|pre|hr|section|article)\b",
-    re.IGNORECASE,
+# HTML block-level elements that define paragraphs. <br> is separate: it breaks a line but
+# does not make the content block-level for routing.
+_BLOCK_TAGS = (
+    "p|div|h[1-6]|ul|ol|li|dl|dt|dd|caption"
+    "|table|thead|tbody|tfoot|tr|td|th"
+    "|blockquote|pre|hr|section|article|aside|header|footer|nav|main"
+    "|figure|figcaption|address|details|summary|form|fieldset|legend|hgroup"
 )
+_BLOCK_MARKUP_RE = re.compile(r"<(?:%s)\b" % _BLOCK_TAGS, re.IGNORECASE)
+# Same tags plus closing forms and <br>: anything here already defines its own paragraphs.
+_LINEBREAK_MARKUP_RE = re.compile(r"</?(?:%s|br)\b" % _BLOCK_TAGS, re.IGNORECASE)
 
 
 def _wrap_html_fragment(html_content: str, extra_css: str | None = None) -> str:
@@ -75,13 +82,8 @@ def _ensure_html_linebreaks(content: str) -> str:
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
         from . import format as format_mod
         content = format_mod._strip_html_boilerplate(content)
-    # Why-comment: a table or <h4> has none of the old markers, so it was
-    # wrapped in <p> and its newlines became <br>. Do not treat every tag as HTML.
-    if re.search(
-        r"</?(?:p|br|div|h[1-6]|ul|ol|li|table|thead|tbody|tfoot|tr|td|th|blockquote|pre|hr)\b",
-        content,
-        re.IGNORECASE,
-    ):
+    # A block tag or <br> means the content has its own paragraphs; wrapping it in <p> is invalid.
+    if _LINEBREAK_MARKUP_RE.search(content):
         return _wrap_html_fragment(content)
 
     content = re.sub(r"\n{3,}", "\n\n", content)
@@ -394,14 +396,35 @@ def _selection_is_draw_shape(obj: Any) -> bool:
 
 
 
+def _paragraph_has_non_text_portion(para: Any) -> bool:
+    """True when *para* holds an image, field, frame, or other non-text portion.
+
+    ``getString()`` is empty for those, so a paragraph holding only a picture
+    looked empty and the import merged its first block into it.
+    """
+    try:
+        portions = para.createEnumeration()
+        while portions.hasMoreElements() is True:
+            portion = portions.nextElement()
+            if portion.getPropertyValue("TextPortionType") != "Text":
+                return True
+    except Exception as exc:
+        # Fail safe: an unreadable portion may be a frame, field, or image.
+        reraise_if_disposed(exc)
+        log.debug("Failed to inspect paragraph portions: %s", exc)
+        return True
+    return False
+
+
+
 def _cursor_paragraph_has_visible_text(cursor: Any) -> bool:
-    """True if the paragraph containing *cursor* has non-whitespace text."""
+    """True if the paragraph containing *cursor* has non-whitespace text or a non-text portion (image/field)."""
     def visible() -> bool:
         text_obj = cursor.getText()
         para = text_obj.createTextCursorByRange(cursor.getStart())
         para.gotoStartOfParagraph(False)
         para.gotoEndOfParagraph(True)
-        return bool((para.getString() or "").strip())
+        return bool((para.getString() or "").strip()) or _paragraph_has_non_text_portion(para)
 
     # Fail safe: treat as non-empty so end-path prep still runs.
     return uno_read(visible, True)
@@ -823,19 +846,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
                 last_para = paras[-1]
                 if not last_para.getString():
                     # Check for fields/portions before deleting
-                    has_content = False
-                    try:
-                        portions = last_para.createEnumeration()
-                        while portions.hasMoreElements() is True:
-                            portion = portions.nextElement()
-                            if portion.getString() or portion.getPropertyValue("TextPortionType") != "Text":
-                                has_content = True
-                                break
-                    except Exception as e:
-                        # A frame, field, or image paragraph has empty getString(); delete only when the walk finishes empty.
-                        reraise_if_disposed(e)
-                        log.debug("Failed to inspect trailing paragraph portions: %s", e)
-                        has_content = True
+                    has_content = _paragraph_has_non_text_portion(last_para)
                     if not has_content:
                         try:
                             # To actually remove the trailing break, select from the end of the previous paragraph
@@ -1143,15 +1154,13 @@ def replace_preserving_format(
         # Extra chars inherit formatting from the predecessor.
         text.insertString(main_cursor, new_text[old_len:], False)
     elif old_len > new_len:
-        # Delete remaining original characters.
-        # Ensure we don't go out of bounds of the original target_range.
-        remaining_to_del = old_len - new_len
+        # Delete remaining original characters. go_right chunks and reports a short range,
+        # so a stop must fail loudly instead of silently under-deleting.
         del_cursor = text.createTextCursorByRange(main_cursor)
-        # Use chunks for deletion just in case it's large.
-        while remaining_to_del > 0:
-            n = min(remaining_to_del, 8192)
-            del_cursor.goRight(n, True)
-            remaining_to_del -= n
+        if not go_right(del_cursor, old_len - new_len, True):
+            raise ToolExecutionError(
+                "Could not replace that text in place (the selection did not advance)."
+            )
         del_cursor.setString("")
 
 

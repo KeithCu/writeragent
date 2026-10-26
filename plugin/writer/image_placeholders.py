@@ -9,6 +9,7 @@ When get_document_content leaves image data out (include_images=false), pictures
 come back as frame wrappers (<div ... id="Name"> / <span ... id="Name">) around
 empty <img> tags. These helpers swap them for temporary markers before import and
 restore or clean them up afterwards.
+An empty src written with single quotes or spaces is refused the same way, never passed through.
 """
 
 # pyright: reportUnusedFunction=false
@@ -55,7 +56,7 @@ _IMAGE_PLACEHOLDER_RE = re.compile(
     r'<(div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*(?:<p\b[^>]*>\s*)?<img\b[^>]*\bsrc=""[^>]*>\s*(?:</p>\s*)?</\1>'
     r'(?:\s*<div style="clear:both;[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?',
     re.IGNORECASE)
-_EMPTY_IMG_RE = re.compile(r'<img\b[^>]*\bsrc=""', re.IGNORECASE)
+_EMPTY_IMG_RE = re.compile(r'<img\b[^>]*\bsrc\s*=\s*(["\'])\s*\1', re.IGNORECASE)
 
 # Frame properties copied onto the restored picture (read with try: not all exist on every frame).
 _KEPT_IMAGE_PROPS = (
@@ -82,7 +83,7 @@ def _swap_image_placeholders(model: Any, content: str) -> tuple[str, list[_KeptI
     review off, deleting its paragraph disposes of it). Raises ToolExecutionError -- nothing
     changed yet -- when an image has no data and names no picture here, instead of losing it.
     """
-    if not content or 'src=""' not in content:
+    if not content or not _EMPTY_IMG_RE.search(content):
         return content, []
     graphics = uno_read(lambda: model.getGraphicObjects(), None)
     kept: list[_KeptImage] = []
@@ -118,7 +119,7 @@ def _swap_image_placeholders(model: Any, content: str) -> tuple[str, list[_KeptI
     return swapped, kept
 
 
-def _deleted_by_the_edit(model: Any, original: Any, name: str | None = None) -> bool:
+def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
     """True when the edit removed *original*: missing from getGraphicObjects() or disposed
     (review off), or its anchor -- for a paragraph anchor, the paragraph's break -- inside
     a pending tracked deletion (review on). Anything else is still in place and must not be
@@ -129,15 +130,14 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str | None = None) -> 
     # doc.getGraphicObjects().hasByName(name) still has it before calling getAnchor(). If missing,
     # it was deleted by the edit so return True. Non-disposal lookup errors are logged and
     # treated as deleted (reraise_if_disposed first).
-    if name:
-        try:
-            graphics = model.getGraphicObjects()
-            if not graphics.hasByName(name):
-                return True
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.warning("_deleted_by_the_edit: graphic object lookup failed for %r: %s", name, exc)
+    try:
+        graphics = model.getGraphicObjects()
+        if not graphics.hasByName(name):
             return True
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.warning("_deleted_by_the_edit: graphic object lookup failed for %r: %s", name, exc)
+        return True
     try:
         anchor = original.getAnchor()
     except Exception as exc:
@@ -183,40 +183,57 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str | None = None) -> 
     return False
 
 
+def _find_marker(model: Any, search: Any) -> Any:
+    found = model.findFirst(search)
+    if found is None and hasattr(model, "getTextTables"):
+        try:
+            tables = model.getTextTables()
+            for tbl_name in tables.getElementNames():
+                tbl = tables.getByName(tbl_name)
+                for cell_name in tbl.getCellNames():
+                    cell = tbl.getCellByName(cell_name)
+                    if hasattr(cell, "createSearchDescriptor"):
+                        cell_found = cell.findFirst(search)
+                        if cell_found is not None:
+                            found = cell_found
+                            break
+                if found is not None:
+                    break
+        except Exception as exc:
+            reraise_if_disposed(exc)
+    return found
+
+
 def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
     """Put a copy of each kept picture where its marker landed, and remove the marker."""
+    search = model.createSearchDescriptor()
+    search.SearchCaseSensitive = True
+
+    # Resolve every marker first so a missing marker raises with nothing half-restored;
+    # restore only on the normal path (the failure path deliberately does not insert pictures,
+    # because callers run under an atomic undo).
+    plans: list[tuple[_KeptImage, Any, bool]] = []
     for image in kept:
-        search = model.createSearchDescriptor()
         search.SearchString = image.marker
-        search.SearchCaseSensitive = True
-        found = model.findFirst(search)
-        if found is None and hasattr(model, "getTextTables"):
-            try:
-                tables = model.getTextTables()
-                for tbl_name in tables.getElementNames():
-                    tbl = tables.getByName(tbl_name)
-                    for cell_name in tbl.getCellNames():
-                        cell = tbl.getCellByName(cell_name)
-                        if hasattr(cell, "createSearchDescriptor"):
-                            cell_found = cell.findFirst(search)
-                            if cell_found is not None:
-                                found = cell_found
-                                break
-                    if found is not None:
-                        break
-            except Exception as exc:
-                reraise_if_disposed(exc)
+        found = _find_marker(model, search)
+        insert = (
+            getattr(image.anchor, "value", "") != "AT_PAGE"
+            and _deleted_by_the_edit(model, image.original, image.name)
+        )
         if found is None:
-            if getattr(image.anchor, "value", "") != "AT_PAGE" and _deleted_by_the_edit(model, image.original, image.name):
+            if insert:
                 raise ToolExecutionError(f"Kept image {image.name!r} marker not found after import")
             log.warning("kept image %r: marker not found after the import", image.name)
             continue
-        text = found.getText()
-        if getattr(image.anchor, "value", "") == "AT_PAGE" or not _deleted_by_the_edit(model, image.original, image.name):
+        plans.append((image, found, insert))
+
+    for image, found, insert in plans:
+        if not insert:
             # The original is still where it was (page-anchored, or outside what the edit
             # replaced): drop the marker instead of adding a duplicate.
             found.setString("")
             continue
+        text = found.getText()
         picture = model.createInstance("com.sun.star.text.TextGraphicObject")
         picture.Graphic = image.graphic
         picture.AnchorType = image.anchor

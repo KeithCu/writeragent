@@ -3,8 +3,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.writer.html_export import _range_to_content_via_temp_doc, xtext_to_content
-from plugin.writer.html_ruby import inject_ruby_into_html
+from plugin.writer.html_export import (
+    _inject_page_number_attributes,
+    _range_to_content_via_temp_doc,
+    xtext_to_content,
+)
+from plugin.writer.html_ruby import extract_and_strip_ruby, inject_ruby_into_html
 
 
 class _Enum:
@@ -193,6 +197,41 @@ def test_inject_ruby_empty_is_noop():
     assert inject_ruby_into_html("<p>x</p>", [("漢字", "")]) == "<p>x</p>"
 
 
+def test_inject_ruby_keeps_under_position():
+    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [("東京", "とうきょう", 0, 0, False)])
+    assert '<ruby style="ruby-position: under">東京<rt>とうきょう</rt></ruby>' in under_html
+    over_html = inject_ruby_into_html("<p>東京とうきょう</p>", [("東京", "とうきょう", 0, 0, True)])
+    assert "<ruby>東京<rt>とうきょう</rt></ruby>" in over_html
+
+
+def test_ruby_position_round_trips():
+    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [("東京", "とうきょう", 0, 0, False)])
+    _clean, spans = extract_and_strip_ruby(under_html)
+    assert len(spans) == 1
+    assert spans[0].is_above is False
+    assert spans[0].visible_offset == 0
+
+
+def test_inject_ruby_wraps_every_copy_when_reading_is_absent():
+    html = "<p>漢字と漢字と漢字</p>"
+    spans = [("漢字", "かんじ"), ("漢字", "かんじ"), ("漢字", "かんじ")]
+    out = inject_ruby_into_html(html, spans)
+    assert out.count("<ruby>") == 3
+    assert out == "<p><ruby>漢字<rt>かんじ</rt></ruby>と<ruby>漢字<rt>かんじ</rt></ruby>と<ruby>漢字<rt>かんじ</rt></ruby></p>"
+
+
+def test_inject_ruby_crosses_br_to_the_reading():
+    html = "<p>漢字<br>かんじです</p>"
+    out = inject_ruby_into_html(html, [("漢字", "かんじ")])
+    assert out == "<p><ruby>漢字<rt>かんじ</rt></ruby><br>です</p>"
+
+
+def test_inject_ruby_prefers_glued_copy_over_an_earlier_plain_base():
+    html = "<p>漢字と漢字かんじ</p>"
+    out = inject_ruby_into_html(html, [("漢字", "かんじ")])
+    assert out == "<p>漢字と<ruby>漢字<rt>かんじ</rt></ruby></p>"
+
+
 def _content_doc(text="Texto do documento"):
     from unittest.mock import MagicMock
 
@@ -232,6 +271,42 @@ def test_empty_xhtml_export_of_a_document_with_text_falls_back():
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
         out = html_export.document_to_content(_content_doc(), None, None)
     assert "Texto do documento" in out
+
+
+def test_full_export_fallback_reports_missing_style_tokens():
+    from plugin.writer import html_export
+
+    warnings: list[str] = []
+    with (
+        patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")),
+        patch("plugin.writer.format._with_temp_buffer") as buf,
+        patch("builtins.open") as opener,
+        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
+    ):
+        buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
+        opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
+        out = html_export.document_to_content(_content_doc(), None, None, walk_warnings=warnings)
+    assert "Texto do documento" in out
+    assert warnings == [
+        "XHTML export failed; content came from the legacy HTML export and has no style tokens."
+    ]
+
+
+def test_full_export_happy_path_produces_no_fallback_warning():
+    from plugin.writer import html_export
+
+    warnings: list[str] = []
+    with (
+        patch.object(html_export, "_export_xhtml", return_value="<p>x</p>"),
+        patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)),
+        patch("plugin.writer.xhtml_style_postprocess.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml),
+        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
+    ):
+        out = html_export.document_to_content(_content_doc(), None, None, walk_warnings=warnings)
+    assert "<p>x</p>" in out
+    assert warnings == []
 
 
 def test_an_empty_document_still_reads_as_empty():
@@ -637,6 +712,48 @@ def test_extract_page_number_fields_reads_properties():
     ]
 
 
+def test_extract_page_number_fields_reads_a_table_cell():
+    from plugin.writer.html_export import extract_page_number_fields
+
+    field = MagicMock()
+    field.supportsService.return_value = True
+    field.getPropertyValue.side_effect = lambda name: {"SubType": 1, "Offset": 2, "NumberingType": 4}[name]
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "TextField" if name == "TextPortionType" else field
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([portion])
+
+    cell = MagicMock()
+    cell.createEnumeration.return_value = _Enum([para])
+
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ("A1",)
+    table.getCellByName.return_value = cell
+
+    text = MagicMock()
+    text.createEnumeration.return_value = _Enum([table])
+
+    assert extract_page_number_fields(text) == [
+        {"SubType": 1, "Offset": 2, "NumberingType": 4}
+    ]
+
+
+def test_extract_page_number_fields_no_field_returns_empty():
+    from plugin.writer.html_export import extract_page_number_fields
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else None
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([portion])
+    text = MagicMock()
+    text.createEnumeration.return_value = _Enum([para])
+
+    assert extract_page_number_fields(text) == []
+
+
 def test_xtext_injects_nonzero_page_offset():
     from plugin.writer import html_export
 
@@ -654,6 +771,64 @@ def test_xtext_injects_nonzero_page_offset():
     assert 'data-offset="1"' in out
     assert 'data-subtype="NEXT"' in out
     assert "data-numbering-type" not in out
+
+
+def test_inject_page_number_attributes_defaults_omitted():
+    inp = '<p><span title="page-number"></span></p>'
+    fields = [{"SubType": 1, "Offset": 0, "NumberingType": 4}]
+    assert _inject_page_number_attributes(inp, fields) == inp
+
+
+def test_inject_page_number_attributes_non_defaults_in_order():
+    inp = '<p><span title="page-number"></span></p>'
+    fields = [{"SubType": 2, "Offset": 1, "NumberingType": 3}]
+    out = _inject_page_number_attributes(inp, fields)
+    assert '<span title="page-number" data-subtype="NEXT" data-offset="1" data-numbering-type="ROMAN_LOWER"></span>' in out
+
+
+def test_inject_page_number_attributes_self_closing_tag():
+    inp = '<p><span title="page-number"/></p>'
+    fields = [{"SubType": 2, "Offset": 1, "NumberingType": 3}]
+    out = _inject_page_number_attributes(inp, fields)
+    assert '<span title="page-number" data-subtype="NEXT" data-offset="1" data-numbering-type="ROMAN_LOWER"/>' in out
+
+
+def test_inject_page_number_attributes_count_mismatch_returns_unchanged():
+    two_spans = '<p><span title="page-number"></span><span title="page-number"></span></p>'
+    one_field = [{"SubType": 2, "Offset": 1, "NumberingType": 3}]
+    assert _inject_page_number_attributes(two_spans, one_field) == two_spans
+
+    one_span = '<p><span title="page-number"></span></p>'
+    two_fields = [
+        {"SubType": 2, "Offset": 1, "NumberingType": 3},
+        {"SubType": 1, "Offset": 0, "NumberingType": 4},
+    ]
+    assert _inject_page_number_attributes(one_span, two_fields) == one_span
+
+
+def test_inject_page_number_attributes_empty_fields_returns_unchanged():
+    inp = '<p><span title="page-number"></span></p>'
+    assert _inject_page_number_attributes(inp, []) == inp
+
+
+def test_page_number_converters():
+    from types import SimpleNamespace
+
+    from plugin.writer.html_export import (
+        _page_number_numbering_type_to_name,
+        _page_number_subtype_to_name,
+    )
+
+    assert _page_number_subtype_to_name(2) == "NEXT"
+    assert _page_number_subtype_to_name("2") == "NEXT"
+    assert _page_number_subtype_to_name("next") == "NEXT"
+    assert _page_number_subtype_to_name(SimpleNamespace(value="PREV")) == "PREV"
+    assert _page_number_subtype_to_name(99) == "CURRENT"
+
+    assert _page_number_numbering_type_to_name(4) == "ARABIC"
+    assert _page_number_numbering_type_to_name("ARABIC") == "ARABIC"
+    assert _page_number_numbering_type_to_name("roman_upper") == "ROMAN_UPPER"
+    assert _page_number_numbering_type_to_name(99) == "ARABIC"
 
 
 def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
@@ -733,7 +908,7 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
 
 
 def test_substitute_math_placeholders_entities_and_fallback():
-    from plugin.writer.math.math_mml_export import MathExportResult, substitute_math_placeholders
+    from plugin.writer.math import math_mml_export as exp
 
     p1 = chr(0xE000)
     p2 = chr(0xE001)
@@ -746,19 +921,21 @@ def test_substitute_math_placeholders_entities_and_fallback():
         (p3, "bad starmath", False),
     ]
 
-    def fake_convert(ctx: object, starmath: str) -> MathExportResult:
-        if starmath == "a + b":
-            return MathExportResult(True, "a + b", None, None)
-        if starmath == "x":
-            return MathExportResult(True, "x", None, None)
-        return MathExportResult(False, None, None, "error")
+    def fake_convert(self: object, starmath: str | None = None) -> exp.MathExportResult:
+        expr = self if starmath is None else starmath
+        if expr == "a + b":
+            return exp.MathExportResult(True, "a + b", None, None)
+        if expr == "x":
+            return exp.MathExportResult(True, "x", None, None)
+        return exp.MathExportResult(False, None, None, "error")
 
-    with patch("plugin.writer.math.math_mml_export.convert_starmath_to_latex", side_effect=fake_convert):
-        out = substitute_math_placeholders(html, records, object())
+    with patch.object(exp._MathExportBatch, "convert_starmath_to_latex", side_effect=fake_convert):
+        out = exp.substitute_math_placeholders(html, records, object())
 
     assert "$a + b$" in out
     assert "$$x$$" in out
-    assert "[Math export fallback] bad starmath" in out
+    assert 'data-math-export-error="error">bad starmath' in out
+    assert "$bad starmath" not in out
 
 def test_range_export_skips_flat_odf_when_no_autostyle():
     """Flat ODF is skipped when XHTML contains no paragraph-P<digits> autostyle classes."""

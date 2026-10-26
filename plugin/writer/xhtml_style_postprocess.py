@@ -385,7 +385,7 @@ class _SemanticTransformer(_HtmlPassthroughParser):
         # Strip every paragraph-* class (top-level or cell) so it never leaks to the agent.
         raw = _strip_class_names(raw, _PARA_CLASS_RE)
         if token:
-            raw = _inject_attr(raw, ' data-lo-style="%s"' % token)
+            raw = _inject_attr(raw, ' data-lo-style="%s"' % _html.escape(token, quote=True))
         if para_css:
             # ODF values are unescaped before this (a font name can contain "). Without
             # quote=True the injected attribute closes early and the tag is not well-formed.

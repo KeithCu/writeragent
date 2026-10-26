@@ -13,7 +13,7 @@ import uno
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.uno_context import get_active_document
 from plugin.framework.config import get_config, get_config_str, set_config
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import best_effort, resolve_exception_message
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
     get_control_text,
@@ -69,9 +69,12 @@ def show_latex_input_dialog(
 
     Returns tuple (latex_string, display_block) if Insert/Update is clicked, else None.
     """
+    # Dispose on every path; a load/runtime failure is reported, not returned as a silent cancel.
+    dlg: Any = None
     try:
         dlg = load_writeragent_dialog("LatexInputDialog", ctx)
         if dlg is None:
+            msgbox(ctx, _("Error"), _("Could not open the LaTeX input dialog."))
             return None
 
         # Populate initial values
@@ -110,12 +113,15 @@ def show_latex_input_dialog(
         edit.setFocus()
 
         dlg.execute()
-        dlg.dispose()
 
         return outcome
     except Exception:
         log.exception("show_latex_input_dialog failed")
+        msgbox(ctx, _("Error"), _("Could not open the LaTeX input dialog."))
         return None
+    finally:
+        if dlg is not None:
+            best_effort(dlg.dispose, "LaTeX dialog: dispose failed")
 
 
 def _selection_latex_prefill(
@@ -148,8 +154,7 @@ def _selection_latex_prefill(
         )
         return _SelectionLatexPrefill(None, last_latex, last_display, True)
     try:
-        inner = embed.getEmbeddedObject() if hasattr(embed, "getEmbeddedObject") else embed
-        starmath = str(getattr(inner, "Formula", "") or "").strip()
+        starmath = math_mml_export.read_starmath(embed)
         if starmath:
             exported = math_mml_export.convert_starmath_to_latex(ctx, starmath)
             if exported.ok and exported.latex:
@@ -183,7 +188,8 @@ def _apply_latex_to_writer(
             replace_writer_math_formula(embed, starmath)
         except Exception as exc:
             log.exception("replace_writer_math_formula failed")
-            return False, str(exc)
+            # str() of a PyUNO exception is often empty; the detail is in .Message.
+            return False, resolve_exception_message(exc)
         set_config("last_latex_input", latex)
         return True, _("Formula updated.")
 

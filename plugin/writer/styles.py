@@ -14,7 +14,10 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer style inspection tools."""
+"""Writer style tools: list and inspect, create, update, clone, and import styles.
+
+Property updates use UNO property names; struct-valued properties take a dict of fields.
+"""
 
 from __future__ import annotations
 
@@ -161,7 +164,8 @@ def _get_bool_prop(obj: Any, prop_name: str, default: bool = False) -> bool:
     """Safely get a boolean property from a UNO object."""
     try:
         return bool(obj.getPropertyValue(prop_name))
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         return default
 
 
@@ -191,7 +195,8 @@ def _missing_style_error(tool: Any, style_name: str, family: str, style_family: 
     """Not-found error with a Did-you-mean hint and a short sample of names."""
     try:
         names = [str(n) for n in style_family.getElementNames()]
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         names = []
     close = _close_style_names(style_name, names) if names else []
     hint = (" Did you mean '%s'?" % close[0]) if close else ""
@@ -353,7 +358,8 @@ def _struct_to_json(struct_name: str, value: Any) -> Any:
     for field in fields:
         try:
             out[field] = _uno_scalar_to_json(getattr(value, field))
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("style struct field %s unreadable", field, exc_info=True)
             continue
     if struct_name == "com.sun.star.style.LineSpacing" and isinstance(out.get("Mode"), int):
@@ -565,6 +571,7 @@ def _copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], li
     try:
         props = source.getPropertySetInfo().getProperties()
     except Exception as e:
+        reraise_if_disposed(e)
         raise RuntimeError("Could not read style properties: %s" % e) from e
     copied: list[str] = []
     skipped: list[str] = []
@@ -581,14 +588,16 @@ def _copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], li
             continue
         try:
             state = source.getPropertyState(name)
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             skipped.append(name)
             continue
         if not _is_direct_property_state(state):
             continue
         try:
             dest.setPropertyValue(name, source.getPropertyValue(name))
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.warning("style clone: could not copy property %s", name, exc_info=True)
             skipped.append(name)
             continue
@@ -610,7 +619,8 @@ def _clone_text_style(
         raise RuntimeError("Failed to create style instance for %s" % service)
     try:
         parent = str(source.getParentStyle() or "")
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         parent = ""
     if parent:
         clone.setParentStyle(parent)
@@ -781,7 +791,8 @@ class StyleList(ToolWriterStyleBase):
                         cat = style.getPropertyValue("Category")
                         if cat == 1:  # CHAPTER
                             show = True
-                    except Exception:
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
                         log.debug("style list: Category unreadable for %r", name, exc_info=True)
                 elif family == "CharacterStyles":
                     # Always show core character styles.
@@ -817,7 +828,8 @@ class StyleList(ToolWriterStyleBase):
                         core_text_styles = ("Text body", "Title", "Subtitle")
                         if name not in core_text_styles:
                             show = False
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
                     log.debug("style list: category filter failed for %r", name, exc_info=True)
 
             if not show:
@@ -830,7 +842,8 @@ class StyleList(ToolWriterStyleBase):
                 entry["name"] = "No Character Style"
             try:
                 entry["parent_style"] = style.getParentStyle()
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 log.debug("style list: getParentStyle failed for %r", name, exc_info=True)
             styles.append(entry)
 
@@ -1235,7 +1248,8 @@ class StyleUpdate(ToolWriterStyleBase):
             if key == "ParentStyle":
                 try:
                     before[key] = style.getParentStyle()
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
                     before[key] = None
             else:
                 before[key] = _schema_prop_value(key, _get_style_prop(style, key))
@@ -1259,7 +1273,8 @@ class StyleUpdate(ToolWriterStyleBase):
             if key == "ParentStyle":
                 try:
                     after[key] = style.getParentStyle()
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
                     after[key] = applied.get("ParentStyle")
             else:
                 after[key] = _schema_prop_value(key, _get_style_prop(style, key))

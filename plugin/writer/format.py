@@ -219,6 +219,7 @@ def record_walk_cap(enum: Any, seen: int, limit: int, kind: str, dest: list[str]
 
 
 _STYLE_PROP_FAILED = object()
+_CHAR_PROPS_FAILED = object()
 _CHAR_PROPS_KEY = "__writable_char_props__"
 FONT_SLANT_TO_INT: dict[str, int] = {
     "none": 0,
@@ -316,7 +317,8 @@ def apply_paragraph_style_preserving_direct_char(
       ``"all"`` restores nothing and clears the paragraph properties too (Ctrl+M semantics).
 
     A result with a ``warning`` and ``capture_incomplete=True`` means later runs were not read
-    back, so the override dict may be short.
+    back, so the override dict may be short. A warning without ``capture_incomplete`` means
+    some captured overrides could not be re-applied; the style still applied.
 
     Returns a report dict so callers can tell the agent what actually happened.
 
@@ -326,6 +328,7 @@ def apply_paragraph_style_preserving_direct_char(
 
     walk_notes: list[str] = []
     capture_failures = 0
+    restore_failures = 0
     if style_cache is None:
         style_cache = {}
 
@@ -418,23 +421,24 @@ def apply_paragraph_style_preserving_direct_char(
                 if portion_type != "Text":
                     continue
 
-                char_names = style_cache.get(_CHAR_PROPS_KEY)
-                if char_names is None:
+                if _CHAR_PROPS_KEY not in style_cache:
                     try:
                         info = portion.getPropertySetInfo()
-                        if info is not None:
-                            portion_props = info.getProperties()
-                            names = [
-                                p.Name for p in portion_props
+                        if info is None:
+                            style_cache[_CHAR_PROPS_KEY] = _CHAR_PROPS_FAILED
+                        else:
+                            style_cache[_CHAR_PROPS_KEY] = [
+                                p.Name for p in info.getProperties()
                                 if p.Name.startswith("Char") and not (getattr(p, "Attributes", 0) & READONLY)
                             ]
-                            if names:
-                                style_cache[_CHAR_PROPS_KEY] = names
-                                char_names = names
                     except Exception as exc:
                         reraise_if_disposed(exc)
-                        capture_failures += 1
+                        style_cache[_CHAR_PROPS_KEY] = _CHAR_PROPS_FAILED
 
+                char_names = style_cache[_CHAR_PROPS_KEY]
+                if char_names is _CHAR_PROPS_FAILED:
+                    capture_failures += 1
+                    continue
                 if not char_names:
                     continue
 
@@ -504,7 +508,7 @@ def apply_paragraph_style_preserving_direct_char(
                     pc.setPropertyValue(name, val)
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    capture_failures += 1
+                    restore_failures += 1
 
     report: ParagraphStyleApplyReport = {
         "direct_formatting": "preserved" if clear_direct == "none" else "cleared",
@@ -531,6 +535,8 @@ def apply_paragraph_style_preserving_direct_char(
 
     if capture_failures > 0:
         walk_notes.append("Some direct formatting overrides could not be read; the capture may be incomplete.")
+    if restore_failures > 0:
+        walk_notes.append("Some direct formatting overrides could not be re-applied.")
     if walk_notes:
         report["warning"] = " ".join(walk_notes)
     if capture_failures > 0:

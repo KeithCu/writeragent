@@ -25,6 +25,7 @@ extension's Python.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import tempfile
 from typing import Any, cast
@@ -41,6 +42,7 @@ _STROKE_MM = 0.6
 # Scratch-page scale: 1 picture pixel = 10 (1/100 mm). Any scale works because the export sets
 # the pixel size; this one keeps a 3000 px scan at 30 cm, inside Draw's page limits.
 _UNITS_PER_PX = 10
+_MAX_PAGE_UNITS = 250_000  # 1/100 mm: below LibreOffice's 3000 mm (300_000) page maximum.
 MAX_BAKE_PIXELS: int = 40_000_000
 Box = tuple[int, int, int, int]
 
@@ -54,6 +56,8 @@ def to_pixel_box(box: Any, units: str, width_px: int, height_px: int) -> Box:
     if not isinstance(box, (list, tuple)) or len(box) != 4 or any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in box):
         raise ValueError("A box is [x, y, width, height] (four numbers), got %r." % (box,))
     x, y, w, h = (float(v) for v in box)
+    if not all(math.isfinite(v) for v in (x, y, w, h)):
+        raise ValueError("Box %s has a value that is not a finite number." % (list(box),))
     if units == "percent":
         x, w = x * width_px / 100.0, w * width_px / 100.0
         y, h = y * height_px / 100.0, h * height_px / 100.0
@@ -162,7 +166,11 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
         raise ValueError(
             f"Region ({rw}x{rh} = {rw * rh} pixels) exceeds maximum bake limit of {MAX_BAKE_PIXELS} pixels."
         )
-    u = _UNITS_PER_PX
+    # A very wide or tall region would make a page over Draw's 3000 mm maximum, which LO clamps
+    # (silently clipping the far side); lower the scale instead, everything below scales by u.
+    u = min(_UNITS_PER_PX, _MAX_PAGE_UNITS // max(rw, rh))
+    if u < 1:
+        raise ValueError("Region (%dx%d px) is too large for LibreOffice's maximum page size." % (rw, rh))
 
     desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     draw = desktop.loadComponentFromURL("private:factory/sdraw", "_blank", 0, (_pv("Hidden", True),))

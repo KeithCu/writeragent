@@ -1511,6 +1511,9 @@ class UpsertChart(ToolBaseDummy):
         except Exception:
             log.debug("set chart Name after insert failed", exc_info=True)
 
+        # The host may reject or override Name; report the name the object really has.
+        actual_name = _listed_chart_name(chart_obj) or name
+
         try:
             from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PARAGRAPH
 
@@ -1541,8 +1544,8 @@ class UpsertChart(ToolBaseDummy):
             try:
                 objects = doc.getEmbeddedObjects()
                 log.debug("Final attempt: checking EmbeddedObjects collection (count=%d)", objects.getCount())
-                if objects.hasByName(name):
-                    obj = objects.getByName(name)
+                if objects.hasByName(actual_name):
+                    obj = objects.getByName(actual_name)
                     log.debug("Found object in collection by name. Type: %s", type(obj))
                     chart_doc = _chart_document_from_host(obj)
             except Exception as e:
@@ -1565,10 +1568,10 @@ class UpsertChart(ToolBaseDummy):
                 warnings = _apply_chart_styling(chart_doc, **kwargs)
             except Exception:
                 # Diagram installation and styling must succeed or the embed is rolled back.
-                _drop_writer_chart_insert(doc, chart_obj, name)
+                _drop_writer_chart_insert(doc, chart_obj, actual_name)
                 raise
         else:
-            _drop_writer_chart_insert(doc, chart_obj, name)
+            _drop_writer_chart_insert(doc, chart_obj, actual_name)
             return self._tool_error("Cannot access chart content.")
 
         # Force a refresh of the chart model using direct UNO calls on the chart document itself.
@@ -1587,7 +1590,7 @@ class UpsertChart(ToolBaseDummy):
                 log.debug("Failed direct chart_doc model update: %s", e)
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
-        out: dict[str, Any] = {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "name": name}
+        out: dict[str, Any] = {"status": "ok", "message": f"Chart '{actual_name}' inserted in Writer.", "name": actual_name}
         if warnings:
             out["warnings"] = warnings
         return out

@@ -1138,3 +1138,58 @@ def test_validate_headers_and_rows_nan_inf_and_cell_cap():
     assert not ok and "exceeds limit" in (err or "")
 
 
+class _RenamedChartHost(MagicMock):
+    """Host that ignores Name writes and keeps its own name (LO can rename an embed)."""
+
+    @property
+    def Name(self):
+        return "Object 1"
+
+    @Name.setter
+    def Name(self, value):
+        pass
+
+
+def test_writer_create_reports_host_assigned_name():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    doc.createInstance.return_value = _RenamedChartHost()
+    chart_doc = MagicMock()
+    chart_doc.createInstance.return_value = MagicMock()
+    ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
+    with (
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+        patch("plugin.calc.charts._process_events"),
+    ):
+        res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+    assert res["status"] == "ok"
+    assert res["name"] == "Object 1"
+    assert "'Object 1'" in res["message"]
+
+
+def test_writer_create_rollback_targets_host_assigned_name():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    doc.createInstance.return_value = _RenamedChartHost()
+    chart_doc = MagicMock()
+    chart_doc.createInstance.return_value = MagicMock()
+    chart_doc.setDiagram.side_effect = _UnoRuntimeException("diagram rejected")
+    ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
+    with (
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
+        patch("plugin.calc.charts._drop_writer_chart_insert") as drop_mock,
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+        patch("plugin.calc.charts._process_events"),
+    ):
+        res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+    assert res["status"] == "error"
+    assert res.get("code") == "CHART_CREATE_ERROR"
+    assert drop_mock.call_args[0][2] == "Object 1"
+
+
+

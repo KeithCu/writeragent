@@ -310,6 +310,8 @@ non-space). Two currency amounts cannot pair because those `$` never open.
 region, so it never routes currency prose down the math path.
 `$$`, `\(` and `\[` are unambiguous and keep their original handling.
 
+Delimiters inside HTML markup are prose, not math: the segmenter blanks attributes, comments, and ``<script>``/``<style>`` bodies before scanning, so ``<a title="$5$">`` and ``<!-- $x$ -->`` never open TeX. ``<code>``/``<pre>`` bodies are still scanned.
+
 ### Tasks
 
 1. [x] TeX source detection (`html_fragment_contains_tex_math`, `html_fragment_contains_mixed_math`)
@@ -633,7 +635,7 @@ The extension **normalizes** both into **LibreOffice Math** embedded objects (`T
 For a **second turn** (“edit this equation”), the model needs a **stable, prompt-friendly** representation of what is in the document:
 
 - **Input** path (TeX / MathML → object) is implemented.
-- **Output** path (object → TeX): **core shipped** via `document_to_content` (`inject_math_tex_into_html` replaces XHTML Writer File ``<math>`` with `$…$` / `$$…$$`; it does not append a second copy). Round-trip is **lossy**. Replace-in-place targeting by index is still backlog.
+- **Output** path (object → TeX): **core shipped** via `document_to_content` (`inject_math_tex_into_html` replaces XHTML Writer File ``<math>`` with `$…$` / `$$…$$`; it does not append a second copy). Round-trip is **lossy**. TeX is converted from the `<math>` already in the XHTML (no hidden Math document per formula); a failed conversion is `<span data-math-export-error="…">StarMath</span>`, never fake `$…$` TeX. Replace-in-place targeting by index is still backlog.
 
 ### Chat `[DOCUMENT CONTENT]` does not inline Math OLE (on purpose)
 
@@ -810,7 +812,7 @@ When future HTML import accepts MathML with `<annotation encoding="application/x
 
 - [x] UNO enumerator for Math embedded objects + `Formula` read-back + unit/UNO tests.
 - [x] Serialization strategy chosen: **Option B** (LO MathML + `mathml-to-latex`).
-- [x] Prompt path: delimited TeX in `get_document_content` / chat HTML; conversion failure → visible StarMath / `[Math export fallback]`.
+- [x] Prompt path: delimited TeX in `get_document_content` / chat HTML; conversion failure → `<span data-math-export-error="…">StarMath</span>` (never wrapped in `$…$`).
 - [x] Documented in this file; no new `AGENTS.md` global rule.
 - [ ] Dedicated JSON `get_math_in_range` tool + replace-in-place (backlog).
 - [ ] No regression to HTML import path (existing tests green).

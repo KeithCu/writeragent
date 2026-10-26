@@ -7,7 +7,7 @@ import pytest
 from plugin.doc.document_helpers import DocumentService
 from plugin.framework.errors import ToolExecutionError
 from plugin.tests.testing_utils import ElementStub, WriterDocStub
-from plugin.writer.structural import CloneHeadingBlock, NavGotoPage, _resolve_para_index
+from plugin.writer.structural import CloneHeadingBlock, NavGotoPage, SectionRead, _resolve_para_index
 
 
 def _doc():
@@ -295,5 +295,103 @@ def test_nav_goto_page_failed_jump_reports_error():
     res = NavGotoPage().execute(ctx, page=99)
     assert res["status"] == "error"
     assert "Page 99 does not exist." in res["message"]
+
+
+class _Enum:
+    def __init__(self, items):
+        self.items = items
+        self.i = 0
+
+    def hasMoreElements(self):
+        return self.i < len(self.items)
+
+    def nextElement(self):
+        item = self.items[self.i]
+        self.i += 1
+        return item
+
+
+class _Para:
+    def __init__(self, text):
+        self.text = text
+
+    def supportsService(self, service):
+        return service == "com.sun.star.text.Paragraph"
+
+
+class _Table:
+    def __init__(self, cells):
+        self.cells = cells
+
+    def supportsService(self, service):
+        return service == "com.sun.star.text.TextTable"
+
+    def getCellNames(self):
+        return list(self.cells)
+
+    def getCellByName(self, name):
+        return self.cells[name]
+
+
+class _Cell:
+    def __init__(self, text):
+        self.text = text
+
+
+class _Section:
+    def __init__(self, enum_items):
+        self.enum_items = enum_items
+
+    def getAnchor(self):
+        anchor = MagicMock()
+        anchor.createEnumeration.return_value = _Enum(self.enum_items)
+        return anchor
+
+
+class _Sections:
+    def __init__(self, sections_dict):
+        self.sections = sections_dict
+
+    def hasByName(self, name):
+        return name in self.sections
+
+    def getByName(self, name):
+        return self.sections[name]
+
+    def getElementNames(self):
+        return list(self.sections.keys())
+
+
+def test_section_read_includes_table_content(monkeypatch):
+    monkeypatch.setattr(
+        "plugin.writer.structural.get_string_without_tracked_deletions",
+        lambda obj: obj.text,
+    )
+    items = [_Para("Intro"), _Table({"A1": _Cell("A1 text"), "B1": _Cell("B1 text")})]
+    sections = _Sections({"S": _Section(items)})
+    doc = MagicMock()
+    doc.getTextSections.return_value = sections
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    res = SectionRead().execute(ctx, section="S")
+    assert res["status"] == "ok"
+    assert res["paragraphs"] == ["Intro", "A1 text\nB1 text"]
+    assert res["content"] == "Intro\nA1 text\nB1 text"
+    assert res["length"] == len(res["content"])
+
+
+def test_section_read_missing_section():
+    sections = _Sections({"Intro": _Section([])})
+    doc = MagicMock()
+    doc.getTextSections.return_value = sections
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    res = SectionRead().execute(ctx, section="Missing")
+    assert res["status"] == "error"
+    assert "Section 'Missing' not found." in res["message"]
+    assert res["details"]["available"] == ["Intro"]
+
 
 

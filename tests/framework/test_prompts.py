@@ -385,7 +385,7 @@ def test_writer_chat_prompt_delegation_routing_local_vs_web():
     prompt = get_chat_system_prompt_for_document(model)
     assert DELEGATION_USER_FILE_DATA_HINT in prompt
     assert "to research public topics" in prompt
-    assert "OLE in active doc only" in prompt
+    assert "OLE in active doc only" not in prompt  # embedded domain is parked (no tools)
 
 
 def test_specialized_delegation_block_is_single_line():
@@ -588,7 +588,7 @@ def test_images_specialized_sub_agent_hint_steers_source_image():
     assert "source_image" in hint
     assert "selection" in hint
     assert "image_generate" in hint
-    assert "replace_image_in_place" in hint
+    assert "in place" in hint
     assert "image_list_nearby_files" in hint
 
 

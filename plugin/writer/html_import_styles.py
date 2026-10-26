@@ -138,19 +138,6 @@ def _extract_block_lo_styles(html: str) -> tuple[str, list[str | None]]:
 
 
 
-def _resolve_style_name(model: Any, style_name: str) -> str:
-    """Resolve a style name case-insensitively against document ParagraphStyles."""
-    families = model.getStyleFamilies()
-    para_styles = families.getByName("ParagraphStyles")
-    if para_styles.hasByName(style_name):
-        return style_name
-    lower = style_name.lower()
-    for name in para_styles.getElementNames():
-        if name.lower() == lower:
-            return name
-    return style_name
-
-
 def _resolve_paragraph_style_token(
     model: Any,
     fam: Any,
@@ -183,8 +170,13 @@ def _resolve_paragraph_style_token(
             log.debug("data-lo-style: token %r is ambiguous across %r; falling back to Standard",
                       token, candidates)
             return "Standard"
-    resolved = _resolve_style_name(model, token)
-    if fam is None or fam.hasByName(resolved):
+    lower = token.lower()
+    resolved = token
+    for name in names or ():
+        if name.lower() == lower:
+            resolved = name
+            break
+    if fam is None or uno_read(lambda: fam.hasByName(resolved), False):
         return resolved
     return "Standard"
 
@@ -225,15 +217,18 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
             if resolved is None:
                 resolved = _resolve_paragraph_style_token(model, fam, style, element_names=element_names)
                 token_cache[style] = resolved
-            try:
-                cur = text_obj.createTextCursorByRange(walk_cur.getStart())
-                cur.gotoEndOfParagraph(True)
-                format_mod.apply_paragraph_style_preserving_direct_char(
-                    model, cur, resolved, style_cache=style_cache,
-                )
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
+            # The import already set the style; re-applying only re-reads every portion.
+            current = uno_read(lambda: walk_cur.getPropertyValue("ParaStyleName"), None)
+            if current != resolved:
+                try:
+                    cur = text_obj.createTextCursorByRange(walk_cur.getStart())
+                    cur.gotoEndOfParagraph(True)
+                    format_mod.apply_paragraph_style_preserving_direct_char(
+                        model, cur, resolved, style_cache=style_cache,
+                    )
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
 
         try:
             if not walk_cur.gotoNextParagraph(False):

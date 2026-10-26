@@ -103,4 +103,9 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell
     # or text frame is a different XText, and gotoRange across text objects raises (format.py
     # documents this). createTextCursorByRange on found.getText() keeps the cursor in-scope.
-    return cursor_spanning_range(found)
+    try:
+        return cursor_spanning_range(found)
+    except Exception as e:
+        reraise_if_disposed(e)
+        raise ValueError(
+            "Could not span the search match (%s). Use a shorter, unique substring." % e)

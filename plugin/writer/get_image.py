@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.doc.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes, get_selected_image_base64
 
@@ -71,6 +71,8 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
     try:
         vc = doc.getCurrentController().getViewCursor()
     except Exception as e:
+        # Disposal must reach execute_safe as DOCUMENT_DISPOSED, not a render reason.
+        reraise_if_disposed(e)
         return None, "could not render page %d: no document view available (%s)" % (page, e)
 
     # Full SwXTextViewCursor: createTextCursorByRange raises RuntimeException on a
@@ -101,6 +103,7 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
         )
         return _read_png_or_reason(tmp_path, page)
     except Exception as e:
+        reraise_if_disposed(e)
         return None, "could not render page %d: %s" % (page, e)
     finally:
         if tmp_path:
@@ -128,6 +131,7 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
         pages = doc.getDrawPages()
         total = int(pages.getCount())
     except Exception as e:
+        reraise_if_disposed(e)
         return None, "could not render page %d: no draw pages available (%s)" % (page, e)
 
     if page < 0 or page >= total:
@@ -159,6 +163,7 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
             return None, "could not render page %d: GraphicExportFilter returned false." % page
         return _read_png_or_reason(tmp_path, page)
     except Exception as e:
+        reraise_if_disposed(e)
         return None, "could not render page %d: %s" % (page, e)
     finally:
         if tmp_path:
@@ -181,14 +186,15 @@ class GetImage(ToolBase):
         "currently selected; or page=<n> (0-based) to render that whole PAGE as an image "
         "(Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= "
         "here when you need to see the rendered page. Returns the picture itself, not a description. "
-        "b64 is stripped from normal reads, so use this when you actually need to look."
+        "b64 is stripped from normal reads, so use this when you actually need to look. "
+        "Pass at most one of image, selection, or page."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from image_list / get_page_objects)."},
-            "selection": {"type": "boolean", "description": "If true, fetch the currently selected image instead of naming one."},
-            "page": {"type": "integer", "description": "0-based page/slide index. Renders that whole page layout as an image, instead of fetching one embedded image."},
+            "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from image_list / get_page_objects). Pass at most one of image, selection, or page."},
+            "selection": {"type": "boolean", "description": "If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page."},
+            "page": {"type": "integer", "description": "0-based page/slide index. Renders that whole page layout as an image, instead of fetching one embedded image. Pass at most one of image, selection, or page."},
         },
         "required": [],
     }
@@ -196,25 +202,31 @@ class GetImage(ToolBase):
     uno_services: list[str] | None = [TEXT_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        # page, image, and selection are exclusive; bad types are errors, not a silent mode pick.
         doc = ctx.doc
+        selection = kwargs.get("selection")
+        if selection is not None and not isinstance(selection, bool):
+            return self._tool_error("selection must be true or false.")
+
         name = kwargs.get("image")
-        b64: str | None
-        want_selection = bool(kwargs.get("selection"))
         page = kwargs.get("page")
+        b64: str | None
         if page is not None:
-            if page < 0:
+            if isinstance(page, bool) or not isinstance(page, int) or page < 0:
                 return self._tool_error("page must be a non-negative integer (0-based).")
-            raw, reason = _render_page_png(ctx.ctx, doc, int(page))
+            if name is not None or selection is True:
+                return self._tool_error("Pass only one of page, image, or selection.")
+            raw, reason = _render_page_png(ctx.ctx, doc, page)
             if raw is None:
                 return self._tool_error(reason or "Could not render the page.")
             b64 = base64.b64encode(raw).decode("utf-8")
             return _ok_image(f"page {page}", b64)
-        if want_selection or not name:
-            b64 = get_selected_image_base64(doc, ctx.ctx)
-            if not b64:
-                return self._tool_error("No image selected. Select an image in the document, or pass image=<name> (see image_list).")
-            source = "selection"
-        else:
+
+        if name is not None:
+            if not isinstance(name, str) or not name.strip():
+                return self._tool_error("image must be a non-empty string (the graphic's name).")
+            if selection is True:
+                return self._tool_error("Pass only one of page, image, or selection.")
             # visual_helpers walks Writer GraphicObjects and Draw/Impress GraphicObjectShapes.
             # Do not call getGraphicObjects() here — that Writer-only API is missing on Draw
             # and would look like a successful miss ("no such name") instead of a real lookup.
@@ -228,6 +240,13 @@ class GetImage(ToolBase):
                 return self._tool_error(f"Could not export image '{name}'.")
             b64 = base64.b64encode(raw).decode("utf-8")
             source = name
+        elif selection is False:
+            return self._tool_error("selection=false means no mode was chosen; pass image=<name>, page=<n>, or selection=true.")
+        else:
+            b64 = get_selected_image_base64(doc, ctx.ctx)
+            if not b64:
+                return self._tool_error("No image selected. Select an image in the document, or pass image=<name> (see image_list).")
+            source = "selection"
         # _mcp_image is recognized by the MCP tools/call serializer (mcp_protocol) and returned as a
         # native image content block; over non-image transports it is just an ignorable marker.
         return _ok_image(source, b64)

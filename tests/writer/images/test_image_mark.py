@@ -50,6 +50,20 @@ def test_to_pixel_box_rejects_malformed(box):
         image_mark.to_pixel_box(box, "px", 2000, 1000)
 
 
+@pytest.mark.parametrize("bad_val", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("slot", [0, 1, 2, 3])
+def test_to_pixel_box_rejects_non_finite(bad_val, slot):
+    box = [0, 0, 10, 10]
+    box[slot] = bad_val
+    with pytest.raises(ValueError, match="finite"):
+        image_mark.to_pixel_box(box, "px", 2000, 1000)
+
+
+def test_to_pixel_box_rejects_non_finite_percent():
+    with pytest.raises(ValueError, match="finite"):
+        image_mark.to_pixel_box([float("nan"), 0, 10, 10], "percent", 2000, 1000)
+
+
 @pytest.mark.parametrize(
     "match, value, value_2, value_3, value_4",
     [
@@ -123,6 +137,19 @@ def test_mark_rectangles_move_to_region_origin():
         ((46, 16, 208, 38), "box", 2),  # stroke drawn outside the marked text
         ((50, 50, 200, 4), "underline", 3),  # right below the box
     ]
+
+
+@pytest.mark.parametrize("stroke", [1, 2, 3, 4, 7])
+def test_mark_rectangles_box_stroke_outside_box(stroke):
+    region = (100, 50, 800, 400)
+    marks = [((150, 70, 200, 30), "box", 2)]
+    rects = image_mark.mark_rectangles(marks, region, stroke)
+    (x0, y0, w0, h0), style, rgb = rects[0]
+    # The inner edge of the stroke (drawn centred on x0, y0) must not cross into the box
+    # (i.e. inner edge <= 50, so x0 + stroke / 2 <= 50)
+    assert x0 + stroke / 2 <= 50
+    assert y0 + stroke / 2 <= 20
+
 
 
 def _bmp(pixels, bits=24, compression=0, top_down=False):
@@ -296,5 +323,53 @@ def test_bake_accepts_region_under_cap():
         result = image_mark.bake(ctx, graphic, marks=[], region=(0, 0, 100, 100), stroke=2)
     assert result is not None
     desktop.loadComponentFromURL.assert_called_once()
+
+
+def test_bake_rejects_region_too_large_for_page():
+    ctx = MagicMock()
+    desktop = MagicMock()
+    ctx.ServiceManager.createInstanceWithContext.return_value = desktop
+    graphic = _graphic(px=(400000, 1000))
+
+    # 400000 x 90 = 36_000_000 pixels (under MAX_BAKE_PIXELS), but max(rw, rh) = 400000 > _MAX_PAGE_UNITS (250000)
+    with pytest.raises(ValueError, match="maximum page size"):
+        image_mark.bake(ctx, graphic, marks=[], region=(0, 0, 400000, 90), stroke=2)
+    desktop.loadComponentFromURL.assert_not_called()
+
+
+def test_bake_lowers_page_scale_for_wide_region():
+    ctx = MagicMock()
+    desktop = MagicMock()
+    draw = MagicMock()
+    desktop.loadComponentFromURL.return_value = draw
+    page = draw.getDrawPages.return_value.getByIndex.return_value
+
+    export_filter = MagicMock()
+    provider = MagicMock()
+
+    def _create(service, c):
+        if "Desktop" in service:
+            return desktop
+        if "GraphicExportFilter" in service:
+            return export_filter
+        if "GraphicProvider" in service:
+            return provider
+        return MagicMock()
+
+    ctx.ServiceManager.createInstanceWithContext.side_effect = _create
+    graphic = _graphic()
+
+    with (
+        patch("uno.invoke", return_value=True),
+        patch("tempfile.mkstemp", return_value=(999, "/tmp/test_wide.png")),
+        patch("os.close"),
+        patch("os.remove"),
+        patch("plugin.writer.images.image_mark._load", return_value=MagicMock()),
+    ):
+        result = image_mark.bake(ctx, graphic, marks=[], region=(0, 0, 40000, 900), stroke=2)
+    assert result is not None
+    page.setPropertyValue.assert_any_call("Width", 240000)
+    page.setPropertyValue.assert_any_call("Height", 5400)
+
 
 

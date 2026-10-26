@@ -394,6 +394,44 @@ def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
+def test_ensure_empty_absorb_inserts_break_for_image_only_paragraph():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    para = MagicMock()
+    para.getString.return_value = ""
+
+    portion = MagicMock()
+    portion.getString.return_value = ""
+    portion.getPropertyValue.return_value = "TextContent"
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+            self._idx = 0
+
+        def hasMoreElements(self):
+            return self._idx < len(self._items)
+
+        def nextElement(self):
+            item = self._items[self._idx]
+            self._idx += 1
+            return item
+
+    para.createEnumeration.return_value = _Enum([portion])
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = para
+    cursor.getText.return_value = text_obj
+    cursor.getStart.return_value = MagicMock()
+
+    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+    assert out is cursor
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+
+
 def test_ensure_empty_absorb_skips_break_when_end_para_empty():
     from unittest.mock import MagicMock
 
@@ -916,6 +954,54 @@ def test_replace_preserving_format_equal_run_go_right_false_raises():
     with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
         with pytest.raises(ToolExecutionError, match="did not advance"):
             hi.replace_preserving_format(MagicMock(), _Range(), "AAAAAY")
+
+    assert writes == []
+
+
+def test_replace_preserving_format_shrink_go_right_false_raises():
+    import pytest
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import as hi, image_placeholders
+
+    writes = []
+
+    class _Cursor:
+        def goRight(self, n, expand):
+            if expand:
+                # Deletion advance
+                return False
+            # Equal-run advance
+            return True
+
+        def setString(self, value):
+            writes.append(value)
+
+        def gotoRange(self, _end, _expand):
+            return None
+
+        def getEnd(self):
+            return object()
+
+    cursor = _Cursor()
+
+    class _Text:
+        def createTextCursorByRange(self, _r):
+            return cursor
+
+    class _Range:
+        def getText(self):
+            return _Text()
+
+        def getString(self):
+            return "ABCD"
+
+        def getStart(self):
+            return object()
+
+    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
+        with pytest.raises(ToolExecutionError, match="did not advance"):
+            hi.replace_preserving_format(MagicMock(), _Range(), "AB")
 
     assert writes == []
 
@@ -1573,4 +1659,109 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
 
     with pytest.raises(DocumentDisposedError):
         fmt.apply_paragraph_style_preserving_direct_char(doc, cursor_disp, "Heading 1")
+
+
+def test_apply_paragraph_style_restore_failure_is_not_capture_incomplete():
+    from unittest.mock import MagicMock
+    from plugin.writer import format as fmt
+
+    doc = MagicMock()
+    para_styles = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+    style.getPropertyValue.return_value = 100
+
+    prop = MagicMock()
+    prop.Name = "CharWeight"
+    prop.Attributes = 0
+    info = MagicMock()
+    info.getProperties.return_value = [prop]
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
+    portion.getPropertySetInfo.return_value = info
+
+    restore_cursor = MagicMock()
+    restore_cursor.setPropertyValue.side_effect = RuntimeError("read-only")
+    portion.getText.return_value.createTextCursorByRange.return_value = restore_cursor
+
+    para = MagicMock()
+    para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para_enum = MagicMock()
+    para_enum.hasMoreElements.side_effect = [True, False]
+    para_enum.nextElement.side_effect = [portion]
+    para.createEnumeration.return_value = para_enum
+
+    cursor = MagicMock()
+    doc_enum = MagicMock()
+    doc_enum.hasMoreElements.side_effect = [True, False]
+    doc_enum.nextElement.side_effect = [para]
+    cursor.getText.return_value.createTextCursorByRange.return_value = cursor
+    cursor.createEnumeration.return_value = doc_enum
+
+    rep = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor, "Heading 1", clear_direct="none")
+    assert rep.get("capture_incomplete") is not True
+    assert "could not be re-applied" in rep["warning"]
+    assert "could not be read" not in rep["warning"]
+    assert rep["preserved_char_overrides"]["CharWeight"] == 150
+
+
+def test_apply_paragraph_style_negative_caches_failed_property_set_info():
+    from unittest.mock import MagicMock
+    from plugin.writer import format as fmt
+
+    doc = MagicMock()
+    para_styles = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else 150
+    portion.getPropertySetInfo.return_value = None
+
+    # Call 1: own paragraph and cursor mocks
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para1.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para1_enum = MagicMock()
+    para1_enum.hasMoreElements.side_effect = [True, False]
+    para1_enum.nextElement.side_effect = [portion]
+    para1.createEnumeration.return_value = para1_enum
+
+    cursor1 = MagicMock()
+    doc_enum1 = MagicMock()
+    doc_enum1.hasMoreElements.side_effect = [True, False]
+    doc_enum1.nextElement.side_effect = [para1]
+    cursor1.getText.return_value.createTextCursorByRange.return_value = cursor1
+    cursor1.createEnumeration.return_value = doc_enum1
+
+    style_cache = {}
+    rep1 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor1, "Heading 1", style_cache=style_cache)
+
+    # Call 2: own paragraph and cursor mocks, reuse portion
+    para2 = MagicMock()
+    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para2.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para2_enum = MagicMock()
+    para2_enum.hasMoreElements.side_effect = [True, False]
+    para2_enum.nextElement.side_effect = [portion]
+    para2.createEnumeration.return_value = para2_enum
+
+    cursor2 = MagicMock()
+    doc_enum2 = MagicMock()
+    doc_enum2.hasMoreElements.side_effect = [True, False]
+    doc_enum2.nextElement.side_effect = [para2]
+    cursor2.getText.return_value.createTextCursorByRange.return_value = cursor2
+    cursor2.createEnumeration.return_value = doc_enum2
+
+    rep2 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor2, "Heading 1", style_cache=style_cache)
+
+    assert portion.getPropertySetInfo.call_count == 1
+    assert rep1.get("capture_incomplete") is True
+    assert rep2.get("capture_incomplete") is True
+    assert "preserved_char_overrides" not in rep1
+    assert "preserved_char_overrides" not in rep2
 

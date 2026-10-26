@@ -442,6 +442,7 @@ def test_get_document_content_surfaces_portion_walk_warning():
                 "Walk stopped after 2 text portions (cap 2). Later content was not read, "
                 "so formatting may be incomplete."
             )
+            dest.append("Second walk warning.")
         return "<p>partial</p>"
 
     with patch.object(format_support, "document_to_content", side_effect=_fake_export):
@@ -449,6 +450,7 @@ def test_get_document_content_surfaces_portion_walk_warning():
 
     assert res["status"] == "ok"
     assert "incomplete" in res["warning"]
+    assert "Second walk warning." in res["warning"]
 
 
 def test_get_document_content_surfaces_tracked_changes():
@@ -456,34 +458,33 @@ def test_get_document_content_surfaces_tracked_changes():
 
     doc = MagicMock()
     doc.getPropertyValue.return_value = True
-    doc.getRedlines.return_value.getCount.return_value = 1
-    text = MagicMock()
-    doc.getText.return_value = text
+    redlines = MagicMock()
+    redlines.getCount.return_value = 2
+    rl1 = MagicMock()
+    rl1.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
+    rl2 = MagicMock()
+    rl2.getPropertyValue.side_effect = lambda prop: "Delete" if prop == "RedlineType" else None
+    enum = MagicMock()
+    enum.nextElement.side_effect = [rl1, rl2]
+    redlines.createEnumeration.return_value = enum
+    doc.getRedlines.return_value = redlines
+
     ctx = MagicMock()
     ctx.doc = doc
     ctx.ctx = MagicMock()
     ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.get_document_content.collect_tracked_changes", return_value=[{"type": "Insert", "text": "x"}]), \
+    with patch("plugin.writer.tracking._describe_redline", side_effect=[{"text": "novo"}, {"text": "velho"}]), \
          patch("plugin.writer.format.document_to_content", return_value="body"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
-    assert res["tracked_changes"] == [{"type": "Insert", "text": "x"}]
+    assert res["tracked_changes"] == [
+        {"type": "insertion", "text": "novo"},
+        {"type": "deletion", "text": "velho"},
+    ]
+    assert res["tracked_changes_total"] == 2
     assert "tracked_changes_note" in res
-
-
-def test_get_document_content_tracked_changes_disposal_propagates():
-    from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    doc = MagicMock()
-    doc.getRedlines.return_value.getCount.return_value = 1
-    ctx = MagicMock()
-    ctx.doc = doc
-    ctx.services.document.get_document_length.return_value = 3
-    with patch("plugin.writer.get_document_content.collect_tracked_changes", side_effect=DocumentDisposedError("closed", object_type="Document")), \
-         patch("plugin.writer.format.document_to_content", return_value="body"):
-        with pytest.raises(DocumentDisposedError):
-            GetDocumentContent().execute(ctx)
+    assert res["tracked_changes_note"]
+    assert "could not list" not in res.get("warning", "")
 
 
 @pytest.mark.parametrize("old, new, expected", [
@@ -800,17 +801,167 @@ def test_get_document_content_warns_when_redlines_are_not_listed():
     from plugin.writer.get_document_content import GetDocumentContent
 
     doc = MagicMock()
-    doc.getRedlines.return_value.getCount.return_value = 2
+    redlines = MagicMock()
+    redlines.getCount.return_value = 2
+    redlines.createEnumeration.return_value.nextElement.side_effect = RuntimeError("boom")
+    doc.getRedlines.return_value = redlines
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.get_document_content.collect_tracked_changes", return_value=[]), \
-         patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+    with patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
     assert "tracked_changes" not in res
     assert "could not list tracked changes" in res["warning"]
     assert "do not accept or reject" in res["warning"]
+
+
+def test_format_only_redlines_are_reported_without_a_listing_failure():
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    doc = MagicMock()
+    redlines = MagicMock()
+    redlines.getCount.return_value = 1
+    rl = MagicMock()
+    rl.getPropertyValue.side_effect = lambda prop: "Format" if prop == "RedlineType" else None
+    enum = MagicMock()
+    enum.nextElement.return_value = rl
+    redlines.createEnumeration.return_value = enum
+    doc.getRedlines.return_value = redlines
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document.get_document_length.return_value = 10
+    with patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+        res = GetDocumentContent().execute(ctx)
+    assert res["status"] == "ok"
+    assert res.get("tracked_changes_total") == 1
+    assert "tracked_changes" not in res
+    assert "formatting" in res.get("tracked_changes_note", "")
+    assert "could not list" not in res.get("warning", "")
+
+
+def test_redline_cap_reports_truncation(monkeypatch):
+    import plugin.writer.get_document_content as gdc
+    from plugin.writer.get_document_content import GetDocumentContent, _summarize_redlines
+
+    doc = MagicMock()
+    redlines = MagicMock()
+    redlines.getCount.return_value = 2
+    rl1 = MagicMock()
+    rl1.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
+    rl2 = MagicMock()
+    rl2.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
+    enum = MagicMock()
+    enum.nextElement.side_effect = [rl1, rl2]
+    redlines.createEnumeration.return_value = enum
+    doc.getRedlines.return_value = redlines
+
+    with patch("plugin.writer.tracking._describe_redline", side_effect=[{"text": "one"}, {"text": "two"}]):
+        changes, found, total, reliable, truncated = _summarize_redlines(doc, max_changes=1)
+    assert len(changes) == 1
+    assert found == 2
+    assert total == 2
+    assert reliable is True
+    assert truncated is True
+
+    monkeypatch.setattr(gdc, "_MAX_TRACKED_CHANGES", 1)
+    enum.nextElement.side_effect = [rl1, rl2]
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document.get_document_length.return_value = 10
+    with patch("plugin.writer.tracking._describe_redline", side_effect=[{"text": "one"}, {"text": "two"}]), \
+         patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+        res = GetDocumentContent().execute(ctx)
+    assert res.get("tracked_changes_truncated") is True
+
+
+def test_inserted_image_redline_without_text_is_not_truncated():
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    doc = MagicMock()
+    redlines = MagicMock()
+    redlines.getCount.return_value = 2
+    rl1 = MagicMock()
+    rl1.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
+    rl2 = MagicMock()
+    rl2.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
+    enum = MagicMock()
+    enum.nextElement.side_effect = [rl1, rl2]
+    redlines.createEnumeration.return_value = enum
+    doc.getRedlines.return_value = redlines
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document.get_document_length.return_value = 10
+    with patch("plugin.writer.tracking._describe_redline", side_effect=[{}, {}]), \
+         patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+        res = GetDocumentContent().execute(ctx)
+    assert "tracked_changes_truncated" not in res
+    assert "insertion/deletion change(s) are listed" not in res.get("tracked_changes_note", "")
+
+
+def test_range_rejects_invalid_bounds_and_max_chars():
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    ctx = MagicMock()
+    tool = GetDocumentContent()
+    with patch("plugin.writer.format.document_to_content") as mock_dtc:
+        for kwargs in [
+            {"scope": "range", "start": 5, "end": 5},
+            {"scope": "range", "start": -1, "end": 5},
+            {"max_chars": 0},
+            {"max_chars": -5},
+        ]:
+            res = tool.execute(ctx, **kwargs)
+            assert res["status"] == "error"
+            assert mock_dtc.call_count == 0
+
+
+def test_range_result_uses_validated_ints():
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    ctx = MagicMock()
+    ctx.services.document.get_document_length.return_value = 100
+    with patch("plugin.writer.format.document_to_content", return_value="<p>slice</p>"):
+        res = GetDocumentContent().execute(ctx, scope="range", start="2", end="4")
+    assert res["status"] == "ok"
+    assert res["start"] == 2 and res["end"] == 4
+
+
+def test_selection_with_no_content_warns():
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    ctx = MagicMock()
+    ctx.services.document.get_document_length.return_value = 100
+    with patch("plugin.writer.format.document_to_content", return_value=""):
+        res = GetDocumentContent().execute(ctx, scope="selection")
+    assert res["status"] == "ok"
+    assert "does not mean the document is empty" in res.get("warning", "")
+
+
+def test_schema_documents_plain_text_offsets():
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    tool = GetDocumentContent()
+    start_desc = tool.parameters["properties"]["start"]["description"]
+    assert "Plain-text" in start_desc
+    assert "document_length" in start_desc
+    assert "tracked_changes_total" in tool.description
+
+
+def test_document_length_zero_warns():
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    ctx = MagicMock()
+    ctx.services.document.get_document_length.return_value = 0
+    with patch("plugin.writer.format.document_to_content", return_value="<p>x</p>"):
+        res = GetDocumentContent().execute(ctx)
+    assert "document_length came back 0" in res.get("warning", "")
+
+    with patch("plugin.writer.format.document_to_content", return_value=""):
+        res = GetDocumentContent().execute(ctx)
+    assert "document_length came back 0" not in res.get("warning", "")
 
 
 def test_get_document_content_redline_read_reraises_disposed():
@@ -1095,4 +1246,104 @@ def test_content_tool_discovery_and_modules():
     reg.auto_discover(get_document_content)
     assert reg.get("apply_document_content") is not None
     assert reg.get("get_document_content") is not None
+
+
+# ---- K171: undo entry, table verification, regex validation -----------------
+
+def test_outline_undo_disposed_undo_manager_reraises():
+    doc = MagicMock()
+    doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
+    session = MagicMock()
+    session.changes = []
+    with pytest.raises(DocumentDisposedError):
+        ApplyDocumentContent()._outline_undo(doc, session, lambda: [])
+
+
+def test_all_matches_disposed_undo_manager_reraises():
+    ctx = _edit_ctx()
+    ctx.doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
+    with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]):
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
+
+
+def test_all_matches_truthy_non_bool_islocked_is_not_locked():
+    ctx = _edit_ctx()
+    ctx.doc.getUndoManager.return_value.isLocked.return_value = MagicMock()
+    with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch.object(ApplyDocumentContent, "_replace_found", return_value=([], None)):
+        res = ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+
+
+def test_selection_table_insert_fails_when_the_doc_already_has_a_table():
+    ctx = _edit_ctx()
+    ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
+    with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
+         patch("plugin.writer.format.insert_content_at_position"):
+        res = ApplyDocumentContent().execute(
+            ctx, content="<table><tr><td>X</td></tr></table>", target="selection")
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_INSERT_FAILED"
+    assert res["message"] == "Table insert produced no table in document."
+
+
+def test_search_replace_table_insert_fails_when_the_doc_already_has_a_table():
+    ctx = _edit_ctx()
+    ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
+    with patch("plugin.writer.search.find_first_range", return_value=MagicMock()), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
+         patch.object(ApplyDocumentContent, "_replace_found", return_value=([], None)):
+        res = ApplyDocumentContent().execute(
+            ctx, content="<table><tr><td>X</td></tr></table>", target="search", old_content="old")
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_INSERT_FAILED"
+    assert res["message"] == "Table insert produced no table in document."
+
+
+def test_position_before_table_insert_reports_failure():
+    from plugin.writer import format as format_support
+
+    found, _cursor = _next_to_match_found(at_paragraph_edge=False)
+    ctx = _edit_ctx()
+    ctx.doc.getTextTables.return_value.getCount.return_value = 0
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_html_at_cursor"):
+        res = ApplyDocumentContent().execute(
+            ctx, content="<table><tr><td>Cell 1</td></tr></table>",
+            target="search", old_content="world", position="before")
+    assert res["status"] == "error"
+    assert res.get("code") == "TABLE_INSERT_FAILED"
+    assert "Table insert produced no table in document." in res.get("message", "")
+
+
+def test_table_count_read_reraises_disposed():
+    ctx = _edit_ctx()
+    ctx.doc.getTextTables.side_effect = type("DisposedException", (Exception,), {})("gone")
+    with patch("plugin.writer.format.insert_content_at_position"):
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent().execute(ctx, content="<table><tr><td>X</td></tr></table>", target="end")
+
+
+@pytest.mark.parametrize("extra", [{}, {"all_matches": True}, {"occurrence": 0}])
+def test_invalid_regex_is_invalid_regex_in_the_edit_path(extra):
+    ctx = _edit_ctx()
+    with patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.search.find_first_range") as find_first, \
+         patch("plugin.writer.search.find_all_ranges") as find_all:
+        res = ApplyDocumentContent().execute(
+            ctx, content="x", target="search", old_content="([a-", regex=True, **extra)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_REGEX"
+    assert res.get("count", res.get("details", {}).get("count")) == 0
+    find_first.assert_not_called()
+    find_all.assert_not_called()
+
 

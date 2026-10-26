@@ -22,29 +22,8 @@ from plugin.writer.specialized_base import (
     enum_param,
     index_error,
 )
-from plugin.framework.errors import ToolExecutionError
-from plugin.writer.search import parse_non_negative_int
-
-
-def _cursor_after_nth_match(doc: Any, search: str, occurrence: int, case_sensitive: bool) -> Any:
-    """Return an ``XTextCursor`` collapsed to the end of the *occurrence*-th match (0-based)."""
-    sd = doc.createSearchDescriptor()
-    sd.SearchString = search
-    sd.SearchRegularExpression = False
-    sd.SearchCaseSensitive = case_sensitive
-
-    found = doc.findFirst(sd)
-    if found is None:
-        raise ToolExecutionError("No match for insert_after_text in the document.")
-
-    for _unused in range(occurrence):
-        found = doc.findNext(found, sd)
-        if found is None:
-            raise ToolExecutionError(f"No match for insert_after_text at occurrence {occurrence} (not enough occurrences).")
-
-    t_cursor = found.getText().createTextCursorByRange(found)
-    t_cursor.collapseToEnd()
-    return t_cursor
+from plugin.framework.errors import ToolExecutionError, uno_read
+from plugin.writer.search import find_occurrence_range, parse_non_negative_int
 
 
 NOTE_TYPES: list[str] = ["footnote", "endnote"]
@@ -63,25 +42,13 @@ def _note_access(doc: Any, note_type: str, kind: str) -> Any:
     return getattr(doc, getter)()
 
 
-def _note_at_index(tool: Any, doc: Any, note_type: str, index: int) -> tuple[Any, int] | dict[str, Any]:
+def _note_at_index(tool: Any, doc: Any, note_type: str, index: int) -> tuple[Any, Any, int] | dict[str, Any]:
     notes = _note_access(doc, note_type, "supplier")
     count = notes.getCount()
     err = index_error(index, count, note_type)
     if err:
         return tool._tool_error(err)
-    return notes.getByIndex(index), index
-
-
-def _delete_note(tool: Any, doc: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    note_type = kwargs["note"]
-    index = kwargs["index"]
-    res = _note_at_index(tool, doc, note_type, index)
-    if isinstance(res, dict):
-        return res
-    note, idx = res
-    anchor = note.getAnchor()
-    anchor.setString("")
-    return {"status": "ok", "message": f"Successfully deleted {note_type} at index {idx}."}
+    return notes, notes.getByIndex(index), index
 
 
 class FootnotesInsert(ToolWriterFootnoteBase):
@@ -139,10 +106,18 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 
             case_sensitive = bool(kwargs.get("case_sensitive", True))
 
+            # Shared LO search: NBSP/space normalization plus the newline-chained fallback.
             try:
-                t_cursor = _cursor_after_nth_match(doc, insert_after, occurrence, case_sensitive)
-            except ToolExecutionError as e:
-                return self._tool_error(str(e))
+                found = find_occurrence_range(
+                    doc, insert_after, occurrence=occurrence, case_sensitive=case_sensitive)
+            except IndexError:
+                return self._tool_error(
+                    f"No match for insert_after_text at occurrence {occurrence} "
+                    "(not enough occurrences).")
+            if found is None:
+                return self._tool_error("No match for insert_after_text in the document.")
+            t_cursor = found.getText().createTextCursorByRange(found)
+            t_cursor.collapseToEnd()
         else:
             # View cursor: active insertion point in the UI.
             ctrl = doc.getCurrentController()
@@ -159,6 +134,8 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         # Create the note instance
         service_name = "com.sun.star.text.Footnote" if note_type == "footnote" else "com.sun.star.text.Endnote"
         note = doc.createInstance(service_name)
+        if not note:
+            return self._tool_error(f"Failed to create a {note_type}.")
 
         if label:
             note.setLabel(label)
@@ -222,7 +199,7 @@ class FootnotesEdit(ToolWriterFootnoteBase):
         res = _note_at_index(self, ctx.doc, note_type, index)
         if isinstance(res, dict):
             return res
-        note, index = res
+        _notes, note, index = res
 
         if "text" in kwargs:
             note.setString(kwargs["text"])
@@ -247,7 +224,29 @@ class FootnotesDelete(ToolWriterFootnoteBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return _delete_note(self, ctx.doc, kwargs)
+        note_type = kwargs["note"]
+        index = kwargs["index"]
+        res = _note_at_index(self, ctx.doc, note_type, index)
+        if isinstance(res, dict):
+            return res
+        notes, note, idx = res
+        before = notes.getCount()
+        note.getAnchor().setString("")
+        after = notes.getCount()
+        if after < before:
+            return {"status": "ok", "message": f"Successfully deleted {note_type} at index {idx}."}
+        # With change tracking on, anchor clearing records a tracked deletion instead of removing the note immediately.
+        if uno_read(lambda: bool(ctx.doc.getPropertyValue("RecordChanges")), False):
+            return {
+                "status": "ok",
+                "tracked": True,
+                "message": (
+                    f"{note_type} at index {idx} is marked for deletion by tracked changes; "
+                    "accept or reject it in LibreOffice (Edit > Track Changes)."
+                ),
+            }
+        return self._tool_error(
+            f"Could not delete {note_type} at index {idx}: it is still in the document.")
 
 
 class FootnotesSettingsGet(ToolWriterFootnoteBase):

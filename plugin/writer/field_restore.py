@@ -65,12 +65,10 @@ _EXPORTED_FIELD_TITLES = (
     "title",
     "subject",
 )
-# Built from the tuple so the span regex and restore loop stay in sync.
-_FIELD_SPAN_RE = re.compile(
-    r'<span\b(?=[^>]*\btitle\s*=\s*["\'](%s)["\'])'
-    r'(?:[^>]*/>|[^>]*>.*?</span>)' % "|".join(_EXPORTED_FIELD_TITLES),
-    re.IGNORECASE | re.DOTALL,
-)
+_TAG_BODY = r'(?:"[^"]*"|\'[^\']*\'|[^>"\'])*'
+_FIELD_SPAN_OPEN_RE = re.compile(r'<span\b' + _TAG_BODY + r'>', re.IGNORECASE)
+_SPAN_TAG_RE = re.compile(r'<span\b' + _TAG_BODY + r'>|</span\s*>', re.IGNORECASE)
+_ATTR_RE = re.compile(r'([\w:.-]+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\')')
 _FIELD_TOKEN_RE = re.compile(
     r"\[\[WA-FIELD:([a-zA-Z0-9]+):([a-z-]+)(?:\|([^\]]+))?\]\]",
     re.IGNORECASE,
@@ -88,6 +86,13 @@ _FIELD_TITLE_TO_SERVICE = {
     "subject": "com.sun.star.text.textfield.docinfo.Subject",
 }
 
+_FIELD_FLAG_PROPERTIES: dict[str, tuple[str, bool]] = {
+    "date": ("IsDate", True),
+    "time": ("IsDate", False),
+    "author-name": ("FullName", True),
+    "author-initials": ("FullName", False),
+}
+
 _PAGE_NUMBER_SUBTYPE_VALS: dict[str, str] = {
     "PREV": "PREV",
     "CURRENT": "CURRENT",
@@ -97,52 +102,133 @@ _PAGE_NUMBER_SUBTYPE_VALS: dict[str, str] = {
     "2": "NEXT",
 }
 
+_MAX_NESTED_TEXT_DEPTH = 4
+
+
+def _matching_span_end(html: str, start_pos: int) -> int | None:
+    """Find the end offset of the matching </span> for an open span tag starting at start_pos."""
+    depth = 1
+    for m in _SPAN_TAG_RE.finditer(html, start_pos):
+        tag_text = m.group(0)
+        if tag_text.startswith("</") or tag_text.startswith("</"):
+            depth -= 1
+            if depth == 0:
+                return m.end()
+        else:
+            # Open span tag. Self-closing spans do not increase depth.
+            is_self_closing = tag_text[:-1].rstrip().endswith("/")
+            if not is_self_closing:
+                depth += 1
+    return None
+
+
+def _field_token(field_nonce: str, title: str, attrs: dict[str, str]) -> str:
+    from . import format as format_mod
+
+    props = []
+    if title == "page-number":
+        st_raw = attrs.get("data-subtype")
+        if st_raw is not None:
+            st_raw_upper = st_raw.strip().upper()
+            st_name = _PAGE_NUMBER_SUBTYPE_VALS.get(st_raw_upper)
+            if st_name is None:
+                log.warning("Unknown PageNumber SubType attribute %r, defaulting to CURRENT", st_raw)
+                st_name = "CURRENT"
+            if st_name != "CURRENT":
+                props.append(f"subtype={st_name}")
+        off_raw = attrs.get("data-offset")
+        if off_raw is not None:
+            try:
+                off_val = int(off_raw)
+                if off_val != 0:
+                    props.append(f"offset={off_val}")
+            except ValueError:
+                pass
+        num_raw = attrs.get("data-numbering-type")
+        if num_raw is not None:
+            nt_raw = num_raw.strip().upper()
+            if nt_raw in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
+                nt_name = nt_raw
+            elif nt_raw.isdigit() and int(nt_raw) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
+                nt_name = format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(nt_raw)]
+            else:
+                log.warning("Unknown PageNumber NumberingType attribute %r, defaulting to ARABIC", num_raw)
+                nt_name = "ARABIC"
+            if nt_name != "ARABIC":
+                props.append(f"numbering_type={nt_name}")
+
+    prop_str = ("|" + "|".join(props)) if props else ""
+    return f"[[WA-FIELD:{field_nonce}:{title}{prop_str}]]"
+
 
 def rewrite_exported_field_spans(html: str, nonce: str | None = None) -> str:
     """Replace XHTML field spans with placeholders the HTML import will keep."""
-    if not html or "title=" not in html:
+    if not html or not _FIELD_SPAN_OPEN_RE.search(html):
         return html
-    from . import format as format_mod
 
     field_nonce = nonce if nonce is not None else uuid.uuid4().hex[:8]
 
-    def _repl(match: re.Match[str]) -> str:
-        title = match.group(1).lower()
-        span_html = match.group(0)
-        props = []
-        if title == "page-number":
-            subtype_m = re.search(r'data-subtype=["\']([^"\']+)["\']', span_html)
-            offset_m = re.search(r'data-offset=["\'](-?\d+)["\']', span_html)
-            num_m = re.search(r'data-numbering-type=["\']([^"\']+)["\']', span_html)
-            if subtype_m:
-                st_raw = subtype_m.group(1).strip().upper()
-                st_name = _PAGE_NUMBER_SUBTYPE_VALS.get(st_raw)
-                if st_name is None:
-                    log.warning("Unknown PageNumber SubType attribute %r, defaulting to CURRENT", subtype_m.group(1))
-                    st_name = "CURRENT"
-                if st_name != "CURRENT":
-                    props.append(f"subtype={st_name}")
-            if offset_m:
-                # The group is (-?\d+), so int() cannot fail.
-                off_val = int(offset_m.group(1))
-                if off_val != 0:
-                    props.append(f"offset={off_val}")
-            if num_m:
-                nt_raw = num_m.group(1).strip().upper()
-                if nt_raw in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
-                    nt_name = nt_raw
-                elif nt_raw.isdigit() and int(nt_raw) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
-                    nt_name = format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(nt_raw)]
-                else:
-                    log.warning("Unknown PageNumber NumberingType attribute %r, defaulting to ARABIC", num_m.group(1))
-                    nt_name = "ARABIC"
-                if nt_name != "ARABIC":
-                    props.append(f"numbering_type={nt_name}")
+    out_chunks = []
+    pos = 0
 
-        prop_str = ("|" + "|".join(props)) if props else ""
-        return f"[[WA-FIELD:{field_nonce}:{title}{prop_str}]]"
+    for m in _FIELD_SPAN_OPEN_RE.finditer(html):
+        if m.start() < pos:
+            continue
+        tag_str = m.group(0)
+        # Parse attributes with lowercased names
+        attrs = {}
+        for attr_m in _ATTR_RE.finditer(tag_str):
+            name = attr_m.group(1).lower()
+            val = attr_m.group(2) if attr_m.group(2) is not None else attr_m.group(3)
+            attrs[name] = val
 
-    return _FIELD_SPAN_RE.sub(_repl, html)
+        title = attrs.get("title", "").strip().lower()
+        if title not in _EXPORTED_FIELD_TITLES:
+            continue
+
+        is_self_closing = tag_str[:-1].rstrip().endswith("/")
+        if is_self_closing:
+            end: int | None = m.end()
+        else:
+            end = _matching_span_end(html, m.end())
+        if end is None:
+            continue
+
+        tok = _field_token(field_nonce, title, attrs)
+        out_chunks.append(html[pos:m.start()])
+        out_chunks.append(tok)
+        pos = end
+
+    out_chunks.append(html[pos:])
+    return "".join(out_chunks)
+
+
+def _page_number_properties(props: dict[str, str]) -> list[tuple[str, Any]]:
+    from . import format as format_mod
+    import uno
+
+    subtype_str = props.get("subtype", "CURRENT").strip().upper()
+    st_name = _PAGE_NUMBER_SUBTYPE_VALS.get(subtype_str)
+    if st_name is None:
+        log.warning("Unknown PageNumber SubType: %r, defaulting to CURRENT", props.get("subtype"))
+        st_name = "CURRENT"
+
+    offset_val = int(props.get("offset", "0"))
+
+    num_type_str = props.get("numbering_type", "ARABIC").strip().upper()
+    if num_type_str in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
+        nt_val = format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS[num_type_str]
+    elif num_type_str.isdigit() and int(num_type_str) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
+        nt_val = int(num_type_str)
+    else:
+        log.warning("Unknown PageNumber NumberingType: %r, defaulting to ARABIC", props.get("numbering_type"))
+        nt_val = 4
+
+    return [
+        ("SubType", uno.Enum("com.sun.star.text.PageNumberType", st_name)),
+        ("Offset", offset_val),
+        ("NumberingType", nt_val),
+    ]
 
 
 def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[str, str] | None = None) -> bool:
@@ -156,50 +242,18 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
         log.debug("_insert_restored_field createInstance failed for %s: %s", service, e)
         raise ToolExecutionError("Could not restore the %s field." % title) from e
     props = props or {}
-    if title == "page-number":
-        from . import format as format_mod
+    pairs = (
+        _page_number_properties(props)
+        if title == "page-number"
+        else ([_FIELD_FLAG_PROPERTIES[title]] if title in _FIELD_FLAG_PROPERTIES else [])
+    )
+    for name, value in pairs:
         try:
-            subtype_str = props.get("subtype", "CURRENT").strip().upper()
-            st_name = _PAGE_NUMBER_SUBTYPE_VALS.get(subtype_str)
-            if st_name is None:
-                log.warning("Unknown PageNumber SubType: %r, defaulting to CURRENT", props.get("subtype"))
-                st_name = "CURRENT"
-            import uno
-            # SubType accepts only this enum. An int is refused, and uno is
-            # always importable inside LibreOffice.
-            field.setPropertyValue(
-                "SubType", uno.Enum("com.sun.star.text.PageNumberType", st_name),
-            )
+            field.setPropertyValue(name, value)
         except Exception as e:
-            log.debug("_insert_restored_field failed to set SubType: %s", e)
-        try:
-            offset_val = int(props.get("offset", "0"))
-            field.setPropertyValue("Offset", offset_val)
-        except Exception as e:
-            log.debug("_insert_restored_field failed to set Offset: %s", e)
-        try:
-            num_type_str = props.get("numbering_type", "ARABIC").strip().upper()
-            if num_type_str in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
-                nt_val = format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS[num_type_str]
-            elif num_type_str.isdigit() and int(num_type_str) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
-                nt_val = int(num_type_str)
-            else:
-                log.warning("Unknown PageNumber NumberingType: %r, defaulting to ARABIC", props.get("numbering_type"))
-                nt_val = 4
-            field.setPropertyValue("NumberingType", nt_val)
-        except Exception as e:
-            log.debug("_insert_restored_field failed to set NumberingType: %s", e)
-    # DateTime.IsDate and Author.FullName are on the service just created.
-    # A swallowed failure inserted the other form and still returned True.
-    elif title == "date":
-        field.setPropertyValue("IsDate", True)
-    elif title == "time":
-        field.setPropertyValue("IsDate", False)
-    elif title == "author-name":
-        # Same Author service as initials; FullName selects the display form.
-        field.setPropertyValue("FullName", True)
-    elif title == "author-initials":
-        field.setPropertyValue("FullName", False)
+            reraise_if_disposed(e)
+            log.debug("_insert_restored_field failed to set %s for %s: %s", name, title, e)
+            raise ToolExecutionError("Could not restore the %s field." % title) from e
     try:
         text = text_range.getText()
         cursor = text.createTextCursorByRange(text_range)
@@ -225,19 +279,6 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
         raise ToolExecutionError("Could not restore the %s field." % title) from e
 
 
-def _cursor_over(text_obj: Any, offset: int, needle: str) -> Any | None:
-    """Cursor selecting *needle* at cursor step *offset* of *text_obj*, or None."""
-    cursor = text_obj.createTextCursor()
-    cursor.gotoStart(False)
-    if offset and cursor.goRight(offset, False) is False:
-        return None
-    if cursor.goRight(len(needle), True) is False:
-        return None
-    if cursor.getString() != needle:
-        return None
-    return cursor
-
-
 def _parse_field_token_props(props_str: str | None) -> dict[str, str]:
     props = {}
     if props_str:
@@ -248,112 +289,131 @@ def _parse_field_token_props(props_str: str | None) -> dict[str, str]:
     return props
 
 
-def _check_no_remaining_field_placeholders(text_obj: Any, prefix: str, nonce: str | None = None) -> None:
-    if text_obj is None:
+def _iter_field_texts(xtext: Any, depth: int = 0):
+    """Yield xtext and recurse into text tables, frames, and sections up to depth limit."""
+    yield xtext
+    if depth >= _MAX_NESTED_TEXT_DEPTH:
         return
-    plain = uno_read(lambda: text_obj.getString() or "", "")
-    if prefix in plain:
-        match = None
+    enum = uno_read(lambda: xtext.createEnumeration(), None)
+    if enum is None:
+        return
+    while enum.hasMoreElements() is True:
+        el = uno_read(lambda: enum.nextElement(), None)
+        if el is None:
+            break
+        # Table cells have their own XText
+        is_table = uno_read(lambda: el.supportsService("com.sun.star.text.TextTable"), False) is True
+        if is_table:
+            names: tuple[str, ...] | list[str] = uno_read(lambda: el.getCellNames(), ()) or ()
+            for name in names:
+                cell = uno_read(lambda: el.getCellByName(name), None)
+                if cell is not None:
+                    yield from _iter_field_texts(cell, depth + 1)
+            continue
+
+        # TextFrame and TextSection expose inner text via getText()
+        is_frame_or_section = (
+            uno_read(lambda: el.supportsService("com.sun.star.text.TextFrame"), False) is True
+            or uno_read(lambda: el.supportsService("com.sun.star.text.TextSection"), False) is True
+        )
+        if is_frame_or_section:
+            inner_text = uno_read(lambda: el.getText(), None)
+            if inner_text is not None:
+                yield from _iter_field_texts(inner_text, depth + 1)
+
+
+def _first_remaining_field_token(text_obj: Any, nonce: str | None) -> Any:
+    """Return the first remaining token as str, None if none, or _FAILED if read failed."""
+    for xtext in _iter_field_texts(text_obj):
+        plain = uno_read(lambda: xtext.getString() or "", _FAILED)
+        if plain is _FAILED:
+            return _FAILED
+        if not isinstance(plain, str):
+            plain = str(plain)
         for m in _FIELD_TOKEN_RE.finditer(plain):
             if nonce is None or m.group(1) == nonce:
-                match = m
-                break
-        tok = match.group(0) if match else "[[WA-FIELD:...]]"
-        raise ToolExecutionError(
-            f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
-        )
+                return m.group(0)
+    return None
+
+
+def _is_body_text(model: Any, text_obj: Any) -> bool:
+    return uno_same(text_obj, uno_read(lambda: model.getText(), None))
 
 
 def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str | None = None) -> int:
     """Replace ``[[WA-FIELD:…]]`` tokens inside *text_obj* without document search.
 
-    A document findFirst misses headers and footers on unused page styles (such as
-    cloned styles). Walking portions addresses that text directly. A text field
-    counts as one cursor step; getString() expands it, so steps come from the portion
-    walk, not from getString().
+    Selects tokens from portion ranges per XText, descending into table cells
+    and frames so unused-style headers or nested structures are fully restored.
     """
     prefix = f"[[WA-FIELD:{nonce}:" if nonce else "[[WA-FIELD:"
-    try:
-        plain = text_obj.getString() or ""
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        log.debug("_restore_fields_by_cursor getString failed: %s", exc)
-        return 0
+    hits = []
 
-    if prefix not in plain:
-        return 0
+    for xtext in _iter_field_texts(text_obj):
+        plain = uno_read(lambda: xtext.getString() or "", "")
+        if prefix not in plain:
+            continue
 
-    try:
-        enum = text_obj.createEnumeration()
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        log.debug("_restore_fields_by_cursor createEnumeration failed: %s", exc)
-        return 0
+        try:
+            enum = xtext.createEnumeration()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.debug("_restore_fields_by_cursor createEnumeration failed: %s", exc)
+            continue
 
-    if enum is None:
-        return 0
+        if enum is None:
+            continue
 
-    hits: list[tuple[int, str, str, dict[str, str]]] = []
-    steps = 0
-    paras = 0
-
-    try:
-        while enum.hasMoreElements() is True and paras < 5000:
-            paras += 1
-            try:
-                para = enum.nextElement()
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                break
-            if paras > 1:
-                # The paragraph break is one cursor step and is not in portion text.
-                steps += 1
-            try:
-                portions = para.createEnumeration()
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                continue
-            if portions is None:
-                continue
-            seen = 0
-            while portions.hasMoreElements() is True and seen < 5000:
-                seen += 1
+        try:
+            while enum.hasMoreElements() is True:
                 try:
-                    portion = portions.nextElement()
-                    kind = portion.getPropertyValue("TextPortionType")
+                    para = enum.nextElement()
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     break
-                if kind == "TextField":
-                    steps += 1
-                    continue
                 try:
-                    chunk = portion.getString() or ""
+                    portions = para.createEnumeration()
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    chunk = ""
-                if not isinstance(chunk, str):
-                    chunk = str(chunk)
-                for m in _FIELD_TOKEN_RE.finditer(chunk):
-                    if nonce is None or m.group(1) == nonce:
-                        tok = m.group(0)
-                        title = m.group(2).lower()
-                        props = _parse_field_token_props(m.group(3))
-                        hits.append((steps + m.start(), tok, title, props))
-                steps += len(chunk)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        log.debug("_restore_fields_by_cursor enumeration failed: %s", exc)
+                    continue
+                if portions is None:
+                    continue
+                while portions.hasMoreElements() is True:
+                    try:
+                        portion = portions.nextElement()
+                        kind = portion.getPropertyValue("TextPortionType")
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        break
+                    if kind == "TextField":
+                        continue
+                    try:
+                        chunk = portion.getString() or ""
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        chunk = ""
+                    if not isinstance(chunk, str):
+                        chunk = str(chunk)
+                    for m in _FIELD_TOKEN_RE.finditer(chunk):
+                        if nonce is None or m.group(1) == nonce:
+                            tok = m.group(0)
+                            title = m.group(2).lower()
+                            props = _parse_field_token_props(m.group(3))
+                            cur = xtext.createTextCursorByRange(portion.getStart())
+                            if cur.goRight(m.start(), False) is False:
+                                continue
+                            if cur.goRight(len(tok), True) is False:
+                                continue
+                            if cur.getString() != tok:
+                                continue
+                            hits.append((cur, title, props))
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.debug("_restore_fields_by_cursor enumeration failed: %s", exc)
 
     restored = 0
-    for offset, token, title, props in reversed(hits):
-        cursor = _cursor_over(text_obj, offset, token)
-        if cursor is None:
-            continue
-        if props:
-            _insert_restored_field(model, cursor, title, props)
-        else:
-            _insert_restored_field(model, cursor, title)
+    for cursor, title, props in reversed(hits):
+        _insert_restored_field(model, cursor, title, props)
         restored += 1
 
     return restored
@@ -368,15 +428,19 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
     when the cursor walk cannot see the token.
     """
     walked = 0
-    prefix = f"[[WA-FIELD:{nonce}:" if nonce else "[[WA-FIELD:"
     if text_obj is not None:
         walked = _restore_fields_by_cursor(model, text_obj, nonce=nonce)
-        plain = uno_read(lambda: text_obj.getString() or "", _FAILED)
-        if plain is not _FAILED and prefix not in plain:
+        remaining = _first_remaining_field_token(text_obj, nonce)
+        if remaining is None:
             return walked
 
     if model is None or not hasattr(model, "createSearchDescriptor"):
-        _check_no_remaining_field_placeholders(text_obj, prefix, nonce)
+        if text_obj is not None:
+            tok = _first_remaining_field_token(text_obj, nonce)
+            if isinstance(tok, str):
+                raise ToolExecutionError(
+                    f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
+                )
         return walked
 
     restored = walked
@@ -391,7 +455,7 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
 
     while found is not None:
         in_region = True
-        if text_obj is not None:
+        if text_obj is not None and not _is_body_text(model, text_obj):
             in_region = uno_same(found.getText(), text_obj)
 
         props: dict[str, str] = {}
@@ -414,5 +478,10 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
 
         found = nxt
 
-    _check_no_remaining_field_placeholders(text_obj, prefix, nonce)
+    if text_obj is not None:
+        tok = _first_remaining_field_token(text_obj, nonce)
+        if isinstance(tok, str):
+            raise ToolExecutionError(
+                f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
+            )
     return restored

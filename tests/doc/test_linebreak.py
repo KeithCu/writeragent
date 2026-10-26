@@ -60,7 +60,14 @@ def test_full_document_not_double_wrapped():
 
 
 def test_block_only_html_not_wrapped_in_p_or_br():
-    for tag_sample in ("<table><tr><td>A</td></tr></table>", "<h4>T</h4>"):
+    for tag_sample in (
+        "<table><tr><td>A</td></tr></table>",
+        "<h4>T</h4>",
+        "<dl><dt>A</dt><dd>B</dd></dl>",
+        "<figure><figcaption>C</figcaption></figure>",
+        "<address>A</address>",
+        "<details><summary>S</summary>D</details>",
+    ):
         res = _ensure_html_linebreaks(tag_sample)
         assert "<!DOCTYPE html>" in res
         assert "<p>" not in res

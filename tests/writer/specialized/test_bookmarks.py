@@ -718,3 +718,12 @@ def test_read_mcp_bookmark_map_skips_paragraph_scan_when_no_mcp_names(monkeypatc
     assert bm_map == {}
     assert all_names == ["intro_bm", "appendix_bm"]
 
+
+def test_bookmark_resolve_description_names_its_registered_tool():
+    from plugin.writer.specialized.bookmarks import BookmarkResolve
+
+    description = BookmarkResolve.description
+    assert "bookmark_resolve" in description
+    assert "resolve_bookmark" not in description
+
+

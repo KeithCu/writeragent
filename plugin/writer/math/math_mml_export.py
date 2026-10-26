@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass
+from html import escape as _html_escape
 from typing import Any, Iterator
 
 from plugin.framework.errors import reraise_if_disposed, uno_read
@@ -37,6 +39,16 @@ _MATH_FACTORY_URL = "private:factory/smath"
 _OBJECT_REPLACEMENT = "\ufffc"
 _MATH_CLSID_NORM = MATH_CLSID.lower()
 
+# XHTML export of a Math frame keeps only draw:name as id (filter/source/xslt/odf2xhtml).
+_WRAPPER_ID_RE = re.compile(r'<(?:span|div)\b[^>]*\bid="([^"]+)"[^>]*>', re.IGNORECASE)
+_XML_ID_UNSAFE_RE = re.compile(r"[\n&<>.,;: %()\[\]/\\+]")
+
+
+def _xhtml_id(name: str) -> str:
+    """Mirror the XHTML export's id sanitizer so an OLE name can match a wrapper id."""
+    safe = _XML_ID_UNSAFE_RE.sub("_", name or "")
+    return f"a_{safe}" if safe[:1].isdigit() else safe
+
 
 @dataclass(frozen=True)
 class MathExportResult:
@@ -56,6 +68,7 @@ class WriterMathHit:
     error_message: str | None
     display_block: bool
     para_index: int
+    embed_name: str | None = None
 
 
 def convert_mathml_to_latex(mathml_fragment: str) -> MathExportResult:
@@ -151,6 +164,25 @@ def wrap_latex_delimiters(latex: str, *, display_block: bool) -> str:
     return f"${inner}$"
 
 
+def _failure_markup(error: str | None, starmath: str) -> str:
+    """Non-TeX failure marker: valid HTML, so StarMath is never mistaken for TeX."""
+    reason = (error or "math_export_failed").strip()[:120]
+    snippet = (starmath or "").strip()[:200]
+    return (
+        f'<span data-math-export-error="{_html_escape(reason)}">'
+        f"{_html_escape(snippet)}</span>"
+    )
+
+
+def _formula_replacement(
+    result: MathExportResult | None, starmath: str, *, display_block: bool
+) -> str:
+    """TeX when the export worked, otherwise a non-TeX marker."""
+    if result is not None and result.ok and result.latex:
+        return wrap_latex_delimiters(result.latex, display_block=display_block)
+    return _failure_markup(result.error_message if result else None, starmath)
+
+
 def iter_writer_math_objects(model: Any, ctx: Any | None = None) -> Iterator[WriterMathHit]:
     """Yield Math embeds in document order."""
     text = model.getText() if hasattr(model, "getText") else None
@@ -172,7 +204,8 @@ def inject_math_tex_into_html(model: Any, ctx: Any, html: str) -> str:
     """Replace XHTML ``<math>`` from Writer Math OLE with delimited TeX.
 
     ``XHTML Writer File`` inlines Presentation MathML (measured on quadratic.odt).
-    Pair those ``<math>`` subtrees with OLE hits in order. Do not append leftovers.
+    TeX is converted from the ``<math>`` already in the XHTML; the OLE walk only
+    supplies the block/inline flag plus the StarMath fallback.
     """
     if not html or not isinstance(html, str):
         return html
@@ -180,30 +213,52 @@ def inject_math_tex_into_html(model: Any, ctx: Any, html: str) -> str:
     if not math_matches:
         return html
 
-    hits = list(iter_writer_math_objects(model, ctx))
-    n_hits = len(hits)
-    n_math = len(math_matches)
-    if n_hits == 0:
-        return html
-    if n_hits != n_math:
-        log.error(
-            "inject_math_tex_into_html: Math OLE count %d != <math> count %d; replacing min() only",
-            n_hits,
-            n_math,
+    # Display flag + StarMath fallback only: no ctx, so the walk cannot export a hidden Math doc.
+    hits = list(iter_writer_math_objects(model))
+    order_pairing = len(hits) == len(math_matches)
+    if not order_pairing:
+        log.warning(
+            "inject_math_tex_into_html: Math OLE count %d != <math> count %d",
+            len(hits),
+            len(math_matches),
         )
+
+    by_id: dict[str, WriterMathHit] = {}
+    for h in hits:
+        if h.embed_name:
+            by_id.setdefault(_xhtml_id(h.embed_name), h)
+    wrappers = list(_WRAPPER_ID_RE.finditer(html))
+    next_wrapper = 0
 
     parts: list[str] = []
     pos = 0
-    for hit, match in zip(hits, math_matches):
-        tex = hit.latex
-        if not tex:
-            snippet = (hit.starmath or hit.error_message or "")[:200]
-            tex = f"[Math export fallback] {snippet}".strip()
-        wrapped = wrap_latex_delimiters(tex, display_block=hit.display_block)
+    failures = 0
+    for index, match in enumerate(math_matches):
+        while next_wrapper < len(wrappers) and wrappers[next_wrapper].start() < match.start():
+            next_wrapper += 1
+        wrapper = wrappers[next_wrapper - 1] if next_wrapper else None
+        hit: WriterMathHit | None = None
+        # The gap check keeps an earlier formula's wrapper from claiming this <math>.
+        if wrapper is not None and "<" not in html[wrapper.end() : match.start()]:
+            hit = by_id.pop(_xhtml_id(wrapper.group(1)), None)
+        if hit is None and order_pairing:
+            hit = hits[index]
+        display_block = bool(hit and hit.display_block)
+        res = convert_mathml_to_latex(match.group(0))
+        if not res.ok and hit is not None and hit.starmath:
+            res = convert_starmath_to_latex(ctx, hit.starmath)
+        if not res.ok:
+            failures += 1
         parts.append(html[pos : match.start()])
-        parts.append(wrapped)
+        parts.append(
+            _formula_replacement(res, hit.starmath if hit else "", display_block=display_block)
+        )
         pos = match.end()
     parts.append(html[pos:])
+    if failures:
+        log.warning(
+            "inject_math_tex_into_html: %d formula(s) could not be exported to TeX", failures
+        )
     return "".join(parts)
 
 
@@ -216,26 +271,26 @@ def substitute_math_placeholders(
     if not math_records or not content:
         return content
 
-    for placeholder, starmath, display_block in math_records:
-        res = convert_starmath_to_latex(ctx, starmath) if (ctx and starmath) else None
-        if res and res.ok and res.latex:
-            tex = res.latex
-        else:
-            snippet = starmath[:200]
-            tex = f"[Math export fallback] {snippet}".strip()
-        wrapped = wrap_latex_delimiters(tex, display_block=display_block)
+    batch = _MathExportBatch(ctx) if ctx else None
+    try:
+        for placeholder, starmath, display_block in math_records:
+            res = batch.convert_starmath_to_latex(starmath) if (batch and starmath) else None
+            wrapped = _formula_replacement(res, starmath, display_block=display_block)
 
-        code = ord(placeholder)
-        for target in (placeholder, f"&#x{code:x};", f"&#x{code:X};", f"&#{code};"):
-            if target in content:
-                content = content.replace(target, wrapped)
+            code = ord(placeholder)
+            for target in (placeholder, f"&#x{code:x};", f"&#x{code:X};", f"&#{code};"):
+                if target in content:
+                    content = content.replace(target, wrapped)
+    finally:
+        if batch is not None:
+            batch.close()
     return content
 
 
 def inject_exported_math_tex(model: Any, ctx: Any, content: str) -> str:
     """Replace formula OLE holes with delimited TeX for the model/chat.
 
-    Failures stay in the HTML as a visible fallback; never drop formulas.
+    Failures stay as <span data-math-export-error="…"> StarMath (never $…$).
     """
     if not content or model is None or ctx is None:
         return content
@@ -461,6 +516,7 @@ class _MathExportBatch:
         self._doc: Any = None
         self._temp_path: str | None = None
         self._temp_url: str | None = None
+        self._cache: dict[str, MathExportResult] = {}
 
     def _ensure_doc(self) -> Any:
         if self._doc is None:
@@ -477,6 +533,14 @@ class _MathExportBatch:
         return self._doc
 
     def convert_starmath_to_latex(self, starmath: str) -> MathExportResult:
+        key = (starmath or "").strip()
+        cached = self._cache.get(key)
+        if cached is None:
+            cached = self._convert_uncached(starmath)
+            self._cache[key] = cached
+        return cached
+
+    def _convert_uncached(self, starmath: str) -> MathExportResult:
         doc = self._ensure_doc()
         if doc is None or not self._temp_path or not self._temp_url:
             return convert_starmath_to_latex(self.ctx, starmath)
@@ -547,6 +611,7 @@ def _build_hit(
         error_message=err,
         display_block=display_block,
         para_index=para_index,
+        embed_name=math_embed_name(embed),
     )
 
 

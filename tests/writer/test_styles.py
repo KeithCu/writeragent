@@ -1381,3 +1381,126 @@ def test_apply_style_merge_reports_ors_capture_incomplete():
     merged_clean = ApplyStyle._merge_reports([rep1, {}])
     assert "capture_incomplete" not in merged_clean
 
+
+def test_copy_direct_style_properties_reraises_disposed():
+    from types import SimpleNamespace
+
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.styles import _copy_direct_style_properties
+
+    DisposedEx = type("DisposedException", (Exception,), {})
+    props = [SimpleNamespace(Name="CharWeight", Attributes=0)]
+
+    source = MagicMock()
+    source.getPropertySetInfo.side_effect = DisposedEx("gone")
+    with pytest.raises(DocumentDisposedError):
+        _copy_direct_style_properties(source, MagicMock())
+
+    source = MagicMock()
+    source.getPropertySetInfo.return_value.getProperties.return_value = props
+    source.getPropertyState.side_effect = DisposedEx("gone")
+    with pytest.raises(DocumentDisposedError):
+        _copy_direct_style_properties(source, MagicMock())
+
+    source = MagicMock()
+    source.getPropertySetInfo.return_value.getProperties.return_value = props
+    source.getPropertyState.return_value = SimpleNamespace(value="DIRECT_VALUE")
+    source.getPropertyValue.return_value = 150
+    dest = MagicMock()
+    dest.setPropertyValue.side_effect = DisposedEx("gone")
+    with pytest.raises(DocumentDisposedError):
+        _copy_direct_style_properties(source, dest)
+
+    # Ordinary failures stay best-effort.
+    source = MagicMock()
+    source.getPropertySetInfo.return_value.getProperties.return_value = props
+    source.getPropertyState.side_effect = RuntimeError("no such property")
+    copied, skipped = _copy_direct_style_properties(source, MagicMock())
+    assert copied == [] and skipped == ["CharWeight"]
+
+
+def test_clone_text_style_parent_read_reraises_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.styles import _clone_text_style
+
+    DisposedEx = type("DisposedException", (Exception,), {})
+    source = MagicMock()
+    source.getParentStyle.side_effect = DisposedEx("gone")
+    doc = MagicMock()
+    doc.createInstance.return_value = MagicMock()
+    with pytest.raises(DocumentDisposedError):
+        _clone_text_style(doc, "CharacterStyles", source, "New", MagicMock())
+
+
+def test_style_update_snapshot_reraises_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    DisposedEx = type("DisposedException", (Exception,), {})
+
+    style = MagicMock()
+    style.getParentStyle.side_effect = DisposedEx("gone")
+    fam = _style_family({"MyStyle": style, "Standard": MagicMock()})
+    ctx = _ctx_with_families(ParagraphStyles=fam)
+    with pytest.raises(DocumentDisposedError):
+        StyleUpdate().execute(ctx, style="MyStyle", parent_style="Standard", property_updates={})
+
+    style = MagicMock()
+    style.getParentStyle.side_effect = ["Standard", DisposedEx("gone")]
+    fam = _style_family({"MyStyle": style, "Standard": MagicMock()})
+    ctx = _ctx_with_families(ParagraphStyles=fam)
+    with pytest.raises(DocumentDisposedError):
+        StyleUpdate().execute(ctx, style="MyStyle", parent_style="Standard", property_updates={})
+
+
+def test_style_list_reraises_disposed_on_category_and_parent():
+    from plugin.framework.errors import DocumentDisposedError
+
+    DisposedEx = type("DisposedException", (Exception,), {})
+
+    def get_prop(name):
+        if name == "Category":
+            raise DisposedEx("gone")
+        return {"IsPhysical": True, "Hidden": False}.get(name)
+
+    style = MagicMock()
+    style.isInUse.return_value = False
+    style.isUserDefined.return_value = False
+    style.getPropertyValue.side_effect = get_prop
+    ctx = _ctx_with_families(ParagraphStyles=_style_family({"StyleA": style}))
+    with pytest.raises(DocumentDisposedError):
+        StyleList().execute(ctx, family="ParagraphStyles")
+
+    style = create_mock_style("StyleB", is_in_use=True)
+    style.getParentStyle.side_effect = DisposedEx("gone")
+    ctx = _ctx_with_families(CharacterStyles=_style_family({"StyleB": style}))
+    with pytest.raises(DocumentDisposedError):
+        StyleList().execute(ctx, family="CharacterStyles")
+
+
+def test_read_helpers_reraise_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.styles import _get_bool_prop, _missing_style_error, _struct_to_json
+
+    DisposedEx = type("DisposedException", (Exception,), {})
+
+    obj = MagicMock()
+    obj.getPropertyValue.side_effect = DisposedEx("gone")
+    with pytest.raises(DocumentDisposedError):
+        _get_bool_prop(obj, "Hidden")
+
+    obj.getPropertyValue.side_effect = RuntimeError("no such property")
+    assert _get_bool_prop(obj, "Hidden", True) is True
+
+    fam = MagicMock()
+    fam.getElementNames.side_effect = DisposedEx("gone")
+    with pytest.raises(DocumentDisposedError):
+        _missing_style_error(StyleUpdate(), "X", "ParagraphStyles", fam)
+
+    class _BoomStruct:
+        @property
+        def Color(self):
+            raise DisposedEx("gone")
+
+    with pytest.raises(DocumentDisposedError):
+        _struct_to_json("com.sun.star.table.BorderLine2", _BoomStruct())
+

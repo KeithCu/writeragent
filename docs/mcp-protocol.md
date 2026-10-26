@@ -677,7 +677,7 @@ Early REST sketch: thin HTTP server reusing `execute_tool()` / Calc / Draw helpe
 When the MCP server is enabled, external clients will see all tools that WriterAgent exposes
 to its own embedded AI:
 
-**Writer**: `get_document_content` (`scope`, `max_chars`, `start`/`end`, `include_images` — default strips inline `data:image` base64), `apply_document_content`, `find_text`,
+**Writer**: `get_document_content` (`scope`, `max_chars`, `start`/`end`, `include_images` — default strips inline `data:image` base64; `start`/`end` are plain-text offsets in the `document_length` space; `max_chars` counts returned HTML), `apply_document_content`, `find_text`,
 `style_list`, `style_get_info`, `comment_list`, `add_comment`, `comment_delete`,
 `track_changes_start` / `stop` / `list` / `show`, `manage_tracked_changes`,
 `table_list`, `table_get_cells`, `table_set_cell`,

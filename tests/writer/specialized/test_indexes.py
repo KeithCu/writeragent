@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 
 
@@ -178,6 +178,26 @@ def test_indexes_list_bibliography_via_service_name():
     assert res["indexes"][0]["type"] == "bibliography"
 
 
+def test_indexes_list_survives_an_unreadable_title():
+    tool = IndexesList()
+    ctx = MagicMock()
+    indexes_mock = MagicMock()
+    ctx.doc.getDocumentIndexes.return_value = indexes_mock
+    indexes_mock.getCount.return_value = 1
+    idx = MagicMock()
+    idx.getName.return_value = "Index1"
+    type(idx).Title = PropertyMock(side_effect=RuntimeError("dead"))
+    idx.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    indexes_mock.getByIndex.return_value = idx
+
+    res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    assert res["count"] == 1
+    assert res["indexes"][0]["name"] == "Index1"
+    assert res["indexes"][0]["title"] == ""
+    assert res["indexes"][0]["type"] == "toc"
+
+
 def test_indexes_create():
     tool = IndexesCreate()
     ctx = MagicMock()
@@ -309,6 +329,46 @@ def test_indexes_list_cites_filters_bibliography_fields():
     assert cite["bibliographic_type"] == 1
     assert cite["location"] == "body"
     assert cite["presentation"] == "[Smith2024]"
+
+
+def test_list_cites_fields_read_disposal_is_document_disposed():
+    class DisposedException(Exception):
+        pass
+
+    tool = IndexesListCites()
+    ctx = MagicMock()
+    fields_enum = MagicMock()
+    cite_field = MagicMock()
+    cite_field.supportsService.side_effect = lambda name: "Bibliography" in name
+    cite_field.getPropertyValue.side_effect = DisposedException("gone")
+
+    fields_enum.hasMoreElements.side_effect = [True, False]
+    fields_enum.nextElement.side_effect = [cite_field]
+    ctx.doc.getTextFields.return_value.createEnumeration.return_value = fields_enum
+
+    res = tool.execute_safe(ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_list_cites_plain_runtime_error_still_degrades():
+    tool = IndexesListCites()
+    ctx = MagicMock()
+    fields_enum = MagicMock()
+    cite_field = MagicMock()
+    cite_field.supportsService.side_effect = lambda name: "Bibliography" in name
+    cite_field.getPropertyValue.side_effect = RuntimeError("transient failure")
+    cite_field.getPresentation.return_value = ""
+
+    fields_enum.hasMoreElements.side_effect = [True, False]
+    fields_enum.nextElement.side_effect = [cite_field]
+    ctx.doc.getTextFields.return_value.createEnumeration.return_value = fields_enum
+
+    with patch("plugin.writer.search.describe_match_location", return_value="unknown"):
+        res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    assert res["count"] == 1
+    assert res["cites"][0]["fields"] == {}
 
 
 def test_indexes_create_and_mark_shortened_params():
@@ -884,6 +944,149 @@ def test_list_toc_entries_enumeration_failure_is_not_empty():
     res = tool.execute_safe(ctx)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_list_toc_entries_has_more_elements_disposal_is_document_disposed():
+    class DisposedException(Exception):
+        pass
+
+    tool = IndexesListTocEntries()
+    ctx, _doc, idx, _mgr = _one_toc_context()
+    anchor = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = DisposedException("gone")
+    anchor.getText.return_value.createEnumeration.return_value = enum
+    idx.getAnchor.return_value = anchor
+    res = tool.execute_safe(ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_list_toc_entries_containment_disposal_is_document_disposed():
+    class DisposedException(Exception):
+        pass
+
+    class _DisposedIndexText:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def createEnumeration(self):
+            return _ElementEnum(self.rows)
+
+        def compareRegionStarts(self, _outer_start, _inner_start):
+            raise DisposedException("gone")
+
+        def compareRegionEnds(self, _inner_end, _outer_end):
+            return 0
+
+    tool = IndexesListTocEntries()
+    ctx, _doc, idx, _mgr = _one_toc_context()
+    para = _IndexPara("Alpha", "Contents 1", (), True)
+    text = _DisposedIndexText([para])
+    anchor = MagicMock()
+    anchor.getText.return_value = text
+    idx.getAnchor.return_value = anchor
+    res = tool.execute_safe(ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_toc_entry_tools_reject_non_integer_occurrence_index_and_level():
+    ctx, _doc, idx, _mgr = _one_toc_context()
+    anchor = MagicMock()
+    idx.getAnchor.return_value = anchor
+
+    del_tool = IndexesDeleteTocEntry()
+    res = del_tool.execute(ctx, old_content="Alpha", occurrence="bad")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    res = del_tool.execute(ctx, old_content="Alpha", occurrence=True)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    res = del_tool.execute(ctx, old_content="Alpha", index="0")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    ref_tool = IndexesRefreshTocEntry()
+    res = ref_tool.execute(ctx, old_content="Alpha", content="Beta", occurrence="bad")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    res = ref_tool.execute(ctx, old_content="Alpha", content="Beta", occurrence=True)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    res = ref_tool.execute(ctx, old_content="Alpha", content="Beta", index="0")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    ins_tool = IndexesInsertTocEntry()
+    res = ins_tool.execute(ctx, content="Beta", position="before", old_content="Alpha", occurrence="bad")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    res = ins_tool.execute(ctx, content="Beta", position="before", old_content="Alpha", occurrence=True)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    res = ins_tool.execute(ctx, content="Beta", index="0")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    res = ins_tool.execute(ctx, content="Beta", level="1")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    res = ins_tool.execute(ctx, content="Beta", level=True)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+
+def test_paragraphs_in_anchor_stops_at_the_anchor_end():
+    from plugin.writer.specialized.indexes import _paragraphs_in_anchor
+
+    p1 = _IndexPara("Entry 1", "Contents 1", (), True)
+    p2 = _IndexPara("Entry 2", "Contents 1", (), True)
+    p_past = _IndexPara("Entry 3", "Contents 1", (), False)
+
+    class _SentinelPara:
+        def getString(self):
+            raise AssertionError("Enumeration did not stop at anchor end")
+
+        def getStart(self):
+            return _Point(self)
+
+        def getEnd(self):
+            return _Point(self)
+
+    p_sentinel = _SentinelPara()
+    anchor_end = _Point(None)
+
+    class _EndBoundText:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def createEnumeration(self):
+            return _ElementEnum(self.rows)
+
+        def compareRegionStarts(self, start1, start2):
+            if start2 is anchor_end:
+                return 1 if start1.para is p_past else 0
+            return 0 if getattr(start2.para, "inside", False) else -1
+
+        def compareRegionEnds(self, inner_end, _outer_end):
+            return 0 if getattr(inner_end.para, "inside", False) else -1
+
+    text = _EndBoundText([p1, p2, p_past, p_sentinel])
+    anchor = MagicMock()
+    anchor.getText.return_value = text
+    anchor.getStart.return_value = _Point(None)
+    anchor.getEnd.return_value = anchor_end
+
+    rows = _paragraphs_in_anchor(anchor)
+    assert rows == [p1, p2]
 
 
 def test_indexes_add_mark_text_failure_does_not_insert():

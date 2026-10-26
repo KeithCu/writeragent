@@ -30,6 +30,29 @@ def test_extract_and_strip_ruby_under_and_rp():
     assert spans == [("東京", "とうきょう", False, 0)]
 
 
+def test_extract_and_strip_ruby_position_ignores_unrelated_attrs():
+    html = '<ruby class="thunder">東京<rt>とうきょう</rt></ruby>'
+    clean, spans = extract_and_strip_ruby(html)
+    assert clean == "東京"
+    assert len(spans) == 1
+    assert spans[0].is_above is True
+
+
+def test_extract_and_strip_ruby_unbalanced_ruby_has_no_spans():
+    html = "<ruby>漢字<rt>かんじ</rt>" * 2000
+    clean, spans = extract_and_strip_ruby(html)
+    assert spans == []
+    assert "<rt>" not in clean
+    assert "かんじ" not in clean
+
+
+def test_extract_and_strip_ruby_uppercase_tags():
+    html = "<RUBY>漢字<RT>かんじ</RT></RUBY>"
+    clean, spans = extract_and_strip_ruby(html)
+    assert clean == "漢字"
+    assert spans == [("漢字", "かんじ", True, 0)]
+
+
 def test_extract_and_strip_ruby_noop():
     html = "<p>plain</p>"
     clean, spans = extract_and_strip_ruby(html)
@@ -124,6 +147,33 @@ def test_ruby_readings_stay_on_their_own_repeated_base():
     _apply_ruby_spans(text, spans)
     painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
     assert painted == [(0, 2, "いち"), (2, 4, "に")]
+
+
+def test_ruby_offset_counts_br_before_the_base():
+    html = "<p>漢字<br>x<ruby>漢字<rt>かんじ</rt></ruby></p>"
+    clean, spans = extract_and_strip_ruby(html)
+    assert clean == "<p>漢字<br>x漢字</p>"
+    assert spans == [("漢字", "かんじ", True, len("漢字\nx"))]
+    text = _RubyText("漢字\nx漢字")
+    _apply_ruby_spans(text, spans)
+    painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
+    assert painted == [(4, 6, "かんじ")]
+
+
+def test_ruby_offset_counts_paragraph_end():
+    html = "<p>a</p><p><ruby>漢字<rt>かんじ</rt></ruby></p>"
+    clean, spans = extract_and_strip_ruby(html)
+    assert clean == "<p>a</p><p>漢字</p>"
+    assert spans == [("漢字", "かんじ", True, len("a\n"))]
+
+
+def test_ruby_repeated_base_after_br_keeps_own_reading():
+    html = "<p><ruby>漢字<rt>いち</rt></ruby>漢字<br><ruby>漢字<rt>に</rt></ruby></p>"
+    _clean, spans = extract_and_strip_ruby(html)
+    text = _RubyText("漢字漢字\n漢字")
+    _apply_ruby_spans(text, spans)
+    painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
+    assert painted == [(0, 2, "いち"), (5, 7, "に")]
 
 
 def test_ruby_spans_forward_cursor_walk():
@@ -600,6 +650,31 @@ def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
     assert apply.call_args.args[2] == "Standard"
 
 
+def test_apply_block_lo_styles_skips_when_style_already_matches():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import_styles
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 1", "Standard"]
+    fam.hasByName.return_value = True
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = "Heading 1"
+    walk_cur.gotoNextParagraph.return_value = False
+    text.createTextCursorByRange.return_value = walk_cur
+
+    from plugin.writer import format as format_mod
+    with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
+        html_import_styles._apply_block_lo_styles(
+            model, text, MagicMock(), ["Heading1"],
+        )
+    apply.assert_not_called()
+    walk_cur.gotoNextParagraph.assert_called_once_with(False)
+
+
 def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     """Imported at the start of the deleted text, the new paragraphs took its character formatting
     (an 18pt bold opening heading spread over the whole document)."""
@@ -718,6 +793,21 @@ def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
         _swap_image_placeholders(_graphics_doc(), '<p>Novo <img src=""/> texto</p>')
 
 
+@pytest.mark.parametrize("markup", [
+    "<p>Novo <img src=''/> texto</p>",
+    '<p>Novo <img src = ""> texto</p>',
+    '<span id="Selo"><img src=\'\'/></span>',
+])
+def test_swap_image_placeholders_refuses_non_canonical_empty_src(markup):
+    import pytest
+
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.image_placeholders import _swap_image_placeholders
+
+    with pytest.raises(ToolExecutionError, match="without its data"):
+        _swap_image_placeholders(_graphics_doc("Selo"), markup)
+
+
 def test_swap_image_placeholders_leaves_other_content_alone():
     from unittest.mock import MagicMock
 
@@ -793,6 +883,22 @@ def test_restore_image_placeholders_missing_marker_for_kept_original_does_not_ra
     model.createInstance.assert_not_called()
 
 
+def test_restore_image_placeholders_missing_marker_resolves_before_mutation():
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import image_placeholders
+
+    model = MagicMock()
+    found1 = MagicMock()
+    model.findFirst.side_effect = [found1, None]
+    kept = [_kept("AT_PARAGRAPH"), _kept("AT_PARAGRAPH")]
+    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True):
+        with pytest.raises(ToolExecutionError, match="'Assinatura'"):
+            image_placeholders._restore_image_placeholders(model, kept)
+    model.createInstance.assert_not_called()
+    found1.setString.assert_not_called()
+
+
 def test_deleted_by_the_edit():
     from types import SimpleNamespace
     from unittest.mock import MagicMock
@@ -801,11 +907,11 @@ def test_deleted_by_the_edit():
 
     gone = MagicMock()
     gone.getAnchor.side_effect = RuntimeError("disposed")
-    assert image_placeholders._deleted_by_the_edit(MagicMock(), gone) is True
+    assert image_placeholders._deleted_by_the_edit(MagicMock(), gone, "Picture 1") is True
 
     model = MagicMock()
     model.getPropertyValue.return_value = False  # review off: alive means still there
-    assert image_placeholders._deleted_by_the_edit(model, MagicMock()) is False
+    assert image_placeholders._deleted_by_the_edit(model, MagicMock(), "Picture 1") is False
 
     # Review on: an inline picture whose anchor sits inside a pending Delete went with it.
     model = MagicMock()
@@ -822,7 +928,7 @@ def test_deleted_by_the_edit():
     enum = model.getRedlines.return_value.createEnumeration.return_value
     enum.hasMoreElements.side_effect = [True, False]
     enum.nextElement.side_effect = [delete]
-    assert image_placeholders._deleted_by_the_edit(model, original) is True
+    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
 
 
 def test_deleted_by_the_edit_name_guard(caplog):
@@ -1147,24 +1253,30 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     assert _resolve_paragraph_style_token(MagicMock(), fam, "Heading1") == "Heading 1"
 
 
-def test_resolve_style_name():
+def test_resolve_paragraph_style_token_fallback_and_disposal():
     from unittest.mock import MagicMock
-    from plugin.writer.html_import_styles import _resolve_style_name
+    import pytest
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.html_import_styles import _resolve_paragraph_style_token
 
+    class DisposedException(Exception):
+        pass
+
+    # (i) Case-insensitive fallback
     fam = MagicMock()
-    fam.hasByName.side_effect = lambda name: name == "Heading 1"
     fam.getElementNames.return_value = ("Heading 1", "Standard")
-    families = MagicMock()
-    families.getByName.return_value = fam
-    model = MagicMock()
-    model.getStyleFamilies.return_value = families
+    fam.hasByName.return_value = True
+    assert _resolve_paragraph_style_token(MagicMock(), fam, "heading 1") == "Heading 1"
 
-    # Exact match
-    assert _resolve_style_name(model, "Heading 1") == "Heading 1"
-    # Case-insensitive match
-    assert _resolve_style_name(model, "heading 1") == "Heading 1"
-    # Fallback to input string on unknown style
-    assert _resolve_style_name(model, "UnknownStyle") == "UnknownStyle"
+    # (ii) Unknown fallback
+    fam.hasByName.return_value = False
+    assert _resolve_paragraph_style_token(MagicMock(), fam, "heading 1") == "Standard"
+
+    # (iii) DisposedException on hasByName
+    fam.getElementNames.return_value = []
+    fam.hasByName.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        _resolve_paragraph_style_token(MagicMock(), fam, "heading 1")
 
 
 def test_styled_math_insert_styles_from_paragraph_before_insert():
@@ -1205,6 +1317,10 @@ def test_content_has_block_markup_whitespace_and_inline_tags():
     assert _content_has_block_markup("<span>") is False
     assert _content_has_block_markup("<param>") is False
     assert _content_has_block_markup("List<String>") is False
+    assert _content_has_block_markup("<dl><dt>x</dt></dl>") is True
+    assert _content_has_block_markup("<figure></figure>") is True
+    assert _content_has_block_markup("<header>h</header>") is True
+    assert _content_has_block_markup("<span>a<br>b</span>") is False
 
 
 def test_collect_range_portions_magic_mock_returns_immediately():
@@ -1215,85 +1331,4 @@ def test_collect_range_portions_magic_mock_returns_immediately():
     assert has_special is False
     assert portions == []
 
-
-def test_restore_fields_by_cursor_single_walk_reverse_order():
-    """Restore multiple field tokens in a single portion enumeration walk in reverse order."""
-    from unittest.mock import MagicMock, patch
-    from plugin.writer.field_restore import _restore_fields_by_cursor
-
-    nonce = "test1234"
-    tok1 = f"[[WA-FIELD:{nonce}:page-number]]"
-    tok2 = f"[[WA-FIELD:{nonce}:date]]"
-    full_str = f"Page {tok1} on {tok2}"
-
-    class _Portion:
-        def __init__(self, s):
-            self.s = s
-
-        def getPropertyValue(self, name):
-            assert name == "TextPortionType"
-            return "Text"
-
-        def getString(self):
-            return self.s
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
-    class _Para:
-        def createEnumeration(self):
-            return _Enum([_Portion(f"Page {tok1} "), _Portion(f"on {tok2}")])
-
-    class _Text:
-        def __init__(self):
-            self.plain = full_str
-            self.enum_calls = 0
-
-        def getString(self):
-            return self.plain
-
-        def createEnumeration(self):
-            self.enum_calls += 1
-            return _Enum([_Para()])
-
-    text = _Text()
-    model = MagicMock()
-    inserted_titles = []
-
-    def _inserted(unused_model, cursor, title, *args):
-        inserted_titles.append(title)
-        return True
-
-    with (
-        patch("plugin.writer.field_restore._cursor_over") as mock_cursor_over,
-        patch("plugin.writer.field_restore._insert_restored_field", side_effect=_inserted),
-    ):
-        mock_cursor_over.side_effect = lambda _txt, _off, tok: MagicMock()
-        restored = _restore_fields_by_cursor(model, text, nonce=nonce)
-
-    assert restored == 2
-    assert text.enum_calls == 1
-    assert inserted_titles == ["date", "page-number"]
-
-
-def test_restore_field_placeholders_skips_when_prefix_absent():
-    """When the field token prefix is absent from plain text, return 0 without enumeration."""
-    from unittest.mock import MagicMock
-    from plugin.writer.field_restore import _restore_field_placeholders
-
-    text = MagicMock()
-    text.getString.return_value = "No fields here"
-    model = MagicMock()
-
-    restored = _restore_field_placeholders(model, text, nonce="abc123")
-    assert restored == 0
-    text.createEnumeration.assert_not_called()
-    model.createSearchDescriptor.assert_not_called()
 

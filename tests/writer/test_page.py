@@ -708,6 +708,38 @@ def test_set_style_properties_refuses_header_off_when_read_fails(broken):
     style.setPropertyValue.assert_not_called()
 
 
+def test_scan_region_skips_table_element_and_marks_has_table():
+    doc = MagicMock()
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.createEnumeration.side_effect = AttributeError("no enumeration")
+    text_obj = MagicMock()
+    text_obj.getString.return_value = ""
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([table])
+    scan = _scan_region_content(doc, text_obj, strict=True)
+    assert scan["has_table"] is True
+    assert scan["paragraph_count"] == 1
+    assert _region_holds_content(doc, text_obj) is True
+
+
+def test_set_style_properties_refuses_table_only_header_with_content_message():
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.createEnumeration.side_effect = AttributeError("no enumeration")
+    text_obj = MagicMock()
+    text_obj.getString.return_value = ""
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([table])
+    doc, _style = _page_style_doc(text_obj)
+    res = PageSetStyleProperties().execute(
+        TestingFactory.create_context(doc=doc, doc_type="writer"),
+        style="Standard",
+        header_is_on=False,
+    )
+    assert res["status"] == "error"
+    assert "still has content" in res["message"]
+    assert "reading" not in res["message"]
+
+
 def test_disable_guard_refuses_when_region_text_unreadable():
     doc, style = _page_style_doc(_empty_text_obj())
     style.getPropertyValue.side_effect = RuntimeError("no HeaderText")
@@ -1041,7 +1073,7 @@ def test_page_break_restart_rejects_non_positive():
             restart_page_number=val,
         )
         assert res["status"] == "error"
-        assert res["message"] == "restart_page_number must be an integer >= 1."
+        assert res["message"] == "restart_page_number must be an integer from 1 to 32767."
         para.setPropertyValue.assert_not_called()
 
 
@@ -1332,6 +1364,17 @@ def test_replace_header_footer_counts_a_field_as_one_cursor_step():
     assert seen[0].anchor == 11
 
 
+def test_replace_header_footer_emoji_all_matches_uses_cursor_indexes():
+    hay = "😀 x 😀 y 😀"
+    portions = [_text_portion(hay)]
+    doc, text_obj = _replace_doc(portions, hay=hay)
+    seen = _cursors_for(text_obj, hay)
+    res = _replace(doc, old_content="😀", content="🎉", all_matches=True)
+    assert res["status"] == "ok", res
+    assert [c.anchor for c in seen] == [0, 4, 8]
+    assert res["replaced_count"] == 3
+
+
 def test_replace_header_footer_refuses_character_anchored_image():
     from com.sun.star.text.TextContentAnchorType import AT_CHARACTER
 
@@ -1592,12 +1635,6 @@ def test_anchor_point_on_first_character_blocks():
         return 0
     text.compareRegionStarts.side_effect = cmp_before
     assert _anchor_point_in_match(text, anchor, cursor) is False
-
-
-def test_uno_len_emoji():
-    from plugin.writer.page import _uno_len
-    assert _uno_len("A😀") == 3
-    assert _uno_len("A") == 1
 
 
 def test_lower_keeps_length_name():

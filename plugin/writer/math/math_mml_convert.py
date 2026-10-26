@@ -29,9 +29,8 @@ _PARAGRAPH_BREAK = 0
 # com.sun.star.text.TextContentAnchorType.AS_CHARACTER (inline / in-flow)
 _ANCHOR_AS_CHARACTER = 1
 
-# com.sun.star.style.ParagraphAdjust (CENTER=3, LEFT=0)
+# com.sun.star.style.ParagraphAdjust (CENTER=3)
 _PARA_CENTER = 3
-_PARA_LEFT = 0
 
 
 @dataclass(frozen=True)
@@ -176,10 +175,14 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
     """Insert a Writer formula object at *cursor* and leave the cursor after it.
 
     *display_block*: surround the object with paragraph breaks so it occupies
-    its own paragraph (display-style math) and center the formula paragraph.
+    its own paragraph (display-style math); the formula paragraph is centered
+    and the following paragraph keeps its previous alignment.
     """
     # The cursor's own text: a formula in a frame, cell or header goes into that text, not the body.
     text = cursor.getText()
+    # The break below copies this value into the new paragraph; restore it after
+    # the second break so the text after the formula keeps its own alignment.
+    para_adjust = cursor.getPropertyValue("ParaAdjust") if display_block else None
     # insertControlCharacter already leaves the cursor after the
     # paragraph break. A following goRight(1) is a no-op at the end of
     # the text (the only place display math used to land, while inserts
@@ -201,7 +204,7 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
 
     if display_block:
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        cursor.setPropertyValue("ParaAdjust", _PARA_LEFT)
+        cursor.setPropertyValue("ParaAdjust", para_adjust)
 
 
 def replace_writer_math_formula(embed: Any, starmath: str) -> None:

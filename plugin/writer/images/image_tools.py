@@ -86,17 +86,18 @@ def _safe_try_method(obj: Any, method_name: str, *args: Any) -> bool:
     return visual_helpers.safe_try_method(obj, method_name, *args)
 
 
-def _apply_graphic_properties(graphic: Any, *, width: int, height: int, title: str, description: str, anchor_type: Any = AS_CHARACTER, inside: str = "writer") -> None:
+def _apply_graphic_properties(graphic: Any, *, width: int | None = None, height: int | None = None, title: str, description: str, anchor_type: Any = AS_CHARACTER, inside: str = "writer") -> None:
     # Never use hasattr(graphic, "PropName") — PyUNO raises UnknownPropertyException.
-    if inside in ("writer", "web"):
+    if anchor_type is not None and inside in ("writer", "web"):
         _safe_set_property(graphic, "AnchorType", anchor_type)
-    size = Size(width, height)
-    if _has_uno_property(graphic, "Width") and _has_uno_property(graphic, "Height"):
-        _safe_set_property(graphic, "Width", width)
-        _safe_set_property(graphic, "Height", height)
-    elif not _safe_set_property(graphic, "Size", size):
-        if not _safe_try_method(graphic, "setSize", size):
-            log.debug("_apply_graphic_properties: could not set size %dx%d", width, height)
+    if width is not None and height is not None:
+        size = Size(width, height)
+        if _has_uno_property(graphic, "Width") and _has_uno_property(graphic, "Height"):
+            _safe_set_property(graphic, "Width", width)
+            _safe_set_property(graphic, "Height", height)
+        elif not _safe_set_property(graphic, "Size", size):
+            if not _safe_try_method(graphic, "setSize", size):
+                log.debug("_apply_graphic_properties: could not set size %dx%d", width, height)
     if title:
         _safe_set_property(graphic, "Title", title)
     if description:
@@ -440,24 +441,38 @@ def _insert_writer_graphic(
     text_container: Any = None,
 ) -> Any:
     linking = _should_link_image_path(img_path)
+    restore_view = None
     if linking and text_cursor is not None:
+        restore_view = best_effort(
+            model.CurrentController.ViewCursor.getStart,
+            "_insert_writer_graphic: could not read view cursor",
+            default=None,
+        )
         if not _place_view_cursor_at_text_range(model, text_cursor):
             linking = False
 
     if linking:
-        file_url = _file_url_for_path(img_path)
-        graphic = _dispatch_insert_linked_graphic(ctx, model, file_url)
-        if graphic is not None:
-            _apply_graphic_properties(
-                graphic,
-                width=width,
-                height=height,
-                title=title,
-                description=description,
-                inside="writer",
-            )
-            return graphic
-        log.debug("_insert_writer_graphic: linked dispatch failed, embedding")
+        try:
+            file_url = _file_url_for_path(img_path)
+            graphic = _dispatch_insert_linked_graphic(ctx, model, file_url)
+            if graphic is not None:
+                _apply_graphic_properties(
+                    graphic,
+                    width=width,
+                    height=height,
+                    title=title,
+                    description=description,
+                    inside="writer",
+                )
+                return graphic
+            log.debug("_insert_writer_graphic: linked dispatch failed, embedding")
+        finally:
+            if restore_view is not None:
+                best_effort(
+                    lambda: model.CurrentController.ViewCursor.gotoRange(restore_view, False),
+                    "_insert_writer_graphic: could not restore view cursor",
+                    default=False,
+                )
 
     return _insert_embedded_at_writer_cursor(
         model,
@@ -497,14 +512,8 @@ def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, 
     text_frame.setSize(frame_size)
     text_frame.setPropertyValue("AnchorType", AT_FRAME)
 
-    try:
-        host, text_cursor = _cursor_for_writer_view(view_cursor)
-        host.insertTextContent(text_cursor, text_frame, False)
-    except Exception as e:
-        log.debug("_insert_frame insertTextContent fallback: %s", e)
-        view_cursor.jumpToStartOfPage()
-        host, text_cursor = _cursor_for_writer_view(view_cursor)
-        host.insertTextContent(text_cursor, text_frame, False)
+    host, text_cursor = _cursor_for_writer_view(view_cursor)
+    host.insertTextContent(text_cursor, text_frame, False)
 
     frame_text = text_frame.getText()
     frame_cursor = frame_text.createTextCursor()
@@ -600,10 +609,6 @@ def replace_graphic_source(
     from plugin.doc.compound_undo import WriterCompoundUndo
 
     inside = get_type_doc(model)
-    if width_units is None or height_units is None:
-        size = graphic.getSize()
-        width_units = size.Width
-        height_units = size.Height
 
     with WriterCompoundUndo(model, "WriterAgent: Replace image"):
         file_url = _file_url_for_path(img_path)
@@ -615,54 +620,24 @@ def replace_graphic_source(
         if not placed:
             return False
 
-        if title is not None or description is not None:
-            _apply_graphic_properties(
-                graphic,
-                width=width_units,
-                height=height_units,
-                title=title or "",
-                description=description or "",
-                inside=inside,
-            )
-        else:
-            sz = Size(width_units, height_units)
-            if not _safe_set_property(graphic, "Size", sz):
-                _safe_try_method(graphic, "setSize", sz)
+        _apply_graphic_properties(
+            graphic,
+            width=width_units,
+            height=height_units,
+            title=title or "",
+            description=description or "",
+            anchor_type=None,
+            inside=inside,
+        )
+
+        # Clear stale crop: old crop belongs to the old picture.
+        if _has_uno_property(graphic, "GraphicCrop"):
+            crop = visual_helpers.safe_get_property(graphic, "GraphicCrop")
+            if crop is not None and (crop.Top or crop.Bottom or crop.Left or crop.Right):
+                crop.Top = crop.Bottom = crop.Left = crop.Right = 0
+                _safe_set_property(graphic, "GraphicCrop", crop)
+
         return True
-
-def _get_selected_graphic_object(model: Any) -> tuple[Any | None, str | None]:
-    """
-    If the current selection is a single graphic, return (content, doc_type).
-    Writer: content is XTextContent (GraphicObject); Calc/Draw: content is XShape (GraphicObjectShape).
-    Otherwise return (None, None).
-    """
-    obj = _selection_graphic_object(model)
-    if obj is None:
-        return None, None
-    return obj, get_type_doc(model)
-
-
-def replace_image_in_place(ctx: Any, model: Any, img_path: str, width_px: int, height_px: int, title: str = "", description: str = "", add_to_gallery: bool = True) -> bool:
-    """If the current selection is a single graphic, replace it with the new image and return True.
-
-    Otherwise return False (caller should fall back to insert_image).
-    """
-    obj, _inside = _get_selected_graphic_object(model)
-    if obj is None:
-        return False
-    # Same cap as insert_image: generate pixels must not become page mm.
-    width_units, height_units = visual_helpers.px_to_display_units(width_px, height_px)
-    try:
-        if replace_graphic_source(ctx, model, obj, img_path, width_units, height_units, title, description):
-            if add_to_gallery:
-                add_image_to_gallery(ctx, img_path)
-            return True
-        return False
-    except Exception:
-        log.exception("Replace image in place failed")
-        return False
-
-
 
 
 def _graphic_from_object(obj: Any) -> Any | None:

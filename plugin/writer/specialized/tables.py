@@ -11,7 +11,7 @@ import logging
 from typing import Any
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
-from plugin.framework.errors import is_disposed_exception, uno_probe
+from plugin.framework.errors import is_disposed_exception, make_tool_error, uno_probe
 
 from ..range_copy import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
@@ -21,7 +21,7 @@ from ..table_nesting import (
     cell_plain_siblings,
     set_host_paragraphs,
 )  # LibrePy-shipped; do not invert
-from plugin.framework.uno_context import resolve_uno_context
+from plugin.framework.uno_context import resolve_uno_context, uno_same
 
 log = logging.getLogger("writeragent.writer.specialized.tables")
 
@@ -59,17 +59,17 @@ def _get_table(doc: Any, name: str) -> Any:
     return tables.getByName(name)
 
 
-def _resolve_cell_name(table: Any, raw: str) -> str | None:
+def _resolve_cell_name(raw: str, names: list[str]) -> str | None:
     """Match a user-supplied cell address against the table's REAL cell names.
 
     Exact match first, then the uppercased form — NEVER a blind upper rewrite: on a >26-column
     table 'a1' (Writer's real name for column 27) and 'A1' are DIFFERENT cells, and upping the
     input would silently write the wrong one."""
-    names = set(table.getCellNames())
-    if raw in names:
+    name_set = set(names)
+    if raw in name_set:
         return raw
     up = raw.upper()
-    if up in names:
+    if up in name_set:
         return up
     return None
 
@@ -160,13 +160,25 @@ def _writer_nesting(
     return child_nesting, hosted, cell_counts
 
 
-def _nesting_for(doc: Any, name: str) -> dict[str, Any]:
-    """Direct-parent nesting dict for one table name (missing -> not nested)."""
-    # TODO: Optimize single-table nesting check via table.getAnchor().getText() (cell vs body)
-    # to avoid full-document _writer_nesting scan (O(all cells)). A native probe of
-    # anchor CellName / cursor TextTable failed in CI, so keep the scan until that is understood.
-    nesting_by_name = _writer_nesting(doc)[0]
-    return nesting_by_name.get(name, _not_nested())
+def _table_parent(doc: Any, table: Any) -> dict[str, Any] | None:
+    """Nesting from the anchor XText: ``_not_nested()`` when it is the body.
+
+    None means the anchor lives in another XText (cell, frame, header) or cannot be
+    read, so the caller keeps the cell walk. PyUNO hands out distinct wrappers for
+    one UNO object, so compare with ``uno_same``, never ``is``.
+    """
+    def probe() -> dict[str, Any] | None:
+        anchor_text = table.getAnchor().getText()
+        return _not_nested() if uno_same(anchor_text, doc.getText()) else None
+    return uno_probe(probe, None)
+
+
+def _nesting_for(doc: Any, table: Any, name: str) -> dict[str, Any]:
+    """Direct-parent nesting dict for one table (full cell walk only when nested)."""
+    parent = _table_parent(doc, table)
+    if parent is not None:
+        return parent
+    return _writer_nesting(doc)[0].get(name, _not_nested())
 
 
 def _is_wrong_start_node(exc: BaseException) -> bool:
@@ -215,33 +227,31 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
     previous = uno_probe(lambda: controller.getSelection(), None)
     before = doc.getRedlines().getCount()
     controller.select(table)
-    helper = uno_ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
-    helper.executeDispatch(controller.getFrame(), ".uno:DeleteTable", "", 0, ())
-
-    recorded = doc.getRedlines().getCount() > before
     try:
-        for cell_name in empty_cells:
-            cell = table.getCellByName(cell_name)
-            if cell.getString() == _EMPTY_ROW_ANCHOR:
-                cursor = cell.createTextCursor()
-                cursor.gotoStart(False)
-                cursor.goRight(1, True)
-                cursor.setString("")
-                recorded = True
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
-        # no-op after the dispose re-raise; non-dispose falls through
-
-    if previous is not None:
+        helper = uno_ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
+        helper.executeDispatch(controller.getFrame(), ".uno:DeleteTable", "", 0, ())
         try:
-            controller.select(previous)  # leave the user's cursor where it was
+            for cell_name in empty_cells:
+                cell = table.getCellByName(cell_name)
+                if cell.getString() == _EMPTY_ROW_ANCHOR:
+                    cursor = cell.createTextCursor()
+                    cursor.gotoStart(False)
+                    cursor.goRight(1, True)
+                    cursor.setString("")
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
-            log.debug("table_delete: could not restore the previous selection", exc_info=True)
+            log.debug("table_delete: could not clear an empty-row anchor", exc_info=True)
+    finally:
+        if previous is not None:
+            try:
+                controller.select(previous)  # leave the user's cursor where it was
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+                log.debug("table_delete: could not restore the previous selection", exc_info=True)
 
-    if recorded or doc.getRedlines().getCount() > before:
+    if doc.getRedlines().getCount() > before:
         return
     if doc.getTextTables().hasByName(name):
         raise RuntimeError("the tracked delete did not run, so the table was left in place")
@@ -271,9 +281,9 @@ def record_table_deletions(session: Any, doc: Any, ctx: Any, doomed: list[tuple[
     one, and nesting would tag the same redlines twice.
     """
     tracked = False
-    uno_ctx = ctx.ctx
-    for table, name in doomed:
-        nesting = _nesting_for(doc, name)
+    uno_ctx = resolve_uno_context(ctx)
+    planned = [(table, name, _nesting_for(doc, table, name)) for table, name in doomed]
+    for table, name, nesting in planned:
 
         def _apply(table: Any = table, name: str = name, nesting: dict[str, Any] = nesting) -> None:
             nonlocal tracked
@@ -445,28 +455,25 @@ class TableGetCells(ToolWriterTableBase):
             # getColumns() is the first row's box count (SwXTableColumns::getCount),
             # so range(cols) skipped D2 after A1:D1 merge. getCellNames() is the list.
             all_cell_names = _writer_named_cells(table)
-            nested_in_cells: dict[str, list[str]] = {}
-            for cn in all_cell_names:
-                cell_obj = uno_probe(lambda: table.getCellByName(cn), _FAILED)
-                if cell_obj is _FAILED:
-                    continue
-                hosted = _cell_hosted_table_names(cell_obj)
-                if hosted:
-                    nested_in_cells[cn] = hosted
-
+            resolved = ""
             if cell_raw:
-                resolved = _resolve_cell_name(table, cell_raw)
-                if resolved is None:
+                match = _resolve_cell_name(cell_raw, all_cell_names)
+                if match is None:
                     return self._tool_error(_unknown_cell_message(cell_raw, name, all_cell_names))
+                resolved = match
                 cell_names = [resolved]
             else:
                 cell_names = all_cell_names
 
             cells: dict[str, str] = {}
+            nested_in_cells: dict[str, list[str]] = {}
             for cell_name in cell_names:
                 try:
                     c = table.getCellByName(cell_name)
-                    cells[cell_name] = _cell_matrix_text(c, hosted_tables=nested_in_cells.get(cell_name))
+                    hosted = _cell_hosted_table_names(c)
+                    if hosted:
+                        nested_in_cells[cell_name] = hosted
+                    cells[cell_name] = _cell_matrix_text(c, hosted_tables=hosted)
                 except Exception as exc:
                     # Per-cell read errors must not disappear into a bare continue.
                     # That also swallows document disposal. Re-raise disposal and log
@@ -486,11 +493,11 @@ class TableGetCells(ToolWriterTableBase):
                 "cols": cols,
                 "cell_names": list(cells.keys()),
                 "cells": cells,
-                "nesting": _nesting_for(ctx.doc, name),
+                "nesting": _nesting_for(ctx.doc, table, name),
                 "nested_in_cells": nested_in_cells,
             }
             if cell_raw:
-                payload["cell"] = next(iter(cells))
+                payload["cell"] = resolved
             return payload
         except ValueError as ve:
             return self._tool_error(str(ve))
@@ -541,10 +548,11 @@ class TableSetCell(ToolWriterTableBase):
             if not name:
                 return self._tool_error("name is required.")
             table = _get_table(ctx.doc, name)
-            cell_name = _resolve_cell_name(table, cell_raw)
+            names = _writer_named_cells(table)
+            cell_name = _resolve_cell_name(cell_raw, names)
             if cell_name is None:
                 return self._tool_error(
-                    _unknown_cell_message(cell_raw, name, _writer_named_cells(table))
+                    _unknown_cell_message(cell_raw, name, names)
                 )
             cell = table.getCellByName(cell_name)
             # setString wipes nested TextTables. Rewrite host paragraphs instead.
@@ -695,7 +703,6 @@ class TableInsert(ToolWriterTableBase):
             # already catches; this matches it.
             if _is_draw_doc(ctx.doc):
                 from plugin.draw.tables import insert_draw_table
-                from plugin.framework.errors import make_tool_error
 
                 if parent or cell_raw:
                     return self._tool_error("parent and cell are Writer-only (Draw has no nested text tables).")
@@ -735,10 +742,11 @@ class TableInsert(ToolWriterTableBase):
                 table.initialize(rows, columns)
                 if parent:
                     parent_table = _get_table(doc, parent)
-                    host_cell_name = _resolve_cell_name(parent_table, cell_raw) or ""
+                    names = _writer_named_cells(parent_table)
+                    host_cell_name = _resolve_cell_name(cell_raw, names) or ""
                     if not host_cell_name:
                         raise ValueError(
-                            _unknown_cell_message(cell_raw, parent, _writer_named_cells(parent_table))
+                            _unknown_cell_message(cell_raw, parent, names)
                         )
                     host = parent_table.getCellByName(host_cell_name)
                     # After existing cell text so setString-refuse still applies to the host.
@@ -813,7 +821,6 @@ class TableDelete(ToolWriterTableBase):
         try:
             if _is_draw_doc(ctx.doc):
                 from plugin.draw.tables import delete_draw_table
-                from plugin.framework.errors import make_tool_error
 
                 result = delete_draw_table(
                     ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index")
@@ -827,7 +834,7 @@ class TableDelete(ToolWriterTableBase):
             if not name:
                 return self._tool_error("name is required.")
             table = _get_table(ctx.doc, name)
-            nesting = _nesting_for(ctx.doc, name)
+            nesting = _nesting_for(ctx.doc, table, name)
             tracked: list[bool] = []
             uno_ctx = resolve_uno_context(ctx)
 

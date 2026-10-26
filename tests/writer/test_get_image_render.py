@@ -11,9 +11,13 @@ real total) and view-cursor restore; Draw/Impress page-not-found from getDrawPag
 (no silent empty image). The happy path (storeToURL / GraphicExportFilter + PNG bytes) is
 validated live."""
 import base64
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+class _DisposedException(Exception):
+    pass
 
 
 from plugin.framework.tool import ToolContext
@@ -297,3 +301,82 @@ def test_execute_selection_none_is_clear_error():
         res = GetImage().execute(_tctx(FakeDrawDoc()), selection=True)
     assert res["status"] == "error"
     assert "No image selected" in res["message"]
+
+
+def test_writer_page_store_disposal_propagates():
+    from plugin.framework.errors import DocumentDisposedError
+
+    doc = FakeDoc()
+    doc.storeToURL = MagicMock(side_effect=_DisposedException("closed"))
+    with pytest.raises(DocumentDisposedError):
+        _render_page_png(object(), doc, 0)
+
+
+def test_draw_page_filter_disposal_propagates():
+    from plugin.framework.errors import DocumentDisposedError
+
+    filt = FakeGraphicExportFilter()
+    filt.filter = MagicMock(side_effect=_DisposedException("closed"))
+    with pytest.raises(DocumentDisposedError):
+        _render_page_png(FakeExportCtx(filt), FakeDrawDoc(page_count=2), 0)
+
+
+@pytest.mark.parametrize("bad_page", ["2", True, 2.0])
+def test_execute_rejects_non_integer_or_bool_page(bad_page):
+    with patch("plugin.writer.get_image._render_page_png") as render_mock:
+        res = GetImage().execute(_tctx(FakeDrawDoc()), page=bad_page)
+    assert res["status"] == "error"
+    assert "non-negative integer" in res["message"]
+    render_mock.assert_not_called()
+
+
+def test_execute_rejects_multiple_exclusive_modes():
+    res1 = GetImage().execute(_tctx(FakeDrawDoc()), page=1, image="x")
+    assert res1["status"] == "error"
+    assert "Pass only one" in res1["message"]
+
+    res2 = GetImage().execute(_tctx(FakeDrawDoc()), page=0, selection=True)
+    assert res2["status"] == "error"
+    assert "Pass only one" in res2["message"]
+
+    res3 = GetImage().execute(_tctx(FakeDrawDoc()), image="Logo", selection=True)
+    assert res3["status"] == "error"
+    assert "Pass only one" in res3["message"]
+
+
+@pytest.mark.parametrize("bad_image", ["", 123])
+def test_execute_rejects_empty_or_non_string_image(bad_image):
+    res = GetImage().execute(_tctx(FakeDrawDoc()), image=bad_image)
+    assert res["status"] == "error"
+    assert "non-empty string" in res["message"]
+
+
+def test_execute_rejects_non_boolean_selection():
+    res = GetImage().execute(_tctx(FakeDrawDoc()), selection="false")
+    assert res["status"] == "error"
+    assert "true or false" in res["message"]
+
+
+def test_execute_rejects_selection_false():
+    res = GetImage().execute(_tctx(FakeDrawDoc()), selection=False)
+    assert res["status"] == "error"
+    assert "selection=false" in res["message"]
+
+
+def test_execute_empty_args_defaults_to_selection_path():
+    with patch("plugin.writer.get_image.get_selected_image_base64", return_value=None):
+        res = GetImage().execute(_tctx(FakeDrawDoc()))
+    assert res["status"] == "error"
+    assert "No image selected" in res["message"]
+
+
+def test_execute_named_image_with_selection_false_uses_named_path():
+    doc = FakeDrawDoc()
+    raw = b"\x89PNG\r\n\x1a\nnamed"
+    with (
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=object()),
+        patch("plugin.writer.get_image.export_graphic_object_to_bytes", return_value=raw),
+    ):
+        res = GetImage().execute(_tctx(doc), image="Logo", selection=False)
+    assert res["status"] == "ok"
+    assert res["source"] == "Logo"

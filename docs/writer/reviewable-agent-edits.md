@@ -46,6 +46,8 @@ Edit selection clears the range while tokens stream. If the model returns no tex
 `WriterStreamedRewriteSession.finish()` writes the original back and does not record an empty
 replacement. Whitespace the model actually sent is kept.
 
+Extend/Edit read `extend_selection_system_prompt` / `edit_selection_system_prompt` from `writeragent.json`; `additional_instructions` stays the chat prompt (the shared Edit dialog still saves its Extra instructions there for Calc and Settings, but Writer does not use it as its system prompt).
+
 `table_delete` cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for
 removing every row), so the table would vanish unreviewable. It selects the table and dispatches
 `.uno:DeleteTable`, which Writer records as a tracked deletion. Writer anchors each **empty** row with
@@ -183,7 +185,7 @@ Delete and Insert as two independent rows. WriterAgent adds:
 1. **Inline resolve** — [`plugin/writer/inline_review.py`](../../plugin/writer/inline_review.py),
    wired by [`change_context_menu.py`](../../plugin/writer/change_context_menu.py) /
    [`review_click_popup.py`](../../plugin/writer/review_click_popup.py): left-click popup, right-click
-   menu, accept/reject-all.
+   menu, accept/reject-all. The context menu interceptor is registered once per view (UNO identity, not Python `==`) and removed on `OnUnload`, so closed documents do not leak.
 2. **Review toolbar** — [`plugin/writer/review_toolbar.py`](../../plugin/writer/review_toolbar.py):
    **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
