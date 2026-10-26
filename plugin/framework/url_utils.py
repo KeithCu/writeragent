@@ -42,7 +42,7 @@ LIBREPY_DISPATCH_PROTOCOL = EXTENSION_ID_LIBREPY + ":"
 def matches_extension_dispatch_url(url: Any, extension_id: str) -> bool:
     """Return True when *url* is an extension menu/protocol dispatch URL."""
     proto = str(getattr(url, "Protocol", None) or "")
-    if proto.startswith(extension_id):
+    if proto.startswith(extension_id + ":"):
         return True
     complete = str(getattr(url, "Complete", None) or "")
     return complete.startswith(extension_id + ":")

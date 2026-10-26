@@ -199,3 +199,22 @@ def test_node_span_valid_and_missing_positions() -> None:
     assert node_span(empty_node, src, starts) == (-1, -1)
 
 
+@pytest.mark.parametrize("sep", ["\x0c", "\u2028"])
+def test_remove_statements_uses_ast_line_numbers_with_unicode_breaks(sep: str) -> None:
+    src = f's = "a{sep}b"\nprint(1)\nkeep = 2\n'
+    out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
+    assert n == 1
+    ast.parse(out)
+    assert "print(1)" not in out
+    assert "keep = 2" in out
+    assert f's = "a{sep}b"' in out
+
+
+def test_remove_only_statement_in_except_handler_keeps_pass() -> None:
+    src = "try:\n    x = 1\nexcept ValueError:\n    print(1)\n"
+    out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
+    assert n == 1
+    ast.parse(out)
+    assert "pass" in out
+    assert "print(1)" not in out
+

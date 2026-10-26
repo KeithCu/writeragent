@@ -42,10 +42,16 @@ import sys
 import threading
 import time
 import uuid
-from typing import Any, Callable, ClassVar, cast, TYPE_CHECKING
+from typing import Any, Callable, ClassVar, cast
 
-if TYPE_CHECKING:
-    from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import (
+    SendCancelled,
+    SendCancellation,
+    _resolve_bound_scope,
+    _SCOPE_UNSET,
+    _ScopeUnset,
+    is_agent_active,
+)
 
 log = logging.getLogger("writeragent.framework.queue_executor")
 
@@ -75,18 +81,8 @@ def set_test_poke_handler(handler: Callable[["QueueExecutor"], None] | None) -> 
     _test_poke_handler = handler
 
 
-class _ScopeUnset:
-    """Marker: enqueue reads the current send instead of a caller-supplied scope."""
-
-
-# ``_enqueue_work`` reads the current send unless the caller passes the scope
-# that was current when a pending post was stored.
-_SCOPE_UNSET = _ScopeUnset()
-
-
 def _marshal_thread_tag(executor: "QueueExecutor | None" = None) -> str:
     """One-line thread context for marshal/deadlock diagnosis (writeragent_debug.log)."""
-    from plugin.framework.send_cancellation import is_agent_active
     from plugin.framework.thread_guard import get_background_task_name, on_main_thread
 
     cur = threading.current_thread()
@@ -380,18 +376,10 @@ class QueueExecutor:
 
     def _abandon_unstarted(self, item: _WorkItem) -> None:
         """Mark an item that has not entered ``fn`` and wake a blocking waiter."""
-        from plugin.framework.send_cancellation import SendCancelled
-
         item.cancelled = True
         if item.blocking and item.event and not item.event.is_set():
             item.exception = SendCancelled()
             item.event.set()
-
-    def _put_work_items(self, items: list[_WorkItem]) -> None:
-        """Put *items* under ``_claim_lock`` without poking."""
-        with self._claim_lock:
-            for item in items:
-                self._work_queue.put(item)
 
     def process_queue(self) -> None:
         """Process one item from queue (called from main thread via AsyncCallback)."""
@@ -484,9 +472,9 @@ class QueueExecutor:
         only took ``_claim_lock`` after the drain had already seen an empty
         queue used to stay runnable too. The poke runs after both locks
         drop: a test handler re-enters ``process_queue``, and holding a
-        lock across that poke deadlocks. ``_put_work_items`` is not used
-        here because it acquires ``_claim_lock`` again (``Lock`` is not
-        re-entrant).
+        lock across that poke deadlocks. The puts below stay inline:
+        ``_enqueue_work`` re-takes ``_claim_lock``, which is not
+        re-entrant.
 
         A *scope* cancels only items enqueued under that send. Other items go
         back in order. Stop used to wipe MCP, grammar, and peer marshals that
@@ -524,8 +512,6 @@ class QueueExecutor:
 
     def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, poke: bool = True) -> _WorkItem:
         """Add work item to queue. *poke* False lets a batch caller poke once."""
-        from plugin.framework.send_cancellation import _resolve_bound_scope
-
         scope = _resolve_bound_scope(bound_scope)
         if scope is not None:
             scope.bind_executor(self)
@@ -537,7 +523,8 @@ class QueueExecutor:
         # ``process_queue`` may re-enter through the test poke handler, and
         # AsyncCallback is a UNO call.
         with self._order_lock:
-            self._put_work_items([item])
+            with self._claim_lock:
+                self._work_queue.put(item)
         if poke:
             self._poke_main_thread()
         return item
@@ -598,12 +585,6 @@ class QueueExecutor:
 
         return item.result
 
-    def _is_logical_main_thread(self) -> bool:
-        """True when the caller may run UNO work inline (real or designated main thread)."""
-        from plugin.framework.thread_guard import on_main_thread
-
-        return on_main_thread()
-
     def _may_run_marshal_inline(self) -> bool:
         """True only when the caller is the thread that may run UNO work inline.
 
@@ -640,7 +621,7 @@ class QueueExecutor:
         Raises TimeoutError if the main thread doesn't process the item in time.
         Re-raises any exception thrown by *fn*.
         """
-        from plugin.framework.thread_guard import get_background_task_name, in_sync_host_dispatch
+        from plugin.framework.thread_guard import get_background_task_name, in_sync_host_dispatch, on_main_thread
 
         fn_label = _fn_label(fn)
         bg_task = get_background_task_name()
@@ -656,7 +637,7 @@ class QueueExecutor:
 
         if bg_task:
             _log_marshal(logging.DEBUG, "marshal route=force_enqueue (background task %r) fn=%s %s", bg_task, fn_label, executor=self)
-        elif self._is_logical_main_thread():
+        elif on_main_thread():
             _log_marshal(logging.DEBUG, "marshal route=force_enqueue (logical main but not Python MainThread) fn=%s %s", fn_label, executor=self)
 
         # WRITERAGENT_TESTING inlines execute on any non-background thread,
@@ -694,7 +675,6 @@ class QueueExecutor:
         AsyncCallback is already known missing, a full list raises that
         TimeoutError immediately and does not store the callable.
         """
-        from plugin.framework.send_cancellation import _resolve_bound_scope
         from plugin.framework.thread_guard import get_background_task_name
 
         fn_label = _fn_label(fn)
@@ -870,6 +850,10 @@ def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecu
         owner_may_pump_vcl,
     )
     from plugin.framework.vcl_pumping import pump_vcl_events
+    from plugin.framework.thread_guard import on_main_thread
+
+    if not on_main_thread():
+        return
 
     pump_main_thread_work_queue(max_items=max_queue_items, executor=executor)
     # owner_may_pump_vcl (depth > 1) notes the suppression and skips VCL.

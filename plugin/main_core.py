@@ -52,13 +52,12 @@ from plugin.framework.main_shared import (
 )
 
 def _register_librepy_handlers() -> None:
-    from plugin.librepy.settings import open_librepy_settings
+    def _open_settings() -> None:
+        from plugin.librepy.settings import open_librepy_settings
 
-    register_action_handler(
-        "main",
-        "settings",
-        lambda: open_dialog_safely(open_librepy_settings, "Failed to open settings"),
-    )
+        open_dialog_safely(open_librepy_settings, "Failed to open settings")
+
+    register_action_handler("main", "settings", _open_settings)
     register_common_handlers()
 
 
@@ -136,6 +135,18 @@ def _schedule_update_check(ctx: Any) -> None:
         log.warning("extension update check schedule failed: %s", e)
 
 
+def _run_startup(ctx: Any) -> None:
+    try:
+        init_logging(ctx)
+    except Exception:
+        log.exception("LibrePy init_logging failed")
+    try:
+        bootstrap(ctx)
+        _schedule_update_check(ctx)
+    except Exception as e:
+        log.exception("LibrePy bootstrap failed: %s", e)
+
+
 def _dispatch_command(command: str, ctx: Any | None = None) -> None:
     bootstrap(ctx)
     handler = get_action_handler(command)
@@ -157,24 +168,11 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         self.ctx = ctx
 
     def execute(self, Arguments: Any) -> tuple[()]:
-        try:
-            init_logging(self.ctx)
-        except Exception:
-            log.exception("LibrePy bootstrap: init_logging failed")
-        try:
-            bootstrap(self.ctx)
-            _schedule_update_check(self.ctx)
-        except Exception as e:
-            log.exception("LibrePy bootstrap failed: %s", e)
+        _run_startup(self.ctx)
         return ()
 
     def trigger(self, Event: str) -> None:
-        try:
-            init_logging(self.ctx)
-            bootstrap(self.ctx)
-            _schedule_update_check(self.ctx)
-        except Exception as e:
-            log.exception("LibrePy trigger bootstrap failed: %s", e)
+        _run_startup(self.ctx)
         args = Event
         if args and "." in args:
             cmd = args[7:] if args.startswith("plugin.") else args
@@ -214,7 +212,6 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
         command = dispatch_command_from_url(URL)
         try:
             init_logging(self.ctx)
-            bootstrap(self.ctx)
             wa_log.debug(
                 "LibrePy dispatch: command=%r complete=%r path=%r",
                 command,
@@ -225,12 +222,11 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
         except Exception as e:
             log_exception(e, context="LibrePy dispatch")
             try:
-                from plugin.chatbot.dialogs import msgbox
-                from plugin.framework.i18n import _
+                from plugin.framework.main_shared import report_action_failure
 
-                msgbox(self.ctx, _("Dispatch Error"), str(e), box_type=3)
+                report_action_failure(command, e)
             except Exception:
-                log.exception("msgbox failed")
+                log.exception("LibrePy dispatch error report failed")
 
     def addStatusListener(self, Control: Any, URL: UnoURL) -> None:
         pass

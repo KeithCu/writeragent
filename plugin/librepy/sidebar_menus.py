@@ -159,7 +159,7 @@ def document_has_notebook_registry(doc: Any) -> bool:
 
         return has_notebook_registry(doc)
     except Exception:
-        log.debug("notebook registry check failed", exc_info=True)
+        log.warning("notebook registry check failed; hiding notebook actions", exc_info=True)
         return False
 
 
@@ -176,6 +176,7 @@ def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, handler
             if not is_writer_doc or not document_has_notebook_registry(doc):
                 continue
         if lookup(action) is None:
+            log.warning("LibrePy hamburger action %s has no registered handler; skipping", action)
             continue
         filename = None
         if icon:
@@ -211,19 +212,21 @@ def add_popup_item(menu: Any, label: str, action: str, pos: int, item_actions: d
 def execute_popup_under_button(popup: Any, button_ctrl: Any) -> int:
     from com.sun.star.awt import Rectangle
 
-    rect = Rectangle()
-    peer = None
-    if hasattr(button_ctrl, "getPeer"):
-        peer = button_ctrl.getPeer()
-    if peer is None and hasattr(button_ctrl, "getContext"):
-        peer = button_ctrl.getContext()
+    peer = button_ctrl.getPeer() if hasattr(button_ctrl, "getPeer") else None
+    if peer is None:
+        log.warning("execute_popup_under_button: button has no peer; not showing the popup")
+        return 0
 
-    if hasattr(button_ctrl, "getPosSize"):
-        ps = button_ctrl.getPosSize()
-        rect.X = int(ps.X)
-        rect.Y = int(ps.Y + ps.Height)
-        rect.Width = int(ps.Width)
-        rect.Height = 0
+    ps = button_ctrl.getPosSize() if hasattr(button_ctrl, "getPosSize") else None
+    if ps is None:
+        log.warning("execute_popup_under_button: button has no position; not showing the popup")
+        return 0
+
+    rect = Rectangle()
+    rect.X = int(ps.X)
+    rect.Y = int(ps.Y + ps.Height)
+    rect.Width = int(ps.Width)
+    rect.Height = 0
 
     return int(popup.execute(peer, rect, 0))
 
@@ -240,7 +243,7 @@ def show_python_sidebar_hamburger(ctx: Any, frame: Any, button_ctrl: Any) -> Non
             show_hamburger_menu(ctx, frame, button_ctrl)
             return
         except ImportError:
-            log.debug("chat hamburger unavailable; using LibrePy menu", exc_info=True)
+            log.warning("chat hamburger unavailable; using the LibrePy menu", exc_info=True)
     show_librepy_hamburger_menu(ctx, frame, button_ctrl)
 
 

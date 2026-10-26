@@ -161,6 +161,14 @@ class TestLibrePyDispatchUrl:
             self._Url(protocol="org.extension.librepy:", path="main.settings"),
             EXTENSION_ID_WRITERAGENT,
         )
+        assert not matches_extension_dispatch_url(
+            self._Url(protocol="org.extension.librepy2:", path="main.settings"),
+            EXTENSION_ID_LIBREPY,
+        )
+        assert not matches_extension_dispatch_url(
+            self._Url(protocol="org.extension.writeragent2:", path="main.settings"),
+            EXTENSION_ID_WRITERAGENT,
+        )
 
     def test_command_from_complete_writeragent_prefix(self):
         url = self._Url(complete="org.extension.writeragent:main.settings", path="")

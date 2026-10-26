@@ -1,5 +1,6 @@
 """LibrePy bootstrap registers Settings and Run Python Script handlers."""
 
+import sys
 from unittest.mock import MagicMock
 
 
@@ -25,6 +26,35 @@ def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
         "plugin.calc.excel_py_convert.auto_open.install_excel_py_auto_convert",
         lambda _ctx: None,
     )
+    try:
+        main_core.bootstrap(MagicMock())
+        assert get_action_handler("main.settings") is not None
+        assert get_action_handler("scripting.run_python_dialog") is not None
+    finally:
+        main_core._initialized = False
+        main_core._bootstrapping = False
+
+
+def test_bootstrap_defers_settings_import(monkeypatch) -> None:
+    import plugin.main_core as main_core
+
+    main_core._initialized = False
+    main_core._bootstrapping = False
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
+    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
+    monkeypatch.setattr(
+        "plugin.scripting.native_binaries.ensure_native_binaries_on_path",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "plugin.calc.python.editor_context_menu.install_calc_cell_context_menu",
+        lambda _ctx: None,
+    )
+    monkeypatch.setattr(
+        "plugin.calc.excel_py_convert.auto_open.install_excel_py_auto_convert",
+        lambda _ctx: None,
+    )
+    monkeypatch.setitem(sys.modules, "plugin.librepy.settings", None)
     try:
         main_core.bootstrap(MagicMock())
         assert get_action_handler("main.settings") is not None
@@ -104,6 +134,22 @@ def test_execute_bootstraps_when_init_logging_fails(monkeypatch) -> None:
     assert order == ["log", "boot", "upd"]
 
 
+def test_trigger_bootstraps_when_init_logging_fails(monkeypatch) -> None:
+    import plugin.main_core as main_core
+
+    order: list[str] = []
+
+    def fail_logging(_ctx):
+        order.append("log")
+        raise RuntimeError("logging boom")
+
+    monkeypatch.setattr(main_core, "init_logging", fail_logging)
+    monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: order.append("boot"))
+    monkeypatch.setattr(main_core, "_schedule_update_check", lambda _ctx: order.append("upd"))
+    main_core.MainBootstrapJob(MagicMock()).trigger("")
+    assert order == ["log", "boot", "upd"]
+
+
 def test_trigger_wraps_bootstrap_errors(monkeypatch) -> None:
     import plugin.main_core as main_core
 
@@ -142,7 +188,7 @@ def test_dispatch_command_reports_handler_failure(monkeypatch) -> None:
         _ACTION_HANDLERS.pop("test.action", None)
 
 
-def test_dispatch_guards_msgbox_failure(monkeypatch) -> None:
+def test_dispatch_reports_failure_once(monkeypatch) -> None:
     import plugin.main_core as main_core
 
     ctx = MagicMock()
@@ -152,6 +198,11 @@ def test_dispatch_guards_msgbox_failure(monkeypatch) -> None:
     url.Path = "test.action"
     url.Complete = "org.extension.librepy:test.action"
 
+    reported: list[tuple[str, Exception]] = []
+    monkeypatch.setattr(
+        "plugin.framework.main_shared.report_action_failure",
+        lambda cmd, exc: reported.append((cmd, exc)),
+    )
     monkeypatch.setattr(main_core, "init_logging", lambda _ctx: None)
     monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: None)
 
@@ -159,11 +210,36 @@ def test_dispatch_guards_msgbox_failure(monkeypatch) -> None:
         raise RuntimeError("dispatch error")
 
     monkeypatch.setattr(main_core, "_dispatch_command", boom)
+    handler.dispatch(url, ())
+    assert len(reported) == 1
+    assert reported[0][0] == "test.action"
+    assert isinstance(reported[0][1], RuntimeError)
 
-    def msgbox_boom(*args, **kwargs):
-        raise RuntimeError("msgbox failed")
 
-    monkeypatch.setattr("plugin.chatbot.dialogs.msgbox", msgbox_boom)
+def test_dispatch_survives_report_failure(monkeypatch) -> None:
+    import plugin.main_core as main_core
+
+    ctx = MagicMock()
+    handler = main_core.DispatchHandler(ctx)
+    url = MagicMock()
+    url.Protocol = "org.extension.librepy:"
+    url.Path = "test.action"
+    url.Complete = "org.extension.librepy:test.action"
+
+    def report_boom(_cmd, _exc):
+        raise RuntimeError("report failed")
+
+    monkeypatch.setattr(
+        "plugin.framework.main_shared.report_action_failure",
+        report_boom,
+    )
+    monkeypatch.setattr(main_core, "init_logging", lambda _ctx: None)
+    monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: None)
+
+    def boom(_cmd, _ctx):
+        raise RuntimeError("dispatch error")
+
+    monkeypatch.setattr(main_core, "_dispatch_command", boom)
     # Must not raise
     handler.dispatch(url, ())
 

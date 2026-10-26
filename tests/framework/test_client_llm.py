@@ -338,6 +338,40 @@ def test_stream_request_with_tools_text_and_tool(client):
         assert result["finish_reason"] == "tool_calls"
 
 
+def test_stream_delta_normalized_once(client, monkeypatch):
+    from plugin.framework.client import llm_client as llm_mod
+
+    real = llm_mod.normalize_delta
+    seen = []
+
+    def counting(delta):
+        seen.append(delta)
+        return real(delta)
+
+    monkeypatch.setattr(llm_mod, "normalize_delta", counting)
+
+    mock_responses = [
+        b'data: {"choices": [{"delta": {"role": null, "content": "ok"}}]}\n\n',
+        b'data: {"choices": [{"finish_reason": "stop", "delta": {}}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.__iter__.return_value = iter(mock_responses)
+        mock_conn.getresponse.return_value = mock_response
+
+        result = client.stream_request_with_tools([{"role": "user", "content": "hi"}], max_tokens=100)
+
+        assert len(seen) == 1
+        assert result["content"] == "ok"
+        assert result["role"] == "assistant"
+
+
 def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, caplog):
     # Cerebras/OpenRouter gpt-oss stream-split: first delta is the real call
     # (index 0, name=lookup, partial args); second delta is a phantom
@@ -1089,18 +1123,18 @@ def test_grok_shim(client):
         mock_auth.return_value = {"provider": "xai"}
         mock_sync.return_value = {"data": []}
 
-        # An omitted model used to send "aurora", which is not an xAI model id.
+        # An omitted model sends the documented xAI image model.
         client.image_completion("Draw a cat", model=None, width=1024, height=1024)
         _path, body = _posted_json(mock_sync)
-        assert body["model"] == "grok-imagine-image"
+        assert body["model"] == "grok-imagine-image-2.0"
 
-        # Test image request for Grok (should omit size and steps). A saved
-        # aurora id is still sent as the caller wrote it.
-        client.image_completion("Draw a cat", model="aurora", width=1024, height=1024, steps=30)
+        # Test image request for Grok (should omit size and steps). A supplied
+        # model id is sent as the caller wrote it.
+        client.image_completion("Draw a cat", model="grok-imagine-image", width=1024, height=1024, steps=30)
 
         path, body = _posted_json(mock_sync)
         assert body["prompt"] == "Draw a cat"
-        assert body["model"] == "aurora"
+        assert body["model"] == "grok-imagine-image"
         assert body["aspect_ratio"] == "1:1"
         assert body["resolution"] == "1k"
         assert body["response_format"] == "b64_json"
@@ -1110,17 +1144,17 @@ def test_grok_shim(client):
         assert "image" not in body
         assert str(path).endswith("/images/generations")
 
-        client.image_completion("Wide landscape", model="aurora", width=1792, height=1024)
+        client.image_completion("Wide landscape", model="grok-imagine-image-2.0", width=1792, height=1024)
         _path, body = _posted_json(mock_sync)
         assert body["aspect_ratio"] == "16:9"
         assert body["resolution"] == "2k"
 
-        client.image_completion("High res", model="aurora", width=2048, height=2048)
+        client.image_completion("High res", model="grok-imagine-image-2.0", width=2048, height=2048)
         _path, body = _posted_json(mock_sync)
         assert body["aspect_ratio"] == "1:1"
         assert body["resolution"] == "2k"
 
-        client.image_completion("Make it dusk", model="aurora", width=1024, height=1024, source_image="abc123")
+        client.image_completion("Make it dusk", model="grok-imagine-image-2.0", width=1024, height=1024, source_image="abc123")
         path, body = _posted_json(mock_sync)
         assert str(path).endswith("/images/edits")
         assert "image_url" not in body

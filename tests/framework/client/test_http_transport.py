@@ -1027,3 +1027,20 @@ def test_exchange_with_max_bytes_exceeded_raises_network_error():
     assert "exceeded 100 bytes" in str(exc_info.value)
 
 
+def test_exchange_content_length_over_max_bytes_closes_connection():
+    transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
+    response = MagicMock()
+    response.status = 200
+    response.reason = "OK"
+    response.getheader.return_value = "5000"
+
+    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+        return response
+
+    with patch.object(transport, "close") as close:
+        with pytest.raises(NetworkError) as exc_info:
+            transport.exchange("GET", "/test", None, {}, sender=sender, parse_json=False, max_bytes=100)
+    assert exc_info.value.code == "HTTP_ERROR"
+    close.assert_called_once()
+
+

@@ -859,6 +859,7 @@ class LlmClient:
                             outgoing = dict(outgoing or {})
                             outgoing["usage"] = usage_obj
                         if outgoing and on_delta:
+                            # on_delta receives this normalized delta; do not normalize twice.
                             normalize_delta(outgoing)
                             if chunk_model and "model" not in outgoing:
                                 outgoing["model"] = str(chunk_model)
@@ -1015,7 +1016,6 @@ class LlmClient:
             append_thinking_callback = append_thinking_callback or (lambda t: None)
 
             def on_delta(d: dict[object, object]) -> None:
-                normalize_delta(d)
                 accumulate_streaming_thinking(thinking_parts, thinking_meta, cast("dict[str, Any]", d))
                 d_for_snapshot = {k: v for k, v in d.items() if k not in THINKING_DELTA_KEYS}
                 # Anthropic message_delta.usage is a cumulative total (platform

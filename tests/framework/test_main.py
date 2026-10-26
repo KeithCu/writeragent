@@ -190,6 +190,42 @@ def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
         mock_load.assert_not_called()
 
 
+def test_bootstrap_start_background_failure_isolates_modules(monkeypatch):
+    """When one module's start_background raises, later modules still start their background work."""
+    monkeypatch.setattr("plugin.framework.thread_guard.on_python_main_thread", lambda: True)
+    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
+    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
+    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    core_handlers_mock = MagicMock()
+    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", core_handlers_mock)
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
+
+    first_mod = MagicMock()
+    first_mod.name = "first"
+    first_mod.start_background.side_effect = RuntimeError("bg error")
+
+    second_mod = MagicMock()
+    second_mod.name = "second"
+
+    monkeypatch.setattr(
+        "plugin.framework.module_base.ModuleLoader.load_modules",
+        lambda services: [first_mod, second_mod],
+    )
+
+    main._bootstrap_state = BootstrapState.UNINITIALIZED
+    main._modules = []
+    main._bootstrap_error = None
+
+    main.bootstrap(MagicMock())
+
+    first_mod.start_background.assert_called_once()
+    second_mod.start_background.assert_called_once()
+    assert main._bootstrap_state is BootstrapState.INITIALIZED
+    assert isinstance(main._bootstrap_error, RuntimeError)
+    core_handlers_mock.assert_called_once()
+
+
 def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
     """When WRITERAGENT_EVAL_HARNESS=1, bootstrap skips _install_terminate_listener."""
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
