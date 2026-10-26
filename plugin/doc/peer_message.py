@@ -20,6 +20,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import unicodedata
 import weakref
 from collections import deque
 from dataclasses import dataclass
@@ -41,6 +42,8 @@ PEER_WORK_TOOL_NAME = "send_peer_work"
 PEER_RESULT_TOOL_NAME = "send_peer_result"
 PEER_TOOL_NAMES = frozenset({PEER_WORK_TOOL_NAME, PEER_RESULT_TOOL_NAME})
 PEER_QUEUE_CAP = 8
+# Only the title is capped: uid/url are addresses the model sends back.
+PEER_NAME_MAX_CHARS = 200
 PEER_SPECIALIZED_DOMAIN = "document_research"
 # MCP / script / venv RPC must never inject a sidebar turn. Chat main and
 # document_research specialized inherit or set caller="chat"; also allow a
@@ -156,6 +159,14 @@ PEER_WORK_DELIVERY_FOOTER = (
 )
 
 
+def _sanitize_peer_field(value: str) -> str:
+    """Flatten one name/uid/url field so it cannot forge the header line or a catalog row."""
+    return "".join(
+        " " if (ch in "|[]\u2028\u2029" or unicodedata.category(ch) == "Cc") else ch
+        for ch in str(value or "")
+    )
+
+
 def format_peer_envelope(
     *,
     name: str,
@@ -171,7 +182,10 @@ def format_peer_envelope(
     Work envelopes append ``PEER_WORK_DELIVERY_FOOTER``; result envelopes do not.
     """
     label = "Peer result from" if kind == "result" else "Peer work from"
-    header = f"[{label}: {name} | uid={uid} | url={url}]"
+    header = (
+        f"[{label}: {_sanitize_peer_field(name)[:PEER_NAME_MAX_CHARS]} | "
+        f"uid={_sanitize_peer_field(uid)} | url={_sanitize_peer_field(url)}]"
+    )
     # What was wrong: None became the body text "None" in the f-string.
     # How: format_peer_envelope is public; only execute coerces with str(... or "").
     # Why: an empty body, not the word None.
@@ -188,8 +202,10 @@ def format_peer_catalog(peers: list[dict[str, str]]) -> str:
     parts = []
     for p in peers:
         parts.append(
-            f"{p.get('name') or 'Untitled'} (uid={p.get('uid') or ''}, "
-            f"url={p.get('url') or ''}, type={p.get('type') or ''})"
+            f"{_sanitize_peer_field(p.get('name') or 'Untitled')[:PEER_NAME_MAX_CHARS]} "
+            f"(uid={_sanitize_peer_field(p.get('uid') or '')}, "
+            f"url={_sanitize_peer_field(p.get('url') or '')}, "
+            f"type={_sanitize_peer_field(p.get('type') or '')})"
         )
     return "Open peers: " + "; ".join(parts) + "."
 
@@ -658,6 +674,7 @@ def _peer_not_chat_mode(listener: Any) -> bool:
         mode = mode_from_selector_with_flags(selector, flags)
         return mode != CHAT_MODE_CHAT
     except Exception:
+        log.debug("peer mode probe failed; treating as chat", exc_info=True)
         return False
 
 

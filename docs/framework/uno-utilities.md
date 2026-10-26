@@ -80,7 +80,7 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | Symbol | Purpose |
 |--------|---------|
 | `normalize_linebreaks` | `\r\n` / `\r` → `\n` so offsets match (Windows UNO/clipboard). |
-| `get_string_without_tracked_deletions` | Skip redline Delete portions. A paragraph concatenates visible portions without a mid-`\n`; a document or multi-para range still joins with `\n`. Shares `_visible_portions` with range_copy paint (paint aborts on portion-enum failure to avoid offset drift; the helper continues). |
+| `get_string_without_tracked_deletions` | Skip redline Delete portions. A paragraph concatenates visible portions without a mid-`\n`; a document or multi-para range still joins with `\n` and descends into table cells (nested included). Shares `_visible_portions` with range_copy paint (paint aborts on portion-enum failure to avoid offset drift; the helper continues). |
 | `normalize_file_url` | Repair `file:/path` → `file:///path` (legacy `urljoin`). Shared with research. |
 | `get_document_path` | `file:` URL → repair then `uno.fileUrlToSystemPath`; `None` if untitled / non-file. |
 | `get_selection_range` | Writer `(start, end)` character offsets (cursor = equal ends). |
@@ -88,11 +88,11 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
 | `collect_tracked_changes` | Bounded list of redlines in a range. |
 | `get_full_writer_text` | Prefix of Writer body, hiding tracked deletions. |
-| `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted) = the space of `get_document_content` `document_length` and `scope='range'`. |
+| `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text; returns 0 for non-Writer or on error) = the space of `get_document_content` `document_length` and `scope='range'`. |
 | `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). |
 | `_writer_char_count` / `_read_writer_text_slice` | Body length in cursor steps (paragraph breaks and pending deleted text count, as in `goRight` / `get_selection_range`); slice reads for chat excerpts. Not `CharacterCount`: that statistic leaves both out and recomputes after an edit (slower than the walk). |
 
-Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented. `get_paragraph_ranges` keeps tables in the list so indices match the text enumeration (heading trees, bookmarks, and grep count every element). `find_paragraph_for_range` compares only `com.sun.star.text.Paragraph` elements — `SwXTextTable` is not an `XTextRange` — and a point in the gap between paragraphs (a table anchor) maps to that table's slot.
+Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented. `get_paragraph_ranges` keeps tables in the list so indices match the text enumeration (heading trees, bookmarks, and grep count every element). `find_paragraph_for_range` compares only `com.sun.star.text.Paragraph` elements — `SwXTextTable` is not an `XTextRange` — and a point in the gap between paragraphs (a table anchor) maps to that table's slot. `find_paragraph_for_range` returns `None` when the point cannot be placed (empty body, before the first or after the last paragraph, or a compare failure); only a real hit returns `0`.
 
 ### 1.4 Chat `DocumentService` and full-text dispatch
 
@@ -143,7 +143,8 @@ Module: [`plugin/doc/udprops.py`](../../plugin/doc/udprops.py)
 | Symbol | Purpose |
 |--------|---------|
 | `get_document_property` | Read `UserDefinedProperties` by name (PropertyBag, not `XNameAccess`). |
-| `set_document_property` | Add or set a removable string UD prop. |
+| `set_document_property` | Add or set a removable string UD prop. Returns `False` when the document has no usable `UserDefinedProperties` bag. |
+| `remove_document_property` | Remove a UD prop. Returns `True` when it is absent afterwards (idempotent). |
 | `_user_defined_property_exists` | `PropertySetInfo.hasPropertyByName` (and `hasByName` fallback). |
 
 Used by grammar persistence, document-attached Python scripts, Calc session ids. Intentionally **not** `@main_thread_only` (notebook `XFilter.filter` runs on LO’s dispatch thread).
@@ -207,14 +208,14 @@ Shared across Writer / Calc / Draw / Impress image and shape tools. **Not** inse
 | `safe_try_method` | Call a method if present; log and continue. |
 | `parse_color_to_uno_int` | Hex / name / `rgb()` / int / tuple → 24-bit UNO RGB. |
 | `apply_character_properties` | Batch Char* on a shape/cell/style. Italic sets `CharPosture` to `FontSlant.ITALIC` (IDL value 2). Integer 1 is `OBLIQUE`. |
-| `mm_to_unit` / `mm_to_units` / `px_to_units` / `units_to_px` | 1/100 mm ↔ 96-DPI px. |
+| `mm_to_unit` / `mm_to_units` / `px_to_units` / `units_to_px` / `graphic_pixel_size` | 1/100 mm ↔ 96-DPI px (`UNITS_PER_INCH` / `PX_PER_INCH`, rounded both ways). |
 | `px_to_display_units` / `GENERATED_IMAGE_MAX_DISPLAY_MM` | Px → 1/100 mm, then cap longer edge at 135mm (generate resolution ≠ page size). |
 | `is_graphic_object` / `selected_graphic_object` / `graphic_objects_in_selection` | Graphic detection and selection. |
 | `list_graphic_objects` / `get_graphic_object_by_name` / `graphic_from_object` | Name lookup across Writer text + Draw pages. |
 | `get_active_draw_page` / `draw_page_for_insert` / `position_on_draw_page` / `remove_graphic_from_draw_pages` | Draw/Impress page and position helpers. |
 | `SHAPE_TOOL_UNO_SERVICES` | Union of Writer/Calc/Draw/Impress services for shared tool names. |
 
-`mm_to_unit` / `mm_to_units` round to the nearest 1/100 mm (`int(round(mm * 100))`). They used to truncate with `int(mm) * 100`, so 12.7 mm became 12 mm.
+`mm_to_unit` / `mm_to_units` round to the nearest 1/100 mm (`int(round(mm * 100))`); they used to truncate with `int(mm) * 100`, so 12.7 mm became 12 mm. `px_to_units`, `units_to_px`, and `graphic_pixel_size` share `UNITS_PER_INCH = 2540` / `PX_PER_INCH = 96` and round in both directions, so a px → unit → px round trip is stable (it used to lose 1 px: `units_to_px(px_to_units(10))` was 9). `has_uno_property`, `safe_set_property`, `safe_try_method`, `graphic_from_object`, and `graphic_objects_in_selection` raise `DocumentDisposedError` for a closed document and keep their `False` / `None` / `[]` result for ordinary UNO failures; `selected_graphic_object` stays a probe that returns `None`.
 
 `image_tools.get_type_doc`, `_has_uno_property`, `_safe_set_property`, `_mm_to_units`, `_selection_graphic_object` are **already** one-line delegates into this module.
 

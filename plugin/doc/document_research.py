@@ -247,32 +247,14 @@ def _collect_open_file_urls(
     extensions: frozenset[str],
 ) -> dict[str, str]:
     """Map normalized path -> file URL for open LO components matching *extensions*."""
-    from plugin.framework.uno_context import get_desktop
+    from plugin.framework.uno_context import get_desktop, iter_open_models
 
     out: dict[str, str] = {}
     exclude_norm = _normalize_path(exclude_path) if exclude_path else None
     try:
-        desktop = get_desktop(ctx)
-        comps = desktop.getComponents()
-        if not comps:
-            return out
-        enum = comps.createEnumeration()
-        # Same MagicMock / leftover-component guard as get_open_documents:
-        # a truthy mock or one broken paste Writer must not abort the walk.
-        while enum is not None:
+        for model in iter_open_models(get_desktop(ctx)):
             try:
-                more = enum.hasMoreElements()
-            except Exception:
-                break
-            if more is not True and more != 1:
-                break
-            try:
-                elem = enum.nextElement()
-            except Exception:
-                break
-            try:
-                model = _office_model_from_desktop_element(elem)
-                if model is None or not hasattr(model, "getURL"):
+                if not hasattr(model, "getURL"):
                     continue
                 url = model.getURL()
                 if not url or not str(url).startswith("file://"):
@@ -282,8 +264,7 @@ def _collect_open_file_urls(
                     continue
                 if exclude_norm and _normalize_path(path) == exclude_norm:
                     continue
-                ext = os.path.splitext(path)[1].lower()
-                if ext not in extensions:
+                if os.path.splitext(path)[1].lower() not in extensions:
                     continue
                 out[_normalize_path(path)] = str(url)
             except Exception as exc:
@@ -298,8 +279,6 @@ def _collect_open_file_urls(
         try:
             log.exception("_collect_open_file_urls failed")
         except Exception:  # noqa: S110  PyUNO traceback conversion raises inside log.exception (GHA 34593327841)
-            # PyUNO: logging a UNO exception can raise
-            # "Couldn't convert traceback … getTypes" (GHA 34593327841).
             pass
     return out
 
@@ -571,9 +550,6 @@ def resolve_path_or_name(
     if len(matches) > 1:
         names = ", ".join(e["name"] for e in matches[:5])
         return None, f"Multiple files match {raw!r}: {names}"
-
-    if len(files) == 1:
-        return files[0]["path"], files[0]["url"]
 
     return None, f"No file matching {raw!r}"
 

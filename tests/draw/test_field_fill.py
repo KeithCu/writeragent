@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.draw.field_fill import FillDrawFields, apply_fill_value, resolve_field_node
 
 
@@ -141,3 +143,151 @@ def test_fill_draw_fields_happy_and_miss_on_mock_page():
     assert out["results"][0]["ok"] is True
     assert out["results"][1]["ok"] is False
     blank.setString.assert_called_once_with("Widget-7")
+
+
+def test_resolve_field_node_disambiguation_and_path_index():
+    tree_totals = [
+        {"type": "TextShape", "index": 2, "name": "Total"},
+        {"type": "TextShape", "index": 3, "name": "Total"},
+    ]
+    node, err = resolve_field_node(tree_totals, name="Total", index=3)
+    assert err is None
+    assert node is not None
+    assert node["index"] == 3
+
+    node, err = resolve_field_node(tree_totals, name="Total")
+    assert node is None
+    assert err is not None
+    assert "Several shapes named" in err
+    assert "2" in err
+    assert "3" in err
+
+    tree_group = [
+        {
+            "type": "GroupShape",
+            "index": 1,
+            "children": [{"type": "TextShape", "path_index": "1.0", "fillable": True}],
+        }
+    ]
+    node, err = resolve_field_node(tree_group, path_index="1.0")
+    assert err is None
+    assert node is not None
+    assert node.get("path_index") == "1.0"
+
+    node_miss, err_miss = resolve_field_node(tree_group, path_index="1.5")
+    assert node_miss is None
+    assert err_miss is not None
+    assert "No shape at path_index" in err_miss
+
+    tree_unique = [{"type": "TextShape", "index": 1, "name": "Single"}]
+    node, err = resolve_field_node(tree_unique, name="Single", index=9)
+    assert err is None
+    assert node is not None
+    assert node["index"] == 1
+
+    node, err = resolve_field_node(tree_unique, index=True)  # type: ignore[arg-type]
+    assert node is None
+    assert err is not None
+    assert "Invalid shape index" in err
+
+
+def test_apply_fill_value_none_clears_text():
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    ok, detail = apply_fill_value(shape, None)
+    assert ok
+    shape.setString.assert_called_once_with("")
+    assert "text" in detail
+
+
+def test_apply_fill_value_runtime_vs_disposed_exception():
+    class CustomRuntimeException(Exception):
+        pass
+
+    class CustomDisposedException(Exception):
+        pass
+
+    shape_rt = MagicMock()
+    shape_rt.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    shape_rt.setString.side_effect = CustomRuntimeException("bridge error")
+    ok, detail = apply_fill_value(shape_rt, "test")
+    assert not ok
+    assert "bridge error" in detail
+
+    shape_disp = MagicMock()
+    shape_disp.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    shape_disp.setString.side_effect = CustomDisposedException("disposed")
+    with pytest.raises(CustomDisposedException):
+        apply_fill_value(shape_disp, "test")
+
+
+def test_fill_draw_fields_group_child_path_index():
+    child = MagicMock()
+    child.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+
+    group = MagicMock()
+    group.getByIndex.side_effect = lambda i: child if i == 0 else None
+
+    page = MagicMock()
+    page.getByIndex.side_effect = lambda i: group if i == 0 else None
+
+    tree = [
+        {
+            "type": "GroupShape",
+            "index": 0,
+            "children": [
+                {
+                    "type": "TextShape",
+                    "path_index": "0.0",
+                    "fillable": True,
+                    "label_hint": "Lot",
+                }
+            ],
+        }
+    ]
+
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    ctx.doc = MagicMock()
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch("plugin.draw.field_fill.build_shape_tree", return_value=tree):
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        out = FillDrawFields().execute(
+            ctx,
+            fields=[{"label_hint": "Lot", "value": "LOT-1"}],
+        )
+
+    assert out["status"] == "ok"
+    assert out["ok_count"] == 1
+    assert out["fail_count"] == 0
+    assert out["results"][0]["path_index"] == "0.0"
+    child.setString.assert_called_once_with("LOT-1")
+
+
+def test_fill_draw_fields_missing_value_does_not_clear():
+    blank = MagicMock()
+    blank.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    blank.Name = "fld_product"
+
+    page = MagicMock()
+    page.getCount.return_value = 1
+    page.getByIndex.side_effect = lambda i: blank if i == 0 else None
+
+    tree = [{"type": "TextShape", "index": 0, "name": "fld_product", "fillable": True}]
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    ctx.doc = MagicMock()
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch("plugin.draw.field_fill.build_shape_tree", return_value=tree):
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        out = FillDrawFields().execute(
+            ctx,
+            fields=[{"name": "fld_product"}],
+        )
+
+    assert out["status"] == "error"
+    assert out["ok_count"] == 0
+    assert out["fail_count"] == 1
+    assert out["results"][0]["ok"] is False
+    assert "has no 'value'" in out["results"][0]["error"]
+    assert not blank.setString.called

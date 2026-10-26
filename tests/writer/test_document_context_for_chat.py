@@ -243,3 +243,47 @@ def test_get_document_context_shows_the_visible_length(mock_doc_type, mock_char_
     ctx = get_document_context_for_chat(model, max_context=8000, include_end=True, include_selection=False)
     assert "Document length: 2439 characters." in ctx
     mock_read_slice.assert_called_once_with(model, 0, 3405)
+
+
+def test_inject_selection_markers_uses_visible_offsets():
+    from plugin.doc.document_helpers import _inject_selection_markers
+
+    visible = "Hello World"
+
+    def cursor_to_visible(offset: int) -> int:
+        return min(offset, 6) if offset <= 6 else offset - 3
+
+    def read_slice(_model, start: int, length: int) -> str:
+        return visible[cursor_to_visible(start) : cursor_to_visible(start + length)]
+
+    with patch("plugin.doc.text_helpers._read_writer_text_slice", side_effect=read_slice):
+        out = _inject_selection_markers(MagicMock(), visible, 0, 14, 9, 14, "[START]\n", "\n[END]")
+
+    assert out == "[START]\nHello [SELECTION_START]World[SELECTION_END]\n[END]"
+
+
+def test_get_document_context_for_chat_selection_markers_use_visible_offsets():
+    from plugin.doc.doc_type import DocumentType
+
+    visible = "Hello World"
+
+    def cursor_to_visible(offset: int) -> int:
+        return min(offset, 6) if offset <= 6 else offset - 3
+
+    def read_slice(_model, start: int, length: int) -> str:
+        return visible[cursor_to_visible(start) : cursor_to_visible(start + length)]
+
+    with (
+        patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.doc.text_helpers._writer_char_count", return_value=14),
+        patch("plugin.doc.text_helpers.get_document_length", return_value=11),
+        patch("plugin.doc.text_helpers._read_writer_text_slice", side_effect=read_slice),
+        patch("plugin.doc.text_helpers._get_writer_selection_positions", return_value=(MagicMock(), "start", "end")),
+        patch("plugin.doc.text_helpers.get_selection_range", return_value=(9, 14)),
+        patch("plugin.doc.document_helpers._writer_selection_overlaps_windows", return_value=True),
+        patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
+    ):
+        out = get_document_context_for_chat(MagicMock(), max_context=8000, include_selection=True)
+
+    assert "Hello [SELECTION_START]World[SELECTION_END]" in out
+

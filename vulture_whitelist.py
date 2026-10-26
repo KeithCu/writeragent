@@ -147,7 +147,6 @@ _.DeleteSlide  # class: plugin/draw/pages.py:134
 _.DeleteStructure  # class: plugin/calc/cells.py:973
 _.DetectErrors  # class: plugin/calc/errors.py:38
 _.DistributeShapes  # class: plugin/draw/shapes.py:896
-_.DocumentHealthCheck  # class: plugin/doc/diagnostics.py:19
 _.DocumentURL  # attribute: plugin/writer/specialized/mail_merge.py:534
 _.DuplicateSlide  # class: plugin/draw/pages.py:304
 _.EmbeddedEdit  # class: plugin/writer/specialized/embedded.py:43
@@ -259,7 +258,6 @@ _.PageSetColumns  # class: plugin/writer/page.py:1644
 _.PageSetHeaderFooterText  # class: plugin/writer/page.py:1026
 _.PageSetStyleProperties  # class: plugin/writer/page.py:779
 _.PlotDataTool  # class: plugin/calc/viz.py:22
-_.PrintDocument  # class: plugin/doc/print_doc.py:15
 _.ProtectSheet  # class: plugin/calc/sheets.py:156
 _.QueryFolderSqlTool  # class: plugin/calc/duckdb_tools.py:37
 _.ReadCellRange  # class: plugin/calc/cells.py:412
@@ -276,7 +274,6 @@ _.RunVenvPythonScript  # class: plugin/calc/python/venv.py:131
 _.SaveAsSingleFile  # attribute: plugin/writer/specialized/mail_merge.py:547
 _.SaveDesignSpec  # class: plugin/chatbot/brainstorming.py:84
 _.SaveFilter  # attribute: plugin/writer/specialized/mail_merge.py:553
-_.SearchEmbeddings  # class: plugin/embeddings/document_research_search_tool.py:23
 _.SearchInDocument  # class: plugin/writer/search.py:956
 _.SearchInSpreadsheet  # class: plugin/calc/search.py:31
 _.SearchNearbyFiles  # class: plugin/embeddings/document_research_fts_tool.py:21
@@ -286,7 +283,6 @@ _.SendPeerResult  # class: plugin/doc/peer_message.py:812
 _.SendPeerWork  # class: plugin/doc/peer_message.py:804
 _.SetActivePage  # class: plugin/draw/pages.py:274
 _.SetCellStyle  # class: plugin/calc/cells.py:718
-_.SetDocumentProtection  # class: plugin/doc/diagnostics.py:141
 _.SetHeadersFooters  # class: plugin/draw/headers_footers.py:337
 _.SetPlaceholderText  # class: plugin/draw/placeholders.py:221
 _.SetSelection  # class: plugin/writer/selection.py:34

@@ -39,7 +39,7 @@ class PageExchangeRollbackError(RuntimeError):
 
 
 class _SingleDrawPageContainer:
-    """Writer/Calc expose one ``XDrawPage``, not ``XDrawPages``. Shape tools still use getCount/getByIndex."""
+    """Wrap a single ``XDrawPage`` for documents that expose ``getDrawPage`` but not ``getDrawPages``."""
 
     _page: Any
 
@@ -58,25 +58,13 @@ class _SingleDrawPageContainer:
 def _draw_page_container(doc: Any) -> Any | None:
     """Return an ``XDrawPages``-like object, or None if *doc* has no draw page."""
     if hasattr(doc, "getDrawPages"):
-        return doc.getDrawPages()
+        return uno_read(lambda: doc.getDrawPages(), None)
     if hasattr(doc, "getDrawPage"):
         # Bugfix: a closed document raises DisposedException from getDrawPage(),
         # and the old except turned that into a missing page / not-found result.
         # Real disposal leaves as DocumentDisposedError (execute_safe reports
         # DOCUMENT_DISPOSED); any other failure stays on the missing-page path.
         page = uno_read(lambda: doc.getDrawPage(), None)
-        if page is not None:
-            return _SingleDrawPageContainer(page)
-    if hasattr(doc, "getSheets"):
-
-        def sheet_page() -> Any:
-            from plugin.calc.bridge import CalcBridge
-
-            sheet = CalcBridge(doc).get_active_sheet()
-            return sheet.getDrawPage() if sheet is not None and hasattr(sheet, "getDrawPage") else None
-
-        # Same bugfix as above, for the active sheet's draw page.
-        page = uno_read(sheet_page, None)
         if page is not None:
             return _SingleDrawPageContainer(page)
     return None
@@ -994,6 +982,25 @@ def find_notes_shape(notes_page: Any) -> Any | None:
     return None
 
 
+def _shape_summary_line(index: int, shape: Any) -> str:
+    """One chat-context shape line; an unreadable field is omitted, not the whole page."""
+    type_name = uno_probe(lambda: str(shape.getShapeType()).split(".")[-1], "Shape")
+    line = "- [%d] %s" % (index, type_name)
+
+    def read_pos_size() -> str:
+        pos = shape.getPosition()
+        size = shape.getSize()
+        return ": pos(%d, %d) size(%dx%d)" % (pos.X, pos.Y, size.Width, size.Height)
+
+    line += uno_probe(read_pos_size, "")
+    get_string = getattr(shape, "getString", None)
+    if callable(get_string):
+        text = uno_probe(lambda: _text_helpers.normalize_linebreaks(str(get_string() or "")), "")
+        if text:
+            line += ' text: "%s"' % text[:200]
+    return line
+
+
 @main_thread_only
 def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | None = None) -> str:
     """Get a Draw/Impress chat summary. max_context is a prefix cap; when the summary is longer, the prefix is returned with a blank line and "[... document truncated ...]" appended. ctx is unused and kept so document_helpers can pass the chat signature."""
@@ -1041,19 +1048,6 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         # uses `is not None`. None means there is no page; a blank page
         # is still a page, so notes on add_slide blank/none are included.
         if active_page is not None:
-            shapes = bridge.get_shapes(active_page)
-            ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress else "Page", active_page_idx)
-            for i, s in enumerate(shapes):
-                type_name = safe_call(s.getShapeType, "Get shape type").split(".")[-1]
-                pos = safe_call(s.getPosition, "Get position")
-                size = safe_call(s.getSize, "Get size")
-                ctx_str += "- [%d] %s: pos(%d, %d) size(%dx%d)" % (i, type_name, pos.X, pos.Y, size.Width, size.Height)
-                if hasattr(s, "getString"):
-                    text = _text_helpers.normalize_linebreaks(safe_call(s.getString, "Get string"))
-                    if text:
-                        ctx_str += ' text: "%s"' % text[:200]
-                ctx_str += "\n"
-
             # Impress-specific: Speaker Notes
             if is_impress and hasattr(active_page, "getNotesPage"):
                 try:
@@ -1066,6 +1060,11 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
                         ctx_str += "\nSpeaker Notes:\n%s\n" % notes_text.strip()
                 except UnoObjectError:
                     pass
+
+            shapes = bridge.get_shapes(active_page)
+            ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress else "Page", active_page_idx)
+            for i, s in enumerate(shapes):
+                ctx_str += _shape_summary_line(i, s) + "\n"
 
         # Bugfix: the parameter was accepted and document_helpers passed
         # max_chars / max_context, but the body returned the whole active-page

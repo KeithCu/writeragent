@@ -6,7 +6,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.draw.bridge import DrawBridge
-from plugin.draw.pages import AddSlide, DeleteSlide, DuplicateSlide, ListPages, MoveSlide, RenameSlide, SetActivePage
+from plugin.draw.pages import (
+    AddSlide,
+    DeleteSlide,
+    DuplicateSlide,
+    GetPresentationInfo,
+    ListPages,
+    MoveSlide,
+    ReadSlideText,
+    RenameSlide,
+    SetActivePage,
+)
 
 
 def _ctx():
@@ -422,3 +432,174 @@ def test_list_pages_reraises_dispose_from_name():
         bridge.get_pages.return_value = pages_mock
         with pytest.raises(DisposedException):
             ListPages().execute(ctx)
+
+
+def test_add_slide_reports_actual_active_page_when_switch_fails():
+    ctx = _impress_ctx()
+    page = MagicMock()
+    page.Layout = 20
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.inherit_master_from_neighbor", return_value=""),
+    ):
+        bridge = _add_slide_bridge(page, active_idx=1, page_count=4, landed=3)
+        bridge.set_current_page_index.return_value = False
+        bridge_cls.return_value = bridge
+        out = AddSlide().execute(ctx)
+    assert out["status"] == "ok"
+    assert out["active_page_index"] == 1
+    assert out["view_switch_failed"] is True
+
+
+def test_add_slide_cleans_up_after_live_runtime_error():
+    class RuntimeException(Exception):
+        pass
+
+    ctx = _impress_ctx()
+    page = MagicMock()
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeException("master write failed")),
+    ):
+        bridge = _add_slide_bridge(page)
+        bridge_cls.return_value = bridge
+        out = AddSlide().execute(ctx)
+    assert out["status"] == "error"
+    bridge.get_pages.return_value.remove.assert_called_once_with(page)
+
+
+def test_add_slide_reports_cleanup_failed_for_live_remove_error():
+    class RuntimeException(Exception):
+        pass
+
+    ctx = _impress_ctx()
+    page = MagicMock()
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeException("master write failed")),
+    ):
+        bridge = _add_slide_bridge(page)
+        bridge.get_pages.return_value.remove.side_effect = RuntimeException("remove failed")
+        bridge_cls.return_value = bridge
+        out = AddSlide().execute(ctx)
+    assert out["status"] == "error"
+    assert out["details"]["cleanup_failed"] is True
+
+
+def test_read_slide_text_returns_shape_text_and_notes():
+    ctx = MagicMock()
+    ctx.doc.supportsService.return_value = True
+    ctx.active_page_index = 0
+
+    s1 = MagicMock()
+    s1.Name = "Title"
+    s1.getString.return_value = "Hello"
+    s2 = MagicMock()
+    s2.Name = "Empty"
+    s2.getString.return_value = "   "
+
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = [s1, s2]
+
+    notes_shape = MagicMock()
+    notes_shape.getString.return_value = "Note"
+
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.bridge.find_notes_shape", return_value=notes_shape),
+    ):
+        bridge_cls.get_slide_for_tool.return_value = page
+        out = ReadSlideText().execute(ctx)
+
+    assert out["status"] == "ok"
+    assert out["page"] == 0
+    assert out["texts"] == [{"index": 0, "text": "Hello", "shape_name": "Title"}]
+    assert out["notes"] == "Note"
+
+
+def test_read_slide_text_skips_failing_shapes():
+    ctx = MagicMock()
+    ctx.doc.supportsService.return_value = True
+    ctx.active_page_index = 0
+
+    s1 = MagicMock()
+    s1.getString.side_effect = ValueError("failing shape")
+    s2 = MagicMock()
+    s2.Name = "GoodShape"
+    s2.getString.return_value = "Good"
+
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = [s1, s2]
+
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.bridge.find_notes_shape", return_value=None),
+    ):
+        bridge_cls.get_slide_for_tool.return_value = page
+        out = ReadSlideText().execute(ctx)
+
+    assert out["status"] == "ok"
+    assert out["texts"] == [{"index": 1, "text": "Good", "shape_name": "GoodShape"}]
+
+
+def test_read_slide_text_reraises_dispose():
+    class DisposedException(Exception):
+        pass
+
+    ctx = MagicMock()
+    ctx.doc.supportsService.return_value = True
+    ctx.active_page_index = 0
+
+    shape = MagicMock()
+    shape.getString.side_effect = DisposedException("shape disposed")
+
+    page = MagicMock()
+    page.getCount.return_value = 1
+    page.getByIndex.return_value = shape
+
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.bridge.find_notes_shape", return_value=None),
+    ):
+        bridge_cls.get_slide_for_tool.return_value = page
+        with pytest.raises(DisposedException):
+            ReadSlideText().execute(ctx)
+
+
+def test_get_presentation_info_reports_deck():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+
+    first_page = MagicMock()
+    first_page.Width = 33867
+    first_page.Height = 19050
+
+    draw_pages = MagicMock()
+    draw_pages.getCount.return_value = 2
+    draw_pages.getByIndex.return_value = first_page
+    doc.getDrawPages.return_value = draw_pages
+
+    master_page = MagicMock()
+    master_page.Name = "Default"
+
+    master_pages = MagicMock()
+    master_pages.getCount.return_value = 1
+    master_pages.getByIndex.return_value = master_page
+    doc.getMasterPages.return_value = master_pages
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = None
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_active_page_index.return_value = 1
+        out = GetPresentationInfo().execute(ctx)
+
+    assert out["slide_count"] == 2
+    assert out["width_mm"] == 338
+    assert out["height_mm"] == 190
+    assert out["master_slides"] == ["Default"]
+    assert out["is_impress"] is True
+    assert out["active_page_index"] == 1

@@ -18,8 +18,12 @@
 
 from typing import ClassVar
 
+from plugin.doc.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.framework.tool import ToolBase
+
+_DRAW_AND_IMPRESS = [DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE]
+_IMPRESS_ONLY = [IMPRESS_DOCUMENT_SERVICE]
 
 
 class ToolDrawSpecialBase(ToolBase):
@@ -57,49 +61,49 @@ class ToolDrawDocumentResearchBase(ToolDrawSpecialBase):
 class ToolDrawChartBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "charts"
     specialized_domain_description: ClassVar[str | None] = "Create and edit data charts within the drawing or presentation."
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_AND_IMPRESS
 
 
 class ToolDrawShapeBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "shapes"
     specialized_domain_description: ClassVar[str | None] = "Create and edit drawing shapes, connectors, and groups; fill paper-form blanks by name."
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_AND_IMPRESS
 
 
 class ToolDrawFormBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "forms"
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_AND_IMPRESS
 
 
 class ToolDrawHeaderFooterBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "headers_footers"
     specialized_domain_description: ClassVar[str | None] = "Manage presentation-wide headers, footers, and page numbers."
-    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _IMPRESS_ONLY
 
 
 class ToolDrawSpeakerNotesBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "speaker_notes"
     specialized_domain_description: ClassVar[str | None] = "Read and edit Impress speaker notes per slide."
-    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _IMPRESS_ONLY
 
 
 class ToolDrawSlideTransitionsBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "slide_transitions"
     specialized_domain_description: ClassVar[str | None] = "Slide transition effects, timing, and Impress slide layouts."
-    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _IMPRESS_ONLY
 
 
 class ToolDrawSlideLayoutBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "slide_layouts"
     specialized_domain_description: ClassVar[str | None] = "Get and set Impress slide layouts by layout name or type."
-    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _IMPRESS_ONLY
 
 
 class ToolDrawSlideMastersBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "slide_masters"
     specialized_domain_description: ClassVar[str | None] = "List master slides and assign masters to slides."
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_AND_IMPRESS
 
 
 class ToolDrawPythonBase(ToolDrawSpecialBase):
@@ -112,13 +116,13 @@ class ToolDrawPythonBase(ToolDrawSpecialBase):
 class ToolDrawImageBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "images"
     specialized_domain_description: ClassVar[str | None] = "Insert, list, and generate images on Draw/Impress pages (same image_* tools as Writer/Calc); edit a selected image with image_generate(source_image='selection')."
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_AND_IMPRESS
 
 
 class ToolDrawTableBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "tables"
     specialized_domain_description: ClassVar[str | None] = "Insert and edit tables on Draw/Impress pages (same table_* tools as Writer)."
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_AND_IMPRESS
 
 
 class ToolDrawPptMasterBase(ToolDrawSpecialBase):
@@ -126,4 +130,4 @@ class ToolDrawPptMasterBase(ToolDrawSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "ppt-master"
     specialized_domain_description: ClassVar[str | None] = "PPT-Master workflow: export SVG projects to native Impress shapes, validate, template-fill, enhance."
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = _DRAW_AND_IMPRESS

@@ -246,3 +246,83 @@ def test_delegate_status_user_stopped_left_unchanged(
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
     assert result["error"] == "Task stopped by user."
+
+
+def test_gateway_enum_is_sorted_and_unique(writer_gateway: DelegateToSpecializedWriter) -> None:
+    assert writer_gateway.parameters is not None
+    enum = writer_gateway.parameters["properties"]["domain"]["enum"]
+    assert enum == sorted(enum)
+    assert len(enum) == len(set(enum))
+
+
+def test_delegate_completed_message_uses_static_msgid(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    from unittest.mock import patch
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
+
+    class _DummyStructuralTool(ToolWriterStructuralBase):
+        name = "dummy_structural_tool"
+        description = "A dummy structural tool."
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kw):
+            return {"status": "ok"}
+
+    reg = ToolRegistry(services={})
+    reg.register(_DummyStructuralTool())
+    reg.register(SpecializedWorkflowFinished())
+    reg.register(writer_gateway)
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = True
+    ctx.services = {"tools": reg}
+    ctx.stop_checker = lambda: False
+
+    def fake_run_inner(ctx, tools, **kwargs):
+        tool_map = {t.name: t for t in tools}
+        tool_map["specialized_workflow_finished"](answer="Done")
+        return "All done."
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+            result = writer_gateway.execute(ctx, domain="structural", task="Inspect page")
+
+    assert result["status"] == "ok"
+    assert result["message"] == "Specialized task (structural) completed."
+
+
+def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None:
+    """Impress and Draw both carry doc_type "draw"; only PresentationDocument keeps slide domains."""
+    import plugin.draw.headers_footers  # noqa: F401
+    import plugin.draw.notes  # noqa: F401
+    from plugin.doc.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
+    from plugin.doc.specialized_base import narrow_delegate_domain_enums
+    from plugin.draw.specialized import DelegateToSpecializedDraw
+    from plugin.framework.tool_schema import to_mcp_schema, to_openai_schema
+
+    gateway = DelegateToSpecializedDraw()
+    impress_only = {"headers_footers", "speaker_notes"}
+    assert gateway.parameters is not None
+    assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])
+
+    draw = frozenset({DRAW_DOCUMENT_SERVICE})
+    impress = frozenset({DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE})
+    assert not impress_only & set(gateway.domains_for_services(draw))
+    assert "shapes" in gateway.domains_for_services(draw)
+    assert impress_only <= set(gateway.domains_for_services(impress))
+
+    oa = to_openai_schema(gateway, doc_type="draw")
+    [draw_oa] = narrow_delegate_domain_enums([oa], [gateway], draw)
+    assert not impress_only & set(draw_oa["function"]["parameters"]["properties"]["domain"]["enum"])
+    [impress_oa] = narrow_delegate_domain_enums([oa], [gateway], impress)
+    assert impress_only <= set(impress_oa["function"]["parameters"]["properties"]["domain"]["enum"])
+    mcp = to_mcp_schema(gateway, doc_type="draw")
+    [draw_mcp] = narrow_delegate_domain_enums([mcp], [gateway], draw)
+    assert not impress_only & set(draw_mcp["inputSchema"]["properties"]["domain"]["enum"])
+    # Unknown services leave the schema alone; the shared instance enum is never mutated.
+    assert narrow_delegate_domain_enums([oa], [gateway], None) == [oa]
+    assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])

@@ -61,7 +61,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 |------|--------|--------|---------|---------|
 | `shape_summary` | `shapes` | `draw/shapes.py` | Summary of shapes on page | Drawing+Presentation |
 | `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index. `line` may have a zero width or height | Drawing+Presentation |
-| `fill_draw_fields` | `shapes` | `draw/field_fill.py` | Batch-fill paper-form blanks / ControlShape values by name, index, or `label_hint` | Drawing+Presentation |
+| `fill_draw_fields` | `shapes` | `draw/field_fill.py` | Batch-fill paper-form blanks / ControlShape values by name, index, path_index, or `label_hint` | Drawing+Presentation |
 | `shape_delete` | `shapes` | `draw/shapes.py` | Delete a shape by index | Drawing+Presentation |
 | `shape_connect` | `shapes` | `draw/shapes.py` | Connect two shapes with a connector line | Drawing+Presentation |
 | `shape_group` | `shapes` | `draw/shapes.py` | Group multiple shapes | Drawing+Presentation |
@@ -86,6 +86,13 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | `insert_math` | `math` | `math_insert.py` | Insert LibreOffice Math (OLE) from LaTeX or MathML | Drawing+Presentation |
 | `WebResearchTool` | `web_research` | `web_research.py` | Web search for context | All |
 
+> **Not shipped: `transform_document_structure`.** `draw/transform.py` is a
+> `ToolBaseDummy` tool (never registered), and `plugin/draw/__init__.py` skips
+> the module during tool discovery, so `transform_engine.py` is not imported at
+> startup. `draw/transitions.py` still imports `AUTOLAYOUT_ID` from
+> `transform_schema.py`. Do not extend the DSL; deleting or finishing it is a
+> separate change.
+
 **Python domain (two-level).** `delegate_to_specialized_draw_toolset(domain="python")` uses the same outer→inner path as Writer: do venv / symbolic work on the python toolset, and call `delegate_tool_domains` with `domains` (for example `shapes`, `tables`, `speaker_notes`) and `task` when those domain tools are required. The inner agent gets `run_venv_python_script` allowlisted to those domains (shapes mutators are script API calls, not inner LLM tools). See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels).
 
 ### 2.3 Unit & Coordinate System
@@ -95,7 +102,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 
 ### 2.4 insert_math (math domain)
 
-> **Shape size:** `insert_math` does not take width/height arguments. After `Formula` is set, the box comes from the Draw `OLE2Shape` visual area: `VisibleArea` (already 1/100 mm) or the `EmbeddedObject` property’s `XVisualObject.getVisualAreaSize`. Draw does not implement `getEmbeddedObject()` — that method is Writer `TextEmbeddedObject`, and calling it always missed the real size. The length heuristic runs only when those properties report no positive size.
+> **Shape size:** `insert_math` does not take width/height arguments. After `Formula` is set, the box comes from the Draw `OLE2Shape` visual area: `VisibleArea` (already 1/100 mm) or the `EmbeddedObject` property’s `XVisualObject.getVisualAreaSize`. Draw does not implement `getEmbeddedObject()` — that method is Writer `TextEmbeddedObject`, and calling it always missed the real size. The length heuristic runs only when those properties report no positive size. An embed map unit that is not a plain length (PIXEL) also falls back to the heuristic, because it needs a DPI the visual object does not report.
 
 ----
 
@@ -160,7 +167,7 @@ The existing sidebar doesn't need new UI elements; the "Insert Image" action dyn
 | **Tree Structure (core)** | ✅ Complete | 1 tool | JSON DOM for LLM understanding |
 | **Web Research (specialized)** | ✅ Complete | 1 tool | Delegated search |
 | **Forms (specialized)** | ✅ ControlShapes + paper-form fill | 6 `form_*` + `fill_draw_fields` | Two problems — see [§3.1](#31-controlshapes-vs-paper-form-fill) |
-| **Math (specialized)** | partial | 1 tool (`insert_math`) | LaTeX/MathML → OLE Math on slide; **bounding-box sizing still unreliable** — see [§2.3](#23-insert_math-math-domain) |
+| **Math (specialized)** | partial | 1 tool (`insert_math`) | LaTeX/MathML → OLE Math on slide; sizing from the OLE visual area, heuristic only for unsupported map units — see [§2.4](#24-insert_math-math-domain) |
 | **Animations** | ❌ Missing | — | Slide + shape-level animations |
 | **Layers** | ❌ Missing | — | Draw layer management |
 | **Slide Show** | ❌ Missing | — | Start, stop, presenter mode |
@@ -199,7 +206,7 @@ These are **two different problems**. The old “Forms ✅ Complete” row only 
 - `get_draw_tree` marks empty / near-empty text-capable shapes with `fillable=true`, always includes `name` + `geometry` (bbox) on those nodes, and adds `label_hint`: nearest sibling text **to the left** (vertically aligned) or **above** (horizontally aligned). Left wins a distance tie. Slack is 200 units (2 mm) so PDF→Draw imports that barely overlap still match. Heuristic, not a reading-order parser.
 - ControlShape nodes include `control.type`, `control.name`, and current `text` / `state` / `selected` so the main agent can see widgets without a forms delegation.
 - `shape_upsert` edit accepts **name or index**. Create can set `Name` so later fills stay stable.
-- `fill_draw_fields` (`domain=shapes`) takes `fields: [{name\|index\|label_hint, value}, …]` and optional `page`. Resolves via the tree, then `setString` (or ControlShape `Text` / `State`). Returns per-field ok/fail.
+- `fill_draw_fields` (`domain=shapes`) takes `fields: [{name\|index\|path_index\|label_hint, value}, …]` and optional `page`. Resolves via the tree (name-first; `index`/`path_index` disambiguate duplicate names; group children addressable by `path_index`), then `setString` (or ControlShape `Text` / `State`). Missing `value` fails without writing; explicit `null` clears text. Returns per-field ok/fail.
 
 **Slice 2 — live widgets (`plugin/writer/specialized/forms.py`)**
 
@@ -251,7 +258,7 @@ Some tools are implemented in shared modules but work with Draw/Impress:
 | Task | Effort | Impact | Status |
 |------|--------|--------|--------|
 | Add `PresentationDocument` to `uno_services` for 9 tools | 1 hour | Unblocks Impress users from core shape/page tools | ✅ **Done** |
-| Improve `insert_math` OLE shape sizing (`math_insert.py`) | Medium | Correct default box for formulas without model-supplied width/height | Open — see [§2.3](#23-insert_math-math-domain) |
+| Improve `insert_math` OLE shape sizing (`math_insert.py`) | Medium | Correct default box for formulas without model-supplied width/height | ✅ **Done** — see [§2.4](#24-insert_math-math-domain) |
 
 
 ### 5.2 Priority 2: High-Value Features & Technical Designs
@@ -354,8 +361,9 @@ class AlignShapes(ToolDrawShapeBase):
 **Design:** Slide table manipulation uses the specialized table tools in [`plugin/writer/specialized/tables.py`](../../plugin/writer/specialized/tables.py) (`TableInsert`, `TableDelete`, `TableList`, `TableGetCells`, `TableSetCell`, `ManageTableStructure`), which branch on `_is_draw_doc(ctx.doc)` to delegate to Draw TableShape helpers in [`plugin/draw/tables.py`](../../plugin/draw/tables.py).
 
 **Implementation:**
-- `insert_draw_table`: creates an instance of `com.sun.star.drawing.TableShape`.
-- After `page.add`, grows the TableShape model with row/column `insertByIndex` (Rows/Columns properties on a detached shape are unreliable), then populates cells via `getCellByPosition(col, row)`.
+- `insert_draw_table`: oversized `data` is rejected before any shape is created.
+- Growth is one `insertByIndex(index, count)` per axis and the result is verified; cells are then populated via `getCellByPosition(col, row)`.
+- The table edits run in one compound undo step titled `WriterAgent: Insert table`; `page.add` itself records no undo action in Draw, so undo does not remove the shape.
 
 ---
 
@@ -366,9 +374,9 @@ class AlignShapes(ToolDrawShapeBase):
 - `move_slide(from_page: int, to_page: int)`
 - `rename_slide(page: int, name: str)`
 
-`move_slide` duplicates the source with `XDrawPageDuplicator.duplicate` (the same full-page clone as `duplicate_slide`), removes the source only after that clone exists, then swaps the clone with neighboring pages until it sits at `to_page`. Shapes are moved, not reconstructed, so groups, graphics, connectors, and charts stay intact. The page name, layout, master, speaker notes, and transition move with the clone. A failed swap is reversed, so a move to index 0 does not leave the deck half-reordered. If a reverse bubble step fails with an error other than disposal or PageExchangeRollbackError, move_slide raises PageExchangeRollbackError and does not return false. False still means every reverse swap finished. `InsertSdPage` (`sd/source/ui/unoidl/unomodel.cxx`) still inserts **after** `min(count-1, n)`, so a raw `insertNewByIndex(n)` lands at `min(count-1, n)+1` and cannot create a page at index 0. `DrawBridge.create_slide` and `insert_slide_from_master` compensate: they pass the preceding index so a middle insert lands on the requested slot, and a request for index 0 inserts then exchanges with page 0 (the same reorder as `move_slide`). Both return that real index. `add_slide` reports it as `active_page_index` and passes it to master inheritance, so `page=0` copies the neighbor's master instead of the new page's own. `add_slide` calls `create_slide` with `switch=False`, applies the master and layout, and only then calls `set_current_page_index` when `activate` is true. A failed master or layout still removes the new page and does not switch the view. Transform `InsertMasterSlide` stores the same returned index as the current slide. Placeholder roles come from `ShapeType` (`TitleTextShape`, `OutlinerShape`) when `ClassName` is not a property; untagged text boxes are still not guessed by position.
+`move_slide` duplicates the source with `XDrawPageDuplicator.duplicate` (the same full-page clone as `duplicate_slide`), removes the source only after that clone exists, then swaps the clone with neighboring pages until it sits at `to_page`. Shapes are moved, not reconstructed, so groups, graphics, connectors, and charts stay intact. The page name, layout, master, speaker notes, and transition move with the clone. A failed swap is reversed, so a move to index 0 does not leave the deck half-reordered. If a reverse bubble step fails with an error other than disposal or PageExchangeRollbackError, move_slide raises PageExchangeRollbackError and does not return false. False still means every reverse swap finished. `InsertSdPage` (`sd/source/ui/unoidl/unomodel.cxx`) still inserts **after** `min(count-1, n)`, so a raw `insertNewByIndex(n)` lands at `min(count-1, n)+1` and cannot create a page at index 0. `DrawBridge.create_slide` and `insert_slide_from_master` compensate: they pass the preceding index so a middle insert lands on the requested slot, and a request for index 0 inserts then exchanges with page 0 (the same reorder as `move_slide`). Both return that real index. `add_slide` reports it as `active_page_index` and passes it to master inheritance, so `page=0` copies the neighbor's master instead of the new page's own. `add_slide` calls `create_slide` with `switch=False`, applies the master and layout, and only then calls `set_current_page_index` when `activate` is true. A failed master or layout still removes the new page and does not switch the view. If `set_current_page_index` returns false, `add_slide` reports the real active index and `view_switch_failed: true`; a live-document failure after insert still removes the new page, and `cleanup_failed: true` in the error details means that removal also failed. Transform `InsertMasterSlide` stores the same returned index as the current slide. Placeholder roles come from `ShapeType` (`TitleTextShape`, `OutlinerShape`) when `ClassName` is not a property; untagged text boxes are still not guessed by position.
 
-`move_slide` raises `PageExchangeRollbackError` when an exchange cannot put shapes back. The temporary page stays in the deck. The `move_slide` tool returns that message as the tool error. In `SlideCommandEngine.apply`, a failed top-level `UnoCommand` returns error before `SlideCommands`; a command exception returns error with `failed_at`. Earlier successful commands stay in the document under the one `WriterCompoundUndo` step. Speaker notes are copied only when both pages have a notes shape. Non-empty notes on one page and no notes shape on the other abort that exchange, the shapes go back, and `move_slide` returns false. Empty notes on the only side that has a shape stay put. `insert_slide_from_master` removes the new page and raises `Failed to assign master page` when the `MasterPage` write fails. `duplicate_slide` raises `RuntimeError` when `XDrawPageDuplicator.duplicate` returns None and does not change the current page. `set_active_page` is not a mutation (`is_mutation` is false). It calls `DrawBridge.set_current_page_index`. A false return is the tool error `Failed to set active page.` Disposal is not caught in the tool. `list_pages` returns each page's Name, or `Page N` when Name is missing or blank. The list position is the 0-based index. `get_draw_context_for_chat` returns the summary as built when it fits in `max_context`. When it does not, the return value is a prefix of `max_context` characters plus a blank line and `[... document truncated ...]`.
+`move_slide` raises `PageExchangeRollbackError` when an exchange cannot put shapes back. The temporary page stays in the deck. The `move_slide` tool returns that message as the tool error. In `SlideCommandEngine.apply`, a failed top-level `UnoCommand` returns error before `SlideCommands`; a command exception returns error with `failed_at`. Earlier successful commands stay in the document under the one `WriterCompoundUndo` step. Speaker notes are copied only when both pages have a notes shape. Non-empty notes on one page and no notes shape on the other abort that exchange, the shapes go back, and `move_slide` returns false. Empty notes on the only side that has a shape stay put. `insert_slide_from_master` removes the new page and raises `Failed to assign master page` when the `MasterPage` write fails. `duplicate_slide` raises `RuntimeError` when `XDrawPageDuplicator.duplicate` returns None and does not change the current page. `set_active_page` is not a mutation (`is_mutation` is false). It calls `DrawBridge.set_current_page_index`. A false return is the tool error `Failed to set active page.` Disposal is not caught in the tool. `list_pages` returns each page's Name, or `Page N` when Name is missing or blank. The list position is the 0-based index. `get_draw_context_for_chat` returns the summary as built when it fits in `max_context`. When it does not, the return value is a prefix of `max_context` characters plus a blank line and `[... document truncated ...]`. A shape whose type/position/size cannot be read is listed without the missing fields, and speaker notes are emitted before the shape list so a long shape list cannot truncate them away.
 
 `get_draw_context_for_chat` resolves Active Slide/Page Index with `uno_same` (`is`, then `==`, then `uno.isSame`). `getCurrentPage()` and `getByIndex()` can be different Python wrappers for one page; bare `==` reported `-1` and the model edited the wrong slide. Shape summary and speaker notes use `active_page is not None`: an empty `XDrawPage` is falsy, and a truthiness check dropped notes on a blank slide.
 
@@ -520,7 +528,7 @@ The `DrawBridge` class (`plugin/draw/bridge.py`) provides a unified interface fo
 - Shape creation
 - Document navigation
 
-For **shape tools**, the same bridge also wraps Writer `getDrawPage()` and the active Calc sheet `getDrawPage()` as a one-page collection. Slide insert/delete/duplicate still require a real Draw/Impress `XDrawPages`.
+For **shape tools**, the same bridge also routes Calc through `getDrawPages()` (one page per sheet), and wraps Writer, which exposes only `getDrawPage()`, as a one-page collection. Slide insert/delete/duplicate still require a real Draw/Impress `XDrawPages`.
 
 This pattern could be extended to other domains.
 

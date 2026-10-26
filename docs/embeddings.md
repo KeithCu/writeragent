@@ -125,8 +125,6 @@ Workflow hints ([`get_document_research_workflow_hint`](../plugin/framework/prom
 - **Off:** `list_nearby_files` → `grep_nearby_files` → `delegate_read_document`
 - **Index on:** `list_nearby_files` → `search_nearby_files` → `delegate_read_document` → inner `search_in_document` on snippet or topic
 
-`search_embeddings` is a legacy hidden tool; use `search_nearby_files`.
-
 ### Search hit shape {#search-hit-shape}
 
 `search_nearby_files` returns:
@@ -287,7 +285,7 @@ Indexing runs on a **background maintenance worker** — not inside the agent to
 |---------|--------|
 | **Periodic tick** | Every 300 s for active doc’s folder ([`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py)) |
 | **document_research start** | [`specialized_base.py`](../plugin/doc/specialized_base.py) |
-| **Empty or wrong-model cache on search** | [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py), [`document_research_search_tool.py`](../plugin/embeddings/document_research_search_tool.py) |
+| **Empty or wrong-model cache on search** | [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) |
 
 One job per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
 
@@ -298,7 +296,7 @@ One job per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin
 
 Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)).
 
-`search_nearby_files` and `search_embeddings` do not wait for embed completion. An empty cache, or a cache whose `embedding_model` does not match the active model, returns `indexing` and enqueues a cold rebuild. They do not run a vector query against that index. A matching cache is read immediately, and maintain is enqueued in the background.
+`search_nearby_files` does not wait for embed completion. An empty cache, or a cache whose `embedding_model` does not match the active model, returns `indexing` and enqueues a cold rebuild. It does not run a vector query against that index. A matching cache is read immediately, and maintain is enqueued in the background.
 
 ### Module map
 

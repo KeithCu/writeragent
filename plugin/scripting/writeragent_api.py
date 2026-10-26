@@ -1175,9 +1175,9 @@ class _HeadersFooterProxy:
         Args:
             page (required): 0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.
             is_master_page (optional): If True, update the master page linked to the slide at page. Defaults to False.
-            header (optional): Header text. Not available on a normal slide (notes page and handout master only). On an Impress master, written to the header shape.
-            footer (optional): The text for the footer.
-            date_time (optional): The fixed date/time text.
+            header (optional): Header text. Slide master only (written to the master's header shape); not available on a normal slide.
+            footer (optional): The text for the footer. Setting it enables footer_visible unless footer_visible is passed.
+            date_time (optional): The fixed date/time text. On a slide, setting it enables date_time_visible and date_time_fixed unless those are passed.
             header_visible (optional): Whether the header is visible.
             footer_visible (optional): Whether the footer is visible.
             page_number_visible (optional): Whether the slide number is visible.
@@ -1851,10 +1851,10 @@ class _ShapeProxy:
         return _rpc_call("distribute_shapes", page=page, indices=indices, axis=axis)
 
     def fill_draw_fields(self, fields: list[Any], *, page: int | None = None) -> dict[str, Any]:
-        """Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), draw-page index, or label_hint from get_draw_tree. Returns per-field ok/fail so you can recover. Not a PDF/AcroForm API.
+        """Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), draw-page index, path_index for group children, or label_hint from get_draw_tree. Returns per-field ok/fail so you can recover. Not a PDF/AcroForm API.
 
         Args:
-            fields (required): Fields to write. Each item needs a value plus name, index, or label_hint.
+            fields (required): Fields to write. Target precedence: name (preferred; disambiguated by path_index or index), path_index, index, or label_hint. Each item needs a value.
             page (optional): 0-based page index (active page if omitted).
         """
         return _rpc_call("fill_draw_fields", page=page, fields=fields)
@@ -1884,7 +1884,7 @@ class _ShapeProxy:
             index (optional): 0-based index of the shape on the page (edit: pass index or name).
             name (optional): Shape Name. Edit: look up by Name when index is omitted. Create: set the new shape's Name so later fills stay stable.
             page (optional): 0-based page index (active page if omitted).
-            shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. polygons and symbols (octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon); stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
+            shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
             x (optional): X position (100ths of mm) (required only for action='create').
             y (optional): Y position (100ths of mm) (required only for action='create').
             width (optional): Width (100ths of mm) (required only for action='create').
@@ -2046,7 +2046,7 @@ class _SlideTransitionProxy:
         return _rpc_call("get_slide_transition", page=page)
 
     def set_slide_transition(self, *, page: int | None = None, effect: str | None = None, speed: str | None = None, duration: int | None = None, transition_duration: float | None = None, advance: str | None = None) -> dict[str, Any]:
-        """Set the transition effect on an Impress slide. Effects: none, fade_from_left/top/right/bottom, move_from_left/top/right/bottom, dissolve, random, open_vertical/horizontal, close_vertical/horizontal, roll_from_left/top/right/bottom, uncover_to_left/top/right/bottom, fade_to_center, fade_from_center. Speed: slow, medium, fast. Advance: on_click, auto (set duration for auto-advance).
+        """Set the transition effect on an Impress slide. Effects: none, fade_from_left/top/right/bottom, move_from_left/top/right/bottom, dissolve, random, open_vertical/horizontal, close_vertical/horizontal, roll_from_left/top/right/bottom, uncover_to_left/top/right/bottom, fade_to_center, fade_from_center. Speed: slow, medium, fast. Advance: on_click, auto, semi_auto (set duration for auto-advance).
 
         Args:
             page (optional): 0-based slide index (active slide if omitted).
@@ -2054,7 +2054,7 @@ class _SlideTransitionProxy:
             speed (optional): Transition speed (default: medium). One of: slow, medium, fast.
             duration (optional): Auto-advance duration in seconds (0 = manual advance).
             transition_duration (optional): Transition animation time in seconds (e.g. 1.5).
-            advance (optional): How to advance: on_click (default) or auto. One of: on_click, auto.
+            advance (optional): How to advance: on_click (default), auto, or semi_auto (object effects run automatically, click still changes the page). One of: on_click, auto, semi_auto.
         """
         return _rpc_call("set_slide_transition", page=page, effect=effect, speed=speed, duration=duration, transition_duration=transition_duration, advance=advance)
 

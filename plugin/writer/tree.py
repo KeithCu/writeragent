@@ -393,6 +393,8 @@ class TreeService(ServiceBase):
                 para_ranges = self._doc_svc.get_paragraph_ranges(doc)
                 text_obj = doc.getText()
                 para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+                if para_idx is None:
+                    raise ToolExecutionError("page start is not in a body paragraph")
                 return {"para_index": para_idx}
             except Exception as e:
                 raise ToolExecutionError("Cannot resolve page:%s — %s" % (loc_value, e)) from e
@@ -408,6 +410,8 @@ class TreeService(ServiceBase):
             para_ranges = self._doc_svc.get_paragraph_ranges(doc)
             text_obj = doc.getText()
             para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+            if para_idx is None:
+                raise ToolExecutionError("Section '%s' anchor is not in the document" % loc_value)
             return {"para_index": para_idx, "section_name": loc_value}
 
         if loc_type == "heading":
@@ -460,7 +464,7 @@ class TreeService(ServiceBase):
             para_ranges = self._doc_svc.get_paragraph_ranges(doc)
             text_obj = doc.getText()
             para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-            # Same as bookmarks: find_paragraph_for_range returns 0 when the
+            # Same as bookmarks: find_paragraph_for_range returns None when the
             # place fails. confirm_paragraph_index keeps 0 only for a real hit
             # inside a paragraph. A table in enumeration slot 0 is still valid,
             # and confirm only checks paragraph getStart, so accept that slot
@@ -500,10 +504,10 @@ class TreeService(ServiceBase):
     def _paragraph_for_bookmark(self, doc: Any, bookmark_name: str, bookmark: Any) -> int:
         """Paragraph index for a bookmark that still has a name.
 
-        ``find_paragraph_for_range`` returns 0 when the anchor cannot be
+        ``find_paragraph_for_range`` returns None when the anchor cannot be
         placed. A stale ``_mcp_`` mark after save/reopen or
-        ``bookmark_cleanup`` still has a name, so returning that 0
-        navigates to the first paragraph.
+        ``bookmark_cleanup`` still has a name, so it must not resolve
+        to a paragraph.
         ``confirm_paragraph_index`` keeps 0 only when the anchor start
         is inside that paragraph. Anything else is an error, not a
         location.

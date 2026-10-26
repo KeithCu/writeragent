@@ -71,6 +71,8 @@ def _try_writer_anchor_shape_before_add(doc: Any, shape: Any) -> None:
 
         shape.setPropertyValue("AnchorType", AT_PAGE)
     except Exception as ex:
+        if is_real_disposal(ex):
+            raise
         log.warning("create_shape writer_anchor: set AnchorType failed: %s: %s", type(ex).__name__, ex)
 
 
@@ -94,8 +96,12 @@ def _try_writer_at_page_shape_finalize(doc: Any, shape: Any, page_idx: Any = 0) 
         try:
             log.debug("create_shape writer_at_page_finalize: readback AnchorPageNo=%r HoriOrient=%r VertOrient=%r", shape.getPropertyValue("AnchorPageNo"), shape.getPropertyValue("HoriOrient"), shape.getPropertyValue("VertOrient"))
         except Exception as ex:
+            if is_real_disposal(ex):
+                raise
             log.debug("create_shape writer_at_page_finalize: readback failed: %s", ex)
     except Exception as ex:
+        if is_real_disposal(ex):
+            raise
         log.warning("create_shape writer_at_page_finalize: failed %s: %s", type(ex).__name__, ex)
 
 
@@ -108,6 +114,8 @@ def _try_writer_reapply_position_after_anchor(doc: Any, shape: Any, position: An
         shape.setSize(size)
         log.debug("create_shape writer_reapply_pos: pos=(%s,%s) size=(%sx%s)", position.X, position.Y, size.Width, size.Height)
     except Exception as ex:
+        if is_real_disposal(ex):
+            raise
         log.warning("create_shape writer_reapply_pos: %s: %s", type(ex).__name__, ex)
 
 
@@ -129,6 +137,8 @@ def _try_writer_invalidate_and_pump(doc: Any) -> None:
         win.invalidate(0)
         log.debug("create_shape writer_invalidate: invalidate(0)")
     except Exception as ex:
+        if is_real_disposal(ex):
+            raise
         log.debug("create_shape writer_invalidate: %s", ex)
 
 
@@ -151,6 +161,8 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
         log.debug("create_shape enhanced_geometry: ok type=%r engine=%r", custom_shape_type, _ENHANCED_CUSTOM_SHAPE_ENGINE)
         return True, None
     except Exception as ex:
+        if is_real_disposal(ex):
+            raise
         log.debug("create_shape enhanced_geometry: failed type=%r err=%s: %s", custom_shape_type, type(ex).__name__, ex)
         return False, f"{type(ex).__name__}: {ex}"
 
@@ -301,7 +313,9 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
     for prop, value in (("TextAutoGrowHeight", False), ("TextAutoGrowWidth", False)):
         try:
             shape.setPropertyValue(prop, value)
-        except Exception:
+        except Exception as ex:
+            if is_real_disposal(ex):
+                raise
             log.debug("setPropertyValue %s failed", prop, exc_info=True)
     if not apply_autofit:
         return
@@ -313,13 +327,22 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
             from com.sun.star.drawing import TextFitToSizeType as fit_enum
 
         shape.setPropertyValue("TextFitToSize", fit_enum.AUTOFIT)
-    except Exception:
+    except Exception as ex:
+        if is_real_disposal(ex):
+            raise
         log.debug("set TextFitToSize AUTOFIT failed", exc_info=True)
+
+
+def _failed_prop(failed: list[str], name: str, exc: BaseException) -> None:
+    """Record a property that did not apply; a closed document still propagates."""
+    if is_real_disposal(exc):
+        raise
+    failed.append(name)
 
 
 def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     """Helper to apply rich formatting properties to a shape. Returns list of failed property names."""
-    failed_props = []
+    failed_props: list[str] = []
 
     # "text" in kwargs (not truthy) so paper-form fills can write "" or keep a Name-only edit.
     if "text" in kwargs and hasattr(shape, "setString"):
@@ -331,14 +354,14 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
                 apply_autofit = "font_size" not in kwargs
             _clamp_shape_text_autogrow(shape, apply_autofit=apply_autofit)
             shape.setString("" if kwargs["text"] is None else str(kwargs["text"]))
-        except Exception:
-            failed_props.append("text")
+        except Exception as exc:
+            _failed_prop(failed_props, "text", exc)
 
     if kwargs.get("name") and hasattr(shape, "Name"):
         try:
             shape.Name = str(kwargs["name"])
-        except Exception:
-            failed_props.append("name")
+        except Exception as exc:
+            _failed_prop(failed_props, "name", exc)
 
     # Background/Fill Color
     if kwargs.get("fill_color"):
@@ -349,8 +372,8 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
                 from com.sun.star.drawing import FillStyle
 
                 shape.setPropertyValue("FillStyle", FillStyle.NONE)
-            except Exception:
-                failed_props.append("fill_color")
+            except Exception as exc:
+                _failed_prop(failed_props, "fill_color", exc)
         else:
             color = parse_color_to_uno_int(color_str)
             if color is None:
@@ -359,8 +382,8 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
                 try:
                     prop = "LineColor" if "LineShape" in shape.getShapeType() else "FillColor"
                     shape.setPropertyValue(prop, color)
-                except Exception:
-                    failed_props.append("fill_color")
+                except Exception as exc:
+                    _failed_prop(failed_props, "fill_color", exc)
 
     # Fill Style (solid, transparent, etc)
     if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
@@ -377,8 +400,8 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
                 shape.setPropertyValue("FillStyle", fill_enum.NONE)
             elif style_str == "solid":
                 shape.setPropertyValue("FillStyle", fill_enum.SOLID)
-        except Exception:
-            failed_props.append("fill_style")
+        except Exception as exc:
+            _failed_prop(failed_props, "fill_style", exc)
 
     # Line Color
     if kwargs.get("line_color"):
@@ -388,15 +411,15 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         else:
             try:
                 shape.setPropertyValue("LineColor", color)
-            except Exception:
-                failed_props.append("line_color")
+            except Exception as exc:
+                _failed_prop(failed_props, "line_color", exc)
 
     # Line Width
     if kwargs.get("line_width") is not None and hasattr(shape, "LineWidth"):
         try:
             shape.setPropertyValue("LineWidth", int(kwargs["line_width"]))
-        except Exception:
-            failed_props.append("line_width")
+        except Exception as exc:
+            _failed_prop(failed_props, "line_width", exc)
 
     # Line Style (ensure border is visible when colored or sized)
     if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
@@ -407,8 +430,8 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             if not line_enum:
                 from com.sun.star.drawing import LineStyle as line_enum
             shape.setPropertyValue("LineStyle", line_enum.SOLID)
-        except Exception:
-            failed_props.append("line_style")
+        except Exception as exc:
+            _failed_prop(failed_props, "line_style", exc)
 
     # Text Properties (Font Size, Name, Color)
     if kwargs.get("text_color") or kwargs.get("font_size") or kwargs.get("font_name"):
@@ -417,16 +440,16 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             for prop_name, ok in char_res.items():
                 if not ok:
                     failed_props.append(prop_name)
-        except Exception:
-            failed_props.append("text_properties")
+        except Exception as exc:
+            _failed_prop(failed_props, "text_properties", exc)
 
     # Rotation
     if kwargs.get("rotation_angle") is not None and hasattr(shape, "RotateAngle"):
         try:
             # Angle is in 100ths of a degree
             shape.setPropertyValue("RotateAngle", int(kwargs["rotation_angle"] * 100))
-        except Exception:
-            failed_props.append("rotation_angle")
+        except Exception as exc:
+            _failed_prop(failed_props, "rotation_angle", exc)
 
     return failed_props
 
@@ -445,7 +468,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 _CREATE_SHAPE_SHAPE_TYPE_DESC = (
     "Type of shape. "
     "Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. "
-    "polygons and symbols (octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon); "
+    "Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; "
     "stars (star4, star5, star8, star24); "
     "arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); "
     "braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); "

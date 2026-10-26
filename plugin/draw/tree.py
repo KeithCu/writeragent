@@ -36,7 +36,7 @@ import logging
 import re
 from typing import Any
 
-from plugin.framework.errors import is_disposed_exception, is_real_disposal
+from plugin.framework.errors import is_disposed_exception, is_real_disposal, uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
@@ -185,21 +185,20 @@ def _shape_name(shape: Any) -> str:
 
 
 def _shape_text(shape: Any) -> str:
-    try:
-        if hasattr(shape, "getString"):
-            return shape.getString() or ""
-    except Exception:
-        log.debug("shape getString failed", exc_info=True)
-    return ""
+    if not hasattr(shape, "getString"):
+        return ""
+    # Bugfix: a closed document raises from getString; the old bare except
+    # turned that into "" and the page looked empty. uno_read re-raises real
+    # disposal (DOCUMENT_DISPOSED) and keeps a missing text property as "".
+    return uno_read(lambda: shape.getString() or "", "")
 
 
 def _shape_geometry(shape: Any) -> dict[str, int] | None:
-    try:
-        pos = shape.getPosition()
-        size = shape.getSize()
-        return {"x": int(pos.X), "y": int(pos.Y), "width": int(size.Width), "height": int(size.Height)}
-    except Exception:
+    pos: Any = uno_read(lambda: shape.getPosition(), None)
+    size: Any = uno_read(lambda: shape.getSize(), None)
+    if pos is None or size is None:
         return None
+    return {"x": int(pos.X), "y": int(pos.Y), "width": int(size.Width), "height": int(size.Height)}
 
 
 def _cx(g: dict[str, int]) -> float:
@@ -377,10 +376,7 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
 
         current_index = str(i) if base_index is None else f"{base_index}.{i}"
 
-        try:
-            shape_type = shape.getShapeType()
-        except Exception:
-            shape_type = "UnknownShape"
+        shape_type = uno_read(lambda: shape.getShapeType(), "UnknownShape")
 
         node: dict[str, Any] = {"type": short_shape_type(shape_type)}
 
@@ -404,65 +400,44 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
             node["fillable"] = True
 
         if control:
-            try:
-                model = getattr(shape, "Control", None)
-                if model is not None:
-                    node["control"] = control_snapshot(model)
-            except Exception:
-                node["control"] = {"type": "unknown", "name": name}
+            model: Any = uno_read(lambda: getattr(shape, "Control", None), None)
+            unknown = {"type": "unknown", "name": name}
+            # A non-disposal snapshot failure still degrades to "unknown" (as before); disposal leaves.
+            node["control"] = uno_read(lambda: control_snapshot(model), unknown) if model is not None else unknown
 
-        try:
-            desc = getattr(shape, "Description", "")
-            if desc:
-                node["alt_description"] = desc
-            title = getattr(shape, "Title", "")
-            if title:
-                node["alt_title"] = title
-        except Exception:
-            log.debug("shape Description/Title read failed", exc_info=True)
+        desc = _safe_attr(shape, "Description")
+        if desc:
+            node["alt_description"] = desc
+        title = _safe_attr(shape, "Title")
+        if title:
+            node["alt_title"] = title
 
         geom = _shape_geometry(shape)
         if geom:
             node["geometry"] = geom
 
         if "ConnectorShape" in shape_type:
-            try:
-                start_shape = shape.getPropertyValue("StartShape")
-                if start_shape:
-                    s_name = _shape_name(start_shape)
-                    s_text = _shape_text(start_shape).strip()
-                    node["connected_start"] = {"name": s_name, "text": s_text}
-            except Exception:
-                log.debug("connector StartShape read failed", exc_info=True)
-            try:
-                end_shape = shape.getPropertyValue("EndShape")
-                if end_shape:
-                    e_name = _shape_name(end_shape)
-                    e_text = _shape_text(end_shape).strip()
-                    node["connected_end"] = {"name": e_name, "text": e_text}
-            except Exception:
-                log.debug("connector EndShape read failed", exc_info=True)
+            start_shape: Any = uno_read(lambda: shape.getPropertyValue("StartShape"), None)
+            if start_shape:
+                node["connected_start"] = {"name": _shape_name(start_shape), "text": _shape_text(start_shape).strip()}
+            end_shape: Any = uno_read(lambda: shape.getPropertyValue("EndShape"), None)
+            if end_shape:
+                node["connected_end"] = {"name": _shape_name(end_shape), "text": _shape_text(end_shape).strip()}
 
         style: dict[str, Any] = {}
         for prop in ["FillColor", "LineColor", "ZOrder", "RotateAngle", "LineWidth"]:
-            try:
-                val = shape.getPropertyValue(prop)
-                if val is not None:
-                    if prop in ["FillColor", "LineColor"] and isinstance(val, int) and val != -1:
-                        style[prop] = f"#{val:06X}"
-                    else:
-                        style[prop] = val
-            except Exception:
-                log.debug("shape style property %s read failed", prop, exc_info=True)
+            val: Any = uno_read(lambda: shape.getPropertyValue(prop), None)
+            if val is not None:
+                if prop in ["FillColor", "LineColor"] and isinstance(val, int) and val != -1:
+                    style[prop] = f"#{val:06X}"
+                else:
+                    style[prop] = val
 
-        try:
-            geom_props = shape.getPropertyValue("CustomShapeGeometry")
-            if geom_props:
-                for p in geom_props:
-                    if p.Name == "Type":
-                        node["custom_shape_type"] = p.Value
-        except Exception:  # noqa: S110 - CustomShapeGeometry is absent on ordinary shapes; logging each miss floods get_draw_tree
-            pass
+        geom_props: Any = uno_read(lambda: shape.getPropertyValue("CustomShapeGeometry"), None)
+        if geom_props:
+            for p in geom_props:
+                if p.Name == "Type":
+                    node["custom_shape_type"] = p.Value
 
         if style:
             node["style"] = style
@@ -490,18 +465,10 @@ class GetDrawTree(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge, resolve_page_and_bridge
+        from plugin.draw.bridge import resolve_shape_page
 
-        _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
-
-        try:
-            page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
-        except Exception as exc:
-            # get_slide_for_tool never returns None; a bad index raises ToolExecutionError
-            from plugin.framework.errors import ToolExecutionError
-
-            if isinstance(exc, ToolExecutionError):
-                return self._tool_error(str(exc))
-            raise
+        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
+        if err or page is None:
+            return self._tool_error(err or "No draw page available.")
 
         return {"status": "ok", "page": actual_idx, "tree": build_shape_tree(page)}

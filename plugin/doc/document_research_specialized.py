@@ -20,10 +20,10 @@ from plugin.doc.document_research import close_document_research_document, open_
 
 log = logging.getLogger(__name__)
 
-READ_TOOLS_BY_DOC_TYPE: dict[str, frozenset[str]] = {
-    "writer": frozenset({"get_document_content", "get_document_tree", "search_in_document"}),
-    "calc": frozenset({"get_sheet_summary", "read_cell_range"}),
-    "draw": frozenset({"list_pages", "get_draw_tree"}),
+READ_TOOLS_BY_DOC_TYPE: dict[str, tuple[str, ...]] = {
+    "writer": ("get_document_content", "get_document_tree", "search_in_document"),
+    "calc": ("get_sheet_summary", "read_cell_range"),
+    "draw": ("list_pages", "get_draw_tree"),
 }
 
 
@@ -63,9 +63,10 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     except SendCancelled:
         return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
 
-    missing = allowlist - {t.name for t in domain_tools if t.name}
+    found = {t.name for t in domain_tools if t.name}
+    missing = [name for name in allowlist if name not in found]
     if missing:
-        log.warning("Inner document_research agent missing tools: %s", sorted(missing))
+        log.warning("Inner document_research agent missing tools: %s", missing)
 
     tools_by_name = {t.name: t for t in domain_tools + finish_tools if t.name}
     ordered = [tools_by_name[n] for n in allowlist if n in tools_by_name]
@@ -139,16 +140,20 @@ class DelegateReadDocument(ToolBase):
         if not path_or_name or not task:
             return self._tool_error("path_or_name and task are required")
 
-        def _open_on_main() -> tuple[Any, ...] | dict[str, Any]:
+        try:
             path, url_or_err = resolve_path_or_name(ctx.ctx, ctx.doc, str(path_or_name))
-            if path is None:
-                return self._tool_error(url_or_err or "Could not resolve file", details={"path_or_name": path_or_name})
+        except SendCancelled:
+            return user_stopped_payload()
+        if path is None:
+            return self._tool_error(url_or_err or "Could not resolve file", path_or_name=path_or_name)
 
-            target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
+        target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
+
+        def _open_on_main() -> tuple[Any, ...] | dict[str, Any]:
             model, doc_type, err, opened_for_document_research = open_document_for_read(ctx.ctx, target)
             if model is None or doc_type is None:
-                return self._tool_error(err or "Open failed", details={"path": path})
-            return (path, model, doc_type, opened_for_document_research)
+                return self._tool_error(err or "Open failed", path=path)
+            return (model, doc_type, opened_for_document_research)
 
         try:
             opened = run_on_main(_open_on_main)
@@ -158,7 +163,7 @@ class DelegateReadDocument(ToolBase):
         if isinstance(opened, dict) and opened.get("status") == "error":
             return opened
 
-        path, model, doc_type, opened_for_document_research = opened
+        model, doc_type, opened_for_document_research = opened
         try:
             stop_checker = ctx.stop_checker if isinstance(ctx, ToolContext) else None
             if stop_checker is not None and stop_checker():
@@ -174,12 +179,25 @@ class DelegateReadDocument(ToolBase):
                 from plugin.framework.queue_executor import post_to_main_thread
                 # Post unscoped (bound_scope=None) so the cancelled turn scope does not drop
                 # this close during queue processing or cancel_pending_work.
-                post_to_main_thread(_do_close, bound_scope=None)
+                try:
+                    post_to_main_thread(_do_close, bound_scope=None)
+                except Exception:
+                    # post raises TimeoutError when AsyncCallback is missing and the
+                    # pending list is full; an exception from finally would replace
+                    # a successful read.
+                    log.exception("Close fallback failed; hidden read document may stay open")
 
         if isinstance(result, dict) and result.get("status") == "error":
             return result
-        if isinstance(result, dict) and "result" in result:
-            payload = result["result"]
+        if isinstance(result, dict):
+            payload = result["result"] if "result" in result else result.get("answer")
         else:
             payload = result
+        if payload is None or (isinstance(payload, str) and not payload.strip()):
+            return self._tool_error(
+                "Document research read agent returned no answer.",
+                code="READ_EMPTY_RESULT",
+                path=path,
+                doc_type=doc_type,
+            )
         return {"status": "ok", "path": path, "doc_type": doc_type, "result": str(payload)}

@@ -18,11 +18,12 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any, cast, Type, ClassVar
 
 from plugin.framework.errors import is_real_disposal
-from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments
+from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
@@ -110,7 +111,7 @@ class DelegateToSpecializedBase(ToolBase):
 
     def __init__(self) -> None:
         super().__init__()
-        domains = []
+        domains: set[str] = set()
         # Find all domains by scanning subclasses of the specialized base
         for cls in self._special_base_class.__subclasses__():
             domain = getattr(cls, "specialized_domain", None)
@@ -121,12 +122,12 @@ class DelegateToSpecializedBase(ToolBase):
                     continue
                 if self._agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
                     continue
-                domains.append(domain)
+                domains.add(str(domain))
 
         self.parameters = {
             "type": "object",
             "properties": {
-                "domain": {"type": "string", "enum": domains, "description": "The specialized domain to activate."},
+                "domain": {"type": "string", "enum": sorted(domains), "description": "The specialized domain to activate."},
                 # Left commented on purpose. Domain access for the python specialized
                 # agent is delegate_tool_domains (domains + task → inner agent in
                 # plugin/doc/python_domain_specialized.py). This single-string name is
@@ -144,6 +145,25 @@ class DelegateToSpecializedBase(ToolBase):
             "required": ["domain", "task"],
         }
 
+    def domains_for_services(self, uno_services: frozenset[str]) -> list[str]:
+        """Sorted enum domains with a base class that runs on a document supporting *uno_services*.
+
+        Bugfix: a Draw (DrawingDocument only) document was offered Impress-only domains
+        (headers_footers, speaker_notes, slide_*) whose bases declare PresentationDocument,
+        and picking one returned "No specialized tools found". Keyed on probed services,
+        not the doc_type label: Impress's label is the family "draw" too (K082 regression).
+        """
+        assert uno_services, "caller must skip narrowing when services are unknown"
+        assert self.parameters is not None
+        enum = self.parameters["properties"]["domain"]["enum"]
+        supported = {
+            str(domain)
+            for cls in self._special_base_class.__subclasses__()
+            if (domain := getattr(cls, "specialized_domain", None))
+            and tool_supports_document(cast("ToolBase", cls), doc_type=None, uno_services_supported=uno_services)
+        }
+        return [d for d in enum if d in supported]
+
     def is_async(self) -> bool:
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
         return True
@@ -151,7 +171,7 @@ class DelegateToSpecializedBase(ToolBase):
     # Domains whose work is read-only -> a long-running delegation to them must NOT
     # take the per-document mutation lock (it would needlessly serialize research on
     # the same doc). The gateway itself is is_mutation=True for the mutating domains.
-    _READ_ONLY_DOMAINS: ClassVar[frozenset[str]] = frozenset({"document_research", "web_research", "vision"})
+    _READ_ONLY_DOMAINS: ClassVar[frozenset[str]] = frozenset({"document_research", "web_research"})
 
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = field_from_tool_arguments(arguments, "domain")
@@ -163,8 +183,6 @@ class DelegateToSpecializedBase(ToolBase):
         # the document lock (safe default), allowing execute() to subsequently return the standard
         # invalid-domain error.
         if isinstance(domain, str) and domain in self._READ_ONLY_DOMAINS:
-            if domain == "vision":
-                return True
             return False
         return super().requires_document_lock(arguments)
 
@@ -376,6 +394,11 @@ class DelegateToSpecializedBase(ToolBase):
                     # Sub-agent runs on a worker thread; UNO reads must go through the main thread.
                     calc_ctx = queue_executor.execute_on_main_thread(_fetch_calc_context)
                 except Exception as e:
+                    # Bugfix: a document closed during the async run landed here; swallowing it
+                    # dropped the context and let the inner agent answer from a partial prompt.
+                    # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+                    if is_real_disposal(e):
+                        raise
                     log.warning("Failed to get Calc context for sub-agent: %s", e)
 
             open_docs_context = ""
@@ -398,6 +421,11 @@ class DelegateToSpecializedBase(ToolBase):
                             + "\n".join(lines)
                         )
                 except Exception as e:
+                    # Bugfix: a document closed during the async run landed here; swallowing it
+                    # dropped the context and let the inner agent answer from a partial prompt.
+                    # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+                    if is_real_disposal(e):
+                        raise
                     log.warning("Failed to get open documents for sub-agent: %s", e)
 
             images_hint = images_specialized_sub_agent_hint() if domain == "images" else ""
@@ -452,7 +480,7 @@ class DelegateToSpecializedBase(ToolBase):
             if "answer" in payload:
                 payload.setdefault("result", str(payload["answer"]))
         else:
-            payload = {"status": "ok", "message": _(f"Specialized task ({domain}) completed."), "result": str(final_ans)}
+            payload = {"status": "ok", "message": _("Specialized task ({domain}) completed.").format(domain=domain), "result": str(final_ans)}
         # Outer never sees create_sheet's inner-only ok string; forward the same
         # `instruction` field web research uses when empty tabs were created.
         if domain == "sheets" or create_sheet_ran or captured_tool_results:
@@ -524,3 +552,24 @@ class DelegateToSpecializedBase(ToolBase):
             payload["message"] = model_text
 
         return payload
+
+
+def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any], uno_services: frozenset[str] | None) -> list[dict[str, Any]]:
+    """Drop gateway ``domain`` enum values that cannot run on the document's UNO services.
+
+    *schemas* are ``tools`` converted 1:1 (OpenAI ``function.parameters`` or MCP ``inputSchema``).
+    Unknown services (no document / MCP without probe) keep every domain.
+    """
+    if not uno_services:
+        return schemas
+    out: list[dict[str, Any]] = []
+    for schema, tool in zip(schemas, tools, strict=True):
+        if not isinstance(tool, DelegateToSpecializedBase):
+            out.append(schema)
+            continue
+        patched = copy.deepcopy(schema)
+        params = patched["function"]["parameters"] if "function" in patched else patched["inputSchema"]
+        domain_prop = params["properties"]["domain"]
+        domain_prop["enum"] = tool.domains_for_services(uno_services)
+        out.append(patched)
+    return out

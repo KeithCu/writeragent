@@ -211,13 +211,13 @@ class _SafeFormatter(_stdlib_string.Formatter):
 
 _NUMPY_CALL_DENIED = ("numpy.ctypeslib", "numpy.f2py", "numpy.distutils", "numpy.testing")
 
-_NUMPY_PICKLE_RULES: dict[str, tuple[bool, int | None, bool]] = {
-    "save": (True, 2, True),
-    "savez": (True, None, True),
-    "savez_compressed": (True, None, True),
-    "write_array": (True, 3, True),
-    "load": (False, 2, False),
-    "read_array": (False, 1, False),
+_NUMPY_PICKLE_RULES: dict[str, tuple[int | None, bool]] = {
+    "save": (2, True),
+    "savez": (None, True),
+    "savez_compressed": (None, True),
+    "write_array": (3, True),
+    "load": (2, False),
+    "read_array": (1, False),
 }
 
 
@@ -225,7 +225,7 @@ def _apply_pickle_policy(name: str, args: list[Any] | tuple[Any, ...], kwargs: d
     rule = _NUMPY_PICKLE_RULES.get(name)
     if rule is None:
         return kwargs
-    _default_allow, pos_idx, force_false = rule
+    pos_idx, force_false = rule
     allow = kwargs.get("allow_pickle")
     if allow is None and pos_idx is not None and len(args) > pos_idx:
         allow = args[pos_idx]
@@ -716,11 +716,20 @@ def timeout(timeout_seconds: Any):
 
             try:
                 old_handler = signal.signal(signal.SIGALRM, sigalrm_handler)
-                previous_alarm = signal.alarm(timeout_seconds)
-                # If an outer alarm was already active and sooner than timeout_seconds,
-                # keep the sooner deadline so the inner call cannot extend the budget.
-                if 0 < previous_alarm < timeout_seconds:
-                    signal.alarm(previous_alarm)
+                try:
+                    previous_alarm = signal.alarm(timeout_seconds)
+                    # If an outer alarm was already active and sooner than timeout_seconds,
+                    # keep the sooner deadline so the inner call cannot extend the budget.
+                    if 0 < previous_alarm < timeout_seconds:
+                        signal.alarm(previous_alarm)
+                except BaseException:
+                    # Bugfix: what was wrong: if alarm arming failed, old_handler was never
+                    # restored because the outer except only caught (ValueError, AttributeError).
+                    # How it happened: signal.alarm could raise or an outer alarm fired before try/finally.
+                    # Why this change fixes it: restores old_handler and cancels alarm on any failure.
+                    signal.signal(signal.SIGALRM, old_handler)
+                    signal.alarm(0)
+                    raise
             except (ValueError, AttributeError):
                 # Fallback to ThreadPoolExecutor when SIGALRM cannot be installed
                 # (e.g. not the main thread, or on Windows).
@@ -1297,7 +1306,6 @@ def _reject_numpy_code_exec(func: Any, args: list[Any], kwargs: dict[str, Any]) 
         return
     # NumPy is returned raw so dir() will not import f2py and SIGILL; this call
     # check is what blocks the compiler entry points.
-    _NUMPY_CALL_DENIED = ("numpy.ctypeslib", "numpy.f2py", "numpy.distutils", "numpy.testing")
     if name == "load_library" or any(module.startswith(prefix) for prefix in _NUMPY_CALL_DENIED):
         raise InterpreterError(f"Forbidden call to {module}.{name}")
     if name in _NUMPY_PICKLE_RULES:
@@ -1836,15 +1844,13 @@ _REAL_MODULES: dict[int, ModuleType] = {}
 class _DelegatingSafeModule(ModuleType):
     """ModuleType wrapper exposing safe overrides while delegating attributes without scanning dir()."""
 
-    _authorized_imports: list[str] | None
-
     def __init__(self, real_module: ModuleType, authorized_imports: list[str] | None = None):
         super().__init__(real_module.__name__, getattr(real_module, "__doc__", None))
         _REAL_MODULES[id(self)] = real_module
-        self._authorized_imports = authorized_imports
+        imports = authorized_imports
         if real_module.__name__ == "operator":
             self.attrgetter = lambda *attrs: _safe_attrgetter(
-                *attrs, authorized_imports=object.__getattribute__(self, "_authorized_imports")
+                *attrs, authorized_imports=imports
             )
             self.methodcaller = _safe_methodcaller
         elif real_module.__name__ == "string":
@@ -1853,7 +1859,6 @@ class _DelegatingSafeModule(ModuleType):
     def __dir__(self) -> list[str]:
         real = _REAL_MODULES.get(id(self))
         names = set(super().__dir__())
-        names.discard("_authorized_imports")
         if real is not None:
             names.update(dir(real))
         return sorted(names)
@@ -1943,7 +1948,7 @@ def get_file_os_proxy(files: bool = True) -> tuple[_FileOsProxy, frozenset[int]]
     return _FILE_OS_PROXY, ids
 
 
-_SAFE_MODULE_CACHE: dict[int, _DelegatingSafeModule] = {}
+_SAFE_MODULE_CACHE: dict[tuple[int, tuple[str, ...]], _DelegatingSafeModule] = {}
 
 
 def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None) -> Any:
@@ -1966,14 +1971,17 @@ def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None
         return ModuleType(name)
 
     if name in ("operator", "string"):
-        # Tip: cache one wrapper per raw module to avoid unbounded growth across executor instances.
-        cache_key = id(raw_module)
+        # Tip: cache one wrapper per (module, policy) to avoid cross-session leaks and unbounded growth.
+        # Bugfix: what was wrong: _authorized_imports was stored on the shared wrapper instance and mutated
+        # on cache hits, causing attrgetter in earlier sessions to see later session imports.
+        # How it happened: _SAFE_MODULE_CACHE was keyed only by id(raw_module) and overwritten.
+        # Why this change fixes it: wrappers are keyed by (id(raw_module), tuple(authorized_imports))
+        # and bind imports locally in __init__.
+        cache_key = (id(raw_module), tuple(authorized_imports or ()))
         wrapper = _SAFE_MODULE_CACHE.get(cache_key)
         if wrapper is None:
             wrapper = _DelegatingSafeModule(raw_module, authorized_imports=authorized_imports)
             _SAFE_MODULE_CACHE[cache_key] = wrapper
-        else:
-            wrapper._authorized_imports = authorized_imports
         return wrapper
 
     return raw_module
@@ -2411,6 +2419,9 @@ def evaluate_python_code(
         for k, v in static_tools.items()
     }
 
+    def _finalize_logs() -> None:
+        print_container.value = truncate_content(str(print_container), max_length=max_print_outputs_length)
+
     # Define the actual execution logic
     def _execute_code():
         ops = state.get(_OPS_KEY)
@@ -2424,21 +2435,12 @@ def evaluate_python_code(
             try:
                 for node in expression.body:
                     result = evaluate_ast(node, state, static_tools, custom_tools, authorized_imports)
-                print_container.value = truncate_content(
-                    str(print_container), max_length=max_print_outputs_length
-                )
                 is_final_answer = False
                 return result, is_final_answer
             except FinalAnswerException as e:
-                print_container.value = truncate_content(
-                    str(print_container), max_length=max_print_outputs_length
-                )
                 is_final_answer = True
                 return e.value, is_final_answer
             except InterpreterSignal as e:
-                print_container.value = truncate_content(
-                    str(print_container), max_length=max_print_outputs_length
-                )
                 if isinstance(e, ReturnException):
                     sig_name = "return"
                 elif isinstance(e, BreakException):
@@ -2457,9 +2459,6 @@ def evaluate_python_code(
                 # execute_with_return see the disposal.
                 if is_disposed_exception(e):
                     raise
-                print_container.value = truncate_content(
-                    str(print_container), max_length=max_print_outputs_length
-                )
                 # Bugfix: What was wrong: evaluate_name was changed to raise NameError so
                 # scripts could catch missing names via `except NameError`. However, uncaught
                 # NameErrors were formatted with `due to: NameError:`, which Calc add-in worker
@@ -2474,6 +2473,7 @@ def evaluate_python_code(
                     f"Code execution failed at line '{ast.get_source_segment(code, node)}' due to: {exc_type_name}: {e}"
                 )
         finally:
+            _finalize_logs()
             if stack and stack[-1] is print_container:
                 stack.pop()
 

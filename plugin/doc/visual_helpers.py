@@ -6,6 +6,8 @@
 
 Also covers color parsing (``parse_color_to_uno_int``) and Char* property batching
 (``apply_character_properties``) used by shapes, charts, cells, and styles.
+
+Px ↔ 1/100 mm conversion rounds in both directions (`UNITS_PER_INCH` / `PX_PER_INCH`).
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from plugin.doc.doc_type import (
     doc_type_label_for_enum,
     get_document_type,
 )
-from plugin.framework.errors import is_real_disposal, uno_read
+from plugin.framework.errors import is_real_disposal, reraise_if_disposed, uno_read
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +90,12 @@ def get_visual_doc_type(doc: Any) -> str:
     return doc_type_label_for_enum(doc_type)
 
 
+# 1 inch = 2540 1/100 mm = 96 CSS px. Round both directions: truncating
+# px_to_units made units_to_px(px_to_units(10)) return 9.
+UNITS_PER_INCH = 2540
+PX_PER_INCH = 96
+
+
 # Bugfix: int(mm) * 100 truncated fractional millimetres to whole millimetres
 # (e.g. 12.7 mm became 12 mm / 1200 units). Rounding float(mm) * 100 preserves
 # fractional millimetre inputs to the nearest 1/100 mm LibreOffice unit.
@@ -102,7 +110,7 @@ def mm_to_units(width_mm: int | float, height_mm: int | float) -> tuple[int, int
 
 def px_to_units(width_px: int | float, height_px: int | float) -> tuple[int, int]:
     """Convert 96-DPI pixels to LibreOffice 1/100 mm units."""
-    return int(width_px * 26.46), int(height_px * 26.46)
+    return int(round(width_px * UNITS_PER_INCH / PX_PER_INCH)), int(round(height_px * UNITS_PER_INCH / PX_PER_INCH))
 
 
 # On-page inset for generated (and other px-sized) graphics. API pixels are
@@ -126,18 +134,18 @@ def px_to_display_units(
     width_units, height_units = px_to_units(width_px, height_px)
     if width_units <= 0 or height_units <= 0:
         return width_units, height_units
-    max_units = max(1, int(max_mm) * 100)
+    max_units = max(1, mm_to_unit(max_mm))
     longer = max(width_units, height_units)
     if longer <= max_units:
         return width_units, height_units
     scale = max_units / longer
-    return int(width_units * scale), int(height_units * scale)
+    return round(width_units * scale), round(height_units * scale)
 
 
 def units_to_px(width_units: int | float, height_units: int | float, *, minimum: int = 1) -> tuple[int, int]:
     """Convert LibreOffice 1/100 mm units to 96-DPI pixels."""
-    width_px = int(width_units * 96 / 2540)
-    height_px = int(height_units * 96 / 2540)
+    width_px = int(round(width_units * PX_PER_INCH / UNITS_PER_INCH))
+    height_px = int(round(height_units * PX_PER_INCH / UNITS_PER_INCH))
     return max(minimum, width_px), max(minimum, height_px)
 
 
@@ -147,8 +155,6 @@ def graphic_pixel_size(graphic: Any) -> tuple[int | None, int | None]:
         return None, None
     try:
         px = safe_get_property(graphic, "SizePixel")
-        if px is None and hasattr(graphic, "getPropertyValue"):
-            px = graphic.getPropertyValue("SizePixel")
         if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
             return int(px.Width), int(px.Height)
     except Exception as ex:
@@ -156,12 +162,10 @@ def graphic_pixel_size(graphic: Any) -> tuple[int | None, int | None]:
             raise
     try:
         hmm = safe_get_property(graphic, "Size100thMM")
-        if hmm is None and hasattr(graphic, "getPropertyValue"):
-            hmm = graphic.getPropertyValue("Size100thMM")
         if hmm is not None and (getattr(hmm, "Width", 0) > 0 or getattr(hmm, "Height", 0) > 0):
             # 1 px = 2540 / 96 (1/100 mm). Use round so 1000 1/100mm is 38 px.
-            w = max(1, round(float(hmm.Width) * 96 / 2540))
-            h = max(1, round(float(hmm.Height) * 96 / 2540))
+            w = max(1, round(float(hmm.Width) * PX_PER_INCH / UNITS_PER_INCH))
+            h = max(1, round(float(hmm.Height) * PX_PER_INCH / UNITS_PER_INCH))
             return w, h
     except Exception as ex:
         if is_real_disposal(ex):
@@ -188,6 +192,7 @@ def has_uno_property(obj: Any, name: str) -> bool:
         if psi is not None and hasattr(psi, "hasPropertyByName"):
             return bool(psi.hasPropertyByName(name))
     except Exception as exc:
+        reraise_if_disposed(exc)
         log.debug("has_uno_property %s probe failed (%s)", name, type(exc).__name__)
     return False
 
@@ -199,6 +204,7 @@ def safe_set_property(obj: Any, name: str, value: Any) -> bool:
         obj.setPropertyValue(name, value)
         return True
     except Exception as ex:
+        reraise_if_disposed(ex)
         log.debug("safe_set_property %s failed: %s", name, ex)
         return False
 
@@ -362,6 +368,7 @@ def safe_try_method(obj: Any, method_name: str, *args: Any) -> bool:
             method(*args)
             return True
     except Exception as ex:
+        reraise_if_disposed(ex)
         log.debug("safe_try_method %s failed: %s", method_name, ex)
     return False
 
@@ -374,15 +381,16 @@ def is_graphic_object(obj: Any) -> bool:
     if obj is None:
         return False
 
-    graphic = safe_get_property(obj, "Graphic")
-    if graphic is not None:
-        return True
-
+    # Service probe first: Draw/Impress shapes used to pay a failing Graphic read here.
     try:
         if obj.supportsService(WRITER_GRAPHIC_SERVICE) or obj.supportsService(TEXT_GRAPHIC_SERVICE) or obj.supportsService(DRAW_GRAPHIC_SERVICE):
             return True
     except Exception as exc:
         log.debug("is_graphic_object service probe failed (%s)", type(exc).__name__)
+
+    graphic = safe_get_property(obj, "Graphic")
+    if graphic is not None:
+        return True
 
     # Some TextGraphicObject instances expose GraphicURL even when Graphic cannot
     # be read directly. The property read is guarded to avoid PyUNO probe errors.
@@ -530,6 +538,9 @@ def graphic_objects_in_selection(doc: Any) -> list[tuple[str, Any]]:
             return _graphics_in_text_range(doc, selection)
         return []
     except Exception as ex:
+        # Disposal used to become [] here, so vision/image tools reported NO_IMAGE_SELECTED for a
+        # closed document. Ordinary UNO failures still return [].
+        reraise_if_disposed(ex)
         log.debug("graphic_objects_in_selection failed: %s", ex)
         return []
 
@@ -839,5 +850,6 @@ def graphic_from_object(obj: Any) -> Any | None:
         graphic = obj.Graphic
         return graphic if graphic is not None else None
     except Exception as ex:
+        reraise_if_disposed(ex)
         log.debug("graphic_from_object missing Graphic: %s", ex)
     return None

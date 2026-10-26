@@ -35,11 +35,13 @@ class _Cell:
 class _Band:
     def __init__(self, count):
         self._count = count
+        self.calls = []
 
     def getCount(self):
         return self._count
 
     def insertByIndex(self, idx, n):
+        self.calls.append((idx, n))
         self._count += n
 
 
@@ -70,6 +72,21 @@ def test_ensure_table_dims_grows_from_1x1():
     n = fill_table_cells(table, [["a", "b"], ["c", "d"]])
     assert n == 4
     assert table.cells[(1, 1)]._s == "d"
+
+
+def test_ensure_table_dims_grows_each_axis_in_one_call():
+    table = _Table(1, 1)
+    assert _ensure_table_dims(table, 40, 8) == (40, 8)
+    assert table._rows.calls == [(1, 39)]
+    assert table._cols.calls == [(1, 7)]
+
+
+def test_ensure_table_dims_raises_when_growth_is_ignored():
+    table = _Table(1, 1)
+    table._rows.insertByIndex = lambda idx, n: None
+    table._cols.insertByIndex = lambda idx, n: None
+    with pytest.raises(ValueError, match="grew to 1x1"):
+        _ensure_table_dims(table, 2, 2)
 
 
 def test_fill_table_cells():
@@ -384,4 +401,23 @@ def test_table_model_reraises_disposed():
 
     shape.getModel.side_effect = RuntimeError("not a model")
     assert _table_model(shape) is None
+
+
+def test_insert_table_oversized_data_is_rejected_before_mutation():
+    ctx = MagicMock()
+    out = insert_draw_table(ctx, rows=1, columns=1, data=[["A", "B"]])
+    assert out["status"] == "error"
+    assert out["message"] == "data row 0 has 2 columns but table only has 1."
+    assert out["code"] == "TOOL_EXECUTION_ERROR"
+    ctx.doc.createInstance.assert_not_called()
+
+
+def test_insert_table_too_many_rows_is_rejected_before_mutation():
+    ctx = MagicMock()
+    out = insert_draw_table(ctx, rows=1, columns=2, data=[["A", "B"], ["C", "D"]])
+    assert out["status"] == "error"
+    assert out["message"] == "data has 2 rows but table only has 1."
+    assert out["code"] == "TOOL_EXECUTION_ERROR"
+    ctx.doc.createInstance.assert_not_called()
+
 

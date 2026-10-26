@@ -27,13 +27,15 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.doc.doc_type import agent_label_for_doc_type
-from plugin.framework.prompts import get_specialized_domain_catalog
+from plugin.framework.prompts import (
+    IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
+    WRITER_SIDEBAR_ONLY_DOMAINS,
+    get_specialized_domain_catalog,
+)
 from plugin.framework.tool import ToolBase, ToolContext
 
 _FINISH_TOOL = "specialized_workflow_finished"
-# In direct_discovery mode the delegate gateway is not the intended route, so keep
-# its (core-tier) gateway tools out of discovery results.
-_GATEWAY_PREFIX = "delegate_to_specialized_"
+_SIDEBAR_ONLY_DOMAINS = WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
 
 
 def _doc_filter(doc: Any) -> dict[str, Any]:
@@ -46,7 +48,7 @@ def _doc_filter(doc: Any) -> dict[str, Any]:
     return {} if doc is not None else {"filter_doc_type": False}
 
 
-def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer", ctx: Any = None) -> str:
+def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer") -> str:
     """Extra per-domain usage hints for direct callers (beyond catalog descriptions).
 
     Returns ``""`` when there is no supplementary hint beyond ``specialized_domain_description``.
@@ -76,8 +78,9 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer", ctx:
         from plugin.framework.prompts import python_specialized_sub_agent_hint
         return (python_specialized_sub_agent_hint(agent_label) or "").strip()
     if domain == "document_research":
+        # MCP never advertises peer tools, so leave the peer-choice block out.
         from plugin.framework.prompts import get_document_research_workflow_hint
-        return (get_document_research_workflow_hint(getattr(ctx, "ctx", None)) or "").strip()
+        return (get_document_research_workflow_hint() or "").strip()
     return ""
 
 
@@ -88,7 +91,7 @@ def sidebar_only_tool_names(
     doc_type: str | None = None,
     uno_services_supported: frozenset[str] | None = None,
 ) -> frozenset[str]:
-    """Tool names in sidebar-only domains (brainstorming, writing_plan, ppt-master).
+    """Tool names in sidebar-only domains (MCP ``direct_flat`` only; ``find_tools`` uses the domain filter).
 
     The live document is not forwarded to the registry. With a document open,
     callers must pass ``doc_type`` and ``uno_services_supported`` (as
@@ -177,30 +180,26 @@ class FindTools(ToolBase):
                                "Open the matching document before calling an app-specific tool.")
             return out
 
-        from plugin.framework.prompts import WRITER_SIDEBAR_ONLY_DOMAINS
-        if domain in WRITER_SIDEBAR_ONLY_DOMAINS:
-            schemas = []
-        else:
-            schemas = registry.get_schemas("mcp", doc=doc, active_domain=domain, **_doc_filter(doc))
-            from plugin.mcp.mcp_protocol import drop_unavailable_domains
-            schemas = drop_unavailable_domains(schemas, registry, getattr(ctx, "ctx", None))
+        # Catalog ids use underscores; only ppt-master has a hyphen.
+        if domain in _SIDEBAR_ONLY_DOMAINS or domain.replace("_", "-") in _SIDEBAR_ONLY_DOMAINS:
+            return {
+                "status": "ok",
+                "domain": domain,
+                "available_domains": catalog,
+                "tools": [],
+                "note": "Sidebar-only flow; its tools are not exposed over MCP.",
+            }
+        if domain not in {str(e.get("domain") or "") for e in catalog}:
+            return self._tool_error(
+                f"Unknown or unavailable specialized domain '{domain}'.",
+                code="UNKNOWN_DOMAIN",
+                available_domains=catalog,
+            )
 
-        # sidebar_only_tool_names needs doc_type and
-        # uno_services_supported. Without them the helper does not
-        # forward the live doc, so with a document open get_tools rejects
-        # every tool that declares uno_services. The ppt-master name set
-        # is empty and find_tools(domain="ppt-master") returns those
-        # schemas. Writer sidebar-only domains are forced to schemas=[]
-        # above; only IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS uses this filter.
-        # direct_flat already passes the cached fields. Pass the same
-        # fields from ctx so an open Draw/Impress document hides
-        # ppt-master, matching the no-document and direct_flat paths.
-        sidebar_only = sidebar_only_tool_names(
-            registry,
-            doc,
-            doc_type=getattr(ctx, "doc_type", None),
-            uno_services_supported=getattr(ctx, "uno_services_supported", None),
-        )
+        schemas = registry.get_schemas("mcp", doc=doc, active_domain=domain, **_doc_filter(doc))
+        from plugin.mcp.mcp_protocol import drop_unavailable_domains
+        schemas = drop_unavailable_domains(schemas, registry, getattr(ctx, "ctx", None))
+
         tools: list[dict[str, Any]] = []
         for s in (schemas or []):
             if not isinstance(s, dict):
@@ -208,7 +207,7 @@ class FindTools(ToolBase):
             name = s.get("name")
             if not isinstance(name, str) or not name:
                 continue
-            if name == _FINISH_TOOL or name.startswith(_GATEWAY_PREFIX) or name in sidebar_only or name == self.name:
+            if name == _FINISH_TOOL:
                 continue
             tools.append(s)
         tools.sort(key=lambda s: str(s.get("name") or ""))
@@ -223,7 +222,7 @@ class FindTools(ToolBase):
             result["note"] = ("No document is open, so results span all document types; "
                               "open the matching document before calling an app-specific tool.")
         label = agent_label
-        guidance = get_domain_guidance(domain, agent_label=label, ctx=ctx)
+        guidance = get_domain_guidance(domain, agent_label=label)
         if guidance:
             result["domain_guidance"] = {domain: guidance}
         return result

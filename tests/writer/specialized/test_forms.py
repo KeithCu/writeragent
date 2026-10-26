@@ -421,7 +421,8 @@ def test_form_create_second_field_failure_triggers_undo(monkeypatch):
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
-    mgr.getAllUndoActionTitles.return_value = ["Form Create"]
+    # The stack only shows the title once the context was entered.
+    mgr.getAllUndoActionTitles.side_effect = lambda: ["Form Create"] if mgr.enterUndoContext.called else []
     doc.getUndoManager.return_value = mgr
 
     res = tool.execute(SimpleNamespace(doc=doc), fields=[{"control": "text", "name": "ok1"}, {"control": "text", "name": "bad"}])
@@ -853,7 +854,8 @@ def test_form_edit_and_delete_undo_atomic(monkeypatch):
 
     # Mid-edit exception calls rollback
     mgr.isLocked.return_value = False
-    mgr.getAllUndoActionTitles.return_value = ["WriterAgent: Edit form control"]
+    mgr.enterUndoContext.reset_mock()
+    mgr.getAllUndoActionTitles.side_effect = lambda: ["WriterAgent: Edit form control"] if mgr.enterUndoContext.called else []
     shape.setPosition.side_effect = RuntimeError("drawing engine crashed")
     res_crash = edit_tool._execute_main(ctx, name="ctrl1", x=999)
     assert res_crash["status"] == "error"

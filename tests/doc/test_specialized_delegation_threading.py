@@ -15,6 +15,7 @@ from plugin.calc.specialized import DelegateToSpecializedCalc
 from plugin.chatbot.smol_agent import SmolToolAdapter
 from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.doc.peer_message import SendPeerResult, SendPeerWork
+from plugin.framework.errors import DocumentDisposedError
 from plugin.framework import thread_guard as tg
 from plugin.framework.prompts import (
     get_document_research_workflow_hint,
@@ -129,6 +130,54 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
     instructions = mock_agent_class.call_args.kwargs["instructions"]
     assert "[SPREADSHEET CONTEXT]" in instructions
     assert "Sheets: Sheet1" in instructions
+
+
+@patch(
+    "plugin.chatbot.smol_agent.get_config_int",
+    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
+)
+@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
+@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
+@patch("plugin.chatbot.smol_agent.LlmClient")
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.calc.analyzer.get_calc_context_for_chat")
+def test_calc_delegate_disposed_context_reports_document_disposed(
+    mock_get_calc_context,
+    mock_execute_on_main,
+    _mock_llm,
+    _mock_smol_model,
+    mock_agent_class,
+    _mock_get_config,
+    _mock_get_config_int,
+):
+    mock_get_calc_context.side_effect = DocumentDisposedError("doc closed")
+    mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+
+    mock_agent_instance = MagicMock()
+    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
+    mock_agent_class.return_value = mock_agent_instance
+
+    registry = ToolRegistry(MagicMock())
+    registry.register(_DummyAnalysisTool())
+    registry.register(DelegateToSpecializedCalc())
+
+    mock_doc = MagicMock()
+    mock_doc.supportsService.return_value = True
+
+    ctx = MagicMock()
+    ctx.services = {"tools": registry}
+    ctx.doc = mock_doc
+    ctx.ctx = MagicMock()
+    ctx.doc_type = "calc"
+    ctx.stop_checker = lambda: False
+
+    gateway = registry.get("delegate_to_specialized_calc_toolset")
+    assert gateway is not None
+    result = gateway.execute_safe(ctx, domain="analysis", task="Describe sales data")
+
+    assert result["status"] == "error"
+    assert result["code"] == "DOCUMENT_DISPOSED"
 
 
 @patch(
@@ -346,6 +395,56 @@ def test_writer_delegate_marshals_document_research_scaffolding(
     instructions = mock_agent_class.call_args.kwargs["instructions"]
     assert "[OPEN DOCUMENTS CONTEXT]" in instructions
     assert "/tmp/a.odt" in instructions
+
+
+@patch(
+    "plugin.chatbot.smol_agent.get_config_int",
+    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
+)
+@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
+@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
+@patch("plugin.chatbot.smol_agent.LlmClient")
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.doc.document_research.get_open_documents")
+@patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index")
+def test_writer_delegate_disposed_open_documents_reports_document_disposed(
+    mock_enqueue_index,
+    mock_get_open_docs,
+    mock_execute_on_main,
+    _mock_llm,
+    _mock_smol_model,
+    mock_agent_class,
+    _mock_get_config,
+    _mock_get_config_int,
+):
+    mock_get_open_docs.side_effect = DocumentDisposedError("doc closed")
+    mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+
+    mock_agent_instance = MagicMock()
+    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
+    mock_agent_class.return_value = mock_agent_instance
+
+    registry = ToolRegistry(MagicMock())
+    registry.register(_DummyDocResearchTool())
+    registry.register(DelegateToSpecializedWriter())
+
+    mock_doc = MagicMock()
+    mock_doc.supportsService.return_value = True
+
+    ctx = MagicMock()
+    ctx.services = {"tools": registry}
+    ctx.doc = mock_doc
+    ctx.ctx = MagicMock()
+    ctx.doc_type = "writer"
+    ctx.stop_checker = lambda: False
+
+    gateway = registry.get("delegate_to_specialized_writer_toolset")
+    assert gateway is not None
+    result = gateway.execute_safe(ctx, domain="document_research", task="Find budget figures")
+
+    assert result["status"] == "error"
+    assert result["code"] == "DOCUMENT_DISPOSED"
 
 
 _PEER_HINT_PEERS = [{"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"}]

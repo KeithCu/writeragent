@@ -3,16 +3,21 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 from plugin.draw.math_insert import (
     _MAP_ONE_CM,
     _MAP_ONE_MM,
+    InsertMathDraw,
     _content_size_hmm,
+    _latex_is_display_block,
     _try_ole_shape_content_size_hmm,
     _uno_ctx_from_tool_ctx,
 )
+from plugin.framework.errors import DocumentDisposedError
+from plugin.writer.math.math_mml_convert import MathConversionResult
 
 
 def test_uno_ctx_from_tool_ctx_uses_inner_ctx() -> None:
@@ -96,3 +101,71 @@ def test_positive_awt_size() -> None:
 )
 def test_content_size_hmm_map_units(width: int, height: int, map_unit: int, expected: tuple[int, int] | None) -> None:
     assert _content_size_hmm(_AwtSize(width, height), map_unit) == expected
+
+
+@pytest.mark.parametrize(
+    ("latex", "expected"),
+    [
+        (r"\intercal", False),
+        (r"x^2", False),
+        (r"\frac{a}{b}", False),
+        (r"\int_0^1", True),
+        (r"\iint", True),
+        (r"\oint", True),
+        (r"\displaystyle x", True),
+    ],
+)
+def test_latex_is_display_block(latex: str, expected: bool) -> None:
+    assert _latex_is_display_block(latex) is expected
+
+
+class _FakePages:
+    def __init__(self, pages: list[Any]) -> None:
+        self._pages = pages
+
+    def getCount(self) -> int:
+        return len(self._pages)
+
+    def getByIndex(self, idx: int) -> Any:
+        return self._pages[idx]
+
+
+class _FakeDoc:
+    def __init__(self, pages: list[Any]) -> None:
+        self._draw_pages = _FakePages(pages)
+
+    def getDrawPages(self) -> Any:
+        return self._draw_pages
+
+
+def test_insert_math_invalid_page_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "plugin.draw.math_insert.convert_latex_to_starmath",
+        lambda *args, **kwargs: MathConversionResult(True, "x", None),
+    )
+    ctx = SimpleNamespace(doc=_FakeDoc([]), active_page_index=0)
+    res = InsertMathDraw().execute(ctx, formula_type="latex", formula="x^2", page=5, x=0, y=0)
+    assert res["status"] == "error"
+    assert "Invalid page index: 5" in res["message"]
+
+
+def test_insert_math_disposal_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "plugin.draw.math_insert.convert_latex_to_starmath",
+        lambda *args, **kwargs: MathConversionResult(True, "x", None),
+    )
+
+    class _DisposedPages:
+        def getCount(self) -> int:
+            return 1
+
+        def getByIndex(self, idx: int) -> Any:
+            raise DocumentDisposedError("disposed")
+
+    class _DocWithDisposedPages:
+        def getDrawPages(self) -> Any:
+            return _DisposedPages()
+
+    ctx = SimpleNamespace(doc=_DocWithDisposedPages(), active_page_index=0)
+    with pytest.raises(DocumentDisposedError):
+        InsertMathDraw().execute(ctx, formula_type="latex", formula="x^2", page=0, x=0, y=0)

@@ -3,17 +3,28 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Impress/Draw master slide tools."""
+"""Impress/Draw master slide tools.
+
+Master collection order is not slide order, master names are not guaranteed
+unique (``set_slide_master`` assigns the first name match), and the
+assignment is per slide (``page.MasterPage``); the same quirks apply to
+master chrome in ``headers_footers.py``.
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSlideMastersBase
-from plugin.draw.bridge import DrawBridge
+from plugin.draw.bridge import resolve_shape_page
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
+
+
+def _master_pages(doc: Any) -> list[Any]:
+    masters = doc.getMasterPages()
+    return [masters.getByIndex(i) for i in range(masters.getCount())]
 
 
 class ListMasterSlides(ToolDrawSlideMastersBase):
@@ -26,13 +37,11 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        masters = doc.getMasterPages()
         result = []
-        for i in range(masters.getCount()):
-            m = masters.getByIndex(i)
+        for i, m in enumerate(_master_pages(doc)):
             entry = {
                 "index": i,
-                "name": m.Name if hasattr(m, "Name") else "",
+                "name": getattr(m, "Name", ""),
                 "width_mm": m.Width // 100,
                 "height_mm": m.Height // 100,
             }
@@ -49,11 +58,13 @@ class GetSlideMaster(ToolDrawSlideMastersBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
+        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
+        if err:
+            return self._tool_error(err)
+        assert page is not None
         master = page.MasterPage
-        name = master.Name if hasattr(master, "Name") else ""
-        return {"status": "ok", "page": page_idx, "master": name}
+        name = getattr(master, "Name", "")
+        return {"status": "ok", "page": actual_idx, "master": name}
 
 
 class SetSlideMaster(ToolDrawSlideMastersBase):
@@ -66,27 +77,21 @@ class SetSlideMaster(ToolDrawSlideMastersBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        doc = ctx.doc
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(doc, page_idx)
-        master_name = kwargs["master"]
+        master_name = str(kwargs.get("master") or "").strip()
         if not master_name:
             return self._tool_error("master is required.")
 
-        masters = doc.getMasterPages()
-        target = None
-        for i in range(masters.getCount()):
-            m = masters.getByIndex(i)
-            if hasattr(m, "Name") and m.Name == master_name:
-                target = m
-                break
+        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
+        if err:
+            return self._tool_error(err)
+        assert page is not None
+
+        masters = _master_pages(ctx.doc)
+        target = next((m for m in masters if getattr(m, "Name", "") == master_name), None)
 
         if target is None:
-            available = []
-            for i in range(masters.getCount()):
-                m = masters.getByIndex(i)
-                available.append(m.Name if hasattr(m, "Name") else "")
+            available = [getattr(m, "Name", "") for m in masters]
             return self._tool_error("Master '%s' not found." % master_name, available=available)
 
         page.MasterPage = target
-        return {"status": "ok", "page": page_idx, "master": master_name}
+        return {"status": "ok", "page": actual_idx, "master": target.Name}

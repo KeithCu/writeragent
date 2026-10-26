@@ -178,6 +178,7 @@ def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open,
     assert result["files_scanned"] == 1
     assert result["files_with_hits"] == 1
     assert len(result["hits"]) == 1
+    assert result["hits"][0]["match_count"] == 1
     assert result["hits"][0]["matches"][0]["value"] == "Q4 revenue"
     mock_close.assert_called_once()
 
@@ -595,13 +596,13 @@ def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mo
     )
 
     with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_execute:
-        def side_effect(func):
-            return func()
+        def side_effect(func, *args, **kwargs):
+            return func(*args, **kwargs)
         mock_execute.side_effect = side_effect
 
         result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="budget")
 
-        assert mock_execute.call_count == 3
+        assert mock_execute.call_count == 1
         assert result["status"] == "ok"
 
 @patch("plugin.doc.document_research.os.listdir")
@@ -663,32 +664,206 @@ def test_grep_nearby_files_stop_during_last_file_is_user_stopped(mock_resolve, m
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep._search_opened_document")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_close_post_timeout_keeps_result(mock_resolve, mock_search, mock_open, mock_close):
+def test_grep_nearby_files_marshal_timeout_records_error_and_continues(
+    mock_resolve, mock_search, mock_open, mock_close
+):
     mock_resolve.return_value = (
-        [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
+        [
+            {"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
+            {"path": "/tmp/b.ods", "name": "b.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
+        ],
         False,
         None,
     )
     mock_open.return_value = (MagicMock(), "calc", None, True)
     mock_search.return_value = (
-        [{"sheet": "Sheet1", "cell": "A1", "value": "Q4 revenue"}],
+        [{"sheet": "Sheet1", "cell": "A1", "value": "hit"}],
         1,
         False,
         None,
     )
 
-    call_count = {"n": 0}
+    first = True
 
-    def mock_execute(fn):
-        call_count["n"] += 1
-        if call_count["n"] == 3:  # close call
-            raise TimeoutError("Main thread timed out")
-        return fn()
+    def mock_execute(fn, *args, **kwargs):
+        nonlocal first
+        if first:
+            first = False
+            raise TimeoutError("timed out")
+        return fn(*args, **kwargs)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute), \
-         patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=TimeoutError("Queue full")):
-        result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4")
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute):
+        result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "hit")
 
     assert result["status"] == "ok"
-    assert result["files_with_hits"] == 1
+    assert result["errors"][0]["path"] == "/tmp/a.ods"
     assert len(result["hits"]) == 1
+    assert result["hits"][0]["path"] == "/tmp/b.ods"
+    assert result["files_scanned"] == 2
+
+
+@patch("plugin.doc.document_research_grep.close_document_research_document")
+@patch("plugin.doc.document_research_grep.open_document_for_read")
+@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep.resolve_grep_candidates")
+def test_grep_nearby_files_closes_when_search_raises(
+    mock_resolve, mock_search, mock_open, mock_close
+):
+    mock_resolve.return_value = (
+        [{"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False}],
+        False,
+        None,
+    )
+    mock_open.return_value = (MagicMock(), "calc", None, True)
+    mock_search.side_effect = RuntimeError("boom")
+
+    with patch(
+        "plugin.framework.queue_executor.execute_on_main_thread",
+        side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+    ):
+        result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "query")
+
+    assert result["status"] == "ok"
+    assert result["errors"][0]["message"] == "boom"
+    mock_close.assert_called_once()
+
+
+def test_grep_text_in_draw_skips_shape_whose_get_string_raises():
+    shape0 = MagicMock()
+    shape0.getString.side_effect = RuntimeError("bad shape")
+    shape0.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    shape1 = _draw_text_shape("alpha")
+    page = _draw_page([shape0, shape1])
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.side_effect = lambda idx: [page][idx]
+    model = MagicMock()
+    model.getDrawPages.return_value = pages
+
+    matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=5)
+    assert [row["text"] for row in matches] == ["alpha"]
+
+
+def test_grep_text_in_draw_group_shape_recurses():
+    inner_shape = _draw_text_shape("alpha")
+    group = MagicMock()
+    group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    group.getString.return_value = ""
+    group.getCount.return_value = 1
+    group.getByIndex.side_effect = lambda idx: [inner_shape][idx]
+
+    page = _draw_page([group])
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.side_effect = lambda idx: [page][idx]
+    model = MagicMock()
+    model.getDrawPages.return_value = pages
+
+    matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=5)
+    assert len(matches) == 1
+    assert matches[0]["shape_index"] == "0.0"
+    assert matches[0]["text"] == "alpha"
+
+
+def test_grep_text_in_draw_partial_stays_true_across_pages():
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+    pages.getByIndex.side_effect = lambda idx: MagicMock()
+    model = MagicMock()
+    model.getDrawPages.return_value = pages
+
+    side_effect = [
+        ([{"page_index": 0, "shape_index": "0", "text": "alpha"}], 1, True),
+        ([{"page_index": 1, "shape_index": "0", "text": "alpha"}], 2, False),
+    ]
+    with patch("plugin.doc.document_research_grep._grep_shapes_on_page", side_effect=side_effect):
+        matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=2)
+    assert partial is True
+
+
+def test_grep_text_in_writer_skips_cell_that_raises():
+    model = MagicMock()
+    services = MagicMock()
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ("A1", "B1")
+
+    cellB1 = MagicMock()
+    cellB1.getString.return_value = "keyword here"
+    cellB1.createEnumeration.side_effect = RuntimeError("no enum")
+
+    def get_cell(name):
+        if name == "A1":
+            raise RuntimeError("corrupted cell")
+        return cellB1
+
+    table.getCellByName.side_effect = get_cell
+    services.document.get_paragraph_ranges.return_value = [table]
+
+    matches, count, partial = _grep_text_in_writer(model, services, "keyword", max_results=5)
+    assert count == 1
+    assert len(matches) == 1
+    assert matches[0]["text"] == "keyword"
+    assert partial is False
+
+
+def test_grep_text_in_writer_table_cells_do_not_join_across_cells():
+    model = MagicMock()
+    services = MagicMock()
+
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ("A1", "B1")
+
+    cellA1 = MagicMock()
+    cellA1.getString.return_value = "foo"
+    cellA1.createEnumeration.side_effect = RuntimeError("no enum")
+    cellB1 = MagicMock()
+    cellB1.getString.return_value = "bar"
+    cellB1.createEnumeration.side_effect = RuntimeError("no enum")
+
+    table.getCellByName.side_effect = lambda name: {"A1": cellA1, "B1": cellB1}[name]
+    services.document.get_paragraph_ranges.return_value = [table]
+
+    matches_across, count_across, _ = _grep_text_in_writer(
+        model, services, "foo bar", max_results=5
+    )
+    assert matches_across == []
+    assert count_across == 0
+
+    matches_single, count_single, _ = _grep_text_in_writer(
+        model, services, "foo", max_results=5
+    )
+    assert len(matches_single) == 1
+    assert count_single == 1
+
+
+def test_grep_text_in_writer_caps_context_snippet():
+    model = MagicMock()
+    services = MagicMock()
+
+    para = MagicMock()
+    para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para.getString.return_value = "keyword" + "x" * 293  # total 300 chars
+    para.createEnumeration.side_effect = RuntimeError("no enum")
+
+    services.document.get_paragraph_ranges.return_value = [para]
+
+    matches, count, partial = _grep_text_in_writer(model, services, "keyword", max_results=1)
+    assert matches[0]["text"] == "keyword"
+    for context_entry in matches[0]["context"]:
+        assert len(context_entry["text"]) == 201
+        assert context_entry["text"].endswith("…")
+
+
+def test_grep_text_in_draw_caps_shape_snippet():
+    shape = _draw_text_shape("a" * 300)
+    page = _draw_page([shape])
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.side_effect = lambda idx: [page][idx]
+    model = MagicMock()
+    model.getDrawPages.return_value = pages
+
+    matches, count, partial = _grep_text_in_draw(model, "a", max_results=1)
+    assert matches[0]["text"] == "a" * 200 + "…"

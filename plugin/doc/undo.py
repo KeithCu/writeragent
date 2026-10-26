@@ -28,13 +28,26 @@ class UndoUnavailable(RuntimeError):
     """Raised when an undo manager cannot be entered or is locked."""
 
 
-def commit_or_rollback(doc: Any, title: str, mutate: Any) -> Any:
+def _undo_titles(mgr: Any) -> tuple[str, ...] | None:
+    """Undo-stack titles, or None when they cannot be read (rollback is then refused)."""
+    from plugin.framework.errors import reraise_if_disposed
+
+    try:
+        titles = mgr.getAllUndoActionTitles()
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return None
+    return tuple(titles or ())
+
+
+def commit_or_rollback(doc: Any, title: str, mutate: Any) -> dict[str, Any] | None:
     """Run mutate inside an undo context with title.
 
     Missing or locked undo manager raises UndoUnavailable.
     Rolls back on error dict or exception from mutate, and re-raises real disposal.
+    `mutate` returns an error dict or None; any dict is treated as an error.
     """
-    from plugin.framework.errors import reraise_if_disposed
+    from plugin.framework.errors import is_real_disposal, reraise_if_disposed
 
     try:
         mgr = _get_undo_manager(doc)
@@ -48,6 +61,7 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> Any:
     try:
         if mgr.isLocked():
             raise UndoUnavailable("Undo manager is locked.")
+        before = _undo_titles(mgr)
         mgr.enterUndoContext(title)
     except UndoUnavailable:
         raise
@@ -55,18 +69,13 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> Any:
         reraise_if_disposed(exc)
         raise UndoUnavailable(f"Failed to enter undo context: {exc}") from exc
 
-    applied = False
     error: dict[str, Any] | None = None
     exc_cause: Exception | None = None
     try:
         res = mutate()
         if isinstance(res, dict):
             error = res
-        else:
-            applied = True
-            return None
     except Exception as exc:
-        reraise_if_disposed(exc)
         exc_cause = exc
     finally:
         left = False
@@ -74,12 +83,19 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> Any:
             mgr.leaveUndoContext()
             left = True
         except Exception as exc:
-            reraise_if_disposed(exc)
-            applied = False
-        if not applied and left:
+            if is_real_disposal(exc):
+                exc_cause = exc
+            elif error is None and exc_cause is None:
+                error = {
+                    "status": "error",
+                    "code": "UNDO_CONTEXT_LEAK",
+                    "message": f"Could not close the undo context; the document may stay in one undo group ({exc}).",
+                }
+        failed = error is not None or exc_cause is not None
+        if failed and left and before is not None:
             try:
-                titles = mgr.getAllUndoActionTitles()
-                if titles and titles[0] == title:
+                titles = tuple(mgr.getAllUndoActionTitles() or ())
+                if titles != before and titles and titles[0] == title:
                     mgr.undo()
             except Exception as rollback_exc:
                 reraise_if_disposed(rollback_exc)
@@ -92,11 +108,10 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> Any:
                 }
                 exc_cause = None
 
-    if error is not None:
-        return error
     if exc_cause is not None:
+        reraise_if_disposed(exc_cause)
         raise exc_cause
-    return None
+    return error
 
 
 def commit_or_rollback_mutation(
@@ -127,10 +142,18 @@ def commit_or_rollback_mutation(
             f"{rollback_msg} ({e}).",
             **extra_error,
         )
-        if extra_error:
-            err.update(extra_error)
+        # _tool_error nests kwargs under details; callers also read them top-level.
+        err.update(extra_error)
         return err
     return None
+
+
+def _undo_steps(kwargs: dict[str, Any]) -> int:
+    try:
+        steps = int(kwargs.get("steps") or 1)
+    except (TypeError, ValueError):
+        steps = 1
+    return max(1, min(steps, 10))
 
 
 def _step_undo_manager(
@@ -139,7 +162,9 @@ def _step_undo_manager(
     action_key: str,
     kwargs: dict[str, Any],
 ) -> dict[str, Any]:
-    steps = max(1, min(int(kwargs.get("steps", 1)), 10))
+    from plugin.framework.errors import reraise_if_disposed
+
+    steps = _undo_steps(kwargs)
     try:
         um = _get_undo_manager(ctx.doc)
         count = 0
@@ -152,6 +177,7 @@ def _step_undo_manager(
             count += 1
         return {"status": "ok", action_key: count, "can_undo": um.isUndoPossible(), "can_redo": um.isRedoPossible()}
     except Exception as e:
+        reraise_if_disposed(e)
         return tool._tool_error(str(e))
 
 

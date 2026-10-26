@@ -29,7 +29,7 @@ from plugin.doc.document_research import (
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
-from plugin.framework.errors import user_stopped_payload
+from plugin.framework.errors import uno_probe, user_stopped_payload
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +43,14 @@ DEFAULT_GREP_MAX_FILES = 50
 DEFAULT_GREP_MAX_RESULTS_PER_FILE = 5
 DEFAULT_GREP_MAX_TOTAL_RESULTS = 30
 _DRAW_GREP_SHAPE_CAP = 200
+
+# Same 200-character preview budget as Search hit text (spreadsheet_search
+# _HIT_TEXT_MAX); not a user setting.
+_SNIPPET_MAX = 200
+
+
+def _snippet(text: str) -> str:
+    return text if len(text) <= _SNIPPET_MAX else text[:_SNIPPET_MAX] + "…"
 
 
 def resolve_grep_candidates(
@@ -124,10 +132,10 @@ def _grep_text_in_writer(
             para_texts.append(get_string_without_tracked_deletions(para))
         elif para.supportsService("com.sun.star.text.TextTable"):
             cell_texts = [
-                get_string_without_tracked_deletions(para.getCellByName(name))
+                uno_probe(lambda: get_string_without_tracked_deletions(para.getCellByName(name)), "")
                 for name in (para.getCellNames() or ())
             ]
-            para_texts.append(" ".join(c for c in cell_texts if c))
+            para_texts.append("\n".join(c for c in cell_texts if c))
         else:
             para_texts.append("")
 
@@ -147,12 +155,16 @@ def _grep_text_in_writer(
         context_paragraphs=2,  # Always include 2 paragraphs of context for Writer matches
         stop_checker=stop_checker,
     )
+    for match in matches:
+        match["text"] = _snippet(match["text"])
+        for context_entry in match["context"]:
+            context_entry["text"] = _snippet(context_entry["text"])
     # Bugfix: match_count was the uncapped total from search_paragraph_texts
     # while matches was sliced to max_results, and partial was forced false.
     # Calc and Draw already set match_count to the returned length. Writer
     # now does too. partial is true when that total is larger than the slice,
-    # or when Stop cut extraction or the scan. search_paragraph_texts still
-    # returns the uncapped total so this does not guess from len == max_results.
+    # or when Stop cut extraction or the scan. search_paragraph_texts counts
+    # up to max_results + 1 hits so this does not guess from len == max_results.
     partial = total > len(matches) or bool(stop_checker and stop_checker())
     return matches, len(matches), partial
 
@@ -233,7 +245,7 @@ def _grep_text_in_draw(
         # unsliced length inflates the count. Pass the leftover budget
         # per page (same as group recursion) and count that slice.
         remaining = scan_limit - len(matches)
-        page_matches, shapes_visited, partial = _grep_shapes_on_page(
+        page_matches, shapes_visited, page_partial = _grep_shapes_on_page(
             page,
             page_idx,
             pattern,
@@ -246,6 +258,7 @@ def _grep_text_in_draw(
             stop_checker=stop_checker,
         )
         matches.extend(page_matches)
+        partial = partial or page_partial
         if shapes_visited >= shape_cap and len(matches) < max_results:
             partial = True
 
@@ -279,21 +292,19 @@ def _grep_shapes_on_page(
             partial = True
             break
         if len(matches) >= max_results or shapes_visited >= shape_cap:
-            partial = shapes_visited >= shape_cap
+            partial = partial or shapes_visited >= shape_cap
             break
         shapes_visited += 1
         shape = xshapes.getByIndex(i)
 
         shape_path = f"{path_prefix}{i}" if path_prefix else str(i)
 
-        if hasattr(shape, "getString"):
-            text = str(shape.getString() or "").strip()
-            if text and _shape_text_matches_pattern(text, pattern, regex=regex, case_sensitive=case_sensitive, compiled=compiled):
-                snippet = text if len(text) <= 200 else text[:200] + "…"
-                matches.append({"page_index": page_index, "shape_index": shape_path, "text": snippet})
+        text = str(uno_probe(lambda: shape.getString(), "") or "").strip()
+        if text and _shape_text_matches_pattern(text, pattern, regex=regex, case_sensitive=case_sensitive, compiled=compiled):
+            snippet = _snippet(text)
+            matches.append({"page_index": page_index, "shape_index": shape_path, "text": snippet})
 
-        shape_type = shape.getShapeType()
-        if "GroupShape" in str(shape_type):
+        if "GroupShape" in str(uno_probe(lambda: shape.getShapeType(), "")):
             group_matches, shapes_visited, group_partial = _grep_shapes_on_page(
                 shape,
                 page_index,
@@ -360,11 +371,44 @@ def _search_opened_document(
             )
             return matches, count, partial, None
         return [], 0, False, f"Unsupported doc_type {doc_type!r} for grep"
-    except ValueError as e:
-        return [], 0, False, str(e)
     except Exception as e:
         log.exception("grep search failed for doc_type=%s", doc_type)
         return [], 0, False, str(e)
+
+
+def _search_one_file(
+    ctx: Any,
+    target: str,
+    services: Any,
+    pattern: str,
+    *,
+    regex: bool,
+    case_sensitive: bool,
+    max_results: int,
+    stop_checker: Callable[[], bool] | None = None,
+) -> tuple[list[dict[str, Any]], str | None, bool, str | None]:
+    """Open, search, and close one file in one main-thread hop.
+
+    Returns (matches, doc_type, partial, error). One hop means a queued but
+    cancelled item never opens a document, and a started item always closes it.
+    """
+    model, doc_type, open_err, opened = open_document_for_read(ctx, target)
+    if model is None or doc_type is None:
+        return [], None, False, open_err or "Open failed"
+    try:
+        matches, _count, partial, search_err = _search_opened_document(
+            model,
+            doc_type,
+            services,
+            pattern,
+            regex=regex,
+            case_sensitive=case_sensitive,
+            max_results_per_file=max_results,
+            stop_checker=stop_checker,
+        )
+    finally:
+        close_document_research_document(model, opened_for_document_research=opened)
+    return matches, doc_type, partial, search_err
 
 
 def grep_nearby_files(
@@ -416,7 +460,7 @@ def grep_nearby_files(
     total_snippets = 0
     stopped_early = False
     user_stopped = False
-    files_scanned = 0
+    files_scanned = 0  # Files we attempted to open; a failed open still counts.
 
     for idx, entry in enumerate(candidates):
         if stop_checker and stop_checker():
@@ -437,63 +481,34 @@ def grep_nearby_files(
             status_callback(f"Grep: {name} ({idx + 1}/{len(candidates)})...")
 
         target = url if url.startswith("file://") else path
-
-        def _open() -> tuple[Any | None, str | None, str | None, bool]:
-            return open_document_for_read(ctx, target)
-
-        try:
-            model, doc_type, open_err, opened_for_document_research = execute_on_main_thread(_open)
-        except SendCancelled:
-            return user_stopped_payload()
+        per_file_limit = min(DEFAULT_GREP_MAX_RESULTS_PER_FILE, DEFAULT_GREP_MAX_TOTAL_RESULTS - total_snippets)
 
         files_scanned += 1
-
-        if model is None or doc_type is None:
-            errors.append({"path": path, "message": open_err or "Open failed"})
-            continue
-
-        per_file_limit = min(DEFAULT_GREP_MAX_RESULTS_PER_FILE, DEFAULT_GREP_MAX_TOTAL_RESULTS - total_snippets)
         try:
-            def _search() -> tuple[list[dict[str, Any]], int, bool, str | None]:
-                return _search_opened_document(
-                    model,
-                    doc_type,
-                    services,
-                    pattern,
-                    regex=regex,
-                    case_sensitive=case_sensitive,
-                    max_results_per_file=per_file_limit,
-                    stop_checker=stop_checker,
-                )
-            try:
-                matches, match_count, partial, search_err = execute_on_main_thread(_search)
-            except SendCancelled:
-                return user_stopped_payload()
-        finally:
-            def _close() -> None:
-                close_document_research_document(model, opened_for_document_research=opened_for_document_research)
-            try:
-                execute_on_main_thread(_close)
-            except (SendCancelled, TimeoutError, RuntimeError):
-                from plugin.framework.queue_executor import post_to_main_thread
-                # Post unscoped (bound_scope=None) so the cancelled turn scope does not drop
-                # this close during queue processing or cancel_pending_work.
-                # post raises TimeoutError when AsyncCallback is missing and the
-                # pending list is full. An exception from finally replaced the grep
-                # return and left the hidden document open.
-                try:
-                    post_to_main_thread(_close, bound_scope=None)
-                except Exception:
-                    log.exception(
-                        "grep close fallback failed; hidden read document may stay open"
-                    )
+            matches, doc_type, partial, file_err = execute_on_main_thread(
+                _search_one_file,
+                ctx,
+                target,
+                services,
+                pattern,
+                regex=regex,
+                case_sensitive=case_sensitive,
+                max_results=per_file_limit,
+                stop_checker=stop_checker,
+            )
+        except SendCancelled:
+            return user_stopped_payload()
+        except (TimeoutError, RuntimeError) as exc:
+            # A file that cannot be marshalled must not abort the whole scan.
+            errors.append({"path": path, "message": str(exc)})
+            continue
 
         if stop_checker and stop_checker():
             user_stopped = True
             break
 
-        if search_err:
-            errors.append({"path": path, "message": search_err})
+        if file_err or doc_type is None:
+            errors.append({"path": path, "message": file_err or "Open failed"})
             continue
 
         if not matches:
@@ -503,7 +518,7 @@ def grep_nearby_files(
             "path": path,
             "name": name,
             "doc_type": doc_type,
-            "match_count": match_count,
+            "match_count": len(matches),
             "matches": matches,
         }
         if partial:

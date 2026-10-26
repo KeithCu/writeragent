@@ -595,3 +595,185 @@ def test_selected_text_range_disposed_raises():
     with pytest.raises(DocumentDisposedError):
         selected_text_range(ctrl)
 
+
+class _BsearchCursor:
+    def __init__(self, text, offset=0):
+        self.text = text
+        self.offset = offset
+
+    def gotoStart(self, expand=False):
+        self.offset = 0
+
+    def getStart(self):
+        return self
+
+    def getText(self):
+        return self.text
+
+    def goRight(self, n, expand=False):
+        self.text.go_right_calls += 1
+        self.offset = min(self.offset + n, self.text.doc_len)
+        return True
+
+    def goLeft(self, n, expand=False):
+        self.text.go_left_calls += 1
+        self.offset = max(self.offset - n, 0)
+        return True
+
+
+class _BsearchText:
+    def __init__(self, doc_len):
+        self.doc_len = doc_len
+        self.go_right_calls = 0
+        self.go_left_calls = 0
+
+    def createTextCursor(self):
+        return _BsearchCursor(self, 0)
+
+    def createTextCursorByRange(self, start_pos):
+        return _BsearchCursor(self, getattr(start_pos, "offset", 0))
+
+    def compareRegionStarts(self, a, b):
+        a_off = getattr(a, "offset", 0)
+        b_off = getattr(b, "offset", 0)
+        if a_off < b_off:
+            return 1
+        if a_off > b_off:
+            return -1
+        return 0
+
+
+def test_char_offset_of_position_binary_search():
+    from plugin.doc.text_helpers import _char_offset_of_position
+
+    doc_len = 20000
+    text = _BsearchText(doc_len)
+    model = MagicMock()
+    model.getText.return_value = text
+
+    target = _BsearchCursor(text, 12345)
+    offset = _char_offset_of_position(model, target, doc_len)
+    assert offset == 12345
+    assert text.go_left_calls == 0
+    assert text.go_right_calls < 40
+
+    # Target at 0
+    text.go_right_calls = 0
+    text.go_left_calls = 0
+    target_0 = _BsearchCursor(text, 0)
+    assert _char_offset_of_position(model, target_0, doc_len) == 0
+    assert text.go_left_calls == 0
+    assert text.go_right_calls < 40
+
+    # Target at doc_len (end)
+    text.go_right_calls = 0
+    text.go_left_calls = 0
+    target_end = _BsearchCursor(text, doc_len)
+    assert _char_offset_of_position(model, target_end, doc_len) == doc_len
+    assert text.go_left_calls == 0
+    assert text.go_right_calls < 40
+
+
+def test_char_offset_of_position_error_returns_negative_one():
+    from plugin.doc.text_helpers import _char_offset_of_position
+
+    text = MagicMock()
+    text.createTextCursor.side_effect = RuntimeError("cursor creation failed")
+    model = MagicMock()
+    model.getText.return_value = text
+
+    target = MagicMock()
+    target.getText.return_value = text
+    assert _char_offset_of_position(model, target, 1000) == -1
+
+
+class _FakeTable:
+    def __init__(self, cells=None, raise_names=False):
+        self._cells = cells or {}
+        self._raise_names = raise_names
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.TextTable"
+
+    def getCellNames(self):
+        if self._raise_names:
+            raise RuntimeError("table destroyed")
+        return list(self._cells.keys())
+
+    def getCellByName(self, name):
+        return self._cells.get(name)
+
+
+def test_get_string_without_tracked_deletions_table_cells():
+    table = _FakeTable({
+        "A1": _TextRange([_Paragraph([_Portion("A1")], fallback_text="A1")]),
+        "B1": _TextRange([_Paragraph([_Portion("B1")], fallback_text="B1")]),
+    })
+    rng = _TextRange([
+        _Paragraph([_Portion("Before")], fallback_text="Before"),
+        table,
+        _Paragraph([_Portion("After")], fallback_text="After"),
+    ])
+    assert get_string_without_tracked_deletions(rng) == "Before\nA1\nB1\nAfter"
+
+
+def test_get_string_without_tracked_deletions_table_cell_redline():
+    table = _FakeTable({
+        "A1": _TextRange([
+            _Paragraph([
+                _Portion("A1 "),
+                _Portion(portion_type="Redline", redline_type="Delete"),
+                _Portion("hidden"),
+                _Portion(portion_type="Redline", redline_type="Delete"),
+                _Portion("cell"),
+            ], fallback_text="A1 cell"),
+        ]),
+        "B1": _TextRange([_Paragraph([_Portion("B1")], fallback_text="B1")]),
+    })
+    rng = _TextRange([
+        _Paragraph([_Portion("Before")], fallback_text="Before"),
+        table,
+        _Paragraph([_Portion("After")], fallback_text="After"),
+    ])
+    assert get_string_without_tracked_deletions(rng) == "Before\nA1 cell\nB1\nAfter"
+
+
+def test_get_string_without_tracked_deletions_nested_table():
+    subtable = _FakeTable({
+        "SubA": _TextRange([_Paragraph([_Portion("SubA")], fallback_text="SubA")]),
+        "SubB": _TextRange([_Paragraph([_Portion("SubB")], fallback_text="SubB")]),
+    })
+    table = _FakeTable({
+        "A1": _TextRange([subtable]),
+        "B1": _TextRange([_Paragraph([_Portion("B1")], fallback_text="B1")]),
+    })
+    rng = _TextRange([
+        _Paragraph([_Portion("Before")], fallback_text="Before"),
+        table,
+        _Paragraph([_Portion("After")], fallback_text="After"),
+    ])
+    assert get_string_without_tracked_deletions(rng) == "Before\nSubA\nSubB\nB1\nAfter"
+
+
+def test_get_string_without_tracked_deletions_table_error_returns_empty():
+    broken_table = _FakeTable(raise_names=True)
+    rng = _TextRange([
+        _Paragraph([_Portion("Before")], fallback_text="Before"),
+        broken_table,
+        _Paragraph([_Portion("After")], fallback_text="After"),
+    ])
+    assert get_string_without_tracked_deletions(rng) == "Before\n\nAfter"
+
+
+def test_get_document_length_non_writer_is_zero():
+    from plugin.doc import text_helpers
+
+    model = MagicMock()
+    with (
+        patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.CALC),
+        patch.object(text_helpers, "check_disposed"),
+    ):
+        assert text_helpers.get_document_length(model) == 0
+    model.getText.assert_not_called()
+
+

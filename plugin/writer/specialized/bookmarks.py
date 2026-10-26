@@ -195,7 +195,7 @@ class BookmarkService(ServiceBase):
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
                 para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                # A failed placement returns 0, so a stale _mcp_ mark must not be
+                # A failed placement returns None, so a stale _mcp_ mark must not be
                 # stored as the bookmark for the first paragraph.
                 # confirm_paragraph_index keeps 0 only when the anchor is actually
                 # there. An unplaced mark is omitted and later removed.

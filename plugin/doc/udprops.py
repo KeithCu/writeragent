@@ -16,7 +16,13 @@ from typing import Any
 
 import uno
 
-from plugin.framework.errors import DocumentDisposedError, UnoObjectError, check_disposed, safe_call
+from plugin.framework.errors import (
+    DocumentDisposedError,
+    UnoObjectError,
+    check_disposed,
+    reraise_if_disposed,
+    safe_call,
+)
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +68,21 @@ def _user_defined_property_exists(props: Any, name: str) -> bool:
     return False
 
 
+def _user_defined_properties(raw_model: Any) -> Any:
+    """Return the unwrapped UserDefinedProperties bag, or None when absent."""
+    from plugin.framework.thread_guard import _unwrap_uno
+
+    if not hasattr(raw_model, "getDocumentProperties"):
+        return None
+    doc_props = safe_call(raw_model.getDocumentProperties, "Get document properties")
+    if doc_props is None:
+        return None
+    props = _unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
+    if props is not None:
+        check_disposed(props, "UserDefinedProperties")
+    return props
+
+
 def get_document_property(model: Any, name: str, default: Any = None) -> Any:
     """Get a custom document property from the model.
 
@@ -75,19 +96,12 @@ def get_document_property(model: Any, name: str, default: Any = None) -> Any:
         # guard proxy; unwrap the model then talk to the raw PropertyBag.
         raw_model = _unwrap_uno(model)
         check_disposed(raw_model, "Document Model")
-        if hasattr(raw_model, "getDocumentProperties"):
-            doc_props = safe_call(raw_model.getDocumentProperties, "Get document properties")
-            if doc_props is None:
-                return default
-            props = _unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
-            if props is None:
-                return default
-
-            check_disposed(props, "UserDefinedProperties")
-
-            if _user_defined_property_exists(props, name):
-                return safe_call(props.getPropertyValue, "Get property value", name)
+        props = _user_defined_properties(raw_model)
+        if props is None:
             return default
+        if _user_defined_property_exists(props, name):
+            return safe_call(props.getPropertyValue, "Get property value", name)
+        return default
     except UnoObjectError:
         if name in ("WriterAgentSessionID", "WriterAgentPythonSessionId"):
             log.debug("get_document_property (optional property %s not set yet)", name)
@@ -100,68 +114,66 @@ def get_document_property(model: Any, name: str, default: Any = None) -> Any:
     return default
 
 
-def set_document_property(model: Any, name: str, value: Any) -> None:
+def set_document_property(model: Any, name: str, value: Any) -> bool:
     """Set a custom document property in the model.
 
     Same dispatch-thread note as get_document_property (notebook File Open).
     """
+    raw_model = model
     try:
         from plugin.framework.thread_guard import _unwrap_uno
 
         # Same PropertyBag unwrap as get_document_property.
         raw_model = _unwrap_uno(model)
         check_disposed(raw_model, "Document Model")
-        if hasattr(raw_model, "getDocumentProperties"):
-            # One statement per UNO call so a hang dump names the blocker
-            # (GHA 33763078357: previous dump only said safe_call line 99).
-            _udprops_step("set_document_property: getDocumentProperties start name=%s" % name)
-            doc_props = safe_call(raw_model.getDocumentProperties, "Get document properties")
-            _udprops_step("set_document_property: getDocumentProperties done")
-            if doc_props is None:
-                return
-            _udprops_step("set_document_property: UserDefinedProperties start")
-            props = _unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
-            _udprops_step("set_document_property: UserDefinedProperties done")
-            if props is not None:
-                check_disposed(props, "UserDefinedProperties")
+        _udprops_step("set_document_property: getDocumentProperties start name=%s" % name)
+        props = _user_defined_properties(raw_model)
+        _udprops_step("set_document_property: getDocumentProperties done")
+        if props is None:
+            return False
 
-                exists = _user_defined_property_exists(props, name)
-
-                if exists and hasattr(props, "setPropertyValue"):
-                    _udprops_step("set_document_property: setPropertyValue start name=%s" % name)
-                    safe_call(props.setPropertyValue, "Set property value", name, str(value))
-                    _udprops_step("set_document_property: setPropertyValue done")
-                elif hasattr(props, "addProperty"):
-                    REMOVABLE = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.REMOVABLE")
-                    _udprops_step("set_document_property: addProperty start name=%s" % name)
-                    safe_call(props.addProperty, "Add property", name, REMOVABLE, str(value))
-                    _udprops_step("set_document_property: addProperty done")
-                elif hasattr(props, "setPropertyValue"):
-                    _udprops_step(
-                        "set_document_property: setPropertyValue start (no addProperty) name=%s"
-                        % name
-                    )
-                    safe_call(props.setPropertyValue, "Set property value (no addProperty)", name, str(value))
-                    _udprops_step("set_document_property: setPropertyValue done")
+        if _user_defined_property_exists(props, name):
+            if not hasattr(props, "setPropertyValue"):
+                return False
+            _udprops_step("set_document_property: setPropertyValue start name=%s" % name)
+            safe_call(props.setPropertyValue, "Set property value", name, str(value))
+            _udprops_step("set_document_property: setPropertyValue done")
+        else:
+            if not hasattr(props, "addProperty"):
+                return False
+            REMOVABLE = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.REMOVABLE")
+            _udprops_step("set_document_property: addProperty start name=%s" % name)
+            safe_call(props.addProperty, "Add property", name, REMOVABLE, str(value))
+            _udprops_step("set_document_property: addProperty done")
+        return True
 
     except UnoObjectError:
         doc_url = ""
         readonly = ""
         try:
-            if hasattr(model, "getURL"):
-                doc_url = model.getURL() or ""
-            if hasattr(model, "isReadonly"):
-                readonly = str(model.isReadonly())
+            if hasattr(raw_model, "getURL"):
+                doc_url = raw_model.getURL() or ""
+            if hasattr(raw_model, "isReadonly"):
+                readonly = str(raw_model.isReadonly())
         except Exception as exc:
             log.debug("set_document_property url/readonly probe failed (%s)", type(exc).__name__)
 
         log.exception("set_document_property error (url=%s, readonly=%s)", doc_url, readonly)
         raise
 
-def remove_document_property(doc: Any, name: str) -> None:
+def remove_document_property(doc: Any, name: str) -> bool:
+    """Remove a custom document property. True when it is absent afterwards."""
+    from plugin.framework.thread_guard import _unwrap_uno
+
     try:
-        props = doc.getDocumentProperties().getUserDefinedProperties()
-        if props.getPropertySetInfo().hasPropertyByName(name):
-            props.removeProperty(name)
+        raw_doc = _unwrap_uno(doc)
+        check_disposed(raw_doc, "Document Model")
+        props = _user_defined_properties(raw_doc)
+        if props is None or not _user_defined_property_exists(props, name):
+            return True
+        safe_call(props.removeProperty, "Remove property", name)
+        return not _user_defined_property_exists(props, name)
     except Exception as exc:
+        reraise_if_disposed(exc)
         log.debug("remove_document_property %s failed (%s)", name, type(exc).__name__)
+        return False
