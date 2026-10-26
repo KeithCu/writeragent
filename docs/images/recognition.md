@@ -194,7 +194,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 | Analysis trusted stack (reference) | [`analysis.py`](../../plugin/scripting/analysis.py), [`analysis_client.py`](../../plugin/framework/client/analysis_client.py), [`analysis_runner.py`](../../plugin/calc/analysis_runner.py) |
 | Calc analysis egress | [`analysis_egress.py`](../../plugin/calc/analysis_egress.py) — `is_analysis_result`, `insert_analysis_result_into_calc` |
 | **Vision LLM tools (partial)** | [`vision_tools.py`](../../plugin/vision/vision_tools.py) (`extract_structure_from_image`), [`vision_availability.py`](../../plugin/vision/vision_availability.py) (venv gating), [`ToolWriterVisionBase` / `ToolCalcVisionBase`](../../plugin/writer/specialized_base.py) |
-| Tests | [`test_vision*.py`](../../tests/scripting/), [`test_vision_tools.py`](../../tests/vision/test_vision_tools.py), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py), [`test_format_uno.py`](../../tests/writer/test_format_uno.py), [`test_vision_graphic_insert_uno.py`](../../tests/writer/test_vision_graphic_insert_uno.py), [`test_vision_ocr_mock_uno.py`](../../tests/writer/test_vision_ocr_mock_uno.py) (Writer UNO: patches host `run_vision`, unique OCR tokens, document order with text between images; no Docling/Paddle in CI), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (vision section tests) |
+| Tests | [`test_vision*.py`](../../tests/vision/), [`test_vision_tools.py`](../../tests/vision/test_vision_tools.py), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py), [`test_format_uno.py`](../../tests/writer/test_format_uno.py), [`test_vision_graphic_insert_uno.py`](../../tests/writer/test_vision_graphic_insert_uno.py), [`test_vision_ocr_mock_uno.py`](../../tests/writer/test_vision_ocr_mock_uno.py) (Writer UNO: patches host `run_vision`, unique OCR tokens, document order with text between images; no Docling/Paddle in CI), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (vision section tests) |
 
 ### Gaps (post–Phase 3)
 
@@ -278,11 +278,17 @@ payload = {
 Host obtains bytes via new `get_selected_image_bytes(ctx, doc)`:
 
 ```python
-import base64
-b64 = get_selected_image_base64(doc, ctx)
-if not b64:
-    raise ToolExecutionError(..., code="NO_IMAGE_SELECTED")
-png_bytes = base64.b64decode(b64)
+try:
+    graphic_obj = selected_graphic_object(doc)
+    png_bytes = export_graphic_object_to_bytes(ctx, graphic_obj) if graphic_obj is not None else None
+except Exception as exc:
+    raise ToolExecutionError(
+        _("Could not export the selected image: {error}").format(error=exc),
+        code="IMAGE_EXPORT_FAILED",
+    ) from exc
+if not png_bytes:
+    raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
+return png_bytes
 ```
 
 ### 4.5 PaddleOCR in `vision.py`
@@ -294,15 +300,15 @@ png_bytes = base64.b64decode(b64)
 - Map engine output → [§10](#10-extract_text-result-json-normative) (`html`, `full_text`, `regions`, `metrics`).
 - **`ImportError` / missing paddle:** return `{"status": "error", "code": "PADDLEOCR_UNAVAILABLE", ...}` — do not raise uncaught from venv for missing pip packages.
 
-**CI / tests:** Mock `PaddleOCR` in [`tests/scripting/test_vision.py`](../../tests/scripting/test_vision.py); **`make test` must not download models or require paddle installed.**
+**CI / tests:** Mock `PaddleOCR` in [`tests/vision/venv/test_vision.py`](../../tests/vision/venv/test_vision.py); **`make test` must not download models or require paddle installed.**
 
 ### 4.6 Tests to add (Phase 1)
 
 | File | Covers |
 |------|--------|
-| `tests/scripting/test_vision_templates.py` | Template coverage, `parse_vision_script_header` round-trip |
-| `tests/scripting/test_vision.py` | `run_vision` / `_extract_text` with mocked Paddle |
-| `tests/scripting/test_vision_egress.py` | `is_vision_result`, `vision_html_from_result`, `insert_vision_result` |
+| `tests/vision/test_vision_templates.py` | Template coverage, `parse_vision_script_header` round-trip |
+| `tests/vision/venv/test_vision.py` | `run_vision` / `_extract_text` with mocked Paddle |
+| `tests/vision/test_vision_egress.py` | `is_vision_result`, `vision_html_from_result`, `insert_vision_result` |
 | `tests/scripting/test_python_runner_vision.py` | Fast path in `execute_and_insert_result` (mock export + RPC + insert) |
 | `tests/scripting/test_document_scripts.py` | `test_build_scripts_list_includes_vision_section_for_writer` (mirror analysis Calc test) |
 
@@ -355,7 +361,7 @@ Draw/Impress: extend `supports_vision_manual` with `is_draw`; minimal `TextShape
 
 ### Tests
 
-Extended [`test_vision.py`](../../tests/scripting/test_vision.py), [`test_vision_runner.py`](../../tests/scripting/test_vision_runner.py), [`test_vision_templates.py`](../../tests/scripting/test_vision_templates.py), [`test_vision_egress.py`](../../tests/scripting/test_vision_egress.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py) (Calc), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py).
+Extended [`test_vision.py`](../../tests/vision/venv/test_vision.py), [`test_vision_runner.py`](../../tests/vision/test_vision_runner.py), [`test_vision_templates.py`](../../tests/vision/test_vision_templates.py), [`test_vision_egress.py`](../../tests/vision/test_vision_egress.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py) (Calc), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py).
 
 ---
 
@@ -378,7 +384,7 @@ Extended [`test_vision.py`](../../tests/scripting/test_vision.py), [`test_vision
 
 | Capability | Entry point |
 |------------|-------------|
-| Export selection to PNG | [`get_selected_image_base64`](../../plugin/writer/images/image_tools.py) / [`resolve_vision_image_bytes`](../../plugin/vision/vision_runner.py) |
+| Export selection to PNG | [`get_selected_image_bytes`](../../plugin/vision/vision_runner.py) / [`resolve_vision_image_bytes`](../../plugin/vision/vision_runner.py) |
 | Export by graphic name | [`resolve_vision_image_bytes`](plugin/vision/vision_runner.py) + [`_get_graphic_object`](plugin/writer/images/images.py) |
 | List in-document graphics | [`image_list`](../../plugin/writer/images/images.py) |
 | Metadata | [`image_get_info`](../../plugin/writer/images/images.py) |
@@ -596,7 +602,12 @@ def is_vision_result(value: Any) -> bool:
         return False
     if "status" not in value:
         return False
-    return bool(value.get("helper")) or value.get("status") == "error"
+    helper = value.get("helper")
+    if isinstance(helper, str) and helper in HELPER_NAMES:
+        return True
+    if value.get("status") == "error":
+        return "VISION" in str(value.get("code") or "")
+    return False
 ```
 
 ### Success
@@ -641,7 +652,7 @@ def is_vision_result(value: Any) -> bool:
 
 ### Error
 
-Host multi-image OCR (`run_and_insert_vision_for_selection`) still returns `status: error` and stops the loop when a later image fails. Image 1 stays inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), and `failed_image`. The LLM tool copies those into `details`.
+Host multi-image OCR (`run_and_insert_vision_for_selection`) keeps going after a later image fails: images after the failure are still OCR'd and inserted, and the run then returns `status: error` built from the first failure. Earlier images stay inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), `failed_image`, `failed_images`, and `individual_results`. The LLM tool copies `partial`, `images_processed`, `image_names`, `failed_image`, and `inserted` into `details`.
 
 `insert_mode=structured` copies the pre-layout HTML to `html_docling` before replacing `html`. Calc cell-grid failure falls back to `html_docling`, not the bbox fragment. Writer still inserts `html`.
 
@@ -885,7 +896,7 @@ Checklist for implementers / QA:
 | Domain | `delegate_to_specialized_writer_toolset` / `delegate_to_specialized_calc_toolset` with `domain="vision"` — **gateway shortcut** (runs OCR directly, no Smol sub-agent; same pattern as `web_research`; always inserts into document) |
 | Backend | [`run_trusted_vision`](../../plugin/vision/vision_runner.py) → [`run_vision`](../../plugin/scripting/client.py) |
 | Insert | [`insert_vision_result`](../../plugin/vision/vision_egress.py) when `insert_into_document=true` (default) |
-| Gating | [`vision_venv_configured`](../../plugin/vision/vision_availability.py) — schema/prompt gate: Settings venv path + resolvable `python` only (no import probe on Send). Package presence is validated at OCR runtime and in Settings → Python → Test ([`vision_packages_probe_ready`](../../plugin/vision/vision_availability.py)); domain/tool hidden when venv is not configured |
+| Gating | [`vision_venv_configured`](../../plugin/vision/vision_availability.py) — schema/prompt gate: Settings venv path + resolvable `python` only (no import probe on Send). Package presence is validated at OCR runtime and in Settings → Python → Test (which runs [`probe_vision_packages`](../../plugin/scripting/venv_diagnostics.py)); domain/tool hidden when venv is not configured |
 
 | Argument | Role |
 |----------|------|
@@ -970,7 +981,7 @@ Implement in order; each tier is independently shippable behind a template param
 ```mermaid
 flowchart TD
   subgraph venv [Vision venv]
-    Docling[Docling convert for_structure=True]
+    Docling[Docling convert]
     Export[export_to_html OR layout builder]
     Sample[PIL/numpy color sample per bbox]
     Layout[vision_layout_html.py]
@@ -1022,8 +1033,8 @@ Do these **before** building layout HTML to avoid dead ends.
 
 **Objective:** Red banner, gray subheads, and white-on-color titles **approximately** match the image.
 
-1. **Collect blocks** from Docling after `_convert_image_bytes(..., for_structure=True)`:
-   - Reuse [`_map_docling_structure`](../../plugin/vision/venv/vision_docling.py) / provenance [`prov_bbox_to_xywh`](../../plugin/vision/venv/vision_docling.py).
+1. **Collect blocks** from Docling after `_convert_image_bytes(...)`:
+   - Reuse [`_map_docling_document`](../../plugin/vision/venv/vision_docling.py) / provenance [`prov_bbox_to_xywh`](../../plugin/vision/venv/vision_docling.py).
    - Map `label` → HTML tag (`section_header` → `h2`, `text` → `p`, `list_item` → `li`, …).
 
 2. **Sample colors** per block bbox from PNG (Pillow already in vision stack):
@@ -1115,11 +1126,11 @@ Only if inline HTML + tables still collapse in Writer:
 
 | Layer | Tests |
 |-------|--------|
-| Color sampling | `tests/scripting/test_vision_layout_html.py` — pure functions, synthetic 10×10 PNG arrays |
+| Color sampling | `tests/vision/venv/test_vision_layout_html.py` — pure functions, synthetic 10×10 PNG arrays |
 | Layout clustering | Fixed bbox fixtures → column assignment |
 | Integration | Mock Docling document + PNG bytes → `run_vision` → `html` field shape |
 | UNO | [`test_format_uno.py`](../../tests/writer/test_format_uno.py) — colored header, two-column table |
-| Regression | Existing [`test_vision_html_export.py`](../../tests/scripting/test_vision_html_export.py) — `html_mode=structured` unchanged |
+| Regression | Existing [`test_vision_html_export.py`](../../tests/vision/venv/test_vision_html_export.py) — `html_mode=structured` unchanged |
 | Manual QA | Akihabara, one receipt scan (tables), one simple single-column screenshot |
 
 **CI:** no real Docling in default pytest; commit **frozen HTML snippets** from Phase 0d for UNO tests.
@@ -1156,4 +1167,4 @@ Only if inline HTML + tables still collapse in Writer:
 
 ### 21.14 Suggested agent prompt (when starting Phase 4v)
 
-> Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(..., for_structure=True)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
+> Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(...)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.

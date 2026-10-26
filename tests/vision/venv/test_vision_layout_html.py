@@ -82,8 +82,45 @@ def test_box_xywh_tolerant():
     assert _box_xywh({"box": ["10", "bad", 30.5]}) == (10, 0, 30, 0)
     assert _box_xywh({"box": []}) == (0, 0, 0, 0)
     assert _box_xywh({}) == (0, 0, 0, 0)
-    assert _box_xywh("not a dict") == (0, 0, 0, 0)  # type: ignore[arg-type]
+    assert _box_xywh("not a dict") == (0, 0, 0, 0)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_empty_blocks_returns_empty_string():
     assert html_from_layout_blocks([]) == ""
+
+
+def test_footer_under_body_is_not_a_column_table():
+    blocks = [
+        {"type": "text", "text": "Body line", "box": [10, 100, 250, 20]},
+        {"type": "text", "text": "Page 1", "box": [420, 124, 60, 10]},
+    ]
+    html = html_from_layout_blocks(blocks)
+    assert "<table" not in html
+    assert html.index("Body line") < html.index("Page 1")
+
+
+def test_non_dict_table_and_blank_blocks_are_skipped():
+    blocks = [
+        {"type": "table", "text": "raw", "box": [10, 10, 100, 20]},
+        {"type": "text", "text": "   ", "box": [10, 40, 100, 20]},
+        {"type": "text", "text": "Kept", "box": [10, 70, 100, 20]},
+    ]
+    assert html_from_layout_blocks(blocks) == "<p>Kept</p>"
+
+
+def test_title_above_two_columns_golden():
+    blocks = [
+        {"type": "section_header", "text": "MAIN TITLE", "box": [10, 10, 600, 40]},
+        {"type": "text", "text": "Left line 1", "box": [10, 100, 180, 20]},
+        {"type": "text", "text": "Right line 1", "box": [420, 102, 180, 20]},
+        {"type": "text", "text": "Left line 2", "box": [10, 125, 180, 20]},
+        {"type": "text", "text": "Right line 2", "box": [420, 127, 180, 20]},
+    ]
+    expected = (
+        "<h2>MAIN TITLE</h2>\n"
+        '<table style="width:100%;border:none;border-collapse:collapse;"><tr>'
+        '<td style="width:50%;vertical-align:top;border:none;padding:0 8px 0 0;"><p>Left line 1</p><p>Left line 2</p></td>'
+        '<td style="width:50%;vertical-align:top;border:none;padding:0 0 0 8px;"><p>Right line 1</p><p>Right line 2</p></td>'
+        "</tr></table>"
+    )
+    assert html_from_layout_blocks(blocks) == expected

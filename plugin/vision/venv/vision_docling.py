@@ -26,9 +26,6 @@ from plugin.vision.vision_common import (
 )
 
 __all__ = [
-    "_cell_text",
-    "_store_converter",
-    "_text_score_for_cache",
     "export_docling_to_html",
     "extract_structure",
     "extract_text",
@@ -37,6 +34,12 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 _DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow css-inline onnxruntime"
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in ("0", "false", "no", "off")
+    return bool(value)
 
 
 class OcrBackendError(ValueError):
@@ -73,7 +76,10 @@ class DoclingPipelineParams:
     artifacts_path: str
 
     @classmethod
-    def from_params(cls, params: dict[str, Any], *, input_format: str = "image") -> DoclingPipelineParams:
+    def from_params(cls, params: dict[str, Any] | DoclingPipelineParams, *, input_format: str = "image") -> DoclingPipelineParams:
+        if isinstance(params, DoclingPipelineParams):
+            return params
+        assert isinstance(params, dict)
         text_score_val = params.get("text_score")
         text_score = 0.5 if (text_score_val is None or text_score_val == "") else float(text_score_val)
         threads_raw = params.get("num_threads")
@@ -86,13 +92,13 @@ class DoclingPipelineParams:
             device=str(params.get("device") or "").strip(),
             num_threads=num_threads,
             table_mode=str(params.get("table_mode") or "accurate"),
-            do_cell_matching=bool(params.get("do_cell_matching", True)),
-            create_orphan_clusters=bool(params.get("create_orphan_clusters", True)),
+            do_cell_matching=_as_bool(params.get("do_cell_matching", True)),
+            create_orphan_clusters=_as_bool(params.get("create_orphan_clusters", True)),
             layout_model=str(params.get("layout_model") or "heron").strip().lower() or "heron",
-            do_formula_enrichment=bool(params.get("do_formula_enrichment", False)),
-            do_code_enrichment=bool(params.get("do_code_enrichment", False)),
+            do_formula_enrichment=_as_bool(params.get("do_formula_enrichment", False)),
+            do_code_enrichment=_as_bool(params.get("do_code_enrichment", False)),
             text_score=text_score,
-            force_full_page_ocr=bool(params.get("force_full_page_ocr", True)),
+            force_full_page_ocr=_as_bool(params.get("force_full_page_ocr", True)),
             ocr_mode=str(params.get("ocr_mode") or "").strip().lower(),
             document_timeout=float(params.get("document_timeout") or 0),
             artifacts_path=str(params.get("artifacts_path") or "").strip(),
@@ -138,29 +144,9 @@ class _ConverterCache:
 _converter_cache = _ConverterCache()
 
 
-def _store_converter(key: tuple[Any, ...], converter: Any) -> None:
-    _converter_cache.set(key, converter)
-
-
-def _import_docling() -> Any:
-    return importlib.import_module("docling.document_converter")
-
-
 def _cache_key(params: dict[str, Any] | DoclingPipelineParams, input_format: str = "image") -> tuple[Any, ...]:
     norm = params if isinstance(params, DoclingPipelineParams) else DoclingPipelineParams.from_params(params, input_format=input_format)
     return astuple(norm)
-
-
-def _text_score_for_cache(params: dict[str, Any] | DoclingPipelineParams) -> float:
-    if isinstance(params, DoclingPipelineParams):
-        return params.text_score
-    raw = params.get("text_score")
-    if raw is None or str(raw).strip() == "":
-        return 0.5
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return 0.5
 
 
 def _resolve_ocr_options(backend_or_params: str | dict[str, Any] | DoclingPipelineParams, lang: str = "en", text_score: float | None = None) -> Any:
@@ -418,7 +404,6 @@ def _get_docling_converter(params: dict[str, Any] | DoclingPipelineParams, input
     if cached is not None:
         return cached
 
-    _import_docling()
     base_models = importlib.import_module("docling.datamodel.base_models")
     converter_mod = importlib.import_module("docling.document_converter")
     input_format_enum = base_models.InputFormat
@@ -446,20 +431,13 @@ def _convert_image_bytes(image: Any, params: dict[str, Any]) -> Any:
     payload = bytes(image)
     input_format = detect_vision_input_format(payload, params)
     norm = DoclingPipelineParams.from_params(params, input_format=input_format)
-    _import_docling()
     base_models = importlib.import_module("docling.datamodel.base_models")
     buf = BytesIO(payload)
     buf.seek(0)
     stream_name = "document.pdf" if input_format == "pdf" else "image.png"
     stream = base_models.DocumentStream(name=stream_name, stream=buf)
     converter = _get_docling_converter(norm)
-    try:
-        result = converter.convert(stream)
-    except AttributeError as exc:
-        msg = str(exc)
-        if "get_engine_config" in msg or "LayoutModelConfig" in msg:
-            raise DoclingApiMismatchError(f"Docling layout API mismatch: {exc}") from exc
-        raise
+    result = converter.convert(stream)
 
     document = getattr(result, "document", None)
     if document is None:
@@ -467,16 +445,58 @@ def _convert_image_bytes(image: Any, params: dict[str, Any]) -> Any:
     return document
 
 
-def _cell_text(cell: Any) -> str:
-    # Empty cell text is "", not missing. Returning the TableCell falls through
-    # to its str repr. Return "" when text is falsy.
-    if isinstance(cell, dict):
-        return str(cell.get("text") or cell.get("value") or "").strip()
-    return str(getattr(cell, "text", "") or "").strip()
+def _page_height(document: Any, doc_dict: dict[str, Any], prov: Any) -> float | None:
+    if isinstance(prov, list) and prov:
+        prov = prov[0]
+    raw_page_no = prov.get("page_no") if isinstance(prov, dict) else getattr(prov, "page_no", None)
+    if raw_page_no is None:
+        return None
+    try:
+        page_no = int(raw_page_no)
+    except (TypeError, ValueError):
+        return None
+
+    page = None
+    pages = getattr(document, "pages", None)
+    if isinstance(pages, dict):
+        page = pages.get(page_no)
+    if page is None:
+        doc_pages = doc_dict.get("pages") or {}
+        page = doc_pages.get(str(page_no)) if str(page_no) in doc_pages else doc_pages.get(page_no)
+    if page is None:
+        return None
+
+    size = page.get("size") if isinstance(page, dict) else getattr(page, "size", None)
+    if size is None:
+        return None
+    height = size.get("height") if isinstance(size, dict) else getattr(size, "height", None)
+    if height is None:
+        return None
+    try:
+        return float(height)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_bottom_left_bbox(bbox: Any) -> bool:
+    origin = bbox.get("coord_origin") if isinstance(bbox, dict) else getattr(bbox, "coord_origin", None)
+    if origin is not None:
+        origin_str = str(getattr(origin, "name", None) or getattr(origin, "value", None) or origin).strip().upper()
+        norm = origin_str.replace(" ", "").replace("_", "").replace("-", "")
+        if norm == "BOTTOMLEFT":
+            return True
+    t = bbox.get("t") if isinstance(bbox, dict) else getattr(bbox, "t", None)
+    b = bbox.get("b") if isinstance(bbox, dict) else getattr(bbox, "b", None)
+    try:
+        if t is not None and b is not None and float(t) > float(b):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return False
 
 
 def prov_bbox_to_xywh(prov: Any, *, page_height: float | None = None) -> list[int]:
-    """Extract [x,y,w,h] from Docling provenance list or dict."""
+    """Convert provenance bbox to [x, y, w, h], flipping bottom-left coordinates when page_height is given."""
     if isinstance(prov, list) and prov:
         prov = prov[0]
     if not isinstance(prov, dict) and not hasattr(prov, "bbox"):
@@ -486,12 +506,14 @@ def prov_bbox_to_xywh(prov: Any, *, page_height: float | None = None) -> list[in
         bbox = prov.get("box") if isinstance(prov, dict) else None
     if bbox is None:
         return [0, 0, 0, 0]
+    if page_height is None and _is_bottom_left_bbox(bbox):
+        return [0, 0, 0, 0]
     return bbox_to_xywh(bbox, page_height=page_height)
 
 
 def _map_docling_document(
     document: Any,
-) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Export document dict once and map text regions, structure blocks, tables, and text parts."""
     doc_dict: dict[str, Any] = {}
     if hasattr(document, "export_to_dict"):
@@ -513,7 +535,7 @@ def _map_docling_document(
         text = str(item.get("text") or "").strip()
         if not text:
             continue
-        box = prov_bbox_to_xywh(item.get("prov"))
+        box = prov_bbox_to_xywh(item.get("prov"), page_height=_page_height(document, doc_dict, item.get("prov")))
         confidence = float(item.get("confidence") or item.get("score") or 0.0)
         regions.append({"box": box, "text": text, "confidence": confidence})
         label = str(item.get("label") or item.get("type") or "text").strip().lower()
@@ -561,15 +583,13 @@ def _map_docling_document(
         # [0, 0, 0, 0]. Read coordinates from item.prov.
         prov = getattr(item, "prov", None) if not isinstance(item, dict) else item.get("prov")
         if prov:
-            box = prov_bbox_to_xywh(prov)
+            box = prov_bbox_to_xywh(prov, page_height=_page_height(document, doc_dict, prov))
 
-        block_text = ""
         if table:
             tables.append(table)
             table_lines = table_to_tsv_lines(table)
             text_parts.extend(table_lines)
-            block_text = "\n".join(table_lines)
-        blocks.append({"type": "table", "text": block_text, "box": box})
+            blocks.append({"type": "table", "text": "\n".join(table_lines), "box": box})
 
     if not text_parts and hasattr(document, "export_to_markdown"):
         try:
@@ -581,7 +601,7 @@ def _map_docling_document(
         except Exception:
             log.debug("export_to_markdown failed for structure", exc_info=True)
 
-    return doc_dict, regions, blocks, tables, text_parts
+    return regions, blocks, tables, text_parts
 
 
 def _metrics_base(params: dict[str, Any], image: Any = None) -> dict[str, Any]:
@@ -648,7 +668,7 @@ def _run_docling_conversion(
     try:
         document = _convert_image_bytes(image, params)
         html = export_docling_to_html(document, params)
-        _doc_dict, regions, blocks, tables, text_parts = _map_docling_document(document)
+        regions, blocks, tables, text_parts = _map_docling_document(document)
         return None, document, html, regions, blocks, tables, text_parts
     except ImportError as exc:
         if is_css_inline_import_error(exc):

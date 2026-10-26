@@ -389,6 +389,13 @@ def test_run_vision_unknown_engine_returns_invalid_params():
     assert "Unknown vision engine" in result["message"]
 
 
+def test_run_vision_rejects_non_dict_params():
+    result = run_vision({"helper": "extract_text", "params": ["lang", "en"]}, b"png-bytes", {})
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAMS"
+    assert "params" in result["message"]
+
+
 def test_apply_structured_insert_html_replaces_html_in_worker():
     result = {
         "status": "ok",

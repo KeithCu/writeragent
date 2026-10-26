@@ -162,7 +162,10 @@ def run_vision(
     if helper not in HELPER_NAMES:
         return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
 
-    params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
+    raw_params = spec_dict.get("params")
+    if raw_params is not None and not isinstance(raw_params, dict):
+        return error_result("INVALID_PARAMS", "spec.params must be a dict", helper=helper)
+    params: dict[str, Any] = raw_params if isinstance(raw_params, dict) else {}
 
     if isinstance(image, (bytes, bytearray)) and len(image) > VISION_IMAGE_MAX_BYTES:
         return error_result(

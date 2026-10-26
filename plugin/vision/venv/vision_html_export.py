@@ -134,15 +134,21 @@ def _import_latex2mathml_convert() -> Any | None:
         pass
 
     root = _extension_root()
+    added: list[str] = []
     for extra in (os.path.join(root, "vendor"), os.path.join(root, "plugin", "lib")):
         if os.path.isdir(os.path.join(extra, "latex2mathml")) and extra not in sys.path:
             sys.path.insert(0, extra)
+            added.append(extra)
     try:
         from latex2mathml.converter import convert as latex_to_mathml
 
         return latex_to_mathml
     except ImportError:
         return None
+    finally:
+        for extra in added:
+            if extra in sys.path:
+                sys.path.remove(extra)
 
 
 def _latex_to_math_element(inner: str, *, display_block: bool, convert_fn: Any) -> str | None:
@@ -474,6 +480,12 @@ def _html_table_from_columns_rows(
     num_cols = max((len(r) for r in grid), default=0)
     if num_rows == 0 or num_cols == 0:
         return ""
+
+    # Pad ragged rows to the computed grid width so short rows do not shift
+    # cells under the wrong header columns when emitted.
+    for row in grid:
+        if len(row) < num_cols:
+            row.extend([""] * (num_cols - len(row)))
 
     # Parse rowspan/colspan with a safe int and clamp to the grid. Raw values
     # raise TypeError/ValueError, and an unbounded span loops the grid.
