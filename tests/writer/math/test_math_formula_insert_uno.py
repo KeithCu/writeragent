@@ -190,7 +190,8 @@ def test_insert_formula_display_block_centered(ctx: Any, doc: Any) -> None:
     assert paragraphs[0].getString() == "Before"
     assert paragraphs[2].getString() == "After"
     assert paragraphs[1].getPropertyValue("ParaAdjust") == 3  # Center
-    assert paragraphs[2].getPropertyValue("ParaAdjust") == 0  # Left / Standard
+    # Trailing paragraph keeps the alignment it had before the formula.
+    assert paragraphs[2].getPropertyValue("ParaAdjust") == paragraphs[0].getPropertyValue("ParaAdjust")
 
 
 @native_test
