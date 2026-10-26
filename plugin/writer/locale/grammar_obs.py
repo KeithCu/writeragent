@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any, cast
 
-from plugin.framework import event_bus
+from plugin.framework.event_bus import get_event_bus
 from plugin.framework.uno_context import desktop_create_is_unsafe
 
 log = logging.getLogger("writeragent.grammar")
@@ -233,7 +233,7 @@ def emit_grammar_status(
             else:
                 preview = slice_preview_debug(text.strip() or "(empty)", 10)
                 length = len(text)
-            event_bus.global_event_bus.emit("grammar:status", phase=phase, preview=preview, length=length, result=result, elapsed_ms=elapsed_ms)
+            get_event_bus().emit("grammar:status", phase=phase, preview=preview, length=length, result=result, elapsed_ms=elapsed_ms)
     except Exception as e:
         log.debug("[grammar] status emit failed: %s", e, exc_info=True)
 

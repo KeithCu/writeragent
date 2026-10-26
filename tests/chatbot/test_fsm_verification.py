@@ -31,6 +31,7 @@ from plugin.chatbot.send_state import (
     SendButtonState,
     SendEvent,
     SendEventKind,
+    SendMode,
     _send_ui_invariants,
     next_state as send_next_state,
 )
@@ -98,10 +99,10 @@ def _run_crosshair(module: str, timeout: int = 600) -> None:
 def test_send_state_mutual_exclusion_oracle() -> None:
     """Runtime check of send/stop UI mutual exclusion (matches deal.ensure)."""
     states = [
-        SendButtonState(False, False, True, False, True),
-        SendButtonState(True, False, True, False, True),
-        SendButtonState(False, True, False, False, True),
-        SendButtonState(False, False, False, True, True),
+        SendButtonState(SendMode.IDLE, True, False, True),
+        SendButtonState(SendMode.BUSY, True, False, True),
+        SendButtonState(SendMode.RECORDING, False, False, True),
+        SendButtonState(SendMode.IDLE, False, True, True),
     ]
     events = [
         SendEvent(SendEventKind.TEXT_UPDATED, has_text=True),
