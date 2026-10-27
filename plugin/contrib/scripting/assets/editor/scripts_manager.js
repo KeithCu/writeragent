@@ -24,6 +24,9 @@
   var documentReadonly = false;
   var documentStale = false;
   var initialRequested = false;
+  // Code sent by the last save_script. The host answers with scripts_list,
+  // not "saved", so the shell's own "saved" handler never cleared dirty.
+  var pendingSavedCode = null;
 
   function uiApi() {
     return window.waEditorUi || null;
@@ -177,6 +180,16 @@
   }
 
   function applyScriptsList(msg) {
+    var savedCode = pendingSavedCode;
+    pendingSavedCode = null;
+    if (savedCode !== null && !msg.status_error_text && window.editor) {
+      // Clear only when the buffer still matches what was saved; an edit
+      // typed while the save was in flight stays dirty.
+      var api = uiApi();
+      if (api && api.markDirty && window.editor.getValue() === savedCode) {
+        api.markDirty(false);
+      }
+    }
     if (msg.sections && msg.sections.length) {
       rebuildScriptIndex(msg.sections);
     } else if (msg.scripts) {
@@ -544,6 +557,7 @@
     currentOrigin = origin;
 
     if (window.pywebview && window.pywebview.api && window.pywebview.api.save_script) {
+      pendingSavedCode = code;
       window.pywebview.api.save_script(name, code, origin);
       setStatus(fmt("saving_script", name), "ok");
     }
@@ -690,6 +704,7 @@
           if (window.editor && window.pywebview && window.pywebview.api && window.pywebview.api.save_script) {
             var code = window.editor.getValue();
             var origin = scriptIndex[activeScript] ? scriptIndex[activeScript].origin : currentOrigin;
+            pendingSavedCode = code;
             window.pywebview.api.save_script(activeScript, code, origin);
             setStatus(fmt("saving_script", activeScript), "ok");
           }
