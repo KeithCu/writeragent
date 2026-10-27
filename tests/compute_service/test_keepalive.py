@@ -1248,6 +1248,88 @@ def test_accept_backoff_does_not_reap_readable_parked_socket() -> None:
         _stop_server(server, t)
 
 
+def test_idle_sweep_serves_readable_fd_above_select_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Idle sweep hands off a readable socket even when fd exceeds select limit."""
+    import os
+    import resource
+    import select
+    import selectors
+    from compute_service.http_server import ConnState
+
+    server, _port, t = _start_server(max_threads=1)
+    processed: list[Any] = []
+
+    def mock_process_request(request: Any, client_address: Any, *, established: bool = False) -> None:
+        processed.append(request)
+
+    server.process_request = mock_process_request  # type: ignore[assignment]
+
+    p_srv, p_peer = socket.socketpair()
+    dups: list[int] = []
+    high_sock: socket.socket | None = None
+    selector = selectors.DefaultSelector()
+
+    try:
+        p_srv.setblocking(False)
+        p_peer.setblocking(False)
+
+        soft_limit = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+        if soft_limit > 1024:
+            try:
+                while True:
+                    fd = os.dup(p_srv.fileno())
+                    if fd >= 1024:
+                        high_sock = socket.socket(fileno=fd)
+                        high_sock.setblocking(False)
+                        break
+                    dups.append(fd)
+            except OSError:
+                high_sock = None
+
+        if high_sock is not None:
+            p_srv.close()
+            target = high_sock
+            p_peer.sendall(b"x")
+            with pytest.raises(ValueError):
+                select.select([target], [], [], 0)
+        else:
+            def mock_select(*args: Any, **kwargs: Any) -> Any:
+                raise ValueError("filedescriptor out of range in select()")
+
+            monkeypatch.setattr(select, "select", mock_select)
+            target = p_srv
+            p_peer.sendall(b"x")
+
+        state = ConnState(
+            sock=target,
+            client_address=("127.0.0.1", 4444),
+            rfile=target.makefile("rb", -1),
+            disposition="park",
+            finished_at=time.monotonic() - cs_http._REQUEST_READ_TIMEOUT_SEC - 10.0,
+        )
+        server._conn_states[target] = state
+        server._parked[target] = state
+
+        selector.register(target, selectors.EVENT_READ, data=state)
+        server._park_service_loop(selector)
+
+        assert target in processed
+        assert target not in server._parked
+        assert state.close_reason != "idle"
+    finally:
+        selector.close()
+        for fd in dups:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if high_sock is not None:
+            high_sock.close()
+        p_srv.close()
+        p_peer.close()
+        _stop_server(server, t)
+
+
 def test_established_resubmit_skips_accept_cap() -> None:
     from unittest.mock import MagicMock
     from compute_service.http_server import ConnState
