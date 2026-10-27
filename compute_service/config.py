@@ -303,6 +303,9 @@ def clamp_timeout_sec(timeout: Any, *, is_ms: bool = False, default_timeout_sec:
 
 
 def _as_int(value: Any, *, field: str) -> int:
+    # JSON true/false is a bool, and bool is an int. int() also truncates.
+    if isinstance(value, bool) or (isinstance(value, float) and math.isfinite(value) and value != int(value)):
+        raise ConfigError(f"Invalid integer for {field}: {value!r}")
     try:
         return int(value)
     except (TypeError, ValueError, OverflowError) as exc:
