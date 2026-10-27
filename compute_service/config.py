@@ -531,8 +531,8 @@ def load_settings(
     for env_name, field_name in _ENV_FIELD_MAP:
         val = env.get(env_name)
         if val:
-            canon = _ENV_ALIAS_TO_CANONICAL.get(env_name)
-            if canon is not None and env.get(canon):
+            canonical = _ENV_ALIAS_TO_CANONICAL.get(env_name)
+            if canonical is not None and env.get(canonical):
                 continue
             values[field_name] = val
 
