@@ -667,6 +667,21 @@ class PersistentEditor:
         self.run_script_doc = doc
         self.run_script_doc_url = document_scripts_identity(doc) if doc is not None else None
 
+    def _on_ask_unsaved(self, msg: dict[str, Any]) -> None:
+        """Answer the picker's unsaved-edit question with the native Yes/No/Cancel box."""
+        target_session = self.resolve_incoming(msg)
+        name = str(msg.get("name") or "")
+
+        def _ask() -> None:
+            choice = confirm_unsaved_monaco_edit(self.ctx, name)
+            try:
+                self.send({"type": "unsaved_choice", "choice": choice}, session=target_session)
+            except Exception:
+                log.exception("Editor could not send unsaved_choice")
+
+        # post, not execute: the modal box waits on the user, not a timeout.
+        self.executor.post(_ask, bound_scope=None)
+
     def _on_picker(self, kind: str, msg: dict[str, Any]) -> None:
         target_session = self.resolve_incoming(msg)
         if session_id_of(msg) and target_session is None:
@@ -856,6 +871,9 @@ class PersistentEditor:
             kind = message_type(msg)
             if kind in SCRIPT_PICKER_MESSAGE_TYPES:
                 self._on_picker(kind, msg)
+                return
+            if kind == "ask_unsaved":
+                self._on_ask_unsaved(msg)
                 return
             if kind == "dirty":
                 self._on_dirty(msg)

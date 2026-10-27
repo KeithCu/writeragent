@@ -65,6 +65,7 @@ PARENT_TO_CHILD_TYPES = frozenset({
     "request_save",
     "theme",
     "scripts_list",
+    "unsaved_choice",
 })
 
 # Identity keys on every session message (omit empties).

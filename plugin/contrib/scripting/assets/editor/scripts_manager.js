@@ -27,6 +27,10 @@
   // Code sent by the last save_script. The host answers with scripts_list,
   // not "saved", so the shell's own "saved" handler never cleared dirty.
   var pendingSavedCode = null;
+  // Dropdown target held while the host asks Save / Don't save / Cancel,
+  // then while a Yes save is in flight.
+  var pendingSwitchName = null;
+  var switchAfterSave = false;
 
   function uiApi() {
     return window.waEditorUi || null;
@@ -182,6 +186,9 @@
   function applyScriptsList(msg) {
     var savedCode = pendingSavedCode;
     pendingSavedCode = null;
+    var switchTo = switchAfterSave ? pendingSwitchName : null;
+    switchAfterSave = false;
+    pendingSwitchName = null;
     if (savedCode !== null && !msg.status_error_text && window.editor) {
       // Clear only when the buffer still matches what was saved; an edit
       // typed while the save was in flight stays dirty.
@@ -225,6 +232,28 @@
     }
     if (msg.status_error_text) {
       setStatus(msg.status_error_text, "error");
+    }
+    // Yes in the unsaved prompt: switch only after the save succeeded.
+    if (switchTo !== null && savedCode !== null && !msg.status_error_text && select) {
+      select.value = switchTo;
+      switchToSelected();
+    }
+  }
+
+  function onUnsavedChoice(msg) {
+    var name = pendingSwitchName;
+    var select = getSelectEl();
+    if (name === null || !select) {
+      return;
+    }
+    if (msg.choice === "discard") {
+      pendingSwitchName = null;
+      select.value = name;
+      switchToSelected();
+    } else if (msg.choice === "save" && saveActiveScript(currentSelectedName)) {
+      switchAfterSave = true;
+    } else {
+      pendingSwitchName = null;
     }
   }
 
@@ -301,6 +330,8 @@
       }
     } else if (msg.type === "scripts_list") {
       applyScriptsList(msg);
+    } else if (msg.type === "unsaved_choice") {
+      onUnsavedChoice(msg);
     }
   }
 
@@ -391,12 +422,20 @@
     }
     var api = uiApi();
     if (api && api.isDirty && api.isDirty()) {
-      var prevName = currentSelectedName || t("this_script", "this script");
-      if (!confirm(fmt("unsaved_changes_confirm", prevName))) {
-        select.value = currentSelectedName;
-        return;
+      // The host answers with unsaved_choice (Save / Don't save / Cancel).
+      select.value = currentSelectedName;
+      if (pendingSwitchName === null && window.pywebview && window.pywebview.api && window.pywebview.api.ask_unsaved) {
+        pendingSwitchName = name;
+        window.pywebview.api.ask_unsaved(currentSelectedName || t("this_script", "this script"));
       }
+      return;
     }
+    switchToSelected();
+  }
+
+  function switchToSelected() {
+    var select = getSelectEl();
+    var name = select.value;
     currentSelectedName = name;
     var selectedOpt = select.options[select.selectedIndex];
     if (name && scriptIndex[name]) {
@@ -564,6 +603,26 @@
     closeScriptModal();
   }
 
+  // Save *activeScript* through save_script; the scripts_list reply clears dirty.
+  function saveActiveScript(activeScript) {
+    if (!activeScript) {
+      return false;
+    }
+    if (scriptIndex[activeScript] && isBuiltInHelperOrigin(scriptIndex[activeScript].origin)) {
+      setStatus(builtInHelperReadOnlyMessage(), "error");
+      return false;
+    }
+    if (window.editor && window.pywebview && window.pywebview.api && window.pywebview.api.save_script) {
+      var code = window.editor.getValue();
+      var origin = scriptIndex[activeScript] ? scriptIndex[activeScript].origin : currentOrigin;
+      pendingSavedCode = code;
+      window.pywebview.api.save_script(activeScript, code, origin);
+      setStatus(fmt("saving_script", activeScript), "ok");
+      return true;
+    }
+    return false;
+  }
+
   // WARNING: If you change Save As logic, also update _on_save_as in:
   // plugin/scripting/python_runner_ui.py
   function onSaveAs() {
@@ -697,17 +756,7 @@
         if (activeScript) {
           event.stopImmediatePropagation();
           event.preventDefault();
-          if (scriptIndex[activeScript] && isBuiltInHelperOrigin(scriptIndex[activeScript].origin)) {
-            setStatus(builtInHelperReadOnlyMessage(), "error");
-            return;
-          }
-          if (window.editor && window.pywebview && window.pywebview.api && window.pywebview.api.save_script) {
-            var code = window.editor.getValue();
-            var origin = scriptIndex[activeScript] ? scriptIndex[activeScript].origin : currentOrigin;
-            pendingSavedCode = code;
-            window.pywebview.api.save_script(activeScript, code, origin);
-            setStatus(fmt("saving_script", activeScript), "ok");
-          }
+          saveActiveScript(activeScript);
         }
       }, true);
     }

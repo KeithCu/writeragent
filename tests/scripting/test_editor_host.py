@@ -2081,6 +2081,22 @@ def test_picker_known_session_still_dispatches():
         pe.send.assert_called_once_with({"type": "scripts_list"}, session=live_state)
 
 
+def test_ask_unsaved_replies_with_native_choice():
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.post.side_effect = lambda fn, *args, **kwargs: fn()
+    pe.send = MagicMock()
+    live_state = launch_mod.EditorSessionState(session_id="sid-live", mode="run_script", target={})
+    pe.register_session(live_state)
+
+    with patch.object(launch_mod, "confirm_unsaved_monaco_edit", return_value="save") as confirm:
+        pe._dispatch_incoming({"type": "ask_unsaved", "name": "MyScript", "session_id": "sid-live"})
+    confirm.assert_called_once_with(pe.ctx, "MyScript")
+    pe.executor.execute.assert_not_called()
+    pe.send.assert_called_once_with({"type": "unsaved_choice", "choice": "save"}, session=live_state)
+
+
 def test_error_frame():
     from plugin.scripting.editor_host import error_frame
 

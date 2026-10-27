@@ -118,7 +118,6 @@ def _run_script_ui_strings() -> dict[str, str]:
             ),
             "copy_overwrite_confirm": _("A script named '{0}' already exists in My Scripts. Overwrite?"),
             "delete_confirm": _("Are you sure you want to delete script '{0}'?"),
-            "unsaved_changes_confirm": _("Discard unsaved changes to '{0}'?"),
             "this_script": _("this script"),
             "data_binding_title": _("Select data range or enter A1 address (injected as data)."),
         }
