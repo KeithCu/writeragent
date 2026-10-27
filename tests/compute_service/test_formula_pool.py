@@ -1011,19 +1011,6 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_lost_sessions_cap_drops_oldest(self) -> None:
-        """The lost set keeps the newest ids and drops the oldest past the cap."""
-        pool = FormulaProcessPool(num_workers=0, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
-        try:
-            pool._max_lost_sessions = 1
-            with pool._cond:
-                pool._mark_session_lost_unlocked("workbook-1")
-                pool._mark_session_lost_unlocked("workbook-2")
-                assert "workbook-1" not in pool._lost_sessions
-                assert "workbook-2" in pool._lost_sessions
-        finally:
-            pool.shutdown()
-
     def test_three_hundred_shared_sessions_do_not_fail_or_evict(self) -> None:
         """Active shared sessions are uncapped; 300 sessions neither fail nor evict."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
@@ -1876,16 +1863,44 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
-    def test_lost_sessions_is_capped(self) -> None:
-        """_lost_sessions is bounded and prunes oldest entries."""
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    def test_reaper_expires_old_lost_markers_and_keeps_fresh(self) -> None:
+        """The reaper pass drops markers older than the session TTL and keeps fresh ones."""
+        pool = FormulaProcessPool(num_workers=0, shared_kernel_ttl_sec=60, idle_worker_ttl_sec=0)
         try:
+            with pool._cond:
+                pool._lost_sessions["old"] = time.monotonic() - 120
+                pool._lost_sessions["fresh"] = time.monotonic()
+            pool._evict_idle_workers()
+            with pool._cond:
+                assert "old" not in pool._lost_sessions
+                assert "fresh" in pool._lost_sessions
+        finally:
+            pool.shutdown()
+
+    def test_lost_sessions_not_capped(self) -> None:
+        """More than 1000 fresh markers all stay until their TTL."""
+        pool = FormulaProcessPool(num_workers=0, shared_kernel_ttl_sec=3600, idle_worker_ttl_sec=0)
+        try:
+            assert not hasattr(pool, "_max_lost_sessions")
             with pool._cond:
                 for i in range(1200):
                     pool._mark_session_lost_unlocked(f"lost-{i}")
-                assert len(pool._lost_sessions) == 1000
-                assert "lost-0" not in pool._lost_sessions
-                assert "lost-1199" in pool._lost_sessions
+            pool._evict_idle_workers()
+            with pool._cond:
+                assert len(pool._lost_sessions) == 1200
+                assert "lost-0" in pool._lost_sessions
+        finally:
+            pool.shutdown()
+
+    def test_lost_markers_kept_when_session_ttl_zero(self) -> None:
+        """TTL 0 never expires sessions, so the reaper pass keeps their markers too."""
+        pool = FormulaProcessPool(num_workers=0, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
+        try:
+            with pool._cond:
+                pool._lost_sessions["ancient"] = time.monotonic() - 10**6
+            pool._evict_idle_workers()
+            with pool._cond:
+                assert "ancient" in pool._lost_sessions
         finally:
             pool.shutdown()
 
