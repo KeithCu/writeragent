@@ -610,5 +610,5 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
                 except Exception:
                     pass
             peer = state.client_address[0] if isinstance(state.client_address, tuple) and state.client_address else str(state.client_address)
-            log.info("Closed connection from %s after %d request(s) (reason=%s)", peer, state.request_count, state.close_reason)
+            log.debug("Closed connection from %s after %d request(s) (reason=%s)", peer, state.request_count, state.close_reason)
         super().shutdown_request(request)

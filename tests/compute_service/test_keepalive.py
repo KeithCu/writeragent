@@ -619,7 +619,7 @@ def test_connection_close_log_message(caplog: pytest.LogCaptureFixture) -> None:
     server, port, t = _start_server(max_threads=2)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        with caplog.at_level(logging.INFO, logger="compute_service"):
+        with caplog.at_level(logging.DEBUG, logger="compute_service"):
             sock.connect(("127.0.0.1", port))
             reader = ConnectionReader(sock)
 
