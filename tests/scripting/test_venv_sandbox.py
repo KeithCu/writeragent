@@ -839,6 +839,7 @@ def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPa
     err_frame = read_pickle_frame(stdout, require_dict=True)
     assert err_frame is not None
     assert err_frame["status"] == "error"
+    assert err_frame["exiting"] is True
 
 
 def test_sandbox_policy_socket_default_errors():

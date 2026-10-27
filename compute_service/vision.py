@@ -13,7 +13,6 @@ ML dependencies (PyTorch, ONNX) and large memory buffers.
 
 from __future__ import annotations
 
-import base64
 import logging
 import os
 import sys
@@ -38,24 +37,6 @@ _FILE_READ_MAX_BYTES = MAX_BODY_BYTES
 _WORKER_SCRIPT = os.path.abspath(__file__)
 
 
-def _decode_image_b64(image_input: str) -> bytes:
-    """Decode a base64 image, including whitespace and a ``data:`` URL prefix.
-
-    ``validate=True`` rejects whitespace, so it is stripped after the prefix.
-    URL-safe producers use ``-`` and ``_`` and often omit padding. ``altchars``
-    accepts that alphabet; padding is restored before the alphabet check.
-    A character in neither alphabet still fails.
-    """
-    text = image_input.strip()
-    if text.lower().startswith("data:") and "," in text:
-        text = text.split(",", 1)[1]
-    text = "".join(text.split())
-    pad = (-len(text)) % 4
-    if pad:
-        text += "=" * pad
-    return base64.b64decode(text, altchars=b"-_", validate=True)
-
-
 class VisionProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for Vision/OCR."""
 
@@ -74,9 +55,8 @@ class VisionProcessPool(BaseProcessPool):
     def execute(
         self,
         helper: str,
-        # bytes: for direct programmatic calls; HTTP passes str or bytes
-        image: str | bytes | bytearray | None = None,
-        image_b64: str | bytes | bytearray | None = None,
+        # Raw image bytes. HTTP passes the multipart image part as is.
+        image: bytes | bytearray | None = None,
         file_path: str | None = None,
         params: dict[str, Any] | None = None,
         timeout_sec: int | None = None,
@@ -92,21 +72,11 @@ class VisionProcessPool(BaseProcessPool):
         if not self.is_enabled():
             return error_dict("VISION_SERVICE_DISABLED", "Vision / OCR service is not enabled on this instance (ocr_workers=0).", req_id=req_id)
 
+        assert image is None or isinstance(image, (bytes, bytearray))
+
         # Only None means "use the default". Zero is an explicit timeout.
         eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
-        image_input = image if image is not None else image_b64
-        image_bytes = None
-        if image_input is not None:
-            if isinstance(image_input, (bytes, bytearray)):
-                image_bytes = bytes(image_input)
-            elif isinstance(image_input, str):
-                try:
-                    image_bytes = _decode_image_b64(image_input)
-                except Exception as exc:
-                    return error_dict("INVALID_BASE64", f"Base64 decode failed: {exc}", req_id=req_id)
-            else:
-                return error_dict("INVALID_IMAGE", "image must be base64 string or raw bytes", req_id=req_id)
-
+        image_bytes = None if image is None else bytes(image)
         prefixes = () if allow_paths is None else tuple(str(p) for p in allow_paths)
         payload = {"id": req_id, "helper": helper, "image_bytes": image_bytes, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
 

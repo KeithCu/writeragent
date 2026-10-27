@@ -32,6 +32,7 @@ class _Slot:
         self.tasks_executed = 0
         self.worker_id = 1
         self.killed = 0
+        self.pending_exit = False
         self._on_kill = lambda: None
 
     def is_alive(self) -> bool:
@@ -85,6 +86,7 @@ class _RetiringSlot:
         self._alive = True
         self.killed = 0
         self.respawned = 0
+        self.pending_exit = False
         self.process = None
 
     def is_alive(self) -> bool:
@@ -99,6 +101,19 @@ class _RetiringSlot:
         self.respawned += 1
         self._alive = True
         self.tasks_executed = 0
+
+
+def test_pending_exit_kills_and_does_not_idle() -> None:
+    pool = BaseProcessPool(script_path="unused.py", num_workers=0, max_tasks=500, idle_worker_ttl_sec=None)
+    worker = _Slot()
+    worker.pending_exit = True
+    pool.workers.append(worker)  # type: ignore[arg-type]
+    pool._leased.add(worker)  # type: ignore[arg-type]
+    pool.release_worker(worker)  # type: ignore[arg-type]
+    assert worker.killed == 1
+    assert worker not in pool._idle
+    assert worker not in pool._leased
+    assert worker.pending_exit is False
 
 
 def test_max_tasks_release_leaves_slot_dead() -> None:
@@ -131,6 +146,7 @@ def test_recycle_kill_exception_drops_lease(caplog: pytest.LogCaptureFixture) ->
         def __init__(self) -> None:
             self.tasks_executed = 1
             self.worker_id = 7
+            self.pending_exit = False
 
         def is_alive(self) -> bool:
             return True
@@ -481,6 +497,7 @@ def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
     class Exploit:
         def __reduce__(self):
             import os
+
             return (os.system, ("echo pwned",))
 
     dangerous = pickle.dumps(Exploit(), protocol=5)
@@ -491,6 +508,7 @@ def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
     class NumpyExploit:
         def __reduce__(self):
             import numpy as np
+
             return (np.zeros, (5,))
 
     np_dangerous = pickle.dumps(NumpyExploit(), protocol=5)
@@ -532,6 +550,7 @@ def test_run_worker_stdio_loop_breaks_on_decode_error(monkeypatch: pytest.Monkey
     corrupt_frame = struct.pack("!I", len(corrupt_body)) + corrupt_body
 
     import types
+
     fake_stdin = io.BytesIO(corrupt_frame)
     fake_stdout = io.BytesIO()
 
@@ -2904,6 +2923,7 @@ def test_release_does_not_idle_a_dead_worker() -> None:
         def __init__(self) -> None:
             self.tasks_executed = 0
             self.worker_id = 3
+            self.pending_exit = False
 
         def is_alive(self) -> bool:
             return False

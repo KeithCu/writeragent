@@ -19,15 +19,8 @@ import pytest
 
 from compute_service.config import ComputeSettings, read_allowlisted_file
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
-from compute_service.vision import (
-    VisionProcessPool,
-    _FILE_READ_MAX_BYTES,
-    _handle_request,
-    _read_allowed_image,
-    get_vision_pool,
-    shutdown_vision_pool,
-)
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+from compute_service.vision import VisionProcessPool, _FILE_READ_MAX_BYTES, _handle_request, _read_allowed_image, get_vision_pool, shutdown_vision_pool
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, encode_multipart_vision
 
 
 from tests.compute_service.conftest import get_free_port
@@ -135,6 +128,7 @@ class TestVisionPoolSupervisor:
         val, err = read_allowlisted_file(fifo_path, allow_prefixes=(str(tmp_path),), max_bytes=100)
         assert err is not None
         assert err["code"] == "NOT_A_FILE"
+
     def test_default_pool_uses_config_defaults(self) -> None:
         pool = VisionProcessPool()
         try:
@@ -171,19 +165,6 @@ class TestVisionPoolSupervisor:
         assert p2 is not p1
         shutdown_vision_pool()
 
-    def test_pool_rejects_malformed_base64(self) -> None:
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
-        try:
-            res = pool.execute(helper="extract_text", image_b64="!!!not_valid_b64!!!", req_id="bad-b64")
-            assert res.get("id") == "bad-b64"
-            assert res.get("status") == "error"
-            assert res.get("code") == "INVALID_BASE64"
-            assert "Base64 decode failed" in res.get("error", "")
-            # Worker was not leased, so tasks_executed remains 0
-            assert pool.workers[0].tasks_executed == 0
-        finally:
-            pool.shutdown()
-
     def test_zero_timeout_is_pool_busy(self) -> None:
         """timeout_sec=0 expires immediately. It used to become the OCR default."""
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=30)
@@ -200,7 +181,7 @@ class TestVisionPoolSupervisor:
             assert pool.is_enabled()
             assert len(pool.workers) == 1
             # Execute simple text extraction helper on tiny PNG
-            res = pool.execute(helper="extract_text", image_b64=_TINY_PNG_B64, req_id="v-1")
+            res = pool.execute(helper="extract_text", image=base64.b64decode(_TINY_PNG_B64), req_id="v-1")
             assert res.get("id") == "v-1"
             assert "status" in res
         finally:
@@ -210,7 +191,7 @@ class TestVisionPoolSupervisor:
     def test_pool_disabled(self) -> None:
         pool = VisionProcessPool(num_workers=0)
         assert not pool.is_enabled()
-        res = pool.execute(helper="extract_text", image_b64=_TINY_PNG_B64, req_id="v-disabled")
+        res = pool.execute(helper="extract_text", image=base64.b64decode(_TINY_PNG_B64), req_id="v-disabled")
         assert res.get("status") == "error"
         assert res.get("code") == "VISION_SERVICE_DISABLED"
 
@@ -259,7 +240,7 @@ class TestVisionPoolSupervisor:
         result: list[dict] = []
 
         def _run() -> None:
-            result.append(pool.execute(helper="extract_text", image_b64=_TINY_PNG_B64, req_id="v-wait", timeout_sec=15))
+            result.append(pool.execute(helper="extract_text", image=base64.b64decode(_TINY_PNG_B64), req_id="v-wait", timeout_sec=15))
 
         waiter = threading.Thread(target=_run)
         waiter.start()
@@ -423,7 +404,7 @@ class TestVisionPoolSupervisor:
             assert not worker.is_alive()
 
             # Next request should automatically spawn a fresh worker and succeed
-            res = pool.execute(helper="extract_text", image_b64=_TINY_PNG_B64, req_id="v-recovery")
+            res = pool.execute(helper="extract_text", image=base64.b64decode(_TINY_PNG_B64), req_id="v-recovery")
             assert "status" in res
             assert worker.is_alive()
         finally:
@@ -453,11 +434,11 @@ class TestVisionHttpEndpoint:
         thread.join(timeout=3)
         shutdown_vision_pool()
 
-    def _post(self, url: str, payload: dict, headers: dict | None = None) -> tuple[int, dict]:
-        req_headers = {"Content-Type": "application/json"}
+    def _post(self, url: str, meta: dict, image: bytes | None = None, headers: dict | None = None) -> tuple[int, dict]:
+        content_type, data = encode_multipart_vision(meta, image)
+        req_headers = {"Content-Type": content_type}
         if headers:
             req_headers.update(headers)
-        data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(f"{url}/v1/vision", data=data, headers=req_headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=30.0) as resp:
@@ -468,16 +449,12 @@ class TestVisionHttpEndpoint:
             return e.code, body
 
     def test_vision_auth_required(self, vision_server: str) -> None:
-        status, body = self._post(vision_server, {"image_b64": _TINY_PNG_B64})
+        status, body = self._post(vision_server, {"id": "auth-test"}, image=base64.b64decode(_TINY_PNG_B64))
         assert status == 401
         assert body["status"] == "error"
 
     def test_vision_success_b64(self, vision_server: str) -> None:
-        status, body = self._post(
-            vision_server,
-            {"id": "test-ocr-1", "helper": "extract_text", "image_b64": _TINY_PNG_B64},
-            headers={"Authorization": "Bearer vision-secret"},
-        )
+        status, body = self._post(vision_server, {"id": "test-ocr-1", "helper": "extract_text"}, image=base64.b64decode(_TINY_PNG_B64), headers={"Authorization": "Bearer vision-secret"})
         assert status == 200
         assert body.get("id") == "test-ocr-1"
         assert "status" in body
@@ -552,11 +529,7 @@ class TestVisionHttpEndpoint:
         time.sleep(0.15)
         try:
             url = f"http://127.0.0.1:{port}"
-            status, body = self._post(
-                url,
-                {"id": "test-zero-workers", "helper": "extract_text", "image_b64": _TINY_PNG_B64},
-                headers={"Authorization": "Bearer vision-secret"},
-            )
+            status, body = self._post(url, {"id": "test-zero-workers", "helper": "extract_text"}, image=base64.b64decode(_TINY_PNG_B64), headers={"Authorization": "Bearer vision-secret"})
             assert status == 501
             assert body.get("id") == "test-zero-workers"
             assert body.get("status") == "error"
@@ -662,41 +635,13 @@ def test_vision_pool_execute_accepts_bytearray() -> None:
             pool._idle = OrderedDict([(mock_worker, time.monotonic())])
 
         data = bytearray(b"dummy image bytes")
-        res = pool.execute(helper="test", image_b64=data, req_id="bytearray-test")
+        res = pool.execute(helper="test", image=data, req_id="bytearray-test")
         assert res.get("status") == "ok"
         assert payload_received is not None
         assert payload_received["image_bytes"] == b"dummy image bytes"
         assert isinstance(payload_received["image_bytes"], bytes)
     finally:
         pool.shutdown()
-
-
-def test_decode_image_b64_strips_whitespace_and_data_url() -> None:
-    from compute_service.vision import _decode_image_b64
-
-    raw = base64.b64encode(b"hi").decode("ascii")
-    wrapped = "data:image/png;base64," + raw[:4] + "\n" + raw[4:]
-    assert _decode_image_b64(wrapped) == b"hi"
-
-
-def test_decode_image_b64_accepts_urlsafe_and_missing_padding() -> None:
-    """URL-safe alphabets and omitted padding are real encoder output.
-
-    validate=True used to reject both and return INVALID_BASE64 for a valid image.
-    """
-    import binascii
-    from compute_service.vision import _decode_image_b64
-
-    raw = bytes(range(256))
-    standard = base64.b64encode(raw).decode("ascii")
-    url = base64.urlsafe_b64encode(raw).decode("ascii")
-    assert url != standard
-    assert _decode_image_b64(url) == raw
-    assert _decode_image_b64(url.rstrip("=")) == raw
-    assert _decode_image_b64(standard.rstrip("=")) == raw
-    assert _decode_image_b64("data:image/jpeg;base64," + url) == raw
-    with pytest.raises(binascii.Error):
-        _decode_image_b64(url[:4] + "*" + url[5:])
 
 
 def test_vision_expired_deadline_does_not_execute() -> None:
@@ -709,7 +654,7 @@ def test_vision_expired_deadline_does_not_execute() -> None:
         mock_worker.execute.return_value = {"status": "ok"}
         with pool._cond:
             pool._idle = OrderedDict([(mock_worker, time.monotonic())])
-        res = pool.execute(helper="test", image_b64=_TINY_PNG_B64, deadline=time.monotonic() - 1)
+        res = pool.execute(helper="test", image=base64.b64decode(_TINY_PNG_B64), deadline=time.monotonic() - 1)
         assert res.get("code") == "VISION_POOL_BUSY"
         mock_worker.execute.assert_not_called()
     finally:

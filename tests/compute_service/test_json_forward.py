@@ -20,9 +20,11 @@ from compute_service.json_forward import (
     dumps_response,
     MAX_META_BYTES,
     encode_multipart_execute,
+    encode_multipart_vision,
     is_multipart_content_type,
     parse_execute_request,
     parse_multipart_execute,
+    parse_multipart_vision,
     peel_execute_request,
     validate_session_id,
 )
@@ -76,13 +78,7 @@ def _manual_multipart(
     chunks: list[bytes] = []
     for name, payload in parts:
         cte_line = f"Content-Transfer-Encoding: {cte}{line}" if cte else ""
-        head = (
-            f"--{boundary}{line}"
-            f'Content-Disposition: form-data; name="{name}"{line}'
-            f"{extra_header}"
-            f"{cte_line}"
-            f"{line}"
-        )
+        head = f'--{boundary}{line}Content-Disposition: form-data; name="{name}"{line}{extra_header}{cte_line}{line}'
         chunks.append(head.encode("ascii") + payload + nl)
     chunks.append(f"--{boundary}--{line}".encode("ascii"))
     ctype = content_type or f"multipart/form-data; boundary={boundary}"
@@ -983,3 +979,82 @@ def test_validate_session_id() -> None:
             validate_session_id(reserved)
         assert exc_info.value.code == "INVALID_SESSION_ID"
 
+
+def test_parse_multipart_vision_roundtrip() -> None:
+    meta = {"id": "v", "helper": "extract_text", "timeout_ms": 1500, "params": {"k": "val"}}
+    raw_img = b"\xff" * 32
+    ct, body = encode_multipart_vision(meta, raw_img)
+    parts = parse_multipart_vision(body, ct)
+    assert parts.req_id == "v"
+    assert parts.helper == "extract_text"
+    assert parts.timeout_ms == 1500
+    assert parts.params == {"k": "val"}
+    assert parts.file_path is None
+    assert parts.image == raw_img
+
+
+def test_parse_multipart_vision_forbidden_meta_keys() -> None:
+    for key in ("image", "image_b64"):
+        ct, body = encode_multipart_vision({"id": "v", key: "bad"})
+        with pytest.raises(ExecuteRequestError, match=f"meta part must not include a {key!r} field"):
+            parse_multipart_vision(body, ct)
+
+
+def test_parse_multipart_vision_rejects_base64_cte() -> None:
+    boundary = "wa-test-bound"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="meta"\r\n'
+        "Content-Type: application/json\r\n\r\n"
+        '{"id": "v"}\r\n'
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="image"\r\n'
+        "Content-Type: application/octet-stream\r\n"
+        "Content-Transfer-Encoding: base64\r\n\r\n"
+        "AAAA\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("ascii")
+    ct = f"multipart/form-data; boundary={boundary}"
+    with pytest.raises(ExecuteRequestError, match="unsupported content-transfer-encoding"):
+        parse_multipart_vision(body, ct)
+
+
+def test_parse_multipart_vision_rejects_oversized_meta() -> None:
+    huge_meta = {"id": "v", "padding": "x" * (MAX_META_BYTES + 10)}
+    ct, body = encode_multipart_vision(huge_meta)
+    with pytest.raises(ExecuteRequestError, match="meta part exceeds size cap"):
+        parse_multipart_vision(body, ct)
+
+
+def test_parse_multipart_vision_part_errors() -> None:
+    boundary = "wa-test-bound"
+    ct = f"multipart/form-data; boundary={boundary}"
+
+    # Missing meta
+    no_meta = (f'--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nbytes\r\n--{boundary}--\r\n').encode("ascii")
+    with pytest.raises(ExecuteRequestError, match="missing meta part"):
+        parse_multipart_vision(no_meta, ct)
+
+    # Duplicate image part
+    dup_image = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="meta"\r\n'
+        "Content-Type: application/json\r\n\r\n"
+        '{"id": "v"}\r\n'
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="image"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+        "bytes1\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="image"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+        "bytes2\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("ascii")
+    with pytest.raises(ExecuteRequestError, match="duplicate multipart part 'image'"):
+        parse_multipart_vision(dup_image, ct)
+
+    # Unknown part name
+    unknown_part = (f'--{boundary}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n{{"id": "v"}}\r\n--{boundary}\r\nContent-Disposition: form-data; name="unknown_part"\r\nContent-Type: text/plain\r\n\r\nsomething\r\n--{boundary}--\r\n').encode("ascii")
+    with pytest.raises(ExecuteRequestError, match="unknown multipart part 'unknown_part'"):
+        parse_multipart_vision(unknown_part, ct)

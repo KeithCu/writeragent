@@ -339,6 +339,7 @@ class BaseProcessWorker:
     tasks_executed: int
     child: Child | None
     _shutting_down: bool
+    pending_exit: bool
     _child_env: dict[str, str] | None
     _ready_timeout_sec: float
     _unpacker: Callable[[bytes], Any] | None
@@ -373,6 +374,7 @@ class BaseProcessWorker:
         # while it reads the flag, and adopt holds this lock, so the read
         # stays unlocked.
         self._shutting_down = False
+        self.pending_exit = False
         # start=True spawns in __init__.
         if start:
             self.respawn()
@@ -561,6 +563,7 @@ class BaseProcessWorker:
                     ready_data.get("status"),
                 )
                 self.tasks_executed = 0
+                self.pending_exit = False
             except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
                 # No-byte hang is TimeoutExpired. A deadline after the first
                 # handshake byte is IpcPartialFrameTimeout (a ConnectionError).
@@ -891,6 +894,9 @@ class BaseProcessWorker:
                     # like a crash. _fail_request maps that to SERVICE_SHUTDOWN
                     # when the slot is stopping. The child is already being reaped.
                     return self._fail_request("EMPTY_RESPONSE", f"No response returned from {self.worker_name}.", pid=pid)
+                if resp.get("exiting") is True:
+                    self.pending_exit = True
+                    resp.pop("exiting", None)
                 self.tasks_executed += 1
                 return resp
             finally:

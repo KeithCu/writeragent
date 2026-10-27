@@ -31,10 +31,12 @@ from compute_service.json_forward import (
     WIRE_JSON_FORWARD,
     ExecuteRequestError,
     ExecuteRequestParts,
+    VisionRequestParts,
     _reject_nonfinite_number,
     canonical_execute_mode,
     is_multipart_content_type,
     parse_execute_request,
+    parse_multipart_vision,
     validate_session_id,
 )
 from plugin.vision.vision_common import IMPLEMENTED_HELPERS
@@ -51,7 +53,7 @@ def setup_logging(level_name: str = "INFO") -> None:
 
 def check_dependencies(pool: Any) -> None:
     """Verify required dependencies are importable in worker; exit if missing."""
-    ok, err = pool.check_dependencies(["numpy", "sympy"])
+    ok, err = pool.check_dependencies(["numpy", "sympy", "pandas"])
     if not ok:
         print(err or "Error: Required dependencies are not installed in the worker Python environment.\nPlease start the server using './compute_service/start.sh' or activate the correct virtual environment.", file=sys.stderr)
         from compute_service.formula_pool import shutdown_formula_pool
@@ -90,8 +92,6 @@ _HTTP_STATUS_BY_CODE = {
     "EMPTY_RESPONSE": "500 Internal Server Error",
     "WORKER_EXECUTION_ERROR": "500 Internal Server Error",
     "VISION_WORKER_ERROR": "500 Internal Server Error",
-    "INVALID_BASE64": "400 Bad Request",
-    "INVALID_IMAGE": "400 Bad Request",
     "MISSING_IMAGE_SOURCE": "400 Bad Request",
     "FILE_PATH_DENIED": "400 Bad Request",
     "INVALID_FILE_PATH": "400 Bad Request",
@@ -536,10 +536,34 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
     return None
 
 
+# Fixed in code on purpose, not a setting: one warning per client IP and reason per interval.
+_AUTH_WARN_INTERVAL_SEC = 60.0
+_auth_warn_lock = threading.Lock()
+_auth_warn_history: dict[tuple[str, str], float] = {}
+
+
+def _log_auth_warning(remote_addr: str, reason: str) -> None:
+    now = time.monotonic()
+    should_warn = False
+    with _auth_warn_lock:
+        cutoff = now - _AUTH_WARN_INTERVAL_SEC
+        expired = [k for k, t in _auth_warn_history.items() if t < cutoff]
+        for k in expired:
+            _auth_warn_history.pop(k, None)
+        last_t = _auth_warn_history.get((remote_addr, reason))
+        if last_t is None or (now - last_t) >= _AUTH_WARN_INTERVAL_SEC:
+            _auth_warn_history[(remote_addr, reason)] = now
+            should_warn = True
+    if should_warn:
+        log.warning("Authentication failed: remote_addr=%s reason=%s", remote_addr, reason)
+
+
 def _authenticate_or_401(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> list[bytes] | None:
     """Authenticate request; return 401 response on failure or None on success."""
     _principal, auth_err = authenticate_request(environ, settings)
     if auth_err is not None:
+        remote_addr = str(environ.get("REMOTE_ADDR") or "")
+        _log_auth_warning(remote_addr, auth_err)
         _drain_body_before_error(environ)
         return _error(start_response, "401 Unauthorized", "Unauthorized", extra_headers=[("WWW-Authenticate", "Bearer")])
     return _check_keyless_cors(environ, settings, start_response)
@@ -692,7 +716,7 @@ def _run_with_logging_and_deadline(start_response: Any, label: str, req_id: Any,
     """
     if time.monotonic() >= deadline:
         return _error(start_response, "503 Service Unavailable", "Request deadline expired before execution.", code="QUEUE_TIMEOUT", req_id=req_id, extra_headers=[("Retry-After", "1")])
-    log.info("%s", start_msg)
+    log.debug("%s", start_msg)
     start_t = time.perf_counter()
     try:
         return action(start_t)
@@ -716,6 +740,21 @@ def _load_execute_request(environ: dict[str, Any], settings: ComputeSettings, st
         parts = parse_execute_request(raw_body, content_type)
     except ExecuteRequestError:
         err = "Invalid multipart execute body" if is_multipart_content_type(content_type) else "Invalid JSON"
+        return None, None, None, _error(start_response, "400 Bad Request", err)
+    return parts.req_id, parts.timeout_ms, parts, None
+
+
+def _load_vision_request(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[Any, Any, Any, list[bytes] | None]:
+    """Read and boundary-scan a vision multipart body."""
+    raw_body, err_resp = _read_request_body(environ, settings, start_response)
+    if err_resp is not None:
+        return None, None, None, err_resp
+    assert raw_body is not None
+    content_type = environ.get("CONTENT_TYPE") or ""
+    try:
+        parts = parse_multipart_vision(raw_body, content_type)
+    except ExecuteRequestError:
+        err = "Invalid multipart vision body" if is_multipart_content_type(content_type) else "Invalid vision body"
         return None, None, None, _error(start_response, "400 Bad Request", err)
     return parts.req_id, parts.timeout_ms, parts, None
 
@@ -811,34 +850,33 @@ def _handle_session_reset(environ: dict[str, Any], start_response: Any, settings
 
 
 def _handle_vision(environ: dict[str, Any], start_response: Any, settings: ComputeSettings, admission: _Admission) -> list[bytes]:
-    req_data = admission.parsed
-    assert isinstance(req_data, dict)
+    parts = admission.parsed
+    assert isinstance(parts, VisionRequestParts)
 
-    req_id = req_data.get("id")
-    raw_helper = req_data.get("helper")
+    req_id = parts.req_id
+    raw_helper = parts.helper
     # Missing or empty, including numeric 0, selects the default helper.
     helper = str(raw_helper).strip() if raw_helper else ""
     if not helper:
         helper = "extract_text"
     elif helper not in IMPLEMENTED_HELPERS:
         return _error(start_response, "400 Bad Request", f"Unknown vision helper: {helper!r}.", code="INVALID_REQUEST", req_id=req_id)
-    # Missing or empty image_b64, including numeric 0, falls through to image.
-    image_input = req_data.get("image_b64") or req_data.get("image")
-    file_path = req_data.get("file_path")
 
-    image_str = image_input if isinstance(image_input, (str, bytes, bytearray)) and image_input else None
+    # An empty image part counts as missing.
+    image_bytes = parts.image or None
+    file_path = parts.file_path
     path_str = file_path if isinstance(file_path, str) and file_path.strip() else None
 
-    if image_str and path_str:
-        return _error(start_response, "400 Bad Request", "Provide image_b64 or file_path, not both.", code="INVALID_REQUEST", req_id=req_id)
+    if image_bytes and path_str:
+        return _error(start_response, "400 Bad Request", "Provide image or file_path, not both.", code="INVALID_REQUEST", req_id=req_id)
 
-    if not image_str and not path_str:
-        return _error(start_response, "400 Bad Request", "Missing image input: either 'image_b64'/'image' (base64 string buffer) or 'file_path' (server path) is required.", code="MISSING_IMAGE_SOURCE", req_id=req_id)
+    if not image_bytes and not path_str:
+        return _error(start_response, "400 Bad Request", "Missing image input: either 'image' (raw binary part) or 'file_path' (server path) is required.", code="MISSING_IMAGE_SOURCE", req_id=req_id)
 
     if path_str and not ocr_path_is_allowed(path_str, settings.ocr_allow_paths):
         return _error(start_response, "400 Bad Request", "file_path is not under ocr.allow_paths (default deny).", code="FILE_PATH_DENIED", req_id=req_id)
 
-    raw_params = req_data.get("params")
+    raw_params = parts.params
     if raw_params is None:
         params: dict[str, Any] = {}
     elif isinstance(raw_params, dict):
@@ -882,7 +920,7 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
     vision_pool = get_vision_pool(settings)
 
     def _vision(start_t: float) -> list[bytes]:
-        result_payload = vision_pool.execute(helper=helper, image=image_str, file_path=path_str, params=params, timeout_sec=int(vision_budget), req_id=req_id, allow_paths=settings.ocr_allow_paths, deadline=vision_deadline)
+        result_payload = vision_pool.execute(helper=helper, image=image_bytes, file_path=path_str, params=params, timeout_sec=int(vision_budget), req_id=req_id, allow_paths=settings.ocr_allow_paths, deadline=vision_deadline)
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         status = _payload_status(result_payload)
         log.info("done /v1/vision id=%r status=%r duration=%.2fms", req_id, status, duration_ms)
@@ -982,7 +1020,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 busy_code="VISION_POOL_BUSY",
                 busy_message="All vision workers are currently busy.",
                 route_fn=lambda start, admission: _handle_vision(environ, start, settings, admission),
-                prepare=lambda start: _admit_body(environ, settings, start, default_timeout_sec=settings.ocr_timeout_sec, load=_read_request_json),
+                prepare=lambda start: _admit_body(environ, settings, start, default_timeout_sec=settings.ocr_timeout_sec, load=_load_vision_request),
             )
 
         allow = _ROUTE_ALLOW.get(path)

@@ -210,25 +210,41 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
             req_id = req.get("id") if isinstance(req, dict) else None
             res = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": f"Unhandled error: {exc}"}
 
-        try:
-            write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
-        except IpcFrameError as exc:
-            req_id = req.get("id") if isinstance(req, dict) else None
-            err_frame = {"id": req_id, "status": "error", "code": "RESULT_TOO_LARGE", "error": f"Result exceeds maximum payload size: {exc}"}
-            try:
-                write_pickle_frame(stdout_bin, err_frame, max_payload_bytes=max_payload_bytes)
-            except Exception:
-                break
-        except Exception:
-            break
-
+        # Bugfix: when abandoned_timeout was set, the frame used to be a normal
+        # error dict, _finish_release saw is_alive(), and the next lease got
+        # WORKER_PIPE_BROKEN or WORKER_CRASHED. The "exiting" key tells the host
+        # to recycle the slot; os._exit(1) runs only after the frame is written.
+        should_exit = False
         try:
             import plugin.contrib.smolagents.local_python_executor as _lpe
 
             if getattr(_lpe, "abandoned_timeout", False):
                 _lpe.abandoned_timeout = False
-                os._exit(1)
+                should_exit = True
         except ImportError:
             pass
+
+        if should_exit:
+            res["exiting"] = True
+
+        wrote = False
+        try:
+            write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
+            wrote = True
+        except IpcFrameError as exc:
+            req_id = req.get("id") if isinstance(req, dict) else None
+            err_frame = {"id": req_id, "status": "error", "code": "RESULT_TOO_LARGE", "error": f"Result exceeds maximum payload size: {exc}"}
+            if should_exit:
+                err_frame["exiting"] = True
+            try:
+                write_pickle_frame(stdout_bin, err_frame, max_payload_bytes=max_payload_bytes)
+                wrote = True
+            except Exception:
+                break
+        except Exception:
+            break
+
+        if should_exit and wrote:
+            os._exit(1)
 
     return 0

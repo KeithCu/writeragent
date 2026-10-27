@@ -79,7 +79,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     action = req.get("action")
 
     if action == "check_dependencies":
-        packages = req.get("packages") or ["numpy", "sympy"]
+        packages = req.get("packages") or ["numpy", "sympy", "pandas"]
         missing: list[str] = []
         for pkg in packages:
             try:

@@ -17,6 +17,7 @@ Secrets come from ``PYTHON_COMPUTE_API_KEY`` or a key file — never from argv.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import stat
@@ -24,6 +25,11 @@ import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Mapping
+
+log = logging.getLogger("compute_service.config")
+
+# Alias -> canonical env name. The canonical name wins when both are set.
+_ENV_ALIAS_TO_CANONICAL = {"PYTHON_COMPUTE_MAX_WORKERS": "PYTHON_COMPUTE_WORKERS", "PYTHON_COMPUTE_SESSION_TTL_SEC": "PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC"}
 
 MIN_MAX_CODE_CHARS = 64
 # HTTP body cap and the vision worker's file_path read cap. One value so a
@@ -78,7 +84,7 @@ def _resolved_under_prefixes(resolved: str, prefixes: list[str]) -> bool:
 def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[str]) -> bool:
     """True if *file_path* resolves to a file under one allowlisted prefix.
 
-    Empty *allow_prefixes* denies every path (callers should use image_b64).
+    Empty *allow_prefixes* denies every path (callers should send the image part).
     This looks at the path string only. ``read_allowlisted_file`` is what
     opens, and it checks the file descriptor again: a symlink can be
     retargeted after this returns.
@@ -501,6 +507,19 @@ def load_settings(
     """Resolve settings from defaults → JSON → env → explicit CLI overrides."""
     env = os.environ if environ is None else environ
 
+    # Warn when known env vars from the map (or PYTHON_COMPUTE_API_KEY) are present but empty
+    known_empty_check = {env_name for env_name, _ in _ENV_FIELD_MAP} | {"PYTHON_COMPUTE_API_KEY"}
+    for var_name in sorted(known_empty_check):
+        if var_name in env and not env[var_name]:
+            log.warning("Environment variable %s is empty; ignoring", var_name)
+
+    # Check for alias conflicts where both canonical and alias are non-empty and differ
+    for alias, canon in _ENV_ALIAS_TO_CANONICAL.items():
+        val_canon = env.get(canon)
+        val_alias = env.get(alias)
+        if val_canon and val_alias and val_canon != val_alias:
+            log.warning("Both %s and %s are set and differ; using canonical %s=%s", canon, alias, canon, val_canon)
+
     values: dict[str, Any] = {}
 
     resolved_config = config_path or env.get("PYTHON_COMPUTE_CONFIG") or ""
@@ -508,9 +527,14 @@ def load_settings(
         values.update(_flatten_config_json(_load_json_file(resolved_config)))
 
     # Environment overrides JSON. Order is defaults, then JSON, then env, then CLI.
+    # Canonical env name wins over alias.
     for env_name, field_name in _ENV_FIELD_MAP:
-        if env.get(env_name):
-            values[field_name] = env[env_name]
+        val = env.get(env_name)
+        if val:
+            canon = _ENV_ALIAS_TO_CANONICAL.get(env_name)
+            if canon is not None and env.get(canon):
+                continue
+            values[field_name] = val
 
     # Do not strip. _read_key_file keeps leading and trailing spaces (it
     # removes one trailing newline only). strip() here made " secret "

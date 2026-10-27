@@ -27,19 +27,20 @@ from compute_service.config import ComputeSettings, ConfigError, clamp_timeout_s
 from compute_service.formula_worker import execute_code
 from compute_service.formula_pool import shutdown_formula_pool
 from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
+from compute_service.json_forward import encode_multipart_vision
 from compute_service.server import create_wsgi_app
 from compute_service.vision import shutdown_vision_pool
 
 
-def _wsgi_post(
-    app,
-    body: bytes | None,
-    *,
-    path: str = "/v1/session/reset",
-    query: str = "",
-    headers: dict[str, str] | None = None,
-    send_host: bool = True,
-) -> tuple[str, list[tuple[str, str]], dict]:
+def _wsgi_vision_post(app, meta: dict[str, Any], image: bytes | bytearray | None = None, *, headers: dict[str, str] | None = None, send_host: bool = True) -> tuple[str, list[tuple[str, str]], dict]:
+    ct, body = encode_multipart_vision(meta, image)
+    hdrs = {"Content-Type": ct}
+    if headers:
+        hdrs.update(headers)
+    return _wsgi_post(app, body, path="/v1/vision", headers=hdrs, send_host=send_host)
+
+
+def _wsgi_post(app, body: bytes | None, *, path: str = "/v1/session/reset", query: str = "", headers: dict[str, str] | None = None, send_host: bool = True) -> tuple[str, list[tuple[str, str]], dict]:
     status_holder: list[str] = []
     header_holder: list[tuple[str, str]] = []
 
@@ -63,6 +64,8 @@ def _wsgi_post(
             env_key = "HTTP_" + key.upper().replace("-", "_")
             if key.lower() == "content-type":
                 environ["CONTENT_TYPE"] = value
+            elif key.lower() == "remote-addr":
+                environ["REMOTE_ADDR"] = value
             else:
                 environ[env_key] = value
     if send_host and "HTTP_HOST" not in environ:
@@ -70,6 +73,8 @@ def _wsgi_post(
     out = b"".join(app(environ, start_response))
     parsed = json.loads(out.decode("utf-8")) if out else {}
     return status_holder[0], header_holder, parsed
+
+
 from plugin.version import EXTENSION_VERSION
 from tests.compute_service.conftest import get_free_port
 
@@ -348,6 +353,7 @@ class TestComputeHttp:
         time.sleep(0.15)
         poster: threading.Thread | None = None
         try:
+
             def _post() -> None:
                 req = urllib.request.Request(
                     f"http://127.0.0.1:{port}/v1/execute",
@@ -402,6 +408,7 @@ class TestComputeHttp:
         posters: list[threading.Thread] = []
         results: list[list[Any]] = [[] for _ in range(6)]
         try:
+
             def _post(out_list: list[Any]) -> None:
                 req = urllib.request.Request(
                     f"http://127.0.0.1:{port}/v1/execute",
@@ -480,6 +487,7 @@ class TestComputeHttp:
         time.sleep(0.15)
         poster: threading.Thread | None = None
         try:
+
             def _post() -> None:
                 req = urllib.request.Request(
                     f"http://127.0.0.1:{port}/v1/execute",
@@ -810,6 +818,7 @@ class TestComputeSettings:
         with pytest.raises(Exception) as exc_info:
             load_settings(environ={"PYTHON_COMPUTE_LOG_LEVEL": "INVALID_LEVEL"})
         assert "Invalid log_level" in str(exc_info.value)
+
     def test_keyless_ok(self) -> None:
         s = load_settings(environ={"PYTHON_COMPUTE_HOST": "127.0.0.1", "PYTHON_COMPUTE_PORT": "8000"})
         assert s.host == "127.0.0.1"
@@ -994,6 +1003,34 @@ class TestComputeSettings:
         assert s2.threads == 1
         both = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "4", "PYTHON_COMPUTE_OCR_WORKERS": "2", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert both.threads == 6
+
+    def test_load_settings_canonical_over_alias_and_warnings(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="compute_service.config"):
+            # 1. Canonical PYTHON_COMPUTE_WORKERS over alias PYTHON_COMPUTE_MAX_WORKERS
+            s = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "3", "PYTHON_COMPUTE_MAX_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+            assert s.workers == 3
+            assert "Both PYTHON_COMPUTE_WORKERS and PYTHON_COMPUTE_MAX_WORKERS are set and differ" in caplog.text
+
+            # When they match, no warning
+            caplog.clear()
+            s_same = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "4", "PYTHON_COMPUTE_MAX_WORKERS": "4", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+            assert s_same.workers == 4
+            assert "differ" not in caplog.text
+
+            # 2. Canonical PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC over alias PYTHON_COMPUTE_SESSION_TTL_SEC
+            caplog.clear()
+            s_ttl = load_settings(environ={"PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC": "1800", "PYTHON_COMPUTE_SESSION_TTL_SEC": "3600", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+            assert s_ttl.shared_kernel_ttl_sec == 1800.0
+            assert "Both PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC and PYTHON_COMPUTE_SESSION_TTL_SEC are set and differ" in caplog.text
+
+            # 3. Known variable present but empty logs warning and falls back to default; never log API key value
+            caplog.clear()
+            s_empty = load_settings(environ={"PYTHON_COMPUTE_PORT": "", "PYTHON_COMPUTE_API_KEY": "", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+            assert s_empty.port == 8000
+            assert "Environment variable PYTHON_COMPUTE_PORT is empty; ignoring" in caplog.text
+            assert "Environment variable PYTHON_COMPUTE_API_KEY is empty; ignoring" in caplog.text
 
     def test_thread_count_keys_are_rejected(self, tmp_path) -> None:
         # Environment variables we do not read cannot change the listener count.
@@ -1421,27 +1458,13 @@ class TestRequestBodyLimits:
         fake_pool = MagicMock()
         fake_pool.execute.side_effect = RuntimeError("vision boom")
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        status_holder: list[str] = []
-
-        def start_response(status: str, _headers: list) -> None:
-            status_holder.append(status)
-
-        payload = json.dumps({"id": "v-x", "image_b64": "YQ=="}).encode("utf-8")
-        environ = {
-            "PATH_INFO": "/v1/vision",
-            "REQUEST_METHOD": "POST",
-            "CONTENT_LENGTH": str(len(payload)),
-            "HTTP_HOST": "127.0.0.1",
-            "wsgi.input": io.BytesIO(payload),
-        }
         with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-            body = b"".join(app(environ, start_response))
-        assert status_holder[0].startswith("500")
-        parsed = json.loads(body)
-        assert parsed["status"] == "error"
-        assert parsed["code"] == "INTERNAL_ERROR"
-        assert parsed.get("id") == "v-x"
-        assert "vision boom" not in parsed["error"]
+            status, _headers, body = _wsgi_vision_post(app, {"id": "v-x"}, b"png")
+        assert status.startswith("500")
+        assert body["status"] == "error"
+        assert body.get("id") == "v-x"
+        assert body["code"] == "INTERNAL_ERROR"
+        assert "vision boom" not in body["error"]
 
     def test_execute_unhandled_exception_is_json_500(self) -> None:
         def boom_execute(*args, **kwargs):
@@ -1603,6 +1626,7 @@ class TestSessionResetHttp:
 
     def test_execute_worker_death_is_500(self) -> None:
         """A crash or empty frame may have run the cell, so it is not a retryable 503."""
+
         def dead(**_kwargs):
             return {"status": "error", "code": "WORKER_CRASHED", "error": "died"}
 
@@ -1660,9 +1684,8 @@ class TestSessionResetHttp:
             "error": "All vision workers are currently busy and request timed out waiting for worker lease.",
         }
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        payload = json.dumps({"id": "v-busy", "image_b64": "YQ=="}).encode("utf-8")
         with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-            status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+            status, _headers, body = _wsgi_vision_post(app, {"id": "v-busy"}, b"png")
         assert status.startswith("503")
         assert body.get("code") == "VISION_POOL_BUSY"
         assert body.get("id") == "v-busy"
@@ -1683,9 +1706,8 @@ class TestSessionResetHttp:
                 "error": code,
             }
             app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-            payload = json.dumps({"id": "v-file", "image_b64": "YQ=="}).encode("utf-8")
             with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-                status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+                status, _headers, body = _wsgi_vision_post(app, {"id": "v-file"}, b"png")
             assert status.startswith(expect), code
             assert body.get("code") == code
 
@@ -1699,9 +1721,8 @@ class TestSessionResetHttp:
             "error": "OCR is not installed in this server",
         }
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        payload = json.dumps({"id": "v-missing", "image_b64": "YQ=="}).encode("utf-8")
         with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-            status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+            status, _headers, body = _wsgi_vision_post(app, {"id": "v-missing"}, b"png")
         assert status.startswith("503")
         assert body.get("code") == "VISION_UNAVAILABLE"
         assert body.get("id") == "v-missing"
@@ -1741,7 +1762,6 @@ class TestSessionResetHttp:
         threads = [threading.Thread(target=post) for _ in range(6)]
         fake_pool = MagicMock()
         fake_pool.execute.return_value = {"id": "v-free", "status": "ok", "text": "ok"}
-        payload = json.dumps({"id": "v-free", "image_b64": "YQ=="}).encode("utf-8")
         try:
             for thread in threads:
                 thread.start()
@@ -1751,10 +1771,11 @@ class TestSessionResetHttp:
                 assert not any(item[0].startswith("503") for item in results)
             assert entered_count == 2
             with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-                vstatus, _vheaders, vbody = _wsgi_post(app, payload, path="/v1/vision")
+                vstatus, _vheaders, vbody = _wsgi_vision_post(app, {"id": "v-free"}, b"png")
             assert vstatus.startswith("200")
             assert vbody.get("code") != "VISION_POOL_BUSY"
             fake_pool.execute.assert_called_once()
+            assert fake_pool.execute.call_args.kwargs["image"] == b"png"
         finally:
             hold.set()
             for thread in threads:
@@ -1786,12 +1807,12 @@ class TestSessionResetHttp:
             return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
         app = create_wsgi_app(settings, execute_fn=execute_fn)
-        payload = json.dumps({"image_b64": "YQ=="}).encode("utf-8")
+        ct, payload = encode_multipart_vision({"id": "v"}, b"png")
         results: list[tuple[str, str | None]] = []
         results_lock = threading.Lock()
 
         def post() -> None:
-            status, _headers, parsed = _wsgi_post(app, payload, path="/v1/vision")
+            status, _headers, parsed = _wsgi_post(app, payload, path="/v1/vision", headers={"Content-Type": ct})
             code = parsed.get("code") if isinstance(parsed, dict) else None
             with results_lock:
                 results.append((status, code))
@@ -1917,6 +1938,64 @@ class TestSessionResetHttp:
         # Bounded drain: should have read exactly 64 KiB (65536 bytes), NOT all 100 KiB
         assert stream_413.tell() == 64 * 1024
 
+    def test_failed_auth_logging_and_rate_limit(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        import compute_service.server as server_mod
+
+        # The rate-limit table is module state; start from empty.
+        with server_mod._auth_warn_lock:
+            server_mod._auth_warn_history.clear()
+        settings = ComputeSettings(api_key="super-secret-key-123", host="127.0.0.1")
+        app = create_wsgi_app(settings)
+
+        with caplog.at_level(logging.WARNING, logger="compute_service"):
+            # 1. First failure from 192.168.1.1 (missing) logs warning
+            status, _headers, _body = _wsgi_post(app, b'{"code": "result = 1"}', path="/v1/execute", headers={"Remote-Addr": "192.168.1.1"})
+            assert status.startswith("401")
+            assert "Authentication failed: remote_addr=192.168.1.1 reason=missing" in caplog.text
+
+            # 2. Second failure from same IP and reason logs nothing (rate-limited)
+            caplog.clear()
+            status, _headers, _body = _wsgi_post(app, b'{"code": "result = 1"}', path="/v1/execute", headers={"Remote-Addr": "192.168.1.1"})
+            assert status.startswith("401")
+            assert "Authentication failed" not in caplog.text
+
+            # 3. Different reason from same IP logs warning
+            caplog.clear()
+            status, _headers, _body = _wsgi_post(app, b'{"code": "result = 1"}', path="/v1/execute", headers={"Remote-Addr": "192.168.1.1", "Authorization": "Bearer wrong-key-xyz"})
+            assert status.startswith("401")
+            assert "Authentication failed: remote_addr=192.168.1.1 reason=invalid" in caplog.text
+            # Never log authorization header or secret key
+            assert "super-secret" not in caplog.text
+            assert "wrong-key-xyz" not in caplog.text
+            assert "Bearer" not in caplog.text
+
+            # 4. Malformed reason logs
+            caplog.clear()
+            status, _headers, _body = _wsgi_post(app, b'{"code": "result = 1"}', path="/v1/execute", headers={"Remote-Addr": "192.168.1.1", "Authorization": "Basic abc"})
+            assert status.startswith("401")
+            assert "Authentication failed: remote_addr=192.168.1.1 reason=malformed" in caplog.text
+            assert "Basic" not in caplog.text
+
+    def test_exec_start_log_is_debug_and_done_is_info(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1"))
+        with caplog.at_level(logging.DEBUG, logger="compute_service"):
+            status, _headers, body = _wsgi_post(app, json.dumps({"id": "log-test", "code": "result = 42"}).encode("utf-8"), path="/v1/execute")
+            assert status.startswith("200")
+
+            records = [r for r in caplog.records if r.name == "compute_service"]
+            start_records = [r for r in records if "exec /v1/execute" in r.getMessage()]
+            done_records = [r for r in records if "done /v1/execute" in r.getMessage()]
+
+            assert start_records
+            assert all(r.levelno == logging.DEBUG for r in start_records)
+
+            assert done_records
+            assert all(r.levelno == logging.INFO for r in done_records)
+
     def test_execute_queue_timeout_from_pool_is_503(self) -> None:
         """The pool's own deadline check must not answer 200.
 
@@ -1950,43 +2029,42 @@ class TestSessionResetHttp:
 
     @pytest.mark.parametrize("raw_id", [b"1e9999", b"NaN", b"Infinity"])
     def test_vision_nonfinite_id_is_400(self, raw_id: bytes) -> None:
-        """A non-finite vision id used to crash the response, then the 500 fallback."""
+        """A non-finite vision id in multipart meta is rejected with 400."""
         from compute_service.vision import shutdown_vision_pool
 
         app = create_wsgi_app(ComputeSettings())
         try:
-            status, _headers, body = _wsgi_post(
-                app,
-                b'{"id":' + raw_id + b',"image_b64":"abcd"}',
-                path="/v1/vision",
+            boundary = "wa-test-bound"
+            body = (
+                (f'--{boundary}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n').encode("ascii")
+                + b'{"id":'
+                + raw_id
+                + b"}\r\n"
+                + (f'--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nabcd\r\n--{boundary}--\r\n').encode("ascii")
             )
+            status, _headers, body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
             assert status.startswith("400")
-            assert body.get("error") == "Invalid JSON"
+            assert body.get("error") == "Invalid multipart vision body"
             assert "id" not in body
         finally:
             shutdown_vision_pool()
 
-    @pytest.mark.parametrize(
-        "body_bytes",
-        [
-            b'{"id":[1e999]}',
-            b'{"id":[1e999],"image_b64":"abcd"}',
-            b'{"id":{"n":1e999}}',
-            b'{"id":[1]}',
-        ],
-    )
-    def test_vision_nested_nonfinite_id_is_400(self, body_bytes: bytes) -> None:
+    @pytest.mark.parametrize("meta_bytes", [b'{"id":[1e999]}', b'{"id":{"n":1e999}}', b'{"id":[1]}'])
+    def test_vision_nested_nonfinite_id_is_400(self, meta_bytes: bytes) -> None:
         from compute_service.vision import shutdown_vision_pool
 
         app = create_wsgi_app(ComputeSettings())
         try:
-            status, _headers, body = _wsgi_post(
-                app,
-                body_bytes,
-                path="/v1/vision",
+            boundary = "wa-test-bound"
+            body = (
+                (f'--{boundary}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n').encode("ascii")
+                + meta_bytes
+                + b"\r\n"
+                + (f'--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nabcd\r\n--{boundary}--\r\n').encode("ascii")
             )
+            status, _headers, body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
             assert status.startswith("400")
-            assert body.get("error") == "Invalid JSON"
+            assert body.get("error") == "Invalid multipart vision body"
             assert "id" not in body
             assert "code" not in body
         finally:
@@ -1997,27 +2075,18 @@ class TestSessionResetHttp:
 
         app = create_wsgi_app(ComputeSettings())
         try:
-            status, _headers, body = _wsgi_post(
-                app,
-                b'{"image_b64":"abcd","timeout_ms":1e9999}',
-                path="/v1/vision",
+            boundary = "wa-test-bound"
+            body = (f'--{boundary}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n{{"timeout_ms": 1e9999}}\r\n--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nabcd\r\n--{boundary}--\r\n').encode(
+                "ascii"
             )
-            assert status.startswith("501")
-            assert body.get("code") == "VISION_SERVICE_DISABLED"
+            status, _headers, body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+            assert status.startswith("400")
+            assert body.get("error") == "Invalid multipart vision body"
         finally:
             shutdown_vision_pool()
 
     def test_vision_disabled_app_ignores_enabled_singleton(self) -> None:
-        """ocr_workers=0 must stay 501 when the process-global pool is already enabled.
-
-        What was wrong: PR 1597 run 38800801506 (xdist gw2) got '200 OK' for
-        timeout_ms 1e9999. get_vision_pool returns the first pool in the
-        process. An enabled execute payload is HTTP 200, including an
-        unmapped VISION_ERROR.
-        How: another test on the worker built the singleton with workers.
-        Why this fails without the handler check: the overflow body would
-        follow that pool instead of this app's ocr_workers.
-        """
+        """ocr_workers=0 must stay 501 when the process-global pool is already enabled."""
         from compute_service import vision
 
         pool = vision.VisionProcessPool(settings=ComputeSettings(ocr_workers=0, idle_worker_ttl_sec=0))
@@ -2026,11 +2095,7 @@ class TestSessionResetHttp:
             with patch.object(pool, "execute", return_value={"status": "ok", "text": "leaked"}) as execute:
                 vision._POOL_SINGLETON._pool = pool
                 app = create_wsgi_app(ComputeSettings())
-                status, _headers, body = _wsgi_post(
-                    app,
-                    b'{"image_b64":"abcd","timeout_ms":1e9999}',
-                    path="/v1/vision",
-                )
+                status, _headers, body = _wsgi_vision_post(app, {"id": "v-dis"}, b"png")
             assert status.startswith("501")
             assert body.get("code") == "VISION_SERVICE_DISABLED"
             assert "ocr_workers=0" in body.get("error", "")
@@ -2168,11 +2233,10 @@ class TestSessionResetHttp:
     def test_vision_admission_waits_for_request_timeout(self) -> None:
         settings = ComputeSettings(ocr_timeout_sec=1, max_timeout_sec=30, ocr_workers=0)
         app = create_wsgi_app(settings, vision_semaphore=threading.Semaphore(0))
-        body = json.dumps({"id": "vslow", "image_b64": "abcd", "timeout_ms": 1500}).encode("utf-8")
         holder: list[tuple[str, dict]] = []
 
         def run() -> None:
-            status, _headers, parsed = _wsgi_post(app, body, path="/v1/vision")
+            status, _headers, parsed = _wsgi_vision_post(app, {"id": "vslow", "timeout_ms": 1500}, b"abcd")
             holder.append((status, parsed))
 
         started = time.monotonic()
@@ -2344,6 +2408,7 @@ print("ok")
             check_dependencies(mock_pool)
 
         assert exc_info.value.code == 1
+        mock_pool.check_dependencies.assert_called_once_with(["numpy", "sympy", "pandas"])
         captured = capsys.readouterr()
         assert "Error: fake_pkg is not installed" in captured.err
 
@@ -2670,14 +2735,7 @@ def test_expect_100_continue_before_body() -> None:
     try:
         sock = socket.create_connection(("127.0.0.1", port), timeout=5)
         body = b'{"code":"result = 1"}'
-        request = (
-            "POST /v1/execute HTTP/1.1\r\n"
-            "Host: 127.0.0.1\r\n"
-            "Content-Type: application/json\r\n"
-            f"Content-Length: {len(body)}\r\n"
-            "Expect: 100-continue\r\n"
-            "\r\n"
-        ).encode()
+        request = (f"POST /v1/execute HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\nExpect: 100-continue\r\n\r\n").encode()
         sock.sendall(request)
         sock.settimeout(2)
         interim = b""
@@ -3056,12 +3114,7 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     assert not (doc / "__init__.py").exists()
 
     proc = subprocess.run(
-        [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base, compute_service.server, compute_service.formula_worker, plugin.scripting.named_scripts"],
-        cwd=app,
-        env={"PYTHONPATH": str(app), "PYTHONDONTWRITEBYTECODE": "1"},
-        capture_output=True,
-        text=True,
-        check=False,
+        [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base, compute_service.server, compute_service.formula_worker, plugin.scripting.named_scripts"], cwd=app, env={"PYTHONPATH": str(app), "PYTHONDONTWRITEBYTECODE": "1"}, capture_output=True, text=True, check=False
     )
     assert proc.returncode == 0, proc.stderr
 
@@ -3538,9 +3591,8 @@ def test_vision_unknown_helper_is_400() -> None:
             raise AssertionError("unknown helper must not reach the pool")
 
     app = create_wsgi_app(ComputeSettings())
-    payload = json.dumps({"id": "bad-h", "helper": "detect_objects", "image_b64": "YQ=="}).encode("utf-8")
     with patch("compute_service.vision.get_vision_pool", return_value=_Pool()):
-        status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+        status, _headers, body = _wsgi_vision_post(app, {"id": "bad-h", "helper": "detect_objects"}, b"png")
     assert status.startswith("400")
     assert body.get("code") == "INVALID_REQUEST"
     assert body.get("id") == "bad-h"
@@ -3557,10 +3609,8 @@ def test_vision_blank_helper_defaults_to_extract_text() -> None:
 
     app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     with patch("compute_service.vision.get_vision_pool", return_value=_Pool()):
-        absent = json.dumps({"id": "def-h", "image_b64": "YQ=="}).encode("utf-8")
-        blank = json.dumps({"id": "def-h", "helper": "  ", "image_b64": "YQ=="}).encode("utf-8")
-        for payload in (absent, blank):
-            status, _headers, parsed = _wsgi_post(app, payload, path="/v1/vision")
+        for meta in ({"id": "def-h"}, {"id": "def-h", "helper": "  "}):
+            status, _headers, parsed = _wsgi_vision_post(app, meta, b"png")
             assert status.startswith("200")
             assert parsed.get("status") == "ok"
     assert seen == ["extract_text", "extract_text"]
@@ -3569,8 +3619,7 @@ def test_vision_blank_helper_defaults_to_extract_text() -> None:
 def test_vision_missing_image_is_400_with_code() -> None:
     """A vision request with no image used to be a generic 400 with no code."""
     app = create_wsgi_app(ComputeSettings())
-    payload = json.dumps({"id": "no-image", "helper": "extract_text"}).encode("utf-8")
-    status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+    status, _headers, body = _wsgi_vision_post(app, {"id": "no-image", "helper": "extract_text"})
     assert status.startswith("400")
     assert body.get("code") == "MISSING_IMAGE_SOURCE"
     assert body.get("id") == "no-image"
@@ -3580,8 +3629,7 @@ def test_vision_blank_file_path_is_missing_image_source() -> None:
     """A blank file_path is no path. The worker's INVALID_FILE_PATH is not this response."""
     app = create_wsgi_app(ComputeSettings())
     for raw_path in ("", "   "):
-        payload = json.dumps({"id": "blank-path", "helper": "extract_text", "file_path": raw_path}).encode("utf-8")
-        status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+        status, _headers, body = _wsgi_vision_post(app, {"id": "blank-path", "helper": "extract_text", "file_path": raw_path})
         assert status.startswith("400")
         assert body.get("code") == "MISSING_IMAGE_SOURCE"
         assert body.get("id") == "blank-path"
@@ -3589,8 +3637,7 @@ def test_vision_blank_file_path_is_missing_image_source() -> None:
 
 def test_vision_rejects_image_and_file_path_together() -> None:
     app = create_wsgi_app(ComputeSettings())
-    payload = json.dumps({"id": "both", "image_b64": "YQ==", "file_path": "/tmp/x.png"}).encode("utf-8")
-    status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+    status, _headers, body = _wsgi_vision_post(app, {"id": "both", "file_path": "/tmp/x.png"}, b"png")
     assert status.startswith("400")
     assert body.get("code") == "INVALID_REQUEST"
     assert body.get("id") == "both"
@@ -3641,6 +3688,7 @@ def test_mapped_status_json_encode_failure_is_500() -> None:
     The infrastructure status used to be written outside the encode guard,
     so a non-JSON payload escaped and the outer boundary replaced the 503.
     """
+
     def bad(**_kwargs: Any) -> dict[str, Any]:
         return {"status": "error", "code": "WORKER_POOL_BUSY", "error": object()}
 
@@ -3687,6 +3735,7 @@ def test_session_id_reserved_namespace_rejected() -> None:
         )
         assert status == "400 Bad Request"
         assert parsed.get("code") == "INVALID_SESSION_ID"
+
 
 def test_empty_multi_data_result() -> None:
     payload = {
@@ -4016,28 +4065,43 @@ def test_sticky_cap_leaves_isolated_execute_free() -> None:
 
 def test_invalid_base64_and_params_are_400() -> None:
     fake_pool = MagicMock()
-    fake_pool.execute.return_value = {"id": "b64", "status": "error", "code": "INVALID_BASE64", "error": "bad"}
     app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-    payload = json.dumps({"id": "b64", "image_b64": "!!!!"}).encode("utf-8")
+    json_payload = json.dumps({"id": "v", "helper": "extract_text"}).encode("utf-8")
     with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-        status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+        status, _headers, body = _wsgi_post(app, json_payload, path="/v1/vision", headers={"Content-Type": "application/json"})
     assert status.startswith("400")
-    assert body.get("code") == "INVALID_BASE64"
+    assert body.get("error") == "Invalid vision body"
+    fake_pool.execute.assert_not_called()
 
     params_app = create_wsgi_app(ComputeSettings())
-    status, _headers, body = _wsgi_post(
-        params_app,
-        json.dumps({"image_b64": "YQ==", "params": ["nope"]}).encode("utf-8"),
-        path="/v1/vision",
-    )
+    status, _headers, body = _wsgi_vision_post(params_app, {"params": ["nope"]}, b"png")
     assert status.startswith("400")
     assert body.get("code") == "INVALID_REQUEST"
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="subprocess SIGTERM is TerminateProcess and is not delivered to the Python handler",
-)
+def test_vision_image_bytes_not_parsed_as_json() -> None:
+    raw_img = b"\xff\xfe{not-json"
+    fake_pool = MagicMock()
+    fake_pool.execute.return_value = {"status": "ok"}
+    app = create_wsgi_app(ComputeSettings(ocr_workers=1))
+
+    orig_loads = json.loads
+
+    def guarded_loads(s, *args, **kwargs):
+        if isinstance(s, (bytes, bytearray)) and raw_img in s:
+            raise AssertionError("json.loads called with image bytes!")
+        if isinstance(s, str) and "{not-json" in s:
+            raise AssertionError("json.loads called with image string!")
+        return orig_loads(s, *args, **kwargs)
+
+    with patch("compute_service.vision.get_vision_pool", return_value=fake_pool), patch("compute_service.json_forward.json.loads", side_effect=guarded_loads):
+        status, _headers, body = _wsgi_vision_post(app, {"id": "not-json-img"}, raw_img)
+    assert status.startswith("200")
+    fake_pool.execute.assert_called_once()
+    assert fake_pool.execute.call_args.kwargs["image"] == raw_img
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="subprocess SIGTERM is TerminateProcess and is not delivered to the Python handler")
 def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
     """SIGTERM during a slow cell closes the listener, logs the drain warning, and exits 0.
 
@@ -4062,14 +4126,7 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
     refused_bound_sec = 2.0
 
     wrapper = tmp_path / "boot_short_drain.py"
-    wrapper.write_text(
-        "import sys\n"
-        f"sys.path.insert(0, {str(repo)!r})\n"
-        "import compute_service.server as server\n"
-        f"server._HTTP_DRAIN_SEC = {drain_sec!r}\n"
-        "raise SystemExit(server.main())\n",
-        encoding="utf-8",
-    )
+    wrapper.write_text(f"import sys\nsys.path.insert(0, {str(repo)!r})\nimport compute_service.server as server\nserver._HTTP_DRAIN_SEC = {drain_sec!r}\nraise SystemExit(server.main())\n", encoding="utf-8")
 
     def _child_env() -> dict[str, str]:
         env = {key: value for key, value in os.environ.items() if not key.startswith("PYTHON_COMPUTE_")}
@@ -4103,33 +4160,8 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
         for _attempt in range(3):
             port = get_free_port()
             config_path = tmp_path / f"python-compute-{port}.json"
-            config_path.write_text(
-                json.dumps(
-                    {
-                        "listen": {"host": "127.0.0.1", "port": port},
-                        "ocr": {"workers": 0},
-                        "logging": {"log_level": "INFO"},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            cmd = [
-                sys.executable,
-                "-u",
-                str(wrapper),
-                "--config",
-                str(config_path),
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(port),
-                "--workers",
-                "1",
-                "--ocr-workers",
-                "0",
-                "--log-level",
-                "INFO",
-            ]
+            config_path.write_text(json.dumps({"listen": {"host": "127.0.0.1", "port": port}, "ocr": {"workers": 0}, "logging": {"log_level": "DEBUG"}}), encoding="utf-8")
+            cmd = [sys.executable, "-u", str(wrapper), "--config", str(config_path), "--host", "127.0.0.1", "--port", str(port), "--workers", "1", "--ocr-workers", "0", "--log-level", "DEBUG"]
             lines = []
             readers = []
             proc = subprocess.Popen(

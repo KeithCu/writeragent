@@ -114,6 +114,7 @@ class FormulaProcessPool(BaseProcessPool):
         # Consumed by the next sticky call that observes the id. The reaper
         # expires ids older than shared_kernel_ttl_sec, so it does not grow forever.
         self._lost_sessions: OrderedDict[str, float] = OrderedDict()
+        self._recycling: set[BaseProcessWorker] = set()
         self.shared_kernel_ttl_sec = eff_shared_ttl
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
 
@@ -122,6 +123,7 @@ class FormulaProcessPool(BaseProcessPool):
         # survive, so a pool object kept after shutdown still advertised sessions.
         self._sessions.clear()
         self._lost_sessions.clear()
+        self._recycling.clear()
 
     def _reaper_period_sec(self) -> float | None:
         """Idle TTL, session TTL, or the shorter of the two. Both 0 stays off.
@@ -330,10 +332,20 @@ class FormulaProcessPool(BaseProcessPool):
             if not worker.is_alive():
                 for sid in self._worker_sessions_for(worker):
                     self._drop_session(sid)
+                self._recycling.discard(worker)
                 return False
             if self._worker_has_sessions(worker):
+                self._recycling.discard(worker)
                 return False
-            return worker.tasks_executed >= self.max_tasks
+            if worker.tasks_executed >= self.max_tasks:
+                self._recycling.add(worker)
+                return True
+            self._recycling.discard(worker)
+            return False
+
+    def _clear_recycling_mark(self, worker: BaseProcessWorker) -> None:
+        with self._cond:
+            self._recycling.discard(worker)
 
     def _pick_idle_worker(self) -> BaseProcessWorker | None:
         """Pop an idle worker, preferring clean workers without shared sessions.
@@ -409,7 +421,7 @@ class FormulaProcessPool(BaseProcessPool):
         if self._is_shutdown or not self.workers:
             return False, "Formula compute pool is not running."
 
-        target_packages = ["numpy", "sympy"] if packages is None else packages
+        target_packages = ["numpy", "sympy", "pandas"] if packages is None else packages
         with self.leased(timeout_sec=timeout_sec) as leased:
             if leased is None:
                 return False, "Failed to lease a formula worker subprocess for dependency check."
@@ -460,13 +472,21 @@ class FormulaProcessPool(BaseProcessPool):
                 # Dead workers sort last so a new reservation gets a live child
                 # when any process is up. A dead-only pool still reserves one
                 # slot; execute respawns it.
-                target_worker = min(self.workers, key=lambda w: (0 if w.is_alive() else 1, self._worker_session_count(w), 0 if w in self._idle else 1, w.worker_id))
-                # Reserve session->worker at pick time inside the same with self._cond.
-                # The child pointer is read without _lifecycle_lock. See
-                # _reap_dead_sessions_unlocked. A dead process reserves with
-                # child None so a later spawn is not mistaken for this kernel.
-                current = target_worker.child
-                reserved = current if current is not None and self._session_child_live(current) else None
+                def _rank(w: BaseProcessWorker) -> tuple[int, int, int, int]:
+                    return (0 if w.is_alive() else 1, self._worker_session_count(w), 0 if w in self._idle else 1, w.worker_id)
+
+                eligible = [w for w in self.workers if w not in self._recycling and not w.pending_exit]
+                if not eligible:
+                    eligible = list(self.workers)
+
+                target_worker = min(eligible, key=_rank)
+                # When target is recycling or pending exit, reserve with child None
+                # so a kill that follows is not recorded as a lost session.
+                if target_worker in self._recycling or target_worker.pending_exit:
+                    reserved = None
+                else:
+                    current = target_worker.child
+                    reserved = current if current is not None and self._session_child_live(current) else None
                 self._sessions[session_id] = _Session(worker=target_worker, child=reserved, last_active=time.monotonic())
             else:
                 target_worker = None
