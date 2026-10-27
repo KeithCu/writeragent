@@ -879,6 +879,79 @@ def test_doc_save_fallback_sends_success_with_migration_note_only():
     )
 
 
+def test_readonly_fallback_second_edit_follows_the_user_row():
+    """A read-only document save falls back to My Scripts and later edits update that copy."""
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.isReadonly = MagicMock(return_value=False)
+    assert set_document_scripts(doc, {"Report": "old"}) is None
+    doc.isReadonly.return_value = True
+
+    config_store = {
+        "saved_python_scripts": {},
+        "last_python_script_name_writer": "[Doc] Report",
+    }
+
+    def _get_config(key: str, default=None):
+        if key == "saved_python_scripts":
+            return dict(config_store.get("saved_python_scripts", {}))
+        return config_store.get(key, {} if default is None else default)
+
+    def _get_config_str(key: str, default: str = "") -> str:
+        val = config_store.get(key, default)
+        return str(val) if val is not None else default
+
+    def _set_config(key: str, value, *, event_key=None):
+        if isinstance(value, dict):
+            config_store[key] = dict(value)
+        else:
+            config_store[key] = value
+
+    sent: list = []
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_get_config),
+        patch("plugin.framework.config.get_config_str", side_effect=_get_config_str),
+        patch("plugin.framework.config.set_config", side_effect=_set_config),
+        patch(
+            "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
+            return_value="last_python_script_name_writer",
+        ),
+        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
+    ):
+        assert handle_editor_script_message(
+            "save_script",
+            {"name": "[Doc] Report", "code": "edited-1", "origin": "document"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url=None,
+            send=sent.append,
+        )
+        msg1 = sent[-1]
+        assert "Saved it to My Scripts instead" in msg1.get("status_ok_text", "")
+        assert msg1.get("selected_script_name") == "Report"
+        user_section = next(s for s in msg1["sections"] if s["id"] == "user")
+        doc_section = next(s for s in msg1["sections"] if s["id"] == "document")
+        assert user_section["scripts"] == {"Report": "edited-1"}
+        assert doc_section["scripts"] == {"[Doc] Report": "old"}
+        assert get_document_scripts(doc) == {"Report": "old"}
+
+        assert handle_editor_script_message(
+            "save_script",
+            {"name": "Report", "code": "edited-2", "origin": "user"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url=None,
+            send=sent.append,
+        )
+        assert config_store["saved_python_scripts"]["Report"] == "edited-2"
+        assert get_document_scripts(doc) == {"Report": "old"}
+
+        assert save_selected_script(doc, "Report", "edited-3") is None
+        assert config_store["saved_python_scripts"]["Report"] == "edited-3"
+        assert get_document_scripts(doc) == {"Report": "old"}
+
+
 def test_doc_save_fallback_does_not_overwrite_my_scripts():
     """A document save error must not replace an existing My Scripts entry."""
     ctx = MagicMock()
