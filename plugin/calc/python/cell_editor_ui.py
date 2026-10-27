@@ -295,7 +295,11 @@ def show_native_python_cell_editor(ctx: Any, *, doc: Any, cell: Any, initial_cod
         if _active._dirty:
             from plugin.calc.python.editor import confirm_unsaved_cell_edit, format_cell_a1
 
-            choice = confirm_unsaved_cell_edit(ctx, format_cell_a1(_active._cell))
+            # Bugfix: Unsaved prompt previously named the selection (_cell), which was
+            # wrong when follow mode started editing the referenced code cell (_code_cell).
+            # Name the cell actually being edited matching _set_cell_addr.
+            shown = _active._code_cell if _active._following_ref() else _active._cell
+            choice = confirm_unsaved_cell_edit(ctx, format_cell_a1(shown))
             if choice == "cancel":
                 return True, None
             if choice == "save":
