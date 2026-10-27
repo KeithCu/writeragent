@@ -390,4 +390,37 @@ def test_get_page_empty_deck_message():
         assert "no slides" in str(exc_info.value)
 
 
+def test_set_text_ordinary_failure_returns_false():
+    from plugin.draw.headers_footers import _set_text
+
+    class Shape:
+        def setString(self, _text):
+            raise RuntimeError("write failed")
+
+    assert _set_text(Shape(), "hello") is False
+    assert _set_text(object(), "hello") is False
+
+
+def test_set_text_disposed_reraises():
+    import pytest
+    from plugin.draw.headers_footers import _set_text
+
+    class DisposedException(Exception):
+        pass
+
+    class Shape:
+        def setString(self, _text):
+            raise DisposedException("disposed")
+
+    class LookupDisposed:
+        @property
+        def setString(self):
+            raise DisposedException("disposed")
+
+    with pytest.raises(DisposedException):
+        _set_text(Shape(), "hello")
+    with pytest.raises(DisposedException):
+        _set_text(LookupDisposed(), "hello")
+
+
 
