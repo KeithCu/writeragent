@@ -319,6 +319,50 @@ def test_native_dirty_retarget_discard_loads_new_cell():
     assert inst._dirty is False
 
 
+def test_native_dirty_retarget_names_followed_code_cell():
+    formula_cell = MagicMock()
+    formula_cell.getCellAddress.return_value = SimpleNamespace(Column=1, Row=0, Sheet=0)
+    code_cell = MagicMock()
+    code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=0)
+    dlg, inst = _open_native(
+        cell=formula_cell,
+        code_cell=code_cell,
+        code_ref="$A$1",
+        initial_code="result = 1",
+        parsed_parts=None,
+    )
+    assert dlg.controls["CellAddr"].getText() == "A1"
+    inst._dirty = True
+    with patch("plugin.calc.python.editor.confirm_unsaved_cell_edit", return_value="cancel") as ask:
+        opened, unused = ui.show_native_python_cell_editor(
+            MagicMock(),
+            doc=MagicMock(),
+            cell=MagicMock(),
+            initial_code="next",
+            parsed_parts=None,
+        )
+    assert opened is True
+    assert ask.call_args.args[1] == "A1"
+    assert dlg.controls["CodeEdit"].getText() == "result = 1"
+
+
+def test_native_dirty_retarget_names_selection_when_not_following():
+    cell = MagicMock()
+    cell.getCellAddress.return_value = SimpleNamespace(Column=2, Row=4, Sheet=0)
+    dlg, inst = _open_native(cell=cell, initial_code="print(1)", parsed_parts=None)
+    assert dlg.controls["CellAddr"].getText() == "C5"
+    inst._dirty = True
+    with patch("plugin.calc.python.editor.confirm_unsaved_cell_edit", return_value="cancel") as ask:
+        ui.show_native_python_cell_editor(
+            MagicMock(),
+            doc=MagicMock(),
+            cell=MagicMock(),
+            initial_code="next",
+            parsed_parts=None,
+        )
+    assert ask.call_args.args[1] == "C5"
+
+
 def test_monaco_cell_open_delegates_unsaved_guard_to_launch():
     """Cell open no longer confirms locally. launch_monaco_editor asks for every mode."""
     from plugin.calc.python import editor as ed
