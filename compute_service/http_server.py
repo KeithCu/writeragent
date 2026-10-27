@@ -171,6 +171,9 @@ class ComputeServerHandler(ServerHandler):
     """WSGI ServerHandler with HTTP/1.1 and keep-alive header enforcement."""
 
     http_version = "1.1"
+    # Set by wsgiref at runtime; the stub omits them.
+    headers: Any
+    environ: Any
 
     def cleanup_headers(self) -> None:
         super().cleanup_headers()
