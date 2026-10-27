@@ -2063,3 +2063,132 @@ def test_error_frame():
     assert frame_with_exc["message"] == "test error with exc"
     assert "ValueError: boom" in frame_with_exc["traceback"]
 
+
+
+def test_selected_editor_backend_default_codemirror_garbage():
+    with patch("plugin.framework.config.get_config_str", return_value=""):
+        assert launch_mod.selected_editor_backend() == "monaco"
+    with patch("plugin.framework.config.get_config_str", return_value="monaco"):
+        assert launch_mod.selected_editor_backend() == "monaco"
+    with patch("plugin.framework.config.get_config_str", return_value="codemirror"):
+        assert launch_mod.selected_editor_backend() == "codemirror"
+    with patch("plugin.framework.config.get_config_str", return_value="  CodeMirror  "):
+        assert launch_mod.selected_editor_backend() == "codemirror"
+    with patch("plugin.framework.config.get_config_str", return_value="sublime"):
+        assert launch_mod.selected_editor_backend() == "monaco"
+
+
+def test_build_editor_child_env_sets_backend_env_var():
+    with patch.object(launch_mod, "selected_editor_backend", return_value="codemirror"):
+        env = launch_mod.build_editor_child_env()
+        assert env["WRITERAGENT_EDITOR_BACKEND"] == "codemirror"
+    with patch.object(launch_mod, "selected_editor_backend", return_value="monaco"):
+        env = launch_mod.build_editor_child_env()
+        assert env["WRITERAGENT_EDITOR_BACKEND"] == "monaco"
+
+
+def test_probe_codemirror_does_not_require_rocher_monaco_does():
+    exe = "/tmp/writeragent-probe-backend-test"
+    launch_mod._PROBE_CACHE.pop(exe, None)
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+    executed_commands: list[list[str]] = []
+
+    def mock_run(cmd, **kwargs):
+        executed_commands.append(cmd)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "ok"
+        mock_proc.stderr = ""
+        return mock_proc
+
+    try:
+        with patch.object(launch_mod.ManagedSubprocess, "run", side_effect=mock_run):
+            with patch.object(launch_mod, "selected_editor_backend", return_value="codemirror"):
+                ok, _ = launch_mod.probe_webview_import(exe)
+                assert ok is True
+                assert len(executed_commands) == 1
+                probe_py = executed_commands[0][-1]
+                assert "import webview" in probe_py
+                assert "import rocher" not in probe_py
+
+            launch_mod._PROBE_CACHE.pop(exe, None)
+            launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+            executed_commands.clear()
+
+            with patch.object(launch_mod, "selected_editor_backend", return_value="monaco"):
+                ok, _ = launch_mod.probe_webview_import(exe)
+                assert ok is True
+                assert len(executed_commands) == 1
+                probe_py = executed_commands[0][-1]
+                assert "import webview" in probe_py
+                assert "import rocher" in probe_py
+    finally:
+        launch_mod._PROBE_CACHE.pop(exe, None)
+        launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+
+def test_probe_webview_missing_returns_false_for_both_backends():
+    exe = "/tmp/writeragent-probe-webview-missing"
+    launch_mod._PROBE_CACHE.pop(exe, None)
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+    def mock_fail(cmd, **kwargs):
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = ""
+        mock_proc.stderr = "ModuleNotFoundError: No module named 'webview'"
+        return mock_proc
+
+    try:
+        with patch.object(launch_mod.ManagedSubprocess, "run", side_effect=mock_fail):
+            with patch.object(launch_mod, "selected_editor_backend", return_value="codemirror"):
+                ok, detail = launch_mod.probe_webview_import(exe)
+                assert ok is False
+                assert "webview" in detail
+
+            launch_mod._PROBE_CACHE.pop(exe, None)
+            launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+            with patch.object(launch_mod, "selected_editor_backend", return_value="monaco"):
+                ok, detail = launch_mod.probe_webview_import(exe)
+                assert ok is False
+                assert "webview" in detail
+    finally:
+        launch_mod._PROBE_CACHE.pop(exe, None)
+        launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+
+def test_config_change_python_editor_terminates_editor_and_clears_probe_caches():
+    exe = "/tmp/writeragent-probe-python-editor"
+    launch_mod._PROBE_CACHE[exe] = (True, "ok")
+    launch_mod._PROBE_FAILURE_CACHE[exe] = (999999.0, (False, "err"))
+    try:
+        with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
+            launch_mod._on_config_changed(key="scripting.python_editor")
+            mock_term.assert_called_once()
+            assert exe not in launch_mod._PROBE_CACHE
+            assert exe not in launch_mod._PROBE_FAILURE_CACHE
+
+        launch_mod._PROBE_CACHE[exe] = (True, "ok")
+        launch_mod._PROBE_FAILURE_CACHE[exe] = (999999.0, (False, "err"))
+
+        with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
+            launch_mod._on_config_changed(key="", keys=("scripting.python_editor",))
+            mock_term.assert_called_once()
+            assert exe not in launch_mod._PROBE_CACHE
+            assert exe not in launch_mod._PROBE_FAILURE_CACHE
+    finally:
+        launch_mod._PROBE_CACHE.pop(exe, None)
+        launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+
+def test_config_change_unrelated_key_keeps_editor_and_probe_cache():
+    exe = "/tmp/writeragent-probe-unrelated-key"
+    launch_mod._PROBE_CACHE[exe] = (True, "ok")
+    try:
+        with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
+            launch_mod._on_config_changed(key="", keys=("scripting.python_session_mode",))
+            mock_term.assert_not_called()
+            assert launch_mod._PROBE_CACHE[exe] == (True, "ok")
+    finally:
+        launch_mod._PROBE_CACHE.pop(exe, None)

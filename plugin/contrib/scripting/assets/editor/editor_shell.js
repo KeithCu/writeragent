@@ -22,7 +22,7 @@
   "use strict";
 
   var editor = null;
-  var backend = window.WaEditorBackends && window.WaEditorBackends.monaco;
+  var backend = null;
   var pendingCode = "";
   var ui = {};
   var defaultStatusOkText = "Saved.";
@@ -382,7 +382,39 @@
     return window.pywebview.api.get_completions(code, line, column);
   }
 
-  if (backend) {
+  function loadScript(src, onLoad, onError) {
+    var s = document.createElement("script");
+    s.src = src;
+    s.onload = onLoad;
+    s.onerror = onError;
+    document.head.appendChild(s);
+  }
+
+  function onLoaderError() {
+    setStatus(t("monaco_loader_missing", "Monaco loader missing."), "error");
+  }
+
+  var backendName = window.WA_EDITOR_BACKEND === "codemirror" ? "codemirror" : "monaco";
+  var scripts = backendName === "codemirror"
+    ? ["cm6/cm6.bundle.js", "backend_cm6.js"]
+    : ["vs/loader.js", "backend_monaco.js"];
+
+  function loadScriptsSeq(list, idx, done) {
+    if (idx >= list.length) {
+      done();
+      return;
+    }
+    loadScript(list[idx], function () {
+      loadScriptsSeq(list, idx + 1, done);
+    }, onLoaderError);
+  }
+
+  loadScriptsSeq(scripts, 0, function () {
+    backend = window.WaEditorBackends && window.WaEditorBackends[backendName];
+    if (!backend) {
+      onLoaderError();
+      return;
+    }
     backend.create(document.getElementById("editor"), {
       value: pendingCode,
       language: "python",
@@ -398,10 +430,6 @@
       setInterval(pollMessages, 80);
       pollMessages();
       maybeHintJediMissing();
-    }, function () {
-      setStatus(t("monaco_loader_missing", "Monaco loader missing."), "error");
-    });
-  } else {
-    setStatus(t("monaco_loader_missing", "Monaco loader missing."), "error");
-  }
+    }, onLoaderError);
+  });
 })();

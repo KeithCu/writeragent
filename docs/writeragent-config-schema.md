@@ -172,6 +172,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `python_allow_files` | `boolean` | `false` |  | Lets Python read, write, rename and delete files anywhere on this computer with open, pathlib, shutil, io, tempfile, glob and the file functions of os. |
 | `python_allow_os` | `boolean` | `false` |  | Gives Python the full os module (environment, processes, system info) and lets Python run other programs and processes with subprocess, multiprocessing, pty, and os.system. Includes file access. |
 | `python_extra_modules` | `string` | `""` |  | Comma-separated extra modules Python may import (each name also allows name.*). Overrides the built-in blocklist, including os, socket and subprocess. |
+| `python_editor` | `string` | `"monaco"` |  | Editor window for Edit Python in Cell, Run Python Script, the init script and LaTeX. Options: monaco (Monaco (default)), codemirror (CodeMirror) |
 | `force_internal_script_editor` | `bool` | `false` |  | Internal |
 | `native_run_script_modeless` | `bool` | `true` |  | Internal |
 
