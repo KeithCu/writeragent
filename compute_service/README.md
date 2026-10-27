@@ -19,7 +19,7 @@ python compute_service/server.py --host 127.0.0.1 --port 8000
 
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"<version>"}` (no auth required)
 - `POST /v1/execute[?session_id=<id>]` — `application/json` (peel one object) **or** `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional `data`). Same execute fields; same egress. Peel is compatibility; multipart is the preferred wire.
-  (`init_script` runs **once** per worker: shared uses `{session_id}:init`, isolated uses a hash of the script. Later cells are seeded from that namespace; a changed script replaces the snapshot.)
+  (`init_script` runs **once** per worker. Later cells are seeded from that namespace. Shared uses one key, `{session_id}:init`, so a changed script replaces the snapshot. Isolated keys on a hash of the script, so a changed script is a new key; old isolated snapshots stay until a per-worker LRU of 32 or the `max_tasks` recycle drops them.)
 - `POST /v1/session/reset?session_id=<id>` — optional `{ "id?" }` → `{ "id?", "status": "ok" }`. Query-only `session_id` (same L7 sticky reason as execute). Idempotent: unknown / already-gone is still `ok`. Caller is coolwsd on DocumentBroker destroy / last view leave (service-side only today; Online still hard-codes `isolated`).
 - Docker (hardened run flags): `./compute_service/start-docker.sh` — see **Production / Collabora Online** below.
 
@@ -132,34 +132,36 @@ Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This
 
 ### 4. Vision & OCR Endpoint (`POST /v1/vision`)
 
-Evaluates heavy document/image OCR and layout structure extraction in a dedicated, isolated worker subprocess pool. Supports an in-memory image buffer (`image_b64`) or a server-local path (`file_path`). Sending both is `400` with `INVALID_REQUEST`.
+Evaluates heavy document/image OCR and layout structure extraction in a dedicated, isolated worker subprocess pool. Requests use `multipart/form-data`. `meta` is a JSON part (`id`, `helper`, `timeout_ms`, `params`, `file_path`). `image` is an optional raw binary part (`Content-Type: application/octet-stream`). A JSON body is `400` with `Invalid vision body`. Including `image` or `image_b64` inside `meta` is `400`. Sending both `image` and `file_path` is `400` with `INVALID_REQUEST`.
 
-- **Request Schema (Option A: In-Memory Base64 Buffer)**:
-  ```json
-  {
-    "id": "ocr-123",
-    "helper": "extract_text",
-    "image_b64": "<base64-encoded-image>",
-    "params": {
-      "engine": "docling",
-      "fallback": true
-    },
-    "timeout_ms": 60000
-  }
-  ```
+- **Request Schema (Option A: Raw Binary Image Part)**:
+  - `meta` part (`application/json`):
+    ```json
+    {
+      "id": "ocr-123",
+      "helper": "extract_text",
+      "params": {
+        "engine": "docling",
+        "fallback": true
+      },
+      "timeout_ms": 60000
+    }
+    ```
+  - `image` part (`application/octet-stream`): `<raw binary image bytes>`
 
-- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks the opened path against the same prefix list. On Linux that is `/proc/self/fd` for the descriptor, so a symlink swapped in after the name check cannot leave the allowlist. macOS and Windows have no `/proc`; realpath of that string used to deny every file, so those platforms realpath the path that was opened (a swap that landed before `open` returns is still rejected). An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return HTTP 413 with `FILE_TOO_LARGE`. A missing, blank, or whitespace-only `file_path` with no image buffer is HTTP 400 `MISSING_IMAGE_SOURCE` and is not sent to the worker. A missing file, a directory, or a read error on a path that was sent returns HTTP 400 (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`). `INVALID_FILE_PATH` is the worker's rejection of a non-string or empty path if one reaches `read_allowlisted_file`:
-  ```json
-  {
-    "id": "ocr-124",
-    "helper": "extract_structure",
-    "file_path": "/shared/scans/invoice_2026.png",
-    "params": {
-      "table_mode": "accurate"
-    },
-    "timeout_ms": 60000
-  }
-  ```
+- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks the opened path against the same prefix list. On Linux that is `/proc/self/fd` for the descriptor, so a symlink swapped in after the name check cannot leave the allowlist. macOS and Windows have no `/proc`; realpath of that string used to deny every file, so those platforms realpath the path that was opened (a swap that landed before `open` returns is still rejected). An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return HTTP 413 with `FILE_TOO_LARGE`. A missing, blank, or whitespace-only `file_path` with no `image` part is HTTP 400 `MISSING_IMAGE_SOURCE` and is not sent to the worker. A missing file, a directory, or a read error on a path that was sent returns HTTP 400 (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`). `INVALID_FILE_PATH` is the worker's rejection of a non-string or empty path if one reaches `read_allowlisted_file`:
+  - `meta` part (`application/json`):
+    ```json
+    {
+      "id": "ocr-124",
+      "helper": "extract_structure",
+      "file_path": "/shared/scans/invoice_2026.png",
+      "params": {
+        "table_mode": "accurate"
+      },
+      "timeout_ms": 60000
+    }
+    ```
 
 - **Supported Helpers**:
   - `extract_text`: Extracts clean plaintext or Markdown from the image using Docling (or PaddleOCR fallback).
@@ -181,10 +183,14 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | HTTP Status | Condition | Response Payload Shape |
 | :--- | :--- | :--- |
 | **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone). A formula `WORKER_EXECUTION_ERROR` inside forwarded `result_json` stays 200 so the sheet shows the text | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
-| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, reserved `session_id` namespace (`:init` or `isolated:`), a non-finite or non-scalar `id` (`NaN`, `Infinity`, `1e9999`, or a nested value such as `[1e999]`) on execute, vision, or reset, vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`), a vision path that is missing, not a regular file, or unreadable (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`), a blank or whitespace-only vision `file_path` with no image (`MISSING_IMAGE_SOURCE`; a non-string or empty path that reaches the worker is `INVALID_FILE_PATH`), vision `image_b64` and `file_path` together (`INVALID_REQUEST`), vision `params` that is not an object, an unknown vision `helper` (`INVALID_REQUEST`; omitted or blank stays `extract_text`), a vision image that is not valid base64 (`INVALID_BASE64`, `INVALID_IMAGE`, `MISSING_IMAGE_SOURCE`), or `Transfer-Encoding: chunked` on any POST | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
+| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, reserved `session_id` namespace (`:init` or `isolated:`), a non-finite or non-scalar `id` (`NaN`, `Infinity`, `1e9999`, or a nested value such as `[1e999]`) on execute, vision, or reset, a bad vision multipart body, a missing vision `image` part and `file_path` (`MISSING_IMAGE_SOURCE`; a non-string or empty path that reaches the worker is `INVALID_FILE_PATH`), vision `image` part and `file_path` together (`INVALID_REQUEST`), vision `params` that is not an object, an unknown vision `helper` (`INVALID_REQUEST`; omitted or blank stays `extract_text`), vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`), a vision path that is missing, not a regular file, or unreadable (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`), or `Transfer-Encoding: chunked` on any POST | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
-| **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
+| **`403 Forbidden`** | Cross-origin request or non-loopback Host header in keyless mode (`CROSS_ORIGIN_REFUSED`) | `{"status": "error", "code": "CROSS_ORIGIN_REFUSED", "error": "..."}` |
+| **`404 Not Found`** | Unknown path | Plaintext `Not Found` |
+| **`405 Method Not Allowed`** | Known path with wrong HTTP verb | Plaintext `Method Not Allowed` + `Allow` header |
+| **`408 Request Timeout`** | Header or body read timeout (JSON body) | `{"status": "error", "error": "Request read timeout"}` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes`, the execute frame exceeds the IPC limit (`PAYLOAD_TOO_LARGE`), the result frame does (`RESULT_TOO_LARGE`), or a vision image is larger than 32 MiB (`FILE_TOO_LARGE`) | `{"status": "error", "code"?: "RESULT_TOO_LARGE", "error": "..."}` |
+| **`414 URI Too Long`** | Request line exceeds 65536 bytes | Stdlib HTML error page (not JSON) |
 | **`501 Not Implemented`** | `/v1/vision` when this server's `ocr_workers` is 0 (`VISION_SERVICE_DISABLED`). A vision pool already built in-process with workers does not make this HTTP 200. | `{"id"?: "...", "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "..."}` |
 | **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the cell never ran and a proxy may retry (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `QUEUE_TIMEOUT`, `VISION_UNAVAILABLE`). A full permit set queues until the request deadline. Execute and vision use the clamped `timeout_ms` (the pool default when it is omitted: `default_timeout_sec` or `ocr_timeout_sec`, at most `max_timeout_sec`). Session reset uses `default_timeout_sec`. 503 is that timeout. A few milliseconds of queueing is the steady state at 200–400 rps and stays HTTP 200. Sticky execute and session reset share a listener cap. A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception, JSON encoding failure, worker-side session reset error, a worker that died, rejected a response frame, or returned no frame (`WORKER_CRASHED`, `WORKER_IPC_ERROR`, `EMPTY_RESPONSE`), or a host that could not decode `result_json` (`RESULT_DECODE_ERROR`; the child stays up), or a dict-shaped internal fault (`VISION_WORKER_ERROR`, `WORKER_EXECUTION_ERROR`). A `WORKER_EXECUTION_ERROR` wrapped in forwarded `result_json` stays HTTP 200 | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
@@ -231,7 +237,7 @@ Match coolwsd (`coolwsd.xml`):
 ## Configuration & Ops (no writeragent.json)
 
 Precedence (later wins): defaults → `--config` / `PYTHON_COMPUTE_CONFIG` JSON →
-`PYTHON_COMPUTE_*` env → `--host` / `--port` / `--api-key-file`.
+`PYTHON_COMPUTE_*` env → `--host` / `--port` / `--api-key-file`. When a canonical variable and its alias are both set, the canonical name wins (`PYTHON_COMPUTE_WORKERS` over `PYTHON_COMPUTE_MAX_WORKERS`, `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` over `PYTHON_COMPUTE_SESSION_TTL_SEC`), with a warning when they differ. An empty value is ignored and falls back to JSON or the default, with a warning.
 
 Example JSON: [`python-compute.example.json`](python-compute.example.json).
 
@@ -262,7 +268,7 @@ Key file permissions: readable only by the service user (e.g. mode `0400`). `./c
 
 coolwsd is the only hop that should reach this process. Bind loopback, set the same Bearer secret as `security.python_compute.api_key`, and do **not** mount a host venv or docker.sock.
 
-`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Prefer `image_b64`. A vision call waits for a free OCR worker until its timeout, then returns HTTP 503 with `VISION_POOL_BUSY` in the JSON body. A call that exceeds its own timeout returns `EXECUTION_TIMEOUT` and kills that worker. The next call respawns it, which reloads the model.
+`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Send the raw `image` part. A vision call waits for a free OCR worker until its timeout, then returns HTTP 503 with `VISION_POOL_BUSY` in the JSON body. A call that exceeds its own timeout returns `EXECUTION_TIMEOUT` and kills that worker. The next call respawns it, which reloads the model.
 
 `--network=none` cannot be combined with `-p` (published ports need a network namespace). Publish to loopback on the host, or use an internal bridge **without a default route**. Tenant sockets still fail via the AST sandbox plus missing egress.
 
@@ -284,6 +290,7 @@ Shared `mode=shared` **must** use a per-document `session_id` query parameter (`
 
 - **Graceful Shutdown**: The service traps `SIGTERM` and `SIGINT`.
 - When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), a background thread asks the accept loop to stop. `serve_forever` returns immediately via a wake self-pipe, and the listening sockets close in that `finally`. The process waits up to 30s for handlers that have already started. Connections still in the accept queue when that wait ends are cancelled and their sockets are closed. A handler that already started is not cancelled. Pool threads and the `http-drain` waiter are daemons; they do not keep the process alive (`test_sigterm_abandons_inflight_execute_and_exits` exits while its 8s cell is still running). A cell still running at the end of the wait is abandoned. The server terminates worker subprocesses and cleans up resources.
+- **Second signal**: A second `SIGTERM` or `SIGINT` calls `os._exit(1)`, which skips the drain and pool shutdown above. On Linux each worker sets `PR_SET_PDEATHSIG` (`SIGKILL`), so it dies with the server. Other platforms have no equivalent, and workers can be left orphaned.
 
 ---
 
@@ -321,7 +328,7 @@ The host is a proxy: auth, sticky routing, timeouts, worker lease. One deseriali
 - Spawn handshake: the child writes `{status: "ready", pid: ...}` before the request loop.
 - Formula workers allow up to ~33 MiB per frame so a 32 MiB HTTP body can travel as `data_json`.
 
-Vision workers share the pickle framing. HTTP `image_b64` is decoded to raw `bytes` (`image_bytes`) on the pipe so the child does not re-decode Base64. Vision is unchanged (full JSON parse of a small OCR body).
+Vision workers share the pickle framing. Vision uses the same multipart boundary scan as execute. The host `json.loads` only the `meta` part; the raw `image` part is forwarded as `image_bytes` on the pickle frame, with no Base64 step.
 
 Kit-side dumb JSON contract: [`docs/scripting/numpy-jailsafe.md`](../docs/scripting/numpy-jailsafe.md).
 

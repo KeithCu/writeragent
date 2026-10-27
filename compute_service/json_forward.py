@@ -35,6 +35,8 @@ _MAX_PART_HEADERS = 8 * 1024
 _MAX_MULTIPART_PARTS = 8
 _PART_NAMES = frozenset({"meta", "code", "init_script", "data"})
 _FORBIDDEN_META_KEYS = ("code", "data", "data_json", "init_script")
+_VISION_PART_NAMES = frozenset({"meta", "image"})
+_VISION_FORBIDDEN_META_KEYS = ("image", "image_b64")
 _ALLOWED_CTE = frozenset({"7bit", "8bit", "binary"})
 _BOUNDARY_TOKEN_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'()+_,-./:=?")
 
@@ -165,6 +167,18 @@ class ExecuteRequestParts:
     has_session_id: bool
 
 
+@dataclass(frozen=True)
+class VisionRequestParts:
+    """Control fields plus raw image bytes for /v1/vision."""
+
+    req_id: Any
+    helper: Any
+    timeout_ms: Any
+    params: Any
+    file_path: Any
+    image: bytes | None
+
+
 def dumps_response(payload: dict[str, Any]) -> bytes:
     """Encode one kit-safe execute response. Worker is the only dumps site."""
     return json.dumps(payload, allow_nan=False).encode("utf-8")
@@ -230,6 +244,25 @@ def encode_multipart_execute(meta: dict[str, Any], data_json: bytes | None = Non
     return f"multipart/form-data; boundary={_boundary_param(chosen)}", b"".join(chunks)
 
 
+def encode_multipart_vision(meta: dict[str, Any], image: bytes | bytearray | None = None, *, boundary: str | None = None) -> tuple[str, bytes]:
+    """Build vision multipart. Returns ``(Content-Type, body bytes)``."""
+    meta_bytes = json.dumps(meta, allow_nan=False).encode("utf-8")
+    image_bytes = None if image is None else bytes(image)
+    payloads = [meta_bytes]
+    if image_bytes is not None:
+        payloads.append(image_bytes)
+    chosen = _pick_boundary(payloads, boundary or "wa-vision")
+
+    def _part(name: str, content_type: str, cte: str, payload: bytes) -> bytes:
+        return (f'--{chosen}\r\nContent-Disposition: form-data; name="{name}"\r\nContent-Type: {content_type}\r\nContent-Transfer-Encoding: {cte}\r\n\r\n').encode("ascii") + payload + b"\r\n"
+
+    chunks = [_part("meta", "application/json", "8bit", meta_bytes)]
+    if image_bytes is not None:
+        chunks.append(_part("image", "application/octet-stream", "binary", image_bytes))
+    chunks.append(f"--{chosen}--\r\n".encode("ascii"))
+    return f"multipart/form-data; boundary={_boundary_param(chosen)}", b"".join(chunks)
+
+
 def parse_multipart_execute(body: bytes, content_type: str) -> ExecuteRequestParts:
     """Long-term kit ingress. Boundary-scan the body and ``json.loads`` meta only.
 
@@ -253,7 +286,7 @@ def parse_multipart_execute(body: bytes, content_type: str) -> ExecuteRequestPar
     if not isinstance(body, (bytes, bytearray)):
         raise ExecuteRequestError("Request body must be bytes")
     boundary = _boundary_from_content_type(content_type)
-    named = _scan_multipart_parts(bytes(body), boundary)
+    named = _scan_multipart_parts(bytes(body), boundary, _PART_NAMES)
     req_id, mode, timeout_ms, has_session_id = _parse_meta_object(named["meta"])
     return ExecuteRequestParts(req_id=req_id, code=named.get("code"), mode=mode, timeout_ms=timeout_ms, init_script=named.get("init_script"), data_json=named.get("data"), has_session_id=has_session_id)
 
@@ -367,7 +400,7 @@ def _unquote_param(value: str) -> str:
     return value
 
 
-def _scan_multipart_parts(body: bytes, boundary: bytes) -> dict[str, bytes]:
+def _scan_multipart_parts(body: bytes, boundary: bytes, allowed: frozenset[str]) -> dict[str, bytes]:
     """Slice named parts by boundary.
 
     ``email.parser.BytesParser`` built a message tree and walked every part,
@@ -390,7 +423,7 @@ def _scan_multipart_parts(body: bytes, boundary: bytes) -> dict[str, bytes]:
         name, cte = _part_name_and_cte(header_bytes)
         if cte is not None and cte not in _ALLOWED_CTE:
             raise ExecuteRequestError("unsupported content-transfer-encoding")
-        if name not in _PART_NAMES:
+        if name not in allowed:
             raise ExecuteRequestError(f"unknown multipart part {name!r}")
         if name in parts:
             raise ExecuteRequestError(f"duplicate multipart part {name!r}")
@@ -616,6 +649,41 @@ def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
     _reject_nonfinite_number(req_id)
     _reject_nonfinite_number(timeout_ms)
     return req_id, obj.get("mode"), timeout_ms, "session_id" in obj
+
+
+def _parse_vision_meta(meta_bytes: bytes) -> tuple[Any, Any, Any, Any, Any]:
+    if len(meta_bytes) > MAX_META_BYTES:
+        raise ExecuteRequestError("meta part exceeds size cap")
+    try:
+        obj = json.loads(meta_bytes.decode("utf-8"), parse_constant=_reject_json_constant)
+    except Exception as exc:
+        raise ExecuteRequestError("invalid meta JSON") from exc
+    if not isinstance(obj, dict):
+        raise ExecuteRequestError("meta part must be a JSON object")
+    for key in _VISION_FORBIDDEN_META_KEYS:
+        if key in obj:
+            raise ExecuteRequestError(f"meta part must not include a {key!r} field")
+    req_id = obj.get("id")
+    if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
+        raise ExecuteRequestError("id must be a scalar")
+    timeout_ms = obj.get("timeout_ms")
+    if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
+        raise ExecuteRequestError("timeout_ms must be a scalar")
+    _reject_nonfinite_number(req_id)
+    _reject_nonfinite_number(timeout_ms)
+    return req_id, obj.get("helper"), timeout_ms, obj.get("params"), obj.get("file_path")
+
+
+def parse_multipart_vision(body: bytes, content_type: str) -> VisionRequestParts:
+    """Boundary-scan vision multipart body and json.loads meta only."""
+    if not is_multipart_content_type(content_type):
+        raise ExecuteRequestError("Content-Type is not multipart")
+    if not isinstance(body, (bytes, bytearray)):
+        raise ExecuteRequestError("Request body must be bytes")
+    boundary = _boundary_from_content_type(content_type)
+    named = _scan_multipart_parts(bytes(body), boundary, _VISION_PART_NAMES)
+    req_id, helper, timeout_ms, params, file_path = _parse_vision_meta(named["meta"])
+    return VisionRequestParts(req_id=req_id, helper=helper, timeout_ms=timeout_ms, params=params, file_path=file_path, image=named.get("image"))
 
 
 def parse_execute_request(body: bytes, content_type: str | None) -> ExecuteRequestParts:

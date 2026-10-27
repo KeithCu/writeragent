@@ -534,6 +534,10 @@ class BaseProcessPool:
             self._leased.discard(worker)
             self._cond.notify_all()
 
+    def _clear_recycling_mark(self, worker: BaseProcessWorker) -> None:
+        """Clear any recycling reservation mark. Subclasses may override."""
+        return
+
     def _finish_release(self, worker: BaseProcessWorker) -> None:
         if self._is_shutdown:
             self._drop_lease(worker)
@@ -544,26 +548,34 @@ class BaseProcessPool:
                 log.exception("Failed to reap %s #%d during shutdown", self.worker_name, worker.worker_id)
             return
 
-        recycle = self.should_recycle_worker(worker)
+        # An "exiting" frame means the child os._exit()s next. Never idle it,
+        # even when it holds sessions.
+        exiting = worker.pending_exit
+        recycle = exiting or self.should_recycle_worker(worker)
         kill_for_shutdown = False
         with self._cond:
             if self._is_shutdown:
                 kill_for_shutdown = True
-            elif recycle:
-                # Keep the lease until kill returns. Dropping it first lets
-                # lease_any cold-claim a process this release is about to
-                # SIGKILL. After kill the slot is dead and not idle.
-                pass
             else:
-                self._leased.discard(worker)
-                # A child kill() could not reap is no longer alive: the slot
-                # dropped it. Idling a dead slot would hand out a process
-                # execute has to respawn anyway.
-                if worker.is_alive():
-                    # The response frame was consumed and worker is alive: return to idle.
-                    self._idle[worker] = time.monotonic()
-                    self._idle.move_to_end(worker)
-                self._cond.notify_all()
+                if recycle and not exiting:
+                    # Re-check in this hold: a shared session reserved since the
+                    # first check cancels the recycle and clears the mark.
+                    recycle = self.should_recycle_worker(worker)
+                if recycle:
+                    # Keep the lease until kill returns. Dropping it first lets
+                    # lease_any cold-claim a process this release is about to
+                    # SIGKILL. After kill the slot is dead and not idle.
+                    pass
+                else:
+                    self._leased.discard(worker)
+                    # A child kill() could not reap is no longer alive: the slot
+                    # dropped it. Idling a dead slot would hand out a process
+                    # execute has to respawn anyway.
+                    if worker.is_alive():
+                        # The response frame was consumed and worker is alive: return to idle.
+                        self._idle[worker] = time.monotonic()
+                        self._idle.move_to_end(worker)
+                    self._cond.notify_all()
 
         if kill_for_shutdown:
             self._drop_lease(worker)
@@ -575,7 +587,10 @@ class BaseProcessPool:
             return
 
         if recycle:
-            log.info("Retiring %s #%d after %d tasks", self.worker_name, worker.worker_id, worker.tasks_executed)
+            if exiting:
+                log.info("Retiring %s #%d after abandoned timeout", self.worker_name, worker.worker_id)
+            else:
+                log.info("Retiring %s #%d after %d tasks", self.worker_name, worker.worker_id, worker.tasks_executed)
             # What was wrong: kill() sat before _drop_lease with no handler.
             # How: an exception from kill() skipped _drop_lease, so the slot
             # stayed in _leased and no later lease could claim it.
@@ -584,6 +599,8 @@ class BaseProcessPool:
             # so lease_any cannot cold-claim the process being retired.
             try:
                 worker.kill()
+                worker.pending_exit = False
+                self._clear_recycling_mark(worker)
             except Exception:
                 log.exception("Failed to reap %s #%d during recycle", self.worker_name, worker.worker_id)
             self._drop_lease(worker)
