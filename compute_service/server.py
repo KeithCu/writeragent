@@ -219,21 +219,25 @@ ResetFn = Callable[..., dict[str, Any]]
 # =============================================================================
 
 
-def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 1024) -> None:
-    """Best-effort drain of remaining request body so client does not receive TCP RST."""
+def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 1024) -> bool:
+    """Best-effort drain of remaining request body so client does not receive TCP RST.
+
+    Returns whether the declared body was fully consumed.
+    """
     # The body is already buffered. Reading Content-Length again on a
     # keep-alive connection would consume the next request.
     if isinstance(environ.get("compute.raw_body"), (bytes, bytearray)):
-        return
+        return True
     raw_len = environ.get("CONTENT_LENGTH")
     if not raw_len:
-        return
+        return True
     try:
         content_length = int(raw_len)
         if content_length <= 0:
-            return
+            return True
     except (TypeError, ValueError):
-        return
+        environ["compute.close_connection"] = True
+        return False
     conn = environ.get("compute.connection")
     # None from gettimeout() is a blocking socket and must be restored.
     # settimeout runs only after a timeout was actually read and the 1s
@@ -256,11 +260,13 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
                 pass
             else:
                 restore_timeout = True
+    bytes_read = 0
     try:
         to_drain = min(content_length, max_bytes)
         wsgi_input = environ.get("wsgi.input")
         if wsgi_input is not None:
-            wsgi_input.read(to_drain)
+            chunk = wsgi_input.read(to_drain)
+            bytes_read = len(chunk) if chunk else 0
     except OSError:
         pass
     finally:
@@ -270,6 +276,24 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
                 conn.settimeout(saved_timeout)
             except OSError:
                 pass
+
+    fully_consumed = bytes_read == content_length
+    if not fully_consumed:
+        environ["compute.close_connection"] = True
+    return fully_consumed
+
+
+def _has_declared_body(environ: dict[str, Any]) -> bool:
+    """True when client declared a non-empty request body or chunked encoding."""
+    if _transfer_encoding_is_chunked(environ):
+        return True
+    raw_len = environ.get("CONTENT_LENGTH")
+    if raw_len:
+        try:
+            return int(raw_len) > 0
+        except (ValueError, TypeError):
+            return True
+    return False
 
 
 def _set_write_deadline(environ: dict[str, Any]) -> None:
@@ -344,6 +368,7 @@ def _reject_chunked(environ: dict[str, Any], start_response: Any) -> list[bytes]
     """400 when the body is chunked. ``None`` when the request may continue."""
     if not _transfer_encoding_is_chunked(environ):
         return None
+    environ["compute.close_connection"] = True
     return _error(start_response, "400 Bad Request", "Chunked transfer encoding is not supported")
 
 
@@ -357,19 +382,24 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
         return None, chunked
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
+        environ["compute.close_connection"] = True
         return None, _error(start_response, "400 Bad Request", "Missing Content-Length")
     try:
         content_length = int(raw_len)
     except (TypeError, ValueError):
+        environ["compute.close_connection"] = True
         return None, _error(start_response, "400 Bad Request", "Invalid Content-Length")
     if content_length <= 0:
+        environ["compute.close_connection"] = True
         return None, _error(start_response, "400 Bad Request", "Invalid Content-Length")
     if content_length > settings.max_body_bytes:
         _drain_body_before_error(environ, max_bytes=64 * 1024)
+        environ["compute.close_connection"] = True
         return None, _error(start_response, "413 Payload Too Large", "Request body too large")
 
     wsgi_input = environ.get("wsgi.input")
     if wsgi_input is None:
+        environ["compute.close_connection"] = True
         return None, _error(start_response, "500 Internal Server Error", "Missing wsgi.input stream")
 
     conn = environ.get("compute.connection")
@@ -386,6 +416,7 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
         while bytes_read < content_length:
             now = time.monotonic()
             if now >= read_deadline:
+                environ["compute.close_connection"] = True
                 _set_write_deadline(environ)
                 return None, _error(start_response, "408 Request Timeout", "Request read timeout")
             remaining_time = read_deadline - now
@@ -396,6 +427,7 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
                     # If the deadline cannot be armed, stop. The next read would
                     # keep the previous socket timeout.
                     log.debug("failed to arm body-read deadline", exc_info=True)
+                    environ["compute.close_connection"] = True
                     _set_write_deadline(environ)
                     return None, _error(start_response, "408 Request Timeout", "Request read timeout")
 
@@ -407,15 +439,18 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
             chunks.append(chunk)
             bytes_read += len(chunk)
     except TimeoutError:
+        environ["compute.close_connection"] = True
         _set_write_deadline(environ)
         return None, _error(start_response, "408 Request Timeout", "Request read timeout")
     except OSError as e:
         log.warning("Socket read error during body ingress: %s", e)
+        environ["compute.close_connection"] = True
         _set_write_deadline(environ)
         return None, _error(start_response, "400 Bad Request", "Connection error reading request body")
 
     _set_write_deadline(environ)
     if bytes_read != content_length:
+        environ["compute.close_connection"] = True
         return None, _error(start_response, "400 Bad Request", "Request body truncated")
 
     body = b"".join(chunks)
@@ -518,12 +553,16 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
         return None
 
     if environ.get("HTTP_ORIGIN"):
+        if _has_declared_body(environ):
+            environ["compute.close_connection"] = True
         return _error(start_response, "403 Forbidden", "Cross-origin requests are forbidden in keyless mode.", code="CROSS_ORIGIN_REFUSED")
 
     # HTTP/1.0 may omit Host. No Host is not a loopback Host, so keyless
     # mode still refuses it.
     raw_host_value = environ.get("HTTP_HOST")
     if not isinstance(raw_host_value, str) or not raw_host_value.strip():
+        if _has_declared_body(environ):
+            environ["compute.close_connection"] = True
         return _error(start_response, "403 Forbidden", "Only loopback hosts are allowed in keyless mode.", code="CROSS_ORIGIN_REFUSED")
     raw_host = raw_host_value.lower()
     if raw_host.startswith("["):
@@ -532,6 +571,8 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
         host = raw_host.split(":")[0]
 
     if host not in ("localhost", "127.0.0.1", "[::1]"):
+        if _has_declared_body(environ):
+            environ["compute.close_connection"] = True
         return _error(start_response, "403 Forbidden", "Only loopback hosts are allowed in keyless mode.", code="CROSS_ORIGIN_REFUSED")
     return None
 
@@ -664,6 +705,7 @@ def _gated(
         except Exception as e:
             path = environ.get("PATH_INFO", "")
             log.exception("fail %s prepare: %s", path, e)
+            environ["compute.close_connection"] = True
             if started:
                 return []
             return _error(_start, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR", req_id=None)
@@ -700,6 +742,7 @@ def _gated(
         except Exception as e:
             path = environ.get("PATH_INFO", "")
             log.exception("fail %s: %s", path, e)
+            environ["compute.close_connection"] = True
             if started:
                 return []
             return _error(_start, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR", req_id=admission.req_id)
@@ -1027,10 +1070,14 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         if allow is not None:
             # A known path with the wrong verb is 405, with Allow, so clients
             # are not told the route does not exist.
+            if _has_declared_body(environ):
+                environ["compute.close_connection"] = True
             body = b"Method Not Allowed"
             start_response("405 Method Not Allowed", [("Content-Type", "text/plain"), ("Content-Length", str(len(body))), ("Allow", allow)])
             return [body]
 
+        if _has_declared_body(environ):
+            environ["compute.close_connection"] = True
         start_response("404 Not Found", [("Content-Type", "text/plain"), ("Content-Length", "9")])
         return [b"Not Found"]
 
