@@ -306,6 +306,36 @@ def test_launch_monaco_editor_reuses_running_process():
     pe._proc = None
 
 
+def test_launch_monaco_editor_logs_chosen_theme(caplog):
+    ctx = MagicMock()
+    pe = launch_mod._PERSISTENT_EDITOR
+    pe.sessions.clear()
+    pe.focused_id = None
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+
+    with caplog.at_level(logging.DEBUG, logger="plugin.scripting.editor_host"):
+        with patch.object(type(pe), "is_running", new=property(lambda self: True)):
+            pe._proc = mock_proc
+            with patch.object(launch_mod, "EditorSession") as mock_session_cls:
+                session = MagicMock()
+                session.is_running = True
+                mock_session_cls.return_value = session
+
+                ok = launch_mod.launch_monaco_editor(
+                    ctx,
+                    exe="/venv/bin/python",
+                    load_message={"type": "load", "code": "print(1)", "mode": "calc_cell", "cell_address": "A1"},
+                    on_save=MagicMock(),
+                )
+
+    assert ok is True
+    assert "editor_host: chosen theme:" in caplog.text
+    pe.sessions.clear()
+    pe.focused_id = None
+    pe._proc = None
+
+
 def test_launch_monaco_editor_spawns_when_not_running():
     ctx = MagicMock()
     mock_proc = MagicMock()

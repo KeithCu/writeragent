@@ -330,3 +330,45 @@ def test_main_codemirror_backend_fatals_when_cm6_assets_missing(tmp_path, monkey
         em.main()
     assert exc_info.value.code == 1
     assert "CodeMirror" in capsys.readouterr().err
+
+
+def test_poll_messages_load_restores_shows_and_focuses_window():
+    _reset_state()
+    api = em.MonacoEditorApi()
+    mock_window = MagicMock()
+    mock_window.on_top = False
+    api.set_window(mock_window)
+
+    em._ui_queue.put({"type": "load", "title": "Editor Window"})
+    batch = api.poll_messages()
+
+    assert len(batch) == 1
+    assert batch[0]["type"] == "load"
+    assert mock_window.title == "Editor Window"
+    mock_window.restore.assert_called_once()
+    mock_window.show.assert_called_once()
+    mock_window.focus.assert_called_once()
+    assert mock_window.on_top is False
+
+
+def test_poll_messages_load_handles_missing_window_methods():
+    _reset_state()
+    api = em.MonacoEditorApi()
+
+    class BareWindow:
+        def __init__(self):
+            self.title = ""
+            self.shown = False
+
+        def show(self):
+            self.shown = True
+
+    bare = BareWindow()
+    api.set_window(bare)
+
+    em._ui_queue.put({"type": "load", "title": "Bare Window"})
+    batch = api.poll_messages()
+
+    assert len(batch) == 1
+    assert bare.title == "Bare Window"
+    assert bare.shown is True

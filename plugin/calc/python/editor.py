@@ -425,14 +425,14 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
     if monaco_available:
         assert exe is not None
         log.info("python_editor: using interpreter %s", exe)
-        log.info("python_editor: launching Monaco subprocess")
+        log.info("python_editor: launching editor subprocess")
         _launch_editor_with_code(ctx, doc, cell, initial_code=initial_code, parsed_parts=parsed_parts, exe=exe, code_cell=code_cell, code_ref=code_ref)
         log.info("python_editor: editor session started")
         return
 
     from plugin.calc.python.cell_editor_ui import show_native_python_cell_editor
 
-    log.info("python_editor: Monaco unavailable; opening native cell editor")
+    log.info("python_editor: editor unavailable; opening native cell editor")
     opened, detail = show_native_python_cell_editor(ctx, doc=doc, cell=cell, initial_code=initial_code, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
     if opened:
         return

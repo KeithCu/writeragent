@@ -342,7 +342,23 @@ class MonacoEditorApi:
                         title = msg.get("title")
                         if title:
                             self._window.title = title
+                        if hasattr(self._window, "restore"):
+                            try:
+                                self._window.restore()
+                            except Exception:
+                                log.debug("editor_main: window.restore failed", exc_info=True)
                         self._window.show()
+                        if hasattr(self._window, "on_top"):
+                            try:
+                                self._window.on_top = True
+                                self._window.on_top = False
+                            except Exception:
+                                log.debug("editor_main: window on_top toggle failed", exc_info=True)
+                        if hasattr(self._window, "focus"):
+                            try:
+                                self._window.focus()
+                            except Exception:
+                                log.debug("editor_main: window.focus failed", exc_info=True)
                 except Exception:
                     log.exception("editor_main: failed to show window on load")
         return batch

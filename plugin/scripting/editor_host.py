@@ -124,7 +124,7 @@ def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
             None,
             _(
                 "Set the Python venv path in Settings → Python (same venv where you ran "
-                "'uv pip install pywebview rocher'). LibreOffice's built-in Python cannot run the Monaco editor."
+                "'uv pip install pywebview rocher'). LibreOffice's built-in Python cannot run the editor."
             ),
         )
     exe = resolve_venv_python(venv_dir)
@@ -1023,7 +1023,7 @@ def _on_config_changed(**kwargs: Any) -> None:
         _PROBE_FAILURE_CACHE.clear()
 
     if force_changed:
-        log.info("editor_host: scripting.force_internal_script_editor changed, terminating background Monaco process")
+        log.info("editor_host: scripting.force_internal_script_editor changed, terminating background editor process")
 
     terminate_persistent_editor()
 
@@ -1046,7 +1046,7 @@ def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
         log.debug("monaco_editor_available: no venv python (%s)", err)
         return None, False
     if _PERSISTENT_EDITOR.is_running:
-        log.debug("monaco_editor_available: Monaco editor process already running, skipping probe")
+        log.debug("monaco_editor_available: editor process already running, skipping probe")
         return exe, True
     webview_ok, detail = probe_webview_import(exe)
     if not webview_ok:
@@ -1330,6 +1330,7 @@ def launch_monaco_editor(
         # question. Cancel must not retarget the script picker document.
         doc_for_theme = ipc_message.get("doc") or ipc_message.get("run_script_doc")
         ipc_message["theme"] = get_monaco_theme_info(doc=doc_for_theme, ctx=ctx)
+        log.debug("editor_host: chosen theme: %s", ipc_message["theme"])
 
     # One gate covers cell, Run Script, init script, and LaTeX. Replacing the
     # focused buffer before asking dropped the other buffer: the cell editor
@@ -1347,13 +1348,13 @@ def launch_monaco_editor(
         _PERSISTENT_EDITOR.set_run_script_document(None)
 
     if _PERSISTENT_EDITOR.is_running:
-        log.info("editor_host: reusing running Monaco background process")
+        log.info("editor_host: reusing running editor background process")
         proc = _PERSISTENT_EDITOR.proc
         assert proc is not None
         session = EditorSession(proc, on_save=on_save, on_closed=closed_handler)
         set_active_session(session)
     else:
-        log.info("editor_host: spawning new Monaco background process")
+        log.info("editor_host: spawning new editor background process")
         try:
             proc = spawn_editor_process(exe)
         except OSError as e:
@@ -1405,7 +1406,7 @@ def launch_monaco_editor(
         # The confirm gate should have queued, cancelled, or marked discard.
         # Killing the child here would throw away the buffer we just refused
         # to replace.
-        log.error("editor_host: refused to replace a dirty Monaco buffer")
+        log.error("editor_host: refused to replace a dirty editor buffer")
         return True
     except Exception as e:
         log.exception("Failed to send load to editor")
