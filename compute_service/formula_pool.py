@@ -114,7 +114,6 @@ class FormulaProcessPool(BaseProcessPool):
         # Consumed by the next sticky call that observes the id. Capped so a
         # long-lived process does not keep every workbook it has ever reset.
         self._lost_sessions: OrderedDict[str, float] = OrderedDict()
-        self._max_lost_sessions: int = 1000
         self.shared_kernel_ttl_sec = eff_shared_ttl
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
 
@@ -151,11 +150,31 @@ class FormulaProcessPool(BaseProcessPool):
         set can run one cell without the flag. Worker death drops that
         worker's sessions on the exited child, and this set still reports once.
         """
-        # Reinsert so dict order is recency. The cap drops the oldest id.
+        # Reinsert so dict order is age. The reaper pops expired ids off the front.
         self._lost_sessions.pop(session_id, None)
         self._lost_sessions[session_id] = time.monotonic()
-        while len(self._lost_sessions) > self._max_lost_sessions:
-            self._lost_sessions.popitem(last=False)
+
+    def _expire_lost_markers_unlocked(self) -> None:
+        """Drop lost markers older than ``shared_kernel_ttl_sec``. Caller holds ``self._cond``.
+
+        A TTL of 0 keeps every marker: sessions never expire in that
+        configuration either, so the markers are bounded the same way the
+        session map is.
+        """
+        ttl = self.shared_kernel_ttl_sec
+        if ttl <= 0:
+            return
+        now = time.monotonic()
+        while self._lost_sessions:
+            sid, marked = next(iter(self._lost_sessions.items()))
+            if now - marked < ttl:
+                return
+            del self._lost_sessions[sid]
+
+    def _evict_idle_workers(self) -> None:
+        with self._cond:
+            self._expire_lost_markers_unlocked()
+        super()._evict_idle_workers()
 
     def _drop_session(self, session_id: str, *, only_if_worker: BaseProcessWorker | None = None, lost: bool = True) -> None:
         """Drop *session_id* from the active map.
