@@ -137,6 +137,22 @@ def test_bbox_to_xywh_dict_and_object_forms():
     assert bbox_to_xywh({"l": "bad", "t": 1, "r": 2, "b": 3}) == [0, 0, 0, 0]
 
 
+def test_bbox_to_xywh_malformed_returns_zeros():
+    # Malformed input returns [0, 0, 0, 0], as the docstring says.
+    assert bbox_to_xywh({"x": "n/a", "y": 0, "w": 1, "h": 1}) == [0, 0, 0, 0]
+    assert bbox_to_xywh({"x": 0, "y": float("nan"), "w": 1, "h": 1}) == [0, 0, 0, 0]
+    assert bbox_to_xywh({"x": 0, "y": float("inf"), "w": 1, "h": 1}) == [0, 0, 0, 0]
+    assert bbox_to_xywh([0, None, 5, 5]) == [0, 0, 0, 0]
+    assert bbox_to_xywh([0, float("nan"), 5, 5]) == [0, 0, 0, 0]
+    assert bbox_to_xywh([0, float("inf"), 5, 5]) == [0, 0, 0, 0]
+    assert bbox_to_xywh(_NumpyRow([10, None, 30, 40])) == [0, 0, 0, 0]
+    assert bbox_to_xywh([[float("nan"), 1], [2, 2], [3, 3], [4, 4]]) == [0, 0, 0, 0]
+    assert bbox_to_xywh([[float("inf"), 1.0], [2.0, 2.0], [3.0, 3.0], [1.0, 4.0]]) == [0, 0, 0, 0]
+    assert bbox_to_xywh({"l": float("nan"), "t": 10.0, "r": 20.0, "b": 30.0}) == [0, 0, 0, 0]
+    assert bbox_to_xywh({"l": "nan", "t": 0, "r": 10, "b": 10}) == [0, 0, 0, 0]
+    assert bbox_to_xywh({"x": 1.9, "y": 2, "w": 3.2, "h": 4}) == [1, 2, 3, 4]
+
+
 def test_table_from_span_cells_falls_through_bad_alias():
     cells = [{"start_row_offset_idx": "bad", "start_row": 1, "start_col": 0, "text": "A"}]
     table = table_from_span_cells(cells, 2, 1, name="t")
