@@ -241,6 +241,26 @@ def _reject_ndarray_constructor(obj: object) -> None:
         raise pickle.UnpicklingError("numpy.ndarray constructor is not allowed")
 
 
+def _reject_sized_buffer_alloc(func: object, args: object, kwargs: object = None) -> None:
+    """Refuse bytes(n) / bytearray(n). The int is a few pickle bytes.
+
+    Protocol 5 stores bytes with BINBYTES and bytearray with BYTEARRAY8.
+    Protocol 3 and 4 rebuild a bytearray as REDUCE(bytearray, (b"...",)).
+    An int size is not those paths. bool is an int subclass and is not a size.
+    """
+    if func is not bytes and func is not bytearray:
+        return
+    size: int | None = None
+    if isinstance(args, (tuple, list)) and len(args) == 1 and isinstance(args[0], int) and not isinstance(args[0], bool):
+        size = args[0]
+    if size is None and isinstance(kwargs, dict):
+        source = kwargs.get("source")
+        if isinstance(source, int) and not isinstance(source, bool):
+            size = source
+    if size is not None:
+        raise pickle.UnpicklingError("bytes allocation from an int is not allowed")
+
+
 def _reject_unbounded_numpy_reduce(func: object, args: object) -> None:
     """Refuse NumPy REDUCE targets that allocate past the frame cap.
 
@@ -335,7 +355,9 @@ class AllowlistUnpickler(pickle._Unpickler):
         ``_instantiate``. NumPy's own pickles use REDUCE and BUILD, not
         OBJ or INST. Any other class still uses the original.
         """
-        _reject_ndarray_constructor(klass)
+        # OBJ/INST call the class. _reconstruct is allowlisted and allocates here.
+        _reject_unbounded_numpy_reduce(klass, tuple(args))
+        _reject_sized_buffer_alloc(klass, args)
         instantiate = getattr(pickle._Unpickler, "_instantiate")
         instantiate(self, klass, args)
 
@@ -351,6 +373,7 @@ def _guarded_load_reduce(unpickler: pickle.Unpickler, /) -> None:
     args = stack.pop()
     func = stack[-1]
     _reject_unbounded_numpy_reduce(func, args)
+    _reject_sized_buffer_alloc(func, args)
     if not isinstance(args, tuple):
         raise pickle.UnpicklingError("REDUCE arguments are not a tuple")
     if not callable(func):
@@ -361,7 +384,11 @@ def _guarded_load_reduce(unpickler: pickle.Unpickler, /) -> None:
 def _guarded_load_newobj_common(unpickler: pickle.Unpickler, stack_depth: int, method_name: str, /) -> None:
     stack = cast("list[Any]", getattr(unpickler, "stack"))
     if len(stack) >= stack_depth:
-        _reject_ndarray_constructor(stack[-stack_depth])
+        cls = stack[-stack_depth]
+        _reject_ndarray_constructor(cls)
+        args = stack[-stack_depth + 1]
+        kwargs = stack[-1] if stack_depth >= 3 else None
+        _reject_sized_buffer_alloc(cls, args, kwargs)
     target = getattr(pickle._Unpickler, method_name)
     target(unpickler)
 
@@ -393,6 +420,43 @@ def _guarded_load_newobj_ex(unpickler: pickle.Unpickler, /) -> None:
     _guarded_load_newobj_common(unpickler, 3, "load_newobj_ex")
 
 
+def _buffered_remaining(stream: io.BytesIO) -> int:
+    view = stream.getbuffer()
+    try:
+        return len(view) - stream.tell()
+    finally:
+        view.release()
+
+
+def _guarded_load_bytearray8(unpickler: pickle.Unpickler, /) -> None:
+    """BYTEARRAY8. Allocate only what this payload already holds.
+
+    The stdlib builds bytearray(n) and then reads. A length bigger than the
+    frame still zeroes n bytes. Protocol 5 bytearrays use this opcode, so a
+    length that fits the frame must still succeed.
+    """
+    raw: bytes = getattr(unpickler, "read")(8)
+    if len(raw) < 8:
+        raise pickle.UnpicklingError("BYTEARRAY8 length truncated")
+    (size,) = struct.unpack("<Q", raw)
+    if size > sys.maxsize:
+        raise pickle.UnpicklingError(
+            "BYTEARRAY8 exceeds system's maximum size of %d bytes" % sys.maxsize
+        )
+    unframer = getattr(unpickler, "_unframer", None)
+    current = getattr(unframer, "current_frame", None)
+    if isinstance(current, io.BytesIO):
+        remaining = _buffered_remaining(current)
+    else:
+        src = getattr(getattr(unpickler, "_file_read", None), "__self__", None)
+        remaining = _buffered_remaining(src) if isinstance(src, io.BytesIO) else -1
+    if size > remaining:
+        raise pickle.UnpicklingError("BYTEARRAY8 length exceeds available data")
+    buf = bytearray(size)
+    getattr(unpickler, "readinto")(buf)
+    cast("list[Any]", getattr(unpickler, "stack")).append(buf)
+
+
 # The opcode table is filled on pickle._Unpickler. A subclass method does
 # not replace it. Copy, then point REDUCE, NEWOBJ, and NEWOBJ_EX at the
 # guards. OBJ and INST call _instantiate, which the class overrides.
@@ -401,6 +465,8 @@ AllowlistUnpickler.dispatch = pickle._Unpickler.dispatch.copy()
 AllowlistUnpickler.dispatch[pickle.REDUCE[0]] = _guarded_load_reduce
 AllowlistUnpickler.dispatch[pickle.NEWOBJ[0]] = _guarded_load_newobj
 AllowlistUnpickler.dispatch[pickle.NEWOBJ_EX[0]] = _guarded_load_newobj_ex
+if hasattr(pickle, "BYTEARRAY8"):
+    AllowlistUnpickler.dispatch[pickle.BYTEARRAY8[0]] = _guarded_load_bytearray8
 
 
 class _SafeUnpickler(AllowlistUnpickler):
@@ -458,7 +524,8 @@ class UserStopped(BaseException):
 # on an allowlisted numpy object) can raise KeyError; AllowlistUnpickler.load
 # rewrites only an int key in 0..255; any other KeyError used to leave
 # unpack_pickle_frame and skip the harness except ValueError that writes a
-# bad-request frame.
+# bad-request frame. A short BININT, BINFLOAT, or FRAME header outside a pickle
+# frame raises struct.error, and callers only treat ValueError as a bad frame.
 _PICKLE_LOAD_ERRORS = (
     pickle.UnpicklingError,
     EOFError,
@@ -470,6 +537,7 @@ _PICKLE_LOAD_ERRORS = (
     RecursionError,
     MemoryError,
     KeyError,
+    struct.error,
 )
 
 

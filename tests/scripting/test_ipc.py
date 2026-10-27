@@ -1246,6 +1246,7 @@ def test_allowlist_unpickler_pins_private_pickle_dispatch():
     """Guards live on pickle._Unpickler. A Python that moves that class or the opcode bytes fails here."""
     from plugin.scripting.ipc import (
         AllowlistUnpickler,
+        _guarded_load_bytearray8,
         _guarded_load_newobj,
         _guarded_load_newobj_ex,
         _guarded_load_reduce,
@@ -1258,6 +1259,7 @@ def test_allowlist_unpickler_pins_private_pickle_dispatch():
     assert AllowlistUnpickler.dispatch[pickle.REDUCE[0]] is _guarded_load_reduce
     assert AllowlistUnpickler.dispatch[pickle.NEWOBJ[0]] is _guarded_load_newobj
     assert AllowlistUnpickler.dispatch[pickle.NEWOBJ_EX[0]] is _guarded_load_newobj_ex
+    assert AllowlistUnpickler.dispatch[pickle.BYTEARRAY8[0]] is _guarded_load_bytearray8
     assert AllowlistUnpickler._instantiate is not pickle._Unpickler._instantiate
 
 
@@ -1286,6 +1288,72 @@ def test_unpack_rejects_huge_numpy_reconstruct():
     payload = pickle.dumps(Bomb(), protocol=5)
     with pytest.raises(ValueError, match="reconstruct allocates"):
         unpack_pickle_frame(payload)
+
+
+def test_unpack_rejects_huge_numpy_reconstruct_inst_and_obj():
+    """INST and OBJ calling _reconstruct allocate past the frame cap."""
+    n = DEFAULT_MAX_PAYLOAD_BYTES + 1
+    inst = (
+        b"(cnumpy\nndarray\n(I" + str(n).encode() + b"\ntS'u1'\n"
+        b"inumpy._core.multiarray\n_reconstruct\n."
+    )
+    obj = (
+        b"(cnumpy._core.multiarray\n_reconstruct\n"
+        b"cnumpy\nndarray\n(I" + str(n).encode() + b"\ntS'u1'\no."
+    )
+    with pytest.raises(ValueError, match="reconstruct allocates"):
+        unpack_pickle_frame(inst)
+    with pytest.raises(ValueError, match="reconstruct allocates"):
+        unpack_pickle_frame(obj)
+
+
+def test_unpack_bytearray8_rejects_oversized_allocation():
+    """BYTEARRAY8 length exceeding available frame data is rejected without allocation."""
+    import tracemalloc
+    from compute_service.worker_base import unpack_restricted_pickle_frame
+
+    frame_body = pickle.BYTEARRAY8 + struct.pack("<Q", 4_000_000)
+    payload = b"\x80\x05\x95" + struct.pack("<Q", len(frame_body)) + frame_body
+
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        with pytest.raises(ValueError):
+            unpack_pickle_frame(payload)
+        _current, peak = tracemalloc.get_traced_memory()
+        assert peak < 1_000_000
+
+        tracemalloc.reset_peak()
+        with pytest.raises(ValueError):
+            unpack_restricted_pickle_frame(payload)
+        _current, peak = tracemalloc.get_traced_memory()
+        assert peak < 1_000_000
+    finally:
+        tracemalloc.stop()
+
+    assert unpack_pickle_frame(pickle.dumps(bytearray(b"hello"), protocol=5)) == bytearray(b"hello")
+    large_ba = bytearray(b"x" * 8192)
+    assert unpack_pickle_frame(pickle.dumps(large_ba, protocol=5)) == large_ba
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"\x80\x05J\x01",
+        b"\x80\x05M\x01",
+        b"\x80\x05G\x01\x02\x03",
+        b"\x80\x05\x95\x01",
+        b"\x80\x02J\x01",
+    ],
+)
+def test_unpack_struct_error_mapped_to_value_error(payload):
+    """Truncated headers raising struct.error are mapped to ValueError."""
+    from compute_service.worker_base import unpack_restricted_pickle_frame
+
+    with pytest.raises(ValueError, match="unpack requires a buffer"):
+        unpack_pickle_frame(payload)
+    with pytest.raises(ValueError, match="unpack requires a buffer"):
+        unpack_restricted_pickle_frame(payload)
 
 
 @pytest.mark.parametrize(
