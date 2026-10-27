@@ -1122,6 +1122,28 @@ class TestComputeSettings:
         s = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == "mykey"
 
+    def test_json_bool_and_fractional_int_fields_rejected(self, tmp_path) -> None:
+        """JSON true and 8000.9 must not become a worker count or a port.
+
+        int(True) is 1 and int(8000.9) is 8000. A whole-number float stays valid.
+        """
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text(json.dumps({"port": 8000.9}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="Invalid integer for port"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
+        cfg.write_text(json.dumps({"limits": {"workers": 2.2}}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="Invalid integer for workers"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
+        cfg.write_text(json.dumps({"ocr": {"workers": True}}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="Invalid integer for ocr_workers"):
+            load_settings(config_path=cfg, environ={})
+
+        cfg.write_text(json.dumps({"port": 8000.0}), encoding="utf-8")
+        loaded = load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert loaded.port == 8000
+
     def test_nonfinite_and_huge_numbers_are_config_errors(self, tmp_path) -> None:
         """Infinity / 1e9999 and an oversized JSON integer must be ConfigError.
 
