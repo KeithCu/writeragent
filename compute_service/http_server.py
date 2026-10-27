@@ -11,7 +11,10 @@ one ``WSGIDualStackServer`` and still owns process startup.
 from __future__ import annotations
 
 import logging
+import queue
+import selectors
 import socket
+import ssl
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
@@ -132,10 +135,13 @@ def _accept_clock(accept_time: Any) -> float:
 
 
 def _request_deadline(accept_time: Any, timeout_sec: float) -> float:
-    """One clock from TCP accept through the worker lease and the child.
+    """One clock from request start through the worker lease and the child.
 
-    Without an accept timestamp (direct WSGI tests) the clock starts now.
-    Queue wait is subtracted from *timeout_sec*; it is not a second 30s timer.
+    Stamping occurs at TCP accept for the first request, and is restamped
+    on the accept thread when a kept-alive connection becomes readable or
+    is resubmitted (ready_now). Without an accept timestamp (direct WSGI tests)
+    the clock starts now. Queue wait is subtracted from *timeout_sec*; it is
+    not a second 30s timer.
     """
     return _accept_clock(accept_time) + float(timeout_sec)
 
@@ -147,9 +153,61 @@ def _request_deadline(accept_time: Any, timeout_sec: float) -> float:
 from plugin.framework.http_server import DualStackThreadPoolHTTPServer
 
 
+@dataclass
+class ConnState:
+    """Per-connection state for persistent keep-alive handling."""
+
+    sock: socket.socket
+    client_address: Any
+    rfile: Any
+    request_count: int = 0
+    finished_at: float = 0.0
+    disposition: str = "close"
+    close_reason: str = "close"
+    close_connection: bool = False
+
+
+class ComputeServerHandler(ServerHandler):
+    """WSGI ServerHandler with HTTP/1.1 and keep-alive header enforcement."""
+
+    http_version = "1.1"
+
+    def cleanup_headers(self) -> None:
+        super().cleanup_headers()
+        assert "Content-Length" in self.headers, "Content-Length header required"
+        cl_val = self.headers.get("Content-Length")
+        req_handler = getattr(self, "request_handler", None)
+        close_conn = False
+
+        if bool(self.environ.get("compute.close_connection")):
+            close_conn = True
+        elif req_handler is not None and getattr(req_handler, "close_connection", False):
+            close_conn = True
+
+        if hasattr(self, "bytes_sent") and self.bytes_sent is not None:
+            try:
+                if int(cl_val) != self.bytes_sent:
+                    close_conn = True
+            except (ValueError, TypeError):
+                close_conn = True
+
+        if close_conn:
+            self.headers["Connection"] = "close"
+            if req_handler is not None:
+                req_handler.close_connection = True
+
+    def handle_error(self) -> None:
+        req_handler = getattr(self, "request_handler", None)
+        if req_handler is not None:
+            req_handler.close_connection = True
+        self.environ["compute.close_connection"] = True
+        super().handle_error()
+
+
 class DeadlineRequestHandler(WSGIRequestHandler):
     """WSGI request handler with total header read deadline and compute context logging."""
 
+    protocol_version = "HTTP/1.1"
     raw_requestline: bytes = b""
     requestline: str = ""
     request_version: str = ""
@@ -158,11 +216,39 @@ class DeadlineRequestHandler(WSGIRequestHandler):
     _header_orig_readinto: Any = None
 
     def setup(self) -> None:
-        super().setup()
+        server = cast("Any", self.server)
+        if getattr(server, "park_idle_connections", False):
+            self.connection = self.request
+            state: ConnState | None = None
+            if hasattr(server, "_conn_states"):
+                state = server._conn_states.get(self.connection)
+                if state is None:
+                    rfile = self.connection.makefile("rb", -1)
+                    state = ConnState(sock=self.connection, client_address=self.client_address, rfile=rfile)
+                    server._conn_states[self.connection] = state
+                else:
+                    state.close_connection = False
+                    state.disposition = "close"
+            self.rfile = state.rfile if state is not None else self.connection.makefile("rb", -1)
+            self.wfile = self.connection.makefile("wb", self.wbufsize)
+        else:
+            super().setup()
         try:
             self.connection.settimeout(_REQUEST_READ_TIMEOUT_SEC)
         except Exception:
             pass
+
+    def finish(self) -> None:
+        server = cast("Any", self.server)
+        if getattr(server, "park_idle_connections", False):
+            if not self.wfile.closed:
+                try:
+                    self.wfile.flush()
+                except socket.error:
+                    pass
+            self.wfile.close()
+        else:
+            super().finish()
 
     def handle(self) -> None:
         """Read the request line and headers under one deadline, then run the app.
@@ -173,15 +259,31 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         """
         self._install_header_deadline()
         header_timed_out = False
+        server = cast("Any", self.server)
+        state: ConnState | None = getattr(server, "_conn_states", {}).get(self.connection) if hasattr(server, "_conn_states") else None
         try:
             self.raw_requestline = self.rfile.readline(65537)
+            if not self.raw_requestline:
+                self.close_connection = True
+                if state is not None:
+                    state.close_reason = "eof"
+                    state.close_connection = True
+                return
             if len(self.raw_requestline) > 65536:
                 self.requestline = ""
                 self.request_version = ""
                 self.command = ""
+                self.close_connection = True
+                if state is not None:
+                    state.close_reason = "error"
+                    state.close_connection = True
                 self.send_error(414)
                 return
             if not self.parse_request():
+                self.close_connection = True
+                if state is not None:
+                    state.close_reason = "error"
+                    state.close_connection = True
                 return
         except TimeoutError:
             # Sent after finally. The patched readinto is still installed
@@ -190,16 +292,40 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         finally:
             self._clear_header_deadline()
         if header_timed_out:
+            self.close_connection = True
+            if state is not None:
+                state.close_reason = "error"
+                state.close_connection = True
             self._send_header_timeout()
             return
+
+        if state is not None:
+            state.request_count += 1
+
         # A return above leaves this function after the finally. Reaching
         # here means the request line and headers parsed.
-        self._send_100_continue_if_expected()
-        handler = ServerHandler(self.rfile, cast("Any", self.wfile), self.get_stderr(), self.get_environ(), multithread=False)
-        # request_handler is assigned by wsgiref at runtime; the stub omits it.
-        # get_app lives on WSGIServer, which this handler is only mounted on.
+        environ = self.get_environ()
+        handler = ComputeServerHandler(self.rfile, cast("Any", self.wfile), self.get_stderr(), environ, multithread=False)
         cast("Any", handler).request_handler = self
-        handler.run(cast("Any", self.server).get_app())
+        try:
+            handler.run(cast("Any", self.server).get_app())
+        except Exception:
+            self.close_connection = True
+            if state is not None:
+                state.close_reason = "error"
+                state.close_connection = True
+            raise
+
+        if environ.get("compute.close_connection"):
+            self.close_connection = True
+            if state is not None:
+                state.close_reason = "undrained"
+                state.close_connection = True
+        elif self.close_connection:
+            if state is not None:
+                if state.close_reason not in ("undrained", "error", "eof"):
+                    state.close_reason = "close"
+                state.close_connection = True
 
     def _send_header_timeout(self) -> None:
         """Answer a header-read deadline with the same 408 the body path sends.
@@ -220,21 +346,6 @@ class DeadlineRequestHandler(WSGIRequestHandler):
             self.wfile.flush()
         except Exception:
             log.debug("header timeout response failed", exc_info=True)
-
-    def _send_100_continue_if_expected(self) -> None:
-        """Answer ``Expect: 100-continue`` before the app reads the body.
-
-        wsgiref never writes the interim response. curl then waits about a
-        second before sending a larger body.
-        """
-        expected = self.headers.get("Expect") if self.headers is not None else None
-        if not isinstance(expected, str) or expected.lower() != "100-continue":
-            return
-        try:
-            self.wfile.write(b"HTTP/1.1 100 Continue\r\n\r\n")
-            self.wfile.flush()
-        except Exception:
-            log.debug("100-continue write failed", exc_info=True)
 
     def _install_header_deadline(self) -> None:
         accept_time = self._connection_accept_time()
@@ -297,11 +408,16 @@ class DeadlineRequestHandler(WSGIRequestHandler):
 
 
 class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
-    """Dual-stack thread-pooled WSGI server."""
+    """Dual-stack thread-pooled WSGI server with idle connection parking."""
+
+    park_idle_connections = True
 
     server_name: str
     server_port: int
     srv: Any
+    _conn_states: dict[socket.socket, ConnState]
+    _parked: dict[socket.socket, ConnState]
+    _last_park_error_warn: float
 
     def __init__(self, host: str, port: int, max_threads: int | None = None, *, listener_threads: int | None = None) -> None:
         # listener_threads is the final pool size. Passing that number through
@@ -311,5 +427,186 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
         raw_host = str(self.server_address[0])
         self.server_name = raw_host if raw_host and raw_host not in ("", "0.0.0.0", "::") else "localhost"
         self.server_port = self.server_address[1]
+        self._conn_states = {}
+        self._parked = {}
+        self._last_park_error_warn = 0.0
         self.setup_environ()
         self.srv = self
+
+    def _park_poll_timeout(self, timeout: float) -> float:
+        if not self._parked:
+            return timeout
+        now = time.monotonic()
+        earliest = min(state.finished_at + _REQUEST_READ_TIMEOUT_SEC for state in self._parked.values())
+        return min(timeout, max(0.0, earliest - now))
+
+    def _park_on_readable(self, state: Any, fileobj: Any, selector: selectors.BaseSelector) -> None:
+        # Accept thread only. Unregister before submit so the idle sweep
+        # cannot close a socket a worker is about to own.
+        assert isinstance(state, ConnState) and state.sock is fileobj
+        sock = state.sock
+        try:
+            selector.unregister(sock)
+        except (KeyError, ValueError, OSError):
+            pass
+        self._parked.pop(sock, None)
+        self._accept_times[sock] = time.monotonic()
+        self.process_request(sock, state.client_address)
+
+    def _park_service_loop(self, selector: selectors.BaseSelector) -> None:
+        queued: list[ConnState] = []
+        with self._park_lock:
+            while True:
+                try:
+                    queued.append(self._park_queue.get_nowait())
+                except queue.Empty:
+                    break
+
+        for state in queued:
+            sock = state.sock
+            if state.disposition == "ready_now":
+                self._accept_times[sock] = time.monotonic()
+                self.process_request(sock, state.client_address)
+            elif state.disposition == "park":
+                try:
+                    selector.register(sock, selectors.EVENT_READ, data=state)
+                    self._parked[sock] = state
+                except (KeyError, OSError) as exc:
+                    now = time.monotonic()
+                    if self._warn_due("_last_park_error_warn", now):
+                        log.warning("Failed to park connection (%s): %s; closing", type(exc).__name__, exc)
+                    state.close_reason = "error"
+                    try:
+                        self.shutdown_request(sock)
+                    except Exception:
+                        pass
+
+        # Idle sweep: readable sockets were already processed in ready loop, so readable wins over expired
+        now = time.monotonic()
+        expired: list[ConnState] = []
+        for sock, state in list(self._parked.items()):
+            if now >= state.finished_at + _REQUEST_READ_TIMEOUT_SEC:
+                expired.append(state)
+
+        for state in expired:
+            sock = state.sock
+            try:
+                selector.unregister(sock)
+            except (KeyError, ValueError, OSError):
+                pass
+            self._parked.pop(sock, None)
+            state.close_reason = "idle"
+            try:
+                self.shutdown_request(sock)
+            except Exception:
+                pass
+
+    def _park_close_one_on_select_overflow(self, selector: selectors.BaseSelector) -> None:
+        if not self._parked:
+            return
+        sock, state = next(iter(self._parked.items()))
+        try:
+            selector.unregister(sock)
+        except (KeyError, ValueError, OSError):
+            pass
+        self._parked.pop(sock, None)
+        state.close_reason = "idle"
+        now = time.monotonic()
+        if self._warn_due("_last_park_error_warn", now):
+            log.warning("Select descriptor overflow; closed oldest parked connection")
+        try:
+            self.shutdown_request(sock)
+        except Exception:
+            pass
+
+    def _park_shutdown(self, selector: selectors.BaseSelector) -> None:
+        with self._park_lock:
+            self._parking_closed = True
+            queued: list[ConnState] = []
+            while True:
+                try:
+                    queued.append(self._park_queue.get_nowait())
+                except queue.Empty:
+                    break
+
+        for state in queued:
+            sock = state.sock
+            state.close_reason = "shutdown"
+            try:
+                self.shutdown_request(sock)
+            except Exception:
+                pass
+
+        parked_states = list(self._parked.values())
+        self._parked.clear()
+        for state in parked_states:
+            sock = state.sock
+            try:
+                selector.unregister(sock)
+            except (KeyError, ValueError, OSError):
+                pass
+            state.close_reason = "shutdown"
+            try:
+                self.shutdown_request(sock)
+            except Exception:
+                pass
+
+    def _park_hand_off(self, request: Any, client_address: Any) -> bool:
+        state = self._conn_states.get(request)
+        if state is None:
+            return False
+        if self.ssl_ctx is not None or isinstance(request, ssl.SSLSocket):
+            state.close_reason = "close"
+            return False
+        if state.close_connection or state.close_reason in ("undrained", "error", "eof"):
+            return False
+
+        try:
+            request.setblocking(False)
+            peeked = state.rfile.peek(1)
+            if peeked:
+                state.disposition = "ready_now"
+            else:
+                try:
+                    raw_peek = request.recv(1, socket.MSG_PEEK)
+                    if not raw_peek:
+                        state.disposition = "close"
+                        state.close_reason = "eof"
+                    else:
+                        state.disposition = "ready_now"
+                except (BlockingIOError, InterruptedError):
+                    state.disposition = "park"
+                    state.finished_at = time.monotonic()
+        except Exception:
+            state.disposition = "close"
+            state.close_reason = "error"
+
+        if state.disposition == "close":
+            return False
+
+        with self._park_lock:
+            if self._parking_closed or not self._serving:
+                state.close_reason = "shutdown" if self._parking_closed else "close"
+                return False
+            self._park_queue.put(state)
+        self._wake_accept()
+        return True
+
+    def _on_queue_full(self, request: Any) -> None:
+        state = self._conn_states.get(request)
+        if state is not None:
+            state.close_reason = "queue_full"
+
+    def shutdown_request(self, request: Any) -> None:
+        # Workers call this too. _parked is accept-thread only; every accept
+        # path pops it before closing, and a worker never owns a parked socket.
+        state = self._conn_states.pop(request, None)
+        if state is not None:
+            if state.rfile is not None and not state.rfile.closed:
+                try:
+                    state.rfile.close()
+                except Exception:
+                    pass
+            peer = state.client_address[0] if isinstance(state.client_address, tuple) and state.client_address else str(state.client_address)
+            log.info("Closed connection from %s after %d request(s) (reason=%s)", peer, state.request_count, state.close_reason)
+        super().shutdown_request(request)

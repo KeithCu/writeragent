@@ -324,6 +324,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     allow_reuse_address: bool = os.name != "nt"
     # ThreadingMixIn is not used. The request pool is daemon for the same reason.
     daemon_threads: bool = True
+    park_idle_connections: bool = False
 
     _dual_is_shut_down: threading.Event
     _dual_shutdown_request: bool
@@ -335,6 +336,9 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     executor: _RequestThreads
     _queued_lock: threading.Lock
     _last_queue_full_warn: float = 0.0
+    _park_lock: threading.Lock
+    _park_queue: queue.SimpleQueue[Any]
+    _parking_closed: bool
     address_family: int
     server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
     sockets: list[Socket]
@@ -360,6 +364,9 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._accept_backoff_sec = 0.05
         self._last_accept_error_warn = 0.0
         self._last_queue_full_warn = 0.0
+        self._park_lock = threading.Lock()
+        self._park_queue = queue.SimpleQueue()
+        self._parking_closed = False
         # Keyed by the connection object, not id(conn). CPython reuses ids
         # after the socket is freed, so an id key could read a later accept's
         # timestamp. shutdown_request pops the entry on every path that
@@ -489,9 +496,12 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         for fut, sock in pending:
             if fut.cancelled():
                 try:
-                    sock.close()
-                except OSError:
-                    pass
+                    self.shutdown_request(sock)
+                except Exception:
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
 
     def drain_executor(self, timeout: float) -> None:
         """Wait until accepted requests finish, then return."""
@@ -513,6 +523,37 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             return False
         setattr(self, attr, now)
         return True
+
+    def _wake_accept(self) -> None:
+        wake_write = self._wake_write
+        if wake_write is not None:
+            try:
+                wake_write.send(b"\x00")
+            except (BlockingIOError, InterruptedError):
+                pass
+            except OSError:
+                pass
+
+    def _park_poll_timeout(self, timeout: float) -> float:
+        return timeout
+
+    def _park_on_readable(self, state: Any, fileobj: Any, selector: selectors.BaseSelector) -> None:
+        pass
+
+    def _park_service_loop(self, selector: selectors.BaseSelector) -> None:
+        pass
+
+    def _park_close_one_on_select_overflow(self, selector: selectors.BaseSelector) -> None:
+        pass
+
+    def _park_shutdown(self, selector: selectors.BaseSelector) -> None:
+        pass
+
+    def _park_hand_off(self, request: Any, client_address: Any) -> bool:
+        return False
+
+    def _on_queue_full(self, request: Any) -> None:
+        pass
 
     def _wrap_accepted_socket(self, conn: Socket, addr: Any) -> tuple[Socket, Any]:
         """Optional TLS wrap of an accepted socket."""
@@ -604,42 +645,60 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                 selector.register(wake_read, selectors.EVENT_READ)
                 listeners_registered = False
 
-                while not self._dual_shutdown_request:
-                    now = time.monotonic()
-                    if now < self._accept_pause_until:
-                        # Tip: while paused on resource error, unregister listeners so readable sockets do not busy-spin.
-                        if listeners_registered:
-                            for sock in self.sockets:
-                                try:
-                                    selector.unregister(sock)
-                                except (KeyError, ValueError):
-                                    pass
-                            listeners_registered = False
-                        timeout = min(poll_interval, max(0.0, self._accept_pause_until - now))
-                    else:
-                        if not listeners_registered:
-                            for sock in self.sockets:
-                                try:
-                                    selector.register(sock, selectors.EVENT_READ)
-                                except (KeyError, ValueError):
-                                    pass
-                            listeners_registered = True
-                        timeout = poll_interval
+                try:
+                    while not self._dual_shutdown_request:
+                        now = time.monotonic()
+                        if now < self._accept_pause_until:
+                            # Tip: while paused on resource error, unregister listeners so readable sockets do not busy-spin.
+                            if listeners_registered:
+                                for sock in self.sockets:
+                                    try:
+                                        selector.unregister(sock)
+                                    except (KeyError, ValueError):
+                                        pass
+                                listeners_registered = False
+                            timeout = min(poll_interval, max(0.0, self._accept_pause_until - now))
+                        else:
+                            if not listeners_registered:
+                                for sock in self.sockets:
+                                    try:
+                                        selector.register(sock, selectors.EVENT_READ)
+                                    except (KeyError, ValueError):
+                                        pass
+                                listeners_registered = True
+                            timeout = poll_interval
 
-                    ready = selector.select(timeout)
-                    if self._dual_shutdown_request:
-                        break
-                    for key, _unused in ready:
+                        if self.park_idle_connections:
+                            timeout = self._park_poll_timeout(timeout)
+
+                        try:
+                            ready = selector.select(timeout)
+                        except ValueError as exc:
+                            if self.park_idle_connections and "too many file descriptors" in str(exc).lower():
+                                self._park_close_one_on_select_overflow(selector)
+                                continue
+                            raise
+
                         if self._dual_shutdown_request:
                             break
-                        fileobj = key.fileobj
-                        if fileobj is wake_read:
-                            _drain_wake_socket(wake_read)
-                        elif isinstance(fileobj, socket.socket):
-                            self._accept_one(fileobj)
-                            if time.monotonic() < self._accept_pause_until:
+                        for key, _unused in ready:
+                            if self._dual_shutdown_request:
                                 break
-                    self.service_actions()
+                            fileobj = key.fileobj
+                            if fileobj is wake_read:
+                                _drain_wake_socket(wake_read)
+                            elif key.data is not None:
+                                self._park_on_readable(key.data, fileobj, selector)
+                            elif isinstance(fileobj, socket.socket):
+                                self._accept_one(fileobj)
+                                if time.monotonic() < self._accept_pause_until:
+                                    break
+                        if self.park_idle_connections:
+                            self._park_service_loop(selector)
+                        self.service_actions()
+                finally:
+                    if self.park_idle_connections:
+                        self._park_shutdown(selector)
         finally:
             self._wake_write = None
             if wake_read is not None:
@@ -665,12 +724,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         """
         # Tip: signal the wake pipe to unblock selector.select immediately.
         self._dual_shutdown_request = True
-        wake_write = self._wake_write
-        if wake_write is not None:
-            try:
-                wake_write.send(b"\x00")
-            except OSError:
-                pass
+        self._wake_accept()
         if self._serving:
             self._dual_is_shut_down.wait()
 
@@ -690,6 +744,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                     exc.pending,
                     exc.limit,
                 )
+            self._on_queue_full(request)
             try:
                 self.shutdown_request(request)
             except Exception:
@@ -714,9 +769,12 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     def process_request_thread(self, request: Any, client_address: Any) -> None:
         """Process incoming request inside a pooled worker thread."""
+        failed = False
         try:
             self.finish_request(request, client_address)
         except Exception:
+            failed = True
             self.handle_error(request, client_address)
         finally:
-            self.shutdown_request(request)
+            if not (self.park_idle_connections and not failed and self._park_hand_off(request, client_address)):
+                self.shutdown_request(request)
