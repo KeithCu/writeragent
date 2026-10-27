@@ -100,16 +100,15 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
             f"Blocked in this sandbox: host escape ({host_escape}); "
             f"running programs ({processes}, raw os) unless Allow OS access; "
             f"networking ({networking}); "
-            f"file writes ({file_writes}, write-mode open, and pathlib mutations). {_ALLOW_ALL_NOTE}"
+            f"file read/write access ({file_writes}, open, pathlib, and os file reads) unless Allow file access. {_ALLOW_ALL_NOTE}"
         )
     else:
         parts.append(f"Blocked host escape (by default): {host_escape}.")
         parts.append(f"Blocked running programs (unless Allow OS access): {processes}, raw os.")
         parts.append(f"Blocked networking (unless Allow network access): {networking}.")
         parts.append(
-            f"Blocked file writes (unless Allow file access): {file_writes}, "
-            "write-mode open (builtin, io, codecs), and pathlib mutations "
-            "(write_text, write_bytes, touch, mkdir, unlink, rename, replace, rmdir, symlink_to, hardlink_to, chmod)."
+            f"Blocked file read/write access (unless Allow file access): {file_writes}, "
+            "open (builtin, io, codecs, _pyio), pathlib reads and mutations, and os file reads (listdir, scandir, stat, walk)."
         )
         parts.append(_ALLOW_ALL_NOTE)
 

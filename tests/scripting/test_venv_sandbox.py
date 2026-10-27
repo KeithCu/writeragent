@@ -440,6 +440,7 @@ def test_timedelta64_without_pandas_is_fractional_days(monkeypatch: pytest.Monke
 
 
 def test_capture_closes_figures_when_figure_lookup_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
     from plugin.scripting.venv import venv_sandbox as vs
 
     closed: list[Any] = []
@@ -463,6 +464,7 @@ def test_capture_closes_figures_when_figure_lookup_raises(monkeypatch: pytest.Mo
         return None
 
     monkeypatch.setattr(vs, "optional_module", fake_opt)
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", cast("Any", FakePyplot))
 
     with pytest.raises(RuntimeError, match="backend gone"):
         vs._capture_open_figures_payload()
@@ -1273,8 +1275,10 @@ _FILE_WRITES = [
 
 def _file_fixture(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, dict[str, str]]:
     p, src, d = tmp_path / "out", tmp_path / "src.txt", tmp_path / "empty"
-    src.write_text("fixture")
-    src.chmod(0o644)
+    target = tmp_path / "target.txt"
+    target.write_text("fixture")
+    target.chmod(0o644)
+    src.symlink_to(target)
     d.mkdir()
     return p, src, d, {"p": repr(str(p)), "src": repr(str(src)), "d": repr(str(d))}
 
@@ -1300,25 +1304,107 @@ def test_sandbox_runtime_file_writes_allowed_with_os_policy(tmp_path: pathlib.Pa
     assert p.read_text() == "ok"
 
 
-@pytest.mark.parametrize(
-    "code",
-    [
-        "import io\nresult = io.open({src}).read()",
-        "import io\nresult = io.open({src}, 'rb').read().decode()",
-        "import io\nresult = io.FileIO({src}, 'r').read().decode()",
-        "import io\nraw = io.FileIO({src}, 'r')\nio.FileIO.__init__(raw, {src}, 'r')\nresult = raw.read().decode()",
-        "import codecs\nresult = codecs.open({src}).read()",
-        "from pathlib import Path\nresult = Path({src}).read_text()",
-        "from pathlib import Path\nresult = Path({src}).read_bytes().decode()",
-        "from pathlib import Path\nresult = Path({src}).open().read()",
-        "from pathlib import Path\nresult = Path({src}).open('rb').read().decode()",
-    ],
-)
-def test_sandbox_runtime_file_reads_allowed_by_default(code: str, tmp_path: pathlib.Path) -> None:
+_FILE_READS = [
+    "result = open({src}).read()",
+    "import io\nresult = io.open({src}, 'r').read()",
+    "import io\nresult = io.open({src}, 'rb').read().decode()",
+    "import io\nresult = io.FileIO({src}, 'r').read().decode()",
+    "import io\nresult = io.FileIO({src}, 'rb').read().decode()",
+    "import io\nraw = io.FileIO({src}, 'r')\nio.FileIO.__init__(raw, {src}, 'r')\nresult = raw.read().decode()",
+    "import codecs\nresult = codecs.open({src}, 'r').read()",
+    "import codecs\nresult = codecs.open({src}, 'rb').read().decode()",
+    "import _pyio\nresult = _pyio.open({src}, 'r').read()",
+    "import _pyio\nresult = _pyio.open({src}, 'rb').read().decode()",
+    "from pathlib import Path\nresult = Path({src}).read_text()",
+    "from pathlib import Path\nresult = Path({src}).read_bytes().decode()",
+    "from pathlib import Path\nresult = Path({src}).open().read()",
+    "from pathlib import Path\nresult = Path({src}).open('rb').read().decode()",
+    "from pathlib import Path\nlist(Path({d}).iterdir())\nresult = 'fixture'",
+    "from pathlib import Path\nlist(Path({d}).glob('*'))\nresult = 'fixture'",
+    "from pathlib import Path\nlist(Path({d}).rglob('*'))\nresult = 'fixture'",
+    "import operator\nfrom pathlib import Path\nresult = operator.methodcaller('read_text')(Path({src}))",
+    "import io\nresult = list(map(io.open, [{src}]))[0].read()",
+    "import os\nos.listdir({d})\nresult = 'fixture'",
+    "from os import listdir\nlistdir({d})\nresult = 'fixture'",
+    "import os\nlist(os.scandir({d}))\nresult = 'fixture'",
+    "import os\nlist(os.walk({d}))\nresult = 'fixture'",
+    "import os\nos.stat({src})\nresult = 'fixture'",
+    "import os\nos.readlink({src})\nresult = 'fixture'",
+    "import glob\nglob.glob({src})\nresult = 'fixture'",
+    "import fileinput\nfi = fileinput.input([{src}])\nlist(fi)\nfi.close()\nresult = 'fixture'",
+    "import fileinput\nfi = fileinput.FileInput([{src}])\nlist(fi)\nfi.close()\nresult = 'fixture'",
+    "import linecache\nresult = linecache.getline({src}, 1).strip()",
+    "import gzip\ngzip.open({src}).close()\nresult = 'fixture'",
+    "import bz2\nbz2.open({src}).close()\nresult = 'fixture'",
+    "import lzma\nlzma.open({src}).close()\nresult = 'fixture'",
+    "import zipfile\ntry:\n    zipfile.ZipFile({src})\nexcept zipfile.BadZipFile:\n    pass\nresult = 'fixture'",
+    "import zipfile\nzipfile.is_zipfile({src})\nresult = 'fixture'",
+    "import tarfile\ntry:\n    tarfile.open({src})\nexcept tarfile.ReadError:\n    pass\nresult = 'fixture'",
+    "import logging\nh = logging.FileHandler({src})\nh.close()\nresult = 'fixture'",
+    "import logging\nlogging.basicConfig(filename={src})\nresult = 'fixture'",
+]
+
+
+@pytest.mark.parametrize("code", _FILE_READS)
+def test_sandbox_runtime_file_reads_gated(code: str, tmp_path: pathlib.Path) -> None:
     _p, _src, _d, names = _file_fixture(tmp_path)
     res = run_sandboxed_code(code.format(**names), sandbox_policy=None)
-    assert res["status"] == "ok", res
+    assert res["status"] == "error"
+    if "open({src}).read()" in code:
+        assert (
+            "name 'open' is not defined" in res.get("message", "")
+            or "Forbidden function evaluation: 'open'" in res.get("message", "")
+        )
+    else:
+        assert "Forbidden access to function" in res.get("message", "")
+
+    res_files = run_sandboxed_code(code.format(**names), sandbox_policy={"files": True})
+    assert res_files["status"] == "ok", res_files
+    assert res_files["result"] == "fixture"
+
+
+def test_sandbox_runtime_file_reads_allowed_with_os_policy(tmp_path: pathlib.Path) -> None:
+    _p, src, _d, _names = _file_fixture(tmp_path)
+    res = run_sandboxed_code(f"from pathlib import Path\nresult = Path({str(src)!r}).read_text()", sandbox_policy={"os": True})
+    assert res["status"] == "ok"
     assert res["result"] == "fixture"
+
+
+def test_sandbox_runtime_safe_in_memory_allowed_without_file_policy(tmp_path: pathlib.Path) -> None:
+    _p, src, _d, _names = _file_fixture(tmp_path)
+
+    res_io = run_sandboxed_code(
+        "import io\ns = io.StringIO('fixture').read()\nb = io.BytesIO(b'fixture').read()\nresult = s == 'fixture' and b == b'fixture'",
+        sandbox_policy=None,
+    )
+    assert res_io["status"] == "ok" and res_io["result"] is True
+
+    res_gz = run_sandboxed_code(
+        "import gzip\nresult = gzip.decompress(gzip.compress(b'fixture')).decode()",
+        sandbox_policy=None,
+    )
+    assert res_gz["status"] == "ok" and res_gz["result"] == "fixture"
+
+    res_zip = run_sandboxed_code(
+        "import io, zipfile\nbuf = io.BytesIO()\nwith zipfile.ZipFile(buf, 'w') as zf:\n    zf.writestr('x', 'fixture')\nwith zipfile.ZipFile(buf, 'r') as zf:\n    result = zf.read('x').decode()",
+        sandbox_policy=None,
+    )
+    assert res_zip["status"] == "ok" and res_zip["result"] == "fixture"
+
+    res_gz_buf = run_sandboxed_code(
+        "import io, gzip\nbuf = io.BytesIO()\nwith gzip.open(buf, 'wb') as f:\n    f.write(b'fixture')\nwith gzip.open(io.BytesIO(buf.getvalue()), 'rb') as f:\n    result = f.read().decode()",
+        sandbox_policy=None,
+    )
+    assert res_gz_buf["status"] == "ok" and res_gz_buf["result"] == "fixture"
+
+    res_exists = run_sandboxed_code(
+        f"import os\nfrom pathlib import Path\nresult = os.path.exists({repr(str(src))}) and os.path.isfile({repr(str(src))}) and Path({repr(str(src))}).exists()",
+        sandbox_policy=None,
+    )
+    assert res_exists["status"] == "ok" and res_exists["result"] is True
+
+    res_glob = run_sandboxed_code("import glob\nresult = glob.escape('[*]')", sandbox_policy=None)
+    assert res_glob["status"] == "ok" and res_glob["result"] in (r"\[\*\]", "[[][*]]")
 
 
 def test_sandbox_runtime_extra_modules_allows_importlib() -> None:

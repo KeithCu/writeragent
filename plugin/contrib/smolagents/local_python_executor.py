@@ -26,6 +26,7 @@ import inspect
 import logging
 import math
 import operator
+import os
 import re
 import string as _stdlib_string
 import _string
@@ -34,7 +35,7 @@ import functools
 import time
 import weakref
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from contextvars import ContextVar
@@ -268,7 +269,7 @@ def _maybe_wrap_callable(val: Any) -> Any:
             needs_wrap = True
     elif module.startswith("pandas") and name in ("read_pickle", "to_pickle"):
         needs_wrap = True
-    elif _file_write_kind(val):
+    elif _file_io_kind(val):
         needs_wrap = True
 
     if not needs_wrap:
@@ -280,7 +281,7 @@ def _maybe_wrap_callable(val: Any) -> Any:
 
     @wraps(val)
     def _wrapped(*args: Any, **kwargs: Any) -> Any:
-        _reject_sandboxed_file_write(val, args, kwargs)
+        _reject_sandboxed_file_io(val, args, kwargs)
         if name == "load_library" or any(module.startswith(p) for p in _NUMPY_CALL_DENIED):
             raise InterpreterError(f"Forbidden call to {module}.{name}")
         if module.startswith("pandas") and name in ("read_pickle", "to_pickle"):
@@ -1343,58 +1344,121 @@ _PATH_MUTATOR_NAMES = frozenset({
     "chmod",
     "lchmod",
 })
+_PATH_READ_NAMES = frozenset({
+    "read_text",
+    "read_bytes",
+    "open",
+    "iterdir",
+    "glob",
+    "rglob",
+    "walk",
+    "readlink",
+    "stat",
+    "lstat",
+    "owner",
+    "group",
+})
 _OPEN_CALL_NAMES = frozenset({"open", "FileIO"})
 _OPEN_CALL_MODULES = frozenset({"_io", "io", "codecs", "_pyio"})
 
+_GLOB_READ_NAMES = frozenset({"glob", "iglob", "glob0", "glob1"})
+_FILEINPUT_READ_NAMES = frozenset({"input", "FileInput"})
+_LINECACHE_READ_NAMES = frozenset({"getline", "getlines", "updatecache"})
+_GZIP_CALL_NAMES = frozenset({"open", "GzipFile"})
+_BZ2_CALL_NAMES = frozenset({"open", "BZ2File"})
+_LZMA_CALL_NAMES = frozenset({"open", "LZMAFile"})
+_ZIPFILE_CALL_NAMES = frozenset({"ZipFile", "PyZipFile", "Path", "is_zipfile"})
+_TARFILE_CALL_NAMES = frozenset({"open", "TarFile", "is_tarfile"})
 
-def _file_writes_allowed() -> bool:
+
+def _file_access_allowed() -> bool:
     _roots, file_os_ids = SANDBOX_POLICY_CONTEXT.get()
     return bool(file_os_ids) and file_os_ids != _get_default_file_os_ids()
 
 
-def _file_write_kind(func: Any) -> str | None:
-    """'mutate' for pathlib mutators, 'open' for io/codecs/pathlib opens (mode decides), else None."""
+def _file_io_kind(func: Any) -> str | None:
     orig = inspect.unwrap(func)
     module = getattr(orig, "__module__", "") or ""
     name = getattr(orig, "__name__", "") or ""
     objclass = getattr(orig, "__objclass__", None)
-    io_module = module in _OPEN_CALL_MODULES or getattr(objclass, "__module__", "") in _OPEN_CALL_MODULES
-    if module == "pathlib" or module.startswith("pathlib."):
+    objclass_module = getattr(objclass, "__module__", "") or ""
+
+    if module == "pathlib" or module.startswith("pathlib.") or objclass_module == "pathlib" or objclass_module.startswith("pathlib."):
         if name in _PATH_MUTATOR_NAMES:
             return "mutate"
-        return "open" if name == "open" else None
+        if name in _PATH_READ_NAMES:
+            return "read"
+        return None
+
+    io_module = module in _OPEN_CALL_MODULES or objclass_module in _OPEN_CALL_MODULES
     if io_module and (name in _OPEN_CALL_NAMES or getattr(orig, "__qualname__", "") == "FileIO.__init__"):
         return "open"
+
+    if module == "glob" and name in _GLOB_READ_NAMES:
+        return "read"
+
+    if module == "fileinput" and name in _FILEINPUT_READ_NAMES:
+        return "read"
+
+    if module == "linecache" and name in _LINECACHE_READ_NAMES:
+        return "read"
+
+    if (module == "logging" or module.startswith("logging.")) and name.endswith("FileHandler"):
+        return "read"
+
+    if module == "logging" and name == "basicConfig":
+        return "basicConfig"
+
+    if (module == "gzip" or module.startswith("gzip.")) and name in _GZIP_CALL_NAMES:
+        return "path-or-buffer"
+
+    if (module in ("bz2", "_bz2") or module.startswith(("bz2.", "_bz2."))) and name in _BZ2_CALL_NAMES:
+        return "path-or-buffer"
+
+    if (module in ("lzma", "_lzma") or module.startswith(("lzma.", "_lzma."))) and name in _LZMA_CALL_NAMES:
+        return "path-or-buffer"
+
+    if (module == "zipfile" or module.startswith("zipfile.")) and name in _ZIPFILE_CALL_NAMES:
+        return "path-or-buffer"
+
+    if (module == "tarfile" or module.startswith("tarfile.")) and name in _TARFILE_CALL_NAMES:
+        return "path-or-buffer"
+
     return None
 
 
-def _positional_mode(func: Any, args: list[Any] | tuple[Any, ...]) -> object:
+def _is_path_target(val: Any) -> bool:
+    return isinstance(val, (str, bytes, os.PathLike))
+
+
+def _opens_filesystem_path(func: Any, args: Sequence[Any], kwargs: dict[str, Any]) -> bool:
     orig = inspect.unwrap(func)
     try:
-        params = list(inspect.signature(orig).parameters.values())
+        sig = inspect.signature(orig)
+        bound = sig.bind_partial(*args, **kwargs)
+        if bound.arguments.get("fileobj") is not None:
+            return False
+        for param in ("filename", "file", "name", "root"):
+            if param in bound.arguments and _is_path_target(bound.arguments[param]):
+                return True
     except (TypeError, ValueError):
-        params = []
-    positional = [p for p in params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
-    for index, param in enumerate(positional):
-        if param.name == "mode":
-            return args[index] if len(args) > index else "r"
-    # C _io.FileIO.__init__ exposes no mode parameter name.
-    if getattr(orig, "__qualname__", "") == "FileIO.__init__":
-        self_obj = getattr(orig, "__self__", None)
-        index = 1 if self_obj is not None and not isinstance(self_obj, ModuleType) else 2
-        return args[index] if len(args) > index else "r"
-    return "r"
+        if kwargs.get("fileobj") is not None:
+            return False
+    return bool(args and _is_path_target(args[0]))
 
 
-def _reject_sandboxed_file_write(func: Any, args: list[Any] | tuple[Any, ...], kwargs: dict[str, Any]) -> None:
-    """Block io/codecs/pathlib file writes unless file access is on (the import blocklist only covers
-    shutil/tempfile/sqlite3, and io.open / Path.write_text reach the real open past the bare-open gate)."""
-    kind = _file_write_kind(func)
-    if kind is None or _file_writes_allowed():
+def _reject_sandboxed_file_io(func: Any, args: Sequence[Any], kwargs: dict[str, Any]) -> None:
+    # The import blocklist only names shutil, tempfile, and sqlite3, so io.open,
+    # Path.read_text, and glob.glob reach the real filesystem unless this gate runs.
+    kind = _file_io_kind(func)
+    if kind is None or _file_access_allowed():
         return
-    mode = kwargs["mode"] if "mode" in kwargs else _positional_mode(func, args)
-    if kind == "mutate" or (isinstance(mode, str) and any(flag in mode for flag in "wax+")):
-        raise InterpreterError(f"Forbidden access to function: {getattr(inspect.unwrap(func), '__name__', func)}")
+    if kind == "path-or-buffer" and not _opens_filesystem_path(func, args, kwargs):
+        return
+    if kind == "basicConfig" and not _is_path_target(kwargs.get("filename")):
+        return
+    name = getattr(inspect.unwrap(func), "__name__", func)
+    raise InterpreterError(f"Forbidden access to function: {name}")
 
 
 def evaluate_call(
@@ -1487,7 +1551,7 @@ def evaluate_call(
             raise InterpreterError(f"Forbidden call to dunder function: {func.__name__}")
         _reject_numpy_code_exec(func, args, kwargs)
         _reject_pandas_pickle(func, args, kwargs)
-        _reject_sandboxed_file_write(func, args, kwargs)
+        _reject_sandboxed_file_io(func, args, kwargs)
         _check_dangerous_value(func, authorized_imports)
         return func(*args, **kwargs)
 
@@ -1983,6 +2047,7 @@ class _FileOsProxy(ModuleType):
 
 _FILE_OS_PROXY: _FileOsProxy | None = None
 _FILE_OS_READ_IDS: frozenset[int] | None = None
+_FILE_OS_FILE_READ_IDS: frozenset[int] | None = None
 _FILE_OS_WRITE_IDS: frozenset[int] | None = None
 
 
@@ -1995,10 +2060,10 @@ def _get_default_file_os_ids() -> frozenset[int]:
 
 
 def get_file_os_proxy(files: bool = True) -> tuple[_FileOsProxy, frozenset[int]]:
-    global _FILE_OS_PROXY, _FILE_OS_READ_IDS, _FILE_OS_WRITE_IDS
+    global _FILE_OS_PROXY, _FILE_OS_READ_IDS, _FILE_OS_FILE_READ_IDS, _FILE_OS_WRITE_IDS
     if _FILE_OS_PROXY is None:
         import os as _real_os
-        from plugin.scripting.sandbox import FILE_OS_READ_NAMES, FILE_OS_WRITE_NAMES
+        from plugin.scripting.sandbox import FILE_OS_FILE_READ_NAMES, FILE_OS_READ_NAMES, FILE_OS_WRITE_NAMES
 
         proxy = _FileOsProxy(_real_os)
         read_ids: set[int] = set()
@@ -2006,6 +2071,11 @@ def get_file_os_proxy(files: bool = True) -> tuple[_FileOsProxy, frozenset[int]]
             val = getattr(proxy, name, None)
             if callable(val):
                 read_ids.add(id(val))
+        file_read_ids: set[int] = set()
+        for name in FILE_OS_FILE_READ_NAMES:
+            val = getattr(proxy, name, None)
+            if callable(val):
+                file_read_ids.add(id(val))
         write_ids: set[int] = set()
         for name in FILE_OS_WRITE_NAMES:
             val = getattr(proxy, name, None)
@@ -2013,11 +2083,13 @@ def get_file_os_proxy(files: bool = True) -> tuple[_FileOsProxy, frozenset[int]]
                 write_ids.add(id(val))
         _FILE_OS_PROXY = proxy
         _FILE_OS_READ_IDS = frozenset(read_ids)
+        _FILE_OS_FILE_READ_IDS = frozenset(file_read_ids)
         _FILE_OS_WRITE_IDS = frozenset(write_ids)
     assert _FILE_OS_PROXY is not None
     assert _FILE_OS_READ_IDS is not None
+    assert _FILE_OS_FILE_READ_IDS is not None
     assert _FILE_OS_WRITE_IDS is not None
-    ids = (_FILE_OS_READ_IDS | _FILE_OS_WRITE_IDS) if files else _FILE_OS_READ_IDS
+    ids = (_FILE_OS_READ_IDS | _FILE_OS_FILE_READ_IDS | _FILE_OS_WRITE_IDS) if files else _FILE_OS_READ_IDS
     return _FILE_OS_PROXY, ids
 
 
@@ -2034,7 +2106,7 @@ def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None
     relaxed_roots, file_os_ids = SANDBOX_POLICY_CONTEXT.get()
 
     if name == "os" and root not in relaxed_roots:
-        proxy, _ = get_file_os_proxy(files=bool(file_os_ids and file_os_ids != _get_default_file_os_ids()))
+        proxy, _ = get_file_os_proxy(files=_file_access_allowed())
         return proxy
 
     if root in relaxed_roots:

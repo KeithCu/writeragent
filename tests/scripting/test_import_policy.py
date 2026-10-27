@@ -86,12 +86,14 @@ def test_venv_policy_compact_mentions_blocked_categories():
     policy = format_venv_import_policy_for_prompt(compact=True)
     assert "networking" in policy
     assert "host escape" in policy
-    assert "file writes" in policy
+    assert "file read/write access" in policy
     assert "DO NOT import numpy" in policy
     assert "calc" in policy
     assert "st" in policy
     assert "plt" in policy
     assert "dt" in policy
+    full = format_venv_import_policy_for_prompt(compact=False)
+    assert "file read/write access" in full
 
 
 def test_venv_policy_preimported_lists_aliases():
