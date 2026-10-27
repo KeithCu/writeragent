@@ -1601,15 +1601,6 @@ class TestSessionResetHttp:
         assert status.startswith("503")
         assert body.get("code") == "WORKER_POOL_BUSY"
 
-    def test_execute_session_limit_is_503(self) -> None:
-        def limited(**_kwargs):
-            return {"id": "ex-cap", "status": "error", "code": "SESSION_LIMIT", "error": "Shared session limit reached."}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=limited)
-        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("503")
-        assert body.get("code") == "SESSION_LIMIT"
-
     def test_execute_worker_death_is_500(self) -> None:
         """A crash or empty frame may have run the cell, so it is not a retryable 503."""
         def dead(**_kwargs):
@@ -3515,7 +3506,9 @@ def test_bearer_scheme_case_insensitive() -> None:
 
 
 def test_session_reset_passes_bounded_timeout() -> None:
-    """The accept-time deadline is the reset lease budget, capped at 5s."""
+    """The accept-time deadline is the reset lease budget, capped at SESSION_RESET_TIMEOUT_SEC."""
+    from compute_service.formula_pool import SESSION_RESET_TIMEOUT_SEC
+
     seen: list[float] = []
 
     def fake_reset(sid: str, timeout_sec: float = 5.0) -> dict[str, Any]:
@@ -3534,7 +3527,7 @@ def test_session_reset_passes_bounded_timeout() -> None:
     assert status == "200 OK"
     assert parsed.get("status") == "ok"
     assert len(seen) == 1
-    assert 0 < seen[0] <= 5.0
+    assert 0 < seen[0] <= SESSION_RESET_TIMEOUT_SEC
 
 
 def test_vision_unknown_helper_is_400() -> None:
@@ -3896,8 +3889,8 @@ def test_gated_does_not_start_response_twice() -> None:
 
     app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
 
-    def boom(environ: dict, start: Any, settings: ComputeSettings, _run: Any) -> list[bytes]:
-        del environ, settings
+    def boom(environ: dict, start: Any, settings: ComputeSettings, _run: Any, admission: Any = None) -> list[bytes]:
+        del environ, settings, _run, admission
         start("200 OK", [("Content-Type", "application/json"), ("Content-Length", "2")])
         raise RuntimeError("after headers")
 
@@ -3925,7 +3918,7 @@ def test_gated_prepare_exception_is_json_internal_error() -> None:
     What was wrong: prepare ran before the try that maps route failures to
     INTERNAL_ERROR, so a body-read bug escaped as an HTML 500.
     """
-    from compute_service.server import _gated
+    from compute_service.server import _Admission, _gated
 
     statuses: list[str] = []
 
@@ -3933,7 +3926,7 @@ def test_gated_prepare_exception_is_json_internal_error() -> None:
         del headers, exc_info
         statuses.append(status)
 
-    def prepare(_start: Any) -> tuple[float, list[bytes] | None]:
+    def prepare(_start: Any) -> tuple[_Admission | None, list[bytes] | None]:
         raise RuntimeError("prepare blew up")
 
     sem = threading.Semaphore(1)
@@ -3945,7 +3938,7 @@ def test_gated_prepare_exception_is_json_internal_error() -> None:
         admission_timeout_sec=1.0,
         busy_code="WORKER_POOL_BUSY",
         busy_message="busy",
-        route_fn=lambda _start: [],
+        route_fn=lambda _start, _admission: [],
         prepare=prepare,
     )
     assert statuses == ["500 Internal Server Error"]
