@@ -1072,8 +1072,9 @@ def test_paragraphs_in_anchor_stops_at_the_anchor_end():
             return _ElementEnum(self.rows)
 
         def compareRegionStarts(self, start1, start2):
+            # UNO: 1 when start1 is before start2, -1 when after.
             if start2 is anchor_end:
-                return 1 if start1.para is p_past else 0
+                return -1 if start1.para is p_past else 1
             return 0 if getattr(start2.para, "inside", False) else -1
 
         def compareRegionEnds(self, inner_end, _outer_end):
@@ -1087,6 +1088,63 @@ def test_paragraphs_in_anchor_stops_at_the_anchor_end():
 
     rows = _paragraphs_in_anchor(anchor)
     assert rows == [p1, p2]
+
+
+class _OffsetPoint:
+    def __init__(self, offset):
+        self.offset = offset
+
+
+class _OffsetText:
+    """compareRegion* with real UNO signs: 1 when the first is before, -1 when after."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def createEnumeration(self):
+        return _ElementEnum(self.rows)
+
+    @staticmethod
+    def _cmp(left, right):
+        return (left.offset < right.offset) - (left.offset > right.offset)
+
+    def compareRegionStarts(self, left, right):
+        return self._cmp(left, right)
+
+    def compareRegionEnds(self, left, right):
+        return self._cmp(left, right)
+
+
+def test_list_toc_entries_skips_a_paragraph_before_the_toc():
+    """A paragraph above the TOC must not end the walk (discussion #2259).
+
+    What was wrong: the walk broke when compareRegionStarts(para, anchor end)
+    was positive, which in UNO means the paragraph starts before the end.
+    """
+    rows = []
+    for offset, (label, style) in enumerate((
+        ("Intro", "Text Body"),
+        ("Alpha\t1", "Contents 1"),
+        ("Beta\t2", "Contents 2"),
+        ("After", "Text Body"),
+    )):
+        para = _IndexPara(label, style, (), False)
+        para._start = _OffsetPoint(offset * 10)
+        para._end = _OffsetPoint(offset * 10 + 5)
+        rows.append(para)
+    anchor = MagicMock()
+    anchor.getText.return_value = _OffsetText(rows)
+    anchor.getStart.return_value = rows[1].getStart()
+    anchor.getEnd.return_value = rows[2].getEnd()
+    ctx, _doc, idx, _mgr = _one_toc_context()
+    idx.getAnchor.return_value = anchor
+
+    listed = IndexesListTocEntries().execute(ctx)
+
+    assert listed["status"] == "ok", listed
+    assert listed["count"] == 2
+    assert [row["text"] for row in listed["entries"]] == ["Alpha\t1", "Beta\t2"]
+    assert [row["level"] for row in listed["entries"]] == [1, 2]
 
 
 def test_indexes_add_mark_text_failure_does_not_insert():

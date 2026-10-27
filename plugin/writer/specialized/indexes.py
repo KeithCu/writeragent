@@ -600,13 +600,14 @@ def _paragraphs_in_anchor(anchor: Any) -> list[Any]:
     # createEnumeration does not fail on a live text. A failure is not an empty TOC.
     enum = text.createEnumeration()
     # Elements are in document order, so nothing after the anchor end can be contained.
+    # compareRegionStarts(a, b) is 1 when a starts before b and -1 when after.
     end = anchor.getEnd()
     rows: list[Any] = []
     while _enum_has_more(enum):
         para = enum.nextElement()
         if _contained(text, anchor, para):
             rows.append(para)
-        elif uno_read(lambda: int(text.compareRegionStarts(para.getStart(), end)) > 0, False):
+        elif uno_read(lambda: int(text.compareRegionStarts(para.getStart(), end)) < 0, False):
             break
     return rows
 
