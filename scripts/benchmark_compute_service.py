@@ -176,8 +176,7 @@ class ManagedBenchmarkServer:
 
 
 def _kill_formula_workers(server_pid: int) -> None:
-    """SIGKILL the server's formula_worker children (Linux /proc) and wait until they are dead."""
-    killed: list[Path] = []
+    """SIGKILL the server's formula_worker children (Linux /proc)."""
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -189,19 +188,11 @@ def _kill_formula_workers(server_pid: int) -> None:
         if ppid == server_pid and b"formula_worker" in cmdline:
             try:
                 os.kill(int(entry.name), signal.SIGKILL)
-                killed.append(entry)
             except OSError:
                 pass
-    # A request sent before the kill lands would get EMPTY_RESPONSE, not session_reset.
-    deadline = time.monotonic() + 5
-    for entry in killed:
-        while time.monotonic() < deadline:
-            try:
-                if (entry / "stat").read_text().rsplit(")", 1)[1].split()[0] in ("Z", "X"):
-                    break
-            except OSError:
-                break
-            time.sleep(0.01)
+    # The server notices the dead pipe asynchronously. A request sent at once can get
+    # EMPTY_RESPONSE (the cell may have run) instead of session_reset.
+    time.sleep(0.5)
 
 
 @dataclass
