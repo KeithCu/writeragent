@@ -444,9 +444,13 @@ def _socket_readable(sock: socket.socket, selector: selectors.BaseSelector | Non
             except (OSError, ValueError):
                 pass
     try:
-        poller = select.poll()
-        poller.register(sock, select.POLLIN)
-        return bool(poller.poll(0))
+        if hasattr(select, "poll"):
+            poller = select.poll()
+            poller.register(sock, select.POLLIN)
+            return bool(poller.poll(0))
+        # Windows has no poll(); its select() has no fd-number cap.
+        r, _, _ = select.select([sock], [], [], 0)
+        return bool(r)
     except (OSError, ValueError):
         return False
 
