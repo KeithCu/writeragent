@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, Iterator
 
 from plugin.framework.errors import is_disposed_exception, is_real_disposal, uno_read
 from plugin.framework.tool import ToolBase, ToolContext
@@ -268,95 +268,137 @@ def attach_label_hints(nodes: list[dict[str, Any]]) -> None:
             attach_label_hints(children)
 
 
-def find_shape_on_page(page: Any, *, index: int | None = None, name: str | None = None) -> tuple[int | None, Any | None, str | None]:
-    """Resolve a page shape by index or Name (shape.Name or Control.Name).
+def shape_path(base: str | None, i: int) -> str:
+    """"0" at page level, "2.0.1" under groups. The only path grammar."""
+    return str(i) if base is None else f"{base}.{i}"
 
-    Returns ``(index, shape, error)``. Name match is exact; several hits
-    prefer a unique ``shape.Name`` match, else error so the caller can recover.
-    ``index`` is the draw-page index from ``page.getByIndex``. A match inside
-    a group has no draw-page index, so that index is None and ``shape`` is
-    the child.
-    """
-    if index is not None:
-        try:
-            idx = int(index)
-            if idx < 0 or idx >= page.getCount():
-                return None, None, "Invalid shape index: %s" % idx
-            return idx, page.getByIndex(idx), None
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            return None, None, "Failed to find shape at index %s: %s" % (index, exc)
 
-    wanted = (name or "").strip()
-    if not wanted:
-        return None, None, "Pass name or index to address the shape."
-
-    name_hits: list[tuple[int | None, Any]] = []
-    control_hits: list[tuple[int | None, Any]] = []
+def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tuple[str, Any, Any]]:
+    """Preorder (address, shape, parent). parent is the XShapes to remove from (page or GroupShape).
+    Recurse only when "GroupShape" is in the shape type. Disposal from getCount / getByIndex / getShapeType propagates."""
     try:
-        count = page.getCount()
+        count = xshapes.getCount()
     except Exception as exc:
         if is_disposed_exception(exc):
             raise
-        return None, None, "Could not read page shapes: %s" % exc
+        return
 
-    def _consider(shape: Any, top_index: int, *, at_page_level: bool) -> None:
+    for i in range(count):
+        try:
+            shape = xshapes.getByIndex(i)
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            continue
+
+        addr = shape_path(base, i)
+        yield addr, shape, xshapes
+
         try:
             shape_type = shape.getShapeType()
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
             shape_type = ""
-        # Bugfix: name and control hits inside a GroupShape stored the group's
-        # page index. shape_upsert echoes that index, and the next edit passes
-        # it to page.getByIndex, which is the group. A descendant has no
-        # draw-page index (the tree uses path_index), so only the top-level
-        # shape gets one.
-        hit_index = top_index if at_page_level else None
-        if _shape_name(shape) == wanted:
-            name_hits.append((hit_index, shape))
-            return
-        try:
-            if is_control_shape_type(shape_type):
-                control = getattr(shape, "Control", None)
-                if control is not None and _safe_attr(control, "Name") == wanted:
-                    control_hits.append((hit_index, shape))
-                    return
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
+
         if "GroupShape" in str(shape_type):
-            try:
-                child_count = shape.getCount()
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    raise
-                return
-            for j in range(child_count):
+            yield from iter_shape_addresses(shape, base=addr)
+
+
+def find_shape_on_page(
+    page: Any,
+    *,
+    index: int | str | None = None,
+    name: str | None = None,
+) -> tuple[int | str | None, Any | None, Any | None, str | None]:
+    """(address, shape, parent, error).
+
+    index: int page index, or dotted string "2.0.1" (also "2" for page level). No separate path_index parameter.
+    address: int for a page-level shape, dotted str for a group child. Name lookup of a child returns that path, not None and not the group's page index.
+    parent: the page or the GroupShape. None only on error.
+    """
+    if index is not None:
+        if isinstance(index, bool):
+            return None, None, None, "Invalid shape index: %s" % index
+        if isinstance(index, int):
+            seg_ints = [index]
+            raw_index_str = str(index)
+        elif isinstance(index, str):
+            raw_index_str = index
+            parts = index.split(".")
+            if not parts or any(not p.isdigit() for p in parts):
+                return None, None, None, "Invalid shape index: %s" % index
+            seg_ints = [int(p) for p in parts]
+        else:
+            return None, None, None, "Invalid shape index: %s" % index
+
+        curr: Any = page
+        parent: Any = None
+        for d, seg_idx in enumerate(seg_ints):
+            if d > 0:
                 try:
-                    child = shape.getByIndex(j)
+                    curr_type = curr.getShapeType()
                 except Exception as exc:
                     if is_disposed_exception(exc):
                         raise
-                    continue
-                _consider(child, top_index, at_page_level=False)
+                    curr_type = ""
+                if "GroupShape" not in str(curr_type):
+                    return None, None, None, "Invalid shape index: %s" % raw_index_str
 
-    for i in range(count):
-        try:
-            shape = page.getByIndex(i)
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
+            try:
+                count = curr.getCount()
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+                return None, None, None, "Failed to find shape at index %s: %s" % (raw_index_str, exc)
+
+            if seg_idx < 0 or seg_idx >= count:
+                return None, None, None, "Invalid shape index: %s" % raw_index_str
+
+            try:
+                child = curr.getByIndex(seg_idx)
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+                return None, None, None, "Failed to find shape at index %s: %s" % (raw_index_str, exc)
+
+            parent = curr
+            curr = child
+
+        assert curr is not None
+        assert parent is not None
+
+        if len(seg_ints) == 1:
+            addr: int | str = seg_ints[0]
+        else:
+            addr = ".".join(str(s) for s in seg_ints)
+        return addr, curr, parent, None
+
+    wanted = (name or "").strip()
+    if not wanted:
+        return None, None, None, "Pass name or index to address the shape."
+
+    name_hits: list[tuple[int | str, Any, Any]] = []
+    control_hits: list[tuple[int | str, Any, Any]] = []
+    # A page-level hit keeps its int page index; a group child gets its dotted
+    # path and the GroupShape as parent, so edit and delete reach the child.
+    for path, shape, parent_obj in iter_shape_addresses(page):
+        hit_addr: int | str = path if "." in path else int(path)
+        if _shape_name(shape) == wanted:
+            name_hits.append((hit_addr, shape, parent_obj))
             continue
-        _consider(shape, i, at_page_level=True)
+        shape_type = uno_read(lambda: shape.getShapeType(), "")
+        if is_control_shape_type(shape_type):
+            control = getattr(shape, "Control", None)
+            if control is not None and _safe_attr(control, "Name") == wanted:
+                control_hits.append((hit_addr, shape, parent_obj))
 
     hits = name_hits if name_hits else control_hits
     if len(hits) == 1:
-        return hits[0][0], hits[0][1], None
+        return hits[0][0], hits[0][1], hits[0][2], None
     if not hits:
-        return None, None, "No shape named %r on this page." % wanted
-    return None, None, "Several shapes named %r; pass index as well." % wanted
+        return None, None, None, "No shape named %r on this page." % wanted
+    return None, None, None, "Several shapes named %r; pass index as well." % wanted
 
 
 def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[str, Any]]:
@@ -383,7 +425,7 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
                 raise
             continue
 
-        current_index = str(i) if base_index is None else f"{base_index}.{i}"
+        current_index = shape_path(base_index, i)
 
         shape_type = uno_read(lambda: shape.getShapeType(), "UnknownShape")
 

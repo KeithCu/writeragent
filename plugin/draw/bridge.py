@@ -152,15 +152,14 @@ class DrawBridge:
             raise ToolExecutionError("Page index %s out of range." % page_index)
         # Other failures propagate. execute_safe maps them to TOOL_EXECUTION_ERROR.
 
-    def get_shapes(self, page: Any | None = None) -> list[Any]:
+    def get_shapes(self, page: Any | None = None) -> list[tuple[str, Any]]:
+        from plugin.draw.tree import iter_shape_addresses
+
         if page is None:
             page = self.get_active_page()
         if page is None:
             raise RuntimeError("No draw page available to list shapes.")
-        shapes = []
-        for i in range(page.getCount()):
-            shapes.append(page.getByIndex(i))
-        return shapes
+        return [(addr, shape) for addr, shape, _parent in iter_shape_addresses(page)]
 
     def create_slide(self, index: int | None = None, switch: bool = True) -> tuple[Any, int]:
         """Insert a blank page so it occupies ``index`` (append when omitted).
@@ -982,10 +981,10 @@ def find_notes_shape(notes_page: Any) -> Any | None:
     return None
 
 
-def _shape_summary_line(index: int, shape: Any) -> str:
+def _shape_summary_line(index: int | str, shape: Any) -> str:
     """One chat-context shape line; an unreadable field is omitted, not the whole page."""
     type_name = uno_probe(lambda: str(shape.getShapeType()).split(".")[-1], "Shape")
-    line = "- [%d] %s" % (index, type_name)
+    line = "- [%s] %s" % (index, type_name)
 
     def read_pos_size() -> str:
         pos = shape.getPosition()
@@ -1063,8 +1062,8 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
 
             shapes = bridge.get_shapes(active_page)
             ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress else "Page", active_page_idx)
-            for i, s in enumerate(shapes):
-                ctx_str += _shape_summary_line(i, s) + "\n"
+            for address, s in shapes:
+                ctx_str += _shape_summary_line(address, s) + "\n"
 
         # Bugfix: the parameter was accepted and document_helpers passed
         # max_chars / max_context, but the body returned the whole active-page

@@ -12,6 +12,7 @@ import pytest
 
 from plugin.draw.shapes import (
     AlignShapes,
+    DeleteShape,
     GetDrawSummary,
     GroupShapes,
     UpsertShape,
@@ -849,3 +850,140 @@ def test_writer_anchor_disposal_propagates():
     doc.supportsService.side_effect = DisposedException("gone")
     with pytest.raises(DisposedException):
         _try_writer_anchor_shape_before_add(doc, MagicMock())
+
+
+def test_draw_summary_nested_group_shapes():
+    rect = MagicMock()
+    rect.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    rect.Name = "Rect"
+    rect.getPosition.return_value = _Pos(0, 0)
+    rect.getSize.return_value = _Size(10, 10)
+    rect.getString.return_value = "rect text"
+
+    child = MagicMock()
+    child.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    child.Name = "Child"
+    child.getPosition.return_value = _Pos(10, 20)
+    child.getSize.return_value = _Size(30, 40)
+    child.getString.return_value = "child text"
+
+    grandchild = MagicMock()
+    grandchild.getShapeType.return_value = "com.sun.star.drawing.CustomShape"
+    grandchild.Name = "Grandchild"
+    grandchild.getPosition.return_value = _Pos(50, 60)
+    grandchild.getSize.return_value = _Size(70, 80)
+    grandchild.getString.return_value = "grandchild text"
+
+    inner_group = MagicMock()
+    inner_group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    inner_group.Name = "InnerGroup"
+    inner_group.getPosition.return_value = _Pos(5, 5)
+    inner_group.getSize.return_value = _Size(100, 100)
+    inner_group.getCount.return_value = 1
+    inner_group.getByIndex.side_effect = lambda i: grandchild if i == 0 else None
+
+    outer_group = MagicMock()
+    outer_group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    outer_group.Name = "OuterGroup"
+    outer_group.getPosition.return_value = _Pos(0, 0)
+    outer_group.getSize.return_value = _Size(200, 200)
+    outer_group.getCount.return_value = 2
+    outer_group.getByIndex.side_effect = lambda i: child if i == 0 else (inner_group if i == 1 else None)
+
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: rect if i == 0 else (outer_group if i == 1 else None)
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    with patch("plugin.draw.bridge.resolve_shape_page", return_value=(page, 0, None)):
+        res = GetDrawSummary().execute(ctx, page=0)
+
+    assert res["status"] == "ok"
+    indices = [s["index"] for s in res["shapes"]]
+    assert indices == [0, 1, "1.0", "1.1", "1.1.0"]
+    assert isinstance(indices[0], int)
+    assert isinstance(indices[1], int)
+    assert isinstance(indices[2], str)
+    assert isinstance(indices[3], str)
+    assert isinstance(indices[4], str)
+
+
+def test_upsert_shape_validate_dotted_index():
+    tool = UpsertShape()
+    ok, err = tool.validate(action="edit", index="2.0.1")
+    assert ok is True
+    assert err is None
+
+    ok_float, err_float = tool.validate(action="edit", index=2.5)
+    assert ok_float is False
+    assert err_float is not None
+
+
+def test_upsert_shape_edit_nested_group_child():
+    grandchild = MagicMock()
+    grandchild.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    grandchild.getPosition.return_value = _Pos(0, 0)
+    grandchild.getSize.return_value = _Size(10, 10)
+    grandchild.Name = "star"
+
+    inner_group = MagicMock()
+    inner_group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    inner_group.getCount.return_value = 1
+    inner_group.getByIndex.side_effect = lambda i: grandchild if i == 0 else None
+
+    child = MagicMock()
+    child.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+
+    outer_group = MagicMock()
+    outer_group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    outer_group.getCount.return_value = 2
+    outer_group.getByIndex.side_effect = lambda i: child if i == 0 else (inner_group if i == 1 else None)
+
+    rect = MagicMock()
+    rect.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: rect if i == 0 else (outer_group if i == 1 else None)
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    with patch("plugin.draw.bridge.resolve_shape_page", return_value=(page, 0, None)):
+        result = UpsertShape().execute(ctx, action="edit", index="1.1.0", text="star")
+
+    assert result["status"] == "ok"
+    assert result["index"] == "1.1.0"
+    grandchild.setString.assert_called_once_with("star")
+
+
+def test_delete_shape_group_child_and_page_shape():
+    child = MagicMock()
+    child.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+
+    outer_group = MagicMock()
+    outer_group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    outer_group.getCount.return_value = 1
+    outer_group.getByIndex.side_effect = lambda i: child if i == 0 else None
+
+    rect = MagicMock()
+    rect.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: rect if i == 0 else (outer_group if i == 1 else None)
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+
+    with patch("plugin.draw.shapes._resolve_mutation_page", return_value=(page, None)):
+        # Delete of "1.0" calls group.remove(child) and not page.remove
+        res_child = DeleteShape().execute(ctx, index="1.0")
+        assert res_child["status"] == "ok"
+        outer_group.remove.assert_called_once_with(child)
+        page.remove.assert_not_called()
+
+        # Delete of 0 calls page.remove(rect)
+        res_page = DeleteShape().execute(ctx, index=0)
+        assert res_page["status"] == "ok"
+        page.remove.assert_called_once_with(rect)
