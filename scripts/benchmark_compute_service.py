@@ -16,7 +16,7 @@ Usage:
     python scripts/benchmark_compute_service.py --help
     python scripts/benchmark_compute_service.py --quick
     python scripts/benchmark_compute_service.py --workers 1,2,4 --concurrency 4
-    python scripts/benchmark_compute_service.py --concurrency 1,2,4,8,16,32 --threads 32
+    python scripts/benchmark_compute_service.py --concurrency 1,2,4,8,16,32
 """
 
 from __future__ import annotations
@@ -24,7 +24,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -41,9 +43,7 @@ _PROJECT_ROOT = _SCRIPT_DIR.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from compute_service.config import ComputeSettings
 from compute_service.json_forward import encode_multipart_execute
-from compute_service.server import WSGIDualStackServer, create_wsgi_app
 
 WORKLOADS: dict[str, dict[str, Any]] = {
     "numpy_vector": {
@@ -123,36 +123,76 @@ def _get_free_port() -> int:
 
 
 class ManagedBenchmarkServer:
-    def __init__(self, max_threads: int = 32, workers: int = 1, worker_max_tasks: int = 10_000_000) -> None:
+    """Run compute_service/server.py in its own process so the bench clients do not share its GIL."""
+
+    def __init__(self, workers: int = 1, worker_max_tasks: int = 10_000_000) -> None:
         self.port = _get_free_port()
-        self.max_threads = max_threads
         self.workers = workers
         self.worker_max_tasks = worker_max_tasks
-        # Listener threads inside settings follow workers. This bench sizes its
-        # own HTTP pool.
-        self.settings = ComputeSettings(
-            host="127.0.0.1",
-            port=self.port,
-            workers=self.workers,
-            worker_max_tasks=self.worker_max_tasks,
-            log_level="WARN",
-        )
-        self.server = WSGIDualStackServer("127.0.0.1", self.port, max_threads=self.max_threads)
-        self.server.set_app(create_wsgi_app(self.settings))
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.cmd = [
+            sys.executable,
+            str(Path(__file__).resolve().parent.parent / "compute_service" / "server.py"),
+            "--host", "127.0.0.1",
+            "--port", str(self.port),
+            "--workers", str(self.workers),
+            "--worker-max-tasks", str(self.worker_max_tasks),
+            "--log-level", "WARNING",
+        ]  # fmt: skip
+        self.proc: subprocess.Popen[bytes] | None = None
 
     def __enter__(self) -> str:
-        self.thread.start()
-        time.sleep(0.15)
-        return f"http://127.0.0.1:{self.port}"
+        url = f"http://127.0.0.1:{self.port}"
+        # Loopback without an API key, so drop any inherited key: the bench sends no auth.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON_COMPUTE_")}
+        self.proc = subprocess.Popen(self.cmd, env=env)
+        try:
+            deadline = time.monotonic() + 60
+            while True:
+                if self.proc.poll() is not None:
+                    raise RuntimeError(f"compute_service exited with code {self.proc.returncode} during startup")
+                try:
+                    with urllib.request.urlopen(f"{url}/health", timeout=1) as resp:
+                        if resp.status == 200:
+                            return url
+                except OSError:
+                    pass
+                if time.monotonic() > deadline:
+                    raise RuntimeError("compute_service did not become ready within 60s")
+                time.sleep(0.05)
+        except BaseException:
+            self.__exit__(None, None, None)
+            raise
 
     def __exit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
-        from compute_service.formula_pool import shutdown_formula_pool
+        proc, self.proc = self.proc, None
+        if proc is None or proc.poll() is not None:
+            return
+        proc.terminate()
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
-        self.server.shutdown()
-        self.server.server_close()
-        self.thread.join(timeout=3)
-        shutdown_formula_pool()
+
+def _kill_formula_workers(server_pid: int) -> None:
+    """SIGKILL the server's formula_worker children (Linux /proc)."""
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            ppid = int((entry / "stat").read_text().rsplit(")", 1)[1].split()[1])
+            cmdline = (entry / "cmdline").read_bytes()
+        except (OSError, ValueError, IndexError):
+            continue
+        if ppid == server_pid and b"formula_worker" in cmdline:
+            try:
+                os.kill(int(entry.name), signal.SIGKILL)
+            except OSError:
+                pass
+    # The server notices the dead pipe asynchronously. A request sent at once can get
+    # EMPTY_RESPONSE (the cell may have run) instead of session_reset.
+    time.sleep(0.5)
 
 
 @dataclass
@@ -471,7 +511,6 @@ def run_benchmarks(
     concurrencies: list[int] | None = None,
     requests_per_worker: int = 50,
     total_requests: int | None = None,
-    server_threads: int = 32,
     worker_counts: list[int] | None = None,
     recycle_tasks: int | None = None,
     target_url: str | None = None,
@@ -511,7 +550,7 @@ def run_benchmarks(
         _execute_suite(target_url, active_workers=selected_workers[0] if selected_workers else 1)
     else:
         for w_count in selected_workers:
-            with ManagedBenchmarkServer(max_threads=server_threads, workers=w_count, worker_max_tasks=worker_max_tasks) as base_url:
+            with ManagedBenchmarkServer(workers=w_count, worker_max_tasks=worker_max_tasks) as base_url:
                 _execute_suite(base_url, active_workers=w_count)
 
     return all_results
@@ -522,7 +561,6 @@ def run_stress_suite(
     workers: int = 2,
     concurrency: int = 32,
     requests_per_worker: int = 20,
-    server_threads: int = 32,
     reset_interval: int = 7,
     recycle_tasks: int = 25,
     target_url: str | None = None,
@@ -546,7 +584,7 @@ def run_stress_suite(
     invariant_details: list[str] = []
     invariants_passed = True
 
-    def _execute_stress(base_url: str) -> StressResult:
+    def _execute_stress(base_url: str, server_pid: int | None = None) -> StressResult:
         nonlocal invariants_passed
         health_monitor = HealthMonitor(base_url, interval_sec=0.02)
         health_monitor.start()
@@ -1085,14 +1123,9 @@ def run_stress_suite(
                     f"{base_url}/v1/execute?session_id={crash_sid}",
                     json.dumps({"code": "result = 10", "mode": "shared"}).encode("utf-8"),
                 )
-                from compute_service.formula_pool import get_formula_pool
-
-                pool = get_formula_pool()
-                target_worker = None
-                with pool._cond:
-                    target_worker, *_ = pool._select_shared_worker(crash_sid)
-                if target_worker:
-                    target_worker.kill()
+                # The server is another process: kill its formula workers (one holds the session).
+                if server_pid is not None:
+                    _kill_formula_workers(server_pid)
 
                 recover_payload = json.dumps({
                     "code": "result = 42",
@@ -1153,8 +1186,9 @@ def run_stress_suite(
 
     if target_url:
         return _execute_stress(target_url)
-    with ManagedBenchmarkServer(max_threads=server_threads, workers=workers, worker_max_tasks=recycle_tasks) as url:
-        return _execute_stress(url)
+    server = ManagedBenchmarkServer(workers=workers, worker_max_tasks=recycle_tasks)
+    with server as url:
+        return _execute_stress(url, server.proc.pid if server.proc else None)
 
 
 def format_stress_results(result: StressResult) -> str:
@@ -1215,12 +1249,6 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         help="Target total requests per test scenario (requests per client is computed as total_requests // concurrency)",
-    )
-    parser.add_argument(
-        "--threads",
-        type=int,
-        default=32,
-        help="HTTP listener threads for this bench (default: 32). Not a service setting.",
     )
     parser.add_argument(
         "--target-url",
@@ -1293,7 +1321,6 @@ def main(argv: list[str] | None = None) -> int:
             workers=worker_count,
             concurrency=concurrency,
             requests_per_worker=reqs,
-            server_threads=args.threads,
             reset_interval=args.reset_interval,
             recycle_tasks=recycle_tasks,
             target_url=args.target_url,
@@ -1338,7 +1365,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Total reqs:  {args.total_requests} (per client: {[max(1, args.total_requests // c) for c in shown_c]})")
     else:
         print(f"Requests/w:  {reqs} (Total requests per scenario: {[c * reqs for c in shown_c]})")
-    print(f"Max threads: {args.threads}")
     print("=" * 80)
 
     results = run_benchmarks(
@@ -1346,7 +1372,6 @@ def main(argv: list[str] | None = None) -> int:
         concurrencies=concurrencies,
         requests_per_worker=reqs,
         total_requests=args.total_requests,
-        server_threads=args.threads,
         worker_counts=worker_counts,
         recycle_tasks=args.recycle_tasks,
         target_url=args.target_url,

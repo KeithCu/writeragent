@@ -162,27 +162,25 @@ def test_run_benchmark_scenario_sends_warmup(mock_exec: MagicMock) -> None:
     assert mock_exec.call_count == 8
 
 
-@patch("compute_service.formula_pool.shutdown_formula_pool")
-@patch("benchmark_compute_service.create_wsgi_app")
-@patch("benchmark_compute_service.WSGIDualStackServer")
-def test_managed_benchmark_server_workers_and_shutdown(
-    mock_server_cls: MagicMock,
-    mock_app_fn: MagicMock,
-    mock_shutdown_pool: MagicMock,
-) -> None:
-    mock_server = MagicMock()
-    mock_server_cls.return_value = mock_server
+@patch("benchmark_compute_service.urllib.request.urlopen")
+@patch("benchmark_compute_service.subprocess.Popen")
+def test_managed_benchmark_server_workers_and_shutdown(mock_popen: MagicMock, mock_urlopen: MagicMock) -> None:
+    proc = MagicMock()
+    proc.poll.return_value = None
+    mock_popen.return_value = proc
+    mock_urlopen.return_value.__enter__.return_value.status = 200
 
-    server = ManagedBenchmarkServer(max_threads=16, workers=3)
-    assert server.settings.workers == 3
-    assert server.settings.threads == 3
+    server = ManagedBenchmarkServer(workers=3)
+    cmd = server.cmd
+    assert cmd[1].endswith("compute_service/server.py")
+    assert cmd[cmd.index("--workers") + 1] == "3"
+    assert cmd[cmd.index("--port") + 1] == str(server.port)
 
     with server as url:
-        assert url.startswith("http://127.0.0.1:")
+        assert url == f"http://127.0.0.1:{server.port}"
 
-    mock_server.shutdown.assert_called_once()
-    mock_server.server_close.assert_called_once()
-    mock_shutdown_pool.assert_called_once()
+    proc.terminate.assert_called_once()
+    proc.wait.assert_called_once()
 
 
 def test_stress_result_fields_and_formatting() -> None:
