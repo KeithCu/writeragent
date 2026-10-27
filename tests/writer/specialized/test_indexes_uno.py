@@ -835,3 +835,38 @@ def test_insert_toc_entry_links_a_text_table_uno(ctx, doc):
         assert color == 0x0000FF, (chunk, color, looks)
         assert underline == 0, (chunk, underline, looks)
     assert bool(toc.getPropertyValue("IsProtected")) is protected
+
+
+def _add_body_paragraph(text, value):
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+    text.insertControlCharacter(cursor, 0, False)
+    cursor.gotoEnd(False)
+    text.insertString(cursor, value, False)
+    cursor.setPropertyValue("ParaStyleName", "Standard")
+
+
+@native_test
+@with_native_doc("writer")
+def test_list_toc_entries_with_a_paragraph_before_the_toc_uno(ctx, doc):
+    """A paragraph above the TOC must not end the walk (discussion #2259)."""
+    text = doc.getText()
+    text.setString("Intro paragraph")
+    _add_body_paragraph(text, "TOC_PLACEHOLDER")
+    _add_heading(text, "Alpha title", False)
+    _add_heading(text, "Beta title", False)
+    _add_body_paragraph(text, "After paragraph")
+    tctx = _tool_ctx(ctx, doc)
+    created = IndexesCreate().execute(
+        tctx, kind="toc", title="Contents", target="search", old_content="TOC_PLACEHOLDER"
+    )
+    assert created.get("status") == "ok", created
+    body = text.getString()
+    assert body.index("Intro paragraph") < body.index("Contents") < body.index("After paragraph"), body
+
+    listed = IndexesListTocEntries().execute(tctx)
+
+    assert listed.get("status") == "ok", listed
+    assert listed["count"] == 2, listed
+    texts = [row["text"] for row in listed["entries"]]
+    assert "Alpha title" in texts[0] and "Beta title" in texts[1], texts
