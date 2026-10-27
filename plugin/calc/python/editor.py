@@ -366,6 +366,14 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
         "doc_url": doc_url,
         "resource": label,
     }
+    from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+    from plugin.scripting.editor_errors import editor_error_markers
+
+    entry = best_effort(lambda: get_diagnostics_store().latest_for_code(diagnostics_workbook_key(ctx, doc), initial_code), "diagnostics lookup for editor markers", None)
+    if entry is not None and entry.is_error:
+        found = editor_error_markers(entry.message, entry.traceback, initial_code)
+        if found:
+            load_msg["markers"] = found
     # Unsaved calc-cell, Run Script, init-script, and LaTeX buffers are
     # confirmed or flushed inside launch_monaco_editor before this load
     # replaces the window. A calc-only check here dropped the other modes.

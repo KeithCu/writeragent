@@ -26,7 +26,7 @@ from plugin.framework.config import get_config_str
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import msgbox
-from plugin.scripting.editor_errors import exception_traceback
+from plugin.scripting.editor_errors import editor_error_markers, exception_traceback
 from plugin.scripting.editor_host import DeferredEditorResult, launch_monaco_editor, monaco_open_expected
 from plugin.scripting.venv_worker import run_code_in_user_venv
 from plugin.framework.worker_pool import run_in_background
@@ -697,7 +697,7 @@ def start_native_script_run(
     run_in_background(_native_script_run_worker, name="native-run-python-script", dedicated=True)
 
 
-def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str) -> dict[str, Any]:
+def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str, code: str = "") -> dict[str, Any]:
     """Map a native-run outcome to the Monaco saved or error frame."""
     if not outcome.get("ok"):
         message = _("Unknown error")
@@ -708,7 +708,11 @@ def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str) -> dic
         tb = outcome.get("traceback")
         if isinstance(tb, str) and tb:
             traceback_text = tb
-        payload: dict[str, Any] = {"type": "error", "message": message}
+        payload: dict[str, Any] = {
+            "type": "error",
+            "message": message,
+            "markers": editor_error_markers(message, traceback_text or "", code),
+        }
         if traceback_text:
             payload["traceback"] = traceback_text
         return payload
@@ -718,7 +722,7 @@ def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str) -> dic
     stdout = outcome.get("stdout")
     if isinstance(stdout, str) and stdout.strip():
         status = _("{status} ({count} line(s) printed.)").format(status=status, count=len(stdout.splitlines()))
-    return {"type": "saved", "ok": True, "status_ok_text": status}
+    return {"type": "saved", "ok": True, "status_ok_text": status, "markers": []}
 
 
 def _picker_template_name(name: str) -> bool:
@@ -795,7 +799,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         def _start(deliver: Callable[[dict[str, Any]], None]) -> None:
             def _on_complete(outcome: dict[str, Any]) -> None:
                 _monaco_run_in_flight.discard(run_key)
-                deliver(_monaco_editor_run_payload(outcome, run_ok_text))
+                deliver(_monaco_editor_run_payload(outcome, run_ok_text, snapshot))
 
             try:
                 start_native_script_run(ctx, doc, snapshot, data_range=binding, on_complete=_on_complete)

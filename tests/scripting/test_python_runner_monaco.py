@@ -378,7 +378,7 @@ def test_run_python_monaco_on_save_persists_and_executes():
                         payload, mock_run = _complete_monaco_run(
                             response, {"ok": True, "status_ok_text": "done"}
                         )
-                        assert payload == {"type": "saved", "ok": True, "status_ok_text": "done"}
+                        assert payload == {"type": "saved", "ok": True, "status_ok_text": "done", "markers": []}
                         assert mock_run.call_args.args[2] == "result = 2"
                         assert mock_run.call_args.kwargs["data_range"] == "A1:B2"
                         mock_execute.assert_not_called()
@@ -451,7 +451,7 @@ def test_run_python_monaco_reopen_refuses_second_run():
 
                             # Complete the first deferred result via _complete_monaco_run helper
                             payload, _ = _complete_monaco_run(res1, {"ok": True, "status_ok_text": "done"})
-                            assert payload == {"type": "saved", "ok": True, "status_ok_text": "done"}
+                            assert payload == {"type": "saved", "ok": True, "status_ok_text": "done", "markers": []}
 
                             # Then the second closure's "run" returns a DeferredEditorResult again
                             res2 = on_save2("result = 5", False, None, "run")
@@ -557,7 +557,7 @@ def test_run_python_monaco_empty_name_save_errors_run_still_starts(empty_name):
                 payload, mock_run = _complete_monaco_run(
                     run_res, {"ok": True, "status_ok_text": "done"}
                 )
-                assert payload == {"type": "saved", "ok": True, "status_ok_text": "done"}
+                assert payload == {"type": "saved", "ok": True, "status_ok_text": "done", "markers": []}
                 assert mock_run.call_args.args[2] == "result = 3"
                 mock_save_selected.assert_not_called()
 
@@ -659,7 +659,7 @@ def test_run_python_monaco_on_save_builtin_still_runs():
     mock_save.assert_not_called()
     mock_execute.assert_not_called()
     payload, mock_run = _complete_monaco_run(response, {"ok": True, "status_ok_text": "done"})
-    assert payload == {"type": "saved", "ok": True, "status_ok_text": "done"}
+    assert payload == {"type": "saved", "ok": True, "status_ok_text": "done", "markers": []}
     mock_run.assert_called_once()
     assert mock_run.call_args.kwargs["data_range"] is None
 
@@ -1206,3 +1206,33 @@ def test_monaco_editor_run_payload_reports_printed_lines():
     assert "2 line(s) printed" in payload["status_ok_text"]
 
 
+def test_monaco_editor_run_payload_markers_on_failure_and_success():
+    code = "x = 1\ny = 2\n"
+    msg = "Code parsing failed on line 2 due to: SyntaxError: bad"
+    tb = "Traceback (most recent call last):\n  ...\n"
+    outcome_fail = {
+        "ok": False,
+        "message": msg,
+        "traceback": tb,
+    }
+    payload_fail = pr._monaco_editor_run_payload(outcome_fail, "ok", code=code)
+    assert payload_fail["type"] == "error"
+    assert payload_fail["message"] == msg
+    assert payload_fail["traceback"] == tb
+    assert payload_fail["markers"] == [
+        {
+            "line": 2,
+            "message": msg,
+            "severity": "error",
+        }
+    ]
+
+    outcome_ok = {
+        "ok": True,
+        "status_ok_text": "Script executed successfully.",
+    }
+    payload_ok = pr._monaco_editor_run_payload(outcome_ok, "ok", code=code)
+    assert payload_ok["type"] == "saved"
+    assert payload_ok["ok"] is True
+    assert payload_ok["status_ok_text"] == "Script executed successfully."
+    assert payload_ok["markers"] == []

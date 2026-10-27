@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import re
 import traceback
+from typing import Any
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_SOURCE,
@@ -78,3 +80,45 @@ def failure_message(summary: str, *, detail: str | None = None, exc: BaseExcepti
     if body:
         return f"{summary}\n\n{body}"
     return summary
+
+
+def editor_error_markers(message: str, traceback_text: str = "", code: str = "") -> list[dict[str, Any]]:
+    """Extract editor error markers from failure messages and tracebacks."""
+    combined = f"{message}\n{traceback_text}" if traceback_text else message
+    line: int | None = None
+
+    m_syntax = re.search(r"Code parsing failed on line (\d+)", combined)
+    if m_syntax:
+        line = int(m_syntax.group(1))
+    else:
+        m_exec = re.search(r"Code execution failed at line '(.*)' due to:", combined, re.DOTALL)
+        if m_exec:
+            segment = m_exec.group(1)
+            if segment and segment != "None" and code:
+                idx = code.find(segment)
+                if idx != -1:
+                    line = code[:idx].count("\n") + 1
+        else:
+            sandbox_matches = list(re.finditer(r'File "<sandbox>", line (\d+)', combined))
+            if sandbox_matches:
+                line = int(sandbox_matches[-1].group(1))
+
+    if line is None or line < 1:
+        return []
+
+    if code:
+        total_lines = code.count("\n") + 1
+        if line > total_lines:
+            return []
+
+    target_text = message if message.strip() else traceback_text
+    first_line = ""
+    for raw_line in target_text.splitlines():
+        stripped = raw_line.strip()
+        if stripped:
+            first_line = stripped
+            break
+    first_line = re.sub(r"\s*\(took\s+[^)]*\)$", "", first_line).strip()
+
+    return [{"line": line, "message": first_line, "severity": "error"}]
+

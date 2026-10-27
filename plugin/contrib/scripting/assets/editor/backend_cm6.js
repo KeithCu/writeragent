@@ -26,10 +26,17 @@
   var languageCompartment = null;
   var themeCompartment = null;
   var changeCallbacks = [];
+  var currentLang = "python";
 
   function getLanguageExtension(CM, lang) {
     if (lang === "latex") {
-      return CM.StreamLanguage.define(CM.stex);
+      var parser = Object.assign({}, CM.stex, {
+        languageData: {
+          commentTokens: { line: "%" },
+          closeBrackets: { brackets: ["(", "[", "{", "$"] }
+        }
+      });
+      return CM.StreamLanguage.define(parser);
     }
     return CM.python();
   }
@@ -88,6 +95,7 @@
   var backend = {
     create: function (el, opts) {
       opts = opts || {};
+      currentLang = opts.language || "python";
       return new Promise(function (resolve, reject) {
         var CM = window.CM6 || (typeof CM6 !== "undefined" ? CM6 : null);
         if (!CM) {
@@ -99,13 +107,13 @@
         themeCompartment = new CM.Compartment();
 
         function completionSource(context) {
-          if (!opts.getCompletions) {
+          if (currentLang === "latex" || !opts.getCompletions) {
+            return null;
+          }
+          if (!context.explicit && !context.matchBefore(/[\w.]$/)) {
             return null;
           }
           var word = context.matchBefore(/[\w$]*$/);
-          if (!word && !context.explicit) {
-            return null;
-          }
           var lineObj = context.state.doc.lineAt(context.pos);
           var line = lineObj.number;
           var column = context.pos - lineObj.from + 1;
@@ -114,18 +122,23 @@
           if (!pending) {
             return null;
           }
+          context.addEventListener("abort", function () {}, { onDocChange: true });
           return Promise.resolve(pending).then(function (res) {
-            if (!res || !res.items || !res.items.length) {
+            if (context.aborted || !res || !res.items || !res.items.length) {
               return null;
             }
             var from = word ? word.from : context.pos;
             var options = res.items.map(function (item) {
-              return {
+              var opt = {
                 label: item.label,
                 type: mapCompletionType(item.kind),
                 apply: item.insertText !== undefined ? item.insertText : item.label,
                 detail: item.detail || ""
               };
+              if (typeof item.documentation === "string" && item.documentation.length > 0) {
+                opt.info = item.documentation;
+              }
+              return opt;
             });
             return {
               from: from,
@@ -147,7 +160,10 @@
           // Fill #editor like Monaco's automaticLayout; scroll inside the editor.
           CM.EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto" } }),
           CM.lintGutter(),
-          CM.autocompletion({ override: [completionSource] }),
+          CM.autocompletion({
+            override: [completionSource],
+            activateOnTypingDelay: 150
+          }),
           CM.EditorView.updateListener.of(function (update) {
             if (update.docChanged) {
               for (var i = 0; i < changeCallbacks.length; i++) {
@@ -180,6 +196,7 @@
       }
     },
     setLanguage: function (lang) {
+      currentLang = lang;
       var CM = window.CM6 || (typeof CM6 !== "undefined" ? CM6 : null);
       if (view && languageCompartment && CM) {
         view.dispatch({
