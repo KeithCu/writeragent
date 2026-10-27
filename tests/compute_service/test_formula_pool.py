@@ -1119,6 +1119,41 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_ttl_reset_that_kills_child_reports_session_reset(self) -> None:
+        """A stale sticky call whose reset kills the child reports session_reset once."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
+        try:
+            sid = "ttl-reset-kills"
+            ok = pool.execute(code="x = 4\nresult = x", session_id=sid, mode="shared", req_id="ttl-kill-1")
+            assert ok.get("status") == "ok"
+            assert ok.get("result") == 4
+            assert ok.get("session_reset") is not True
+            worker = pool._sessions[sid].worker
+            real_execute = worker.execute
+
+            def kill_on_reset(payload: dict, timeout_sec: float = 5.0, *, req_id: Any = None) -> dict:
+                if payload.get("action") == "reset_session":
+                    worker.kill()
+                    return {"status": "error", "code": "WORKER_CRASHED", "error": "child died during reset"}
+                return real_execute(payload, timeout_sec, req_id=req_id)
+
+            setattr(worker, "execute", kill_on_reset)
+            with pool._cond:
+                pool._sessions[sid].last_active = time.monotonic() - 4000.0
+            again = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="ttl-kill-2")
+            assert again.get("status") == "error"
+            assert "x" in str(again.get("error"))
+            assert again.get("session_reset") is True
+            with pool._cond:
+                assert sid in pool._sessions
+                assert sid not in pool._lost_sessions
+            follow = pool.execute(code="y = 5\nresult = y", session_id=sid, mode="shared", req_id="ttl-kill-3")
+            assert follow.get("status") == "ok"
+            assert follow.get("result") == 5
+            assert follow.get("session_reset") is not True
+        finally:
+            pool.shutdown()
+
     def test_reset_clears_init_companion(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:

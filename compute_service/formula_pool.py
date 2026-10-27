@@ -505,7 +505,9 @@ class FormulaProcessPool(BaseProcessPool):
         it let a concurrent sticky call reserve the id on another process
         before this cell finished. This call reports ``session_reset``.
         The id is not marked lost, so the following cell does not report
-        it again. A failed reset leaves the namespace and returns False.
+        it again. A failed reset returns False only when the same child is
+        still alive. A failure that killed or replaced the child returns
+        True so this call reports ``session_reset``.
         """
         if self.shared_kernel_ttl_sec <= 0:
             return False
@@ -517,11 +519,15 @@ class FormulaProcessPool(BaseProcessPool):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
+        before = worker.child
         res = worker.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=remaining)
-        if res.get("status") != "ok":
-            log.error("reset_session failed for %s; keeping session map because the worker may still hold the namespace: %s", session_id, res)
-            return False
-        return True
+        if res.get("status") == "ok":
+            return True
+        # _fail_request killed the child (timeout, crash, IPC error) and this call respawns a blank kernel.
+        if worker.child is not before or not worker.is_alive():
+            return True
+        log.error("reset_session failed for %s; keeping session map because the worker may still hold the namespace: %s", session_id, res)
+        return False
 
     def _run_execution(self, leased: BaseProcessWorker, payload: dict[str, Any], clock: Deadline, session_was_lost: bool, req_id: str | None, decode_result: bool) -> dict[str, Any]:
         """Send execution payload to leased worker and format response."""
