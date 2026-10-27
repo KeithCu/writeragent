@@ -208,6 +208,18 @@
     documentAvailable = !!msg.document_available;
     documentReadonly = !!msg.document_readonly;
     documentStale = !!msg.document_stale;
+    // A read-only fallback stores the raw My Scripts name, but the [Doc] row
+    // is still listed. Follow that My Scripts row or the next Save retries
+    // the document and drops the edit.
+    if (savedCode !== null && !msg.status_error_text && selectedScriptName
+        && scriptIndex[selectedScriptName] && currentSelectedName
+        && currentSelectedName !== selectedScriptName
+        && scriptIndex[currentSelectedName]
+        && scriptIndex[currentSelectedName].origin === "document"
+        && scriptIndex[selectedScriptName].origin === "user"
+        && storageNameForSaveAs(currentSelectedName) === selectedScriptName) {
+      currentSelectedName = selectedScriptName;
+    }
     syncDropdownOnly = true;
     updateToolbarState();
     var select = getSelectEl();
