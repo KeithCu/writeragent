@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import pickle
+import struct
 import sys
 import threading
 import time
@@ -514,6 +515,39 @@ def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
     np_dangerous = pickle.dumps(NumpyExploit(), protocol=5)
     with pytest.raises(ValueError, match="forbidden"):
         unpack_restricted_pickle_frame(np_dangerous)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"\x80\x02cbuiltins\nbytes\n" + b"J" + struct.pack("<i", 1000) + b"\x85R.",
+        b"\x80\x02cbuiltins\nbytearray\n" + b"J" + struct.pack("<i", 1000) + b"\x85R.",
+        b"(cbuiltins\nbytes\nI1000\no.",
+        b"(cbuiltins\nbytearray\nI1000\no.",
+        b"(I1000\nibuiltins\nbytes\n.",
+        b"(I1000\nibuiltins\nbytearray\n.",
+        b"\x80\x02cbuiltins\nbytes\nM" + struct.pack("<H", 1000) + b"\x85\x81.",
+        b"\x80\x02cbuiltins\nbytearray\nM" + struct.pack("<H", 1000) + b"\x85\x81.",
+        b"\x80\x04cbuiltins\nbytes\n)\x7d\x8c\x06source" + b"M" + struct.pack("<H", 1000) + b"s\x92.",
+    ],
+)
+def test_restricted_unpickler_rejects_sized_buffer_alloc(payload: bytes) -> None:
+    """bytes(n) and bytearray(n) constructors are refused on all opcodes."""
+    from compute_service.worker_base import unpack_restricted_pickle_frame
+
+    with pytest.raises(ValueError, match="bytes allocation from an int"):
+        unpack_restricted_pickle_frame(payload)
+
+
+def test_restricted_unpickler_accepts_valid_bytearray() -> None:
+    """Legitimate protocol 4 and 5 bytearrays are accepted."""
+    import pickle
+    from compute_service.worker_base import unpack_restricted_pickle_frame
+
+    p4 = pickle.dumps(bytearray(b"xyz"), protocol=4)
+    assert unpack_restricted_pickle_frame(p4) == bytearray(b"xyz")
+    p5 = pickle.dumps({"b": b"hi", "ba": bytearray(b"yo")}, protocol=5)
+    assert unpack_restricted_pickle_frame(p5) == {"b": b"hi", "ba": bytearray(b"yo")}
 
 
 def test_host_unpicklers_share_allowlist_and_keep_policies() -> None:
