@@ -101,7 +101,11 @@ def _ltrb_to_xywh(l: float, t: float, r: float, b: float, coord_origin: str, pag
     else:
         h = max(0, b - t)
         top_y = t
-    return [int(l), int(top_y), int(w), int(h)]
+    try:
+        return [int(l), int(top_y), int(w), int(h)]
+    except (TypeError, ValueError, OverflowError):
+        log.debug("bbox_to_xywh: non-finite Docling box %r", (l, top_y, w, h))
+        return [0, 0, 0, 0]
 
 
 def _docling_ltrb(bbox: Any) -> tuple[float, float, float, float, str] | None:
@@ -134,10 +138,14 @@ def _box_to_xywh(box_points: Any) -> list[int]:
         return [0, 0, 0, 0]
     if not xs or not ys:
         return [0, 0, 0, 0]
-    x_min = int(min(xs))
-    y_min = int(min(ys))
-    x_max = int(max(xs))
-    y_max = int(max(ys))
+    try:
+        x_min = int(min(xs))
+        y_min = int(min(ys))
+        x_max = int(max(xs))
+        y_max = int(max(ys))
+    except (TypeError, ValueError, OverflowError):
+        log.debug("bbox_to_xywh: non-finite quad %r", box_points)
+        return [0, 0, 0, 0]
     return [x_min, y_min, max(0, x_max - x_min), max(0, y_max - y_min)]
 
 
@@ -152,7 +160,11 @@ def bbox_to_xywh(bbox: Any, *, page_height: float | None = None) -> list[int]:
     # BOTTOMLEFT boxes have t > b; the flip needs the page height. Docling
     # callers currently pass page_height=None (see vision_docling.prov_bbox_to_xywh).
     if isinstance(bbox, dict) and all(k in bbox for k in ("x", "y", "w", "h")):
-        return [int(float(bbox["x"])), int(float(bbox["y"])), int(max(0, float(bbox["w"]))), int(max(0, float(bbox["h"])))]
+        try:
+            return [int(float(bbox["x"])), int(float(bbox["y"])), int(max(0, float(bbox["w"]))), int(max(0, float(bbox["h"])))]
+        except (TypeError, ValueError, OverflowError):
+            log.debug("bbox_to_xywh: malformed xywh dict %r", bbox)
+            return [0, 0, 0, 0]
     ltrb = _docling_ltrb(bbox)
     if ltrb is not None:
         l, t, r, b, origin = ltrb  # noqa: E741
@@ -174,8 +186,14 @@ def bbox_to_xywh(bbox: Any, *, page_height: float | None = None) -> list[int]:
     if size != 4:
         log.debug("bbox_to_xywh: expected 4 numbers, got %r", bbox)
         return [0, 0, 0, 0]
-    y0, x1, y1 = float(bbox[1]), float(bbox[2]), float(bbox[3])
-    return [int(x0), int(y0), int(max(0, x1 - x0)), int(max(0, y1 - y0))]
+    try:
+        y0 = float(bbox[1])
+        x1 = float(bbox[2])
+        y1 = float(bbox[3])
+        return [int(x0), int(y0), int(max(0, x1 - x0)), int(max(0, y1 - y0))]
+    except (TypeError, ValueError, OverflowError):
+        log.debug("bbox_to_xywh: malformed xyxy %r", bbox)
+        return [0, 0, 0, 0]
 
 
 def resolve_engine(params: dict[str, Any]) -> str:
