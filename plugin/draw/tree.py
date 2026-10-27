@@ -273,6 +273,9 @@ def find_shape_on_page(page: Any, *, index: int | None = None, name: str | None 
 
     Returns ``(index, shape, error)``. Name match is exact; several hits
     prefer a unique ``shape.Name`` match, else error so the caller can recover.
+    ``index`` is the draw-page index from ``page.getByIndex``. A match inside
+    a group has no draw-page index, so that index is None and ``shape`` is
+    the child.
     """
     if index is not None:
         try:
@@ -289,8 +292,8 @@ def find_shape_on_page(page: Any, *, index: int | None = None, name: str | None 
     if not wanted:
         return None, None, "Pass name or index to address the shape."
 
-    name_hits: list[tuple[int, Any]] = []
-    control_hits: list[tuple[int, Any]] = []
+    name_hits: list[tuple[int | None, Any]] = []
+    control_hits: list[tuple[int | None, Any]] = []
     try:
         count = page.getCount()
     except Exception as exc:
@@ -298,21 +301,27 @@ def find_shape_on_page(page: Any, *, index: int | None = None, name: str | None 
             raise
         return None, None, "Could not read page shapes: %s" % exc
 
-    def _consider(shape: Any, top_index: int) -> None:
+    def _consider(shape: Any, top_index: int, *, at_page_level: bool) -> None:
         try:
             shape_type = shape.getShapeType()
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
             shape_type = ""
+        # Bugfix: name and control hits inside a GroupShape stored the group's
+        # page index. shape_upsert echoes that index, and the next edit passes
+        # it to page.getByIndex, which is the group. A descendant has no
+        # draw-page index (the tree uses path_index), so only the top-level
+        # shape gets one.
+        hit_index = top_index if at_page_level else None
         if _shape_name(shape) == wanted:
-            name_hits.append((top_index, shape))
+            name_hits.append((hit_index, shape))
             return
         try:
             if is_control_shape_type(shape_type):
                 control = getattr(shape, "Control", None)
                 if control is not None and _safe_attr(control, "Name") == wanted:
-                    control_hits.append((top_index, shape))
+                    control_hits.append((hit_index, shape))
                     return
         except Exception as exc:
             if is_disposed_exception(exc):
@@ -331,7 +340,7 @@ def find_shape_on_page(page: Any, *, index: int | None = None, name: str | None 
                     if is_disposed_exception(exc):
                         raise
                     continue
-                _consider(child, top_index)
+                _consider(child, top_index, at_page_level=False)
 
     for i in range(count):
         try:
@@ -340,7 +349,7 @@ def find_shape_on_page(page: Any, *, index: int | None = None, name: str | None 
             if is_disposed_exception(exc):
                 raise
             continue
-        _consider(shape, i)
+        _consider(shape, i, at_page_level=True)
 
     hits = name_hits if name_hits else control_hits
     if len(hits) == 1:
