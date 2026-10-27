@@ -170,21 +170,25 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
 class GetDrawSummary(_AnyDocumentShapeTool):
     name: str | None = "shape_summary"
     intent: str | None = "read"
-    description: str = "Returns a summary of shapes on the active or specified page."
+    description: str = (
+        "Returns a summary of shapes on the active or specified page. "
+        'Child shapes in groups use a dotted index (e.g. "2.0.1") which edit and delete accept.'
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import resolve_shape_page
+        from plugin.draw.tree import iter_shape_addresses
 
         page, actual_idx, err = resolve_shape_page(ctx, kwargs)
         if err or page is None:
             return self._tool_error(err or "No draw page available.")
 
         shapes = []
-        for i in range(page.getCount()):
-            s = page.getByIndex(i)
-            info = {
-                "index": i,
+        for addr, s, _parent in iter_shape_addresses(page):
+            row_index: int | str = int(addr) if "." not in addr else addr
+            info: dict[str, Any] = {
+                "index": row_index,
                 "name": getattr(s, "Name", "") or "",
                 "type": s.getShapeType(),
                 "x": s.getPosition().X,
@@ -498,7 +502,10 @@ class UpsertShape(_AnyDocumentShapeTool):
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["create", "edit"], "description": "Action to perform: 'create' a new shape, or 'edit' an existing one."},
-            "index": {"type": "integer", "description": "0-based index of the shape on the page (edit: pass index or name)"},
+            "index": {
+                "type": ["integer", "string"],
+                "description": '0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name)',
+            },
             "name": {"type": "string", "description": "Shape Name. Edit: look up by Name when index is omitted. Create: set the new shape's Name so later fills stay stable."},
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
             "shape_type": {"type": "string", "description": _CREATE_SHAPE_SHAPE_TYPE_DESC + " (required only for action='create')"},
@@ -645,7 +652,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         # Index is fragile for peer "fill field X"; Name from get_draw_tree stays stable
         # when non-fields sit between boxes. Index wins when both are passed.
         lookup_name = kwargs.get("name") if "index" not in kwargs else None
-        shape_idx, shape, find_err = find_shape_on_page(page, index=kwargs.get("index"), name=lookup_name)
+        shape_idx, shape, _parent, find_err = find_shape_on_page(page, index=kwargs.get("index"), name=lookup_name)
         if find_err or shape is None:
             return tool._tool_error(find_err or "Shape not found.")
 
@@ -1061,19 +1068,33 @@ class CreateDiagram(ToolDrawShapeBase):
 class DeleteShape(_AnyDocumentShapeTool):
     name: str | None = "shape_delete"
     intent: str | None = "edit"
-    description: str = "Deletes a shape by index."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"index": {"type": "integer", "description": "0-based shape index"}, "page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": ["index"]}
+    description: str = "Deletes a shape by page index or dotted path."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "index": {
+                "type": ["integer", "string"],
+                "description": '0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name)',
+            },
+            "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
+        },
+        "required": ["index"],
+    }
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        from plugin.draw.tree import find_shape_on_page
+
         page, err = _resolve_mutation_page(self, ctx, kwargs)
         if err is not None:
             return err
-        # Schema requires index. validate() rejects a missing or non-integer value.
         shape_idx = kwargs["index"]
+        _addr, shape, parent, find_err = find_shape_on_page(page, index=shape_idx)
+        if find_err or shape is None:
+            return self._tool_error(find_err or "Shape not found.")
+        assert parent is not None
         try:
-            shape = page.getByIndex(shape_idx)
-            page.remove(shape)
+            parent.remove(shape)
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise

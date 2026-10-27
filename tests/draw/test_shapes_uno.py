@@ -5,7 +5,8 @@
 """Live check: shape_group builds ShapeCollection via the service manager."""
 
 from plugin.draw.bridge import DrawBridge
-from plugin.draw.shapes import GroupShapes, UpsertShape
+from plugin.draw.shapes import DeleteShape, GetDrawSummary, GroupShapes, UpsertShape
+from plugin.draw.tree import find_shape_on_page
 from plugin.framework.tool import ToolContext
 from plugin.testing_runner import native_test
 from tests.testing_utils import with_native_doc
@@ -183,4 +184,98 @@ def test_impress_shape_off_slide_warning(ctx, doc):
     )
     assert res_in.get("status") == "ok", res_in
     assert "warnings" not in res_in, res_in
+
+
+@native_test
+@with_native_doc("draw", reuse=False)
+def test_draw_nested_group_shapes_summary_edit_delete(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+    group_tool = GroupShapes()
+    delete_tool = DeleteShape()
+    summary_tool = GetDrawSummary()
+
+    # Create four text shapes
+    for y, text in ((1000, "text1"), (3000, "text2"), (5000, "text3"), (7000, "text4")):
+        res = upsert.execute(
+            tctx,
+            action="create",
+            shape_type="text",
+            page=0,
+            x=1000,
+            y=y,
+            width=2000,
+            height=1000,
+            text=text,
+        )
+        assert res.get("status") == "ok", res
+
+    # Find rows by text to find the indices of the first two shapes
+    summary = summary_tool.execute(tctx, page=0)
+    assert summary.get("status") == "ok", summary
+    text_to_idx = {s.get("text"): s["index"] for s in summary["shapes"]}
+    assert "text1" in text_to_idx and "text2" in text_to_idx
+
+    # Group the first two
+    res_grp1 = group_tool.execute(tctx, indices=[text_to_idx["text1"], text_to_idx["text2"]], page=0)
+    assert res_grp1.get("status") == "ok", res_grp1
+
+    # Find the group and text3 to group them
+    summary2 = summary_tool.execute(tctx, page=0)
+    assert summary2.get("status") == "ok", summary2
+
+    grp1_idx = None
+    text3_idx = None
+    for s in summary2["shapes"]:
+        if isinstance(s["index"], int):
+            if "GroupShape" in s["type"]:
+                grp1_idx = s["index"]
+            elif s.get("text") == "text3":
+                text3_idx = s["index"]
+
+    assert grp1_idx is not None and text3_idx is not None
+
+    # Group that group with the third
+    res_grp2 = group_tool.execute(tctx, indices=[grp1_idx, text3_idx], page=0)
+    assert res_grp2.get("status") == "ok", res_grp2
+
+    # Summary contains a two-dot path and a one-dot path
+    summary3 = summary_tool.execute(tctx, page=0)
+    assert summary3.get("status") == "ok", summary3
+
+    indices = [s["index"] for s in summary3["shapes"]]
+    one_dot_paths = [idx for idx in indices if isinstance(idx, str) and idx.count(".") == 1]
+    two_dot_paths = [idx for idx in indices if isinstance(idx, str) and idx.count(".") == 2]
+    assert len(one_dot_paths) >= 1
+    assert len(two_dot_paths) >= 1
+
+    # Pick a two-dot path (the trailing child so deleting it removes that address from the summary)
+    target_path = two_dot_paths[-1]
+
+    # shape_upsert edit of the two-dot path with text="stripe" returns that path,
+    # and the UNO child's getString() is "stripe"
+    edit_res = upsert.execute(tctx, action="edit", index=target_path, text="stripe", page=0)
+    assert edit_res.get("status") == "ok", edit_res
+    assert edit_res.get("index") == target_path
+
+    _addr, child_shape, parent_group, find_err = find_shape_on_page(page, index=target_path)
+    assert find_err is None
+    assert child_shape is not None
+    assert parent_group is not None
+    assert child_shape.getString() == "stripe"
+
+    # shape_delete of that path leaves page.getCount() unchanged, drops the inner
+    # group's count by 1, and the next summary no longer contains that address.
+    page_count_before = page.getCount()
+    inner_count_before = parent_group.getCount()
+
+    del_res = delete_tool.execute(tctx, index=target_path, page=0)
+    assert del_res.get("status") == "ok", del_res
+    assert page.getCount() == page_count_before
+    assert parent_group.getCount() == inner_count_before - 1
+
+    summary4 = summary_tool.execute(tctx, page=0)
+    summary4_indices = [s["index"] for s in summary4["shapes"]]
+    assert target_path not in summary4_indices
 

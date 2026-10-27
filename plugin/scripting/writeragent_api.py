@@ -1803,11 +1803,11 @@ class _ShapeProxy:
         """
         return _rpc_call("create_diagram", page=page, layout=layout, nodes=nodes, connections=connections)
 
-    def delete(self, index: int, *, page: int | None = None) -> dict[str, Any]:
-        """Deletes a shape by index.
+    def delete(self, index: int | str, *, page: int | None = None) -> dict[str, Any]:
+        """Deletes a shape by page index or dotted path.
 
         Args:
-            index (required): 0-based shape index.
+            index (required): 0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name).
             page (optional): 0-based page index (active page if omitted).
         """
         return _rpc_call("shape_delete", index=index, page=page)
@@ -1841,19 +1841,19 @@ class _ShapeProxy:
         return _rpc_call("shape_group", indices=indices, page=page)
 
     def summary(self, *, page: int | None = None) -> dict[str, Any]:
-        """Returns a summary of shapes on the active or specified page.
+        """Returns a summary of shapes on the active or specified page. Child shapes in groups use a dotted index (e.g. "2.0.1") which edit and delete accept.
 
         Args:
             page (optional): 0-based page index (active page if omitted).
         """
         return _rpc_call("shape_summary", page=page)
 
-    def upsert(self, action: str, *, index: int | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, rotation_angle: float | None = None) -> dict[str, Any]:
+    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, rotation_angle: float | None = None) -> dict[str, Any]:
         """Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from get_draw_tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
             action (required): Action to perform: 'create' a new shape, or 'edit' an existing one. One of: create, edit.
-            index (optional): 0-based index of the shape on the page (edit: pass index or name).
+            index (optional): 0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name).
             name (optional): Shape Name. Edit: look up by Name when index is omitted. Create: set the new shape's Name so later fills stay stable.
             page (optional): 0-based page index (active page if omitted).
             shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').

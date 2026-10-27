@@ -58,19 +58,8 @@ def _node_address(node: dict[str, Any]) -> str:
 
 def _locate_shape(page: Any, node: dict[str, Any]) -> tuple[Any | None, str | None]:
     """Return the page shape for a tree node; group children walk path_index."""
-    path_index = node.get("path_index")
-    if path_index is None:
-        _idx, shape, err = find_shape_on_page(page, index=node.get("index"))
-        return shape, err
-    shape = page
-    try:
-        for part in str(path_index).split("."):
-            shape = shape.getByIndex(int(part))
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        return None, "Could not read shape at path_index %s: %s" % (path_index, exc)
-    return shape, None
+    _addr, shape, _parent, err = find_shape_on_page(page, index=node.get("path_index") or node.get("index"))
+    return shape, err
 
 
 def resolve_field_node(

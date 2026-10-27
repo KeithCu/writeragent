@@ -349,7 +349,7 @@ def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
     compile(source, api_path, "exec")
 
     assert "Action to perform: 'create' a new shape, or 'edit' an existing one." in source
-    assert "0-based index of the shape on the page (edit: pass index or name)." in source
+    assert '0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name).' in source
     assert "When filling a paper-form blank" in source
     assert "def upsert(self, action: str" in source
     assert "-> dict[str, Any]:" in source

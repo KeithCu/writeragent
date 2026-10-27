@@ -21,7 +21,9 @@ from plugin.draw.tree import (
     find_shape_on_page,
     is_near_empty_text,
     is_text_capable_shape_type,
+    iter_shape_addresses,
     nearest_label_hint,
+    shape_path,
 )
 from plugin.framework.errors import DocumentDisposedError
 
@@ -361,27 +363,30 @@ def test_find_shape_on_page_by_index_name_and_control_name():
     ctrl_shape = _Shape("ControlShape", name="CtrlDifferent", control=ctrl_model)
     page = _Shapes([shape0, shape1, ctrl_shape])
 
-    idx, shape, err = find_shape_on_page(page, index=0)
+    idx, shape, parent, err = find_shape_on_page(page, index=0)
     assert idx == 0
     assert shape is shape0
+    assert parent is page
     assert err is None
 
-    idx, shape, err = find_shape_on_page(page, index=-1)
-    assert idx is None and shape is None
+    idx, shape, parent, err = find_shape_on_page(page, index=-1)
+    assert idx is None and shape is None and parent is None
     assert err == "Invalid shape index: -1"
 
-    idx, shape, err = find_shape_on_page(page, index=9)
-    assert idx is None and shape is None
+    idx, shape, parent, err = find_shape_on_page(page, index=9)
+    assert idx is None and shape is None and parent is None
     assert err == "Invalid shape index: 9"
 
-    idx, shape, err = find_shape_on_page(page, name="Box")
+    idx, shape, parent, err = find_shape_on_page(page, name="Box")
     assert idx == 1
     assert shape is shape1
+    assert parent is page
     assert err is None
 
-    idx, shape, err = find_shape_on_page(page, name="Agree")
+    idx, shape, parent, err = find_shape_on_page(page, name="Agree")
     assert err is None
     assert shape is ctrl_shape
+    assert parent is page
     assert idx == 2
 
 
@@ -390,53 +395,131 @@ def test_find_shape_on_page_nested_index_is_not_the_group():
     group = _Shape("GroupShape", name="Grp", children=[child])
     page = _Shapes([_Shape("RectangleShape", name="Rect"), group])
 
-    idx, shape, err = find_shape_on_page(page, name="Inner")
+    idx, shape, parent, err = find_shape_on_page(page, name="Inner")
     assert err is None
     assert shape is child
-    assert idx is None
+    assert parent is group
+    assert idx == "1.0"
 
-    group_idx, group_shape, group_err = find_shape_on_page(page, index=1)
+    group_idx, group_shape, group_parent, group_err = find_shape_on_page(page, index=1)
     assert group_err is None
     assert group_idx == 1
     assert group_shape is group
+    assert group_parent is page
 
     grand = _Shape("TextShape", name="Deep")
     inner = _Shape("GroupShape", children=[grand])
     outer = _Shape("GroupShape", children=[inner])
     deep_page = _Shapes([_Shape("RectangleShape"), outer])
-    deep_idx, deep_shape, deep_err = find_shape_on_page(deep_page, name="Deep")
+    deep_idx, deep_shape, deep_parent, deep_err = find_shape_on_page(deep_page, name="Deep")
     assert deep_err is None
     assert deep_shape is grand
-    assert deep_idx is None
+    assert deep_parent is inner
+    assert deep_idx == "1.0.0"
 
     ctrl = _Shape("ControlShape", name="Ctrl", control=SimpleNamespace(Name="Agree"))
     ctrl_page = _Shapes([_Shape("RectangleShape"), _Shape("GroupShape", children=[ctrl])])
-    c_idx, c_shape, c_err = find_shape_on_page(ctrl_page, name="Agree")
+    c_idx, c_shape, c_parent, c_err = find_shape_on_page(ctrl_page, name="Agree")
     assert c_err is None
     assert c_shape is ctrl
-    assert c_idx is None
+    assert c_parent is ctrl_page.getByIndex(1)
+    assert c_idx == "1.0"
 
 
 def test_find_shape_on_page_nested_duplicate_and_missing():
     child_shape = _Shape("TextShape", name="Inner")
     group_shape = _Shape("GroupShape", children=[child_shape])
     page_nested = _Shapes([_Shape("RectangleShape"), group_shape])
-    _idx, shape, err = find_shape_on_page(page_nested, name="Inner")
+    idx, shape, parent, err = find_shape_on_page(page_nested, name="Inner")
     assert err is None
     assert shape is child_shape
+    assert parent is group_shape
+    assert idx == "1.0"
 
     page_dup = _Shapes([_Shape("TextShape", name="Dup"), _Shape("TextShape", name="Dup")])
-    idx, shape, err = find_shape_on_page(page_dup, name="Dup")
-    assert idx is None and shape is None
+    idx, shape, parent, err = find_shape_on_page(page_dup, name="Dup")
+    assert idx is None and shape is None and parent is None
     assert err == "Several shapes named 'Dup'; pass index as well."
 
-    idx, shape, err = find_shape_on_page(page_dup, name="Nope")
-    assert idx is None and shape is None
+    idx, shape, parent, err = find_shape_on_page(page_dup, name="Nope")
+    assert idx is None and shape is None and parent is None
     assert err == "No shape named 'Nope' on this page."
 
-    idx, shape, err = find_shape_on_page(page_dup)
-    assert idx is None and shape is None
+    idx, shape, parent, err = find_shape_on_page(page_dup)
+    assert idx is None and shape is None and parent is None
     assert err == "Pass name or index to address the shape."
+
+
+def test_find_shape_on_page_path_resolution():
+    assert shape_path(None, 0) == "0"
+    assert shape_path("2.0", 1) == "2.0.1"
+
+    rect = _Shape("RectangleShape", name="Rect")
+    child = _Shape("TextShape", name="Child")
+    grandchild = _Shape("TextShape", name="Grandchild")
+    inner_group = _Shape("GroupShape", name="InnerGroup", children=[grandchild])
+    outer_group = _Shape("GroupShape", name="OuterGroup", children=[child, inner_group])
+    page = _Shapes([rect, outer_group])
+
+    # Path 1.0 returns the child, parent is outer_group, address "1.0"
+    addr, shape, parent, err = find_shape_on_page(page, index="1.0")
+    assert err is None
+    assert addr == "1.0"
+    assert shape is child
+    assert parent is outer_group
+
+    # Path 1.1.0 returns the grandchild, parent is inner_group, address "1.1.0"
+    addr, shape, parent, err = find_shape_on_page(page, index="1.1.0")
+    assert err is None
+    assert addr == "1.1.0"
+    assert shape is grandchild
+    assert parent is inner_group
+
+    # index=1 and index="1" return the group, parent is page, address 1 (int)
+    for lookup in (1, "1"):
+        addr, shape, parent, err = find_shape_on_page(page, index=lookup)
+        assert err is None
+        assert addr == 1
+        assert shape is outer_group
+        assert parent is page
+
+    # "1.9", "1.a", "1." error
+    for bad_idx in ("1.9", "1.a", "1."):
+        addr, shape, parent, err = find_shape_on_page(page, index=bad_idx)
+        assert addr is None and shape is None and parent is None
+        assert err == f"Invalid shape index: {bad_idx}"
+
+    # DisposedException from getByIndex during the walk propagates
+    disp_group = _Shape("GroupShape", name="DispGroup")
+
+    def _exploding_get_by_index(i: int):
+        raise _DisposedException("disposed during walk")
+
+    disp_group.getByIndex = _exploding_get_by_index
+    disp_group.getCount = lambda: 1
+    disp_page = _Shapes([disp_group])
+    with pytest.raises(_DisposedException):
+        find_shape_on_page(disp_page, index="0.0")
+
+
+def test_iter_shape_addresses():
+    rect = _Shape("RectangleShape", name="Rect")
+    child = _Shape("TextShape", name="Child")
+    grandchild = _Shape("TextShape", name="Grandchild")
+    inner_group = _Shape("GroupShape", name="InnerGroup", children=[grandchild])
+    outer_group = _Shape("GroupShape", name="OuterGroup", children=[child, inner_group])
+    page = _Shapes([rect, outer_group])
+
+    yielded = list(iter_shape_addresses(page))
+    addresses = [addr for addr, shape, parent in yielded]
+    assert addresses == ["0", "1", "1.0", "1.1", "1.1.0"]
+
+    # Parents check
+    assert yielded[0] == ("0", rect, page)
+    assert yielded[1] == ("1", outer_group, page)
+    assert yielded[2] == ("1.0", child, outer_group)
+    assert yielded[3] == ("1.1", inner_group, outer_group)
+    assert yielded[4] == ("1.1.0", grandchild, inner_group)
 
 
 def test_get_draw_tree_uses_resolve_shape_page(monkeypatch: pytest.MonkeyPatch):

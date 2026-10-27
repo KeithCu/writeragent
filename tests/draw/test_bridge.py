@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
 
-from plugin.draw.bridge import get_draw_context_for_chat
+from plugin.draw.bridge import DrawBridge, get_draw_context_for_chat
 from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 
 
@@ -36,7 +36,7 @@ def test_get_draw_context_for_chat_summarizes_active_page():
     bridge = MagicMock()
     bridge.get_pages.return_value = pages
     bridge.get_active_page.return_value = page
-    bridge.get_shapes.return_value = [shape]
+    bridge.get_shapes.return_value = [("0", shape)]
 
     with (
         patch("plugin.draw.bridge.check_disposed"),
@@ -78,7 +78,7 @@ def test_get_draw_context_for_chat_keeps_going_when_one_shape_cannot_be_read():
     bridge = MagicMock()
     bridge.get_pages.return_value = pages
     bridge.get_active_page.return_value = page
-    bridge.get_shapes.return_value = [bad_shape, good_shape]
+    bridge.get_shapes.return_value = [("0", bad_shape), ("1", good_shape)]
 
     with (
         patch("plugin.draw.bridge.check_disposed"),
@@ -114,7 +114,7 @@ def test_get_draw_context_for_chat_keeps_notes_when_shapes_exceed_budget():
     bridge = MagicMock()
     bridge.get_pages.return_value = pages
     bridge.get_active_page.return_value = page
-    bridge.get_shapes.return_value = [shape]
+    bridge.get_shapes.return_value = [("0", shape)]
 
     with (
         patch("plugin.draw.bridge.check_disposed"),
@@ -148,7 +148,7 @@ def test_get_draw_context_for_chat_truncates_to_max_context():
     bridge = MagicMock()
     bridge.get_pages.return_value = pages
     bridge.get_active_page.return_value = page
-    bridge.get_shapes.return_value = [shape]
+    bridge.get_shapes.return_value = [("0", shape)]
 
     with (
         patch("plugin.draw.bridge.check_disposed"),
@@ -184,7 +184,7 @@ def test_get_draw_context_for_chat_negative_max_context_is_empty_prefix():
     bridge = MagicMock()
     bridge.get_pages.return_value = pages
     bridge.get_active_page.return_value = page
-    bridge.get_shapes.return_value = [shape]
+    bridge.get_shapes.return_value = [("0", shape)]
 
     with (
         patch("plugin.draw.bridge.check_disposed"),
@@ -1234,4 +1234,73 @@ def test_get_draw_context_for_chat_includes_slide_dimensions():
         out = get_draw_context_for_chat(model, 1000, ctx=MagicMock())
 
     assert "Slide Size: width=28000, height=15750 (1/100 mm)" in out
+
+
+def test_draw_bridge_get_shapes_nested_path():
+    child = MagicMock()
+    child.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+
+    grandchild = MagicMock()
+    grandchild.getShapeType.return_value = "com.sun.star.drawing.CustomShape"
+
+    inner_group = MagicMock()
+    inner_group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    inner_group.getCount.return_value = 1
+    inner_group.getByIndex.side_effect = lambda i: grandchild if i == 0 else None
+
+    outer_group = MagicMock()
+    outer_group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    outer_group.getCount.return_value = 2
+    outer_group.getByIndex.side_effect = lambda i: child if i == 0 else (inner_group if i == 1 else None)
+
+    rect = MagicMock()
+    rect.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: rect if i == 0 else (outer_group if i == 1 else None)
+
+    shapes = DrawBridge(MagicMock()).get_shapes(page)
+    addresses = [addr for addr, shape in shapes]
+    assert addresses == ["0", "1", "1.0", "1.1", "1.1.0"]
+    assert shapes[0] == ("0", rect)
+    assert shapes[1] == ("1", outer_group)
+    assert shapes[2] == ("1.0", child)
+    assert shapes[3] == ("1.1", inner_group)
+    assert shapes[4] == ("1.1.0", grandchild)
+
+
+def test_get_draw_context_for_chat_renders_group_child_path():
+    group = MagicMock()
+    group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+
+    star = MagicMock()
+    star.getShapeType.return_value = "com.sun.star.drawing.CustomShape"
+    star.getPosition.return_value = MagicMock(X=100, Y=200)
+    star.getSize.return_value = MagicMock(Width=300, Height=400)
+    star.getString.return_value = "star"
+
+    page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+    model.getURL.return_value = "file:///tmp/demo.odg"
+
+    bridge = MagicMock()
+    bridge.get_pages.return_value = pages
+    bridge.get_active_page.return_value = page
+    bridge.get_shapes.return_value = [("2", group), ("2.0.1", star)]
+
+    with (
+        patch("plugin.draw.bridge.check_disposed"),
+        patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
+        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+    ):
+        out = get_draw_context_for_chat(model, 8000)
+
+    assert "- [2] GroupShape" in out
+    assert '- [2.0.1] CustomShape: pos(100, 200) size(300x400) text: "star"' in out
 

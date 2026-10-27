@@ -226,9 +226,12 @@ def test_fill_draw_fields_group_child_path_index():
     child.getShapeType.return_value = "com.sun.star.drawing.TextShape"
 
     group = MagicMock()
+    group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    group.getCount.return_value = 1
     group.getByIndex.side_effect = lambda i: child if i == 0 else None
 
     page = MagicMock()
+    page.getCount.return_value = 1
     page.getByIndex.side_effect = lambda i: group if i == 0 else None
 
     tree = [
