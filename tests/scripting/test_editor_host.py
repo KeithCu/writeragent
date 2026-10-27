@@ -330,7 +330,8 @@ def test_launch_monaco_editor_logs_chosen_theme(caplog):
                 )
 
     assert ok is True
-    assert "editor_host: chosen theme:" in caplog.text
+    if not is_release_build():  # log.debug call site is stripped in release bundles
+        assert "editor_host: chosen theme:" in caplog.text
     pe.sessions.clear()
     pe.focused_id = None
     pe._proc = None
