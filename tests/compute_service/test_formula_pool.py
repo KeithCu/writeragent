@@ -2493,3 +2493,112 @@ def test_pending_exit_reserves_with_none_child_and_release_kills() -> None:
     assert worker not in pool._leased
     assert worker.pending_exit is False
     assert worker not in pool._recycling
+
+
+def test_new_session_spawn_failure_does_not_set_session_lost() -> None:
+    pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    try:
+        worker = pool.workers[0]
+        worker.kill()
+        assert not worker.is_alive()
+
+        real_execute = worker.execute
+        first = True
+
+        def mock_execute(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            nonlocal first
+            if first:
+                first = False
+                return {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": "Spawn failed"}
+            return real_execute(*args, **kwargs)
+
+        worker.execute = mock_execute  # type: ignore[method-assign]
+        sid = "new-sid-spawn-fail"
+        res1 = pool.execute(code="result = 1", session_id=sid, mode="shared")
+        assert res1.get("status") == "error"
+        assert res1.get("code") == "WORKER_SPAWN_FAILED"
+
+        with pool._cond:
+            assert sid not in pool._sessions
+            assert sid not in pool._lost_sessions
+
+        res2 = pool.execute(code="result = 1", session_id=sid, mode="shared")
+        assert res2.get("status") == "ok"
+        assert res2.get("result") == 1
+        assert res2.get("session_reset") is not True
+    finally:
+        pool.shutdown()
+
+
+def test_cold_start_kill_after_cell_marks_session_lost() -> None:
+    pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    try:
+        worker = pool.workers[0]
+        worker.kill()
+        assert not worker.is_alive()
+
+        real_execute = worker.execute
+        first = True
+
+        def mock_execute(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            nonlocal first
+            res = real_execute(*args, **kwargs)
+            if first:
+                first = False
+                worker.kill()
+            return res
+
+        worker.execute = mock_execute  # type: ignore[method-assign]
+        sid = "cold-kill-after-cell"
+        res1 = pool.execute(code="x = 5\nresult = x", session_id=sid, mode="shared")
+        assert res1.get("status") == "ok"
+        assert res1.get("result") == 5
+
+        with pool._cond:
+            assert sid not in pool._sessions
+            assert sid in pool._lost_sessions
+
+        res2 = pool.execute(code="result = 10", session_id=sid, mode="shared")
+        assert res2.get("status") == "ok"
+        assert res2.get("result") == 10
+        assert res2.get("session_reset") is True
+    finally:
+        pool.shutdown()
+
+
+def test_preseeded_lost_marker_preserved_on_spawn_failure() -> None:
+    pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    try:
+        sid = "preseeded-lost-sid"
+        with pool._cond:
+            pool._lost_sessions[sid] = time.monotonic()
+
+        worker = pool.workers[0]
+        worker.kill()
+        assert not worker.is_alive()
+
+        real_execute = worker.execute
+        first = True
+
+        def mock_execute(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            nonlocal first
+            if first:
+                first = False
+                return {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": "Spawn failed"}
+            return real_execute(*args, **kwargs)
+
+        worker.execute = mock_execute  # type: ignore[method-assign]
+        res1 = pool.execute(code="result = 1", session_id=sid, mode="shared")
+        assert res1.get("status") == "error"
+        assert res1.get("code") == "WORKER_SPAWN_FAILED"
+
+        with pool._cond:
+            assert sid in pool._lost_sessions
+
+        res2 = pool.execute(code="result = 1", session_id=sid, mode="shared")
+        assert res2.get("status") == "ok"
+        assert res2.get("result") == 1
+        assert res2.get("session_reset") is True
+    finally:
+        pool.shutdown()
+

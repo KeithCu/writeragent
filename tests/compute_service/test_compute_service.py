@@ -4366,3 +4366,201 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
             post_thread.join(timeout=5)
 
 
+def test_drain_body_chunked_closes_connection() -> None:
+    from compute_service.server import _drain_body_before_error
+
+    # Chunked with no length returns False and leaves input unread.
+    stream1 = io.BytesIO(b"smuggled")
+    env1 = {
+        "HTTP_TRANSFER_ENCODING": "chunked",
+        "wsgi.input": stream1,
+    }
+    assert _drain_body_before_error(env1) is False
+    assert env1.get("compute.close_connection") is True
+    assert stream1.tell() == 0
+
+    # Content-Length with chunked encoding leaves bytes unconsumed and closes socket.
+    stream2 = io.BytesIO(b"0\r\n\r\nGET /health...")
+    env2 = {
+        "HTTP_TRANSFER_ENCODING": "chunked",
+        "CONTENT_LENGTH": "5",
+        "wsgi.input": stream2,
+    }
+    assert _drain_body_before_error(env2) is False
+    assert env2.get("compute.close_connection") is True
+    assert stream2.tell() == 0
+
+    # Content-Length without chunked header drains normally.
+    stream3 = io.BytesIO(b"12345")
+    env3 = {
+        "CONTENT_LENGTH": "5",
+        "wsgi.input": stream3,
+    }
+    assert _drain_body_before_error(env3) is True
+    assert env3.get("compute.close_connection") is not True
+    assert stream3.tell() == 5
+
+
+def test_wsgi_chunked_401_closes_connection() -> None:
+    settings = ComputeSettings(api_key="secret-key")
+    app = create_wsgi_app(settings)
+    smuggled = b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+    stream = io.BytesIO(smuggled)
+    status_holder: list[str] = []
+
+    def start_response(status: str, headers: list) -> None:
+        status_holder.append(status)
+
+    environ = {
+        "PATH_INFO": "/v1/execute",
+        "REQUEST_METHOD": "POST",
+        "HTTP_TRANSFER_ENCODING": "chunked",
+        "HTTP_AUTHORIZATION": "Bearer wrong-key",
+        "HTTP_HOST": "127.0.0.1",
+        "wsgi.input": stream,
+    }
+    _ = b"".join(app(environ, start_response))
+    assert status_holder[0].startswith("401")
+    assert environ.get("compute.close_connection") is True
+    assert stream.read() == smuggled
+
+
+def test_reset_queue_timeout_closes_connection() -> None:
+    from compute_service.server import _gated
+
+    # Gated route timing out before admission drains chunked body and closes.
+    stream = io.BytesIO(b"smuggled GET /health")
+    statuses: list[str] = []
+
+    def start_response(status: str, headers: list[tuple[str, str]], exc_info: Any = None) -> None:
+        statuses.append(status)
+
+    sem = threading.Semaphore(1)
+    env = {
+        "REQUEST_METHOD": "POST",
+        "PATH_INFO": "/v1/session/reset",
+        "QUERY_STRING": "session_id=abc",
+        "HTTP_TRANSFER_ENCODING": "chunked",
+        "HTTP_HOST": "127.0.0.1",
+        "compute.accept_time": 0.0,
+        "wsgi.input": stream,
+    }
+    res = _gated(
+        env,
+        start_response,
+        ComputeSettings(),
+        sem,
+        admission_timeout_sec=1.0,
+        busy_code="WORKER_POOL_BUSY",
+        busy_message="busy",
+        route_fn=lambda s, a: [],
+    )
+    payload = json.loads(b"".join(res).decode("utf-8"))
+    assert statuses[0].startswith("503")
+    assert payload.get("code") == "QUEUE_TIMEOUT"
+    assert env.get("compute.close_connection") is True
+    assert stream.tell() == 0
+
+    # WSGI app rejects chunked reset early in prepare before taking a permit.
+    app = create_wsgi_app(ComputeSettings())
+    stream_app = io.BytesIO(b"smuggled GET /health")
+    statuses_app: list[str] = []
+    env_app = {
+        "REQUEST_METHOD": "POST",
+        "PATH_INFO": "/v1/session/reset",
+        "QUERY_STRING": "session_id=abc",
+        "HTTP_TRANSFER_ENCODING": "chunked",
+        "HTTP_HOST": "127.0.0.1",
+        "compute.accept_time": 0.0,
+        "wsgi.input": stream_app,
+    }
+    _ = b"".join(app(env_app, lambda s, h: statuses_app.append(s)))
+    assert statuses_app[0].startswith("400") or statuses_app[0].startswith("503")
+    assert env_app.get("compute.close_connection") is True
+    assert stream_app.tell() == 0
+
+
+def test_reset_body_read_before_sticky_permit(monkeypatch: pytest.MonkeyPatch) -> None:
+    import compute_service.server as server_mod
+
+    monkeypatch.setattr(server_mod, "sticky_listener_slots", lambda settings: 1)
+
+    in_first_reset = threading.Event()
+    unblock_first_reset = threading.Event()
+    read_called_during_first = threading.Event()
+
+    def mock_reset(session_id: str, timeout_sec: float = 0.0, **kwargs: Any) -> dict[str, Any]:
+        del session_id, timeout_sec, kwargs
+        in_first_reset.set()
+        unblock_first_reset.wait(timeout=5.0)
+        return {"status": "ok"}
+
+    settings = ComputeSettings()
+    app = create_wsgi_app(settings, reset_fn=mock_reset)
+
+    first_statuses: list[str] = []
+
+    def run_first() -> None:
+        env = {
+            "REQUEST_METHOD": "POST",
+            "PATH_INFO": "/v1/session/reset",
+            "QUERY_STRING": "session_id=s1",
+            "HTTP_HOST": "127.0.0.1",
+            "wsgi.input": io.BytesIO(b'{"id":"first"}'),
+            "CONTENT_LENGTH": str(len(b'{"id":"first"}')),
+        }
+        list(app(env, lambda s, h: first_statuses.append(s)))
+
+    t1 = threading.Thread(target=run_first)
+    t1.start()
+    assert in_first_reset.wait(timeout=3.0)
+
+    second_body = b'{"id":"second"}'
+    second_stream = io.BytesIO(second_body)
+
+    class CustomStream:
+        def read(self, n: int = -1) -> bytes:
+            if in_first_reset.is_set() and not unblock_first_reset.is_set():
+                read_called_during_first.set()
+            return second_stream.read(n)
+
+    second_statuses: list[str] = []
+
+    def run_second() -> None:
+        env = {
+            "REQUEST_METHOD": "POST",
+            "PATH_INFO": "/v1/session/reset",
+            "QUERY_STRING": "session_id=s2",
+            "HTTP_HOST": "127.0.0.1",
+            "wsgi.input": CustomStream(),
+            "CONTENT_LENGTH": str(len(second_body)),
+        }
+        list(app(env, lambda s, h: second_statuses.append(s)))
+
+    t2 = threading.Thread(target=run_second)
+    t2.start()
+
+    assert read_called_during_first.wait(timeout=3.0)
+
+    chunked_statuses: list[str] = []
+    chunked_env = {
+        "REQUEST_METHOD": "POST",
+        "PATH_INFO": "/v1/session/reset",
+        "QUERY_STRING": "session_id=s3",
+        "HTTP_HOST": "127.0.0.1",
+        "HTTP_TRANSFER_ENCODING": "chunked",
+        "wsgi.input": io.BytesIO(b"smuggled"),
+    }
+    _ = b"".join(app(chunked_env, lambda s, h: chunked_statuses.append(s)))
+    assert chunked_statuses[0].startswith("400")
+
+    unblock_first_reset.set()
+    t1.join(timeout=3.0)
+    t2.join(timeout=3.0)
+    assert not t1.is_alive()
+    assert not t2.is_alive()
+    assert first_statuses[0].startswith("200")
+    assert second_statuses[0].startswith("200")
+
+
+

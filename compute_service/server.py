@@ -231,14 +231,16 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
 
     Returns whether the declared body was fully consumed.
     """
+    if _transfer_encoding_is_chunked(environ):
+        # Chunked bytes are not a Content-Length body. 401 and reset 503
+        # drain here, before _reject_chunked. Leaving them unread on a
+        # keep-alive socket makes the next request line the leftover body.
+        environ["compute.close_connection"] = True
+        return False
     # The body is already buffered. Reading Content-Length again on a
     # keep-alive connection would consume the next request.
     if isinstance(environ.get("compute.raw_body"), (bytes, bytearray)):
         return True
-    # Chunked bodies are not decoded; close instead of draining.
-    if _transfer_encoding_is_chunked(environ):
-        environ["compute.close_connection"] = True
-        return False
     raw_len = environ.get("CONTENT_LENGTH")
     if not raw_len:
         return True
@@ -685,6 +687,19 @@ def _admit_body(
     return _Admission(timeout_sec=timeout_sec, req_id=raw_req_id, parsed=parsed), None
 
 
+def _admit_reset(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> tuple[_Admission | None, list[bytes] | None]:
+    """Admit and validate optional reset request body, returning an _Admission or error response."""
+    data, err = _read_optional_request_json(environ, settings, start_response)
+    if err is not None:
+        return None, err
+    assert data is not None
+    return _Admission(timeout_sec=float(settings.default_timeout_sec), req_id=data.get("id"), parsed=data), None
+
+
 def _gated(
     environ: dict[str, Any],
     start_response: Any,
@@ -705,7 +720,7 @@ def _gated(
 
     ``prepare`` runs after auth and before the permit. It reads the body
     and returns the admission record, which replaces *admission_timeout_sec*.
-    Reset has no body timeout and passes *admission_timeout_sec* itself.
+    The prepare reads the optional body, and the timeout is still the default because the JSON has no timeout_ms.
     An error response from ``prepare`` does not take a permit.
     """
     started = False
@@ -871,16 +886,9 @@ def _handle_execute(environ: dict[str, Any], start_response: Any, settings: Comp
 
 
 def _handle_session_reset(environ: dict[str, Any], start_response: Any, settings: ComputeSettings, run_reset: ResetFn, admission: _Admission) -> list[bytes]:
-    req_data, err_resp = _read_optional_request_json(environ, settings, start_response)
-    if err_resp is not None:
-        return err_resp
-    assert req_data is not None
-
-    req_id = req_data.get("id")
-    # Execute and vision store this during admission. Reset has no admission
-    # peel, and _gated's 500 reads the admission record.
-    if req_id is not None:
-        admission.req_id = req_id
+    req_data = admission.parsed
+    assert isinstance(req_data, dict)
+    req_id = admission.req_id
 
     if "session_id" in req_data:
         return _error(start_response, "400 Bad Request", "session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.", req_id=req_id)
@@ -1078,10 +1086,10 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 start_response,
                 settings,
                 sticky_semaphore,
-                admission_timeout_sec=float(settings.default_timeout_sec),
                 busy_code="WORKER_POOL_BUSY",
                 busy_message="All compute workers are currently busy.",
                 route_fn=lambda start, admission: _handle_session_reset(environ, start, settings, _get_reset(), admission),
+                prepare=lambda start: _admit_reset(environ, settings, start),
             )
 
         if path == "/v1/vision" and method == "POST":

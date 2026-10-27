@@ -575,7 +575,7 @@ class FormulaProcessPool(BaseProcessPool):
             return decoded
         return res
 
-    def _finalize_session(self, leased: BaseProcessWorker, session_id: str | None, mode: str) -> None:
+    def _finalize_session(self, leased: BaseProcessWorker, session_id: str | None, mode: str, lost: bool = True) -> None:
         """Update session mapping and release leased worker."""
         try:
             with self._cond:
@@ -598,7 +598,7 @@ class FormulaProcessPool(BaseProcessPool):
                 # a process was recorded) is kept by _reap_dead_sessions_unlocked.
                 # Drop it here when this lease's process is not alive.
                 if mode == "shared" and session_id and not leased.is_alive():
-                    self._drop_session(session_id, only_if_worker=leased)
+                    self._drop_session(session_id, only_if_worker=leased, lost=lost)
         finally:
             self.release_worker(leased)
 
@@ -701,7 +701,16 @@ class FormulaProcessPool(BaseProcessPool):
             result = self._run_execution(leased, payload=payload, clock=clock, session_was_lost=session_was_lost, req_id=req_id, decode_result=decode_result)
             return result
         finally:
-            self._finalize_session(leased, session_id, mode)
+            drop_lost = True
+            if (
+                admission is not None
+                and admission.is_new_session
+                and not admission.session_was_lost
+                and isinstance(result, dict)
+                and result.get("code") in _UNRUN_RESULT_CODES
+            ):
+                drop_lost = False
+            self._finalize_session(leased, session_id, mode, lost=drop_lost)
             # result is None only when _run_execution raised; the old code
             # left the maps alone on that path, so this does too.
             if admission is not None and result is not None:
