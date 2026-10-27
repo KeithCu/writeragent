@@ -111,8 +111,8 @@ class FormulaProcessPool(BaseProcessPool):
         # Session counts are derived from this map. A parallel index had to
         # stay in sync across set, delete, pop, and clear.
         self._sessions: dict[str, _Session] = {}
-        # Consumed by the next sticky call that observes the id. Capped so a
-        # long-lived process does not keep every workbook it has ever reset.
+        # Consumed by the next sticky call that observes the id. The reaper
+        # expires ids older than shared_kernel_ttl_sec, so it does not grow forever.
         self._lost_sessions: OrderedDict[str, float] = OrderedDict()
         self.shared_kernel_ttl_sec = eff_shared_ttl
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
