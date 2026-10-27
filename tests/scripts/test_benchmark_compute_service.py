@@ -116,7 +116,7 @@ def test_main_quick_flag(mock_run: MagicMock) -> None:
     mock_run.assert_called_once()
     _, kwargs = mock_run.call_args
     assert kwargs["worker_counts"] == [1, 2, 4]
-    assert kwargs["concurrencies"] == [4]
+    assert kwargs["concurrencies"] is None
     assert kwargs["requests_per_worker"] == 10
 
 
@@ -359,3 +359,20 @@ def test_format_stress_results_with_deadline_invariants() -> None:
     assert "200 queue absorption" in output
 
 
+
+
+@patch("benchmark_compute_service.run_benchmarks")
+@patch("benchmark_compute_service.os.cpu_count", return_value=8)
+def test_main_default_sweeps_workers_with_2x_clients(_cpu: MagicMock, mock_run: MagicMock) -> None:
+    mock_run.return_value = []
+    assert main([]) == 0
+    _, kwargs = mock_run.call_args
+    assert kwargs["worker_counts"] == [1, 2, 4, 8]
+    assert kwargs["concurrencies"] is None
+
+
+@patch("benchmark_compute_service.os.cpu_count", return_value=6)
+def test_default_worker_counts_ends_at_cpu_count(_cpu: MagicMock) -> None:
+    from benchmark_compute_service import _default_worker_counts
+
+    assert _default_worker_counts() == [1, 2, 4, 6]

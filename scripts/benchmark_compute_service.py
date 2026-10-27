@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import sys
 import threading
@@ -452,6 +453,18 @@ def format_results_table(results: list[BenchmarkResult]) -> str:
     return "\n".join(lines)
 
 
+def _default_worker_counts() -> list[int]:
+    """1, 2, 4, ... up to the CPU count, plus the CPU count itself."""
+    cpus = os.cpu_count() or 1
+    counts: list[int] = []
+    w = 1
+    while w < cpus:
+        counts.append(w)
+        w *= 2
+    counts.append(cpus)
+    return counts
+
+
 def run_benchmarks(
     *,
     workloads: list[str] | None = None,
@@ -466,7 +479,8 @@ def run_benchmarks(
     progress_callback: Callable[[str], None] | None = None,
 ) -> list[BenchmarkResult]:
     selected_workloads = workloads or list(WORKLOADS.keys())
-    selected_concurrencies = concurrencies or [1, 2, 4, 8, 16, 32]
+    # No explicit concurrency: clients = 2x workers for each worker count.
+    selected_concurrencies = concurrencies
     selected_workers = worker_counts or [1]
     selected_wires = wires or ["peel"]
     worker_max_tasks = recycle_tasks if recycle_tasks is not None else 10_000_000
@@ -477,7 +491,7 @@ def run_benchmarks(
             for w in selected_workloads:
                 if w not in WORKLOADS:
                     continue
-                for c in selected_concurrencies:
+                for c in selected_concurrencies or [2 * active_workers]:
                     reqs_this_scenario = max(1, total_requests // c) if total_requests is not None else requests_per_worker
                     if progress_callback:
                         progress_callback(
@@ -1183,12 +1197,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--workers",
         default=None,
-        help="Comma-separated server formula worker counts to benchmark (default: 1 for bench, 2 for stress; e.g. 1,2,4)",
+        help="Comma-separated server formula worker counts to benchmark (default: 1, 2, 4, ... up to the CPU count for bench, 2 for stress; e.g. 1,2,4)",
     )
     parser.add_argument(
         "--concurrency",
         default=None,
-        help="Comma-separated concurrency levels (default: 1,2,4,8,16,32 for bench, 32 for stress)",
+        help="Comma-separated concurrency levels (default: 2x workers for bench, 32 for stress)",
     )
     parser.add_argument(
         "--requests",
@@ -1221,7 +1235,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--quick",
         action="store_true",
-        help="Run a quick formula worker scaling benchmark (workers 1, 2, 4; concurrency 4; 10 reqs/client)",
+        help="Run a quick formula worker scaling benchmark (workers 1, 2, 4; clients 2x workers; 10 reqs/client)",
     )
     parser.add_argument(
         "--stress",
@@ -1291,11 +1305,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.quick:
         worker_counts = [1, 2, 4]
-        concurrencies = [4]
+        # None: each worker count runs with 2x as many clients, so the
+        # client count never caps worker scaling.
+        concurrencies = None
         reqs = 10
     else:
-        worker_counts = [int(x.strip()) for x in args.workers.split(",") if x.strip()] if args.workers else [1]
-        concurrencies = [int(x.strip()) for x in args.concurrency.split(",") if x.strip()] if args.concurrency else [1, 2, 4, 8, 16, 32]
+        worker_counts = [int(x.strip()) for x in args.workers.split(",") if x.strip()] if args.workers else _default_worker_counts()
+        concurrencies = [int(x.strip()) for x in args.concurrency.split(",") if x.strip()] if args.concurrency else None
         reqs = args.requests if args.requests is not None else 50
 
     if args.workloads == "all":
@@ -1316,11 +1332,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Workloads:   {', '.join(workloads)}")
     print(f"Wire formats:{', '.join(wires)}")
     print(f"Workers:     {worker_counts}")
-    print(f"Concurrency: {concurrencies}")
+    shown_c = concurrencies or [2 * w for w in worker_counts]
+    print(f"Concurrency: {concurrencies if concurrencies else '2x workers ' + str(shown_c)}")
     if args.total_requests is not None:
-        print(f"Total reqs:  {args.total_requests} (per client: {[max(1, args.total_requests // c) for c in concurrencies]})")
+        print(f"Total reqs:  {args.total_requests} (per client: {[max(1, args.total_requests // c) for c in shown_c]})")
     else:
-        print(f"Requests/w:  {reqs} (Total requests per scenario: {[c * reqs for c in concurrencies]})")
+        print(f"Requests/w:  {reqs} (Total requests per scenario: {[c * reqs for c in shown_c]})")
     print(f"Max threads: {args.threads}")
     print("=" * 80)
 
