@@ -24,6 +24,7 @@
   var editor = null;
   var backend = null;
   var pendingCode = "";
+  var pendingMarkers = [];
   var ui = {};
   var defaultStatusOkText = "Saved.";
   var pendingStatusText = "Saving…";
@@ -221,11 +222,13 @@
       suppressDirty = true;
       editor.setValue(pendingCode);
       editor.setLanguage(msg.language || "python");
+      editor.setMarkers(msg.markers || []);
       suppressDirty = false;
       markDirty(false);
       setStatus(t("ready", "Ready"), "");
       maybeHintJediMissing();
     } else {
+      pendingMarkers = msg.markers || [];
       markDirty(false);
     }
 
@@ -289,8 +292,14 @@
                 markDirty(false);
                 var okText = msg.status_ok_text || defaultStatusOkText;
                 setStatus(okText, "ok");
+                if (editor && Array.isArray(msg.markers)) {
+                  editor.setMarkers(msg.markers);
+                }
               } else if (msg.type === "error") {
                 setStatus(formatErrorMessage(msg), "error");
+                if (editor && Array.isArray(msg.markers)) {
+                  editor.setMarkers(msg.markers);
+                }
               } else if (msg.type === "theme") {
                 applyTheme(msg);
               }
@@ -428,6 +437,9 @@
       getCompletions: getCompletions
     }).then(function () {
       window.editor = editor = backend;
+      if (pendingMarkers) {
+        editor.setMarkers(pendingMarkers);
+      }
       backend.onChange(function () {
         if (!suppressDirty) {
           markDirty(true);
