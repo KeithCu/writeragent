@@ -429,10 +429,24 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         return None
 
 
-def _socket_readable(sock: socket.socket) -> bool:
+def _socket_readable(sock: socket.socket, selector: selectors.BaseSelector | None = None) -> bool:
+    # select() rejects fds >= 1024. Use the accept selector when this fd is
+    # registered on it; otherwise poll(), which has no fd cap.
+    if isinstance(selector, selectors.BaseSelector):
+        try:
+            selector.get_key(sock)
+        except KeyError:
+            pass
+        else:
+            try:
+                ready = selector.select(0)
+                return any(key.fileobj is sock for key, _event in ready)
+            except (OSError, ValueError):
+                pass
     try:
-        r, _, _ = select.select([sock], [], [], 0)
-        return bool(r)
+        poller = select.poll()
+        poller.register(sock, select.POLLIN)
+        return bool(poller.poll(0))
     except (OSError, ValueError):
         return False
 
@@ -546,7 +560,7 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
         expired: list[ConnState] = []
         for sock, state in list(self._parked.items()):
             if now >= state.finished_at + _REQUEST_READ_TIMEOUT_SEC:
-                if _socket_readable(sock):
+                if _socket_readable(sock, selector):
                     self._park_on_readable(state, sock, selector)
                     continue
                 expired.append(state)
