@@ -22,6 +22,7 @@ from typing import Any
 from plugin.calc.calc_utils import TEXT
 from plugin.chatbot.dialogs import msgbox
 from plugin.chatbot.selection import ApplyChunkFn, ErrorFn, StreamCompletionTask, create_validated_client, prompt_for_edit_instructions, stream_completion_tasks
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.config import get_config_int, get_config_str
 from plugin.framework.errors import format_error_message
 from plugin.framework.i18n import _
@@ -150,4 +151,16 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
 
         return apply_chunk, on_error
 
-    stream_completion_tasks(ctx, client, tasks, prepare_task)
+    # The runner returns before later cells are written. One context covers
+    # every chunk until the run stops. A user edit during the stream joins
+    # this step (WriterCompoundUndo).
+    undo = WriterCompoundUndo(model, title)
+
+    def _close_undo() -> None:
+        undo.close()
+
+    try:
+        stream_completion_tasks(ctx, client, tasks, prepare_task, _close_undo)
+    except BaseException:
+        _close_undo()
+        raise

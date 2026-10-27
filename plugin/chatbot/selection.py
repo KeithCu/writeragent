@@ -81,9 +81,28 @@ def stream_completion(ctx: Any, client: LlmClient, prompt: str, system_prompt: s
         on_error_fn(e)
 
 
-def stream_completion_tasks(ctx: Any, client: LlmClient, tasks: list[StreamCompletionTask], prepare_task_fn: PrepareTaskFn) -> None:
-    """Run simple completion streams sequentially, advancing from each done callback."""
+def stream_completion_tasks(
+    ctx: Any,
+    client: LlmClient,
+    tasks: list[StreamCompletionTask],
+    prepare_task_fn: PrepareTaskFn,
+    on_finished: Callable[[], None] | None = None,
+) -> None:
+    """Run simple completion streams sequentially, advancing from each done callback.
+
+    ``on_finished`` runs once when every task is done or the first task fails.
+    This returns before that when the next cell is waiting on drain idle.
+    """
     task_index = [0]
+    finished = False
+
+    def finish_once() -> None:
+        nonlocal finished
+        if finished:
+            return
+        finished = True
+        if on_finished is not None:
+            on_finished()
 
     # schedule_next_when_idle registers a one-shot callback that removes
     # itself. run_next_task defers itself with that callback if the pump is
@@ -109,13 +128,32 @@ def stream_completion_tasks(ctx: Any, client: LlmClient, tasks: list[StreamCompl
             schedule_next_when_idle()
             return
         if task_index[0] >= len(tasks):
+            finish_once()
             return
         task = tasks[task_index[0]]
         task_index[0] += 1
-        apply_chunk_fn, on_error_fn = prepare_task_fn(task)
-        stream_completion(ctx, client, task.prompt, task.system_prompt, task.max_tokens, apply_chunk_fn, schedule_next_when_idle, on_error_fn)
+        try:
+            apply_chunk_fn, on_error_fn = prepare_task_fn(task)
+        except BaseException:
+            finish_once()
+            raise
 
-    run_next_task()
+        def on_error(exc: Exception) -> None:
+            try:
+                on_error_fn(exc)
+            finally:
+                finish_once()
+
+        stream_completion(
+            ctx, client, task.prompt, task.system_prompt, task.max_tokens,
+            apply_chunk_fn, schedule_next_when_idle, on_error,
+        )
+
+    try:
+        run_next_task()
+    except BaseException:
+        finish_once()
+        raise
 
 
 def do_selection_action_for_document(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) -> None:

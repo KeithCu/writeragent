@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.i18n import _
 from plugin.tests.testing_utils import CalcDocStub
 
 
@@ -290,3 +291,134 @@ def test_calc_selection_outside_used_area_shows_message():
 
     msgbox.assert_called_once()
     run.assert_not_called()
+
+
+class _UndoManager:
+    def __init__(self, events: list | None = None) -> None:
+        self.open = False
+        self.enters: list[str] = []
+        self.leaves = 0
+        self.events = events
+
+    def isLocked(self) -> bool:
+        return False
+
+    def isInContext(self) -> bool:
+        return self.open
+
+    def isUndoEnabled(self) -> bool:
+        return True
+
+    def enterUndoContext(self, title: str) -> None:
+        assert not self.open
+        self.open = True
+        self.enters.append(title)
+        if self.events is not None:
+            self.events.append(("enter", title))
+
+    def leaveUndoContext(self) -> None:
+        assert self.open
+        self.open = False
+        self.leaves += 1
+        if self.events is not None:
+            self.events.append(("leave",))
+
+
+def _attach_undo(doc, events: list) -> _UndoManager:
+    um = _UndoManager(events)
+    doc.getUndoManager = lambda: um
+    for row in range(3):
+        cell = doc.getSheets().getByIndex(0).getCellByPosition(0, row)
+        orig = cell.setFormula
+
+        def _set(value, row=row, orig=orig, um=um):
+            events.append(("setFormula", row, value, um.open))
+            orig(value)
+
+        cell.setFormula = _set
+    return um
+
+
+def _pump_idle() -> None:
+    from plugin.framework.async_drain_guard import _notify_drain_idle
+    for _pass in range(6):
+        _notify_drain_idle()
+
+
+def test_calc_extend_multi_cell_is_one_undo_context():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("=A1",), ("=B1",), ("=C1",)))
+    events = []
+    um = _attach_undo(model, events)
+
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+        apply_chunk_fn("+1", False)
+        apply_chunk_fn("+2", False)
+        on_done_fn()
+
+    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
+         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.chatbot.selection.post_to_main_thread", side_effect=lambda fn: fn()), \
+         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
+        do_calc_extend_edit(MagicMock(), model, MagicMock(), is_edit=False)
+        _pump_idle()
+
+    assert um.enters == [_("WriterAgent: Extend Selection (Calc)")]
+    assert um.leaves == 1
+    assert all(ev[3] is True for ev in events if ev[0] == "setFormula")
+    assert sheet.getCellByPosition(0, 0).getFormula() == "=A1+1+2"
+    assert sheet.getCellByPosition(0, 1).getFormula() == "=B1+1+2"
+    assert sheet.getCellByPosition(0, 2).getFormula() == "=C1+1+2"
+    assert events == [
+        ("enter", _("WriterAgent: Extend Selection (Calc)")),
+        ("setFormula", 0, "=A1+1", True),
+        ("setFormula", 0, "=A1+1+2", True),
+        ("setFormula", 1, "=B1+1", True),
+        ("setFormula", 1, "=B1+1+2", True),
+        ("setFormula", 2, "=C1+1", True),
+        ("setFormula", 2, "=C1+1+2", True),
+        ("leave",),
+    ]
+
+
+def test_calc_edit_error_closes_undo_after_cell_restore():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("=1+1",), ("=2+2",), ("=3+3",)))
+    input_box = MagicMock(return_value=("change", "extra system"))
+    events = []
+    um = _attach_undo(model, events)
+    stream_calls = [0]
+
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+        idx = stream_calls[0]
+        stream_calls[0] += 1
+        if idx == 0:
+            apply_chunk_fn("=9", False)
+            on_done_fn()
+        elif idx == 1:
+            apply_chunk_fn("=8", False)
+            on_error_fn(RuntimeError("provider failed"))
+        else:
+            pytest.fail("third stream should not start")
+
+    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
+         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.calc.editselection.msgbox") as msgbox, \
+         patch("plugin.chatbot.selection.set_config"), \
+         patch("plugin.chatbot.selection.update_lru_history"), \
+         patch("plugin.chatbot.selection.post_to_main_thread", side_effect=lambda fn: fn()), \
+         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
+        do_calc_extend_edit(MagicMock(), model, input_box, is_edit=True)
+        _pump_idle()
+
+    assert um.enters == [_("WriterAgent: Edit Selection (Calc)")]
+    assert um.leaves == 1
+    assert sheet.getCellByPosition(0, 0).getFormula() == "=9"
+    assert sheet.getCellByPosition(0, 1).getFormula() == "=2+2"
+    assert sheet.getCellByPosition(0, 2).getFormula() == "=3+3"
+    assert events.index(("setFormula", 1, "=2+2", True)) < events.index(("leave",))
+    msgbox.assert_called_once()
