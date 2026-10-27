@@ -114,7 +114,7 @@ def test_enrich_does_not_copy_saved_ok_text_into_ui():
 
 def test_js_t_and_fmt_keys_are_in_the_ui_catalog():
     repo_root = Path(__file__).resolve().parents[2]
-    editor_js = (repo_root / "plugin/contrib/scripting/assets/editor/editor.js").read_text(encoding="utf-8")
+    editor_js = (repo_root / "plugin/contrib/scripting/assets/editor/editor_shell.js").read_text(encoding="utf-8")
     scripts_manager_js = (repo_root / "plugin/contrib/scripting/assets/editor/scripts_manager.js").read_text(encoding="utf-8")
 
     direct_pattern = re.compile(r"""(?<![.\w])(?:t|fmt)\(\s*["']([A-Za-z0-9_]+)["']""")

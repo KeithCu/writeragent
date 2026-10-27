@@ -203,14 +203,15 @@ def test_target_from_load_nested_target_beats_aliases():
 
 def test_parent_to_child_types_match_js_handlers():
     repo_root = Path(__file__).resolve().parents[2]
-    editor_js = repo_root / "plugin/contrib/scripting/assets/editor/editor.js"
+    editor_js = repo_root / "plugin/contrib/scripting/assets/editor/editor_shell.js"
     scripts_manager_js = repo_root / "plugin/contrib/scripting/assets/editor/scripts_manager.js"
+    backend_monaco_js = repo_root / "plugin/contrib/scripting/assets/editor/backend_monaco.js"
 
     # The module header is not CI; a handler added or renamed in those two files fails here.
     # On this tree the set is load, request_save, saved, error, theme, scripts_list.
     pattern = re.compile(r"""msg\.type\s*[!=]==\s*["']([A-Za-z0-9_]+)["']""")
     found: set[str] = set()
-    for js_path in (editor_js, scripts_manager_js):
+    for js_path in (editor_js, scripts_manager_js, backend_monaco_js):
         found.update(pattern.findall(js_path.read_text(encoding="utf-8")))
 
     assert found == set(PARENT_TO_CHILD_TYPES)

@@ -1,9 +1,8 @@
 /**
- * WriterAgent Monaco Editor Host Integration
- *
- * LaTeX Language support for Monaco Editor, adapted from:
- * - Source: https://github.com/domatex/monaco-latex
- * - Path: https://unpkg.com/monaco-latex/dist/src/tokenizer.js
+ * WriterAgent editor shell: pywebview bridge, toolbar, save/run/cancel wiring,
+ * dirty tracking, theme and UI strings. All editor-widget calls go through the
+ * backend object (see backend_monaco.js for the interface). Keep this file free
+ * of Monaco-specific calls; keep backends free of pywebview and UNO.
  */
 
 // =========================================================================================
@@ -14,6 +13,7 @@
 //   - IPC Message Protocol:      plugin/scripting/editor_ipc.py
 //   - UI Strings Catalog:        plugin/scripting/editor_ui_strings.py
 //   - Script Manager Frontend:   plugin/contrib/scripting/assets/editor/scripts_manager.js
+//   - Monaco Backend:            plugin/contrib/scripting/assets/editor/backend_monaco.js
 //   - Native Cell Editor:        plugin/calc/python/cell_editor_ui.py
 //     (calc_cell Save / Save without =PY() / Data enablement / status)
 // =========================================================================================
@@ -22,6 +22,7 @@
   "use strict";
 
   var editor = null;
+  var backend = window.WaEditorBackends && window.WaEditorBackends.monaco;
   var pendingCode = "";
   var ui = {};
   var defaultStatusOkText = "Saved.";
@@ -34,8 +35,6 @@
   var dataBindingTitle = "Calc injects `data` and `ranges` from these range(s) at runtime.";
   var dataBindingDisabledTitle = "Data ranges apply only when saving as a =PY() formula.";
   var followCodeRef = false;
-  var completeTimer = null;
-  var completeSeq = 0;
 
   function t(key, fallback) {
     var value = ui[key];
@@ -221,7 +220,7 @@
     if (editor) {
       suppressDirty = true;
       editor.setValue(pendingCode);
-      monaco.editor.setModelLanguage(editor.getModel(), msg.language || "python");
+      editor.setLanguage(msg.language || "python");
       suppressDirty = false;
       markDirty(false);
       setStatus(t("ready", "Ready"), "");
@@ -231,11 +230,8 @@
     }
 
     if (msg.theme) {
-      var monacoTheme = msg.theme.monaco || (msg.theme.is_dark ? "vs-dark" : "vs");
-      try {
-        monaco.editor.setTheme(monacoTheme);
-      } catch (e) {
-        // Monaco may not be fully ready; ignore, creation default is vs
+      if (backend) {
+        backend.setTheme(!!msg.theme.is_dark, msg.theme.monaco);
       }
       applyTheme(msg.theme);
     }
@@ -379,186 +375,21 @@
 
   updateDataBindingEnabled();
 
-  if (typeof require !== "undefined") {
-    require.config({ paths: { vs: "vs" } });
-    require(["vs/editor/editor.main"], function () {
-      monaco.languages.register({
-        id: "latex",
-        extensions: [".tex", ".sty", ".cls"],
-        aliases: ["LaTeX", "latex", "tex"],
-        mimetypes: ["text/latex", "text/tex"]
-      });
+  function getCompletions(code, line, column) {
+    if (!window.pywebview || !window.pywebview.api || !window.pywebview.api.get_completions) {
+      return null;
+    }
+    return window.pywebview.api.get_completions(code, line, column);
+  }
 
-      monaco.languages.setLanguageConfiguration("latex", {
-        comments: { lineComment: "%" },
-        brackets: [["{", "}"], ["[", "]"], ["(", ")"]],
-        autoClosingPairs: [
-          { open: "{", close: "}" },
-          { open: "[", close: "]" },
-          { open: "(", close: ")" },
-          { open: "$", close: "$" }
-        ],
-        surroundingPairs: [
-          { open: "{", close: "}" },
-          { open: "[", close: "]" },
-          { open: "(", close: ")" },
-          { open: "$", close: "$" }
-        ]
-      });
-
-      monaco.languages.setMonarchTokensProvider("latex", {
-        defaultToken: "",
-        tokenPostfix: ".latex",
-        displayName: "LaTeX",
-        name: "latex",
-        mimeTypes: ["text/latex", "text/tex"],
-        fileExtensions: ["tex", "sty", "cls"],
-        lineComment: "% ",
-        builtin: [
-          "addcontentsline", "addtocontents", "addtocounter", "address", "addtolength",
-          "addvspace", "alph", "appendix", "arabic", "author", "backslash", "baselineskip",
-          "baselinestretch", "bf", "bibitem", "bigskipamount", "bigskip", "boldmath",
-          "boldsymbol", "cal", "caption", "cdots", "centering", "chapter", "circle",
-          "cite", "cleardoublepage", "clearpage", "cline", "closing", "color", "copyright",
-          "dashbox", "date", "ddots", "documentclass", "domlinecolor", "dotfill", "em",
-          "emph", "ensuremath", "epigraph", "euro", "fbox", "flushbottom", "fnsymbol",
-          "footnote", "footnotemark", "footnotesize", "footnotetext", "frac", "frame",
-          "framebox", "frenchspacing", "hfill", "hline", "href", "hrulefill", "hspace",
-          "huge", "Huge", "hyphenation", "include", "includegraphics", "includeonly",
-          "indent", "input", "it", "item", "kill", "label", "large", "Large", "LARGE",
-          "LaTeX", "LaTeXe", "ldots", "left", "lefteqn", "line", "linebreak", "linethickness",
-          "linewidth", "listoffigures", "listoftables", "location", "makebox", "maketitle",
-          "markboth", "mathcal", "mathop", "mbox", "medskip", "multicolumn", "multiput",
-          "newcommand", "newcolumntype", "newcounter", "newenvironment", "newfont",
-          "newlength", "newline", "newpage", "newsavebox", "newtheorem", "nocite",
-          "noindent", "nolinebreak", "nonfrenchspacing", "normalsize", "nopagebreak",
-          "not", "onecolumn", "opening", "oval", "overbrace", "overline", "pagebreak",
-          "pagenumbering", "pageref", "pagestyle", "par", "paragraph", "parbox",
-          "parindent", "parskip", "part", "protect", "providecommand", "put",
-          "raggedbottom", "raggedleft", "raggedright", "raisebox", "ref", "renewcommand",
-          "right", "rm", "roman", "rule", "savebox", "sbox", "sc", "scriptsize",
-          "section", "setcounter", "setlength", "settowidth", "sf", "shortstack",
-          "signature", "sl", "slash", "small", "smallskip", "sout", "space", "sqrt",
-          "stackrel", "stepcounter", "subparagraph", "subsection", "subsubsection",
-          "tableofcontents", "telephone", "TeX", "textbf", "textcolor", "textit",
-          "textmd", "textnormal", "textrm", "textsc", "textsf", "textsl", "texttt",
-          "textup", "textwidth", "textheight", "thanks", "thispagestyle", "tiny",
-          "title", "today", "tt", "twocolumn", "typeout", "typein", "uline",
-          "underbrace", "underline", "unitlength", "usebox", "usecounter", "uwave",
-          "value", "vbox", "vcenter", "vdots", "vector", "verb", "vfill", "vline",
-          "vphantom", "vspace", "RequirePackage", "NeedsTeXFormat", "usepackage",
-          "documentstyle", "def", "edef", "defcommand", "if", "ifdim", "ifnum", "ifx",
-          "fi", "else", "begingroup", "endgroup", "definecolor", "eifstrequal", "eeifstrequal"
-        ],
-        tokenizer: {
-          root: [
-            [
-              /(\\begin)(\s*)(\{)([\w\-\*\@]+)(\})/,
-              [
-                "keyword.predefined",
-                "white",
-                "@brackets",
-                { token: "tag.env-$4", bracket: "@open" },
-                "@brackets"
-              ]
-            ],
-            [
-              /(\\end)(\s*)(\{)([\w\-\*\@]+)(\})/,
-              [
-                "keyword.predefined",
-                "white",
-                "@brackets",
-                { token: "tag.env-$4", bracket: "@close" },
-                "@brackets"
-              ]
-            ],
-            [/\\\\[^a-zA-Z@]/, "keyword"],
-            [/\\@[a-zA-Z@]+/, "keyword.at"],
-            [
-              /\\([a-zA-Z@]+)/,
-              {
-                cases: {
-                  "$1@builtin": "keyword.predefined",
-                  "@default": "keyword"
-                }
-              }
-            ],
-            { include: "@whitespace" },
-            [/[{}()\[\]]/, "@brackets"],
-            [/#+\d/, "number.arg"],
-            [/\-?(?:\d+(?:\.\d+)?|\.\d+)\s*(?:em|ex|pt|pc|sp|cm|mm|in)/, "number.len"]
-          ],
-          whitespace: [
-            [/[ \t\r\n]+/, "white"],
-            [/%.*$/, "comment"]
-          ]
-        }
-      });
-
-      monaco.languages.registerCompletionItemProvider("python", {
-        triggerCharacters: ["."],
-        provideCompletionItems: function (model, position, context, token) {
-          if (!window.pywebview || !window.pywebview.api || !window.pywebview.api.get_completions) {
-            return { suggestions: [] };
-          }
-          var code = model.getValue();
-          var line = position.lineNumber;
-          var column = position.column;
-          var seq = ++completeSeq;
-          return new Promise(function (resolve) {
-            if (completeTimer) {
-              clearTimeout(completeTimer);
-            }
-            completeTimer = setTimeout(function () {
-              completeTimer = null;
-              if (token && token.isCancellationRequested) {
-                resolve({ suggestions: [] });
-                return;
-              }
-              window.pywebview.api.get_completions(code, line, column).then(function (res) {
-                if (seq !== completeSeq || (token && token.isCancellationRequested)) {
-                  resolve({ suggestions: [] });
-                  return;
-                }
-                resolve(res && res.items ? {
-                  suggestions: res.items.map(function (item) {
-                    var kind = monaco.languages.CompletionItemKind.Text;
-                    var k = String(item.kind).toLowerCase();
-                    if (k === "method") kind = monaco.languages.CompletionItemKind.Method;
-                    else if (k === "function") kind = monaco.languages.CompletionItemKind.Function;
-                    else if (k === "class") kind = monaco.languages.CompletionItemKind.Class;
-                    else if (k === "module") kind = monaco.languages.CompletionItemKind.Module;
-                    else if (k === "property") kind = monaco.languages.CompletionItemKind.Property;
-                    else if (k === "keyword" || k === "statement") kind = monaco.languages.CompletionItemKind.Keyword;
-                    else if (k === "instance" || k === "param" || k === "variable") kind = monaco.languages.CompletionItemKind.Variable;
-                    return {
-                      label: item.label,
-                      kind: kind,
-                      insertText: item.insertText,
-                      detail: item.detail || "",
-                      documentation: item.documentation || ""
-                    };
-                  })
-                } : { suggestions: [] });
-              }).catch(function (err) {
-                console.error("Jedi autocomplete error:", err);
-                resolve({ suggestions: [] });
-              });
-            }, 150);
-          });
-        }
-      });
-
-      window.editor = editor = monaco.editor.create(document.getElementById("editor"), {
-        value: pendingCode,
-        language: "python",
-        theme: "vs",
-        automaticLayout: true,
-        minimap: { enabled: false },
-        fontSize: 13,
-        scrollBeyondLastLine: false
-      });
-      editor.onDidChangeModelContent(function () {
+  if (backend) {
+    backend.create(document.getElementById("editor"), {
+      value: pendingCode,
+      language: "python",
+      getCompletions: getCompletions
+    }).then(function () {
+      window.editor = editor = backend;
+      backend.onChange(function () {
         if (!suppressDirty) {
           markDirty(true);
         }
@@ -567,6 +398,8 @@
       setInterval(pollMessages, 80);
       pollMessages();
       maybeHintJediMissing();
+    }, function () {
+      setStatus(t("monaco_loader_missing", "Monaco loader missing."), "error");
     });
   } else {
     setStatus(t("monaco_loader_missing", "Monaco loader missing."), "error");

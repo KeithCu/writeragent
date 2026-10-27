@@ -8,10 +8,10 @@
 # WARNING: PARITY INVARIANT WITH MONACO JAVASCRIPT FRONTEND
 # If you modify IPC frame structures or protocol message envelopes here,
 # you MUST also update the corresponding JavaScript / Python files:
-#   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor.js
+#   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor_shell.js
 #   - JS Script Manager:        plugin/contrib/scripting/assets/editor/scripts_manager.js
 #   - Host Bridge:              plugin/scripting/editor_host.py
-# Parent-to-child types that the child queues are PARENT_TO_CHILD_TYPES in this file, and a new type is added there only when the host sends it and editor.js or scripts_manager.js handles it.
+# Parent-to-child types that the child queues are PARENT_TO_CHILD_TYPES in this file, and a new type is added there only when the host sends it and editor_shell.js or scripts_manager.js handles it.
 # =========================================================================================
 
 from __future__ import annotations
@@ -52,12 +52,12 @@ __all__ = [
 # Same placeholder as <title> </title> in
 # plugin/contrib/scripting/assets/editor/index.html. The localized title
 # arrives on the load frame: editor_main sets window.title when msg["title"]
-# is truthy, and editor.js sets document.title from that field.
+# is truthy, and editor_shell.js sets document.title from that field.
 EDITOR_DEFAULT_TITLE = " "
 
 # Queued by the editor child for poll_messages. ``closed`` is not here:
 # the child reader treats it as process shutdown. ``theme`` is handled
-# by editor.js; the host currently attaches theme data to ``load``.
+# by editor_shell.js; the host currently attaches theme data to ``load``.
 PARENT_TO_CHILD_TYPES = frozenset({
     "saved",
     "error",

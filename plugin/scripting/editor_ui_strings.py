@@ -8,14 +8,14 @@
 # WARNING: PARITY INVARIANT WITH MONACO JAVASCRIPT FRONTEND
 # If you add, rename, or change string keys in this file, you MUST also update:
 #   - JS Script Manager:        plugin/contrib/scripting/assets/editor/scripts_manager.js
-#   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor.js
+#   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor_shell.js
 #   - Monaco HTML / Toolbar:    plugin/contrib/scripting/assets/editor/index.html
 #   - Native Cell Editor:       plugin/calc/python/cell_editor_ui.py
 #   - Native Cell Dialog:       extension/Dialogs/PythonCellEditorDialog.xdl
 # calc_cell msgids (Save without =PY(), Data:, status) must stay identical in native UI.
 # Plain-save status “Saved without =PY().” is status_ok_text on the saved frame
 # (editor.py) and the native fallback (cell_editor_ui.py). Do not put it back in
-# this catalog; editor.js does not read ui.saved_plain.
+# this catalog; editor_shell.js does not read ui.saved_plain.
 # =========================================================================================
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from typing import Any
 from plugin.framework.i18n import _
 
 # Top-level load keys copied into ui. title, status_ok_text, and saved_ok_text
-# stay top-level; editor.js resolves the saved status itself.
+# stay top-level; editor_shell.js resolves the saved status itself.
 _UI_OVERRIDE_KEYS: tuple[str, ...] = (
     "save_label",
     "run_label",
