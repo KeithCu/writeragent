@@ -42,7 +42,7 @@ def _shared_ui_strings() -> dict[str, str]:
         "error": _("Error"),
         "saving": _("Saving…"),
         "running": _("Running…"),
-        "monaco_loader_missing": _("Monaco loader missing."),
+        "editor_loader_missing": _("Editor loader missing."),
         "jedi_missing": _("Install jedi in the Python venv for completions."),
         "run_label": _("Run"),
         "save_label": _("Save"),
@@ -118,6 +118,8 @@ def _run_script_ui_strings() -> dict[str, str]:
             ),
             "copy_overwrite_confirm": _("A script named '{0}' already exists in My Scripts. Overwrite?"),
             "delete_confirm": _("Are you sure you want to delete script '{0}'?"),
+            "unsaved_changes_confirm": _("Discard unsaved changes to '{0}'?"),
+            "this_script": _("this script"),
             "data_binding_title": _("Select data range or enter A1 address (injected as data)."),
         }
     )

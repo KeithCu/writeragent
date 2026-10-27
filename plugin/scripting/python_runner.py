@@ -865,8 +865,8 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
                 # True so the native dialog stays closed.
                 monaco_launch_ok = _run_python_monaco(uno_ctx, doc, initial_code=initial_code, selected_script_name=last_name, exe=exe)
             except Exception as exc:
-                log.exception("run_python_dialog: Monaco path raised; trying native dialog")
-                _report_run_python_open_failed(uno_ctx, _("Run Python Script failed to open the Monaco editor."), exc=exc)
+                log.exception("run_python_dialog: editor path raised; trying native dialog")
+                _report_run_python_open_failed(uno_ctx, _("Run Python Script failed to open the editor."), exc=exc)
                 user_alerted = True
             else:
                 if monaco_launch_ok:

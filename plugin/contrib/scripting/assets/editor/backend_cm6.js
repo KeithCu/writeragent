@@ -129,7 +129,8 @@
             });
             return {
               from: from,
-              options: options
+              options: options,
+              validFor: /^[\w$]*$/
             };
           }).catch(function (err) {
             console.error("Jedi autocomplete error:", err);

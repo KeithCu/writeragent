@@ -17,6 +17,7 @@
   var currentSelectedName = "";
   var currentOrigin = "user";
   var selectedScriptName = "";
+  var deletedScriptName = null;
   var currentMode = "";
   var syncDropdownOnly = false;
   var documentAvailable = false;
@@ -61,6 +62,21 @@
       el.classList.remove("status-ok", "status-error");
       if (kind === "ok") el.classList.add("status-ok");
       if (kind === "error") el.classList.add("status-error");
+    }
+  }
+
+  function setEditorValueClean(code) {
+    if (!window.editor) return;
+    var api = uiApi();
+    if (api && api.setSuppressDirty) {
+      api.setSuppressDirty(true);
+    }
+    window.editor.setValue(code);
+    if (api && api.setSuppressDirty) {
+      api.setSuppressDirty(false);
+    }
+    if (api && api.markDirty) {
+      api.markDirty(false);
     }
   }
 
@@ -174,7 +190,23 @@
     documentStale = !!msg.document_stale;
     syncDropdownOnly = true;
     updateToolbarState();
+    var select = getSelectEl();
+    var hadDeletedScript = !!deletedScriptName;
+    deletedScriptName = null;
     updateDropdown();
+    if (hadDeletedScript) {
+      var newName = select ? select.value : currentSelectedName;
+      if (newName && scriptIndex[newName] !== undefined) {
+        setEditorValueClean(scriptIndex[newName].code);
+        setDataBindingVisible(currentOrigin === "analysis");
+      } else {
+        setEditorValueClean("");
+        setDataBindingVisible(false);
+      }
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.select_script) {
+        window.pywebview.api.select_script(newName || "");
+      }
+    }
     if (msg.status_ok_text) {
       setStatus(msg.status_ok_text, "ok");
     }
@@ -341,6 +373,17 @@
     if (!select) return;
 
     var name = select.value;
+    if (name === currentSelectedName) {
+      return;
+    }
+    var api = uiApi();
+    if (api && api.isDirty && api.isDirty()) {
+      var prevName = currentSelectedName || t("this_script", "this script");
+      if (!confirm(fmt("unsaved_changes_confirm", prevName))) {
+        select.value = currentSelectedName;
+        return;
+      }
+    }
     currentSelectedName = name;
     var selectedOpt = select.options[select.selectedIndex];
     if (name && scriptIndex[name]) {
@@ -354,7 +397,7 @@
 
     if (name && scriptIndex[name] !== undefined) {
       if (window.editor) {
-        window.editor.setValue(scriptIndex[name].code);
+        setEditorValueClean(scriptIndex[name].code);
         setStatus(fmt("loaded_script", name), "ok");
       }
       setDataBindingVisible(currentOrigin === "analysis");
@@ -528,6 +571,7 @@
       }
       if (window.pywebview && window.pywebview.api && window.pywebview.api.delete_script) {
         var origin = scriptIndex[name] ? scriptIndex[name].origin : currentOrigin;
+        deletedScriptName = name;
         currentSelectedName = "";
         currentOrigin = "user";
         window.pywebview.api.delete_script(name, origin);

@@ -241,7 +241,7 @@ def test_run_python_dialog_msgbox_includes_monaco_exception_when_native_fails():
 
     mock_report.assert_called_once()
     assert mock_report.call_args.kwargs.get("exc") is monaco_exc
-    assert "Monaco editor" in mock_report.call_args.args[1]
+    assert "open the editor" in mock_report.call_args.args[1]
 
 
 def test_run_python_dialog_immediate_msgbox_on_monaco_exception_then_native():

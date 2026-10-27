@@ -309,6 +309,13 @@
     t: t,
     fmt: fmt,
     setStatus: setStatus,
+    isDirty: function () {
+      return isDirty;
+    },
+    markDirty: markDirty,
+    setSuppressDirty: function (suppress) {
+      suppressDirty = !!suppress;
+    },
     getUi: function () {
       return ui;
     },
@@ -391,7 +398,7 @@
   }
 
   function onLoaderError() {
-    setStatus(t("monaco_loader_missing", "Monaco loader missing."), "error");
+    setStatus(t("editor_loader_missing", "Editor loader missing."), "error");
   }
 
   var backendName = window.WA_EDITOR_BACKEND === "codemirror" ? "codemirror" : "monaco";
