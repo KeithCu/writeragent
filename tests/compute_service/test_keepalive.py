@@ -396,6 +396,52 @@ def test_unread_body_closes_connection() -> None:
     finally:
         sock.close()
 
+    # 5. GET /health with Content-Length body
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.connect(("127.0.0.1", port))
+        reader = ConnectionReader(sock)
+        body = b"hello"
+        req = (
+            f"GET /health HTTP/1.1\r\n"
+            f"Host: 127.0.0.1:{port}\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            f"\r\n"
+        ).encode("latin1") + body
+        sock.sendall(req)
+
+        _ver, status, _msg, hdrs, _resp = reader.read_response()
+        assert status == 200
+        assert hdrs.get("connection") == "close"
+        sock.settimeout(1.0)
+        assert sock.recv(1024) == b""  # EOF
+        reader.close()
+    finally:
+        sock.close()
+
+    # 6. GET /health with chunked body
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.connect(("127.0.0.1", port))
+        reader = ConnectionReader(sock)
+        req = (
+            f"GET /health HTTP/1.1\r\n"
+            f"Host: 127.0.0.1:{port}\r\n"
+            f"Transfer-Encoding: chunked\r\n"
+            f"\r\n"
+            f"5\r\nhello\r\n0\r\n\r\n"
+        ).encode("latin1")
+        sock.sendall(req)
+
+        _ver, status, _msg, hdrs, _resp = reader.read_response()
+        assert status == 200
+        assert hdrs.get("connection") == "close"
+        sock.settimeout(1.0)
+        assert sock.recv(1024) == b""  # EOF
+        reader.close()
+    finally:
+        sock.close()
+
     _stop_server(server, t)
 
 
@@ -696,30 +742,82 @@ def test_accept_times_restamped_per_request() -> None:
 def test_auth_401_with_undrained_body_closes_connection() -> None:
     """401 with declared body above 1 MiB drain sends Connection: close and closes."""
     server, port, t = _start_server(max_threads=2, settings_override={"api_key": "correct-key"})
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        sock.connect(("127.0.0.1", port))
-        reader = ConnectionReader(sock)
-
         # Declared length is 2 MB (above 1 MB drain cap)
-        req = (
-            f"POST /v1/execute HTTP/1.1\r\n"
-            f"Host: 127.0.0.1:{port}\r\n"
-            f"Content-Type: application/json\r\n"
-            f"Content-Length: 2097152\r\n"
-            f"\r\n"
-        ).encode("latin1")
-        sock.sendall(req)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect(("127.0.0.1", port))
+            reader = ConnectionReader(sock)
+            req = (
+                f"POST /v1/execute HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{port}\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Content-Length: 2097152\r\n"
+                f"\r\n"
+            ).encode("latin1")
+            sock.sendall(req)
 
-        _ver, status, _msg, hdrs, _resp = reader.read_response()
-        assert status == 401
-        assert hdrs.get("connection") == "close"
+            _ver, status, _msg, hdrs, _resp = reader.read_response()
+            assert status == 401
+            assert hdrs.get("connection") == "close"
 
-        sock.settimeout(1.0)
-        assert sock.recv(1024) == b""  # EOF
-        reader.close()
+            sock.settimeout(1.0)
+            assert sock.recv(1024) == b""  # EOF
+            reader.close()
+        finally:
+            sock.close()
+
+        # Chunked Transfer-Encoding with no Content-Length
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect(("127.0.0.1", port))
+            reader = ConnectionReader(sock)
+            req = (
+                f"POST /v1/execute HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{port}\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Transfer-Encoding: chunked\r\n"
+                f"\r\n"
+                f"5\r\nhello\r\n0\r\n\r\n"
+            ).encode("latin1")
+            sock.sendall(req)
+
+            _ver, status, _msg, hdrs, _resp = reader.read_response()
+            assert status == 401
+            assert hdrs.get("connection") == "close"
+
+            sock.settimeout(1.0)
+            assert sock.recv(1024) == b""  # EOF
+            reader.close()
+        finally:
+            sock.close()
+
+        # Chunked Transfer-Encoding with Content-Length: 0
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect(("127.0.0.1", port))
+            reader = ConnectionReader(sock)
+            req = (
+                f"POST /v1/execute HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{port}\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Content-Length: 0\r\n"
+                f"Transfer-Encoding: chunked\r\n"
+                f"\r\n"
+                f"5\r\nhello\r\n0\r\n\r\n"
+            ).encode("latin1")
+            sock.sendall(req)
+
+            _ver, status, _msg, hdrs, _resp = reader.read_response()
+            assert status == 401
+            assert hdrs.get("connection") == "close"
+
+            sock.settimeout(1.0)
+            assert sock.recv(1024) == b""  # EOF
+            reader.close()
+        finally:
+            sock.close()
     finally:
-        sock.close()
         _stop_server(server, t)
 
 

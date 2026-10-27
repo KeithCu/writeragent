@@ -235,6 +235,10 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
     # keep-alive connection would consume the next request.
     if isinstance(environ.get("compute.raw_body"), (bytes, bytearray)):
         return True
+    # Chunked bodies are not decoded; close instead of draining.
+    if _transfer_encoding_is_chunked(environ):
+        environ["compute.close_connection"] = True
+        return False
     raw_len = environ.get("CONTENT_LENGTH")
     if not raw_len:
         return True
