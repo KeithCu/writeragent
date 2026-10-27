@@ -816,7 +816,7 @@ def test_readable_beats_expired_in_same_turn() -> None:
 
 
 def test_queue_full_on_resubmit_closes_connection() -> None:
-    """When accept queue is saturated on resubmit, socket closes with reason=queue_full."""
+    """When accept queue is saturated on default submit, socket closes with reason=queue_full."""
     server, port, t = _start_server(max_threads=1)
     s1, s2 = socket.socketpair()
     try:
@@ -840,3 +840,359 @@ def test_queue_full_on_resubmit_closes_connection() -> None:
         s2.close()
         _stop_server(server, t)
 
+
+def test_get_health_with_body_closes_before_next_request() -> None:
+    """GET /health with declared body sets Connection: close and socket closes."""
+    server, port, t = _start_server(max_threads=2)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.connect(("127.0.0.1", port))
+        reader = ConnectionReader(sock)
+        pipelined_payload = (
+            f"GET /health HTTP/1.1\r\n"
+            f"Host: 127.0.0.1:{port}\r\n\r\n"
+        ).encode("latin1")
+        req = (
+            f"GET /health HTTP/1.1\r\n"
+            f"Host: 127.0.0.1:{port}\r\n"
+            f"Content-Length: {len(pipelined_payload)}\r\n"
+            f"\r\n"
+        ).encode("latin1") + pipelined_payload
+        sock.sendall(req)
+        ver, status, _msg, hdrs, resp = reader.read_response()
+        assert status == 200
+        assert hdrs.get("connection") == "close"
+        sock.settimeout(1.0)
+        assert sock.recv(1024) == b""
+        reader.close()
+    finally:
+        sock.close()
+        _stop_server(server, t)
+
+
+def test_head_keeps_content_length_and_sends_no_body() -> None:
+    """HEAD keeps Content-Length, sends no body, and leaves persistent socket reusable."""
+    server, port, t = _start_server(max_threads=2)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.connect(("127.0.0.1", port))
+        sock.sendall(
+            (
+                f"HEAD /health HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{port}\r\n"
+                f"\r\n"
+            ).encode("latin1")
+        )
+        sock.settimeout(2.0)
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            chunk = sock.recv(1024)
+            assert chunk, "unexpected EOF reading HEAD headers"
+            buf += chunk
+        head, extra = buf.split(b"\r\n\r\n", 1)
+        assert extra == b""
+        lines = head.decode("latin1").split("\r\n")
+        assert "405" in lines[0]
+        headers: dict[str, str] = {}
+        for line in lines[1:]:
+            if ":" in line:
+                k, v = line.split(":", 1)
+                headers[k.strip().lower()] = v.strip()
+        assert headers.get("content-length") == "18"
+        assert headers.get("allow") == "GET"
+        assert headers.get("connection") != "close"
+
+        sock.settimeout(0.3)
+        with pytest.raises(TimeoutError):
+            sock.recv(1024)
+
+        reader = ConnectionReader(sock)
+        sock.sendall(
+            (
+                f"GET /health HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{port}\r\n"
+                f"\r\n"
+            ).encode("latin1")
+        )
+        _ver, status, _msg, _hdrs, resp = reader.read_response()
+        assert status == 200
+        assert json.loads(resp.decode("utf-8")).get("status") == "healthy"
+        reader.close()
+    finally:
+        sock.close()
+        _stop_server(server, t)
+
+
+def test_fresh_accept_parks_without_holding_a_worker() -> None:
+    """Fresh accepted connections park in the selector without holding pool workers."""
+    server, port, t = _start_server(max_threads=2)
+    sockets: list[socket.socket] = []
+    try:
+        for _ in range(10):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect(("127.0.0.1", port))
+            sockets.append(s)
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if len(server._parked) == 10 and server.executor._pending == 0:
+                break
+            time.sleep(0.02)
+
+        assert len(server._parked) == 10
+        assert server.executor._pending == 0
+
+        time.sleep(0.25)
+
+        active = sockets[0]
+        reader = ConnectionReader(active)
+        body = b'{"code":"result = 42","timeout_ms":100}'
+        req = (
+            f"POST /v1/execute HTTP/1.1\r\n"
+            f"Host: 127.0.0.1:{port}\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            f"\r\n"
+        ).encode("latin1") + body
+        active.sendall(req)
+        _ver, status, _msg, _hdrs, resp = reader.read_response(timeout=2.0)
+        assert status == 200
+        assert json.loads(resp.decode("utf-8")).get("result") == 1
+        reader.close()
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if server.executor._pending == 0:
+                break
+            time.sleep(0.02)
+        assert server.executor._pending == 0
+
+        client_ports = {s.getsockname()[1] for s in sockets[1:]}
+        parked_client_ports = {st.client_address[1] for st in server._parked.values()}
+        assert client_ports.issubset(parked_client_ports)
+
+        s11 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sockets.append(s11)
+        s11.connect(("127.0.0.1", port))
+        reader11 = ConnectionReader(s11)
+        s11.sendall(
+            (
+                f"GET /health HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{port}\r\n"
+                f"\r\n"
+            ).encode("latin1")
+        )
+        _ver, status, _msg, _hdrs, resp = reader11.read_response(timeout=1.0)
+        assert status == 200
+        assert json.loads(resp.decode("utf-8")).get("status") == "healthy"
+        reader11.close()
+    finally:
+        for s in sockets:
+            try:
+                s.close()
+            except OSError:
+                pass
+        _stop_server(server, t)
+
+
+def test_accept_backoff_does_not_reap_readable_parked_socket() -> None:
+    """Accept backoff does not skip readable parked sockets, and idle sweep does not reap them."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from compute_service.http_server import ConnState
+
+    server, port, t = _start_server(max_threads=1)
+    accept_calls: list[Any] = []
+    processed: list[Any] = []
+
+    def mock_accept_one(ready_sock: Any, selector: Any = None) -> None:
+        accept_calls.append(ready_sock)
+        server._accept_pause_until = time.monotonic() + 5.0
+
+    def mock_process_request(request: Any, client_address: Any, *, established: bool = False) -> None:
+        processed.append(request)
+
+    server._accept_one = mock_accept_one  # type: ignore[assignment]
+    server.process_request = mock_process_request  # type: ignore[assignment]
+
+    p1, p2 = socket.socketpair()
+    q1, q2 = socket.socketpair()
+    r1, r2 = socket.socketpair()
+    try:
+        p1.setblocking(False)
+        p2.setblocking(False)
+        q1.setblocking(False)
+        q2.setblocking(False)
+        r1.setblocking(False)
+        r2.setblocking(False)
+
+        # 1. Parked socketpair (p1, p2) with bytes from peer
+        p2.sendall(b"x")
+        state_p = ConnState(
+            sock=p1,
+            client_address=("127.0.0.1", 1111),
+            rfile=p1.makefile("rb", -1),
+            disposition="park",
+            finished_at=time.monotonic() - cs_http._REQUEST_READ_TIMEOUT_SEC - 10.0,
+        )
+        server._conn_states[p1] = state_p
+        server._parked[p1] = state_p
+
+        listener = server.sockets[0]
+        ready = [
+            (SimpleNamespace(fileobj=listener, data=None), 1),
+            (SimpleNamespace(fileobj=p1, data=state_p), 1),
+            (SimpleNamespace(fileobj=listener, data=None), 1),
+        ]
+        mock_selector = MagicMock()
+        server._serve_ready(ready, mock_selector, None)
+
+        assert len(accept_calls) == 1
+        assert p1 in processed
+        assert p1 not in server._parked
+        assert state_p.close_reason != "idle"
+
+        # 2. Quiet expired socket (q1, q2) and readable expired socket (r1, r2)
+        state_q = ConnState(
+            sock=q1,
+            client_address=("127.0.0.1", 2222),
+            rfile=q1.makefile("rb", -1),
+            disposition="park",
+            finished_at=time.monotonic() - cs_http._REQUEST_READ_TIMEOUT_SEC - 10.0,
+        )
+        server._conn_states[q1] = state_q
+        server._parked[q1] = state_q
+
+        r2.sendall(b"y")
+        state_r = ConnState(
+            sock=r1,
+            client_address=("127.0.0.1", 3333),
+            rfile=r1.makefile("rb", -1),
+            disposition="park",
+            finished_at=time.monotonic() - cs_http._REQUEST_READ_TIMEOUT_SEC - 10.0,
+        )
+        server._conn_states[r1] = state_r
+        server._parked[r1] = state_r
+
+        server._park_service_loop(mock_selector)
+
+        # Quiet socket should be reaped as idle
+        assert state_q.close_reason == "idle"
+        assert q1 not in server._conn_states
+        assert q1 not in server._parked
+
+        # Readable socket should have been handed off to process_request
+        assert r1 in processed
+        assert r1 not in server._parked
+        assert state_r.close_reason != "idle"
+    finally:
+        p1.close()
+        p2.close()
+        q1.close()
+        q2.close()
+        r1.close()
+        r2.close()
+        _stop_server(server, t)
+
+
+def test_established_resubmit_skips_accept_cap() -> None:
+    from unittest.mock import MagicMock
+    from compute_service.http_server import ConnState
+
+    server, _port, t = _start_server(max_threads=1)
+    s1, s2 = socket.socketpair()
+    ran = threading.Event()
+    try:
+        server.process_request_thread = lambda request, client_address: ran.set()  # type: ignore[method-assign]
+        rfile = s1.makefile("rb", -1)
+        state = ConnState(sock=s1, client_address=("127.0.0.1", 9), rfile=rfile, disposition="ready_now")
+        server._conn_states[s1] = state
+        server._park_queue.put(state)
+        with server.executor._lock:
+            server.executor._pending = server.executor._max_workers + server.executor._max_queued
+        server._park_service_loop(MagicMock())
+        assert ran.wait(timeout=2.0)
+        assert state.close_reason != "queue_full"
+        assert s1 in server._conn_states
+    finally:
+        s1.close()
+        s2.close()
+        _stop_server(server, t)
+
+
+def test_body_drain_stops_at_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    import compute_service.server as cs_server
+
+    monkeypatch.setattr(cs_server, "_REQUEST_READ_TIMEOUT_SEC", 0.3)
+    server, port, t = _start_server(max_threads=2, settings_override={"api_key": "correct-key"})
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    stop = threading.Event()
+
+    def _trickle() -> None:
+        while not stop.is_set():
+            try:
+                sock.sendall(b"x")
+            except OSError:
+                return
+            if stop.wait(0.02):
+                return
+
+    trickler: threading.Thread | None = None
+    try:
+        sock.connect(("127.0.0.1", port))
+        reader = ConnectionReader(sock)
+        sock.sendall(
+            (
+                f"POST /v1/execute HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{port}\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Content-Length: 1000000\r\n"
+                f"\r\n"
+            ).encode("latin1")
+        )
+        trickler = threading.Thread(target=_trickle, daemon=True)
+        trickler.start()
+        started = time.monotonic()
+        _ver, status, _msg, hdrs, _resp = reader.read_response(timeout=2.0)
+        elapsed = time.monotonic() - started
+        assert status == 401
+        assert hdrs.get("connection") == "close"
+        assert elapsed < 0.85
+        sock.settimeout(1.0)
+        assert sock.recv(1024) == b""
+        reader.close()
+    finally:
+        stop.set()
+        if trickler is not None:
+            trickler.join(timeout=1.0)
+        sock.close()
+        _stop_server(server, t)
+
+
+def test_http10_keepalive_forces_close() -> None:
+    server, port, t = _start_server(max_threads=2)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.connect(("127.0.0.1", port))
+        reader = ConnectionReader(sock)
+        body = b'{"id":"http10-ka","code":"result = 1"}'
+        req = (
+            f"POST /v1/execute HTTP/1.0\r\n"
+            f"Host: 127.0.0.1:{port}\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            f"Connection: keep-alive\r\n"
+            f"\r\n"
+        ).encode("latin1") + body
+        sock.sendall(req)
+        ver, status, _msg, hdrs, resp = reader.read_response()
+        assert ver == "HTTP/1.1"
+        assert status == 200
+        assert json.loads(resp.decode("utf-8")).get("id") == "http10-ka"
+        assert hdrs.get("connection") == "close"
+        sock.settimeout(1.0)
+        assert sock.recv(1024) == b""
+        reader.close()
+    finally:
+        sock.close()
+        _stop_server(server, t)

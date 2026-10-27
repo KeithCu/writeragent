@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import select
 import selectors
 import socket
 import ssl
@@ -137,11 +138,10 @@ def _accept_clock(accept_time: Any) -> float:
 def _request_deadline(accept_time: Any, timeout_sec: float) -> float:
     """One clock from request start through the worker lease and the child.
 
-    Stamping occurs at TCP accept for the first request, and is restamped
-    on the accept thread when a kept-alive connection becomes readable or
-    is resubmitted (ready_now). Without an accept timestamp (direct WSGI tests)
-    the clock starts now. Queue wait is subtracted from *timeout_sec*; it is
-    not a second 30s timer.
+    Stamping occurs on the accept thread when a connection becomes readable,
+    including the first byte of a new connection and kept-alive resubmits.
+    Without an accept timestamp (direct WSGI tests) the clock starts now.
+    Queue wait is subtracted from *timeout_sec*; it is not a second 30s timer.
     """
     return _accept_clock(accept_time) + float(timeout_sec)
 
@@ -172,6 +172,21 @@ class ComputeServerHandler(ServerHandler):
 
     http_version: str = "1.1"
 
+    def write(self, data: bytes) -> None:
+        assert type(data) is bytes, "write() argument must be a bytes instance"
+        h = cast("Any", self)
+        if not h.status:
+            raise AssertionError("write() before start_response()")
+        if not h.headers_sent:
+            h.bytes_sent = len(data)
+            h.send_headers()
+        else:
+            h.bytes_sent += len(data)
+        if h.environ.get("REQUEST_METHOD") == "HEAD":
+            return
+        h._write(data)
+        h._flush()
+
     def cleanup_headers(self) -> None:
         super().cleanup_headers()
         # headers, environ, bytes_sent and request_handler are set by wsgiref
@@ -179,7 +194,13 @@ class ComputeServerHandler(ServerHandler):
         h = cast("Any", self)
         assert "Content-Length" in h.headers, "Content-Length header required"
         req_handler = getattr(h, "request_handler", None)
-        close_conn = bool(h.environ.get("compute.close_connection")) or bool(getattr(req_handler, "close_connection", False))
+        # HTTP/1.0 keep-alive is opt-in on the response. This server does not
+        # advertise it, so the socket closes with the response.
+        close_conn = (
+            h.environ.get("SERVER_PROTOCOL") == "HTTP/1.0"
+            or bool(h.environ.get("compute.close_connection"))
+            or bool(getattr(req_handler, "close_connection", False))
+        )
         # write() sets bytes_sent to the first block before send_headers. A
         # length that does not match that block cannot keep the socket.
         try:
@@ -408,6 +429,14 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         return None
 
 
+def _socket_readable(sock: socket.socket) -> bool:
+    try:
+        r, _, _ = select.select([sock], [], [], 0)
+        return bool(r)
+    except (OSError, ValueError):
+        return False
+
+
 class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
     """Dual-stack thread-pooled WSGI server with idle connection parking."""
 
@@ -435,6 +464,35 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
         self.setup_environ()
         self.srv = self
 
+    def _park_accepted(self, conn: socket.socket, client_address: Any, selector: selectors.BaseSelector) -> bool:
+        if self.ssl_ctx is not None or isinstance(conn, ssl.SSLSocket):
+            return False
+        assert not self._parking_closed
+        assert conn not in self._conn_states
+        rfile = conn.makefile("rb", -1)
+        state = ConnState(
+            sock=conn,
+            client_address=client_address,
+            rfile=rfile,
+            disposition="park",
+            finished_at=time.monotonic(),
+        )
+        self._conn_states[conn] = state
+        try:
+            selector.register(conn, selectors.EVENT_READ, data=state)
+        except (KeyError, OSError) as exc:
+            now = time.monotonic()
+            if self._warn_due("_last_park_error_warn", now):
+                log.warning("Failed to park connection (%s): %s; closing", type(exc).__name__, exc)
+            state.close_reason = "error"
+            try:
+                self.shutdown_request(conn)
+            except Exception:
+                pass
+            return True
+        self._parked[conn] = state
+        return True
+
     def _park_poll_timeout(self, timeout: float) -> float:
         if not self._parked:
             return timeout
@@ -453,7 +511,7 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
             pass
         self._parked.pop(sock, None)
         self._accept_times[sock] = time.monotonic()
-        self.process_request(sock, state.client_address)
+        self.process_request(sock, state.client_address, established=True)
 
     def _park_service_loop(self, selector: selectors.BaseSelector) -> None:
         queued: list[ConnState] = []
@@ -468,7 +526,7 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
             sock = state.sock
             if state.disposition == "ready_now":
                 self._accept_times[sock] = time.monotonic()
-                self.process_request(sock, state.client_address)
+                self.process_request(sock, state.client_address, established=True)
             elif state.disposition == "park":
                 try:
                     selector.register(sock, selectors.EVENT_READ, data=state)
@@ -483,11 +541,14 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
                     except Exception:
                         pass
 
-        # Idle sweep: readable sockets were already processed in ready loop, so readable wins over expired
+        # Idle sweep: readable sockets were already processed in ready loop, but check select again so readable wins over expired
         now = time.monotonic()
         expired: list[ConnState] = []
         for sock, state in list(self._parked.items()):
             if now >= state.finished_at + _REQUEST_READ_TIMEOUT_SEC:
+                if _socket_readable(sock):
+                    self._park_on_readable(state, sock, selector)
+                    continue
                 expired.append(state)
 
         for state in expired:

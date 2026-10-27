@@ -3437,12 +3437,12 @@ def test_real_socket_queue_timeout() -> None:
     original_process_request = server.srv.process_request
     req_count = 0
 
-    def intercept(request: Any, client_address: Any) -> None:
+    def intercept(request: Any, client_address: Any, **kwargs: Any) -> None:
         nonlocal req_count
         req_count += 1
         if req_count > 1:
             time.sleep(1.0)
-        original_process_request(request, client_address)
+        original_process_request(request, client_address, **kwargs)
 
     server.srv.process_request = intercept # type: ignore
 

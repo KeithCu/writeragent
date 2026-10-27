@@ -211,6 +211,13 @@ def _send_execution_result(start_response: Any, result_payload: Any, req_id: Any
 
 _ROUTE_ALLOW = {"/health": "GET", "/v1/execute": "POST", "/v1/session/reset": "POST", "/v1/vision": "POST"}
 
+# POST routes that read wsgi.input. Every other route must not leave a body on the socket.
+_BODY_ROUTES = {
+    ("/v1/execute", "POST"),
+    ("/v1/session/reset", "POST"),
+    ("/v1/vision", "POST"),
+}
+
 ExecuteFn = Callable[..., dict[str, Any]]
 ResetFn = Callable[..., dict[str, Any]]
 
@@ -240,10 +247,11 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
         return False
     conn = environ.get("compute.connection")
     # None from gettimeout() is a blocking socket and must be restored.
-    # settimeout runs only after a timeout was actually read and the 1s
-    # drain budget applied, so a failed read is not mistaken for None.
+    # settimeout runs only after a timeout was actually read, so a failed read
+    # is not mistaken for None.
     saved_timeout: float | None = None
     restore_timeout = False
+    can_set_timeout = False
     if conn is not None:
         timeout_read = False
         raw_timeout: Any = None
@@ -254,28 +262,43 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
             timeout_read = False
         if timeout_read and (raw_timeout is None or isinstance(raw_timeout, (int, float))):
             saved_timeout = None if raw_timeout is None else float(raw_timeout)
-            try:
-                conn.settimeout(1.0)
-            except OSError:
-                pass
-            else:
-                restore_timeout = True
+            can_set_timeout = True
     bytes_read = 0
-    try:
-        to_drain = min(content_length, max_bytes)
-        wsgi_input = environ.get("wsgi.input")
-        if wsgi_input is not None:
-            chunk = wsgi_input.read(to_drain)
-            bytes_read = len(chunk) if chunk else 0
-    except OSError:
-        pass
-    finally:
-        # The 1s drain budget must not become the write timeout for the error response.
-        if conn is not None and restore_timeout:
-            try:
-                conn.settimeout(saved_timeout)
-            except OSError:
-                pass
+    to_drain = min(content_length, max_bytes)
+    wsgi_input = environ.get("wsgi.input")
+    if wsgi_input is not None:
+        deadline = min(
+            time.monotonic() + 1.0,
+            _accept_clock(environ.get("compute.accept_time")) + _REQUEST_READ_TIMEOUT_SEC,
+        )
+        read1 = getattr(wsgi_input, "read1", None)
+        try:
+            while bytes_read < to_drain:
+                now = time.monotonic()
+                if now >= deadline:
+                    break
+                remaining = deadline - now
+                if conn is not None and can_set_timeout:
+                    try:
+                        conn.settimeout(max(0.1, remaining))
+                    except OSError:
+                        break
+                    else:
+                        restore_timeout = True
+                n = min(64 * 1024, to_drain - bytes_read)
+                raw_chunk: Any = read1(n) if callable(read1) else wsgi_input.read(n)
+                if not isinstance(raw_chunk, (bytes, bytearray)) or not raw_chunk:
+                    break
+                bytes_read += len(raw_chunk)
+        except OSError:
+            pass
+        finally:
+            # The drain budget must not become the write timeout for the error response.
+            if conn is not None and restore_timeout:
+                try:
+                    conn.settimeout(saved_timeout)
+                except OSError:
+                    pass
 
     fully_consumed = bytes_read == content_length
     if not fully_consumed:
@@ -354,8 +377,8 @@ def _validate_source_text(raw: Any, *, limit: int, label: str, required: bool, m
 def _transfer_encoding_is_chunked(environ: dict[str, Any]) -> bool:
     """True when the client asked for a chunked body.
 
-    This server is HTTP/1.0 and reads ``Content-Length``. A chunked body is
-    not decoded. A missing length is not ``{}``: a chunked reset would
+    This server speaks HTTP/1.1 and still reads ``Content-Length``. A chunked
+    body is not decoded. A missing length is not ``{}``: a chunked reset would
     otherwise succeed and ignore the body.
     """
     raw = environ.get("HTTP_TRANSFER_ENCODING")
@@ -1016,6 +1039,9 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         path = environ.get("PATH_INFO", "")
         method = environ.get("REQUEST_METHOD", "GET")
 
+        if (path, method) not in _BODY_ROUTES and _has_declared_body(environ):
+            environ["compute.close_connection"] = True
+
         if path == "/health" and method == "GET":
             return _start_json(start_response, "200 OK", {"status": "healthy", "service": "python-compute", "version": __version__})
 
@@ -1070,14 +1096,10 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         if allow is not None:
             # A known path with the wrong verb is 405, with Allow, so clients
             # are not told the route does not exist.
-            if _has_declared_body(environ):
-                environ["compute.close_connection"] = True
             body = b"Method Not Allowed"
             start_response("405 Method Not Allowed", [("Content-Type", "text/plain"), ("Content-Length", str(len(body))), ("Allow", allow)])
             return [body]
 
-        if _has_declared_body(environ):
-            environ["compute.close_connection"] = True
         start_response("404 Not Found", [("Content-Type", "text/plain"), ("Content-Length", "9")])
         return [b"Not Found"]
 
