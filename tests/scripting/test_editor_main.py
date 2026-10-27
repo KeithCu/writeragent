@@ -11,6 +11,8 @@ import io
 import logging
 import queue
 import struct
+import sys
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -238,3 +240,93 @@ def test_wsgi_traversal_and_vs_root_are_404(tmp_path, monkeypatch):
     body = em.wsgi_app({"PATH_INFO": "/vs/"}, start_response)
     assert recorded["status"] == "404 Not Found"
     assert body == [b"Not Found"]
+
+
+def test_wsgi_editor_config_output_per_env(monkeypatch):
+    _reset_state()
+
+    def call_config(env_val: str | None) -> tuple[str, dict[str, str], bytes]:
+        if env_val is None:
+            monkeypatch.delenv("WRITERAGENT_EDITOR_BACKEND", raising=False)
+        else:
+            monkeypatch.setenv("WRITERAGENT_EDITOR_BACKEND", env_val)
+        recorded: dict[str, Any] = {}
+
+        def start_response(status: str, headers: list[tuple[str, str]]) -> None:
+            recorded["status"] = status
+            recorded["headers"] = dict(headers)
+
+        body = b"".join(em.wsgi_app({"PATH_INFO": "/editor_config.js"}, start_response))
+        return recorded["status"], recorded["headers"], body
+
+    # Default / unset -> monaco
+    status, headers, body = call_config(None)
+    assert status == "200 OK"
+    assert headers["Content-Type"] == "application/javascript"
+    assert b'window.WA_EDITOR_BACKEND = "monaco";' in body
+
+    # codemirror -> codemirror
+    status, headers, body = call_config("codemirror")
+    assert status == "200 OK"
+    assert headers["Content-Type"] == "application/javascript"
+    assert b'window.WA_EDITOR_BACKEND = "codemirror";' in body
+
+    # Garbage -> monaco
+    status, headers, body = call_config("sublime_text")
+    assert status == "200 OK"
+    assert b'window.WA_EDITOR_BACKEND = "monaco";' in body
+
+
+def test_monaco_static_path_serves_cm6_files(tmp_path):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    cm6_dir = assets / "cm6"
+    cm6_dir.mkdir()
+    (assets / "backend_cm6.js").write_text("// cm6", encoding="utf-8")
+    (cm6_dir / "cm6.bundle.js").write_text("// bundle", encoding="utf-8")
+
+    served_backend = em.monaco_static_path("/backend_cm6.js", str(assets), "")
+    assert served_backend == str(assets / "backend_cm6.js")
+
+    served_bundle = em.monaco_static_path("/cm6/cm6.bundle.js", str(assets), "")
+    assert served_bundle == str(cm6_dir / "cm6.bundle.js")
+
+
+def test_main_codemirror_backend_does_not_fatal_on_missing_rocher(tmp_path, monkeypatch):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "index.html").write_text("x", encoding="utf-8")
+    (assets / "backend_cm6.js").write_text("x", encoding="utf-8")
+    cm6_dir = assets / "cm6"
+    cm6_dir.mkdir()
+    (cm6_dir / "cm6.bundle.js").write_text("x", encoding="utf-8")
+
+    monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(assets))
+    monkeypatch.setenv("WRITERAGENT_EDITOR_BACKEND", "codemirror")
+    monkeypatch.setattr(em, "_ROCHER_ROOT", "")
+    monkeypatch.setattr("plugin.scripting.ipc.claim_ipc_channel", lambda: io.BytesIO())
+
+    mock_webview = MagicMock()
+    mock_webview.create_window.return_value = MagicMock()
+    mock_webview.start.side_effect = lambda **kw: None
+    monkeypatch.setitem(sys.modules, "webview", mock_webview)
+
+    # Should not raise SystemExit on missing rocher
+    em.main()
+    mock_webview.create_window.assert_called_once()
+
+
+def test_main_codemirror_backend_fatals_when_cm6_assets_missing(tmp_path, monkeypatch, capsys):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "index.html").write_text("x", encoding="utf-8")
+    # Missing backend_cm6.js and cm6.bundle.js
+
+    monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(assets))
+    monkeypatch.setenv("WRITERAGENT_EDITOR_BACKEND", "codemirror")
+    monkeypatch.setattr("plugin.scripting.ipc.claim_ipc_channel", lambda: io.BytesIO())
+
+    with pytest.raises(SystemExit) as exc_info:
+        em.main()
+    assert exc_info.value.code == 1
+    assert "CodeMirror" in capsys.readouterr().err

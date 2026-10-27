@@ -172,6 +172,19 @@ config:
   #   width: 48
   #   librepy_exclude: true
 
+  python_editor:
+    type: string
+    default: monaco
+    widget: select
+    label: Python editor
+    helper: "Editor window for Edit Python in Cell, Run Python Script, the init script and LaTeX."
+    public: true
+    options:
+      - value: monaco
+        label: Monaco (default)
+      - value: codemirror
+        label: CodeMirror
+
   force_internal_script_editor:
     type: bool
     default: false

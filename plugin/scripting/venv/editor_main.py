@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import mimetypes
 import os
@@ -536,7 +537,14 @@ def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | No
     """
     if url_path in ("/", "/index.html"):
         return os.path.join(assets, "index.html")
-    if url_path in ("/editor_shell.js", "/backend_monaco.js", "/scripts_manager.js", "/style.css"):
+    if url_path in (
+        "/editor_shell.js",
+        "/backend_monaco.js",
+        "/backend_cm6.js",
+        "/cm6/cm6.bundle.js",
+        "/scripts_manager.js",
+        "/style.css",
+    ):
         return os.path.join(assets, url_path.lstrip("/"))
     if not url_path.startswith("/vs/"):
         return None
@@ -572,8 +580,22 @@ except Exception:
     _ROCHER_ROOT = ""
 
 
+def selected_backend() -> str:
+    """Editor chosen by the host (scripting.python_editor) via WRITERAGENT_EDITOR_BACKEND."""
+    return "codemirror" if os.environ.get("WRITERAGENT_EDITOR_BACKEND") == "codemirror" else "monaco"
+
+
+def editor_config_js() -> bytes:
+    """Body of /editor_config.js, loaded by index.html before editor_shell.js."""
+    return f"window.WA_EDITOR_BACKEND = {json.dumps(selected_backend())};\n".encode("utf-8")
+
+
 def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
     path = environ.get("PATH_INFO", "")
+    if path == "/editor_config.js":
+        body = editor_config_js()
+        start_response("200 OK", [("Content-Type", "application/javascript"), ("Content-Length", str(len(body)))])
+        return [body]
     rocher_root = _ROCHER_ROOT if path.startswith("/vs/") else ""
     assets = os.path.abspath(os.environ.get("WRITERAGENT_EDITOR_ASSETS", _ASSETS_DIR))
     filepath = monaco_static_path(path, assets, rocher_root) or ""
@@ -607,14 +629,20 @@ def main() -> None:
     if not os.path.isfile(index_html):
         _fatal(f"Editor assets not found: {index_html}")
 
-    # index.html loads vs/loader.js, which wsgi_app serves from _ROCHER_ROOT.
-    # Without it the window never shows, so fail where the host shows stderr.
-    loader_js = os.path.join(_ROCHER_ROOT, "loader.js")
-    if not _ROCHER_ROOT or not os.path.isfile(loader_js):
-        _fatal(
-            f"Monaco assets not found: {loader_js} "
-            "(install the 'rocher' package in the configured venv)"
-        )
+    if selected_backend() == "codemirror":
+        # CodeMirror ships in the extension, so rocher is not needed.
+        for name in ("backend_cm6.js", os.path.join("cm6", "cm6.bundle.js")):
+            if not os.path.isfile(os.path.join(assets, name)):
+                _fatal(f"CodeMirror assets not found: {os.path.join(assets, name)}")
+    else:
+        # editor_shell.js loads vs/loader.js, which wsgi_app serves from _ROCHER_ROOT.
+        # Without it the window never shows, so fail where the host shows stderr.
+        loader_js = os.path.join(_ROCHER_ROOT, "loader.js")
+        if not _ROCHER_ROOT or not os.path.isfile(loader_js):
+            _fatal(
+                f"Monaco assets not found: {loader_js} "
+                "(install the 'rocher' package in the configured venv)"
+            )
 
     try:
         import webview  # type: ignore[import-untyped]

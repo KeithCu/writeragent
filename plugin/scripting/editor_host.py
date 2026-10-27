@@ -82,11 +82,25 @@ except Exception:
     sys.exit(1)
 """
 
+# CodeMirror ships in the extension (assets/editor/cm6), so only pywebview is needed.
+_WEBVIEW_PROBE_CODE_CODEMIRROR = _WEBVIEW_PROBE_CODE.replace("    import rocher\n", "")
+
+EDITOR_BACKENDS = ("monaco", "codemirror")
+
+
+def selected_editor_backend() -> str:
+    """Return the configured web editor (scripting.python_editor): "monaco" or "codemirror"."""
+    from plugin.framework.config import get_config_str
+
+    value = get_config_str("scripting.python_editor").strip().lower()
+    return value if value in EDITOR_BACKENDS else "monaco"
+
 
 def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
     """Environment for editor subprocess (venv python + GUI session variables)."""
     env = scrub_subprocess_env(dict(os.environ))
     env["WRITERAGENT_EDITOR_ASSETS"] = assets_dir or _ASSETS_DIR
+    env["WRITERAGENT_EDITOR_BACKEND"] = selected_editor_backend()
     for key in (
         "DISPLAY",
         "XAUTHORITY",
@@ -138,7 +152,8 @@ _PROBE_FAILURE_TTL_SEC = 30.0
 def probe_webview_import(exe: str) -> tuple[bool, str]:
     """Return whether *exe* can ``import webview`` (pywebview package), with diagnostics.
 
-    Successes stay cached until the venv path changes. Failures are remembered
+    Monaco also needs ``rocher`` (Monaco's files); CodeMirror does not.
+    Successes stay cached until the venv path or scripting.python_editor changes. Failures are remembered
     for ``_PROBE_FAILURE_TTL_SEC``.
     """
     cached = _PROBE_CACHE.get(exe)
@@ -161,9 +176,10 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
         return result
 
     env = build_editor_child_env()
+    probe_code = _WEBVIEW_PROBE_CODE_CODEMIRROR if env["WRITERAGENT_EDITOR_BACKEND"] == "codemirror" else _WEBVIEW_PROBE_CODE
     try:
         r = ManagedSubprocess.run(
-            wrap_command_for_sandbox([exe, "-c", _WEBVIEW_PROBE_CODE], env=env),
+            wrap_command_for_sandbox([exe, "-c", probe_code], env=env),
             capture_output=True,
             timeout=30,
             env=env,
@@ -996,11 +1012,13 @@ def _on_config_changed(**kwargs: Any) -> None:
         key == "scripting.force_internal_script_editor"
         or "scripting.force_internal_script_editor" in changed
     )
-    if not venv_changed and not force_changed:
+    editor_changed = key == "scripting.python_editor" or "scripting.python_editor" in changed
+    if not venv_changed and not force_changed and not editor_changed:
         return
 
-    if venv_changed:
-        log.info("editor_host: scripting.python_venv_path changed, terminating background Monaco process")
+    if venv_changed or editor_changed:
+        # The probe checks different packages per editor (rocher only for Monaco).
+        log.info("editor_host: venv path or python_editor changed, terminating background editor process")
         _PROBE_CACHE.clear()
         _PROBE_FAILURE_CACHE.clear()
 
