@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import io
+import pathlib
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -1238,6 +1239,86 @@ def test_sandbox_runtime_file_blocked_modules(mod: str) -> None:
     res_files = run_sandboxed_code(f"import {mod}\nresult = True", sandbox_policy={"files": True})
     assert res_files["status"] == "ok"
     assert res_files["result"] is True
+
+
+# {p} is a fresh target path, {src} an existing file holding "fixture", {d} an existing empty dir.
+_FILE_WRITES = [
+    "import io\nio.open({p}, 'w').write('x')",
+    "import io\nio.open({p}, mode='a').write('x')",
+    "import io\nio.open({p}, 'x').write('x')",
+    "import io\nio.open({src}, 'r+').write('x')",
+    "import io\nio.open({p}, 'wb').write(b'x')",
+    "import io\nio.FileIO({p}, 'w').write(b'x')",
+    "import io\nraw = io.FileIO({src}, 'r')\nio.FileIO.__init__(raw, {p}, 'w')",
+    "import codecs\ncodecs.open({p}, 'w').write('x')",
+    "import _pyio\n_pyio.open({p}, 'w').write('x')",
+    "import _pyio\n_pyio.FileIO({p}, 'w').write(b'x')",
+    "from pathlib import Path\nPath({p}).write_text('x')",
+    "from pathlib import Path\nPath({p}).write_bytes(b'x')",
+    "from pathlib import Path\nPath({p}).open('w').write('x')",
+    "from pathlib import Path\nPath({p}).open(mode='a').write('x')",
+    "from pathlib import Path\nPath({p}).touch()",
+    "from pathlib import Path\nPath({p}).mkdir()",
+    "from pathlib import Path\nPath({src}).unlink()",
+    "from pathlib import Path\nPath({src}).rename({p})",
+    "from pathlib import Path\nPath({src}).replace({p})",
+    "from pathlib import Path\nPath({d}).rmdir()",
+    "from pathlib import Path\nPath({src}).chmod(0o777)",
+    "from pathlib import Path\nPath({p}).symlink_to({src})",
+    "from pathlib import Path\nPath({p}).hardlink_to({src})",
+    "import operator\nfrom pathlib import Path\noperator.methodcaller('write_text', 'x')(Path({p}))",
+    "import io\nlist(map(io.open, [{p}], ['w']))",
+]
+
+
+def _file_fixture(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, dict[str, str]]:
+    p, src, d = tmp_path / "out", tmp_path / "src.txt", tmp_path / "empty"
+    src.write_text("fixture")
+    src.chmod(0o644)
+    d.mkdir()
+    return p, src, d, {"p": repr(str(p)), "src": repr(str(src)), "d": repr(str(d))}
+
+
+@pytest.mark.parametrize("code", _FILE_WRITES)
+def test_sandbox_runtime_file_writes_blocked_unless_files(code: str, tmp_path: pathlib.Path) -> None:
+    p, src, d, names = _file_fixture(tmp_path)
+    res = run_sandboxed_code(code.format(**names), sandbox_policy=None)
+    assert res["status"] == "error"
+    assert "Forbidden access to function" in res.get("message", "")
+    assert not p.exists() and not p.is_symlink()
+    assert src.read_text() == "fixture" and src.stat().st_mode & 0o777 == 0o644
+    assert d.is_dir()
+
+    res_files = run_sandboxed_code(code.format(**names) + "\nresult = True", sandbox_policy={"files": True})
+    assert res_files["status"] == "ok", res_files
+
+
+def test_sandbox_runtime_file_writes_allowed_with_os_policy(tmp_path: pathlib.Path) -> None:
+    p = tmp_path / "os.txt"
+    res = run_sandboxed_code(f"from pathlib import Path\nPath({str(p)!r}).write_text('ok')", sandbox_policy={"os": True})
+    assert res["status"] == "ok"
+    assert p.read_text() == "ok"
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import io\nresult = io.open({src}).read()",
+        "import io\nresult = io.open({src}, 'rb').read().decode()",
+        "import io\nresult = io.FileIO({src}, 'r').read().decode()",
+        "import io\nraw = io.FileIO({src}, 'r')\nio.FileIO.__init__(raw, {src}, 'r')\nresult = raw.read().decode()",
+        "import codecs\nresult = codecs.open({src}).read()",
+        "from pathlib import Path\nresult = Path({src}).read_text()",
+        "from pathlib import Path\nresult = Path({src}).read_bytes().decode()",
+        "from pathlib import Path\nresult = Path({src}).open().read()",
+        "from pathlib import Path\nresult = Path({src}).open('rb').read().decode()",
+    ],
+)
+def test_sandbox_runtime_file_reads_allowed_by_default(code: str, tmp_path: pathlib.Path) -> None:
+    _p, _src, _d, names = _file_fixture(tmp_path)
+    res = run_sandboxed_code(code.format(**names), sandbox_policy=None)
+    assert res["status"] == "ok", res
+    assert res["result"] == "fixture"
 
 
 def test_sandbox_runtime_extra_modules_allows_importlib() -> None:

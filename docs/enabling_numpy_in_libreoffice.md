@@ -292,7 +292,7 @@ Prompt text is generated from `[plugin/scripting/import_policy.py](../plugin/scr
 | **Pre-imported** (do not `import` in script)          | `np`, `pd`, `sp`, `st` (`scipy.stats`), `plt` (`matplotlib.pyplot`), `math`, `dt` (`datetime`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, `csv`, `xl`                                                                                             |
 | **Blocked host escape** (unless Allow OS access for process/os) | `subprocess`, `_posixsubprocess`, `ctypes`, `_ctypes`, `cffi`, `pty`, `multiprocessing`, `_multiprocessing`, `builtins`, `importlib`, `_frozen_importlib`, `_frozen_importlib_external`, `zipimport`, `runpy`, `pickle`, `marshal`, `shelve`, `dill`, `cloudpickle`, `posix`, `nt`, plugin internals (`plugin`, `writeragent.framework`) |
 | **Blocked networking** (unless Allow network access)  | `socket`, `requests`, `urllib`, `urllib3`, `http`, `httpx`, `ssl`, `_socket`, `_ssl`, `httpcore`, `h11`, `h2`, `aiohttp`, `websockets`, `websocket`, `paramiko`, `ftplib`, `smtplib`, `poplib`, `imaplib`, `nntplib`, `telnetlib`, `xmlrpc`, `socketserver`, `dns` |
-| **Blocked file writes** (unless Allow file access)    | `shutil`, `tempfile`, `sqlite3` (plus the `open()` builtin and mutating `os` calls; `import os` is allowed through a restricted read-only proxy by default) |
+| **Blocked file writes** (unless Allow file access)    | `shutil`, `tempfile`, `sqlite3`, write-mode `open` / `io.open` / `io.FileIO` / `codecs.open`, pathlib mutations (`write_text`, `write_bytes`, `touch`, `mkdir`, `unlink`, `rename`, `replace`, `rmdir`, `symlink_to`, `hardlink_to`, `chmod`, `lchmod`), and mutating `os` calls (`import os` is allowed through a restricted read-only proxy by default) |
 | **Allowed by default**                                | Safe stdlib (`io`, `logging`, `glob`, `zipfile`, `gzip`, `bz2`, `lzma`, `pathlib`, `asyncio`, `inspect`, `sys` reads, `signal`, `concurrent.futures`, `json`, `csv`, `math`, `datetime`, …) and all installed packages (numpy, pandas, scipy, matplotlib, etc.) |
 
 ##### Sandbox settings & permissions {#sandbox-settings-permissions}
@@ -300,7 +300,7 @@ Prompt text is generated from `[plugin/scripting/import_policy.py](../plugin/scr
 By default, every flag is off. Users can selectively enable capabilities under **Settings → Python**:
 
 - **Allow network access (`scripting.python_allow_network`)**: Blocks network imports (`socket`, `requests`, `http`, `urllib`, `ssl`, …) unless checked.
-- **Allow file access (`scripting.python_allow_files`)**: Blocks file writes (`shutil`, `tempfile`, `sqlite3`, mutating `os` calls, and the `open()` builtin) unless checked. Reads through `pathlib`, `glob`, `io`, `logging`, and `os` stay allowed.
+- **Allow file access (`scripting.python_allow_files`)**: Blocks file writes (`shutil`, `tempfile`, `sqlite3`, write-mode `open` / `io.open` / `io.FileIO` / `codecs.open`, pathlib mutations (`write_text`, `write_bytes`, `touch`, `mkdir`, `unlink`, `rename`, `replace`, `rmdir`, `symlink_to`, `hardlink_to`, `chmod`, `lchmod`), and mutating `os` calls) unless checked. Reads through `pathlib`, `glob`, `io`, `logging`, and the read-only `os` proxy stay allowed.
   - The `_FileOsProxy` exposes path and filesystem operations. By default (when `python_allow_os` is false), it exposes read operations (`os.path.*`, `os.environ` reads / `os.getenv`, `listdir`, `scandir`, `stat`, `getcwd`, `walk`, etc.). Mutating calls (`remove`, `unlink`, `rename`, `replace`, `mkdir`, `makedirs`, `rmdir`, `chmod`, `utime`, `symlink`, `link`, etc.) require `python_allow_files`.
 - **Allow OS access (`scripting.python_allow_os`)**: Allows raw `os`, `subprocess`, `multiprocessing`, and `pty` (run other programs and processes); includes file access. Process spawning via `subprocess.run`, `multiprocessing` (e.g. `Process`, `Pool`), `pty`, `os.system`, `asyncio.create_subprocess_*`, and `ProcessPoolExecutor` is enabled when checked, and blocked at call-level and import-level when unchecked.
 - **Extra allowed modules (`scripting.python_extra_modules`)**: Comma-separated names (each also grants `name.*`). Overrides the sandbox blocklist, including `os`, `socket`, and `subprocess`. Rejects invalid identifiers, bare `*`, and names over 62 characters.
@@ -308,7 +308,7 @@ By default, every flag is off. Users can selectively enable capabilities under *
 
 ##### Known residuals
 
-- **Library-level writes**: The file-writes flag operates at the import level (`shutil`, `tempfile`, `sqlite3`, `open()`, and `os` proxy writes). Safe modules such as `pathlib`, `io`, and third-party libraries (`pandas.to_csv`, `numpy.save`, `PIL.Image.save`, `plt.savefig`, DuckDB writes) can still write to files.
+- **Library-level writes**: File writes through `gzip`, `bz2`, `lzma`, `zipfile`, `pandas` (e.g. `to_csv`), `numpy` (e.g. `save`), `PIL` (e.g. `Image.save`), `plt.savefig`, and DuckDB file writes remain allowed library-level residuals.
 - **Library-level network**: The network flag gates listed network modules (`socket`, `requests`, `urllib`, `http`, `ssl`, etc.). Allowed third-party libraries that embed compiled network clients can perform network I/O.
 - Subprocess isolation remains the primary security boundary.
 

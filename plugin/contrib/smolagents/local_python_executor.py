@@ -268,6 +268,8 @@ def _maybe_wrap_callable(val: Any) -> Any:
             needs_wrap = True
     elif module.startswith("pandas") and name in ("read_pickle", "to_pickle"):
         needs_wrap = True
+    elif _file_write_kind(val):
+        needs_wrap = True
 
     if not needs_wrap:
         return val
@@ -278,6 +280,7 @@ def _maybe_wrap_callable(val: Any) -> Any:
 
     @wraps(val)
     def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        _reject_sandboxed_file_write(val, args, kwargs)
         if name == "load_library" or any(module.startswith(p) for p in _NUMPY_CALL_DENIED):
             raise InterpreterError(f"Forbidden call to {module}.{name}")
         if module.startswith("pandas") and name in ("read_pickle", "to_pickle"):
@@ -1326,6 +1329,74 @@ def _reject_pandas_pickle(func: Any, args: list[Any], kwargs: dict[str, Any]) ->
         raise InterpreterError(f"Forbidden call to {module}.{name}")
 
 
+_PATH_MUTATOR_NAMES = frozenset({
+    "write_text",
+    "write_bytes",
+    "touch",
+    "mkdir",
+    "unlink",
+    "rename",
+    "replace",
+    "rmdir",
+    "symlink_to",
+    "hardlink_to",
+    "chmod",
+    "lchmod",
+})
+_OPEN_CALL_NAMES = frozenset({"open", "FileIO"})
+_OPEN_CALL_MODULES = frozenset({"_io", "io", "codecs", "_pyio"})
+
+
+def _file_writes_allowed() -> bool:
+    _roots, file_os_ids = SANDBOX_POLICY_CONTEXT.get()
+    return bool(file_os_ids) and file_os_ids != _get_default_file_os_ids()
+
+
+def _file_write_kind(func: Any) -> str | None:
+    """'mutate' for pathlib mutators, 'open' for io/codecs/pathlib opens (mode decides), else None."""
+    orig = inspect.unwrap(func)
+    module = getattr(orig, "__module__", "") or ""
+    name = getattr(orig, "__name__", "") or ""
+    objclass = getattr(orig, "__objclass__", None)
+    io_module = module in _OPEN_CALL_MODULES or getattr(objclass, "__module__", "") in _OPEN_CALL_MODULES
+    if module == "pathlib" or module.startswith("pathlib."):
+        if name in _PATH_MUTATOR_NAMES:
+            return "mutate"
+        return "open" if name == "open" else None
+    if io_module and (name in _OPEN_CALL_NAMES or getattr(orig, "__qualname__", "") == "FileIO.__init__"):
+        return "open"
+    return None
+
+
+def _positional_mode(func: Any, args: list[Any] | tuple[Any, ...]) -> object:
+    orig = inspect.unwrap(func)
+    try:
+        params = list(inspect.signature(orig).parameters.values())
+    except (TypeError, ValueError):
+        params = []
+    positional = [p for p in params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    for index, param in enumerate(positional):
+        if param.name == "mode":
+            return args[index] if len(args) > index else "r"
+    # C _io.FileIO.__init__ exposes no mode parameter name.
+    if getattr(orig, "__qualname__", "") == "FileIO.__init__":
+        self_obj = getattr(orig, "__self__", None)
+        index = 1 if self_obj is not None and not isinstance(self_obj, ModuleType) else 2
+        return args[index] if len(args) > index else "r"
+    return "r"
+
+
+def _reject_sandboxed_file_write(func: Any, args: list[Any] | tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+    """Block io/codecs/pathlib file writes unless file access is on (the import blocklist only covers
+    shutil/tempfile/sqlite3, and io.open / Path.write_text reach the real open past the bare-open gate)."""
+    kind = _file_write_kind(func)
+    if kind is None or _file_writes_allowed():
+        return
+    mode = kwargs["mode"] if "mode" in kwargs else _positional_mode(func, args)
+    if kind == "mutate" or (isinstance(mode, str) and any(flag in mode for flag in "wax+")):
+        raise InterpreterError(f"Forbidden access to function: {getattr(inspect.unwrap(func), '__name__', func)}")
+
+
 def evaluate_call(
     call: ast.Call,
     state: dict[str, Any],
@@ -1416,6 +1487,7 @@ def evaluate_call(
             raise InterpreterError(f"Forbidden call to dunder function: {func.__name__}")
         _reject_numpy_code_exec(func, args, kwargs)
         _reject_pandas_pickle(func, args, kwargs)
+        _reject_sandboxed_file_write(func, args, kwargs)
         _check_dangerous_value(func, authorized_imports)
         return func(*args, **kwargs)
 
