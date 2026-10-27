@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -172,6 +173,23 @@ class ManagedBenchmarkServer:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+
+
+def _kill_formula_workers(server_pid: int) -> None:
+    """SIGKILL the server's formula_worker children (Linux /proc)."""
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            ppid = int((entry / "stat").read_text().rsplit(")", 1)[1].split()[1])
+            cmdline = (entry / "cmdline").read_bytes()
+        except (OSError, ValueError, IndexError):
+            continue
+        if ppid == server_pid and b"formula_worker" in cmdline:
+            try:
+                os.kill(int(entry.name), signal.SIGKILL)
+            except OSError:
+                pass
 
 
 @dataclass
@@ -563,7 +581,7 @@ def run_stress_suite(
     invariant_details: list[str] = []
     invariants_passed = True
 
-    def _execute_stress(base_url: str) -> StressResult:
+    def _execute_stress(base_url: str, server_pid: int | None = None) -> StressResult:
         nonlocal invariants_passed
         health_monitor = HealthMonitor(base_url, interval_sec=0.02)
         health_monitor.start()
@@ -1102,11 +1120,9 @@ def run_stress_suite(
                     f"{base_url}/v1/execute?session_id={crash_sid}",
                     json.dumps({"code": "result = 10", "mode": "shared"}).encode("utf-8"),
                 )
-                # The server is another process: kill the session's worker from inside it.
-                execute_request_detail(
-                    f"{base_url}/v1/execute?session_id={crash_sid}",
-                    json.dumps({"code": "import os\nos._exit(1)", "mode": "shared"}).encode("utf-8"),
-                )
+                # The server is another process: kill its formula workers (one holds the session).
+                if server_pid is not None:
+                    _kill_formula_workers(server_pid)
 
                 recover_payload = json.dumps({
                     "code": "result = 42",
@@ -1167,8 +1183,9 @@ def run_stress_suite(
 
     if target_url:
         return _execute_stress(target_url)
-    with ManagedBenchmarkServer(workers=workers, worker_max_tasks=recycle_tasks) as url:
-        return _execute_stress(url)
+    server = ManagedBenchmarkServer(workers=workers, worker_max_tasks=recycle_tasks)
+    with server as url:
+        return _execute_stress(url, server.proc.pid if server.proc else None)
 
 
 def format_stress_results(result: StressResult) -> str:
