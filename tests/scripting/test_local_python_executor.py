@@ -2385,9 +2385,11 @@ def test_local_python_executor_empty_context():
     assert "Forbidden access to function" in str(exc_fn.value)
 
     # Default import os succeeds via read-only proxy:
-    executor_default("import os\np = os.path.join('a', 'b')\nitems = os.listdir('.')")
+    executor_default("import os\np = os.path.join('a', 'b')")
     assert executor_default.state["p"] in ("a/b", "a\\b")
-    assert isinstance(executor_default.state["items"], list)
+    with pytest.raises(InterpreterError) as exc_ls:
+        executor_default("import os\nos.listdir('.')")
+    assert "Forbidden access to function" in str(exc_ls.value)
     with pytest.raises(InterpreterError) as exc_rm:
         executor_default("import os\nos.remove('nonexistent')")
     assert "Forbidden access to function" in str(exc_rm.value)

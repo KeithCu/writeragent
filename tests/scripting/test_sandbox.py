@@ -779,24 +779,28 @@ def test_sandbox_policy_module_yaml_keys() -> None:
     assert net is not None
     assert net.get("default") is False
     assert net.get("label") == "Allow network access"
+    assert "network connections" in net.get("helper", "")
     assert net.get("public") is True
 
     files = cfg.get("python_allow_files")
     assert files is not None
     assert files.get("default") is False
     assert files.get("label") == "Allow file access"
+    assert "read and write" in files.get("helper", "")
     assert files.get("public") is True
 
     os_key = cfg.get("python_allow_os")
     assert os_key is not None
     assert os_key.get("default") is False
     assert os_key.get("label") == "Allow OS access"
+    assert "file read and write" in os_key.get("helper", "")
     assert os_key.get("public") is True
 
     extra = cfg.get("python_extra_modules")
     assert extra is not None
     assert extra.get("default") == ""
     assert extra.get("label") == "Extra allowed modules"
+    assert "file, network, and process" in extra.get("helper", "")
     assert extra.get("public") is True
 
 

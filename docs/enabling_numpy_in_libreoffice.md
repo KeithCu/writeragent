@@ -106,7 +106,7 @@ No terminal is required after the venv is set up. An optional [chat assistant](#
 | `scripting.python_exec_timeout` | Wall-clock limit (seconds) for Run Python Script and `=PY()` (default **10**, max **600**). Trusted long-running helpers (OCR, spaCy, SymPy, embeddings, …) use a longer internal budget. | `10`                  |
 | `scripting.python_auto_spill`   | **On by default.** Single-cell `=PY()` returning a list, 2D array, or DataFrame **auto-spills** into adjacent cells. Blocked cells → `#SPILL!`. Disable for matrix-only workflows.        | `true`                |
 | `scripting.python_allow_network` | Allow network access (`socket`, `http`, `urllib`, `ssl` and their submodules). Default `false`. | `false` |
-| `scripting.python_allow_files`   | Allow file access (`open`, `pathlib`, `shutil`, `io`, `tempfile`, `glob`, and filtered `os` file proxy). Reads/writes anywhere. Default `false`. | `false` |
+| `scripting.python_allow_files`   | Allow file access (`open`, `pathlib`, `shutil`, `io`, `tempfile`, `glob`, and filtered `os` file proxy). Reads and writes anywhere; default blocks both. | `false` |
 | `scripting.python_allow_os`      | Allow OS access (real `os`, `subprocess`, `multiprocessing`, `pty`, e.g. `os.system`, `subprocess.run`). Implies file access. Default `false`. | `false` |
 | `scripting.python_extra_modules` | Comma-separated extra allowed modules (each name also grants `name.*`). Overrides every built-in blocklist, including `os`, `socket` and `subprocess`. | `""` |
 
@@ -292,23 +292,23 @@ Prompt text is generated from `[plugin/scripting/import_policy.py](../plugin/scr
 | **Pre-imported** (do not `import` in script)          | `np`, `pd`, `sp`, `st` (`scipy.stats`), `plt` (`matplotlib.pyplot`), `math`, `dt` (`datetime`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, `csv`, `xl`                                                                                             |
 | **Blocked host escape** (unless Allow OS access for process/os) | `subprocess`, `_posixsubprocess`, `ctypes`, `_ctypes`, `cffi`, `pty`, `multiprocessing`, `_multiprocessing`, `builtins`, `importlib`, `_frozen_importlib`, `_frozen_importlib_external`, `zipimport`, `runpy`, `pickle`, `marshal`, `shelve`, `dill`, `cloudpickle`, `posix`, `nt`, plugin internals (`plugin`, `writeragent.framework`) |
 | **Blocked networking** (unless Allow network access)  | `socket`, `requests`, `urllib`, `urllib3`, `http`, `httpx`, `ssl`, `_socket`, `_ssl`, `httpcore`, `h11`, `h2`, `aiohttp`, `websockets`, `websocket`, `paramiko`, `ftplib`, `smtplib`, `poplib`, `imaplib`, `nntplib`, `telnetlib`, `xmlrpc`, `socketserver`, `dns` |
-| **Blocked file writes** (unless Allow file access)    | `shutil`, `tempfile`, `sqlite3` (plus the `open()` builtin and mutating `os` calls; `import os` is allowed through a restricted read-only proxy by default) |
-| **Allowed by default**                                | Safe stdlib (`io`, `logging`, `glob`, `zipfile`, `gzip`, `bz2`, `lzma`, `pathlib`, `asyncio`, `inspect`, `sys` reads, `signal`, `concurrent.futures`, `json`, `csv`, `math`, `datetime`, …) and all installed packages (numpy, pandas, scipy, matplotlib, etc.) |
+| **Blocked file read/write access** (unless Allow file access) | `shutil`, `tempfile`, `sqlite3`, `open` (all modes, including builtin, `io`, `codecs`, `_pyio`), `pathlib` reads and mutations, `glob` / `fileinput` / `linecache`, path opens in `gzip` / `bz2` / `lzma` / `zipfile` / `tarfile`, `logging` file handlers, and `os` `listdir` / `scandir` / `stat` / `walk` |
+| **Allowed by default**                                | Safe stdlib (`io`, `logging`, `glob`, `zipfile`, `gzip`, `bz2`, `lzma`, `pathlib`, `asyncio`, `inspect`, `sys` reads, `signal`, `concurrent.futures`, `json`, `csv`, `math`, `datetime`, …; file operations gated) and all installed packages (numpy, pandas, scipy, matplotlib, etc.) |
 
 ##### Sandbox settings & permissions {#sandbox-settings-permissions}
 
 By default, every flag is off. Users can selectively enable capabilities under **Settings → Python**:
 
 - **Allow network access (`scripting.python_allow_network`)**: Blocks network imports (`socket`, `requests`, `http`, `urllib`, `ssl`, …) unless checked.
-- **Allow file access (`scripting.python_allow_files`)**: Blocks file writes (`shutil`, `tempfile`, `sqlite3`, mutating `os` calls, and the `open()` builtin) unless checked. Reads through `pathlib`, `glob`, `io`, `logging`, and `os` stay allowed.
-  - The `_FileOsProxy` exposes path and filesystem operations. By default (when `python_allow_os` is false), it exposes read operations (`os.path.*`, `os.environ` reads / `os.getenv`, `listdir`, `scandir`, `stat`, `getcwd`, `walk`, etc.). Mutating calls (`remove`, `unlink`, `rename`, `replace`, `mkdir`, `makedirs`, `rmdir`, `chmod`, `utime`, `symlink`, `link`, etc.) require `python_allow_files`.
+- **Allow file access (`scripting.python_allow_files`)**: Blocks file read/write access (`open`, `io`, `pathlib`, `shutil`, `tempfile`, `sqlite3`, `glob`, and `os` file calls such as `listdir` and `stat`) unless checked. In-memory buffers (`io.BytesIO`, `io.StringIO`) stay available.
+  - The `_FileOsProxy` exposes path and filesystem operations. By default (when `python_allow_os` is false), it exposes `os.path`, cwd, environ, and constants; listing and `stat` require the file flag; mutating calls require it too. `os.path` existence checks stay available.
 - **Allow OS access (`scripting.python_allow_os`)**: Allows raw `os`, `subprocess`, `multiprocessing`, and `pty` (run other programs and processes); includes file access. Process spawning via `subprocess.run`, `multiprocessing` (e.g. `Process`, `Pool`), `pty`, `os.system`, `asyncio.create_subprocess_*`, and `ProcessPoolExecutor` is enabled when checked, and blocked at call-level and import-level when unchecked.
 - **Extra allowed modules (`scripting.python_extra_modules`)**: Comma-separated names (each also grants `name.*`). Overrides the sandbox blocklist, including `os`, `socket`, and `subprocess`. Rejects invalid identifiers, bare `*`, and names over 62 characters.
 - `builtins`, `ctypes`, `importlib`, and serialization modules stay blocked under all flags unless explicitly overridden in extra modules.
 
 ##### Known residuals
 
-- **Library-level writes**: The file-writes flag operates at the import level (`shutil`, `tempfile`, `sqlite3`, `open()`, and `os` proxy writes). Safe modules such as `pathlib`, `io`, and third-party libraries (`pandas.to_csv`, `numpy.save`, `PIL.Image.save`, `plt.savefig`, DuckDB writes) can still write to files.
+- **Library-level file I/O**: File I/O through pandas (`read_csv`, `to_csv`), numpy (`load`, `save`), matplotlib (`plt.savefig` to a path), PIL (`Image.open`, `Image.save`), and DuckDB file I/O stay library-level. Stdlib path helpers such as `configparser.read`, `netrc`, `dbm`, `mailbox`, and `wave` are not gated either.
 - **Library-level network**: The network flag gates listed network modules (`socket`, `requests`, `urllib`, `http`, `ssl`, etc.). Allowed third-party libraries that embed compiled network clients can perform network I/O.
 - Subprocess isolation remains the primary security boundary.
 

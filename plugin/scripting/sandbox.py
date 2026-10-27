@@ -364,19 +364,9 @@ FILE_BLOCKED_MODULES: tuple[str, ...] = (
 FILE_OS_READ_NAMES: tuple[str, ...] = (
     # Module
     "path",
-    # Directories
-    "listdir",
-    "scandir",
-    "walk",
-    "fwalk",
+    # Directory queries that do not list filesystem paths
     "getcwd",
     "getcwdb",
-    # Metadata
-    "stat",
-    "lstat",
-    "access",
-    # Links
-    "readlink",
     # Path helpers and types
     "fspath",
     "fsencode",
@@ -406,6 +396,20 @@ FILE_OS_READ_NAMES: tuple[str, ...] = (
     "getenv",
 )
 
+FILE_OS_FILE_READ_NAMES: tuple[str, ...] = (
+    # Directories
+    "listdir",
+    "scandir",
+    "walk",
+    "fwalk",
+    # Metadata
+    "stat",
+    "lstat",
+    "access",
+    # Links
+    "readlink",
+)
+
 FILE_OS_WRITE_NAMES: tuple[str, ...] = (
     # Directories
     "mkdir",
@@ -433,7 +437,7 @@ FILE_OS_WRITE_NAMES: tuple[str, ...] = (
     "unsetenv",
 )
 
-FILE_OS_NAMES: tuple[str, ...] = FILE_OS_READ_NAMES + FILE_OS_WRITE_NAMES
+FILE_OS_NAMES: tuple[str, ...] = FILE_OS_READ_NAMES + FILE_OS_FILE_READ_NAMES + FILE_OS_WRITE_NAMES
 
 
 def active_blocked_imports() -> frozenset[str]:

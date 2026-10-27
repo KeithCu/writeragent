@@ -163,7 +163,7 @@ flowchart TB
 | `scripting.python_exec_timeout` | Wall-clock seconds per user script run (default 10, clamp 1–600) |
 | `scripting.python_auto_spill` | Auto-spill list/DataFrame returns from single-cell `=PY()` |
 | `scripting.python_allow_network` | Allow network access (`socket`, `http`, `urllib`, `ssl`) |
-| `scripting.python_allow_files` | Allow file access (`open`, `pathlib`, `shutil`, `io`, `tempfile`, `glob`, `os` file proxy) |
+| `scripting.python_allow_files` | Allow file read and write (open, pathlib, shutil, io, tempfile, glob, os file calls). Default blocks both. |
 | `scripting.python_allow_os` | Allow OS access (real `os`, `subprocess`, `multiprocessing`, `pty`; implies file access) |
 | `scripting.python_extra_modules` | Comma-separated extra allowed module names |
 
