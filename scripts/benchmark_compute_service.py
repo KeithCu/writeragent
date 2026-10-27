@@ -22,8 +22,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import os
 import json
+import os
 import socket
 import sys
 import threading
@@ -456,7 +456,7 @@ def format_results_table(results: list[BenchmarkResult]) -> str:
 def _default_worker_counts() -> list[int]:
     """1, 2, 4, ... up to the CPU count, plus the CPU count itself."""
     cpus = os.cpu_count() or 1
-    counts = []
+    counts: list[int] = []
     w = 1
     while w < cpus:
         counts.append(w)
