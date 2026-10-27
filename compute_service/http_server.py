@@ -170,47 +170,45 @@ class ConnState:
 class ComputeServerHandler(ServerHandler):
     """WSGI ServerHandler with HTTP/1.1 and keep-alive header enforcement."""
 
-    http_version = "1.1"
-    # Set by wsgiref at runtime; the stub omits them.
-    headers: Any
-    environ: Any
+    http_version: str = "1.1"
 
     def cleanup_headers(self) -> None:
         super().cleanup_headers()
-        assert "Content-Length" in self.headers, "Content-Length header required"
-        cl_val = self.headers.get("Content-Length")
-        req_handler = getattr(self, "request_handler", None)
-        close_conn = False
-
-        if bool(self.environ.get("compute.close_connection")):
-            close_conn = True
-        elif req_handler is not None and getattr(req_handler, "close_connection", False):
-            close_conn = True
-
-        if hasattr(self, "bytes_sent") and self.bytes_sent is not None:
-            try:
-                if int(cl_val) != self.bytes_sent:
-                    close_conn = True
-            except (ValueError, TypeError):
+        # headers, environ, bytes_sent and request_handler are set by wsgiref
+        # at runtime; the stub omits some of them.
+        h = cast("Any", self)
+        assert "Content-Length" in h.headers, "Content-Length header required"
+        req_handler = getattr(h, "request_handler", None)
+        close_conn = bool(h.environ.get("compute.close_connection")) or bool(getattr(req_handler, "close_connection", False))
+        # write() sets bytes_sent to the first block before send_headers. A
+        # length that does not match that block cannot keep the socket.
+        try:
+            if int(h.headers["Content-Length"]) != h.bytes_sent:
                 close_conn = True
-
+        except (ValueError, TypeError):
+            close_conn = True
         if close_conn:
-            self.headers["Connection"] = "close"
+            h.headers["Connection"] = "close"
             if req_handler is not None:
                 req_handler.close_connection = True
 
     def handle_error(self) -> None:
-        req_handler = getattr(self, "request_handler", None)
+        h = cast("Any", self)
+        req_handler = getattr(h, "request_handler", None)
         if req_handler is not None:
             req_handler.close_connection = True
-        self.environ["compute.close_connection"] = True
+        h.environ["compute.close_connection"] = True
         super().handle_error()
 
 
 class DeadlineRequestHandler(WSGIRequestHandler):
     """WSGI request handler with total header read deadline and compute context logging."""
 
-    protocol_version = "HTTP/1.1"
+    protocol_version: str = "HTTP/1.1"
+    connection: Any
+    rfile: Any
+    wfile: Any
+    close_connection: bool
     raw_requestline: bytes = b""
     requestline: str = ""
     request_version: str = ""
@@ -413,7 +411,7 @@ class DeadlineRequestHandler(WSGIRequestHandler):
 class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
     """Dual-stack thread-pooled WSGI server with idle connection parking."""
 
-    park_idle_connections = True
+    park_idle_connections: bool = True
 
     server_name: str
     server_port: int
@@ -421,6 +419,7 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
     _conn_states: dict[socket.socket, ConnState]
     _parked: dict[socket.socket, ConnState]
     _last_park_error_warn: float
+    _parking_closed: bool
 
     def __init__(self, host: str, port: int, max_threads: int | None = None, *, listener_threads: int | None = None) -> None:
         # listener_threads is the final pool size. Passing that number through
