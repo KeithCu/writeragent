@@ -8,7 +8,7 @@
 # WARNING: PARITY INVARIANT WITH MONACO JAVASCRIPT FRONTEND
 # If you modify IPC message handlers, dispatching, or session launch here,
 # you MUST also update the corresponding JavaScript / Protocol files:
-#   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor.js
+#   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor_shell.js
 #   - JS Script Manager:        plugin/contrib/scripting/assets/editor/scripts_manager.js
 #   - IPC Message Protocol:     plugin/scripting/editor_ipc.py
 # =========================================================================================

@@ -205,7 +205,7 @@ body {
 }
 
 /* --- Automatic dark theme support (LO light/dark via class set from theme info) ---
-   Body gets .dark or .light from applyTheme in editor.js when LO StyleSettings
+   Body gets .dark or .light from applyTheme in editor_shell.js when LO StyleSettings
    indicate dark (luminance < 128 on FieldColor). Keeps the pywebview window
    visually consistent with the LibreOffice chrome without any editor setting.
 */

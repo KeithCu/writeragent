@@ -536,7 +536,7 @@ def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | No
     """
     if url_path in ("/", "/index.html"):
         return os.path.join(assets, "index.html")
-    if url_path in ("/editor.js", "/scripts_manager.js", "/style.css"):
+    if url_path in ("/editor_shell.js", "/backend_monaco.js", "/scripts_manager.js", "/style.css"):
         return os.path.join(assets, url_path.lstrip("/"))
     if not url_path.startswith("/vs/"):
         return None

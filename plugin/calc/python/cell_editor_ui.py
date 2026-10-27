@@ -10,7 +10,7 @@
 # you MUST also update:
 #   - Native Dialog Layout:     extension/Dialogs/PythonCellEditorDialog.xdl
 #   - Monaco HTML / Toolbar:    plugin/contrib/scripting/assets/editor/index.html
-#   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor.js
+#   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor_shell.js
 #   - UI Strings Catalog:       plugin/scripting/editor_ui_strings.py (_calc_cell_ui_strings)
 #   - Calc Editor Host:         plugin/calc/python/editor.py
 # =========================================================================================
@@ -160,7 +160,7 @@ class NativePythonCellEditorDialog:
         self._dirty = False
 
     def _sync_data_enabled(self) -> None:
-        # Twin of editor.js updateDataBindingEnabled: Data: is off when Save
+        # Twin of editor_shell.js updateDataBindingEnabled: Data: is off when Save
         # without =PY(), except when following =PY($A$1) (data lives on the formula cell).
         disabled = bool(get_checkbox_state(self._ctrl("ChkPlainText"))) and not self._following_ref()
         data_ctrl = self._ctrl("DataEdit")
@@ -194,7 +194,7 @@ class NativePythonCellEditorDialog:
             self._set_status(_("Saving…"))
             save_as_plain = bool(get_checkbox_state(self._ctrl("ChkPlainText")))
             follow = self._following_ref()
-            # Same rule as editor.js btn-save: follow still sends Data while
+            # Same rule as editor_shell.js btn-save: follow still sends Data while
             # Save without =PY() is checked (the code cell is plain text).
             binding = self._data_text() if follow or not save_as_plain else None
             outcome = _apply_cell_save(self._doc, self._cell, parsed_parts=self._parsed_parts, new_code=self._code_text(), save_as_plain=save_as_plain, data_binding_text=binding, code_cell=self._code_cell if follow else None, code_ref=self._code_ref if follow else None)

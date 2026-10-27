@@ -10,7 +10,7 @@
 #   - Native Dialog Layout:     extension/Dialogs/PythonCellEditorDialog.xdl
 #   - Native Controller:        plugin/calc/python/cell_editor_ui.py
 #   - Monaco HTML / Toolbar:    plugin/contrib/scripting/assets/editor/index.html
-#   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor.js
+#   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor_shell.js
 #   - UI Strings Catalog:       plugin/scripting/editor_ui_strings.py (_calc_cell_ui_strings)
 # =========================================================================================
 """

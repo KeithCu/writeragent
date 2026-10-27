@@ -437,7 +437,7 @@ def test_monaco_follow_ref_load_shows_code_cell_and_keeps_data():
 def test_monaco_calc_cell_save_keeps_data_binding_in_follow_mode():
     from pathlib import Path
 
-    js_file = Path(__file__).resolve().parents[3] / "plugin" / "contrib" / "scripting" / "assets" / "editor" / "editor.js"
+    js_file = Path(__file__).resolve().parents[3] / "plugin" / "contrib" / "scripting" / "assets" / "editor" / "editor_shell.js"
     assert js_file.is_file()
     assert "var dataBinding = (followCodeRef || !saveAsPlain)" in js_file.read_text(encoding="utf-8")
 
