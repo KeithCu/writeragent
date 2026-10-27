@@ -205,7 +205,7 @@ These are **two different problems**. The old “Forms ✅ Complete” row only 
 
 - `get_draw_tree` marks empty / near-empty text-capable shapes with `fillable=true`, always includes `name` + `geometry` (bbox) on those nodes, and adds `label_hint`: nearest sibling text **to the left** (vertically aligned) or **above** (horizontally aligned). Left wins a distance tie. Slack is 200 units (2 mm) so PDF→Draw imports that barely overlap still match. Heuristic, not a reading-order parser.
 - ControlShape nodes include `control.type`, `control.name`, and current `text` / `state` / `selected` so the main agent can see widgets without a forms delegation.
-- `shape_upsert` edit accepts **name or index**. Create can set `Name` so later fills stay stable.
+- `shape_upsert` edit accepts **name or index**. Create can set `Name` so later fills stay stable. A name or control-name edit of a shape inside a group still edits that child; the result `index` is null because that child has no draw-page index, and the group's page index selects the group. Re-edit by name. `fill_draw_fields` still uses `path_index`.
 - `fill_draw_fields` (`domain=shapes`) takes `fields: [{name\|index\|path_index\|label_hint, value}, …]` and optional `page`. Resolves via the tree (name-first; `index`/`path_index` disambiguate duplicate names; group children addressable by `path_index`), then `setString` (or ControlShape `Text` / `State`). Missing `value` fails without writing; explicit `null` clears text. Returns per-field ok/fail.
 
 **Slice 2 — live widgets (`plugin/writer/specialized/forms.py`)**

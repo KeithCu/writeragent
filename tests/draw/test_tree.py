@@ -382,6 +382,39 @@ def test_find_shape_on_page_by_index_name_and_control_name():
     idx, shape, err = find_shape_on_page(page, name="Agree")
     assert err is None
     assert shape is ctrl_shape
+    assert idx == 2
+
+
+def test_find_shape_on_page_nested_index_is_not_the_group():
+    child = _Shape("TextShape", name="Inner")
+    group = _Shape("GroupShape", name="Grp", children=[child])
+    page = _Shapes([_Shape("RectangleShape", name="Rect"), group])
+
+    idx, shape, err = find_shape_on_page(page, name="Inner")
+    assert err is None
+    assert shape is child
+    assert idx is None
+
+    group_idx, group_shape, group_err = find_shape_on_page(page, index=1)
+    assert group_err is None
+    assert group_idx == 1
+    assert group_shape is group
+
+    grand = _Shape("TextShape", name="Deep")
+    inner = _Shape("GroupShape", children=[grand])
+    outer = _Shape("GroupShape", children=[inner])
+    deep_page = _Shapes([_Shape("RectangleShape"), outer])
+    deep_idx, deep_shape, deep_err = find_shape_on_page(deep_page, name="Deep")
+    assert deep_err is None
+    assert deep_shape is grand
+    assert deep_idx is None
+
+    ctrl = _Shape("ControlShape", name="Ctrl", control=SimpleNamespace(Name="Agree"))
+    ctrl_page = _Shapes([_Shape("RectangleShape"), _Shape("GroupShape", children=[ctrl])])
+    c_idx, c_shape, c_err = find_shape_on_page(ctrl_page, name="Agree")
+    assert c_err is None
+    assert c_shape is ctrl
+    assert c_idx is None
 
 
 def test_find_shape_on_page_nested_duplicate_and_missing():
