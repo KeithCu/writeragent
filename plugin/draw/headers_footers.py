@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Iterator
 
-from plugin.framework.errors import WriterAgentException, is_disposed_exception
+from plugin.framework.errors import WriterAgentException, is_disposed_exception, uno_probe
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -95,14 +95,12 @@ _FIELDS = (
     ("date_time_fixed", "IsDateTimeFixed", None, "fixed"),
 )
 
+# Probe-failure sentinel. None is a real shape and a real member value.
+_MISSING: Any = object()
+
 
 def _doc_is_presentation(doc: Any) -> bool:
-    try:
-        return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
-        return False
+    return uno_probe(lambda: bool(doc.supportsService("com.sun.star.presentation.PresentationDocument")), False)
 
 
 def _impress_master_hf_use_shapes(doc: Any, is_master_page: bool) -> bool:
@@ -110,19 +108,14 @@ def _impress_master_hf_use_shapes(doc: Any, is_master_page: bool) -> bool:
 
 
 def _iter_shapes_on_page(page: Any) -> Iterator[Any]:
-    try:
-        n = int(page.getCount())
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
+    n = uno_probe(lambda: int(page.getCount()), None)
+    if n is None:
         return
     for i in range(n):
-        try:
-            yield page.getByIndex(i)
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            continue
+        # uno_probe calls the lambda immediately, so i is the current index.
+        shape = uno_probe(lambda: page.getByIndex(i), _MISSING)
+        if shape is not _MISSING:
+            yield shape
 
 
 def _collect_hf_shapes(page: Any) -> dict[str, Any]:
@@ -173,19 +166,10 @@ def _collect_hf_shapes(page: Any) -> dict[str, Any]:
 
 
 def _get_text(shape: Any) -> str:
-    # What was wrong: hasattr(shape, "getString") outside try raised UnknownPropertyException on PyUNO objects.
-    # How it happened: hasattr was lifted before the try block during cleanup.
-    # Why this change: put hasattr inside try; re-raise disposal and return "" on other exceptions.
+    # Call getString inside the probe. hasattr() on PyUNO raises UnknownPropertyException.
     if shape is None:
         return ""
-    try:
-        if not hasattr(shape, "getString"):
-            return ""
-        return str(shape.getString() or "")
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
-        return ""
+    return uno_probe(lambda: str(shape.getString() or ""), "")
 
 
 def _write(fn: Any, what: str) -> bool:
@@ -200,35 +184,23 @@ def _write(fn: Any, what: str) -> bool:
 
 
 def _set_text(shape: Any, text: str) -> bool:
-    # What was wrong: hasattr(shape, "setString") outside try raised UnknownPropertyException on PyUNO objects.
-    # How it happened: hasattr was lifted before the try block during cleanup.
-    # Why this change: put hasattr inside try; re-raise disposal and return False on other exceptions.
+    # Resolve setString inside the probe. A missing member stays silent; the write logs.
     if shape is None:
         return False
-    try:
-        if not hasattr(shape, "setString"):
-            return False
-        return _write(lambda: shape.setString(text), "setString on header/footer shape")
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
+    setter = uno_probe(lambda: shape.setString, _MISSING)
+    if setter is _MISSING:
         return False
+    return _write(lambda: setter(text), "setString on header/footer shape")
 
 
 def _set_visible(shape: Any, vis: bool) -> bool:
-    # What was wrong: hasattr(shape, "setPropertyValue") outside try raised UnknownPropertyException on PyUNO objects.
-    # How it happened: hasattr was lifted before the try block during cleanup.
-    # Why this change: put hasattr inside try; re-raise disposal and return False on other exceptions.
+    # Same split as _set_text: lookup is silent, setPropertyValue logs through _write.
     if shape is None:
         return False
-    try:
-        if not hasattr(shape, "setPropertyValue"):
-            return False
-        return _write(lambda: shape.setPropertyValue("Visible", vis), "set Visible on header/footer shape")
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
+    setter = uno_probe(lambda: shape.setPropertyValue, _MISSING)
+    if setter is _MISSING:
         return False
+    return _write(lambda: setter("Visible", vis), "set Visible on header/footer shape")
 
 
 def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:
