@@ -17,8 +17,10 @@ from compute_service.formula_pool import FormulaProcessPool, decode_worker_resul
 from compute_service.json_forward import (
     WIRE_JSON_FORWARD,
     ExecuteRequestError,
-    dumps_response,
+    ExecuteRequestParts,
     MAX_META_BYTES,
+    _disposition_name,
+    dumps_response,
     encode_multipart_execute,
     encode_multipart_vision,
     is_multipart_content_type,
@@ -370,6 +372,53 @@ class TestMultipartExecute:
         parts = parse_multipart_execute(body, "multipart/form-data; boundary=wa-compute")
         assert parts.code == b"result = 1"
         assert parts.req_id is None
+
+    def test_filename_cannot_override_part_name(self) -> None:
+        """A name= inside a quoted filename is not the part name."""
+        nl = b"\r\n"
+        content_type = "multipart/form-data; boundary=wa-compute"
+
+        def execute_with(meta_header: str) -> ExecuteRequestParts:
+            body = (
+                b"--wa-compute" + nl
+                + meta_header.encode() + nl + nl
+                + b'{"id":"m"}' + nl
+                + b"--wa-compute" + nl
+                + b'Content-Disposition: form-data; name="code"' + nl + nl
+                + b"result = 1" + nl
+                + b"--wa-compute--" + nl
+            )
+            return parse_multipart_execute(body, content_type)
+
+        parts = execute_with('Content-Disposition: form-data; name="meta"; filename="x; name=data"')
+        assert parts.req_id == "m"
+        assert parts.code == b"result = 1"
+        parts = execute_with('Content-Disposition: form-data; filename="x; name=data"; name="meta"')
+        assert parts.req_id == "m"
+        parts = execute_with('Content-Disposition: form-data; name="meta"; filename="shot.png"')
+        assert parts.req_id == "m"
+
+        hijack = (
+            b"--wa-compute" + nl
+            + b'Content-Disposition: form-data; name="notes"; filename="x; name=meta; y"' + nl + nl
+            + b'{"id":"hijacked"}' + nl
+            + b"--wa-compute" + nl
+            + b'Content-Disposition: form-data; name="code"' + nl + nl
+            + b"result = 1" + nl
+            + b"--wa-compute--" + nl
+        )
+        with pytest.raises(ExecuteRequestError, match="unknown multipart part 'notes'"):
+            parse_multipart_execute(hijack, content_type)
+
+        assert _disposition_name('form-data; name=""; name="code"') == "code"
+        assert _disposition_name('form-data; NAME="Code"') == "Code"
+        assert _disposition_name('form-data; name="a\\"b"') == 'a"b'
+        with pytest.raises(ExecuteRequestError, match="missing part name"):
+            _disposition_name('form-data; name=; name="code"')
+        with pytest.raises(ExecuteRequestError, match="missing part name"):
+            _disposition_name("form-data; name*=UTF-8''meta")
+        with pytest.raises(ExecuteRequestError, match="unterminated"):
+            _disposition_name('form-data; name="unterminated')
 
     def test_oversize_meta_is_not_json_loaded(self) -> None:
         prefix = b'{"id":"'

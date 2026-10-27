@@ -63,6 +63,18 @@ def _image_to_json(payload: dict[str, Any]) -> dict[str, Any]:
     return {"format": str(payload.get("format") or "png"), "data_b64": data_b64}
 
 
+def _image_tag_has_data(obj: dict[str, Any]) -> bool:
+    """Image tag with inline data that failed ``is_image_payload``."""
+    if obj.get("__wa_payload__") != "image":
+        return False
+    data = obj.get("data")
+    if isinstance(data, str):
+        return data != ""
+    if isinstance(data, bytes):
+        return len(data) != 0
+    return False
+
+
 def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> Any:
     """Unpack desktop wire envelopes / ndarrays into plain JSON-friendly trees.
 
@@ -98,7 +110,7 @@ def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> A
         # already returned above, so this dict was not in the finder's
         # list. Keep it inline. Nulling every image dict would drop one
         # that never made it into images[].
-        if obj.get("__wa_payload__") == "image":
+        if _image_tag_has_data(obj):
             return _image_to_json(obj)
         return {str(k): to_dumb_json_value(v, drop_image_ids=drop_image_ids) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -134,10 +146,10 @@ def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
     images: list[dict[str, Any]] = []
 
     # Promote image payloads to top-level images[]; clear result if it *is* the image.
-    if is_image_payload(result) or (isinstance(result, dict) and result.get("__wa_payload__") == "image"):
+    if is_image_payload(result) or (isinstance(result, dict) and _image_tag_has_data(result)):
         images.append(_image_to_json(result if isinstance(result, dict) else {}))
         result_out: Any = None
-    elif isinstance(result, dict) and is_multi_data(result) and isinstance(items := result.get("items"), list) and items and all(is_image_payload(x) or (isinstance(x, dict) and x.get("__wa_payload__") == "image") for x in items):
+    elif isinstance(result, dict) and is_multi_data(result) and isinstance(items := result.get("items"), list) and items and all(is_image_payload(x) or (isinstance(x, dict) and _image_tag_has_data(x)) for x in items):
         for item in items:
             images.append(_image_to_json(item if isinstance(item, dict) else {}))
         result_out = None
