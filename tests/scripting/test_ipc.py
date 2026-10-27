@@ -1310,7 +1310,6 @@ def test_unpack_rejects_huge_numpy_reconstruct_inst_and_obj():
 def test_unpack_bytearray8_rejects_oversized_allocation():
     """BYTEARRAY8 length exceeding available frame data is rejected without allocation."""
     import tracemalloc
-    from compute_service.worker_base import unpack_restricted_pickle_frame
 
     frame_body = pickle.BYTEARRAY8 + struct.pack("<Q", 4_000_000)
     payload = b"\x80\x05\x95" + struct.pack("<Q", len(frame_body)) + frame_body
@@ -1320,12 +1319,6 @@ def test_unpack_bytearray8_rejects_oversized_allocation():
         tracemalloc.reset_peak()
         with pytest.raises(ValueError):
             unpack_pickle_frame(payload)
-        _current, peak = tracemalloc.get_traced_memory()
-        assert peak < 1_000_000
-
-        tracemalloc.reset_peak()
-        with pytest.raises(ValueError):
-            unpack_restricted_pickle_frame(payload)
         _current, peak = tracemalloc.get_traced_memory()
         assert peak < 1_000_000
     finally:
@@ -1348,12 +1341,8 @@ def test_unpack_bytearray8_rejects_oversized_allocation():
 )
 def test_unpack_struct_error_mapped_to_value_error(payload):
     """Truncated headers raising struct.error are mapped to ValueError."""
-    from compute_service.worker_base import unpack_restricted_pickle_frame
-
     with pytest.raises(ValueError, match="unpack requires a buffer"):
         unpack_pickle_frame(payload)
-    with pytest.raises(ValueError, match="unpack requires a buffer"):
-        unpack_restricted_pickle_frame(payload)
 
 
 @pytest.mark.parametrize(

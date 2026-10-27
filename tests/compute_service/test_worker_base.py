@@ -550,6 +550,43 @@ def test_restricted_unpickler_accepts_valid_bytearray() -> None:
     assert unpack_restricted_pickle_frame(p5) == {"b": b"hi", "ba": bytearray(b"yo")}
 
 
+def test_restricted_unpickler_rejects_oversized_bytearray8() -> None:
+    """BYTEARRAY8 length exceeding available frame data is rejected without allocation."""
+    import tracemalloc
+    from compute_service.worker_base import unpack_restricted_pickle_frame
+
+    frame_body = pickle.BYTEARRAY8 + struct.pack("<Q", 4_000_000)
+    payload = b"\x80\x05\x95" + struct.pack("<Q", len(frame_body)) + frame_body
+
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        with pytest.raises(ValueError):
+            unpack_restricted_pickle_frame(payload)
+        _current, peak = tracemalloc.get_traced_memory()
+        assert peak < 1_000_000
+    finally:
+        tracemalloc.stop()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"\x80\x05J\x01",
+        b"\x80\x05M\x01",
+        b"\x80\x05G\x01\x02\x03",
+        b"\x80\x05\x95\x01",
+        b"\x80\x02J\x01",
+    ],
+)
+def test_restricted_unpickler_maps_struct_error_to_value_error(payload: bytes) -> None:
+    """Truncated headers raising struct.error are mapped to ValueError."""
+    from compute_service.worker_base import unpack_restricted_pickle_frame
+
+    with pytest.raises(ValueError, match="unpack requires a buffer"):
+        unpack_restricted_pickle_frame(payload)
+
+
 def test_host_unpicklers_share_allowlist_and_keep_policies() -> None:
     """Compute and scripting frames share one unpickler; the allowlists stay different."""
     import pickle
