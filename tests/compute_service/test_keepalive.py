@@ -442,6 +442,61 @@ def test_unread_body_closes_connection() -> None:
     finally:
         sock.close()
 
+    # 7. 401 Unauthorized with chunked body closes connection
+    auth_server, auth_port, auth_t = _start_server(max_threads=2, settings_override={"api_key": "secret"})
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect(("127.0.0.1", auth_port))
+            reader = ConnectionReader(sock)
+            body = b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+            req = (
+                f"POST /v1/execute HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{auth_port}\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Transfer-Encoding: chunked\r\n"
+                f"Authorization: Bearer wrong\r\n"
+                f"\r\n"
+            ).encode("latin1") + body
+            sock.sendall(req)
+
+            _ver, status, _msg, hdrs, _resp = reader.read_response()
+            assert status == 401
+            assert hdrs.get("connection") == "close"
+            sock.settimeout(1.0)
+            assert sock.recv(1024) == b""  # EOF
+            reader.close()
+        finally:
+            sock.close()
+
+        # 8. 401 with Content-Length + chunked
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect(("127.0.0.1", auth_port))
+            reader = ConnectionReader(sock)
+            body = b"0\r\n\r\nGET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+            req = (
+                f"POST /v1/execute HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{auth_port}\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Content-Length: 5\r\n"
+                f"Transfer-Encoding: chunked\r\n"
+                f"Authorization: Bearer wrong\r\n"
+                f"\r\n"
+            ).encode("latin1") + body
+            sock.sendall(req)
+
+            _ver, status, _msg, hdrs, _resp = reader.read_response()
+            assert status == 401
+            assert hdrs.get("connection") == "close"
+            sock.settimeout(1.0)
+            assert sock.recv(1024) == b""  # EOF
+            reader.close()
+        finally:
+            sock.close()
+    finally:
+        _stop_server(auth_server, auth_t)
+
     _stop_server(server, t)
 
 
