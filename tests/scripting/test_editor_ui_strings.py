@@ -65,10 +65,10 @@ def test_run_script_ui_matches_native_dialog_labels():
         "Attach to this document (this document changed)"
     )
     assert ui["builtin_readonly"] == _("Built-in helpers are read-only. Use Save As to copy one into My Scripts.")
-    assert ui["unsaved_changes_confirm"] == _("Discard unsaved changes to '{0}'?")
     assert ui["this_script"] == _("this script")
     assert "copying_script" not in ui
     assert "copy_prompt" not in ui
+    assert "unsaved_changes_confirm" not in ui
 
 def test_enrich_monaco_load_message_adds_ui_and_merges_overrides():
     msg = enrich_monaco_load_message(

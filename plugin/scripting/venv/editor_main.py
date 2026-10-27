@@ -488,6 +488,9 @@ class MonacoEditorApi:
     def select_script(self, name: str) -> None:
         self._forward("select_script", name=str(name) if name is not None else "")
 
+    def ask_unsaved(self, name: str) -> None:
+        self._forward("ask_unsaved", name=str(name) if name is not None else "")
+
     def notify_cancel(self) -> None:
         log.info("editor_main: notify_cancel called; hiding window")
         _send_closed_once()
