@@ -215,6 +215,56 @@ class TestJsonEgressUnit:
         assert out["result"]["a"] is None
         assert out["result"]["b"] == {"format": "png", "data_b64": "not-bytes"}
 
+    def test_image_tag_without_data_stays_a_dict(self) -> None:
+        """A tagged dict with no payload bytes is not an images[] entry."""
+        bare = {"__wa_payload__": "image"}
+        out = normalize_execute_response({"status": "ok", "result": bare, "stdout": ""})
+        assert out["result"] == bare
+        assert "images" not in out
+
+        nested = normalize_execute_response({"status": "ok", "result": {"a": dict(bare), "b": 1}, "stdout": ""})
+        assert nested["result"] == {"a": bare, "b": 1}
+        assert "images" not in nested
+
+        empty = {"__wa_payload__": "image", "data": "", "format": "png"}
+        out_empty = normalize_execute_response({"status": "ok", "result": empty, "stdout": ""})
+        assert out_empty["result"] == empty
+        assert "images" not in out_empty
+
+        multi = normalize_execute_response({
+            "status": "ok",
+            "result": {"__wa_payload__": "multi_data", "items": [dict(bare)]},
+            "stdout": "",
+        })
+        assert multi["result"] == [bare]
+        assert "images" not in multi
+
+        real = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
+        mixed = normalize_execute_response({
+            "status": "ok",
+            "result": {"__wa_payload__": "multi_data", "items": [real, dict(bare)]},
+            "stdout": "",
+        })
+        assert mixed["result"] == [None, bare]
+        assert len(mixed["images"]) == 1
+        assert mixed["images"][0]["data_b64"] == base64.b64encode(b"abc").decode("ascii")
+
+        text = normalize_execute_response({
+            "status": "ok",
+            "result": {"__wa_payload__": "image", "format": "png", "data": "abc"},
+            "stdout": "",
+        })
+        assert text["result"] is None
+        assert text["images"] == [{"format": "png", "data_b64": "abc"}]
+
+        raw = normalize_execute_response({
+            "status": "ok",
+            "result": {"__wa_payload__": "image", "data": b"abc"},
+            "stdout": "",
+        })
+        assert raw["result"] is None
+        assert raw["images"] == [{"format": "png", "data_b64": base64.b64encode(b"abc").decode("ascii")}]
+
 
 class TestTimeoutHelpers:
     def test_timeout_ms_rounds_up(self) -> None:

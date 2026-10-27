@@ -583,44 +583,19 @@ def _unfold_header_fields(header_bytes: bytes) -> list[tuple[str, str]]:
 
 def _disposition_name(value: str) -> str:
     """``Content-Disposition`` ``name=`` (quoted or token). ``name*`` is not accepted."""
-    lower = value.lower()
-    i = 0
     found: str | None = None
-    while True:
-        j = lower.find("name=", i)
-        if j < 0:
-            break
-        if j > 0 and lower[j - 1] not in " \t;":
-            i = j + 5
+    for item in _split_header_list(value):
+        if "=" not in item:
             continue
-        k = j + 5
-        if k < len(value) and value[k] == '"':
-            k += 1
-            chars: list[str] = []
-            closed = False
-            while k < len(value):
-                if value[k] == "\\" and k + 1 < len(value):
-                    chars.append(value[k + 1])
-                    k += 2
-                    continue
-                if value[k] == '"':
-                    closed = True
-                    k += 1
-                    break
-                chars.append(value[k])
-                k += 1
-            if not closed:
-                raise ExecuteRequestError("unterminated part name")
-            found = "".join(chars)
-            i = k
+        key, raw_value = item.split("=", 1)
+        if key.lower() != "name":
             continue
-        end = k
-        while end < len(value) and value[end] not in " \t;":
-            end += 1
-        if end == k:
+        # Unquoted empty, or a token that starts with space or tab, is the old
+        # scanner's immediate "missing part name" (name=; name="code").
+        # A quoted empty name is stored and a later name= can replace it.
+        if raw_value == "" or (raw_value[0] != '"' and raw_value[0] in " \t"):
             raise ExecuteRequestError("missing part name")
-        found = value[k:end]
-        i = end
+        found = _unquote_param(raw_value)
     if not found:
         raise ExecuteRequestError("missing part name")
     return found
