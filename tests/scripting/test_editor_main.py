@@ -337,7 +337,7 @@ def test_poll_messages_load_restores_shows_and_focuses_window():
     api = em.MonacoEditorApi()
     mock_window = MagicMock()
     mock_window.on_top = False
-    api.set_window(mock_window)
+    em._window = mock_window
 
     em._ui_queue.put({"type": "load", "title": "Editor Window"})
     batch = api.poll_messages()
@@ -364,7 +364,7 @@ def test_poll_messages_load_handles_missing_window_methods():
             self.shown = True
 
     bare = BareWindow()
-    api.set_window(bare)
+    em._window = bare
 
     em._ui_queue.put({"type": "load", "title": "Bare Window"})
     batch = api.poll_messages()

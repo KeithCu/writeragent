@@ -47,7 +47,7 @@ def test_notify_cancel_sends_closed_once_and_hides(monkeypatch):
 
     api = em.MonacoEditorApi()
     mock_window = MagicMock()
-    api._window = mock_window
+    em._window = mock_window
     api.notify_cancel()
     api.notify_cancel()
 
@@ -79,12 +79,12 @@ def test_poll_messages_load_shows_window_and_updates_title():
     _reset_closed_state()
     api = em.MonacoEditorApi()
     mock_window = MagicMock()
-    api._window = mock_window
+    em._window = mock_window
 
     em._closed_sent = True
     em._current_session_id = "stale"
 
-    em._put_ui({"type": "load", "title": "My Custom Title", "code": "x = 1", "session_id": "s1"})
+    em._ui_queue.put({"type": "load", "title": "My Custom Title", "code": "x = 1", "session_id": "s1"})
     msgs = api.poll_messages()
 
     assert len(msgs) == 1
