@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -262,6 +263,27 @@ def test_delegate_length_truncated_reply_is_incomplete_not_finished(
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     assert result["message"] == partial
     assert "finished" not in result
+    assert "result" not in result
+    assert json.dumps(result).count(partial) == 1
+
+
+def test_delegate_plain_text_answer_appears_once(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    """Discussion #2262: a plain-text return (no finish call) is carried once, on message."""
+    from unittest.mock import patch
+
+    text = "PLAIN-" + "y" * 5000
+    ctx = _structural_registry(writer_gateway)
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", return_value=text):
+            result = writer_gateway.execute(ctx, domain="structural", task="Summarize headings")
+
+    assert result["status"] == "incomplete"
+    assert result["message"] == text
+    assert "result" not in result
+    assert json.dumps(result).count("PLAIN-") == 1
 
 
 def test_delegate_finished_payload_does_not_duplicate_answer(
