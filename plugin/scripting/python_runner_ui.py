@@ -31,23 +31,18 @@ from plugin.framework.uno_listeners import (
 )
 
 if TYPE_CHECKING:
-    from com.sun.star.awt import ActionEvent, ItemEvent
+    from com.sun.star.awt import ItemEvent
 
 
 class _ActionListener(BaseActionListener):
     _action_fn: Callable[[], Any]
-    action_name: str
 
-    def __init__(self, action_fn: Callable[[], Any], action_name: str = "") -> None:
+    def __init__(self, action_fn: Callable[[], Any]) -> None:
         super().__init__()
         self._action_fn = action_fn
-        self.action_name = action_name
 
-    def actionPerformed(self, rEvent: ActionEvent) -> None:
-        try:
-            self._action_fn()
-        except Exception:
-            log.exception("Action listener failed")
+    def on_action_performed(self, rEvent: Any) -> None:
+        self._action_fn()
 
 
 class ModelessWindowClosingListener(BaseTopWindowListener):
@@ -80,9 +75,6 @@ def close_modeless_dialog(dlg: Any, *, toolkit_teardown: bool = False, log_label
     except Exception:
         log.debug("%s: dispose failed", log_label, exc_info=True)
 
-
-def _action(fn: Callable[[], Any], name: str = "") -> _ActionListener:
-    return _ActionListener(fn, name)
 
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.errors import is_tool_document_disposed, resolve_exception_message
@@ -184,6 +176,11 @@ def _picker_select_name(select_ctrl: Any, name: str, names: list[str]) -> None:
         select_ctrl.setText(name)
 
 
+def _editor_code(dlg: Any) -> str:
+    ec = dlg.getControl("CodeEdit")
+    return (ec.getModel().Text or "").rstrip()
+
+
 class NativePythonScriptDialog:
     """Plain-text Run Python Script dialog (modal or optional modeless).
 
@@ -278,16 +275,10 @@ class NativePythonScriptDialog:
         if selected_name:
             _picker_select_name(select_ctrl, selected_name, names)
             set_config(config_key, selected_name)
-            if dlg is not None:
-                code_ctrl = dlg.getControl("CodeEdit")
-                if code_ctrl is not None:
-                    code_ctrl.setText(merged.get(selected_name, ""))
-        else:
-            # Clear editor when no scripts remain
-            if dlg is not None:
-                code_ctrl = dlg.getControl("CodeEdit")
-                if code_ctrl is not None:
-                    code_ctrl.setText("")
+        if dlg is not None:
+            code_ctrl = dlg.getControl("CodeEdit")
+            if code_ctrl is not None:
+                code_ctrl.setText(merged.get(selected_name, "") if selected_name else "")
 
     def _open(self) -> bool:
         ctx = self._ctx
@@ -380,8 +371,8 @@ class NativePythonScriptDialog:
                     "modal",
                 )
             user_err = save_user_script(real_name, t)
-            if isinstance(user_err, str) and user_err:
-                return _ScriptSaveResult(str(user_err), "modal")
+            if user_err:
+                return _ScriptSaveResult(user_err, "modal")
             # After falling back to My Scripts, refresh the dropdown and
             # select the saved user script. Leaving the [Doc] entry
             # selected disagrees with where the script was stored.
@@ -391,10 +382,20 @@ class NativePythonScriptDialog:
                 "modal",
             )
         user_err = save_user_script(real_name, t)
-        if isinstance(user_err, str) and user_err:
-            return _ScriptSaveResult(str(user_err), "modal")
+        if user_err:
+            return _ScriptSaveResult(user_err, "modal")
         self._current_scripts[display_name] = t
         return _ScriptSaveResult(_("Script '%s' saved successfully.") % real_name, "ok")
+
+    def _prompt_new_script_name(self, **kwargs: Any) -> tuple[str, bool] | None:
+        res = show_new_script_dialog(self._ctx, doc=self._doc, **kwargs)
+        if not res:
+            return None
+        name, attach = res
+        name = name.strip()
+        if not name:
+            return None
+        return name, attach
 
     def _store_script(
         self,
@@ -435,7 +436,7 @@ class NativePythonScriptDialog:
             ):
                 return False
             err = save_user_script(name, code)
-            if isinstance(err, str) and err:
+            if err:
                 set_control_text(lbl, err)
                 return False
             self._refresh_script_dropdown(name)
@@ -463,8 +464,7 @@ class NativePythonScriptDialog:
             btn_run = None
             lbl = None
             try:
-                ec = dlg.getControl("CodeEdit")
-                t = (ec.getModel().Text or "").rstrip()
+                t = _editor_code(dlg)
                 lbl = dlg.getControl("InstructionLbl")
                 # What was wrong: the save sentence was written and then replaced by
                 # Running..., and completion replaced the label again.
@@ -515,8 +515,7 @@ class NativePythonScriptDialog:
 
         def _on_save() -> None:
             try:
-                ec = dlg.getControl("CodeEdit")
-                t = (ec.getModel().Text or "").rstrip()
+                t = _editor_code(dlg)
                 lbl = dlg.getControl("InstructionLbl")
                 res = owner._save_current_script(t)
                 if res.text:
@@ -526,8 +525,7 @@ class NativePythonScriptDialog:
 
         def _on_save_as() -> None:
             try:
-                ec = dlg.getControl("CodeEdit")
-                t = (ec.getModel().Text or "").rstrip()
+                t = _editor_code(dlg)
 
                 curr_display = _picker_selected_name(select_ctrl)
                 real_curr, curr_origin = (
@@ -536,19 +534,14 @@ class NativePythonScriptDialog:
                     else ("", SCRIPT_ORIGIN_USER)
                 )
 
-                res = show_new_script_dialog(
-                    ctx,
-                    doc=doc,
+                prompted = owner._prompt_new_script_name(
                     default_name=real_curr,
                     title=_("Save Script As"),
                     default_attach=(curr_origin == SCRIPT_ORIGIN_DOCUMENT),
                 )
-                if not res:
+                if prompted is None:
                     return
-                name, attach_to_document = res
-                name = name.strip()
-                if not name:
-                    return
+                name, attach_to_document = prompted
 
                 owner._store_script(
                     name,
@@ -604,13 +597,10 @@ class NativePythonScriptDialog:
 
         def _on_new() -> None:
             try:
-                res = show_new_script_dialog(ctx, doc=doc)
-                if not res:
+                prompted = owner._prompt_new_script_name()
+                if prompted is None:
                     return
-                name, attach_to_document = res
-                name = name.strip()
-                if not name:
-                    return
+                name, attach_to_document = prompted
 
                 starter_code = '# A simple script\nresult = "Hello from Python!"\n'
                 if owner._store_script(
@@ -645,7 +635,7 @@ class NativePythonScriptDialog:
         ):
             btn = dlg.getControl(btn_name)
             if btn is not None:
-                btn.addActionListener(_action(handler, btn_name))
+                btn.addActionListener(_ActionListener(handler))
 
 
 def show_python_input_dialog(
