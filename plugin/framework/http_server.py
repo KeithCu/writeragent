@@ -6,7 +6,7 @@
 
 Shared networking engine used by:
 - WriterAgent MCP Server (plugin/mcp/server.py)
-- Collabora Online Python Compute Service (compute_service/http_server.py)
+- Collabora Online Python Compute Service (compute_service/wsgi_server.py)
 """
 
 from __future__ import annotations

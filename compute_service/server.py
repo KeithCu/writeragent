@@ -26,8 +26,8 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service import __version__
 from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
-# Internal server clocks and timeouts shared with the route module; not public http_server exports.
-from compute_service.http_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, _accept_clock, _request_deadline, WSGIDualStackServer, service_listener_threads, sticky_listener_slots  # pyright: ignore[reportPrivateUsage]
+# Internal server clocks and timeouts shared with the route module; not public wsgi_server exports.
+from compute_service.wsgi_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, _accept_clock, _request_deadline, WSGIDualStackServer, service_listener_threads, sticky_listener_slots  # pyright: ignore[reportPrivateUsage]
 from compute_service.json_forward import (
     WIRE_JSON_FORWARD,
     ExecuteRequestError,
