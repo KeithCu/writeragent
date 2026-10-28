@@ -118,6 +118,9 @@ class _NonReplayableIpcWriteTimeout(RuntimeError):
 class _WorkerRetired(RuntimeError):
     """This manager was replaced by a new venv path and must not be restarted."""
 
+    def __init__(self, message: str = "Python worker was replaced by a new venv path and will not be restarted") -> None:
+        super().__init__(message)
+
 
 class _StopRequested(Exception):
     """The user pressed Stop while the host waited on the worker pipe."""
@@ -278,12 +281,6 @@ def _systemd_run_path(env: dict[str, str]) -> str:
         return _systemd_run_for_worker[key]
 
 
-def _disable_systemd_scope() -> None:
-    global _systemd_scope_disabled
-    with _systemd_scope_lock:
-        _systemd_scope_disabled = True
-
-
 def wrap_worker_command(cmd: list[str], *, env: dict[str, str] | None = None, cwd: str | None = None) -> list[str]:
     """Run the venv worker in its own transient systemd user scope when available.
 
@@ -299,10 +296,6 @@ def wrap_worker_command(cmd: list[str], *, env: dict[str, str] | None = None, cw
 
 _instances: dict[str, PythonWorkerManager] = {}
 _registry_lock = threading.Lock()
-
-
-def _worker_registry_key(exe: str, pool: str) -> str:
-    return f"{pool}:{exe}"
 
 
 def _reap_worker_process(proc: subprocess.Popen[Any] | None, stderr_drain: StderrTail | None) -> None:
@@ -425,11 +418,6 @@ class PythonWorkerManager:
     _primed: bool
     _retired: bool
     _proc_lock: threading.Lock
-    _reap_handles: list[BackgroundHandle]
-    _spawn_handle: BackgroundHandle | None
-    _spawn_queue: queue.Queue[_SpawnJob | None] | None
-    _spawn_ident: int | None
-    _spawn_ready: threading.Event | None
 
     def __init__(self, exe: str, env: dict[str, str], *, pool: str = WORKER_POOL_DEFAULT) -> None:
         self.exe = exe
@@ -451,11 +439,11 @@ class PythonWorkerManager:
         self._stderr_drain: StderrTail | None = None
         # In-flight background reaps. get() moves a replaced manager's handles
         # onto the replacement so the next spawn waits for the old tree.
-        self._reap_handles = []
-        self._spawn_handle = None
-        self._spawn_queue = None
-        self._spawn_ident = None
-        self._spawn_ready = None
+        self._reap_handles: list[BackgroundHandle] = []
+        self._spawn_handle: BackgroundHandle | None = None
+        self._spawn_queue: queue.Queue[_SpawnJob | None] | None = None
+        self._spawn_ident: int | None = None
+        self._spawn_ready: threading.Event | None = None
 
     @contextlib.contextmanager
     def _io_session(self, stop_checker: Callable[[], bool] | None = None) -> Iterator[None]:
@@ -489,7 +477,7 @@ class PythonWorkerManager:
     @classmethod
     def get(cls, exe: str, env: dict[str, str], *, pool: str = WORKER_POOL_DEFAULT) -> PythonWorkerManager:
         """Return the singleton worker for *pool* + *exe* (caller should pass a scrubbed env dict)."""
-        key = _worker_registry_key(exe, pool)
+        key = f"{pool}:{exe}"
         prefix = f"{pool}:"
         stale: list[PythonWorkerManager] = []
         with _registry_lock:
@@ -521,10 +509,13 @@ class PythonWorkerManager:
             # Do not wait: Settings calls get() on the UI thread. The
             # replacement joins these handles before its next Popen.
             old._terminate_worker(wait=False)
-            inherited.extend(old._take_reap_handles())
+            with old._proc_lock:
+                inherited.extend(old._reap_handles)
+                old._reap_handles = []
             old._stop_spawn_thread(wait=False)
         if inherited:
-            mgr._inherit_reaps(inherited)
+            with mgr._proc_lock:
+                mgr._reap_handles.extend(inherited)
         return mgr
 
     @classmethod
@@ -543,16 +534,6 @@ class PythonWorkerManager:
         for mgr in managers:
             mgr._terminate_worker()
             mgr._stop_spawn_thread(wait=True)
-
-    @classmethod
-    def pool_is_running(cls, pool: str = WORKER_POOL_DEFAULT) -> bool:
-        """True when *pool* already has a live child. Does not spawn one."""
-        prefix = f"{pool}:"
-        with _registry_lock:
-            for key, mgr in _instances.items():
-                if key.startswith(prefix) and mgr._is_worker_alive():
-                    return True
-        return False
 
     def _is_worker_alive(self) -> bool:
         # One load: _terminate_worker may store None concurrently.
@@ -639,11 +620,14 @@ class PythonWorkerManager:
 
     def _clear_host_state_after_worker_death(self) -> None:
         """IPC is desynced after a kill; only the default pool feeds the Calc cache."""
-        if getattr(self, "pool", WORKER_POOL_DEFAULT) != WORKER_POOL_DEFAULT:
+        if self.pool != WORKER_POOL_DEFAULT:
             return
         from plugin.calc.python.function import clear_python_addin_cache
 
         clear_python_addin_cache()
+
+    def _err(self, code: str, message: str, **extra: Any) -> dict[str, Any]:
+        return _worker_error(code, message, details={"exe": self.exe, **extra})
 
     def _fail_no_replay(self, code: str, message: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
         """Kill the desynced worker and return an error without resending the request.
@@ -653,7 +637,7 @@ class PythonWorkerManager:
         """
         self._terminate_worker(wait=False)
         self._clear_host_state_after_worker_death()
-        return _worker_error(code, message, details=details if details is not None else {"exe": self.exe})
+        return self._err(code, message, **(details or {}))
 
     def _fail_ipc_no_replay(self, exc: BaseException) -> dict[str, Any]:
         """Terminal IPC failure after the request may have run. Same text at each site."""
@@ -721,9 +705,7 @@ class PythonWorkerManager:
                 response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec, stop_checker=req.stop_checker)
                 if not response_bytes:
                     _closed_without_response()
-                response = unpack_pickle_frame(response_bytes)
-                if not isinstance(response, dict):
-                    raise RuntimeError("Worker response must be a dict")
+                response = parse_worker_stdout_frame(response_bytes)
             if response.get("type") == EXEC_STARTED:
                 state.execution_started = True
                 if response.get("id") != wire.get("id"):
@@ -774,11 +756,7 @@ class PythonWorkerManager:
             resolved_script_session_id = host_script_session_id(wire.get("session_id"), req.script_session_id)
         except Exception as exc:
             log.warning("Python worker request preparation failed: %s", exc)
-            return _worker_error(
-                "WORKER_IPC_ERROR",
-                f"Failed to prepare request: {exc}",
-                details={"exe": self.exe},
-            )
+            return self._err("WORKER_IPC_ERROR", f"Failed to prepare request: {exc}")
         for attempt in range(2):
             try:
                 self._ensure_running()
@@ -802,11 +780,7 @@ class PythonWorkerManager:
                     # which killed the warm worker twice and wiped every shared
                     # session.
                     log.warning("Python worker request not sent: %s", e)
-                    return _worker_error(
-                        "WORKER_IPC_ERROR",
-                        f"Failed to serialize request: {e}",
-                        details={"exe": self.exe},
-                    )
+                    return self._err("WORKER_IPC_ERROR", f"Failed to serialize request: {e}")
 
                 # A tool_call frame can already have mutated the document. A later
                 # pipe error must not resend the original script (the write-timeout
@@ -837,7 +811,7 @@ class PythonWorkerManager:
                     return self._fail_no_replay(
                         "VENV_TIMEOUT",
                         _worker_error_message(e) + _SHARED_WORKER_RESTART_HINT,
-                        details={"timeout_sec": timeout_sec, "exe": self.exe},
+                        details={"timeout_sec": timeout_sec},
                     )
                 except ValueError as e:
                     # A bad pickle must not kill the child and resend the same request.
@@ -870,7 +844,7 @@ class PythonWorkerManager:
                     message = response.get("message")
                     text = message if isinstance(message, str) and message else "Invalid pickle request"
                     log.warning("Python worker rejected the request frame (worker kept): %s", text)
-                    return _worker_error("WORKER_IPC_ERROR", text, details={"exe": self.exe})
+                    return self._err("WORKER_IPC_ERROR", text)
                 if response.get("id") != req_id:
                     # exchange_tool_call already checks ids. A mismatched terminal
                     # frame used to be accepted, so one cell could receive another's result.
@@ -909,7 +883,7 @@ class PythonWorkerManager:
                 # below would terminate it and clear the Calc add-in cache twice
                 # even though no worker died.
                 log.warning("Python worker retired: %s", e)
-                return _worker_error("WORKER_IPC_ERROR", str(e), details={"exe": self.exe})
+                return self._err("WORKER_IPC_ERROR", str(e))
             except subprocess.TimeoutExpired as e:
                 # Initial stdin write only. _write_packed_frame_with_timeout already
                 # detached the child and started the reap. Terminating again
@@ -921,11 +895,7 @@ class PythonWorkerManager:
                     self._clear_host_state_after_worker_death()
                 if attempt == 0:
                     continue
-                return _worker_error(
-                    "VENV_TIMEOUT",
-                    _worker_error_message(e),
-                    details={"exe": self.exe, "attempt": attempt + 1},
-                )
+                return self._err("VENV_TIMEOUT", _worker_error_message(e), attempt=attempt + 1)
             except (BrokenPipeError, ValueError, RuntimeError, OSError) as e:
                 log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
                 # Do not join the reap on this thread. A retry calls
@@ -935,11 +905,7 @@ class PythonWorkerManager:
                 self._clear_host_state_after_worker_death()
                 if attempt == 0:
                     continue
-                return _worker_error(
-                    "WORKER_IPC_ERROR",
-                    _worker_error_message(e),
-                    details={"exe": self.exe, "attempt": attempt + 1},
-                )
+                return self._err("WORKER_IPC_ERROR", _worker_error_message(e), attempt=attempt + 1)
         raise AssertionError("worker attempt loop exited without a result")
 
     def execute(
@@ -1114,9 +1080,7 @@ class PythonWorkerManager:
 
     def _ensure_spawn_thread(self) -> None:
         if self._retired:
-            raise _WorkerRetired(
-                "Python worker was replaced by a new venv path and will not be restarted"
-            )
+            raise _WorkerRetired()
         if self._spawn_handle is not None and self._spawn_handle.is_alive():
             return
         spawn_queue: queue.Queue[_SpawnJob | None] = queue.Queue()
@@ -1145,9 +1109,7 @@ class PythonWorkerManager:
                 return
             try:
                 if self._retired:
-                    job.error = _WorkerRetired(
-                        "Python worker was replaced by a new venv path and will not be restarted"
-                    )
+                    job.error = _WorkerRetired()
                 else:
                     try:
                         job.start()
@@ -1171,9 +1133,7 @@ class PythonWorkerManager:
 
     def _ensure_running(self) -> None:
         if self._retired:
-            raise _WorkerRetired(
-                "Python worker was replaced by a new venv path and will not be restarted"
-            )
+            raise _WorkerRetired()
         # A settings change reaps the previous interpreter off the UI thread.
         # Join that reap before reuse or spawn so the old tree is gone first.
         self._join_reaps()
@@ -1186,9 +1146,7 @@ class PythonWorkerManager:
             # here — holding _proc_lock across the later write deadlocks a
             # concurrent retire.
             if self._retired:
-                raise _WorkerRetired(
-                    "Python worker was replaced by a new venv path and will not be restarted"
-                )
+                raise _WorkerRetired()
             return
         # The join above ran before this reap existed. wait=False starts it
         # without blocking; the join below is the one that runs before Popen,
@@ -1200,9 +1158,7 @@ class PythonWorkerManager:
         # before spawn so that retry cannot start an untracked child.
         with self._proc_lock:
             if self._retired:
-                raise _WorkerRetired(
-                    "Python worker was replaced by a new venv path and will not be restarted"
-                )
+                raise _WorkerRetired()
             # preexec_fn=os.setsid runs between fork and exec and deadlocks a threaded host.
             # start_new_session is the C spawn path, same new process group, pgid == pid.
             # register=False because desktop shutdown_all would kill_tree this child.
@@ -1219,6 +1175,7 @@ class PythonWorkerManager:
             log.debug("Started Python worker pid=%s exe=%s", managed.pid, self.exe)
 
     def _start_worker_child(self) -> ManagedSubprocess:
+        global _systemd_scope_disabled
         # Spawn on this manager's long-lived venv-worker-spawn thread, not
         # the caller. On Linux, PR_SET_PDEATHSIG kills the child when the
         # creating thread exits — warm/index/chat workers return after the
@@ -1230,7 +1187,8 @@ class PythonWorkerManager:
             if _systemd_scope_disabled or not any(_systemd_run_for_worker.values()):
                 raise
             log.warning("Python worker failed to start under systemd-run, retrying without a scope: %s", exc)
-            _disable_systemd_scope()
+            with _systemd_scope_lock:
+                _systemd_scope_disabled = True
             managed = self._new_managed_worker(wrap_command_for_sandbox)
             self._start_child(managed)
         return managed
@@ -1405,19 +1363,6 @@ class PythonWorkerManager:
         with self._proc_lock:
             self._reap_handles = [handle for handle in self._reap_handles if handle.is_alive()]
 
-    def _take_reap_handles(self) -> list[BackgroundHandle]:
-        """Hand in-flight reaps to another manager. The caller must join them."""
-        with self._proc_lock:
-            handles = self._reap_handles
-            self._reap_handles = []
-            return handles
-
-    def _inherit_reaps(self, handles: list[BackgroundHandle]) -> None:
-        if not handles:
-            return
-        with self._proc_lock:
-            self._reap_handles.extend(handles)
-
     def _stop_spawn_thread(self, *, wait: bool) -> None:
         handle: BackgroundHandle | None = self._spawn_handle
         queue_: queue.Queue[_SpawnJob | None] | None = self._spawn_queue
@@ -1495,7 +1440,7 @@ def _get_worker_manager(
     """
     exe, err = _resolve_worker_python(pool=pool)
     if exe is None:
-        return None, err or _worker_error("VENV_NOT_FOUND", "Could not resolve a Python interpreter.")
+        return None, err
     child_env = scrub_subprocess_env(dict(os.environ))
     return PythonWorkerManager.get(exe, child_env, pool=pool), None
 
@@ -1545,7 +1490,8 @@ def run_code_in_user_venv(
 
     manager, err = _get_worker_manager(pool=worker_pool)
     if manager is None:
-        return err or _worker_error("WORKER_IPC_ERROR", "Python worker is unavailable.")
+        assert err is not None
+        return err
 
     configured = configured_python_exec_timeout()
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
@@ -1595,7 +1541,8 @@ def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | No
 
     manager, err = _get_worker_manager()
     if manager is None:
-        return err or _worker_error("WORKER_IPC_ERROR", "Python worker is unavailable.")
+        assert err is not None
+        return err
 
     # What was wrong: OnUnload calls reset_python_session on the UNO thread,
     # which holds the SolarMutex. With no live child, execute() warmed a new
