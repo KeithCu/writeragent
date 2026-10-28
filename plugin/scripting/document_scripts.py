@@ -909,21 +909,17 @@ def _on_save_script(
                 return True
             send_list(status_error_text=str(save_err))
             return True
-        remembered = document_script_display_name(storage_name)
-        ok_text = _("Saved script '{0}' to this document.").format(storage_name)
-        log_user = False
-    else:
-        user_err = save_user_script(name, script_code)
-        if user_err:
-            send_list(status_error_text=str(user_err))
-            return True
-        remembered = name
-        ok_text = _("Saved script '{0}'.").format(name)
-        log_user = True
-    _remember_selection(session_doc, remembered)
-    if log_user:
-        log.info("scripts picker: save_script '%s' (user)", name)
-    send_list(status_ok_text=ok_text)
+        display_name = document_script_display_name(storage_name)
+        _remember_selection(session_doc, display_name)
+        send_list(status_ok_text=_("Saved script '{0}' to this document.").format(storage_name))
+        return True
+    user_err = save_user_script(name, script_code)
+    if user_err:
+        send_list(status_error_text=str(user_err))
+        return True
+    _remember_selection(session_doc, name)
+    log.info("scripts picker: save_script '%s' (user)", name)
+    send_list(status_ok_text=_("Saved script '{0}'.").format(name))
     return True
 
 
