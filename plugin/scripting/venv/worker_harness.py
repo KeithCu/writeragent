@@ -13,11 +13,12 @@ namespace is fresh per call; with ``session_id`` the same executor is reused (sh
 """
 from __future__ import annotations
 
+from functools import partial
 import logging
 import os
 import sys
 import traceback
-from typing import Any
+from typing import Any, BinaryIO
 
 # Standalone entry (venv python worker_harness.py): repo root must be on sys.path for plugin.* imports.
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -30,12 +31,15 @@ if _PROJECT_ROOT not in sys.path:
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
+    FRAME_HEARTBEAT,
+    FRAME_RESULT,
     IpcFrameError,
     IpcPayloadSizeError,
     UserStopped,
     claim_ipc_channel,
     claim_ipc_stdin,
     read_pickle_frame,
+    write_child_ipc_frame,
     write_pickle_frame,
 )
 
@@ -69,6 +73,24 @@ def _clean_str(val: Any) -> str | None:
     return val if isinstance(val, str) and val.strip() else None
 
 
+def emit_heartbeat(stream: BinaryIO | Any, payload: dict[str, Any]) -> None:
+    # Heartbeat and result frames share _tool_call_lock with exchange_tool_call.
+    # _write_all's header and payload are separate writes; a second thread in
+    # a host tool_call would otherwise split the length prefix. The lock is not
+    # reentrant: do not call emit on the thread that is inside exchange_tool_call.
+    write_child_ipc_frame(
+        stream,
+        {"frame_type": FRAME_HEARTBEAT, "payload": dict(payload)},
+    )
+
+
+def write_result_frame(stream: BinaryIO | Any, response: dict[str, Any]) -> None:
+    """Write the terminal result frame for a heartbeat-enabled worker request."""
+    frame = dict(response)
+    frame["frame_type"] = FRAME_RESULT
+    write_child_ipc_frame(stream, frame)
+
+
 def _handle_trusted_action(
     request: dict[str, Any],
     data: dict[str, Any],
@@ -77,7 +99,6 @@ def _handle_trusted_action(
 ) -> dict[str, Any] | None:
     """Dispatch run_trusted_action via the declarative registry. None means the terminal frame is already written."""
     from plugin.scripting.trusted_action_registry import get_trusted_action_wiring
-    from plugin.scripting.venv.worker_heartbeat import HeartbeatEmitter, write_result_frame
 
     domain = str(data.get("domain") or "")
     emit_result_frame = bool(request.get("allow_heartbeat")) and stdout is not None
@@ -90,8 +111,7 @@ def _handle_trusted_action(
         else:
             heartbeat_fn = None
             if emit_result_frame and wiring.supports_heartbeat:
-                emitter = HeartbeatEmitter(stdout)
-                heartbeat_fn = emitter.emit
+                heartbeat_fn = partial(emit_heartbeat, stdout)
             result = wiring.dispatch(data, heartbeat_fn=heartbeat_fn)
             resp = {"status": "ok", "result": result}
     except Exception as exc:
@@ -107,35 +127,27 @@ def _handle_trusted_action(
         # non-heartbeat path already assigns response["id"] after the dict exists.
         # Why this change: id is written after the spread, matching that path.
         # resp today is only status, result, message, and traceback.
-        payload = {**resp, "id": req_id}
+        frame = {**resp, "id": req_id, "frame_type": FRAME_RESULT}
         # Packing fails before any byte hits stdout, so the pipe is still in
         # sync. An oversized result is a small error frame. Letting
         # IpcFrameError escape after EXEC_STARTED ends the worker with no
         # terminal frame, and the host restarts it.
         try:
-            write_result_frame(stdout, payload)
+            write_child_ipc_frame(stdout, frame)
         except IpcPayloadSizeError as exc:
             err_payload = {
                 "id": req_id,
                 "status": "error",
                 "message": f"Result exceeds maximum payload size: {exc}",
+                "frame_type": FRAME_RESULT,
             }
-            write_result_frame(stdout, err_payload)
+            write_child_ipc_frame(stdout, err_payload)
         return None
 
     return resp
 
 
-def _action_reset_session(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:
-    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
-
-    session_id = _clean_str(request.get("session_id"))
-    if not session_id:
-        return {"status": "error", "message": "No session_id provided."}
-    return reset_sandbox_session(session_id)
-
-
-def _action_ppt_master_turn(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:
+def _action_ppt_master_turn(request: dict[str, Any]) -> dict[str, Any] | None:
     from plugin.ppt_master.venv.runner import run_turn
 
     data = request.get("data")
@@ -148,14 +160,7 @@ def _action_ppt_master_turn(request: dict[str, Any], *, stdout: Any | None = Non
         return _error_response(exc)
 
 
-def _action_run_trusted_action(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:
-    data = request.get("data")
-    if not isinstance(data, dict):
-        return {"status": "error", "message": "run_trusted_action requires data dict."}
-    return _handle_trusted_action(request, data, stdout=stdout)
-
-
-def _action_execute(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:
+def _action_execute(request: dict[str, Any]) -> dict[str, Any] | None:
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     code = request.get("code")
@@ -177,22 +182,27 @@ def _action_execute(request: dict[str, Any], *, stdout: Any | None = None) -> di
     )
 
 
-_ACTION_HANDLERS = {
-    "reset_session": _action_reset_session,
-    "ppt_master_turn": _action_ppt_master_turn,
-    "run_trusted_action": _action_run_trusted_action,
-}
-
-
 def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:
     action = request.get("action")
-    # Omitted, blank, and ``"execute"`` run user code. Any other action must
-    # be in _ACTION_HANDLERS. A typo that also carries ``code`` must not run.
+    # Omitted, blank, and ``"execute"`` run user code. A typo that also carries
+    # ``code`` must not run.
     if action is None or action == "" or action == "execute":
-        return _action_execute(request, stdout=stdout)
-    if not isinstance(action, str) or action not in _ACTION_HANDLERS:
-        return {"status": "error", "message": f"Unknown action: {action!r}"}
-    return _ACTION_HANDLERS[action](request, stdout=stdout)
+        return _action_execute(request)
+    if action == "reset_session":
+        from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
+
+        session_id = _clean_str(request.get("session_id"))
+        if not session_id:
+            return {"status": "error", "message": "No session_id provided."}
+        return reset_sandbox_session(session_id)
+    if action == "ppt_master_turn":
+        return _action_ppt_master_turn(request)
+    if action == "run_trusted_action":
+        data = request.get("data")
+        if not isinstance(data, dict):
+            return {"status": "error", "message": "run_trusted_action requires data dict."}
+        return _handle_trusted_action(request, data, stdout=stdout)
+    return {"status": "error", "message": f"Unknown action: {action!r}"}
 
 
 def _init_logging() -> None:
@@ -251,7 +261,6 @@ def main() -> None:
     stdout = claim_ipc_channel()
 
     while True:
-        req_id = ""
         # Read and handle are separate. IpcFrameError subclasses ValueError,
         # so one handler cannot tell them apart. A bad frame on the way in
         # desyncs the stream and ends the loop. A ValueError from unpickling
@@ -272,7 +281,7 @@ def main() -> None:
             log.warning("Invalid pickle request: %s", e)
             bad_req_frame = {"id": "", "status": "error", "message": f"Invalid pickle request: {e}"}
             try:
-                write_pickle_frame(stdout, bad_req_frame, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+                write_pickle_frame(stdout, bad_req_frame)
             except Exception:
                 break
             continue
@@ -288,7 +297,6 @@ def main() -> None:
             write_pickle_frame(
                 stdout,
                 {"type": EXEC_STARTED, "id": request.get("id")},
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
             )
         except Exception:
             log.exception("Failed to write exec_started for request id=%s", req_id)
@@ -319,14 +327,14 @@ def main() -> None:
                 "code": "USER_STOPPED",
                 "message": str(e) or "Stopped by user.",
             }
-        except IpcFrameError as e:
-            if not isinstance(e, IpcPayloadSizeError):
-                # Genuine read-side desync (e.g. from exchange_tool_call reading host replies).
-                # Do not write an error frame to a corrupted stream.
-                log.warning("IPC frame error during request id=%s: %s", req_id, e)
-                break
+        except IpcPayloadSizeError as e:
             log.exception("IPC payload size error handling request id=%s", req_id)
             response = _error_response(e)
+        except IpcFrameError as e:
+            # Genuine read-side desync (e.g. from exchange_tool_call reading host replies).
+            # Do not write an error frame to a corrupted stream.
+            log.warning("IPC frame error during request id=%s: %s", req_id, e)
+            break
         except Exception as e:
             log.exception("Exception handling request id=%s", req_id)
             response = _error_response(e)
@@ -344,11 +352,11 @@ def main() -> None:
 
         response["id"] = req_id
         try:
-            write_pickle_frame(stdout, response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+            write_pickle_frame(stdout, response)
         except Exception as e:
             err_response = {"id": req_id, "status": "error", "message": f"Pickle serialization failed: {e}"}
             try:
-                write_pickle_frame(stdout, err_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+                write_pickle_frame(stdout, err_response)
             except Exception:
                 log.exception("Failed to write capped error frame for request id=%s", req_id)
                 break
