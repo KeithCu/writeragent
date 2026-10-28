@@ -83,7 +83,13 @@ def test_download_url_to_file_atomic_replace_preserves_inode(tmp_path):
 
         statuses: list[str] = []
         with patch("urllib.request.urlopen", return_value=_Resp()) as mock_urlopen:
-            _download_url_to_file("https://example.test/pack.so", str(dest), statuses.append)
+            _download_url_to_file(
+                "https://example.test/pack.so",
+                str(dest),
+                statuses.append,
+                max_bytes=1024,
+                expected_sha256="775653072817f6d0c39da9f29b7747925c12b57a0dd5414463423915c3f07555",
+            )
         assert mock_urlopen.call_args.kwargs["timeout"] == 60
 
         assert dest.read_bytes() == b"NEW!"
@@ -114,7 +120,13 @@ def test_download_url_to_file_cleans_partial_on_failure(tmp_path):
 
     with patch("urllib.request.urlopen", return_value=_Boom()):
         with pytest.raises(RuntimeError, match="Failed to download"):
-            _download_url_to_file("https://example.test/pack.so", str(dest), lambda _s: None)
+            _download_url_to_file(
+                "https://example.test/pack.so",
+                str(dest),
+                lambda _s: None,
+                max_bytes=1024,
+                expected_sha256="0" * 64,
+            )
 
     assert dest.read_bytes() == b"KEEP"
     assert list(tmp_path.glob("*.partial")) == []
@@ -211,7 +223,13 @@ def test_download_urlopen_failure_closes_fd_and_removes_partial(tmp_path, side_e
     count_before = _get_fd_count()
     with patch("urllib.request.urlopen", side_effect=side_effect):
         with pytest.raises(RuntimeError, match=match):
-            _download_url_to_file("https://example.test/pack.so", str(dest), lambda _s: None)
+            _download_url_to_file(
+                "https://example.test/pack.so",
+                str(dest),
+                lambda _s: None,
+                max_bytes=1024,
+                expected_sha256="0" * 64,
+            )
     count_after = _get_fd_count()
 
     assert dest.read_bytes() == b"KEEP"
@@ -221,7 +239,7 @@ def test_download_urlopen_failure_closes_fd_and_removes_partial(tmp_path, side_e
 
 
 
-def test_run_vec_pack_download_invalidates_accelerator(tmp_path):
+def test_run_vec_pack_download_pins_sha_and_does_not_bind(tmp_path):
     from plugin.scripting import native_binaries
     from plugin.scripting.native_binaries import run_vec_pack_download
 
@@ -232,34 +250,19 @@ def test_run_vec_pack_download_invalidates_accelerator(tmp_path):
         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
         patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
         patch("plugin.scripting.native_binaries._download_url_to_file") as mock_dl,
-        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path"),
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path") as mock_ensure,
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator") as mock_inv,
     ):
         ok = run_vec_pack_download(lambda _t: None, lambda _s: None)
     assert ok is True
-    mock_inv.assert_called_once()
-    calls = mock_dl.call_args_list
-    assert calls[0].kwargs["expected_sha256"] == native_binaries._VEC_PACK_SHA256["__init__.py"]
-    assert (
-        calls[1].kwargs["expected_sha256"]
-        == native_binaries._VEC_PACK_SHA256["pack.cpython-312-x86_64-linux-gnu.so"]
-    )
-
-
-def test_run_vec_pack_download_bind_host_false_skips_path_and_modules(tmp_path):
-    from plugin.scripting.native_binaries import run_vec_pack_download
-
-    with (
-        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
-        patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
-        patch("plugin.scripting.native_binaries._download_url_to_file"),
-        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path") as mock_ensure,
-        patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator") as mock_inv,
-    ):
-        ok = run_vec_pack_download(lambda _t: None, lambda _s: None, bind_host=False)
-    assert ok is True
     mock_ensure.assert_not_called()
     mock_inv.assert_not_called()
+    calls = mock_dl.call_args_list
+    assert calls[0].kwargs["expected_sha256"] == native_binaries._NATIVE_SHA256["__init__.py"]
+    assert (
+        calls[1].kwargs["expected_sha256"]
+        == native_binaries._NATIVE_SHA256["pack.cpython-312-x86_64-linux-gnu.so"]
+    )
 
 
 def test_run_vec_pack_download_invalidates_import_caches(tmp_path):
@@ -271,7 +274,7 @@ def test_run_vec_pack_download_invalidates_import_caches(tmp_path):
         patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
         patch("plugin.scripting.native_binaries._download_url_to_file"),
     ):
-        ok = run_vec_pack_download(lambda _t: None, lambda _s: None, bind_host=False)
+        ok = run_vec_pack_download(lambda _t: None, lambda _s: None)
     assert ok is True
     mock_inval.assert_called_once()
 
@@ -580,14 +583,14 @@ def test_run_audio_download_selects_cffi_and_portaudio(
 
     for i, basename in enumerate(expected_basenames):
         kwargs = dl_calls[i][2]
-        assert kwargs["max_bytes"] == native_binaries._MAX_AUDIO_BYTES
-        assert kwargs["expected_sha256"] == native_binaries._AUDIO_SHA256[basename]
+        assert kwargs["max_bytes"] == native_binaries._MAX_NATIVE_BYTES
+        assert kwargs["expected_sha256"] == native_binaries._NATIVE_SHA256[basename]
 
     assert zip_opened == [(zip_path, "r")]
     assert extracted_targets == [native_dir]
 
     mock_vec.assert_called_once()
-    assert mock_vec.call_args.kwargs == {"include_header": False, "bind_host": True}
+    assert mock_vec.call_args.kwargs == {"include_header": False}
 
     placeholder_file = tmp_path / "audio_binaries" / "_sounddevice_data" / "__init__.py"
     assert placeholder_file.read_text() == "# Placeholder\n"
@@ -623,38 +626,6 @@ def test_run_audio_download_invalidates_import_caches(tmp_path):
         ok = run_audio_download(lambda _t: None, lambda _s: None)
     assert ok is True
     mock_inval.assert_called_once()
-
-
-def test_run_audio_download_forwards_bind_host_false(tmp_path):
-    from plugin.scripting.native_binaries import run_audio_download
-
-    class _MockZip:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def extractall(self, *args, **kwargs):
-            pass
-
-    with (
-        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
-        patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
-        patch("platform.system", return_value="Linux"),
-        patch("platform.machine", return_value="x86_64"),
-        patch("zipfile.ZipFile", _MockZip),
-        patch("plugin.scripting.native_binaries._download_url_to_file"),
-        patch("plugin.scripting.native_binaries.run_vec_pack_download", return_value=True) as mock_vec,
-    ):
-        result = run_audio_download(lambda _t: None, lambda _s: None, bind_host=False)
-
-    assert result is True
-    mock_vec.assert_called_once()
-    assert mock_vec.call_args.kwargs == {"include_header": False, "bind_host": False}
 
 
 def test_run_audio_download_stops_before_vec_pack_when_cffi_download_fails(tmp_path):
