@@ -59,10 +59,6 @@ def _column_by_label(df: Any, name: Any) -> Any:
     return None
 
 
-def _numeric_labels(df: Any) -> list[Any]:
-    return list(df.select_dtypes(include="number").columns)
-
-
 def _figure_payload(fig: Any) -> dict[str, Any]:
     # Render only. _open_figure closes the figure, including when savefig raises.
     # Closing here used to run only after a successful render, so a failure left
@@ -117,7 +113,7 @@ def _non_numeric_column(df: Any, name: Any, *, helper: str) -> dict[str, Any] | 
     return None
 
 
-def _resolve_y_column(df: Any, y_col: Any, numeric: list[Any], *, helper: str) -> Any:
+def _resolve_y_column(df: Any, y_col: Any, *, helper: str) -> Any:
     # quick_plot and plot_data both fell back to the first numeric column when
     # y named nothing. A typo plotted another series instead of reporting it.
     if y_col is not None:
@@ -125,6 +121,7 @@ def _resolve_y_column(df: Any, y_col: Any, numeric: list[Any], *, helper: str) -
         if name is None:
             return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {y_col}", helper=helper)
     else:
+        numeric = list(df.select_dtypes(include="number").columns)
         if not numeric:
             return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper=helper)
         name = numeric[0]
@@ -165,19 +162,18 @@ def quick_plot(
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    numeric = _numeric_labels(df)
-    y_name = _resolve_y_column(df, y_col, numeric, helper="quick_plot")
+    y_name = _resolve_y_column(df, y_col, helper="quick_plot")
     if isinstance(y_name, dict):
         return y_name
-    y_values = df[y_name]
 
-    resolved_x = _column_by_label(df, x_col) if x_col is not None else None
+    resolved_x = _column_by_label(df, x_col)
 
     with _open_figure(plt, (8, 4)) as (fig, ax):
+        y_float = df[y_name].astype(float)
         chart_type = "bar" if len(df) <= 12 else "line"
         if chart_type == "bar":
-            ax.bar(range(len(y_values)), y_values.astype(float))
-            ax.set_xticks(range(len(y_values)))
+            ax.bar(range(len(y_float)), y_float)
+            ax.set_xticks(range(len(y_float)))
             if resolved_x is not None:
                 ax.set_xticklabels([str(v) for v in df[resolved_x]], rotation=45, ha="right")
         else:
@@ -185,9 +181,9 @@ def quick_plot(
             # applied as bar tick labels, so the same argument changed meaning
             # at 12 rows. Plot that column when it exists.
             if resolved_x is not None:
-                ax.plot(df[resolved_x], y_values.astype(float))
+                ax.plot(df[resolved_x], y_float)
             else:
-                ax.plot(y_values.astype(float))
+                ax.plot(y_float)
         ax.set_ylabel(str(y_name))
         ax.set_title(f"Quick plot: {str(y_name)}")
         fig.tight_layout()
@@ -239,12 +235,11 @@ def plot_data(
     # coloring series. Nothing in the tool schema passes it. Ignore the key.
     title = str(spec.get("title") or "Plot")
 
-    numeric = _numeric_labels(df)
-    y_name = _resolve_y_column(df, y_col, numeric, helper="plot_data")
+    y_name = _resolve_y_column(df, y_col, helper="plot_data")
     if isinstance(y_name, dict):
         return y_name
 
-    resolved_x = _column_by_label(df, x_col) if x_col is not None else None
+    resolved_x = _column_by_label(df, x_col)
 
     scatter_x: Any = None
     if chart_type == "scatter":
@@ -254,7 +249,7 @@ def plot_data(
                 return rejected_x
             scatter_x = resolved_x
         else:
-            others = [c for c in numeric if c != y_name]
+            others = [c for c in df.select_dtypes(include="number").columns if c != y_name]
             if not others:
                 return _error_result("NOT_ENOUGH_NUMERIC", "Need at least two numeric columns.", helper="plot_data")
             scatter_x = others[0]
@@ -321,19 +316,16 @@ def correlation_heatmap(
     corr = numeric.corr(method=method_name)
     n_cols = int(numeric.shape[1])
     with _open_figure(plt, (max(6, n_cols), max(5, n_cols - 1))) as (fig, ax):
-        drew = False
         try:
             import seaborn as sns
 
             sns.heatmap(corr, annot=n_cols <= 8, fmt=".2f", cmap="coolwarm", ax=ax)
-            drew = True
-        except ImportError:
-            pass
-        except Exception:
+        except Exception as exc:
             # Heatmap used to be guarded only for ImportError. Any other seaborn
             # error skipped the imshow fallback and skipped plt.close.
-            log.debug("seaborn heatmap failed; using imshow", exc_info=True)
-        if not drew:
+            # ImportError stays silent: missing seaborn is the expected fallback.
+            if not isinstance(exc, ImportError):
+                log.debug("seaborn heatmap failed; using imshow", exc_info=True)
             im = ax.imshow(corr.values, cmap="coolwarm", aspect="auto")
             ax.set_xticks(range(len(corr.columns)))
             ax.set_yticks(range(len(corr.index)))
@@ -413,29 +405,24 @@ def time_series_plot(
     # Only an all-text value column is an error; a stray text cell is skipped like a blank.
     if series[hist_col].notna().any() and hist_values.isna().all():
         return _error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {hist_col}", helper="time_series_plot")
-    hist_mask = dates_all.notna() & hist_values.notna()
+    dated = dates_all.notna()
+    hist_mask = dated & hist_values.notna()
 
     forecast_values: pd.Series | None = None
     forecast_mask: Any = None
     if forecast_col and forecast_col in series.columns:
-        f_vals = cast(pd.Series, pd.to_numeric(series[forecast_col], errors="coerce"))
-        forecast_values = f_vals
-        forecast_mask = dates_all.notna() & f_vals.notna()
+        forecast_values = cast(pd.Series, pd.to_numeric(series[forecast_col], errors="coerce"))
+        assert forecast_values is not None
+        forecast_mask = dated & forecast_values.notna()
 
     lower_values: pd.Series | None = None
     upper_values: pd.Series | None = None
     band_mask: Any = None
-    if (
-        lower_col
-        and upper_col
-        and lower_col in series.columns
-        and upper_col in series.columns
-    ):
-        l_vals = cast(pd.Series, pd.to_numeric(series[lower_col], errors="coerce"))
-        u_vals = cast(pd.Series, pd.to_numeric(series[upper_col], errors="coerce"))
-        lower_values = l_vals
-        upper_values = u_vals
-        band_mask = dates_all.notna() & l_vals.notna() & u_vals.notna()
+    if lower_col and upper_col and lower_col in series.columns and upper_col in series.columns:
+        lower_values = cast(pd.Series, pd.to_numeric(series[lower_col], errors="coerce"))
+        upper_values = cast(pd.Series, pd.to_numeric(series[upper_col], errors="coerce"))
+        assert lower_values is not None and upper_values is not None
+        band_mask = dated & lower_values.notna() & upper_values.notna()
 
     # What was wrong: an all-null forecast column bypassed INSUFFICIENT_DATA
     # because the guard checked column presence instead of valid data points,
@@ -450,7 +437,7 @@ def time_series_plot(
         return _error_result("INSUFFICIENT_DATA", "No rows to plot.", helper="time_series_plot")
 
     with _open_figure(plt, (9, 4)) as (fig, ax):
-        if hist_mask.any():
+        if has_hist:
             ax.plot(dates_all[hist_mask], hist_values[hist_mask], label=hist_col)
 
         if forecast_mask is not None and forecast_mask.any() and forecast_values is not None:
@@ -461,12 +448,7 @@ def time_series_plot(
                 label=forecast_col,
             )
 
-        if (
-            band_mask is not None
-            and band_mask.any()
-            and lower_values is not None
-            and upper_values is not None
-        ):
+        if band_mask is not None and band_mask.any() and lower_values is not None and upper_values is not None:
             ax.fill_between(
                 dates_all[band_mask],
                 lower_values[band_mask],
@@ -503,14 +485,12 @@ def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: b
                 "time_series_plot requires params.date_col and params.value_col",
                 helper=name,
             )
+        optional: dict[str, Any] = {key: str(params[key]) if params.get(key) else None for key in ("forecast_col", "lower_col", "upper_col", "historical_value_col")}
         return time_series_plot(
             data,
             date_col=str(params["date_col"]),
             value_col=str(params["value_col"]),
-            forecast_col=str(params["forecast_col"]) if params.get("forecast_col") else None,
-            lower_col=str(params["lower_col"]) if params.get("lower_col") else None,
-            upper_col=str(params["upper_col"]) if params.get("upper_col") else None,
-            historical_value_col=str(params["historical_value_col"]) if params.get("historical_value_col") else None,
+            **optional,
             **common,
         )
     return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)

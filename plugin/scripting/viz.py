@@ -57,7 +57,7 @@ install_lazy_exports(globals(), "viz", _VIZ_VENV_EXPORTS)
 
 # --- Templates ---
 
-from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api
+from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api, run_trusted_calc_data_helper
 
 
 _API = make_template_api(
@@ -90,8 +90,6 @@ def run_trusted_viz(
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Fetch Calc data and run a trusted viz helper in the user venv."""
-    from plugin.scripting.helper_domain import run_trusted_calc_data_helper
-
     return run_trusted_calc_data_helper(
         uno_ctx,
         doc,
@@ -109,19 +107,12 @@ def run_trusted_viz(
 
 def is_viz_result(value: Any) -> bool:
     """True when *value* matches the compact viz helper result contract."""
-    if not isinstance(value, dict):
-        return False
-    if "status" not in value:
-        return False
-    helper = value.get("helper")
-    if isinstance(helper, str) and helper in HELPER_NAMES:
-        return True
-    image = value.get("image")
-    if is_image_payload(image):
-        return True
     # A nested image inside some other helper used to claim the whole result
     # as a plot, so later domains never ran.
-    return False
+    if not isinstance(value, dict) or "status" not in value:
+        return False
+    helper = value.get("helper")
+    return (isinstance(helper, str) and helper in HELPER_NAMES) or is_image_payload(value.get("image"))
 
 
 def _unlink_plot_temp(path: str) -> None:
@@ -197,18 +188,15 @@ def _images_claimed_as_plot(result_data: Any) -> list[dict[str, Any]]:
         return [result_data]
     if is_multi_data(result_data):
         items = result_data["items"]
-        claimed: list[dict[str, Any]] = []
-        for item in items:
-            if not is_image_payload(item):
-                return []
-            claimed.append(cast("dict[str, Any]", item))
-        return claimed
+        if all(is_image_payload(item) for item in items):
+            return list(items)
+        return []
     if isinstance(result_data, dict):
         helper = result_data.get("helper")
         if isinstance(helper, str) and helper in HELPER_NAMES:
             return find_image_payloads(result_data)
         image = result_data.get("image")
-        if isinstance(image, dict) and is_image_payload(image):
+        if is_image_payload(image):
             return [cast("dict[str, Any]", image)]
     return []
 
