@@ -1314,13 +1314,6 @@ def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
     monkeypatch.setattr("plugin.chatbot.tool_loop_actions.current_turn", lambda host: mock_turn)
     monkeypatch.setattr("plugin.chatbot.tool_loop_actions.TurnController", MagicMock)
 
-    # Capture what run_tool passes to emit
-    emitted = []
-    def mock_emit(item):
-        emitted.append(item)
-
-    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.put_for_turn", lambda turn, item: emitted.append(item) or True)
-
     # Intercept run_in_background to execute synchronously for the test
     def mock_run_in_background(func, *args, **kwargs):
         func()
@@ -1329,8 +1322,8 @@ def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
 
     interpreter._spawn_tool_worker(effect)
 
-    assert len(emitted) == 1
-    assert emitted[0][0] == StreamQueueKind.STOPPED
+    assert mock_turn.put.call_count == 1
+    assert mock_turn.put.call_args[0][0] == (StreamQueueKind.STOPPED,)
     assert mock_host._active_execute_tool_fn.call_count == 0
 
 
