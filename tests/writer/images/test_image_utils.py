@@ -358,7 +358,7 @@ class TestEndpointImageProvider:
         """Non-OpenRouter image requests keep OpenAI-style image_url for source_image."""
         config = {"endpoint": "https://api.example.com", "model": "test-model"}
         client = LlmClient(config, MockContext())
-        method, path, body, headers = client.make_image_request("a cat", source_image="b64data")
+        method, path, body, headers = client._get_shim().build_image_request("a cat", None, 1024, 1024, source_image="b64data")
         data = json.loads(body.decode("utf-8"))
         assert ("image_url") in (data)
         assert (data["image_url"]) == ("data:image/png;base64,b64data")
@@ -373,7 +373,7 @@ class TestEndpointImageProvider:
         config = {"endpoint": "https://openrouter.ai/api", "model": "black-forest-labs/flux.2-klein-4b", "is_openrouter": True}
         client = LlmClient(config, MockContext())
         with patch.object(client, "_resolve_auth", return_value={"provider": "openrouter"}):
-            method, path, body, headers = client.make_image_request("make him a wizard", source_image="b64data")
+            method, path, body, headers = client._get_shim().build_image_request("make him a wizard", None, 1024, 1024, source_image="b64data")
         data = json.loads(body.decode("utf-8"))
         assert ("image_url") not in (data)
         assert (data["input_references"]) == ([{"type": "image_url", "image_url": {"url": "data:image/png;base64,b64data"}}])
@@ -384,7 +384,7 @@ class TestEndpointImageProvider:
         config = {"endpoint": "https://api.openai.com", "model": "gpt-image-2", "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
         with patch.object(client, "_resolve_auth", return_value={"provider": "openai"}):
-            method, path, body, headers = client.make_image_request("a cat", model="gpt-image-2")
+            method, path, body, headers = client._get_shim().build_image_request("a cat", "gpt-image-2", 1024, 1024)
             data = json.loads(body.decode("utf-8"))
             assert (path.endswith("/images/generations"))
             assert not (path.endswith("/images/edits"))
@@ -393,8 +393,8 @@ class TestEndpointImageProvider:
             assert ("steps") not in (data)
             assert "response_format" not in data
 
-            method, path, body, headers = client.make_image_request(
-                "make him a wizard", model="gpt-image-2", source_image="b64data"
+            method, path, body, headers = client._get_shim().build_image_request(
+                "make him a wizard", "gpt-image-2", 1024, 1024, source_image="b64data"
             )
         data = json.loads(body.decode("utf-8"))
         assert (path.endswith("/images/edits"))
@@ -410,7 +410,7 @@ class TestEndpointImageProvider:
         client = LlmClient(config, MockContext())
         with patch.object(client, "_resolve_auth", return_value={"provider": "openai"}):
             with pytest.raises(ValueError) as raised:
-                client.make_image_request("make it dusk", model="dall-e-3", source_image="b64data")
+                client._get_shim().build_image_request("make it dusk", "dall-e-3", 1024, 1024, source_image="b64data")
         assert ("dall-e-3") in (str(raised.value).lower())
         assert ("cannot edit") in (str(raised.value).lower())
         assert ("or dall-e-2") not in (str(raised.value).lower())
@@ -422,7 +422,7 @@ class TestEndpointImageProvider:
         client = LlmClient(config, MockContext())
         with patch.object(client, "_resolve_auth", return_value={"provider": "openai"}):
             with pytest.raises(ValueError) as raised:
-                client.make_image_request("make it dusk", model="dall-e-2", source_image="b64data")
+                client._get_shim().build_image_request("make it dusk", "dall-e-2", 1024, 1024, source_image="b64data")
         assert ("dall-e-2") in (str(raised.value).lower())
         assert ("cannot edit") in (str(raised.value).lower())
         assert ("or dall-e-2") not in (str(raised.value).lower())
@@ -433,7 +433,7 @@ class TestEndpointImageProvider:
         config = {"endpoint": "https://api.together.xyz", "model": "google/flash-image-2.5"}
         client = LlmClient(config, MockContext())
         with patch.object(client, "_resolve_auth", return_value={"provider": "together"}):
-            method, path, body, headers = client.make_image_request("a cat", model="google/flash-image-2.5")
+            method, path, body, headers = client._get_shim().build_image_request("a cat", "google/flash-image-2.5", 1024, 1024)
             data = json.loads(body.decode("utf-8"))
             assert ("image_url") not in (data)
             assert ("reference_images") not in (data)
@@ -441,16 +441,16 @@ class TestEndpointImageProvider:
             assert (data["width"]) == (1024)
             assert (data["height"]) == (1024)
 
-            method, path, body, headers = client.make_image_request(
-                "wide", model="google/flash-image-2.5", width=896, height=512
+            method, path, body, headers = client._get_shim().build_image_request(
+                "wide", "google/flash-image-2.5", 896, 512
             )
             data = json.loads(body.decode("utf-8"))
             assert (data["width"]) == (896)
             assert (data["height"]) == (512)
             assert ("size") not in (data)
 
-            method, path, body, headers = client.make_image_request(
-                "make him a wizard", model="google/flash-image-2.5", source_image="b64data"
+            method, path, body, headers = client._get_shim().build_image_request(
+                "make him a wizard", "google/flash-image-2.5", 1024, 1024, source_image="b64data"
             )
         data = json.loads(body.decode("utf-8"))
         assert ("image_url") not in (data)
@@ -462,8 +462,8 @@ class TestEndpointImageProvider:
         config = {"endpoint": "https://api.together.xyz", "model": "black-forest-labs/FLUX.1-kontext-pro"}
         client = LlmClient(config, MockContext())
         with patch.object(client, "_resolve_auth", return_value={"provider": "together"}):
-            method, path, body, headers = client.make_image_request(
-                "a lake", model="black-forest-labs/FLUX.1-kontext-pro", width=896, height=512
+            method, path, body, headers = client._get_shim().build_image_request(
+                "a lake", "black-forest-labs/FLUX.1-kontext-pro", 896, 512
             )
             create = json.loads(body.decode("utf-8"))
             assert (create["aspect_ratio"]) == ("16:9")
@@ -471,8 +471,8 @@ class TestEndpointImageProvider:
             assert ("width") not in (create)
             assert ("height") not in (create)
 
-            method, path, body, headers = client.make_image_request(
-                "watercolor", model="black-forest-labs/FLUX.1-kontext-pro", source_image="b64data"
+            method, path, body, headers = client._get_shim().build_image_request(
+                "watercolor", "black-forest-labs/FLUX.1-kontext-pro", 1024, 1024, source_image="b64data"
             )
         data = json.loads(body.decode("utf-8"))
         assert (data["image_url"]) == ("data:image/png;base64,b64data")

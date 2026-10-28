@@ -271,8 +271,8 @@ def test_persistent_connections(client):
         patch("http.client.HTTPConnection") as mock_http,
         patch("plugin.framework.client.http_transport.get_verified_ssl_context") as mock_ssl,
     ):
-        conn1 = client._get_connection()
-        conn2 = client._get_connection()
+        conn1 = client._transport.get_connection()
+        conn2 = client._transport.get_connection()
 
         assert conn1 is conn2
         mock_https.assert_called_once_with(
@@ -281,15 +281,15 @@ def test_persistent_connections(client):
 
         client._close_connection()
         conn1.close.assert_called_once()
-        assert client._persistent_conn is None
+        assert client._transport.persistent_conn is None
 
         # Re-opening opens a new one
-        conn3 = client._get_connection()
+        conn3 = client._transport.get_connection()
         assert mock_https.call_count == 2
 
         # Test change of endpoint scheme
         client.config["endpoint"] = "http://localhost:11434"
-        conn4 = client._get_connection()
+        conn4 = client._transport.get_connection()
         assert conn4 is not conn3
         mock_http.assert_called_once_with("localhost", 11434, timeout=LLM_CONNECT_TIMEOUT_SEC)
 
@@ -2643,6 +2643,7 @@ def test_image_completion_retries_on_not_supported(client):
     from plugin.framework.errors import NetworkError
     client._get_shim = MagicMock()
     client._get_shim().parse_image_responses.return_value = ["/tmp/retried.png"]
+    client._get_shim().build_image_request.return_value = ("POST", "/images", json.dumps({"resolution": "512"}).encode("utf-8"), {})
 
     call_count = 0
     def mock_request_json(method, path, body, headers, **kwargs):
@@ -2656,12 +2657,9 @@ def test_image_completion_retries_on_not_supported(client):
         return {"data": [{"url": "http://example.com/img.png"}]}
 
     with patch.object(client, "_request_json", side_effect=mock_request_json):
-        # we pass width/height such that it puts "resolution" in the body if we use the openrouter shim logic
-        # but actually make_image_request will be called. Let's just mock make_image_request to return our body
-        with patch.object(client, "make_image_request", return_value=("POST", "/images", json.dumps({"resolution": "512"}).encode("utf-8"), {})):
-            res = client.image_completion("cat")
-            assert res == ["/tmp/retried.png"]
-            assert call_count == 2
+        res = client.image_completion("cat")
+        assert res == ["/tmp/retried.png"]
+        assert call_count == 2
 
 
 def test_image_completion_non_matching_error_reraises(client):
@@ -2674,7 +2672,7 @@ def test_image_completion_non_matching_error_reraises(client):
         raise NetworkError("HTTP 400: Bad Request")
 
     with patch.object(client, "_request_json", side_effect=mock_request_json):
-        with patch.object(client, "make_image_request", return_value=("POST", "/images", json.dumps({"resolution": "512"}).encode("utf-8"), {})):
+        with patch.object(client._get_shim(), "build_image_request", return_value=("POST", "/images", json.dumps({"resolution": "512"}).encode("utf-8"), {})):
             with pytest.raises(NetworkError, match="Bad Request"):
                 client.image_completion("cat")
             assert call_count == 1
@@ -3478,7 +3476,7 @@ def test_image_rejected_params_logs_truncated_body(client, caplog):
 
     with caplog.at_level(logging.WARNING):
         with (
-            patch.object(client, "make_image_request", return_value=("POST", "/v1/images/generations", orig_body, {})),
+            patch.object(client._get_shim(), "build_image_request", return_value=("POST", "/v1/images/generations", orig_body, {})),
             patch.object(client, "_request_json", side_effect=mock_request_json),
         ):
             client.image_completion("dummy prompt")
