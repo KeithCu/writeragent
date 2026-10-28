@@ -25,8 +25,8 @@ import plugin.scripting.ipc
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
+    IpcFrameReadError,
     IpcPartialFrameTimeout,
-    IpcTruncatedFrame,
     pack_pickle_frame,
     read_frame_payload,
     read_json_line,
@@ -36,7 +36,6 @@ from plugin.scripting.ipc import (
     write_json_line,
     write_packed_frame_with_timeout,
     write_pickle_frame,
-    write_pickle_frame_with_timeout,
 )
 
 
@@ -119,7 +118,7 @@ def test_truncated_pickle_frame_returns_none():
     payload = pack_pickle_frame({"status": "ok"})
     truncated = payload[:-2]
 
-    with pytest.raises(IpcTruncatedFrame):
+    with pytest.raises(IpcFrameReadError):
         read_pickle_frame(io.BytesIO(truncated))
 
 
@@ -151,7 +150,6 @@ def test_ipc_error_subclasses():
 
     assert issubclass(IpcPayloadSizeError, IpcFrameError)
     assert issubclass(IpcFrameReadError, IpcFrameError)
-    assert issubclass(IpcTruncatedFrame, IpcFrameReadError)
 
     with pytest.raises(IpcPayloadSizeError):
         pack_pickle_frame({"x": "a" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)})
@@ -377,7 +375,7 @@ def test_read_frame_payload_short_header_then_eof_is_none():
                 return b"\x00\x00"
             return b""
 
-    with pytest.raises(IpcTruncatedFrame):
+    with pytest.raises(IpcFrameReadError):
         read_frame_payload(ShortEOF())
     assert read_frame_payload(io.BytesIO()) is None
     frame = pack_pickle_frame({"a": 1})
@@ -464,7 +462,7 @@ def test_read_frame_payload_pipe_eof_mid_header_raises_truncated_fast():
         write_fd = -1
         with os.fdopen(read_fd, "rb", buffering=0) as reader:
             t0 = time.monotonic()
-            with pytest.raises(IpcTruncatedFrame):
+            with pytest.raises(IpcFrameReadError):
                 read_frame_payload(reader, 5.0)
             assert time.monotonic() - t0 < 1.5
     finally:
@@ -489,7 +487,7 @@ def test_pickle_frame_write_timeout_on_unread_pipe():
     try:
         started = time.monotonic()
         with pytest.raises(subprocess.TimeoutExpired):
-            write_pickle_frame_with_timeout(writer, {"blob": b"x" * (256 * 1024)}, 0.2)
+            write_packed_frame_with_timeout(writer, pack_pickle_frame({"blob": b"x" * (256 * 1024)}), 0.2)
         assert time.monotonic() - started < 2.0
     finally:
         writer.close()
@@ -510,7 +508,7 @@ def test_pickle_frame_write_with_timeout_roundtrip():
     thread.start()
     try:
         with os.fdopen(write_fd, "wb", buffering=0) as writer:
-            write_pickle_frame_with_timeout(writer, {"status": "ok"}, 2.0)
+            write_packed_frame_with_timeout(writer, pack_pickle_frame({"status": "ok"}), 2.0)
     finally:
         thread.join(timeout=2)
     assert got["msg"] == {"status": "ok"}
@@ -531,9 +529,9 @@ def test_pickle_frame_write_aborts_when_child_exits_and_pipe_is_full():
         with os.fdopen(write_fd, "wb", buffering=0) as writer:
             started = time.monotonic()
             with pytest.raises(BrokenPipeError, match="child exited"):
-                write_pickle_frame_with_timeout(
+                write_packed_frame_with_timeout(
                     writer,
-                    {"blob": b"y" * 65536},
+                    pack_pickle_frame({"blob": b"y" * 65536}),
                     2.0,
                     is_alive=lambda: False,
                 )
@@ -554,11 +552,13 @@ def test_json_line_timeout_on_pipe():
 
 def test_win32_read_raising_stop_checker_keeps_reading(monkeypatch):
     """A raising stop_checker is not a stop; the peek loop still returns the bytes."""
+    import struct
     from plugin.scripting import ipc
 
+    monkeypatch.setattr(sys, "platform", "win32")
     stream = MagicMock()
     stream.fileno.return_value = 3
-    stream.read.return_value = b"abcd"
+    stream.read.side_effect = [struct.pack("!I", 4), b"abcd"]
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 4)
     monkeypatch.setattr(ipc.time, "monotonic", lambda: 0.0)
     seen: list[BaseException] = []
@@ -570,8 +570,8 @@ def test_win32_read_raising_stop_checker_keeps_reading(monkeypatch):
             raise err
         return False
 
-    data = ipc._read_bytes_with_timeout_win32(
-        stream, 4, 10.0, 10.0, cmd="frame", stop_checker=stop_checker
+    data = ipc.read_frame_payload(
+        stream, 10.0, cmd="frame", stop_checker=stop_checker
     )
     assert data == b"abcd"
     assert seen
@@ -581,6 +581,7 @@ def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch
     """PeekNamedPipe can finish after the deadline; sleep(negative) is ValueError."""
     from plugin.scripting import ipc
 
+    monkeypatch.setattr(sys, "platform", "win32")
     slept: list[float] = []
     monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
     times = iter([0.0, 0.009, 0.011, 0.011])
@@ -589,7 +590,7 @@ def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch
     stream = MagicMock()
     stream.fileno.return_value = 3
     with pytest.raises(subprocess.TimeoutExpired):
-        ipc._read_bytes_with_timeout_win32(stream, 4, 0.01, 0.01, cmd="IPC frame")
+        ipc.read_frame_payload(stream, 0.01, deadline=0.01, cmd="IPC frame")
     assert slept == [0.001]
     stream.read.assert_not_called()
 
@@ -598,34 +599,36 @@ def test_win32_pickle_read_breaks_when_child_exits_before_ready(monkeypatch):
     """When peek is empty and child exits (is_alive() is False), win32 read breaks to EOF rather than timing out."""
     from plugin.scripting import ipc
 
+    monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(ipc.time, "monotonic", lambda: 0.0)
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 0)
     stream = MagicMock()
     stream.fileno.return_value = 3
-    # Initial is_alive=False returns b"" immediately
-    assert ipc._read_bytes_with_timeout_win32(stream, 4, 10.0, 10.0, cmd="IPC frame", is_alive=lambda: False) == b""
+    # Initial is_alive=False returns None immediately
+    assert ipc.read_frame_payload(stream, 10.0, cmd="IPC frame", is_alive=lambda: False) is None
 
-    # Becoming false inside polling loop breaks out and returns b""
+    # Becoming false inside polling loop breaks out and returns None
     alive_iter = iter([True, False])
-    assert ipc._read_bytes_with_timeout_win32(stream, 4, 10.0, 10.0, cmd="IPC frame", is_alive=lambda: next(alive_iter)) == b""
+    assert ipc.read_frame_payload(stream, 10.0, cmd="IPC frame", is_alive=lambda: next(alive_iter)) is None
 
 
 def test_win32_read_drains_queued_bytes_when_child_already_dead(monkeypatch):
+    import struct
     from unittest.mock import MagicMock
     from plugin.scripting import ipc
 
+    monkeypatch.setattr(sys, "platform", "win32")
     slept: list[float] = []
     monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
-    monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", MagicMock(side_effect=[2, 2]))
+    monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", MagicMock(side_effect=[4, 4]))
 
     stream = MagicMock()
     stream.fileno.return_value = 3
-    stream.read.side_effect = [b"ab", b"cd"]
+    header = struct.pack("!I", 4)
+    stream.read.side_effect = [header, b"abcd"]
 
-    res = ipc._read_bytes_with_timeout_win32(
+    res = ipc.read_frame_payload(
         stream,
-        4,
-        ipc.time.monotonic() + 100.0,
         100.0,
         cmd="IPC frame",
         is_alive=lambda: False,
@@ -1794,13 +1797,13 @@ class TestReadFramePayloadWithTimeoutNoFd:
 
     def test_raises_on_short_header(self):
         stdout = io.BytesIO(b"\x00\x00")
-        with pytest.raises(IpcTruncatedFrame):
+        with pytest.raises(IpcFrameReadError):
             read_frame_payload(stdout, timeout_sec=2.0)
 
     def test_raises_on_truncated_payload(self):
         header = struct.pack("!I", 100)
         stdout = io.BytesIO(header + b"short")
-        with pytest.raises(IpcTruncatedFrame):
+        with pytest.raises(IpcFrameReadError):
             read_frame_payload(stdout, timeout_sec=2.0)
 
     def test_timeout_raises(self):

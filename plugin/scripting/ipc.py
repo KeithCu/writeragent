@@ -488,14 +488,6 @@ class IpcFrameReadError(IpcFrameError):
     """Raised when reading a framed IPC message fails due to invalid size or stream desync."""
 
 
-class IpcTruncatedFrame(IpcFrameReadError):
-    """EOF after at least one byte of this frame and before the declared end.
-
-    Zero bytes at a frame boundary is clean EOF (None). A deadline with the
-    pipe still open is IpcPartialFrameTimeout, raised by the timed reader.
-    """
-
-
 class IpcPartialFrameTimeout(ConnectionError):
     """Deadline expired after at least one byte of a frame had arrived.
 
@@ -680,24 +672,6 @@ def _write_fd_with_timeout(
             if written <= 0:
                 raise OSError("zero bytes written to pipe")
             offset += written
-
-
-def write_pickle_frame_with_timeout(
-    stream: IO[bytes],
-    message: Any,
-    timeout_sec: float,
-    *,
-    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
-    is_alive: Callable[[], bool] | None = None,
-) -> None:
-    """Write one Pickle5 frame, bounding the pipe write with *timeout_sec*.
-
-    The frame is packed first. ``IpcFrameError`` means no byte was written and
-    the child is still aligned. The packed bytes go through
-    ``write_packed_frame_with_timeout``.
-    """
-    frame = pack_pickle_frame(message, max_payload_bytes=max_payload_bytes)
-    write_packed_frame_with_timeout(stream, frame, timeout_sec, is_alive=is_alive)
 
 
 def write_packed_frame_with_timeout(
@@ -925,48 +899,6 @@ def _poll_pipe(
     return _PipeWait.EMPTY, 0
 
 
-def _read_bytes_with_timeout_win32(
-    stream: IO[bytes],
-    n: int,
-    deadline: float,
-    timeout_sec: float,
-    *,
-    cmd: str,
-    stop_checker: Callable[[], bool] | None = None,
-    is_alive: Callable[[], bool] | None = None,
-    frame_started: bool = False,
-) -> bytes:
-    """Read *n* bytes from a Windows pipe without a stuck ReadFile thread.
-
-    Polls ``PeekNamedPipe`` until bytes are queued, then reads only what is
-    available. Raises ``TimeoutExpired`` on deadline.
-    A dead child is EOF only when the peek is empty; queued bytes are read
-    first.
-    """
-    fd = _stream_fileno(stream)
-    buf = bytearray()
-    while len(buf) < n:
-        state, avail = _poll_pipe(
-            stream,
-            fd,
-            deadline,
-            timeout_label=timeout_sec,
-            cmd=cmd,
-            stop_checker=stop_checker,
-            is_alive=is_alive,
-            partial=frame_started or len(buf) > 0,
-            use_peek=True,
-        )
-        if state is _PipeWait.DEAD:
-            break
-        if state in (_PipeWait.CLOSED, _PipeWait.READY):
-            chunk = stream.read(min(n - len(buf), avail) if state is _PipeWait.READY else n - len(buf))
-            if not chunk:
-                return bytes(buf)
-            buf.extend(chunk)
-    return bytes(buf)
-
-
 def read_frame_payload(
     stream: IO[bytes],
     timeout_sec: float | None = None,
@@ -987,10 +919,10 @@ def read_frame_payload(
     on a daemon thread. A ``stop_checker`` raises ``TimeoutExpired`` (the
     caller maps that to cancel); ``deadline`` is an absolute
     ``time.monotonic()`` stamp; ``timeout_label`` is only the number stored
-    on ``TimeoutExpired``. A truncated frame raises ``IpcTruncatedFrame``.
-    A deadline after the 4-byte header has been read is ``IpcPartialFrameTimeout``
-    even when no payload byte has arrived, because the pipe is already off a
-    frame boundary.
+    on ``TimeoutExpired``. Zero bytes at a frame boundary is clean EOF
+    (None). EOF after at least one byte of a frame raises ``IpcFrameReadError``.
+    A deadline with the pipe still open is ``IpcPartialFrameTimeout``, raised by
+    the timed reader.
 
     The timed path needs an unbuffered stream (``bufsize=0``): after
     ``select``, raw ``FileIO.read`` returns what is there, but a
@@ -1046,27 +978,14 @@ def read_frame_payload(
                     raise error[0]
                 return result[0] or b""
 
-        elif sys.platform == "win32":
+        else:
             # PeekNamedPipe, not a daemon thread blocked in ReadFile. Closing the
             # pipe while that thread was still in ReadFile crashed the xdist
             # worker (CI 33453184665).
             def _read_exact(n: int, *, frame_started: bool = False) -> bytes:
-                return _read_bytes_with_timeout_win32(
-                    stream,
-                    n,
-                    abs_deadline,
-                    label,
-                    cmd=cmd_name,
-                    stop_checker=stop_checker,
-                    is_alive=is_alive,
-                    frame_started=frame_started,
-                )
-
-        else:
-            def _read_exact(n: int, *, frame_started: bool = False) -> bytes:
                 buf = bytearray()
                 while len(buf) < n:
-                    state, _avail = _poll_pipe(
+                    state, avail = _poll_pipe(
                         stream,
                         fd,
                         abs_deadline,
@@ -1076,12 +995,14 @@ def read_frame_payload(
                         is_alive=is_alive,
                         select_cap=0.2 if stop_checker is not None else 1.0,
                         partial=frame_started or len(buf) > 0,
-                        use_peek=False,
+                        use_peek=(sys.platform == "win32"),
                     )
                     if state is _PipeWait.DEAD:
                         break
-                    if state is _PipeWait.READY:
-                        chunk = stream.read(n - len(buf))
+                    if state is _PipeWait.EMPTY:
+                        continue
+                    if state in (_PipeWait.READY, _PipeWait.CLOSED):
+                        chunk = stream.read(min(n - len(buf), avail) if avail > 0 else n - len(buf))
                         if not chunk:
                             return bytes(buf)
                         buf.extend(chunk)
@@ -1093,7 +1014,7 @@ def read_frame_payload(
     if len(header) < FRAME_HEADER_SIZE:
         # Some header bytes, then EOF: the child died mid-frame. That is not a
         # clean EOF, so raise and let the caller tear the stream down.
-        raise IpcTruncatedFrame(
+        raise IpcFrameReadError(
             f"{frame_label}: truncated header (expected {FRAME_HEADER_SIZE} bytes, got {len(header)})"
         )
     size = struct.unpack("!I", header)[0]
@@ -1107,7 +1028,7 @@ def read_frame_payload(
     payload = _read_exact(size, frame_started=True)
     if len(payload) < size:
         # The payload ended before its declared size: the pipe is out of sync.
-        raise IpcTruncatedFrame(
+        raise IpcFrameReadError(
             f"{frame_label}: truncated payload (expected {size} bytes, got {len(payload)})"
         )
     return payload

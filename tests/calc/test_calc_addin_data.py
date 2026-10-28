@@ -26,7 +26,7 @@ from plugin.calc.calc_addin_data import (
 )
 from plugin.framework.errors import DocumentDisposedError
 from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
-from plugin.scripting.config_limits import python_max_data_cells_default
+from plugin.scripting.config_limits import _schema_int
 from plugin.scripting.payload_codec import child_unpack_data, is_multi_data, is_split_grid, wire_cell_count
 
 
@@ -77,13 +77,13 @@ def test_count_cells_flat():
 def test_check_python_data_size_rejects_large():
     big = [[0] * 1000 for _ in range(300)]
     assert count_cells(big) == 300_000
-    err = check_python_data_size(big, max_cells=python_max_data_cells_default())
+    err = check_python_data_size(big, max_cells=_schema_int("python_max_data_cells", "default", required=True))
     assert err is not None
     assert "300000" in err or "300,000" in err.replace(",", "")
 
 
 def test_check_python_data_size_ok():
-    assert check_python_data_size([1, 2], max_cells=python_max_data_cells_default()) is None
+    assert check_python_data_size([1, 2], max_cells=_schema_int("python_max_data_cells", "default", required=True)) is None
 
 
 def test_values_from_inspector_range():

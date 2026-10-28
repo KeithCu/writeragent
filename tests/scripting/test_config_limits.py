@@ -13,13 +13,11 @@ from unittest.mock import MagicMock, patch
 
 from plugin.framework.errors import ConfigError
 from plugin.scripting.config_limits import (
+    _bounds,
+    _schema_int,
     configured_python_exec_timeout,
     configured_python_max_data_cells,
     python_exec_timeout_default,
-    python_exec_timeout_max,
-    python_exec_timeout_min,
-    python_max_data_cells_default,
-    python_max_data_cells_max,
     python_max_data_cells_min,
     resolve_python_exec_timeout,
 )
@@ -48,8 +46,7 @@ def test_timeout_fallbacks_match_manifest():
 
 def test_timeout_schema_limits_from_manifest():
     assert python_exec_timeout_default() == 10
-    assert python_exec_timeout_min() == 1
-    assert python_exec_timeout_max() == 600
+    assert _bounds("python_exec_timeout") == (1, 600)
 
 
 def test_resolve_python_exec_timeout_clamp_and_fallback():
@@ -83,7 +80,7 @@ def test_configured_python_exec_timeout_failed_read_uses_default_not_min(mock_ge
     In this checkout the manifest is present, so without this patch the old
     helper still returns 10 and the assertion would pass on the bug.
     """
-    assert python_exec_timeout_default() != python_exec_timeout_min()
+    assert python_exec_timeout_default() != _bounds("python_exec_timeout")[0]
     assert configured_python_exec_timeout() == python_exec_timeout_default()
     mock_get.assert_called_once_with("scripting.python_exec_timeout")
     assert mock_resolve_default.call_count == 0
@@ -91,27 +88,27 @@ def test_configured_python_exec_timeout_failed_read_uses_default_not_min(mock_ge
 
 @patch("plugin.framework.config.get_config_int", return_value=0)
 def test_configured_python_exec_timeout_stored_zero_clamps_to_min(mock_get):
-    assert configured_python_exec_timeout() == python_exec_timeout_min()
+    assert configured_python_exec_timeout() == _bounds("python_exec_timeout")[0]
     mock_get.assert_called_once_with("scripting.python_exec_timeout")
 
 
 @pytest.mark.parametrize(
-    ("getter", "field", "name"),
+    ("field", "name"),
     [
-        (python_exec_timeout_default, "python_exec_timeout", "default"),
-        (python_exec_timeout_min, "python_exec_timeout", "min"),
-        (python_exec_timeout_max, "python_exec_timeout", "max"),
-        (python_max_data_cells_default, "python_max_data_cells", "default"),
-        (python_max_data_cells_min, "python_max_data_cells", "min"),
-        (python_max_data_cells_max, "python_max_data_cells", "max"),
+        ("python_exec_timeout", "default"),
+        ("python_exec_timeout", "min"),
+        ("python_exec_timeout", "max"),
+        ("python_max_data_cells", "default"),
+        ("python_max_data_cells", "min"),
+        ("python_max_data_cells", "max"),
     ],
 )
-def test_schema_getters_match_config_schema(getter, field, name):
+def test_schema_getters_match_config_schema(field, name):
     from plugin.framework.config_schema import get_config_schema
 
     schema = get_config_schema(f"scripting.{field}")
     assert schema is not None
-    assert getter() == schema[name]
+    assert _schema_int(field, name) == schema[name]
 
 
 def test_run_venv_python_script_schema_has_no_timeout_sec():
@@ -147,9 +144,9 @@ def test_settings_field_specs_include_python_exec_timeout(value):
 
 
 def test_max_data_cells_schema_limits_from_manifest():
-    assert python_max_data_cells_default() == 250_000
+    assert _schema_int("python_max_data_cells", "default", required=True) == 250_000
+    assert _bounds("python_max_data_cells") == (1000, 2_000_000)
     assert python_max_data_cells_min() == 1000
-    assert python_max_data_cells_max() == 2_000_000
 
 
 def test_get_config_python_max_data_cells_uses_schema_default():
@@ -178,8 +175,9 @@ def test_configured_python_max_data_cells_clamps_low(mock_get):
 
 @patch("plugin.framework.config.get_config_int", side_effect=RuntimeError("read failed"))
 def test_configured_python_max_data_cells_failed_read_uses_default_not_min(mock_get):
-    assert python_max_data_cells_default() != python_max_data_cells_min()
-    assert configured_python_max_data_cells() == python_max_data_cells_default()
+    default = _schema_int("python_max_data_cells", "default", required=True)
+    assert default != python_max_data_cells_min()
+    assert configured_python_max_data_cells() == default
 
 
 

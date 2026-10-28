@@ -27,8 +27,8 @@ from plugin.scripting.editor_ipc import (
 )
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
+    IpcFrameReadError,
     IpcPayloadSizeError,
-    IpcTruncatedFrame,
 )
 
 
@@ -59,7 +59,7 @@ def test_truncated_payload_returns_none():
     buf.write(struct.pack("!I", 100))
     buf.write(b"short")
     buf.seek(0)
-    with pytest.raises(IpcTruncatedFrame):
+    with pytest.raises(IpcFrameReadError):
         read_message(buf)
 
 

@@ -408,7 +408,6 @@ _.press_stop  # function: plugin/chatbot/sidebar_test_hooks.py:2561
 _.press_stop_mouse  # function: plugin/chatbot/sidebar_test_hooks.py:2578
 _.press_stop_rec  # function: plugin/chatbot/sidebar_test_hooks.py:2639
 _.request_office_recycle_after_suite  # function: plugin/testing_runner.py:1133
-_.reset_background_pool_for_tests  # function: plugin/framework/worker_pool.py:276
 _.reset_config_for_tests  # function: plugin/framework/config.py:186
 _.reset_desktop_create_is_unsafe_for_tests  # function: plugin/framework/uno_context.py:112
 _.reset_extension_update_check_schedule_for_tests  # function: plugin/chatbot/extension_update_check.py:138
