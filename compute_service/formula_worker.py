@@ -69,7 +69,25 @@ def execute_code(code: str, data: Any = None, session_id: str | None = None, tim
         else:
             init_sid = f"isolated:{init_hash}:init"
 
-    raw = run_sandboxed_code(code=code, data=data, session_id=use_session, timeout_sec=timeout_sec, init_script=init_code, init_session_id=init_sid, init_script_hash=init_hash)
+    # What was wrong: Large arrays / grids were packed into binary float64 split_grid
+    # envelopes by default, which cast ints to float64 and turned ints > 2^53 into text,
+    # only for json_egress to immediately decode them back into lists.
+    # How it happened: run_sandboxed_code defaulted to force="auto", packing grids
+    # >= BINARY_MIN_CELLS into split_grid buffers.
+    # Why this change: The compute service output is JSON and never needed the binary
+    # buffer across a process boundary; force="never" keeps results as native lists
+    # so integers stay exact.
+    raw = run_sandboxed_code(
+        code=code,
+        data=data,
+        force="never",
+        session_id=use_session,
+        timeout_sec=timeout_sec,
+        init_script=init_code,
+        init_session_id=init_sid,
+        init_script_hash=init_hash,
+    )
+
     namespace_created = raw.pop("namespace_created", None)
     out = normalize_execute_response(raw)
     if namespace_created is not None:
