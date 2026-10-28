@@ -249,7 +249,7 @@ class TestFormulaPoolSupervisor:
     def test_check_dependencies_success(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
-            ok, err = pool.check_dependencies(["numpy", "sympy", "pandas"])
+            ok, err = pool.check_dependencies()
             assert ok is True
             assert err is None
         finally:
@@ -1091,7 +1091,7 @@ class TestFormulaPoolSupervisor:
             pool.shutdown()
 
     def test_ttl_keeps_session_when_worker_reset_fails(self, caplog: pytest.LogCaptureFixture) -> None:
-        """A stale sticky call must not drop the map when the worker reset is not ok."""
+        """A stale sticky call must not run the cell when the worker reset fails, and keeps session map."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
         try:
             sid = "ttl-reset-fail"
@@ -1100,22 +1100,36 @@ class TestFormulaPoolSupervisor:
             worker = pool._sessions[sid].worker
             real_execute = worker.execute
 
+            executed_payloads: list[dict[str, Any]] = []
+
             def fail_reset(payload: dict, timeout_sec: float = 5.0, *, req_id: Any = None) -> dict:
                 if payload.get("action") == "reset_session":
                     return {"status": "error", "error": "namespace still held"}
+                executed_payloads.append(payload)
                 return real_execute(payload, timeout_sec, req_id=req_id)
 
             setattr(worker, "execute", fail_reset)
             with pool._cond:
                 pool._sessions[sid].last_active = time.monotonic() - 4000.0
+                pool._lost_sessions[sid] = time.monotonic() - 10.0
+
             with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
                 again = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="ttl-fail-2")
-            assert again.get("status") == "ok"
-            assert again.get("result") == 4
+            assert again.get("status") == "error"
+            assert again.get("code") == "SESSION_RESET_FAILED"
             assert again.get("session_reset") is not True
             assert pool.live_session_worker(sid) is worker
             assert sid in pool._worker_sessions_for(worker)
             assert "keeping session map" in caplog.text
+            assert not any(p.get("code") == "result = x" for p in executed_payloads)
+            with pool._cond:
+                assert sid in pool._sessions
+                assert sid in pool._lost_sessions
+
+            again2 = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="ttl-fail-3")
+            assert again2.get("status") == "error"
+            assert again2.get("code") == "SESSION_RESET_FAILED"
+            assert again2.get("session_reset") is not True
         finally:
             pool.shutdown()
 
@@ -1952,6 +1966,68 @@ class TestFormulaHttpEndpoint:
             with pool._cond:
                 assert sid not in pool._sessions
                 assert not pool._worker_has_sessions(pool.workers[0])
+        finally:
+            pool.shutdown()
+
+    def test_post_lease_queue_timeout_drops_new_session(self) -> None:
+        """When deadline expires right after leasing, new session reservation is dropped."""
+        from compute_service.worker_base import Deadline
+
+        pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0, shared_kernel_ttl_sec=0)
+        try:
+            warm = pool.execute(code="result = 1")
+            assert warm.get("status") == "ok"
+
+            usable_calls = [10.0, None]
+
+            def fake_usable(self_deadline: Any) -> float | None:
+                if usable_calls:
+                    return usable_calls.pop(0)
+                return None
+
+            sid = "post-lease-timeout-new"
+            with patch.object(Deadline, "usable", fake_usable):
+                res = pool.execute(code="result = 2", session_id=sid, mode="shared")
+                assert res.get("status") == "error"
+                assert res.get("code") == "QUEUE_TIMEOUT"
+
+            with pool._cond:
+                assert sid not in pool._sessions
+                assert sid not in pool._lost_sessions
+        finally:
+            pool.shutdown()
+
+    def test_post_lease_queue_timeout_keeps_existing_session(self) -> None:
+        """When deadline expires right after leasing, an existing session is preserved."""
+        from compute_service.worker_base import Deadline
+
+        pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0, shared_kernel_ttl_sec=0)
+        try:
+            sid = "post-lease-timeout-existing"
+            res1 = pool.execute(code="x = 42\nresult = x", session_id=sid, mode="shared")
+            assert res1.get("status") == "ok"
+            assert res1.get("result") == 42
+
+            usable_calls = [10.0, None]
+
+            def fake_usable(self_deadline: Any) -> float | None:
+                if usable_calls:
+                    return usable_calls.pop(0)
+                return None
+
+            with patch.object(Deadline, "usable", fake_usable):
+                res2 = pool.execute(code="x = x + 1\nresult = x", session_id=sid, mode="shared")
+                assert res2.get("status") == "error"
+                assert res2.get("code") == "QUEUE_TIMEOUT"
+
+            with pool._cond:
+                assert sid in pool._sessions
+                assert sid not in pool._lost_sessions
+
+            res3 = pool.execute(code="result = x", session_id=sid, mode="shared")
+            assert res3.get("status") == "ok"
+            assert res3.get("result") == 42
+            assert res3.get("session_reset") is not True
         finally:
             pool.shutdown()
 

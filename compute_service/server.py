@@ -26,7 +26,8 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service import __version__
 from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
-from compute_service.http_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, _accept_clock, _request_deadline, WSGIDualStackServer, service_listener_threads, sticky_listener_slots
+# Internal server clocks and timeouts shared with the route module; not public http_server exports.
+from compute_service.http_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, _accept_clock, _request_deadline, WSGIDualStackServer, service_listener_threads, sticky_listener_slots  # pyright: ignore[reportPrivateUsage]
 from compute_service.json_forward import (
     WIRE_JSON_FORWARD,
     ExecuteRequestError,
@@ -53,7 +54,7 @@ def setup_logging(level_name: str = "INFO") -> None:
 
 def check_dependencies(pool: Any) -> None:
     """Verify required dependencies are importable in worker; exit if missing."""
-    ok, err = pool.check_dependencies(["numpy", "sympy", "pandas"])
+    ok, err = pool.check_dependencies()
     if not ok:
         print(err or "Error: Required dependencies are not installed in the worker Python environment.\nPlease start the server using './compute_service/start.sh' or activate the correct virtual environment.", file=sys.stderr)
         from compute_service.formula_pool import shutdown_formula_pool
@@ -62,7 +63,9 @@ def check_dependencies(pool: Any) -> None:
         sys.exit(1)
 
 
-# The cell never ran for the 503 codes: a proxy can retry. Eval errors and
+# The cell never ran for the 503 codes: a proxy can retry. Unlike
+# RESULT_DECODE_ERROR, SESSION_RESET_FAILED executed nothing; with
+# touch=False a retry attempts the reset again. Eval errors and
 # EXECUTION_TIMEOUT stay HTTP 200 so the sheet shows the error instead of #N/A.
 # WORKER_CRASHED, WORKER_IPC_ERROR, and EMPTY_RESPONSE are 500: the cell
 # may have run (OOM, segfault, a rejected response frame, missing frame).
@@ -84,6 +87,7 @@ _HTTP_STATUS_BY_CODE = {
     "WORKER_SPAWN_FAILED": "503 Service Unavailable",
     "WORKER_PIPE_BROKEN": "503 Service Unavailable",
     "QUEUE_TIMEOUT": "503 Service Unavailable",
+    "SESSION_RESET_FAILED": "503 Service Unavailable",
     "VISION_POOL_BUSY": "503 Service Unavailable",
     "VISION_UNAVAILABLE": "503 Service Unavailable",
     "WORKER_CRASHED": "500 Internal Server Error",

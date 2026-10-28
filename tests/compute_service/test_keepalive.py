@@ -644,7 +644,7 @@ def test_client_shutdown_wr_eof_closes_cleanly() -> None:
 
 def test_header_timeout_sends_408_and_connection_close(monkeypatch: pytest.MonkeyPatch) -> None:
     """Partial request line stalling past timeout gets 408 with Connection: close."""
-    monkeypatch.setattr(cs_http, "_REQUEST_READ_TIMEOUT_SEC", 0.2)
+    monkeypatch.setattr(cs_http, "_HEADER_READ_TIMEOUT_SEC", 0.2)
     server, port, t = _start_server(max_threads=2)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:

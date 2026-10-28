@@ -34,7 +34,7 @@ log = logging.getLogger("compute_service.formula")
 
 # The child never ran the cell. Dropping the lost-session marker on these
 # codes would hide a reset kernel from the next sticky call.
-_UNRUN_RESULT_CODES = frozenset({"QUEUE_TIMEOUT", "PAYLOAD_TOO_LARGE", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN"})
+_UNRUN_RESULT_CODES = frozenset({"QUEUE_TIMEOUT", "PAYLOAD_TOO_LARGE", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN", "SESSION_RESET_FAILED"})
 SESSION_RESET_TIMEOUT_SEC = 5.0
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -77,6 +77,13 @@ class _SharedAdmission:
                 if self.session_was_lost:
                     pool._mark_session_lost_unlocked(session_id)
             elif isinstance(result, dict) and result.get("code") in _UNRUN_RESULT_CODES:
+                # Bugfix: what was wrong: new session id was kept in _sessions after leasing if cell never ran.
+                # How it happened: _finalize_session bound the live child to _sessions, and restore_lost_marker
+                # only dropped new reservations when result was None.
+                # Why this change fixes it: when is_new_session, drop reservation (lost=False, only_if_worker=self.worker)
+                # so the pool does not keep a phantom session for an unrun cell.
+                if self.is_new_session:
+                    pool._drop_session(session_id, only_if_worker=self.worker, lost=False)
                 if self.session_was_lost:
                     pool._mark_session_lost_unlocked(session_id)
 
@@ -421,7 +428,7 @@ class FormulaProcessPool(BaseProcessPool):
         if self._is_shutdown or not self.workers:
             return False, "Formula compute pool is not running."
 
-        target_packages = ["numpy", "sympy", "pandas"] if packages is None else packages
+        target_packages = ["numpy", "sympy", "pandas", "scipy", "matplotlib"] if packages is None else packages
         with self.leased(timeout_sec=timeout_sec) as leased:
             if leased is None:
                 return False, "Failed to lease a formula worker subprocess for dependency check."
@@ -498,36 +505,43 @@ class FormulaProcessPool(BaseProcessPool):
         target_worker, session_was_lost, is_new_session = self._select_shared_worker(session_id)
         return _SharedAdmission(worker=target_worker, session_was_lost=session_was_lost, is_new_session=is_new_session)
 
-    def _expire_leased_session(self, worker: BaseProcessWorker, session_id: str, deadline: float) -> bool:
+    def _expire_leased_session(self, worker: BaseProcessWorker, session_id: str, deadline: float, req_id: str | None = None) -> tuple[bool, dict[str, Any] | None]:
         """Reset *session_id* when it has been idle past the session TTL.
 
         Caller holds the lease on *worker*. The map entry stays: dropping
         it let a concurrent sticky call reserve the id on another process
         before this cell finished. This call reports ``session_reset``.
         The id is not marked lost, so the following cell does not report
-        it again. A failed reset returns False only when the same child is
-        still alive. A failure that killed or replaced the child returns
-        True so this call reports ``session_reset``.
+        it again. When reset fails and the child is still alive, returns
+        (False, error_dict) so execute refuses to run the cell on a stale
+        namespace. A failure that killed or replaced the child returns
+        (True, None) so this call reports ``session_reset``.
         """
         if self.shared_kernel_ttl_sec <= 0:
-            return False
+            return False, None
         with self._cond:
             sess = self._sessions.get(session_id)
             stale = sess is not None and sess.worker is worker and self._session_past_ttl(sess)
         if not stale:
-            return False
+            return False, None
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return False
+            return False, None
         before = worker.child
         res = worker.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=remaining)
         if res.get("status") == "ok":
-            return True
+            return True, None
         # _fail_request killed the child (timeout, crash, IPC error) and this call respawns a blank kernel.
         if worker.child is not before or not worker.is_alive():
-            return True
+            return True, None
+        # Bugfix: what was wrong: when reset_session failed but worker was alive, execute() ran
+        # the cell on the stale namespace with no error or session_reset flag.
+        # How it happened: _expire_leased_session returned False for both non-stale sessions
+        # and failed resets with a live child.
+        # Why this change fixes it: return (False, error_dict) on failed reset so execute()
+        # immediately returns SESSION_RESET_FAILED and refuses to run the cell.
         log.error("reset_session failed for %s; keeping session map because the worker may still hold the namespace: %s", session_id, res)
-        return False
+        return False, error_dict("SESSION_RESET_FAILED", "Session TTL reset failed; the cell was not run.", req_id=req_id)
 
     def _run_execution(self, leased: BaseProcessWorker, payload: dict[str, Any], clock: Deadline, session_was_lost: bool, req_id: str | None, decode_result: bool) -> dict[str, Any]:
         """Send execution payload to leased worker and format response."""
@@ -575,14 +589,19 @@ class FormulaProcessPool(BaseProcessPool):
             return decoded
         return res
 
-    def _finalize_session(self, leased: BaseProcessWorker, session_id: str | None, mode: str, lost: bool = True) -> None:
+    def _finalize_session(self, leased: BaseProcessWorker, session_id: str | None, mode: str, lost: bool = True, touch: bool = True) -> None:
         """Update session mapping and release leased worker."""
         try:
             with self._cond:
                 # Unlocked child read: see _reap_dead_sessions_unlocked.
                 # A respawn in this window means the kernel is already gone.
                 current = leased.child
-                if mode == "shared" and session_id and leased.is_alive() and current is not None and self._session_child_live(current):
+                # Bugfix: what was wrong: after a failed session reset, _finalize_session refreshed
+                # last_active on the live child, masking the expired state so subsequent requests ran on stale state.
+                # How it happened: _finalize_session always stamped last_active for any live leased worker.
+                # Why this change fixes it: when touch is False (on SESSION_RESET_FAILED), skip updating
+                # child/last_active so the session remains past TTL and reset is retried on the next call.
+                if touch and mode == "shared" and session_id and leased.is_alive() and current is not None and self._session_child_live(current):
                     sess = self._sessions.get(session_id)
                     if sess is not None and sess.worker is leased:
                         sess.child = current
@@ -694,9 +713,14 @@ class FormulaProcessPool(BaseProcessPool):
             if clock.usable() is None:
                 result = error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
                 return result
-            if mode == "shared" and session_id and self._expire_leased_session(leased, session_id, deadline):
-                assert admission is not None
-                admission.session_was_lost = True
+            if mode == "shared" and session_id:
+                reset_done, reset_err = self._expire_leased_session(leased, session_id, deadline, req_id)
+                if reset_err is not None:
+                    result = reset_err
+                    return result
+                if reset_done:
+                    assert admission is not None
+                    admission.session_was_lost = True
             session_was_lost = admission.session_was_lost if admission is not None else False
             result = self._run_execution(leased, payload=payload, clock=clock, session_was_lost=session_was_lost, req_id=req_id, decode_result=decode_result)
             return result
@@ -710,7 +734,8 @@ class FormulaProcessPool(BaseProcessPool):
                 and result.get("code") in _UNRUN_RESULT_CODES
             ):
                 drop_lost = False
-            self._finalize_session(leased, session_id, mode, lost=drop_lost)
+            touch = not (isinstance(result, dict) and result.get("code") == "SESSION_RESET_FAILED")
+            self._finalize_session(leased, session_id, mode, lost=drop_lost, touch=touch)
             # result is None only when _run_execution raised; the old code
             # left the maps alone on that path, so this does too.
             if admission is not None and result is not None:
