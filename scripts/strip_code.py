@@ -81,6 +81,14 @@ PRINT_KEEP_PATTERNS: list[str] = [
     "plugin/calc/excel_py_convert/cli.py",
     "plugin/lib/latex2mathml/converter.py",
     "plugin/contrib/smolagents/monitoring.py",
+    # Pre-logging CLI errors / deps check / bind refusal under compute_service/
+    "compute_service/",
+]
+
+# Logger .debug/.info keep-list: container operator log.
+LOG_KEEP_PATTERNS: list[str] = [
+    # Container operator log (Starting Python Compute Service, exec /v1/execute, done...)
+    "compute_service/",
 ]
 
 
@@ -100,6 +108,19 @@ def should_skip_print_strip(rel_path: str) -> bool:
     if should_skip_strip(rel_path):
         return True
     for pattern in PRINT_KEEP_PATTERNS:
+        if pattern.endswith("/"):
+            if rel_path.startswith(pattern):
+                return True
+        elif rel_path == pattern:
+            return True
+    return False
+
+
+def should_skip_log_strip(rel_path: str) -> bool:
+    """True if *rel_path* is globally excluded or on the log keep-list."""
+    if should_skip_strip(rel_path):
+        return True
+    for pattern in LOG_KEEP_PATTERNS:
         if pattern.endswith("/"):
             if rel_path.startswith(pattern):
                 return True
@@ -263,6 +284,7 @@ def strip_log_debug_info_calls(bundle_path: str, dry_run: bool = False) -> None:
         should_remove=_is_logger_debug_or_info_call,
         pass_comment="stripped log",
         dry_run=dry_run,
+        skip_file=should_skip_log_strip,
     )
 
 

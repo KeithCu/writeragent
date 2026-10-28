@@ -229,8 +229,13 @@ Match coolwsd (`coolwsd.xml`):
   <url>http://127.0.0.1:8000/v1/execute</url>
   <api_key>same-secret-as-service</api_key>
   <timeout_secs type="int">60</timeout_secs>
+  <max_payload_bytes type="int">16777216</max_payload_bytes>
 </python_compute>
 ```
+
+coolwsd caps the request and response payload at 16 MiB (`max_payload_bytes`). The compute service default body cap is 32 MiB (`PYTHON_COMPUTE_MAX_BODY_BYTES`) and the worker frame cap is 33 MiB (`COMPUTE_MAX_PAYLOAD_BYTES`). When `KIT_HOST_ALLOWLIST` is set in coolwsd's environment, the compute URL host must match that allowlist (an empty or unset list allows every host; a Docker DNS name is rejected once the list is non-empty).
+
+The Collabora kit sends `application/json` (the peel path) and always specifies `mode: "isolated"`. It does not send `init_script` or `session_id` (though the compute service accepts both). Plots are returned as `images[]` with `format: "svg"` and base64 data, with `result` set to `null`. Collabora Online writes the cell string `Image generated (plot insert not supported yet)`. The compute image does not insert picture shapes into the document.
 
 ---
 
@@ -265,9 +270,11 @@ Key file permissions: readable only by the service user (e.g. mode `0400`). `./c
 
 ### Production / Collabora Online
 
-coolwsd is the only hop that should reach this process. Bind loopback, set the same Bearer secret as `security.python_compute.api_key`, and do **not** mount a host venv or docker.sock.
+coolwsd is the only hop that should reach this process. Bind loopback, set the same Bearer secret as `security.python_compute.api_key`, and do **not** mount a host venv or docker.sock. The smolagents local executor is not a hard sandbox boundary (`sandbox.py`: C extensions in pandas, numpy, PIL, and matplotlib can perform file I/O). Run the container only on loopback or a private network reachable only by coolwsd. Always set the API key: the container binds `0.0.0.0` and refuses to start without an API key configured.
 
-`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Send the raw `image` part. A vision call waits for a free OCR worker until its timeout, then returns HTTP 503 with `VISION_POOL_BUSY` in the JSON body. A call that exceeds its own timeout returns `EXECUTION_TIMEOUT` and kills that worker. The next call respawns it, which reloads the model.
+The AST sandbox allowlist is wider than the wheels installed in the container image: `import pint` and `import PIL` work, while `calc` (the `calc_functions` facade) is excluded from the image matching LibrePy. `import duckdb` is allowlisted in the sandbox but duckdb is not installed in the image (`session_duckdb` is absent with `duckdb_sql.py` excluded).
+
+`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Send the raw `image` part. On this container image, OCR workers default to 0, and requests to `/v1/vision` return HTTP 501 `VISION_SERVICE_DISABLED`.
 
 `--network=none` cannot be combined with `-p` (published ports need a network namespace). Publish to loopback on the host, or use an internal bridge **without a default route**. Tenant sockets still fail via the AST sandbox plus missing egress.
 
@@ -398,11 +405,14 @@ Log format includes timestamps, log level, request IDs, modes, code size, execut
 
 ## Docker & Container Hardening
 
+`make build-compute` writes the runtime bundle to `build/bundle-compute/`.
+`docker build -f compute_service/Dockerfile -t python-compute .` from the repository root runs the bundle builder in a multi-stage Docker build and copies the result into a slim final image.
+
 ```bash
 docker build -f compute_service/Dockerfile -t python-compute .
 docker run --rm --init -p 127.0.0.1:8000:8000 \
   --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
-  --memory=1g --cpus=1 --pids-limit=256 \
+  --memory=1g --memory-swap=1g --cpus=1 --pids-limit=256 \
   --security-opt no-new-privileges \
   --cap-drop ALL \
   --user "$(id -u):$(id -g)" \
@@ -411,10 +421,10 @@ docker run --rm --init -p 127.0.0.1:8000:8000 \
   python-compute
 ```
 
-- The image and `start-docker.sh` set `PYTHON_COMPUTE_HOST=0.0.0.0` so the published port reaches the process. The host publish stays on `127.0.0.1`. `HOST` and `PORT` are not read. `start-docker.sh` publishes `127.0.0.1:$PYTHON_COMPUTE_PORT:$PYTHON_COMPUTE_PORT` (default `8000`) and passes that value into the container. The default memory limit is `1g` (`PYTHON_COMPUTE_MEMORY` overrides it). `--memory-swap` equals that value, so there is no extra swap. A cell loads numpy, pandas, sympy, scipy, and matplotlib into the worker.
+- See `./compute_service/start-docker.sh` for an automated launch script with these hardening flags. The image sets `PYTHON_COMPUTE_HOST=0.0.0.0` so published ports reach the process. The host publish stays on `127.0.0.1`. `start-docker.sh` publishes `127.0.0.1:$PYTHON_COMPUTE_PORT:$PYTHON_COMPUTE_PORT` (default `8000`). The default memory limit is `1g` (`PYTHON_COMPUTE_MEMORY` overrides it). `--memory-swap` equals `--memory` so there is no extra swap. The 1g limit accommodates the worker's import of numpy, pandas, sympy, and scipy.stats upon the first calculation cell (512m only covers the initial find_spec checks; matplotlib is imported only if the cell names `plt`).
 - `start-docker.sh` resolves `PYTHON_COMPUTE_API_KEY_FILE` to an absolute path from the caller's working directory. It runs `--init` and `--user` as the invoking uid and gid, so a mode `600` key file owned by that user is readable on rootful Docker. An env key is mounted from a temp file. It is not placed on the `docker run` command line. Rootless Docker remaps uids: container uid 0 is the host user, so `--user $(id -u)` can make that mode `600` file look like someone else's. The startup error then includes the process uid and the file owner. SELinux hosts need `:z` or `:Z` on the `-v` mount. The script leaves the mount `:ro`.
 - The image `HEALTHCHECK` calls `GET /health` with the Python stdlib. The base image has no curl. `HOME=/tmp` and `MPLCONFIGDIR=/tmp/mpl` sit on the `/tmp` tmpfs, because `--read-only` and a foreign `--user` have no writable home. Matplotlib creates `/tmp/mpl` itself.
-- The builder installs the pinned stack with `pip --only-binary=:all:` into `/app/pkgs` and does not install a compiler. A source build would link against libraries the runner never receives. The runner uses `USER appuser` and does not recurse ownership over `/app` (the tree is world-readable, and the real uid is the invoker's). `server.py` needs `plugin/vision/vision_common.py` at import. The desktop `plugin/vision/__init__.py` is not copied. OCR is not in this image. Every cell imports `plugin.scripting.named_scripts`, which imports `plugin.doc.doc_type`. The runner copies that module and not `plugin/doc/__init__.py`.
+- The `wheels` stage installs the pinned scientific stack with `pip --only-binary=:all:` into `/app/pkgs` without a compiler. The `bundle` stage runs `scripts/build_compute_bundle.py` to extract only the compute runtime closure from LibrePy and strip production code. The final stage copies `/app/pkgs` and `/out/`. Both `plugin/vision/__init__.py` and `plugin/doc/__init__.py` ship (desktop `common_module.py` does not). OCR workers default to 0 (`/v1/vision` returns 501 `VISION_SERVICE_DISABLED`).
 - Formula workers drop `PYTHONPATH` before spawn, and `worker_base.install_image_pkgs` adds `/app/pkgs` to `sys.path` when it is present. Without that, the process reaches the ready handshake and then exits because numpy and sympy are not visible to the worker.
 
 ---

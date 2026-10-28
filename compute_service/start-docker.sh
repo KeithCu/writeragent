@@ -43,8 +43,8 @@ if [[ ! "$PORT" =~ ^[0-9]+$ ]] || (( 10#$PORT < 1 || 10#$PORT > 65535 )); then
 fi
 
 # 1g: --memory-swap equals --memory, so there is no extra swap. The first
-# cell imports numpy, pandas, sympy, scipy.stats, and matplotlib into the
-# worker. 512m only covers the startup check (numpy and sympy).
+# cell imports numpy, pandas, sympy, and scipy.stats, and matplotlib only when
+# the cell names plt. 512m only covers the startup check (numpy and sympy).
 MEMORY="${PYTHON_COMPUTE_MEMORY:-1g}"
 docker build -f compute_service/Dockerfile -t "$IMAGE" .
 
