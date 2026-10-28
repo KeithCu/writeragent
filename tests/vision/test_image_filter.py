@@ -25,6 +25,13 @@ def _tools():
     return [_T("apply_document_content"), _T("get_image"), _T("search_in_document")]
 
 
+def _chat_filter(tools):
+    # Same answer tool.py's openai get_schemas passes in.
+    import plugin.framework.client.model_fetcher as mf
+
+    return filter_get_image_for_text_only_model(tools, mf.has_native_vision(mf.get_text_model(), mf.get_current_endpoint()))
+
+
 def _patch(vision):
     return (
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=vision),
@@ -36,21 +43,21 @@ def _patch(vision):
 def test_get_image_kept_for_vision_model():
     p1, p2, p3 = _patch(True)
     with p1, p2, p3:
-        names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
+        names = [t.name for t in _chat_filter(_tools())]
     assert "get_image" in names
 
 
 def test_get_image_kept_when_vision_unknown():
     p1, p2, p3 = _patch(None)
     with p1, p2, p3:
-        names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
+        names = [t.name for t in _chat_filter(_tools())]
     assert "get_image" in names
 
 
 def test_get_image_dropped_for_text_only_model():
     p1, p2, p3 = _patch(False)
     with p1, p2, p3:
-        names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
+        names = [t.name for t in _chat_filter(_tools())]
     assert "get_image" not in names
     assert "apply_document_content" in names and "search_in_document" in names
 
@@ -60,7 +67,7 @@ def test_exceptions_not_swallowed():
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"), \
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="e"):
         with pytest.raises(RuntimeError, match="boom"):
-            filter_get_image_for_text_only_model(_tools())
+            _chat_filter(_tools())
 
 
 def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
@@ -81,7 +88,7 @@ def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
          patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True), \
          patch("plugin.framework.client.model_fetcher.run_in_background") as bg:
-        names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
+        names = [t.name for t in _chat_filter(_tools())]
         sync.assert_not_called()
         bg.assert_called_once()
     mf._vision_in_flight.clear()
@@ -98,7 +105,7 @@ def test_catalogued_text_only_model_drops_get_image_without_fetch():
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
          patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True), \
          patch("plugin.framework.client.model_fetcher.run_in_background"):
-        names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
+        names = [t.name for t in _chat_filter(_tools())]
         fetch.assert_not_called()
     mf._vision_in_flight.clear()
     assert "get_image" not in names
@@ -119,7 +126,7 @@ def test_stored_vision_false_drops_get_image_without_fetch():
          patch("plugin.framework.client.model_fetcher.get_config", side_effect=mock_get_config), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="google/gemini-3.8-flash"), \
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"):
-        names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
+        names = [t.name for t in _chat_filter(_tools())]
         fetch.assert_not_called()
     assert "get_image" not in names
 
