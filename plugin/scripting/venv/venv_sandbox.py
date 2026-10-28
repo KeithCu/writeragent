@@ -1026,7 +1026,7 @@ def _get_or_create_session_executor(
     *,
     policy: SandboxPolicy | None = None,
     digest: str | None = None,
-) -> LocalPythonExecutor:
+) -> tuple[LocalPythonExecutor, bool]:
     with _SESSION_LOCK:
         executor = _SESSION_EXECUTORS.get(session_id)
         if executor is not None and digest is not None:
@@ -1034,14 +1034,16 @@ def _get_or_create_session_executor(
                 _drop_session_unlocked(session_id)
                 executor = None
 
+        created = False
         if executor is None:
             executor = _new_executor(timeout_sec, policy=policy)
             if digest is not None:
                 executor._sandbox_policy_digest = digest
             _SESSION_EXECUTORS[session_id] = executor
+            created = True
         else:
             executor.timeout_seconds = timeout_sec
-        return executor
+        return executor, created
 
 
 def _clear_init_session_unlocked(init_session_id: str) -> None:
@@ -1261,7 +1263,7 @@ def _ensure_init_executed(
                 _record_isolated_init_access_unlocked(init_session_id)
             return None
 
-    init_executor = _get_or_create_session_executor(
+    init_executor, _ = _get_or_create_session_executor(
         init_session_id, timeout_sec, policy=policy, digest=digest
     )
     # Init and the cell used to each get a fresh alarm for the full budget, so
@@ -1726,19 +1728,23 @@ def run_sandboxed_code(
                 return init_err
 
         if session_id:
-            executor = _get_or_create_session_executor(
+            executor, created = _get_or_create_session_executor(
                 session_id, timeout_sec, policy=policy, digest=policy_digest_val
             )
             if init_sid:
                 _seed_shared_executor_once(executor, session_id, init_sid, init_digest)
         else:
             executor = _new_executor(timeout_sec, policy=policy)
+            created = False
             if init_sid:
                 _seed_executor_from_init(executor, init_sid, copy_values=True)
 
         left = _seconds_left(deadline)
         if left is None:
-            return _budget_timeout_error(timeout_sec)
+            err = _budget_timeout_error(timeout_sec)
+            if session_id:
+                err["namespace_created"] = created
+            return err
         executor.timeout_seconds = left
 
         inject_auto_imports(executor, code)
@@ -1752,7 +1758,10 @@ def run_sandboxed_code(
         executor.state.pop("scoped_dir", None)
         _inject_bindings(executor, bindings)
         _inject_session_duckdb(executor)
-        return _run_on_executor(executor, code, force=force)
+        raw = _run_on_executor(executor, code, force=force)
+        if session_id:
+            raw["namespace_created"] = created
+        return raw
     finally:
         SANDBOX_EXTRA_MODULES.reset(extra_token)
         SANDBOX_BLOCKED_MODULES.reset(blocked_token)

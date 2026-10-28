@@ -80,7 +80,7 @@ request shapes, why multipart exists, and the plan to retire peel.
   ```
 
 - **Session Reset on Lost Kernel (`session_reset: true`)**:
-  If a shared session's worker process crashed, was recycled, was killed (e.g. by `SIGKILL` on an unrecoverable timeout), or was evicted by idle TTL, the pool loses the session state. The next sticky call that observes that loss lands on a fresh kernel and includes `"session_reset": true` once. A new session whose first cell did not run (`WORKER_SPAWN_FAILED` and the other `_UNRUN_RESULT_CODES`) does not set the flag. A request that fails before the cell runs (`PAYLOAD_TOO_LARGE`, `QUEUE_TIMEOUT`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`) does not consume that flag:
+  `session_reset` is set when this call's process had to create the namespace and the pool already had a row for that id (crash, idle eviction, recycle respawn). A brand-new id creates a namespace and does not set the flag. A call that never reaches the child leaves the row in place, so a later call that does run still sets the flag. There is no marker list and no marker TTL. Stale rows are not live sessions and do not pin recycle or idle-eviction. Idle eviction itself is unchanged from A: the worker dies, the rows stay stale, the next sticky call reports the flag:
   ```json
   {
     "id": "req-123",
@@ -219,7 +219,7 @@ Rules:
 - **Key configured** → `/v1/execute`, `/v1/session/reset`, and `/v1/vision` require a `Bearer <token>` match
   (`hmac.compare_digest` on the UTF-8 bytes). The scheme prefix `Bearer ` is matched case-insensitively per RFC 7235 (`bearer `, `BEARER `, etc.). A non-ASCII token or key is a 401 or a match, not a dropped connection. Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
 - `PYTHON_COMPUTE_API_KEY` is not stripped. A key file drops one trailing newline and keeps surrounding spaces. The same secret text is the same bytes from either source.
-- **Unknown JSON keys** are a startup error. A raw `api_key` in the file is a startup error. Alias `max_workers` is accepted.
+- **Unknown JSON keys** are a startup error. A raw `api_key` in the file is a startup error.
 
 Match coolwsd (`coolwsd.xml`):
 
@@ -237,7 +237,7 @@ Match coolwsd (`coolwsd.xml`):
 ## Configuration & Ops (no writeragent.json)
 
 Precedence (later wins): defaults → `--config` / `PYTHON_COMPUTE_CONFIG` JSON →
-`PYTHON_COMPUTE_*` env → `--host` / `--port` / `--api-key-file`. When a canonical variable and its alias are both set, the canonical name wins (`PYTHON_COMPUTE_WORKERS` over `PYTHON_COMPUTE_MAX_WORKERS`), with a warning when they differ. An empty value is ignored and falls back to JSON or the default, with a warning.
+`PYTHON_COMPUTE_*` env → `--host` / `--port` / `--api-key-file`. An empty value is ignored and falls back to JSON or the default, with a warning.
 
 Example JSON: [`python-compute.example.json`](python-compute.example.json).
 
@@ -252,7 +252,7 @@ Example JSON: [`python-compute.example.json`](python-compute.example.json).
 | `PYTHON_COMPUTE_MAX_BODY_BYTES` | Request body cap | `33554432` (32 MiB) |
 | `PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC` | Default execution timeout in seconds | `30` |
 | `PYTHON_COMPUTE_MAX_TIMEOUT_SEC` | Upper bound clamp for `timeout_ms` | `600` |
-| `PYTHON_COMPUTE_WORKERS` | Number of formula worker subprocesses. `PYTHON_COMPUTE_MAX_WORKERS` is an accepted alias. | `2` |
+| `PYTHON_COMPUTE_WORKERS` | Number of formula worker subprocesses. | `2` |
 | `PYTHON_COMPUTE_WORKER_MAX_TASKS` | Tasks before recycling formula worker | `500` |
 | `PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC` | Worker process idle timeout in seconds before termination. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. `0` disables eviction (the reaper does not start). | `3600` (1 hour) |
 | `PYTHON_COMPUTE_OCR_WORKERS` | Dedicated OCR/Vision worker subprocesses | `0` (disabled by default) |

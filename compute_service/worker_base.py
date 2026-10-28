@@ -386,9 +386,8 @@ class BaseProcessPool:
         and respawns it. The last-active stamp goes with the idle entry;
         the next successful idle writes a new one.
 
-        ``is_alive`` may reap a zombie with ``poll()``. Formula session rows
-        are dropped by ``_reap_dead_sessions_unlocked`` when the stored
-        child is no longer the slot's child.
+        ``is_alive`` may reap a zombie with ``poll()``. Stale formula session rows
+        expire on idle TTL when the stored child is no longer the slot's child.
         """
         for worker in list(self._idle):
             if not worker.is_alive():
