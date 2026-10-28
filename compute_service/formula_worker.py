@@ -70,8 +70,11 @@ def execute_code(code: str, data: Any = None, session_id: str | None = None, tim
             init_sid = f"isolated:{init_hash}:init"
 
     raw = run_sandboxed_code(code=code, data=data, session_id=use_session, timeout_sec=timeout_sec, init_script=init_code, init_session_id=init_sid, init_script_hash=init_hash)
-
-    return normalize_execute_response(raw)
+    namespace_created = raw.pop("namespace_created", None)
+    out = normalize_execute_response(raw)
+    if namespace_created is not None:
+        out["namespace_created"] = namespace_created
+    return out
 
 
 def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
@@ -106,11 +109,10 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             return res
         return {"id": req_id, "status": "ok"}
 
-    session_reset = bool(req.get("session_reset"))
     code = req.get("code")
     if not code or not isinstance(code, str):
         err = {"id": req_id, "status": "error", "code": "MISSING_CODE", "error": "Missing or invalid 'code' parameter", "stdout": ""}
-        return json_forward_envelope(err, req_id=req_id, session_reset=session_reset)
+        return json_forward_envelope(err, req_id=req_id, session_reset=False, namespace_created=False)
 
     session_id = req.get("session_id")
     # Pool execute() already rejected a bad mode or wire. The stdio dict
@@ -121,15 +123,18 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
     try:
         data = _load_request_data(req)
-        res = validate_execute_response(execute_code(code=code, data=data, session_id=session_id, timeout_sec=timeout_sec, mode=mode, init_script=init_script))
+        raw_res = execute_code(code=code, data=data, session_id=session_id, timeout_sec=timeout_sec, mode=mode, init_script=init_script)
+        created = bool(raw_res.pop("namespace_created", False))
+        res = validate_execute_response(raw_res)
         if req_id is not None and isinstance(res, dict):
             res["id"] = req_id
-        return json_forward_envelope(res, req_id=req_id, session_reset=session_reset)
+        session_reset = bool(req.get("expect_namespace")) and created
+        return json_forward_envelope(res, req_id=req_id, session_reset=session_reset, namespace_created=created)
     except Exception as exc:
         # Traceback included server paths on the kit wire. Eval errors from
         # json_egress are only status/error/stdout; this path must match.
         err = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": str(exc), "stdout": ""}
-        return json_forward_envelope(err, req_id=req_id, session_reset=session_reset)
+        return json_forward_envelope(err, req_id=req_id, session_reset=False, namespace_created=False)
 
 
 def _load_request_data(req: dict[str, Any]) -> Any:

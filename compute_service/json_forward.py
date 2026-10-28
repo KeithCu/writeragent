@@ -184,7 +184,7 @@ def dumps_response(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, allow_nan=False).encode("utf-8")
 
 
-def json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bool = False) -> dict[str, Any]:
+def json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bool = False, namespace_created: bool = False) -> dict[str, Any]:
     """Pickle envelope: small status for host logs + result_json bytes to forward."""
     if session_reset:
         res["session_reset"] = True
@@ -197,11 +197,11 @@ def json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bo
         if session_reset:
             fallback["session_reset"] = True
         result_json = dumps_response(fallback)
-        out: dict[str, Any] = {"id": req_id, "status": "error", "result_json": result_json}
+        out: dict[str, Any] = {"id": req_id, "status": "error", "result_json": result_json, "namespace_created": namespace_created}
         if session_reset:
             out["session_reset"] = True
         return out
-    out = {"id": req_id, "status": res.get("status"), "result_json": result_json}
+    out = {"id": req_id, "status": res.get("status"), "result_json": result_json, "namespace_created": namespace_created}
     if session_reset:
         out["session_reset"] = True
     return out

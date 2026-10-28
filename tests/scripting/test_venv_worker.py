@@ -2092,10 +2092,12 @@ def test_session_executor_updates_timeout_seconds():
 
     sid = "test-dynamic-timeout-session"
     try:
-        exec1 = _get_or_create_session_executor(sid, timeout_sec=10)
+        exec1, created1 = _get_or_create_session_executor(sid, timeout_sec=10)
+        assert created1 is True
         assert exec1.timeout_seconds == 10
 
-        exec2 = _get_or_create_session_executor(sid, timeout_sec=3)
+        exec2, created2 = _get_or_create_session_executor(sid, timeout_sec=3)
+        assert created2 is False
         assert exec2 is exec1
         assert exec2.timeout_seconds == 3
     finally:

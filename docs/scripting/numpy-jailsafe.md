@@ -480,8 +480,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
    - Optionally inject `init_script` once per docKey (cache flag on DocumentBroker) by reading a document property via an existing kit command if available; v1 can skip init and only share namespace across `=PY` cells.
 3. **AddIn:** keep emitting isolated always **or** emit `mode` omit and let wsd decide — prefer **wsd owns mode** so a rebuilt AddIn is not required to flip admin policy.
 4. **Lifecycle:**
-   - On DocumentBroker destroy / last session leave: coolwsd `POST /v1/session/reset?session_id=<id>` (service endpoint is landed; **coolwsd caller is not**). Query-only `session_id` (same L7 sticky as execute). Idempotent `ok` if the kernel is already gone. Do not put `session_id` in the JSON body.
-   - TTL: expire idle shared sessions in the service (`shared_kernel_ttl_sec`) to bound memory if reset is missed. The next sticky call resets that kernel. The idle-worker reaper kills a process whose sessions are all past that TTL. Do not remove that expiry.
+   - On DocumentBroker destroy / last session leave: coolwsd `POST /v1/session/reset?session_id=<id>` (service endpoint is landed; **coolwsd caller is not**). Query-only `session_id` (same L7 sticky as execute). Idempotent `ok` if the kernel is already gone. Do not put `session_id` in the JSON body. The map is dropped on `ok`, and a missed reset is reclaimed when the worker has been idle for `idle_worker_ttl_sec`.
 5. **Recalc semantics:** document Online limitation — without Excel-style co-volatility, multi-cell shared-kernel scripts need real `data` precedents for dirtying and operator-managed run order (same advisory as LibrePy §6; the OOXML rewriter does not invent prior-PY edges). Do not invent Online co-volatility in v1.
 6. **Tests:**
    - Service unit: two sequential executes with same `session_id` share a name; different ids do not.

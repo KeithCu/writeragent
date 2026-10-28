@@ -1058,23 +1058,41 @@ class TestComputeSettings:
         import logging
 
         with caplog.at_level(logging.WARNING, logger="compute_service.config"):
-            # 1. Canonical PYTHON_COMPUTE_WORKERS over alias PYTHON_COMPUTE_MAX_WORKERS
-            s = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "3", "PYTHON_COMPUTE_MAX_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-            assert s.workers == 3
-            assert "Both PYTHON_COMPUTE_WORKERS and PYTHON_COMPUTE_MAX_WORKERS are set and differ" in caplog.text
-
-            # When they match, no warning
-            caplog.clear()
-            s_same = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "4", "PYTHON_COMPUTE_MAX_WORKERS": "4", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-            assert s_same.workers == 4
-            assert "differ" not in caplog.text
-
-            # 2. Known variable present but empty logs warning and falls back to default; never log API key value
+            # Known variable present but empty logs warning and falls back to default; never log API key value
             caplog.clear()
             s_empty = load_settings(environ={"PYTHON_COMPUTE_PORT": "", "PYTHON_COMPUTE_API_KEY": "", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
             assert s_empty.port == 8000
             assert "Environment variable PYTHON_COMPUTE_PORT is empty; ignoring" in caplog.text
             assert "Environment variable PYTHON_COMPUTE_API_KEY is empty; ignoring" in caplog.text
+
+    def test_rejected_env_and_json_aliases(self, tmp_path) -> None:
+        # PYTHON_COMPUTE_MAX_WORKERS is not in the map so it does not change workers
+        s_env = load_settings(environ={"PYTHON_COMPUTE_MAX_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert s_env.workers == 2
+
+        # Top-level max_workers in JSON raises ConfigError
+        cfg_max_workers = tmp_path / "max_workers.json"
+        cfg_max_workers.write_text(json.dumps({"max_workers": 5}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="Unknown config key 'max_workers'"):
+            load_settings(config_path=cfg_max_workers, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
+        # limits.max_workers in JSON raises ConfigError
+        cfg_limits = tmp_path / "limits.json"
+        cfg_limits.write_text(json.dumps({"limits": {"max_workers": 5}}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="Unknown limits key 'max_workers'"):
+            load_settings(config_path=cfg_limits, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
+        # Top-level api_key_file in JSON raises ConfigError
+        cfg_key = tmp_path / "api_key.json"
+        cfg_key.write_text(json.dumps({"api_key_file": "/tmp/dummy"}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="Unknown config key 'api_key_file'"):
+            load_settings(config_path=cfg_key, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
+        # session_ttl_sec in JSON raises ConfigError
+        cfg_ttl = tmp_path / "session_ttl.json"
+        cfg_ttl.write_text(json.dumps({"session_ttl_sec": 300}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="Unknown config key 'session_ttl_sec'"):
+            load_settings(config_path=cfg_ttl, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     def test_thread_count_keys_are_rejected(self, tmp_path) -> None:
         # Environment variables we do not read cannot change the listener count.

@@ -28,9 +28,6 @@ from typing import Any, Mapping
 
 log = logging.getLogger("compute_service.config")
 
-# Alias -> canonical env name. The canonical name wins when both are set.
-_ENV_ALIAS_TO_CANONICAL = {"PYTHON_COMPUTE_MAX_WORKERS": "PYTHON_COMPUTE_WORKERS"}
-
 MIN_MAX_CODE_CHARS = 64
 # HTTP body cap and the vision worker's file_path read cap. One value so a
 # path read cannot accept a file the HTTP layer would have rejected.
@@ -381,11 +378,10 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
 # are unknown keys, not a TypeError inside ComputeSettings(**values).
 _FIELD_NAMES = frozenset(f.name for f in fields(ComputeSettings) if f.init)
 _SECTION_KEYS = frozenset({"listen", "auth", "limits", "ocr", "logging"})
-_ALIASES = frozenset({"max_workers", "api_key_file"})
-_TOP_LEVEL_KEYS = _FIELD_NAMES | _SECTION_KEYS | _ALIASES
+_TOP_LEVEL_KEYS = _FIELD_NAMES | _SECTION_KEYS
 _LISTEN_KEYS = frozenset({"host", "port"})
 _AUTH_KEYS = frozenset({"api_key", "api_key_file"})
-_LIMIT_KEYS = frozenset({"max_body_bytes", "default_timeout_sec", "max_timeout_sec", "workers", "max_workers", "worker_max_tasks", "idle_worker_ttl_sec", "max_code_chars"})
+_LIMIT_KEYS = frozenset({"max_body_bytes", "default_timeout_sec", "max_timeout_sec", "workers", "worker_max_tasks", "idle_worker_ttl_sec", "max_code_chars"})
 _OCR_KEYS = frozenset({"workers", "timeout_sec", "max_tasks", "allow_paths"})
 _LOGGING_KEYS = frozenset({"log_level", "level"})
 
@@ -399,7 +395,6 @@ _ENV_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC", "default_timeout_sec"),
     ("PYTHON_COMPUTE_MAX_TIMEOUT_SEC", "max_timeout_sec"),
     ("PYTHON_COMPUTE_WORKERS", "workers"),
-    ("PYTHON_COMPUTE_MAX_WORKERS", "workers"),
     ("PYTHON_COMPUTE_WORKER_MAX_TASKS", "worker_max_tasks"),
     ("PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC", "idle_worker_ttl_sec"),
     ("PYTHON_COMPUTE_OCR_WORKERS", "ocr_workers"),
@@ -467,13 +462,10 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
     elif logging_cfg is not None:
         raise ConfigError("logging must be a JSON object")
 
-    for key in _FIELD_NAMES | _ALIASES:
+    for key in _FIELD_NAMES:
         if key in raw and key not in out:
             out[key] = raw[key]
 
-    # Resolve aliases once after collecting all nested and flat keys
-    if "max_workers" in out:
-        out.setdefault("workers", out.pop("max_workers"))
     return out
 
 
@@ -483,7 +475,6 @@ def load_settings(
     host: str | None = None,
     port: int | None = None,
     workers: int | None = None,
-    max_workers: int | None = None,
     worker_max_tasks: int | None = None,
     ocr_workers: int | None = None,
     ocr_timeout_sec: int | None = None,
@@ -501,13 +492,6 @@ def load_settings(
         if var_name in env and not env[var_name]:
             log.warning("Environment variable %s is empty; ignoring", var_name)
 
-    # Check for alias conflicts where both canonical and alias are non-empty and differ
-    for alias, canon in _ENV_ALIAS_TO_CANONICAL.items():
-        val_canon = env.get(canon)
-        val_alias = env.get(alias)
-        if val_canon and val_alias and val_canon != val_alias:
-            log.warning("Both %s and %s are set and differ; using canonical %s=%s", canon, alias, canon, val_canon)
-
     values: dict[str, Any] = {}
 
     resolved_config = config_path or env.get("PYTHON_COMPUTE_CONFIG") or ""
@@ -515,13 +499,9 @@ def load_settings(
         values.update(_flatten_config_json(_load_json_file(resolved_config)))
 
     # Environment overrides JSON. Order is defaults, then JSON, then env, then CLI.
-    # Canonical env name wins over alias.
     for env_name, field_name in _ENV_FIELD_MAP:
         val = env.get(env_name)
         if val:
-            canonical = _ENV_ALIAS_TO_CANONICAL.get(env_name)
-            if canonical is not None and env.get(canonical):
-                continue
             values[field_name] = val
 
     # Do not strip. _read_key_file keeps leading and trailing spaces (it
@@ -539,8 +519,6 @@ def load_settings(
 
     if workers is not None:
         values["workers"] = workers
-    elif max_workers is not None:
-        values["workers"] = max_workers
 
     if worker_max_tasks is not None:
         values["worker_max_tasks"] = worker_max_tasks
