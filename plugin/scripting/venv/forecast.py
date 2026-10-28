@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 
 _MIN_FORECAST_POINTS = 8
 # Explicit holt_winters and auto used a literal 2. They share this constant
-# with _infer_seasonal_periods and _resolve_period so the cycle rule cannot drift.
+# with _infer_seasonal_periods, _resolve_period, and _cycle_shortfall so the cycle rule cannot drift.
 _MIN_DECOMPOSE_CYCLES = 2
 _MAX_FORECAST_PERIODS = 10_000
 
@@ -115,9 +115,7 @@ def _prepare_time_series(
     return coerced, series, None
 
 
-def _dropped_row_flags(coerced: CoerceResult | None) -> list[str]:
-    if coerced is None:
-        return []
+def _dropped_row_flags(coerced: CoerceResult) -> list[str]:
     dropped = coerced.metadata.get("rows_dropped")
     if dropped and int(dropped) > 0:
         return [f"Dropped {int(dropped)} rows with an unparseable date or value"]
@@ -129,24 +127,12 @@ def _dropped_row_flags(coerced: CoerceResult | None) -> list[str]:
 # passes a period. BH is business hours 09:00-17:00, and 24 is neither a
 # business day nor a business week of those hours, so those series stay trend-only.
 _SEASON_BY_FREQ_BASE: dict[str, int] = {
-    "D": 7,
-    "C": 7,
-    "B": 5,
-    "W": 52,
-    "M": 12,
-    "ME": 12,
-    "MS": 12,
-    "BM": 12,
-    "BMS": 12,
-    "BME": 12,
-    "Q": 4,
-    "QE": 4,
-    "QS": 4,
-    "BQ": 4,
-    "BQS": 4,
-    "BQE": 4,
-    "SME": 24,
-    "H": 24,
+    **dict.fromkeys(("D", "C"), 7),
+    **dict.fromkeys(("B",), 5),
+    **dict.fromkeys(("W",), 52),
+    **dict.fromkeys(("M", "ME", "MS", "BM", "BMS", "BME"), 12),
+    **dict.fromkeys(("Q", "QE", "QS", "BQ", "BQS", "BQE"), 4),
+    **dict.fromkeys(("SME", "H"), 24),
 }
 
 
@@ -156,10 +142,6 @@ def _freq_base(freq: str) -> str:
 
 def _weekday_daily(series: Any, step: Any) -> bool:
     """True when the typical gap is one day and the index has no weekend."""
-    import pandas as pd
-
-    if not isinstance(step, pd.Timedelta):
-        return False
     days = float(step.total_seconds() / 86400.0)
     if not 0.5 <= days <= 1.5:
         return False
@@ -169,14 +151,10 @@ def _weekday_daily(series: Any, step: Any) -> bool:
 
 def _period_from_gaps(series: Any) -> int | None:
     """Guess a cycle when ``infer_freq`` fails (weekend gaps, short spans)."""
-    import pandas as pd
-
     deltas = series.index.to_series().diff().dropna()
     if deltas.empty:
         return None
     step = deltas.median()
-    if not isinstance(step, pd.Timedelta):
-        return None
     days = float(step.total_seconds() / 86400.0)
     if _weekday_daily(series, step):
         return 5
@@ -205,6 +183,14 @@ def _candidate_seasonal_period(series: Any) -> int | None:
     return _period_from_gaps(series)
 
 
+def _cycle_shortfall(series: Any, season: int) -> str | None:
+    """The shared two-cycle error, or None when the series is long enough."""
+    need = season * _MIN_DECOMPOSE_CYCLES
+    if len(series) < need:
+        return f"Need at least {need} observations for period={season}; got {len(series)}"
+    return None
+
+
 def _infer_seasonal_periods(series: Any, seasonal_periods: int | None) -> int | None:
     """Season length from the dates, or the caller's explicit period.
 
@@ -219,7 +205,7 @@ def _infer_seasonal_periods(series: Any, seasonal_periods: int | None) -> int | 
     candidate = _candidate_seasonal_period(series)
     if candidate is None:
         return None
-    if len(series) < candidate * _MIN_DECOMPOSE_CYCLES:
+    if _cycle_shortfall(series, candidate) is not None:
         return None
     return candidate
 
@@ -246,9 +232,7 @@ def _seasonality_skip_reason(series: Any) -> str:
     )
 
 
-def _duplicate_date_flags(coerced: CoerceResult | None) -> list[str]:
-    if coerced is None:
-        return []
+def _duplicate_date_flags(coerced: CoerceResult) -> list[str]:
     collapsed = coerced.metadata.get("duplicate_dates_collapsed")
     if not collapsed:
         return []
@@ -264,19 +248,17 @@ def _spacing(series: Any) -> tuple[Any, str, bool]:
 
     deltas = series.index.to_series().diff().dropna()
     pos_deltas = deltas[deltas > pd.Timedelta(0)]
-    step: Any = pos_deltas.median() if not pos_deltas.empty else (deltas.median() if not deltas.empty else pd.Timedelta(days=30))
+    # Prepared series have at least 8 unique sorted timestamps, so these diffs
+    # are non-empty and strictly positive. The 30-day fallback never ran.
+    step = pos_deltas.median()
 
     if _weekday_daily(series, step):
         return pd.tseries.frequencies.to_offset("B"), "B", False
 
-    if pos_deltas.empty:
-        days = 30.0
-        irregular = False
-    else:
-        days = float(step.total_seconds() / 86400.0)
-        max_delta = pos_deltas.max()
-        min_delta = pos_deltas.min()
-        irregular = bool((max_delta > 1.5 * step) or (min_delta < 0.5 * step))
+    days = float(step.total_seconds() / 86400.0)
+    max_delta = pos_deltas.max()
+    min_delta = pos_deltas.min()
+    irregular = bool((max_delta > 1.5 * step) or (min_delta < 0.5 * step))
 
     # What was wrong: day >= 28 selected MonthEnd / QuarterEnd / YearEnd for
     # dates that are not on that anchor.
@@ -311,11 +293,11 @@ def _spacing(series: Any) -> tuple[Any, str, bool]:
     return step, "median_step", irregular
 
 
-def _future_index(series: Any, periods: int) -> tuple[Any, str]:
-    """Dates after the last observation, and the frequency label used."""
+def _future_index(series: Any, periods: int) -> tuple[Any, str, bool]:
+    """Dates after the last observation, frequency label, and irregular flag."""
     import pandas as pd
 
-    step, label, _irregular = _spacing(series)
+    step, label, irregular = _spacing(series)
     last_date = series.index[-1]
     # date_range applies DateOffset iteratively, which clips a short month and
     # then keeps the clipped day (e.g. 2023-01-30 -> 2023-02-28 -> 2023-03-28).
@@ -324,14 +306,7 @@ def _future_index(series: Any, periods: int) -> tuple[Any, str]:
         future = pd.DatetimeIndex([last_date + step * k for k in range(1, periods + 1)])
     else:
         future = pd.date_range(start=last_date + step, periods=periods, freq=step)
-    return future, label
-
-
-def _irregular_date_flag(series: Any) -> str | None:
-    _, _, irregular = _spacing(series)
-    if irregular:
-        return "Dates are irregular, so the forecast assumes equal spacing between observations."
-    return None
+    return future, label, irregular
 
 
 def _resolve_period(series: Any, period: Any, helper: str) -> tuple[int | None, dict[str, Any] | None]:
@@ -357,12 +332,9 @@ def _resolve_period(series: Any, period: Any, helper: str) -> tuple[int | None, 
             f"{helper} needs an explicit period, or a date frequency with at least two full seasonal cycles",
             helper=helper,
         )
-    if len(series) < season * _MIN_DECOMPOSE_CYCLES:
-        return None, _error_result(
-            "INSUFFICIENT_DATA",
-            f"Need at least {season * _MIN_DECOMPOSE_CYCLES} observations for period={season}; got {len(series)}",
-            helper=helper,
-        )
+    shortfall = _cycle_shortfall(series, season)
+    if shortfall is not None:
+        return None, _error_result("INSUFFICIENT_DATA", shortfall, helper=helper)
     return season, None
 
 
@@ -397,12 +369,11 @@ def _prepare_time_series_with_period(
     return coerced, series, season, None
 
 
-def _forecast_moving_average(series: Any, *, periods: int) -> tuple[Any, str, dict[str, Any]]:
+def _forecast_moving_average(series: Any, *, periods: int, future_dates: Any, freq_label: str) -> tuple[Any, dict[str, Any]]:
     import pandas as pd
 
     window = max(2, min(12, len(series) // 3))
     last_ma = float(series.rolling(window).mean().iloc[-1])
-    future_dates, freq_label = _future_index(series, periods)
     forecast_df = pd.DataFrame({"date": future_dates, "forecast": [last_ma] * periods})
     metrics = {
         "model": "moving_average",
@@ -411,7 +382,22 @@ def _forecast_moving_average(series: Any, *, periods: int) -> tuple[Any, str, di
         "window": window,
         "freq": freq_label,
     }
-    return forecast_df, "moving_average", metrics
+    return forecast_df, metrics
+
+
+def _fallback_ma(series: Any, periods: int, flags: list[str], future_dates: Any, freq_label: str, reason: str | None) -> tuple[Any, dict[str, Any]]:
+    """Moving average plus its flags.
+
+    `reason` is appended before the fixed interval sentence. None means there
+    is no reason (explicit moving_average with no seasonal_periods). The
+    Holt-Winters fallback must pass the Holt-Winters exception; the inner
+    ARIMA exception is discarded on purpose.
+    """
+    forecast_df, metrics = _forecast_moving_average(series, periods=periods, future_dates=future_dates, freq_label=freq_label)
+    if reason is not None:
+        flags.append(reason)
+    flags.append("moving_average has no prediction interval")
+    return forecast_df, metrics
 
 
 # HoltWintersResults has forecast/predict/simulate and no get_prediction.
@@ -425,12 +411,6 @@ _HW_INTERVALS_OMITTED_FLAG = (
 _HW_INTERVALS_NOTE_MESSAGE = (
     "HoltWintersResults has no analytic get_prediction; simulate() did not return a 95% band."
 )
-
-
-def _forecast_point(forecast_vals: Any, idx: int) -> float:
-    if hasattr(forecast_vals, "iloc"):
-        return float(forecast_vals.iloc[idx])
-    return float(forecast_vals[idx])
 
 
 def _holt_winters_intervals(fit: Any, periods: int) -> tuple[Any, Any] | None:
@@ -477,7 +457,8 @@ def _holt_winters_intervals(fit: Any, periods: int) -> tuple[Any, Any] | None:
     return lower, upper
 
 
-def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int) -> tuple[Any, str, dict[str, Any], list[str]]:
+def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int, future_dates: Any, freq_label: str) -> tuple[Any, dict[str, Any], list[str]]:
+    import numpy as np
     import pandas as pd
     from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
@@ -493,26 +474,22 @@ def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int) 
     )
     fit = model.fit(optimized=True)
     forecast_vals = fit.forecast(periods)
-    future_dates, freq_label = _future_index(series, periods)
 
-    rows: list[dict[str, Any]] = []
     flags: list[str] = []
     intervals = _holt_winters_intervals(fit, periods)
+    point = np.asarray(forecast_vals, dtype=float)
     if intervals is None:
         flags.append(_HW_INTERVALS_OMITTED_FLAG)
-        for idx, dt in enumerate(future_dates):
-            rows.append({"date": dt, "forecast": _forecast_point(forecast_vals, idx)})
+        forecast_df = pd.DataFrame({"date": future_dates, "forecast": point})
     else:
         lower, upper = intervals
-        for idx, dt in enumerate(future_dates):
-            rows.append({
-                "date": dt,
-                "forecast": _forecast_point(forecast_vals, idx),
-                "lower": float(lower.iloc[idx]),
-                "upper": float(upper.iloc[idx]),
-            })
+        forecast_df = pd.DataFrame({
+            "date": future_dates,
+            "forecast": point,
+            "lower": np.asarray(lower, dtype=float),
+            "upper": np.asarray(upper, dtype=float),
+        })
 
-    forecast_df = pd.DataFrame(rows)
     metrics: dict[str, Any] = {
         "model": "holt_winters",
         "periods": periods,
@@ -530,10 +507,11 @@ def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int) 
             "method": "HoltWintersResults.simulate",
             "message": _HW_INTERVALS_NOTE_MESSAGE,
         }
-    return forecast_df, "holt_winters", metrics, flags
+    return forecast_df, metrics, flags
 
 
-def _forecast_arima(series: Any, *, periods: int) -> tuple[Any, str, dict[str, Any], list[str]]:
+def _forecast_arima(series: Any, *, periods: int, future_dates: Any, freq_label: str) -> tuple[Any, dict[str, Any]]:
+    import numpy as np
     import pandas as pd
     from statsmodels.tsa.arima.model import ARIMA
 
@@ -546,16 +524,13 @@ def _forecast_arima(series: Any, *, periods: int) -> tuple[Any, str, dict[str, A
     pred = fit.get_forecast(steps=periods)
     forecast_vals = pred.predicted_mean
     conf = pred.conf_int()
-    future_dates, freq_label = _future_index(series, periods)
 
-    rows = []
-    for idx, dt in enumerate(future_dates):
-        row = {"date": dt, "forecast": float(forecast_vals.iloc[idx])}
-        if conf is not None and len(conf) > idx:
-            row["lower"] = float(conf.iloc[idx, 0])
-            row["upper"] = float(conf.iloc[idx, 1])
-        rows.append(row)
-    forecast_df = pd.DataFrame(rows)
+    point = np.asarray(forecast_vals, dtype=float)
+    columns: dict[str, Any] = {"date": future_dates, "forecast": point}
+    if conf is not None and len(conf) >= periods:
+        columns["lower"] = np.asarray(conf.iloc[:periods, 0], dtype=float)
+        columns["upper"] = np.asarray(conf.iloc[:periods, 1], dtype=float)
+    forecast_df = pd.DataFrame(columns)
     metrics: dict[str, Any] = {
         "model": "arima",
         "periods": periods,
@@ -565,7 +540,7 @@ def _forecast_arima(series: Any, *, periods: int) -> tuple[Any, str, dict[str, A
     }
     if hasattr(fit, "aic"):
         metrics["aic"] = float(fit.aic)
-    return forecast_df, "arima", metrics, []
+    return forecast_df, metrics
 
 
 def forecast_time_series(
@@ -640,7 +615,7 @@ def forecast_time_series(
     # pd.Timestamp.max, and only the statsmodels branches catch the raise.
     # Build the horizon once here so every model returns a parameter error.
     try:
-        _future_index(series, periods_clamped)
+        future_dates, freq_label, irregular_dates = _future_index(series, periods_clamped)
     except (ValueError, OverflowError):
         return _error_result(
             "INVALID_PARAM",
@@ -649,15 +624,11 @@ def forecast_time_series(
         )
 
     if model_name == "moving_average":
-        forecast_df, _unused_model, metrics = _forecast_moving_average(series, periods=periods_clamped)
-        if seasonal_periods_val is not None:
-            flags.append("seasonal_periods does not apply to moving_average; ignored")
-        flags.append("moving_average has no prediction interval")
+        reason = "seasonal_periods does not apply to moving_average; ignored" if seasonal_periods_val is not None else None
+        forecast_df, metrics = _fallback_ma(series, periods_clamped, flags, future_dates, freq_label, reason)
     elif _require_statsmodels() is None:
         if model_name == "auto":
-            forecast_df, _unused_model, metrics = _forecast_moving_average(series, periods=periods_clamped)
-            flags.append("statsmodels missing; used moving_average fallback")
-            flags.append("moving_average has no prediction interval")
+            forecast_df, metrics = _fallback_ma(series, periods_clamped, flags, future_dates, freq_label, "statsmodels missing; used moving_average fallback")
         else:
             return _missing_package_error(helper, "statsmodels")
     elif model_name == "holt_winters":
@@ -668,52 +639,36 @@ def forecast_time_series(
                 "holt_winters requires seasonal_periods or enough data to infer seasonality",
                 helper=helper,
             )
-        need = season * _MIN_DECOMPOSE_CYCLES
-        if len(series) < need:
-            return _error_result(
-                "INSUFFICIENT_DATA",
-                f"Need at least {need} observations for period={season}; got {len(series)}",
-                helper=helper,
-            )
+        shortfall = _cycle_shortfall(series, season)
+        if shortfall is not None:
+            return _error_result("INSUFFICIENT_DATA", shortfall, helper=helper)
         try:
-            forecast_df, _unused_model, metrics, hw_flags = _forecast_holt_winters(
-                series, periods=periods_clamped, seasonal_periods=season
-            )
+            forecast_df, metrics, hw_flags = _forecast_holt_winters(series, periods=periods_clamped, seasonal_periods=season, future_dates=future_dates, freq_label=freq_label)
             flags.extend(hw_flags)
         except Exception as exc:
             return _error_result("FORECAST_FAILED", str(exc), helper=helper)
     elif model_name == "arima":
         try:
-            forecast_df, _unused_model, metrics, arima_flags = _forecast_arima(series, periods=periods_clamped)
+            forecast_df, metrics = _forecast_arima(series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label)
             if seasonal_periods_val is not None:
                 flags.append("seasonal_periods does not apply to non-seasonal ARIMA(1,1,1); ignored")
-            flags.extend(arima_flags)
         except Exception as exc:
             return _error_result("FORECAST_FAILED", str(exc), helper=helper)
     else:
         # model_name == "auto"
         season = _infer_seasonal_periods(series, seasonal_periods_val)
-        has_enough = season is not None and len(series) >= season * _MIN_DECOMPOSE_CYCLES
+        has_enough = season is not None and _cycle_shortfall(series, season) is None
         if has_enough:
             assert season is not None
             try:
-                forecast_df, _unused_model, metrics, hw_flags = _forecast_holt_winters(
-                    series, periods=periods_clamped, seasonal_periods=season
-                )
+                forecast_df, metrics, hw_flags = _forecast_holt_winters(series, periods=periods_clamped, seasonal_periods=season, future_dates=future_dates, freq_label=freq_label)
                 flags.extend(hw_flags)
             except Exception as exc:
                 try:
-                    forecast_df, _unused_model, metrics, arima_flags = _forecast_arima(
-                        series, periods=periods_clamped
-                    )
-                    flags.extend(arima_flags)
+                    forecast_df, metrics = _forecast_arima(series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label)
                     flags.append(f"primary model failed ({exc}); used arima")
                 except Exception:
-                    forecast_df, _unused_model, metrics = _forecast_moving_average(
-                        series, periods=periods_clamped
-                    )
-                    flags.append(f"statsmodels forecast failed ({exc}); used moving_average")
-                    flags.append("moving_average has no prediction interval")
+                    forecast_df, metrics = _fallback_ma(series, periods_clamped, flags, future_dates, freq_label, f"statsmodels forecast failed ({exc}); used moving_average")
         else:
             if seasonal_periods_val is not None:
                 need = seasonal_periods_val * _MIN_DECOMPOSE_CYCLES
@@ -723,20 +678,12 @@ def forecast_time_series(
             else:
                 flags.append(_seasonality_skip_reason(series))
             try:
-                forecast_df, _unused_model, metrics, arima_flags = _forecast_arima(
-                    series, periods=periods_clamped
-                )
-                flags.extend(arima_flags)
+                forecast_df, metrics = _forecast_arima(series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label)
             except Exception as exc:
-                forecast_df, _unused_model, metrics = _forecast_moving_average(
-                    series, periods=periods_clamped
-                )
-                flags.append(f"statsmodels forecast failed ({exc}); used moving_average")
-                flags.append("moving_average has no prediction interval")
+                forecast_df, metrics = _fallback_ma(series, periods_clamped, flags, future_dates, freq_label, f"statsmodels forecast failed ({exc}); used moving_average")
 
-    irreg = _irregular_date_flag(series)
-    if irreg:
-        flags.append(irreg)
+    if irregular_dates:
+        flags.append("Dates are irregular, so the forecast assumes equal spacing between observations.")
     flags.extend(_dropped_row_flags(coerced))
 
     table = _table_from_df(forecast_df, name="forecast", max_rows=periods_clamped)

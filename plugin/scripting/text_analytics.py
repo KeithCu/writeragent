@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from plugin.doc.text_helpers import iter_heading_nodes
 from plugin.scripting._lazy_venv import install_lazy_exports
@@ -20,9 +20,6 @@ from plugin.scripting.helper_domain import (
     header_prefix,
     make_template_api,
 )
-
-if TYPE_CHECKING:
-    from plugin.doc.text_helpers import HeadingTreeNode
 
 _TEXT_VENV_EXPORTS = frozenset({"analyze_text", "check_diagnostics", "run_text_analytics"})
 
@@ -187,7 +184,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
         sections: list[str] = []
         current_title = "Introduction / preamble"
         current_parts: list[str] = []
-        heading_levels = {h.get("para_index"): h.get("text", "") for h in _flatten_headings(tree)}  # type: ignore[arg-type]  # build_heading_tree returns HeadingTreeNode which is dict-like
+        heading_levels = {n.get("para_index"): n.get("text", "") for n in iter_heading_nodes(tree) if n.get("text")}
 
         # What was wrong: the heading paragraph was both current_title and the first body
         # line, so topics and sentiment counted the heading twice; the fallback also called
@@ -246,13 +243,17 @@ def _get_writer_sections(doc: Any) -> list[str]:
         return [full] if full.strip() else []
 
 
-def _flatten_headings(node: dict[str, Any] | "HeadingTreeNode") -> list[dict[str, Any]]:
-    """Utility: flatten heading tree to {para_index: text} for grouping."""
-    return [
-        {"para_index": ch.get("para_index"), "text": ch.get("text")}
-        for ch in iter_heading_nodes(node)
-        if ch.get("text")
-    ]
+def _lang_of(obj: Any, where: str) -> str | None:
+    for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
+        try:
+            loc = obj.getPropertyValue(prop)
+            if loc and getattr(loc, "Language", None):
+                lang = str(loc.Language).strip().lower()[:2]
+                if lang and lang != "zxx":
+                    return lang
+        except Exception:
+            log.debug("text analytics: %s locale %s unreadable", where, prop, exc_info=True)
+    return None
 
 
 def get_doc_language(doc: Any) -> str | None:
@@ -260,31 +261,14 @@ def get_doc_language(doc: Any) -> str | None:
 
     Used by the dialog and runner to bias spaCy model selection for better accuracy.
     """
-    # Document level
-    for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
-        try:
-            loc = doc.getPropertyValue(prop)
-            if loc and getattr(loc, "Language", None):
-                lang = str(loc.Language).strip().lower()[:2]
-                if lang and lang != "zxx":
-                    return lang
-        except Exception:
-            log.debug("text analytics: doc locale %s unreadable", prop, exc_info=True)
-    # Current paragraph / selection
+    lang = _lang_of(doc, "doc")
+    if lang:
+        return lang
     try:
         controller = doc.getCurrentController()
         sel = controller.getSelection()
         if sel and hasattr(sel, "getByIndex"):
-            rng = sel.getByIndex(0)
-            for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
-                try:
-                    loc = rng.getPropertyValue(prop)
-                    if loc and getattr(loc, "Language", None):
-                        lang = str(loc.Language).strip().lower()[:2]
-                        if lang and lang != "zxx":
-                            return lang
-                except Exception:
-                    log.debug("text analytics: selection locale %s unreadable", prop, exc_info=True)
+            return _lang_of(sel.getByIndex(0), "selection")
     except Exception:
         log.debug("text analytics: selection locale probe failed", exc_info=True)
     return None

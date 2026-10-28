@@ -41,7 +41,7 @@ def test_run_python_dialog_uses_monaco_when_available():
                 with patch.object(pr, "is_calc", return_value=False):
                     with patch.object(pr, "is_draw", return_value=False):
                         with patch.object(pr, "get_config_str", return_value="print('hi')"):
-                            with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+                            with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
                                 with patch.object(pr, "_run_python_monaco", return_value=True) as mock_monaco:
                                     with patch.object(pr, "show_python_input_dialog") as mock_native:
                                         pr.run_python_dialog()
@@ -62,7 +62,7 @@ def test_run_python_dialog_falls_back_to_native_dialog():
                 with patch.object(pr, "is_calc", return_value=False):
                     with patch.object(pr, "is_draw", return_value=False):
                         with patch.object(pr, "get_config_str", return_value="x = 1"):
-                            with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
+                            with patch.object(pr, "monaco_editor_available", return_value=(None, False)):
                                 with patch.object(pr, "_run_python_monaco") as mock_monaco:
                                     with patch.object(pr, "show_python_input_dialog") as mock_native:
                                         with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
@@ -82,7 +82,7 @@ def test_run_python_dialog_no_msgbox_when_monaco_succeeds():
     with patch.object(pr, "get_ctx", return_value=ctx):
         with patch.object(pr, "get_desktop") as mock_desktop:
             mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+            with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
                 with patch.object(pr, "_run_python_monaco", return_value=True):
                     with patch.object(pr, "show_python_input_dialog") as mock_native:
                         with patch.object(pr, "_report_run_python_open_failed") as mock_report:
@@ -120,7 +120,7 @@ def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
             with patch.object(pr, "get_desktop") as mock_desktop:
                 mock_desktop.return_value.getCurrentComponent.return_value = doc
                 with patch.object(pr, "is_calc", return_value=False):
-                    with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+                    with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
                         with (
                             patch(
                                 "plugin.scripting.python_runner.resolve_run_script_selection",
@@ -165,7 +165,7 @@ def test_run_python_dialog_msgbox_when_monaco_and_native_fail():
                 patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
                 patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
             ):
-                with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+                with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
                     with patch.object(pr, "_run_python_monaco", return_value=False):
                         with patch.object(pr, "show_python_input_dialog", return_value=(False, None)):
                             with patch.object(pr, "_report_run_python_open_failed") as mock_report:
@@ -186,7 +186,7 @@ def test_run_python_dialog_msgbox_when_native_only_path_fails():
                 patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
                 patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
             ):
-                with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
+                with patch.object(pr, "monaco_editor_available", return_value=(None, False)):
                     with patch.object(pr, "show_python_input_dialog", return_value=(False, "dialog load failed")):
                         with patch.object(pr, "_report_run_python_open_failed") as mock_report:
                             pr.run_python_dialog()
@@ -209,7 +209,7 @@ def test_run_python_dialog_native_failure_detail_in_msgbox():
                 patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
                 patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
             ):
-                with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
+                with patch.object(pr, "monaco_editor_available", return_value=(None, False)):
                     with patch.object(pr, "show_python_input_dialog", return_value=(False, native_detail)):
                         with patch.object(pr, "_report_run_python_open_failed") as mock_report:
                             pr.run_python_dialog()
@@ -223,7 +223,7 @@ def test_run_python_dialog_reports_setup_error_when_monaco_not_expected():
     err = RuntimeError("no desktop")
 
     with patch.object(pr, "get_ctx", return_value=ctx):
-        with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
+        with patch.object(pr, "monaco_editor_available", return_value=(None, False)):
             with patch.object(pr, "get_desktop", side_effect=err):
                 with patch.object(pr, "show_python_input_dialog") as mock_native:
                     with patch.object(pr, "_report_run_python_open_failed") as mock_report:
@@ -259,7 +259,7 @@ def test_run_python_dialog_msgbox_includes_monaco_exception_when_native_fails():
                 patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
                 patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
             ):
-                with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+                with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
                     with patch.object(pr, "_run_python_monaco", side_effect=monaco_exc):
                         with patch.object(pr, "show_python_input_dialog", return_value=(False, None)):
                             with patch.object(pr, "_report_run_python_open_failed") as mock_report:
@@ -291,7 +291,7 @@ def test_run_python_dialog_immediate_msgbox_on_monaco_exception_then_native():
                 patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
                 patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
             ):
-                with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+                with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
                     with patch.object(pr, "_run_python_monaco", side_effect=monaco_exc):
                         with patch.object(pr, "show_python_input_dialog", side_effect=native):
                             with patch.object(pr, "_report_run_python_open_failed", side_effect=report):
@@ -312,7 +312,7 @@ def test_run_python_dialog_no_msgbox_when_monaco_not_expected_and_native_opens()
                 patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
                 patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
             ):
-                with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
+                with patch.object(pr, "monaco_editor_available", return_value=(None, False)):
                     with patch.object(pr, "_run_python_monaco") as mock_monaco:
                         with patch.object(pr, "show_python_input_dialog", return_value=(True, None)):
                             with patch.object(pr, "_report_run_python_open_failed") as mock_report:

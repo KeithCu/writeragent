@@ -45,8 +45,7 @@ _READABILITY_KEYS = frozenset({
 })
 
 _DESCRIPTIVE_KEYS = frozenset({
-    "n_tokens", "n_unique_tokens", "proportion_unique_tokens",
-    "n_characters", "n_sentences",
+    "proportion_unique_tokens",
     "token_length_mean", "token_length_median", "token_length_std",
     "sentence_length_mean", "sentence_length_median", "sentence_length_std",
     "syllables_per_token_mean", "syllables_per_token_median", "syllables_per_token_std",
@@ -97,12 +96,7 @@ def _model_candidates(lang: Any) -> list[str]:
     # Why this change: xx_sent_ud_sm is tried once; xx_ent_wiki_sm stays last
     # because it is NER-only.
     code = _lang_prefix(lang)
-    candidates: list[str] = []
-    if code and code in _LANG_MODELS:
-        candidates.extend(_LANG_MODELS[code])
-    candidates.append("xx_sent_ud_sm")
-    candidates.append("xx_ent_wiki_sm")
-    return candidates
+    return [*_LANG_MODELS.get(code, ()), "xx_sent_ud_sm", "xx_ent_wiki_sm"]
 
 
 def _load_nlp(lang: str | None = None) -> Any:
@@ -312,7 +306,7 @@ def _extract_topics(text: str | list[str], n_topics: Any = 4) -> dict[str, Any]:
     # How it happened: the cap used len(docs) rather than len(filtered), did not
     # cap n_components against feature count, and ignored input section indexes.
     # Why this change: filter while tracking input indexes, cap n_topics by len(filtered),
-    # cap n_components by min(n_topics, X.shape[0], X.shape[1]), and use the input index.
+    # cap n_components by min(n_topics, X.shape[1]) (n_topics is <= row count), and use the input index.
     filtered = [(idx, d) for idx, d in enumerate(docs) if len(d.split()) >= 8]
     if not filtered:
         filtered = [(0, docs[0])]
@@ -332,10 +326,10 @@ def _extract_topics(text: str | list[str], n_topics: Any = 4) -> dict[str, Any]:
             strip_accents="unicode",
         )
         X = vectorizer.fit_transform([d for _, d in filtered])
-        if X.shape[0] < 1 or X.shape[1] < 2:
+        if X.shape[1] < 2:
             return {"topics": [], "note": "insufficient distinct terms"}
 
-        n_components = min(n_topics, X.shape[0], X.shape[1])
+        n_components = min(n_topics, X.shape[1])
         nmf = NMF(n_components=n_components, random_state=42, init="nndsvd", max_iter=300, tol=1e-4)
         W = nmf.fit_transform(X)  # (n_docs, n_topics) weights
         H = nmf.components_       # (n_topics, n_terms)
@@ -355,11 +349,9 @@ def _extract_topics(text: str | list[str], n_topics: Any = 4) -> dict[str, Any]:
 
         result: dict[str, Any] = {"topics": topics}
 
-        if is_multi_section and len(W) > 0:
+        if is_multi_section:
             assignments = []
             for row_idx, row in enumerate(W):
-                if row.size == 0:
-                    continue
                 dom = int(row.argmax())
                 strength = float(row[dom])
                 assignments.append({
@@ -397,8 +389,6 @@ def _normalize_sentiment_label(label: str, num_labels: int | None = None) -> str
         return "positive"
     if cleaned in ("neg", "negative", "0"):
         return "negative"
-    if cleaned in ("2", "3", "4"):
-        return "neutral"
 
     star_match = _STAR_RE.match(cleaned)
     if star_match:
@@ -406,12 +396,8 @@ def _normalize_sentiment_label(label: str, num_labels: int | None = None) -> str
         return _polarity_from_class_index(star - 1, 5)
 
     label_match = _LABEL_N_RE.match(cleaned)
-    if label_match:
-        if isinstance(num_labels, int) and num_labels > 1:
-            n = int(label_match.group(1))
-            return _polarity_from_class_index(n, num_labels)
-        return "neutral"
-
+    if label_match and isinstance(num_labels, int):
+        return _polarity_from_class_index(int(label_match.group(1)), num_labels)
     return "neutral"
 
 
@@ -475,7 +461,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
 
     for i, sec in enumerate(sections):
         # Truncate conservatively for transformer limits; sections from headings are usually reasonable.
-        text_for_clf = sec[:512] if len(sec) > 512 else sec
+        text_for_clf = sec[:512]
         res = clf(text_for_clf)[0]
         # HF returns label like 'positive'/'negative'/'neutral' and score 0-1.
         raw_label = str(res.get("label", "neutral"))
@@ -674,54 +660,46 @@ def run_text_analytics(
 
     # Preserve original list form for section-aware helpers (topics, sentiment).
     # Only join for helpers that expect a single string.
-    original_text = text
+    raw = text
     if isinstance(text, list):
         text = "\n\n".join(str(t) for t in text if t)
 
     if not text or not str(text).strip():
         return {"status": "ok", "result": {}, "note": "no text provided"}
 
+    text_s = str(text)
+    section_text = raw if isinstance(raw, list) else text_s
     lang = params.get("lang") or (context or {}).get("lang")
 
     # For the minimal dialog we mainly use "full" or specific helpers.
     if helper in ("full", "analyze", "all"):
-        return analyze_text(str(text), lang=lang, context=context)
+        return analyze_text(text_s, lang=lang, context=context)
 
     # Narrow helpers: run nlp(text) once and extract only the requested subset,
     # skipping the unneeded NER / noun-chunk / textdescriptives work.
-    if helper in ("readability", "stats", "descriptive"):
-        nlp, doc, resolved_lang, truncated = _run_nlp_doc(str(text), lang, context)
-        rd, ds = _extract_readability(doc)
-        res: dict[str, Any] = {
-            "readability": rd,
-            "descriptive_stats": ds,
-            "meta": _extract_meta(nlp, doc, resolved_lang),
-        }
+    def _nlp_ok(extract: Any) -> dict[str, Any]:
+        nlp, doc, resolved_lang, truncated = _run_nlp_doc(text_s, lang, context)
+        res = extract(doc)
+        res["meta"] = _extract_meta(nlp, doc, resolved_lang)
         if truncated:
             res["truncated"] = truncated
-        return {
-            "status": "ok",
-            "result": res,
-        }
+        return {"status": "ok", "result": res}
+
+    if helper in ("readability", "stats", "descriptive"):
+        def _readability_body(doc: Any) -> dict[str, Any]:
+            rd, ds = _extract_readability(doc)
+            return {"readability": rd, "descriptive_stats": ds}
+        return _nlp_ok(_readability_body)
 
     if helper in ("entities", "ner"):
-        nlp, doc, resolved_lang, truncated = _run_nlp_doc(str(text), lang, context)
-        res = {"entities": _extract_entities(doc), "meta": _extract_meta(nlp, doc, resolved_lang)}
-        if truncated:
-            res["truncated"] = truncated
-        return {"status": "ok", "result": res}
+        return _nlp_ok(lambda doc: {"entities": _extract_entities(doc)})
 
     if helper in ("key_phrases", "keyphrases", "chunks"):
-        nlp, doc, resolved_lang, truncated = _run_nlp_doc(str(text), lang, context)
-        res = {"key_phrases": _extract_key_phrases(doc), "meta": _extract_meta(nlp, doc, resolved_lang)}
-        if truncated:
-            res["truncated"] = truncated
-        return {"status": "ok", "result": res}
+        return _nlp_ok(lambda doc: {"key_phrases": _extract_key_phrases(doc)})
 
     if helper in ("topics", "topic", "topic_model"):
         # Use preserved original (may still be list) for per-section support.
-        raw_for_topics = original_text if isinstance(original_text, list) else str(text or "")
-        topic_data = _extract_topics(raw_for_topics, n_topics=params.get("n_topics", 4))
+        topic_data = _extract_topics(section_text, n_topics=params.get("n_topics", 4))
         # Normalize into the same result envelope the rest of the system expects.
         if topic_data.get("error") == "MISSING_PACKAGE":
             return {
@@ -755,10 +733,8 @@ def run_text_analytics(
         return {"status": "ok", "result": res_dict}
 
     if helper in ("sentiment", "polarity"):
-        # Use preserved original (may still be list) for per-section support.
-        raw_for_sent = original_text if isinstance(original_text, list) else str(text or "")
         # Pass params so model can be overridden via JSON config (see WriterAgentConfig).
-        sent_data = _extract_sentiment(raw_for_sent, params=params)
+        sent_data = _extract_sentiment(section_text, params=params)
         if sent_data.get("error"):
             # A missing model used to be status ok, so the runner reported success.
             return {

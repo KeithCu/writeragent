@@ -149,7 +149,7 @@ endif
 
 # ── Phony targets ────────────────────────────────────────────────────────────
 
-.PHONY: help build build-no-recording release release-verify release-no-test release-build update-xml repack repack-deploy register-built-oxt manifest manifest-core manifest-harper rdb-core build-core build-core-native deploy-core register-librepy-oxt build-harper deploy-harper register-libreharper-oxt xcu clean \
+.PHONY: help build build-no-recording release release-verify release-no-test release-build update-xml repack repack-deploy register-built-oxt manifest manifest-core manifest-harper rdb-core build-core build-compute build-core-native deploy-core register-librepy-oxt build-harper deploy-harper register-libreharper-oxt xcu clean \
         native build-native clean-native update-vec sync-vec \
         proxy-stubs proxy-stubs-check \
         openrouter-catalog \
@@ -184,6 +184,7 @@ help:
 	@echo "  make release-no-test        Build release OXT and register it without running tests/verification"
 	@echo "  make build-no-recording     Build .oxt without voice recording (no Record button)"
 	@echo "  make build-core             Build standalone LibrePy.oxt (scientific Python)"
+	@echo "  make build-compute          Build standalone compute_service bundle (build/bundle-compute/)"
 	@echo "  make deploy-core            Build + install LibrePy (removes WriterAgent if present)"
 	@echo "  make build-harper           Build standalone LibreHarper.oxt (Harper grammar only)"
 	@echo "  make deploy-harper          Build + install LibreHarper (does not remove WriterAgent)"
@@ -392,6 +393,9 @@ build-core: vendor manifest-core rdb-core compile-translations-core
 	@echo "Building LibrePy.oxt (standalone core extension)..."
 	"$(PYTHON)" $(SCRIPTS)/build_librepy_oxt.py --output $(LIBREPY_OXT) --skip-manifest
 	@echo "Done: $(LIBREPY_OXT)  (bundle in build/bundle-librepy/)"
+
+build-compute:
+	"$(PYTHON)" $(SCRIPTS)/build_compute_bundle.py --output build/bundle-compute
 
 build-core-native: native build-core
 

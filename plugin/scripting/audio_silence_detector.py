@@ -114,8 +114,6 @@ class SilenceDetector:
 
     _config: SilenceDetectorConfig
     _sample_rate: int
-    _silence_ms: int
-    _speech_ms: int
     _noise_ema: float | None
     _run_samples: int
     _run_committed: bool
@@ -130,8 +128,6 @@ class SilenceDetector:
     def __init__(self, config: SilenceDetectorConfig, *, sample_rate: int = 16000) -> None:
         self._config = config
         self._sample_rate = sample_rate
-        self._silence_ms = 0
-        self._speech_ms = 0
         self._noise_ema = None
         self._run_samples = 0
         self._run_committed = False
@@ -145,7 +141,11 @@ class SilenceDetector:
 
     @property
     def silence_ms(self) -> int:
-        return self._silence_ms
+        return self._silence_samples * 1000 // self._sample_rate
+
+    @property
+    def _speech_ms(self) -> int:
+        return self._speech_samples * 1000 // self._sample_rate
 
     @property
     def _silence_threshold(self) -> float:
@@ -157,26 +157,28 @@ class SilenceDetector:
     def _speech_threshold(self) -> float:
         return self._silence_threshold * SPEECH_HYSTERESIS_FACTOR
 
+    def _make_result(self, rms: float, peak: float, is_speech: bool) -> SilenceDetectorResult:
+        speech_ms = self._speech_ms
+        silence_ms = self.silence_ms
+        heard_speech = speech_ms >= MIN_SPEECH_MS
+        return SilenceDetectorResult(
+            rms=rms,
+            peak=peak,
+            is_speech=is_speech,
+            silence_ms=silence_ms,
+            speech_ms=speech_ms,
+            should_stop=heard_speech and silence_ms >= self._config.silence_stop_ms,
+            heard_speech=heard_speech,
+        )
+
     def process_chunk(self, pcm: bytes) -> SilenceDetectorResult:
         # crosshair: off
         if not self._config.enabled:
-            return SilenceDetectorResult(
-                rms=0.0, peak=0.0, is_speech=False, silence_ms=0, speech_ms=0, should_stop=False, heard_speech=False
-            )
+            return self._make_result(0.0, 0.0, False)
 
         sample_count = len(pcm) // 2
         if sample_count == 0:
-            heard_speech = self._speech_ms >= MIN_SPEECH_MS
-            should_stop = heard_speech and self._silence_ms >= self._config.silence_stop_ms
-            return SilenceDetectorResult(
-                rms=0.0,
-                peak=0.0,
-                is_speech=False,
-                silence_ms=self._silence_ms,
-                speech_ms=self._speech_ms,
-                should_stop=should_stop,
-                heard_speech=heard_speech,
-            )
+            return self._make_result(0.0, 0.0, False)
 
         rms, peak = pcm_energy_int16(pcm)
         self._session_max_rms = max(self._session_max_rms, rms)
@@ -197,8 +199,9 @@ class SilenceDetector:
         # False and _adapt_floor snaps _noise_ema to that window's minimum.
         # Hysteresis still covers a shorter dip, because the window still holds
         # the louder audio.
-        is_speech = self._is_speech(rms, peak)
-        self._adapt_floor(rms, is_speech, sample_count)
+        steady, ambient_low = self._window_ambient()
+        is_speech = self._is_speech(rms, peak, steady)
+        self._adapt_floor(rms, is_speech, sample_count, steady, ambient_low)
 
         if is_speech:
             self._run_samples += sample_count
@@ -229,29 +232,17 @@ class SilenceDetector:
             self._run_committed = False
             self._silence_samples += sample_count
 
-        self._speech_ms = self._speech_samples * 1000 // self._sample_rate
-        self._silence_ms = self._silence_samples * 1000 // self._sample_rate
-
-        heard_speech = self._speech_ms >= MIN_SPEECH_MS
-        should_stop = heard_speech and self._silence_ms >= self._config.silence_stop_ms
-        if should_stop:
+        result = self._make_result(rms, peak, is_speech)
+        if result.should_stop:
             log.info(
                 "audio VAD: auto-stop triggered (speech_ms=%d silence_ms=%d max_rms=%.4f max_peak=%.4f)",
-                self._speech_ms,
-                self._silence_ms,
+                result.speech_ms,
+                result.silence_ms,
                 self._session_max_rms,
                 self._session_max_peak,
             )
 
-        return SilenceDetectorResult(
-            rms=rms,
-            peak=peak,
-            is_speech=is_speech,
-            silence_ms=self._silence_ms,
-            speech_ms=self._speech_ms,
-            should_stop=should_stop,
-            heard_speech=heard_speech,
-        )
+        return result
 
     def should_emit_silence_progress(self, result: SilenceDetectorResult) -> bool:
         """Throttle IPC/UI updates to meaningful silence milestones."""
@@ -286,19 +277,19 @@ class SilenceDetector:
             dropped, _dropped_rms = self._level_window.popleft()
             self._level_samples -= dropped
 
-    def _steady_ambient(self) -> bool:
+    def _window_ambient(self) -> tuple[bool, float]:
         limit = STEADY_NOISE_MS * self._sample_rate // 1000
         if self._level_samples < limit:
-            return False
+            return False, 0.0
         low = min(level for _count, level in self._level_window)
         high = max(level for _count, level in self._level_window)
         if high >= LOUD_ONSET_RMS:
-            return False
-        return high <= low * NOISE_FLOOR_MULTIPLIER
+            return False, low
+        return high <= low * NOISE_FLOOR_MULTIPLIER, low
 
-    def _adapt_floor(self, rms: float, is_speech: bool, sample_count: int) -> None:
-        if self._steady_ambient():
-            self._noise_ema = min(level for _count, level in self._level_window)
+    def _adapt_floor(self, rms: float, is_speech: bool, sample_count: int, steady: bool, ambient_low: float) -> None:
+        if steady:
+            self._noise_ema = ambient_low
             return
         if is_speech:
             return
@@ -312,10 +303,10 @@ class SilenceDetector:
         alpha = 1.0 - math.exp(-dt / NOISE_EMA_TAU_SEC)
         self._noise_ema = (1.0 - alpha) * self._noise_ema + alpha * rms
 
-    def _is_speech(self, rms: float, peak: float) -> bool:
+    def _is_speech(self, rms: float, peak: float, steady: bool) -> bool:
         if rms >= LOUD_ONSET_RMS:
             return True
-        if self._steady_ambient():
+        if steady:
             return False
         if self._noise_ema is None:
             return False

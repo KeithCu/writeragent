@@ -13,8 +13,7 @@ import numpy as np
 import pytest
 
 from plugin.scripting.venv.calc_functions_a_c import (
-    _bessel_iv_jv,
-    _bessel_kn_yn,
+    _bessel_eval,
     _int_bitwise,
     _int_shift,
 )
@@ -301,23 +300,25 @@ def test_bessel_iv_jv():
     def dummy_fn(v, z):
         return v * 10.0 + z
 
-    assert _bessel_iv_jv(dummy_fn, 2.5, 3) == 32.5
+    assert _bessel_eval(dummy_fn, 2.5, 3, positive_x=False) == 32.5
+    assert _bessel_eval(dummy_fn, 0.0, 1, positive_x=False) == 10.0
     # n < 0 returns NaN
-    assert math.isnan(_bessel_iv_jv(dummy_fn, 2.5, -1))
+    assert math.isnan(_bessel_eval(dummy_fn, 2.5, -1, positive_x=False))
     with pytest.raises(ValueError):
-        _bessel_iv_jv(dummy_fn, "invalid", 1)
+        _bessel_eval(dummy_fn, "invalid", 1, positive_x=False)
 
 
 def test_bessel_kn_yn():
     def dummy_fn(v, z):
         return v * 10.0 + z
 
-    assert _bessel_kn_yn(dummy_fn, 2.5, 3) == 32.5
+    assert _bessel_eval(dummy_fn, 2.5, 3, positive_x=True) == 32.5
     # x <= 0 returns NaN
-    assert math.isnan(_bessel_kn_yn(dummy_fn, 0.0, 1))
-    assert math.isnan(_bessel_kn_yn(dummy_fn, -2.5, 1))
+    assert math.isnan(_bessel_eval(dummy_fn, 0.0, 1, positive_x=True))
+    assert math.isnan(_bessel_eval(dummy_fn, -2.5, 1, positive_x=True))
+    assert math.isnan(_bessel_eval(dummy_fn, 1.0, -1, positive_x=True))
     with pytest.raises(ValueError):
-        _bessel_kn_yn(dummy_fn, "invalid", 1)
+        _bessel_eval(dummy_fn, "invalid", 1, positive_x=True)
 
 
 def test_criteria_numbers():

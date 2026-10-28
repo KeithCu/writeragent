@@ -11,6 +11,7 @@ also uses it to attach a finished WAV as ``input_audio``.
 from __future__ import annotations
 
 import base64
+import functools
 import logging
 import os
 import subprocess
@@ -75,13 +76,7 @@ def _recording_popen(managed: ManagedSubprocess) -> subprocess.Popen[str]:
     return proc
 
 
-def _wrap_recording_command(
-    cmd: list[str],
-    *,
-    env: dict[str, str] | None = None,
-    cwd: str | None = None,
-) -> list[str]:
-    return wrap_command_for_sandbox(cmd, env=env, cwd=cwd, watch_bus=True)
+_wrap_recording_command = functools.partial(wrap_command_for_sandbox, watch_bus=True)
 
 
 def spawn_recording_process(exe: str, output_path: str, *, silence_config: SilenceDetectorConfig | None = None) -> ManagedSubprocess:
@@ -187,7 +182,8 @@ class RecordingStopHandoff:
         raise RuntimeError("Recording subprocess did not return a WAV path.")
 
 
-def _read_json_line(managed: ManagedSubprocess, timeout: float) -> dict[str, Any]:
+def wait_for_recording_ready(managed: ManagedSubprocess, *, timeout_sec: float = _RECORDING_READY_TIMEOUT_SEC) -> None:
+    """Block until the child emits ``{\"status\": \"ready\"}`` or fails."""
     proc = _recording_popen(managed)
     if proc.stdout is None:
         raise RuntimeError("Recording subprocess stdout is not available.")
@@ -195,9 +191,9 @@ def _read_json_line(managed: ManagedSubprocess, timeout: float) -> dict[str, Any
     # before emitting JSON. The shared IPC helper waits with a real deadline
     # before reading the line.
     try:
-        payload = read_json_line(proc.stdout, timeout_sec=timeout)
+        payload = read_json_line(proc.stdout, timeout_sec=timeout_sec)
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"Recording subprocess timed out after {timeout:g} seconds.") from exc
+        raise RuntimeError(f"Recording subprocess timed out after {timeout_sec:g} seconds.") from exc
     except ValueError as exc:
         raise RuntimeError(f"Invalid recording subprocess response: {exc}") from exc
     except Exception as exc:
@@ -208,12 +204,6 @@ def _read_json_line(managed: ManagedSubprocess, timeout: float) -> dict[str, Any
         code = proc.poll()
         detail = stderr.strip() or f"exit code {code}"
         raise RuntimeError(f"Recording subprocess ended before responding ({detail}).")
-    return payload
-
-
-def wait_for_recording_ready(managed: ManagedSubprocess, *, timeout_sec: float = _RECORDING_READY_TIMEOUT_SEC) -> None:
-    """Block until the child emits ``{\"status\": \"ready\"}`` or fails."""
-    payload = _read_json_line(managed, timeout_sec)
     status = payload.get("status")
     if status == "ready":
         return
@@ -283,11 +273,10 @@ def _reap_recording_process(
     _close_recording_pipe(proc.stderr, "stderr")
 
 
-def _known_path(handoff: RecordingStopHandoff | None, fallback_path: str | None) -> str | None:
-    if handoff is not None:
-        known = handoff.snapshot_path()
-        if known:
-            return known
+def _known_path(handoff: RecordingStopHandoff, fallback_path: str | None) -> str | None:
+    known = handoff.snapshot_path()
+    if known:
+        return known
     if isinstance(fallback_path, str) and fallback_path:
         return fallback_path
     return None
@@ -311,37 +300,28 @@ def stop_recording_process(
     # on every exit.
     proc = _recording_popen(managed)
     try:
-        if proc.poll() is not None:
-            known = _known_path(handoff, fallback_path)
-            if known:
-                return known
-            try:
-                return handoff.wait_for_path(min(timeout_sec, 1.0))
-            except RuntimeError:
+        exited = proc.poll() is not None
+        try:
+            if exited:
                 known = _known_path(handoff, fallback_path)
                 if known:
                     return known
-                raise RuntimeError("Recording subprocess already exited without a WAV path.") from None
-
-        if proc.stdin is None:
-            known = _known_path(handoff, fallback_path)
-            if known:
-                return known
-            raise RuntimeError("Recording subprocess stdin is not available.")
-        try:
-            write_json_line(proc.stdin, {"command": "stop"})
-        except OSError as exc:
-            known = _known_path(handoff, fallback_path)
-            if known:
-                return known
-            raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
-
-        try:
+                return handoff.wait_for_path(min(timeout_sec, 1.0))
+            if proc.stdin is None:
+                raise RuntimeError("Recording subprocess stdin is not available.")
+            try:
+                write_json_line(proc.stdin, {"command": "stop"})
+            except OSError as exc:
+                raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
             return handoff.wait_for_path(timeout_sec)
         except RuntimeError:
             known = _known_path(handoff, fallback_path)
             if known:
                 return known
+            if exited:
+                raise RuntimeError(
+                    "Recording subprocess already exited without a WAV path."
+                ) from None
             raise
     finally:
         # Bugfix: this used to pass the 15s path timeout again, so Stop on the

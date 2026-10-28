@@ -27,7 +27,7 @@ from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import msgbox
 from plugin.scripting.editor_errors import editor_error_markers, exception_traceback
-from plugin.scripting.editor_host import DeferredEditorResult, launch_monaco_editor, monaco_open_expected
+from plugin.scripting.editor_host import DeferredEditorResult, launch_monaco_editor, monaco_editor_available
 from plugin.scripting.venv_worker import run_code_in_user_venv
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.python_runner_ui import show_python_input_dialog
@@ -828,7 +828,7 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
     if uno_ctx is None:
         uno_ctx = get_ctx()
 
-    exe, monaco_expected = monaco_open_expected(uno_ctx)
+    exe, monaco_expected = monaco_editor_available(uno_ctx)
 
     try:
         desktop = get_desktop(uno_ctx)

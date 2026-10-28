@@ -15,9 +15,9 @@ from typing import Any
 
 import pytest
 
-import compute_service.http_server as cs_http
+import compute_service.wsgi_server as cs_http
 from compute_service.config import ComputeSettings
-from compute_service.http_server import WSGIDualStackServer
+from compute_service.wsgi_server import WSGIDualStackServer
 from compute_service.server import create_wsgi_app
 from plugin.framework.http_server import DualStackThreadPoolHTTPServer
 
@@ -911,7 +911,7 @@ def test_selector_register_oserror_closes_connection() -> None:
     """If selector.register raises OSError, that connection is closed with reason=error."""
     import errno
     from unittest.mock import MagicMock
-    from compute_service.http_server import ConnState
+    from compute_service.wsgi_server import ConnState
 
     server, port, t = _start_server(max_threads=2)
     s1, s2 = socket.socketpair()
@@ -942,7 +942,7 @@ def test_readable_beats_expired_in_same_turn() -> None:
     s1, s2 = socket.socketpair()
     try:
         from unittest.mock import MagicMock
-        from compute_service.http_server import ConnState
+        from compute_service.wsgi_server import ConnState
 
         rfile = s1.makefile("rb", -1)
         # finished_at is 100 seconds ago -> clearly expired
@@ -973,7 +973,7 @@ def test_queue_full_on_resubmit_closes_connection() -> None:
     server, port, t = _start_server(max_threads=1)
     s1, s2 = socket.socketpair()
     try:
-        from compute_service.http_server import ConnState
+        from compute_service.wsgi_server import ConnState
 
         rfile = s1.makefile("rb", -1)
         state = ConnState(sock=s1, client_address=("127.0.0.1", 12345), rfile=rfile, disposition="ready_now")
@@ -1152,7 +1152,7 @@ def test_accept_backoff_does_not_reap_readable_parked_socket() -> None:
     """Accept backoff does not skip readable parked sockets, and idle sweep does not reap them."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
-    from compute_service.http_server import ConnState
+    from compute_service.wsgi_server import ConnState
 
     server, port, t = _start_server(max_threads=1)
     accept_calls: list[Any] = []
@@ -1254,7 +1254,7 @@ def test_idle_sweep_serves_readable_fd_above_select_limit(monkeypatch: pytest.Mo
     import resource
     import select
     import selectors
-    from compute_service.http_server import ConnState
+    from compute_service.wsgi_server import ConnState
 
     server, _port, t = _start_server(max_threads=1)
     processed: list[Any] = []
@@ -1332,7 +1332,7 @@ def test_idle_sweep_serves_readable_fd_above_select_limit(monkeypatch: pytest.Mo
 
 def test_established_resubmit_skips_accept_cap() -> None:
     from unittest.mock import MagicMock
-    from compute_service.http_server import ConnState
+    from compute_service.wsgi_server import ConnState
 
     server, _port, t = _start_server(max_threads=1)
     s1, s2 = socket.socketpair()

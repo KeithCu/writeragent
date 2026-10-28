@@ -9,6 +9,7 @@ import ast
 import os
 
 from scripts.strip_code import (
+    should_skip_log_strip,
     should_skip_print_strip,
     should_skip_strip,
     strip_assert_statements,
@@ -37,8 +38,16 @@ def test_should_skip_print_strip_keep_list() -> None:
     assert should_skip_print_strip("plugin/scripting/venv_diagnostics.py") is True
     assert should_skip_print_strip("plugin/contrib/smolagents/monitoring.py") is True
     assert should_skip_print_strip("plugin/testing_runner.py") is True
+    assert should_skip_print_strip("compute_service/config.py") is True
     assert should_skip_print_strip("plugin/main.py") is False
     assert should_skip_print_strip("plugin/chatbot/panel.py") is False
+
+
+def test_should_skip_log_strip_keep_list() -> None:
+    assert should_skip_log_strip("compute_service/server.py") is True
+    assert should_skip_log_strip("plugin/testing_runner.py") is True
+    assert should_skip_log_strip("plugin/main.py") is False
+    assert should_skip_log_strip("plugin/framework/config.py") is False
 
 
 def test_strip_grammar_obs_removes_calls_keeps_imports(tmp_path: Path) -> None:
@@ -549,3 +558,30 @@ def test_strip_production_code_strips_asserts(tmp_path: Path) -> None:
     ns: dict[str, object] = {}
     exec(compiled, ns)
     assert ns["f"](5) == 50
+
+
+def test_strip_production_code_compute_service_preserves_log_and_print(tmp_path: Path) -> None:
+    cs_dir = tmp_path / "compute_service"
+    cs_dir.mkdir(parents=True)
+    test_file = cs_dir / "server.py"
+    original_code = (
+        "from plugin.framework.deal_shim import deal\n"
+        "\n"
+        "@deal.pre(lambda x: x > 0)\n"
+        "def start_server(x):\n"
+        "    assert x > 0\n"
+        "    print('Starting CLI error fallback:', x)\n"
+        "    log.info('Starting Python Compute Service on port %d', x)\n"
+        "    return x\n"
+    )
+    test_file.write_text(original_code, encoding="utf-8")
+
+    strip_production_code(str(tmp_path), dry_run=False)
+
+    stripped = test_file.read_text(encoding="utf-8")
+    tree = ast.parse(stripped)
+    assert not any(isinstance(node, ast.Assert) for node in ast.walk(tree))
+    assert "@deal.pre" not in stripped
+    assert "print(" in stripped
+    assert "log.info(" in stripped
+

@@ -275,46 +275,8 @@ def test_launch_monaco_editor_reuses_running_process():
     def fake_send(msg: dict) -> None:
         sent_messages.append(msg)
 
-    with patch.object(type(pe), "is_running", new=property(lambda self: True)):
-        pe._proc = mock_proc
-        with patch.object(launch_mod, "EditorSession") as mock_session_cls:
-            session = MagicMock()
-            session.is_running = True
-            session.send = fake_send
-            mock_session_cls.return_value = session
-
-            ok = launch_mod.launch_monaco_editor(
-                ctx,
-                exe="/venv/bin/python",
-                load_message={"type": "load", "code": "print(1)", "mode": "calc_cell", "cell_address": "A1"},
-                on_save=MagicMock(),
-            )
-
-    assert ok is True
-    assert sent_messages[0]["type"] == "load"
-    assert sent_messages[0]["code"] == "print(1)"
-    assert sent_messages[0]["session_id"]
-    assert sent_messages[0]["mode"] == "calc_cell"
-    assert sent_messages[0]["target"]["cell_address"] == "A1"
-    assert "theme" in sent_messages[0]
-    assert "ui" in sent_messages[0]
-    assert sent_messages[0]["ui"]["ready"]
-    assert sent_messages[0]["theme"]["monaco"] in ("vs", "vs-dark")
-    mock_session_cls.assert_called_once()
-    pe.sessions.clear()
-    pe.focused_id = None
-    pe._proc = None
-
-
-def test_launch_monaco_editor_logs_chosen_theme(caplog):
-    ctx = MagicMock()
-    pe = launch_mod._PERSISTENT_EDITOR
-    pe.sessions.clear()
-    pe.focused_id = None
-    mock_proc = MagicMock()
-    mock_proc.poll.return_value = None
-
-    with caplog.at_level(logging.DEBUG, logger="plugin.scripting.editor_host"):
+    pe.send = fake_send  # type: ignore[method-assign]
+    try:
         with patch.object(type(pe), "is_running", new=property(lambda self: True)):
             pe._proc = mock_proc
             with patch.object(launch_mod, "EditorSession") as mock_session_cls:
@@ -329,12 +291,51 @@ def test_launch_monaco_editor_logs_chosen_theme(caplog):
                     on_save=MagicMock(),
                 )
 
-    assert ok is True
-    if not is_release_build():  # log.debug call site is stripped in release bundles
-        assert "editor_host: chosen theme:" in caplog.text
+        assert ok is True
+        assert sent_messages[0]["type"] == "load"
+        assert sent_messages[0]["code"] == "print(1)"
+        assert sent_messages[0]["session_id"]
+        assert sent_messages[0]["mode"] == "calc_cell"
+        assert sent_messages[0]["target"]["cell_address"] == "A1"
+        assert "theme" in sent_messages[0]
+        assert "ui" in sent_messages[0]
+        assert sent_messages[0]["ui"]["ready"]
+        assert sent_messages[0]["theme"]["monaco"] in ("vs", "vs-dark")
+        mock_session_cls.assert_called_once()
+    finally:
+        _reset_persistent_editor()
+
+
+def test_launch_monaco_editor_logs_chosen_theme(caplog):
+    ctx = MagicMock()
+    pe = launch_mod._PERSISTENT_EDITOR
     pe.sessions.clear()
     pe.focused_id = None
-    pe._proc = None
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    pe.send = MagicMock()
+
+    try:
+        with caplog.at_level(logging.DEBUG, logger="plugin.scripting.editor_host"):
+            with patch.object(type(pe), "is_running", new=property(lambda self: True)):
+                pe._proc = mock_proc
+                with patch.object(launch_mod, "EditorSession") as mock_session_cls:
+                    session = MagicMock()
+                    session.is_running = True
+                    mock_session_cls.return_value = session
+
+                    ok = launch_mod.launch_monaco_editor(
+                        ctx,
+                        exe="/venv/bin/python",
+                        load_message={"type": "load", "code": "print(1)", "mode": "calc_cell", "cell_address": "A1"},
+                        on_save=MagicMock(),
+                    )
+
+        assert ok is True
+        if not is_release_build():  # log.debug call site is stripped in release bundles
+            assert "editor_host: chosen theme:" in caplog.text
+    finally:
+        _reset_persistent_editor()
 
 
 def test_launch_monaco_editor_spawns_when_not_running():
@@ -344,41 +345,42 @@ def test_launch_monaco_editor_spawns_when_not_running():
     pe = launch_mod._PERSISTENT_EDITOR
     pe.sessions.clear()
     pe.focused_id = None
+    pe.send = MagicMock()
 
-    with patch.object(type(pe), "is_running", new=property(lambda self: False)):
-        with patch.object(launch_mod, "spawn_editor_process", return_value=mock_proc):
-            with patch.object(launch_mod, "run_in_background") as mock_bg:
-                with patch.object(launch_mod, "EditorSession") as mock_session_cls:
-                    session = MagicMock()
-                    session.is_running = True
-                    session.wait_for_ready.return_value = True
-                    mock_session_cls.return_value = session
+    try:
+        with patch.object(type(pe), "is_running", new=property(lambda self: False)):
+            with patch.object(launch_mod, "spawn_editor_process", return_value=mock_proc):
+                with patch.object(launch_mod, "run_in_background") as mock_bg:
+                    with patch.object(pe, "wait_for_ready", return_value=True):
+                        with patch.object(launch_mod, "EditorSession") as mock_session_cls:
+                            session = MagicMock()
+                            session.is_running = True
+                            mock_session_cls.return_value = session
 
-                    load_message = {"type": "load", "mode": "run_script", "run_script_doc": mock_doc, "script_name": "demo"}
-                    ok = launch_mod.launch_monaco_editor(
-                        ctx,
-                        exe="/venv/bin/python",
-                        load_message=load_message,
-                        on_save=MagicMock(),
-                    )
+                            load_message = {"type": "load", "mode": "run_script", "run_script_doc": mock_doc, "script_name": "demo"}
+                            ok = launch_mod.launch_monaco_editor(
+                                ctx,
+                                exe="/venv/bin/python",
+                                load_message=load_message,
+                                on_save=MagicMock(),
+                            )
 
-    assert ok is True
-    mock_bg.assert_called_once_with(launch_mod.warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
-    assert pe.run_script_doc is mock_doc
-    session.start_reader.assert_called_once()
-    sent = session.send.call_args[0][0]
-    assert sent["type"] == "load"
-    assert sent["mode"] == "run_script"
-    assert sent["session_id"]
-    assert sent["target"]["script_name"] == "demo"
-    assert "run_script_doc" not in sent
-    assert "theme" in sent
-    assert "ui" in sent
-    assert sent["ui"]["script_label"]
-    assert load_message["run_script_doc"] is mock_doc
-    pe.sessions.clear()
-    pe.focused_id = None
-    pe.run_script_doc = None
+        assert ok is True
+        mock_bg.assert_called_once_with(launch_mod.warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
+        assert pe.run_script_doc is mock_doc
+        session.start_reader.assert_called_once()
+        sent = pe.send.call_args[0][0]
+        assert sent["type"] == "load"
+        assert sent["mode"] == "run_script"
+        assert sent["session_id"]
+        assert sent["target"]["script_name"] == "demo"
+        assert "run_script_doc" not in sent
+        assert "theme" in sent
+        assert "ui" in sent
+        assert sent["ui"]["script_label"]
+        assert load_message["run_script_doc"] is mock_doc
+    finally:
+        _reset_persistent_editor()
 
 
 def test_monaco_editor_available_false_without_venv():
@@ -831,6 +833,7 @@ def test_launch_discard_replaces_dirty_init_script():
     )
     state.dirty = True
     pe.register_session(state)
+    pe.send = MagicMock()
     try:
         with patch.object(launch_mod, "confirm_unsaved_monaco_edit", return_value="discard"):
             with patch.object(launch_mod, "EditorSession") as mock_session_cls:
@@ -846,7 +849,7 @@ def test_launch_discard_replaces_dirty_init_script():
         assert ok is True
         assert closed == ["init"]
         assert "sid-init" not in pe.sessions
-        sent = session.send.call_args[0][0]
+        sent = pe.send.call_args[0][0]
         assert sent["mode"] == "latex"
         assert sent["type"] == "load"
     finally:
@@ -1166,7 +1169,7 @@ def test_mode_switch_from_run_script_to_calc_cell_dispatches_save():
 
 
 def _reader_method_name() -> str:
-    return "_read_loop_blocking" if sys.platform == "win32" else "_read_loop_select"
+    return "_read_incoming"
 
 
 def test_reader_clean_eof_terminates_live_child():
@@ -1895,29 +1898,29 @@ def test_launch_enriches_once_when_the_load_is_sent():
     def fake_send(msg: dict) -> None:
         sent_messages.append(msg)
 
-    with patch.object(type(pe), "is_running", new=property(lambda self: True)):
-        pe._proc = mock_proc
-        with patch.object(launch_mod, "EditorSession") as mock_session_cls:
-            session = MagicMock()
-            session.is_running = True
-            session.send = fake_send
-            mock_session_cls.return_value = session
-            with patch("plugin.scripting.editor_ui_strings.enrich_monaco_load_message", wraps=real_enrich) as mock_enrich:
-                ok = launch_mod.launch_monaco_editor(
-                    ctx,
-                    exe="/venv/bin/python",
-                    load_message={"type": "load", "code": "print(1)", "mode": "calc_cell", "cell_address": "A1"},
-                    on_save=MagicMock(),
-                )
+    pe.send = fake_send  # type: ignore[method-assign]
+    try:
+        with patch.object(type(pe), "is_running", new=property(lambda self: True)):
+            pe._proc = mock_proc
+            with patch.object(launch_mod, "EditorSession") as mock_session_cls:
+                session = MagicMock()
+                session.is_running = True
+                mock_session_cls.return_value = session
+                with patch("plugin.scripting.editor_ui_strings.enrich_monaco_load_message", wraps=real_enrich) as mock_enrich:
+                    ok = launch_mod.launch_monaco_editor(
+                        ctx,
+                        exe="/venv/bin/python",
+                        load_message={"type": "load", "code": "print(1)", "mode": "calc_cell", "cell_address": "A1"},
+                        on_save=MagicMock(),
+                    )
 
-    assert ok is True
-    assert mock_enrich.call_count == 1
-    assert sent_messages[0]["type"] == "load"
-    assert "ui" in sent_messages[0]
-    assert "theme" in sent_messages[0]
-    pe.sessions.clear()
-    pe.focused_id = None
-    pe._proc = None
+        assert ok is True
+        assert mock_enrich.call_count == 1
+        assert sent_messages[0]["type"] == "load"
+        assert "ui" in sent_messages[0]
+        assert "theme" in sent_messages[0]
+    finally:
+        _reset_persistent_editor()
 
 
 def test_launch_enriches_once_when_save_is_queued():

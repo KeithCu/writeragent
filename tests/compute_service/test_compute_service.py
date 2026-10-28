@@ -2572,7 +2572,7 @@ class TestListenerQueue:
         of being rejected. A worker or vision permit waits until the request
         deadline, then 503.
         """
-        from compute_service.http_server import DualStackThreadPoolHTTPServer
+        from compute_service.wsgi_server import DualStackThreadPoolHTTPServer
 
         server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _AcceptedConnectionHandler, max_threads=1)
         hold = threading.Event()
@@ -2616,7 +2616,7 @@ def test_flatten_config_json_rejects_api_key() -> None:
 
 def test_sticky_slots_scale_with_formula_workers() -> None:
     """Four formula workers used to share one sticky listener slot."""
-    from compute_service.http_server import listener_thread_count
+    from compute_service.wsgi_server import listener_thread_count
     from compute_service.server import service_listener_threads, sticky_listener_slots
 
     wide = ComputeSettings(workers=4, ocr_workers=0)
@@ -2774,7 +2774,7 @@ def test_partial_bind_address_in_use_raises() -> None:
     """
     import errno
 
-    from compute_service.http_server import DualStackThreadPoolHTTPServer
+    from compute_service.wsgi_server import DualStackThreadPoolHTTPServer
 
     holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     holder.bind(("127.0.0.1", 0))
@@ -2845,7 +2845,7 @@ def test_expect_100_continue_before_body() -> None:
 
 def test_dual_stack_closes_tcpserver_throwaway_socket(monkeypatch) -> None:
     """TCPServer.__init__ opens a socket even when bind_and_activate is False."""
-    from compute_service.http_server import DualStackThreadPoolHTTPServer
+    from compute_service.wsgi_server import DualStackThreadPoolHTTPServer
 
     created: list[socket.socket] = []
     real_socket = socket.socket
@@ -3104,27 +3104,6 @@ def test_start_docker_rejects_missing_key_file(tmp_path) -> None:
     assert lines == []
 
 
-def _runner_stage_copies(dockerfile_text: str) -> list[tuple[str, str]]:
-    """``COPY src dest`` pairs from the runner stage, skipping ``--from``."""
-    stage = ""
-    pairs: list[tuple[str, str]] = []
-    for raw in dockerfile_text.splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if not line:
-            continue
-        if line.upper().startswith("FROM "):
-            parts = line.split()
-            stage = parts[-1] if len(parts) >= 4 and parts[-2].upper() == "AS" else ""
-            continue
-        if stage != "runner" or not line.startswith("COPY ") or "--from=" in line:
-            continue
-        parts = line.split()
-        if len(parts) != 3:
-            raise AssertionError(f"unexpected COPY form: {line}")
-        pairs.append((parts[1], parts[2]))
-    return pairs
-
-
 def test_dockerfile_runner_hygiene() -> None:
     """The image installs wheels only and checks /health with the stdlib.
 
@@ -3148,39 +3127,25 @@ def test_dockerfile_runner_hygiene() -> None:
 
 
 def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
-    """The runner COPY set must import the server without the rest of plugin/.
+    """The compute bundle must import the server without the rest of plugin/.
 
-    The image copied only framework __init__, constants, and deal_shim.
-    worker_base imports worker_pool at load, and that import failed, so the
-    container never started. server.py also imports plugin.vision.vision_common
-    at load. That file was not copied, so import failed the same way. Copying
-    plugin/vision/__init__.py does not fix it: that file imports module_base
-    and plugin.vision.venv.vision, and the package init runs first. With no
-    __init__.py, plugin.vision is a namespace package and vision_common loads.
-    This materializes the Dockerfile COPY lines; it does not need a Docker
-    daemon. queue_executor, uno_context, and logging are not part of that
-    load-time closure. named_scripts is imported on every cell and pulls in
-    plugin.doc.doc_type. That file has to be in the runner copy set.
+    The final runner stage copies /out/ from the bundle stage built by
+    scripts/build_compute_bundle.py. Both plugin/vision/__init__.py and
+    plugin/doc/__init__.py are included (common_module.py is omitted).
+    This materializes the bundle output and verifies it can import without
+    the desktop tree.
     """
-    import shutil
     import subprocess
     import sys
     from pathlib import Path
+    from scripts.build_compute_bundle import assemble_compute_bundle
 
     repo = Path(__file__).resolve().parents[2]
     dockerfile = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
-    pairs = _runner_stage_copies(dockerfile)
+    assert "COPY --from=bundle /out/ /app/" in dockerfile
+
     app = tmp_path / "app"
-    for src, dest in pairs:
-        assert dest.startswith("/app/"), dest
-        source = repo / src
-        target = app / dest[len("/app/") :]
-        assert source.exists(), src
-        if source.is_dir():
-            shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+    assemble_compute_bundle(str(repo), str(app), strip=True)
 
     framework = app / "plugin" / "framework"
     for name in ("worker_pool.py", "errors.py", "i18n.py", "json_utils.py", "managed_subprocess.py", "process_worker.py", "thread_guard.py", "constants.py", "deal_shim.py"):
@@ -3189,10 +3154,11 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
         assert not (framework / name).exists(), name
     vision = app / "plugin" / "vision"
     assert (vision / "vision_common.py").is_file()
-    assert not (vision / "__init__.py").exists()
+    assert (vision / "__init__.py").is_file()
     doc = app / "plugin" / "doc"
     assert (doc / "doc_type.py").is_file()
-    assert not (doc / "__init__.py").exists()
+    assert (doc / "__init__.py").is_file()
+    assert not (doc / "common_module.py").exists()
 
     proc = subprocess.run(
         [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base, compute_service.server, compute_service.formula_worker, plugin.scripting.named_scripts"], cwd=app, env={"PYTHONPATH": str(app), "PYTHONDONTWRITEBYTECODE": "1"}, capture_output=True, text=True, check=False
@@ -3849,7 +3815,7 @@ def test_isolated_mode_with_session_id_rejected() -> None:
 
 def test_header_deadline_fires_inside_handle() -> None:
     """A request line that arrives after the accept deadline returns 408 instead of a traceback."""
-    from compute_service.http_server import DeadlineRequestHandler
+    from compute_service.wsgi_server import DeadlineRequestHandler
 
     client, server_sock = socket.socketpair()
     try:
@@ -3877,7 +3843,7 @@ def test_header_deadline_fires_inside_handle() -> None:
 
 def test_slow_body_drip_is_408() -> None:
     """One socket timeout per large read used to let a drip outlive the body deadline."""
-    from compute_service.http_server import _REQUEST_READ_TIMEOUT_SEC
+    from compute_service.wsgi_server import _REQUEST_READ_TIMEOUT_SEC
     from compute_service.server import _read_request_body
 
     class _Drip:
@@ -4187,11 +4153,11 @@ def test_vision_image_bytes_not_parsed_as_json() -> None:
 def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
     """SIGTERM during a slow cell closes the listener, logs the drain warning, and exits 0.
 
-    The production drain is 30s (compute_service/http_server.py _HTTP_DRAIN_SEC).
+    The production drain is 30s (compute_service/wsgi_server.py _HTTP_DRAIN_SEC).
     This test assigns compute_service.server._HTTP_DRAIN_SEC = 1.0 inside a
     tmp_path wrapper before main(). server.py binds that name with
-    ``from compute_service.http_server import _HTTP_DRAIN_SEC``, so patching
-    the http_server module attribute does not affect run_server. 1.0 formats
+    ``from compute_service.wsgi_server import _HTTP_DRAIN_SEC``, so patching
+    the wsgi_server module attribute does not affect run_server. 1.0 formats
     as ``1s`` via ``%.0f``. The cell sleeps 8s, which is longer than the 6s
     exit bound, so a shutdown that waits for the cell fails.
 
