@@ -113,21 +113,12 @@ def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any
     return ", ".join(parts)
 
 
-def is_delegate_gateway(func_name: str) -> bool:
-    return func_name in DELEGATE_GATEWAY_TOOL_NAMES
-
-
 def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
     # crosshair: off
     domain = func_args.get("domain")
     if isinstance(domain, str) and domain.strip():
         return domain.strip()
     return "?"
-
-
-def delegate_status_label(func_args: Mapping[str, Any]) -> str:
-    # crosshair: off
-    return f"delegate ({domain_from_delegate_args(func_args)})"
 
 
 def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) -> str:
@@ -145,12 +136,7 @@ def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
     # crosshair: off
     domain = domain_from_delegate_args(func_args)
     raw_task = func_args.get("task")
-    if raw_task is None:
-        task_preview = ""
-    elif isinstance(raw_task, str):
-        task_preview = _truncate_delegate_task(raw_task)
-    else:
-        task_preview = _truncate_delegate_task(str(raw_task))
+    task_preview = "" if raw_task is None else _truncate_delegate_task(str(raw_task))
     if task_preview:
         return f"[Running delegate ({domain}): {task_preview}]\n"
     return f"[Running delegate ({domain})...]\n"
@@ -184,8 +170,8 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
 def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tuple[str, str]:
     """Status bar text and chat run-line when a tool starts executing."""
     # crosshair: off
-    if is_delegate_gateway(func_name):
-        return f"Running: {delegate_status_label(func_args)}", format_delegate_running_chat_line(func_args)
+    if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
+        return f"Running: delegate ({domain_from_delegate_args(func_args)})", format_delegate_running_chat_line(func_args)
     if func_name == "upsert_memory":
         return f"Running: {func_name}", format_upsert_memory_chat_line(func_args)
     return f"Running: {func_name}", f"[Running tool: {func_name}...]\n"
@@ -196,7 +182,7 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
     # crosshair: off
     note = _result_note(result_data)
     if result_data.get("status") == "error":
-        if is_delegate_gateway(func_name):
+        if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
             detailed_text = format_delegate_result_chat_line(func_args, result_data)
         else:
             detailed_text = f"[{func_name} failed: {note}]\n"
@@ -211,7 +197,7 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
                 detailed_text += f"Traceback:\n{tb}\n"
         return detailed_text
 
-    if is_delegate_gateway(func_name):
+    if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
         return format_delegate_result_chat_line(func_args, result_data)
     if func_name == "web_research":
         cache_block = format_research_cache_result_chat(result_data)
@@ -232,15 +218,7 @@ def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
     # Plain dict/str only — isinstance(str) is true for CrossHair LazyIntSymbolicStr.
     # Only a real int zero counts. ``replaced_count == 0`` is also true
     # for False, which would append the debug params line.
-    if type(result_data) is not dict:
-        return False
-    count = result_data.get("replaced_count")
-    if type(count) is int and count == 0:
-        return True
-    return False
-
-# Direct execute_fn callers omit the spawn capture. Workers always pass the scope.
-_SEND_SCOPE_UNSET = object()
+    return type(result_data) is dict and type(result_data.get("replaced_count")) is int and result_data.get("replaced_count") == 0
 
 
 # Stop writes this as an ordinary assistant row. It is not matched by text
@@ -517,10 +495,8 @@ def note_stop_partial(turn: Any, response: Any) -> None:
 def take_stop_partial(turn: Any) -> str | None:
     if not isinstance(turn, TurnController):
         return None
-    fields = getattr(turn, "__dict__", None)
-    if not isinstance(fields, dict):
-        return None
-    text = fields.pop("_stop_partial_text", None)
+    text = turn._stop_partial_text
+    turn._stop_partial_text = None
     return text if isinstance(text, str) else None
 
 
@@ -567,13 +543,11 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
             replaced = rerender() is True
 
     turn = current_turn(listener)
-    if isinstance(turn, TurnController) and not turn.same_messages():
+    if turn is not None and not turn.same_messages():
         return
-    stripper = turn.stripper if isinstance(turn, TurnController) else None
-    if stripper is not None and isinstance(turn, TurnController):
-        leftover = turn.take_stripper_tail()
-        if leftover and not replaced:
-            listener._append_response(leftover, role="assistant")
+    leftover = turn.take_stripper_tail() if turn is not None else ""
+    if leftover and not replaced:
+        listener._append_response(leftover, role="assistant")
 
     # Append _STOP_LINE to the control for this stopped turn. Skipping
     # rerender keeps the ramble from painting over the banner, and
@@ -581,7 +555,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     # control never drew [Stopped by user].
     stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
     if stop_requested and getattr(listener, "_terminal_status", None) != "Error":
-        if isinstance(turn, TurnController):
+        if turn is not None:
             if getattr(turn, "_stop_banner_appended", False):
                 return
             turn._stop_banner_appended = True
@@ -723,14 +697,6 @@ def _append_cancelled_tool_rows(messages: list[Any]) -> int:
     return added
 
 
-def emit_for_host(host: Any, item: Any) -> bool:
-    """Enqueue on the current turn. A dead turn drops the item."""
-    turn = current_turn(host)
-    if not isinstance(turn, TurnController):
-        return False
-    return turn.put(item)
-
-
 def put_for_turn(turn: Any, item: Any) -> bool:
     """Workers enqueue on the controller they captured. They do not touch the transcript.
 
@@ -824,13 +790,6 @@ def tool_message_content(content: Any) -> Any:
     return [{"type": "text", "text": json.dumps(text, default=str)}, {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}]
 
 
-def persist_tool_on_turn(host: Any, call_id: str | None, content: Any) -> None:
-    turn = current_turn(host)
-    if not isinstance(turn, TurnController):
-        return
-    turn.persist_tool(host, call_id, content)
-
-
 class ToolLoopActionHost(Protocol):
     ctx: Any
     session: Any
@@ -869,7 +828,7 @@ def build_tool_execute_fn(
         stop_checker: Callable[[], bool] | None = None,
         *,
         captured_turn: Any = None,
-        send_cancellation: Any = _SEND_SCOPE_UNSET,
+        send_cancellation: Any = None,
     ) -> str:
         from plugin.main import get_tools as _get_tools
 
@@ -887,20 +846,8 @@ def build_tool_execute_fn(
         needs_document_research_ui = delegate_domain == "document_research"
         if needs_web_research_ui or needs_document_research_ui:
 
-            def _subagent_target() -> TurnController | None:
-                # Enqueue on the turn this worker captured at spawn.
-                # Putting chat lines or the approval dialog on the host queue
-                # when the callback runs lands them on the next turn after
-                # Stop or a new send replaces that queue. A dead turn drops
-                # the item.
-                if isinstance(captured_turn, TurnController):
-                    return captured_turn
-                return None
-
             def _sub_agent_chat_append(text: str) -> None:
-                emit_turn = _subagent_target()
-                if not put_for_turn(emit_turn, (StreamQueueKind.CHUNK, text)):
-                    return
+                put_for_turn(captured_turn, (StreamQueueKind.CHUNK, text))
 
             chat_append_cb = _sub_agent_chat_append
 
@@ -908,8 +855,7 @@ def build_tool_execute_fn(
                 if needs_web_research_ui and get_config_bool("chatbot.prompt_for_web_research"):
 
                     def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
-                        emit_turn = _subagent_target()
-                        if not isinstance(emit_turn, TurnController) or emit_turn.queue is None:
+                        if not isinstance(captured_turn, TurnController) or captured_turn.queue is None:
                             log.warning("tool_loop: web_research approval skipped (queue missing)")
                             return (False, None)
                         event = threading.Event()
@@ -918,7 +864,7 @@ def build_tool_execute_fn(
                         setattr(event, "query_override", None)
                         from plugin.framework.send_cancellation import wait_for_approval
 
-                        if not put_for_turn(emit_turn, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
+                        if not put_for_turn(captured_turn, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
                             return (False, None)
                         # Workers pass the checker captured at spawn. Direct
                         # callers (tests) omit it and still run on that thread.
@@ -926,10 +872,10 @@ def build_tool_execute_fn(
                         # event.wait() ignored Stop. Sidebar close latches the
                         # checker and never sets the event, so this worker parked.
                         if not wait_for_approval(event, checker):
-                            put_for_turn(emit_turn, (StreamQueueKind.STOPPED,))
+                            put_for_turn(captured_turn, (StreamQueueKind.STOPPED,))
                             return (False, None)
                         if not getattr(event, "approved", False):
-                            put_for_turn(emit_turn, (StreamQueueKind.STOPPED,))
+                            put_for_turn(captured_turn, (StreamQueueKind.STOPPED,))
                         return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
 
                     approval_cb = _web_approval
@@ -956,13 +902,6 @@ def build_tool_execute_fn(
                 f"execute_fn: failed to get active page index for {doc_type_str}",
             )
 
-        # The spawn passes the scope it captured. Reading
-        # host._send_cancellation when the tool runs registers on the next
-        # send: Stop clears the field and the next send stores a new scope.
-        # Omitted means a direct caller, not a delayed worker, and there
-        # is no scope.
-        cancel_scope = None if send_cancellation is _SEND_SCOPE_UNSET else send_cancellation
-
         tctx = ToolContext(
             doc=doc,
             ctx=ctx,
@@ -974,11 +913,11 @@ def build_tool_execute_fn(
             append_thinking_callback=append_thinking_callback,
             stop_checker=stop_checker if stop_checker is not None else host.resolve_stop_checker(),
             approval_callback=approval_cb,
-            chat_append_callback=chat_append_cb if (needs_web_research_ui or needs_document_research_ui) else None,
+            chat_append_callback=chat_append_cb,
             set_active_domain_callback=set_active_domain,
             active_domain=active_domain,
             python_tool_domain=python_tool_domain,
-            send_cancellation=cancel_scope,
+            send_cancellation=send_cancellation,
             uno_services_supported=getattr(host, "cached_uno_services", None),
         )
         # ToolRegistry.execute binds keyword-only bypass_thread_guard (and
@@ -1021,7 +960,7 @@ class ToolLoopEffectInterpreter:
         if isinstance(effect, ExitLoopEffect):
             return True
         if isinstance(effect, TriggerNextToolEffect):
-            emit_for_host(host, (StreamQueueKind.NEXT_TOOL,))
+            put_for_turn(current_turn(host), (StreamQueueKind.NEXT_TOOL,))
         elif isinstance(effect, SpawnFinalStreamEffect):
             turn = running_turn(host)
             q = spawn_queue(turn) if turn is not None else None
@@ -1130,7 +1069,9 @@ class ToolLoopEffectInterpreter:
                 reasoning_replay=effect.reasoning_replay,
             )
         elif effect.role == MessageRole.TOOL:
-            persist_tool_on_turn(self.host, effect.call_id, tool_message_content(content))
+            turn = current_turn(self.host)
+            if isinstance(turn, TurnController):
+                turn.persist_tool(self.host, effect.call_id, tool_message_content(content))
 
     def _update_activity_state(self, effect: UpdateActivityStateEffect) -> None:
         if effect.action == "tool_execute":
@@ -1174,10 +1115,6 @@ class ToolLoopEffectInterpreter:
         turn = running_turn(host)
         if not isinstance(turn, TurnController):
             return True
-        model = turn.model
-
-        def emit(item: Any) -> None:
-            put_for_turn(turn, item)
 
         # Close over the execute function and the document this spawn
         # already had. Reading them when the thread runs lets a new send
@@ -1190,7 +1127,7 @@ class ToolLoopEffectInterpreter:
         # Same object execute_fn receives as ``doc``. It was captured on the
         # turn at spawn. A later send must not retarget this call or the
         # disposed-document check.
-        spawn_doc = model
+        spawn_doc = turn.model
         supports_status = turn.active_supports_status
         # Scope and checker from this send. execute_fn must not read the
         # panel field when the tool later runs.
@@ -1214,7 +1151,7 @@ class ToolLoopEffectInterpreter:
                 func_args["image_model"] = image_model_override
 
         def tool_status_callback(msg: str) -> None:
-            emit((StreamQueueKind.STATUS, msg))
+            turn.put((StreamQueueKind.STATUS, msg))
 
         def run_tool() -> None:
             t0 = time.perf_counter()
@@ -1225,7 +1162,7 @@ class ToolLoopEffectInterpreter:
                 # Stop can land after spawn and before this body. Do not start
                 # the tool; the drain's on_stopped path closes the turn.
                 if bound_stop() or not turn.alive:
-                    emit((StreamQueueKind.STOPPED,))
+                    turn.put((StreamQueueKind.STOPPED,))
                     return
 
                 call_kwargs: dict[str, Any] = {
@@ -1238,13 +1175,13 @@ class ToolLoopEffectInterpreter:
                     if effect.is_async:
 
                         def tool_thinking_callback(msg: str) -> None:
-                            emit((StreamQueueKind.TOOL_THINKING, msg))
+                            turn.put((StreamQueueKind.TOOL_THINKING, msg))
 
                         call_kwargs["append_thinking_callback"] = tool_thinking_callback
                 res = execute_tool_fn(func_name, func_args, spawn_doc, host.ctx, **call_kwargs)
                 if sync:
                     log.debug("sync tool done name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
-                emit((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
+                turn.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
             except Exception as e:
                 if sync:
                     log.debug("sync tool failed name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
