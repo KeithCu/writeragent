@@ -13,10 +13,9 @@ import pytest
 from plugin.scripting.venv.trusted_dispatch import (
     _require_str,
     _trusted_action_spec,
+    dispatch_spec_domain,
     dispatch_sql,
-    dispatch_symbolic,
     dispatch_text,
-    dispatch_units,
     parse_trusted_spec,
 )
 
@@ -51,6 +50,7 @@ def test_require_str_rejects_blank_and_keeps_padding() -> None:
 
 def test_dispatch_units_passes_data_range_through_spec_adapter() -> None:
     packet = {
+        "domain": "units",
         "helper": "convert_quantity",
         "params": {"value": "1", "from_unit": "m", "to_unit": "ft"},
         "data_range": [["x"]],
@@ -59,7 +59,7 @@ def test_dispatch_units_passes_data_range_through_spec_adapter() -> None:
         "header_row": 1,
     }
     with patch("plugin.scripting.venv.units.run_units", return_value={"status": "ok"}) as mock_run:
-        result = dispatch_units(packet)
+        result = dispatch_spec_domain(packet)
         assert result == {"status": "ok"}
         mock_run.assert_called_once()
         args, kwargs = mock_run.call_args
@@ -77,13 +77,14 @@ def test_dispatch_units_passes_data_range_through_spec_adapter() -> None:
 
 def test_dispatch_symbolic_passes_data_range_through_spec_adapter() -> None:
     packet = {
+        "domain": "symbolic",
         "helper": "symbolic_simplify",
         "params": {"expression": "x"},
         "data_range": [[1]],
         "context": {"task_hint": "simplify"},
     }
     with patch("plugin.scripting.venv.symbolic.run_symbolic", return_value={"status": "ok"}) as mock_run:
-        result = dispatch_symbolic(packet)
+        result = dispatch_spec_domain(packet)
         assert result == {"status": "ok"}
         mock_run.assert_called_once()
         args, kwargs = mock_run.call_args

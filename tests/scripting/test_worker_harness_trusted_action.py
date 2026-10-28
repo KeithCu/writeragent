@@ -24,7 +24,7 @@ def test_handle_request_run_trusted_action_unknown_domain() -> None:
     assert "Unknown trusted action domain" in res["message"]
 
 
-@patch("plugin.scripting.venv.trusted_dispatch.dispatch_analysis", return_value={"status": "ok", "helper": "describe_data"})
+@patch("plugin.scripting.venv.trusted_dispatch.dispatch_spec_domain", return_value={"status": "ok", "helper": "describe_data"})
 def test_handle_request_run_trusted_action_analysis(mock_dispatch) -> None:
     res = _handle_request(
         {
@@ -212,7 +212,7 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
 
 
 @patch(
-    "plugin.scripting.venv.trusted_dispatch.dispatch_analysis",
+    "plugin.scripting.venv.trusted_dispatch.dispatch_spec_domain",
     return_value={"helper": "describe_data"},
 )
 def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
@@ -248,7 +248,7 @@ def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
 
 
 @patch(
-    "plugin.scripting.venv.trusted_dispatch.dispatch_analysis",
+    "plugin.scripting.venv.trusted_dispatch.dispatch_spec_domain",
     side_effect=RuntimeError("bad spec"),
 )
 def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
@@ -308,7 +308,7 @@ def test_allow_heartbeat_frames_unknown_domain() -> None:
 
 
 @patch(
-    "plugin.scripting.venv.trusted_dispatch.dispatch_analysis",
+    "plugin.scripting.venv.trusted_dispatch.dispatch_spec_domain",
     return_value={"helper": "describe_data"},
 )
 def test_stdout_without_allow_heartbeat_returns_dict(mock_dispatch) -> None:
@@ -431,7 +431,7 @@ def test_trusted_action_ignores_sandbox_policy() -> None:
         },
     }
     with (
-        patch("plugin.scripting.venv.trusted_dispatch.dispatch_analysis", return_value={"status": "ok"}) as mock_dispatch,
+        patch("plugin.scripting.venv.trusted_dispatch.dispatch_spec_domain", return_value={"status": "ok"}) as mock_dispatch,
         patch("plugin.scripting.venv.venv_sandbox.run_sandboxed_code") as mock_run_code,
     ):
         res = _handle_request(req)

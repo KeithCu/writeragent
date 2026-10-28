@@ -520,7 +520,7 @@ def run_quant(
     parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
     if isinstance(parsed, dict):
         return parsed
-    helper, params, headers, header_row, ctx, _spec = parsed
+    helper, params, headers, header_row, ctx = parsed
 
     # Every data helper needs headers and header_row. Dropping them makes
     # tearsheet and frontier treat a header row as a price.

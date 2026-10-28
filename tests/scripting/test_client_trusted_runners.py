@@ -18,7 +18,6 @@ _SPEC_RUNNERS = (
     ("run_analysis", "writeragent:analysis", "analysis", "ANALYSIS_ERROR"),
     ("run_viz", "writeragent:viz", "viz", "VIZ_ERROR"),
     ("run_symbolic", "writeragent:symbolic", "symbolic", "SYMBOLIC_ERROR"),
-    ("run_units", "writeragent:units", "units", "UNITS_ERROR"),
     ("run_optimize", "writeragent:optimize", "optimize", "OPTIMIZE_ERROR"),
     ("run_forecast", "writeragent:forecast", "forecast", "FORECAST_ERROR"),
 )

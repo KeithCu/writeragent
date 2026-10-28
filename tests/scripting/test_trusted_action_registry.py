@@ -21,7 +21,7 @@ from plugin.scripting.trusted_action_registry import (
 def test_get_trusted_action_wiring_known_domains() -> None:
     analysis = get_trusted_action_wiring("analysis")
     assert analysis is not None
-    assert analysis.handler.endswith("trusted_dispatch:dispatch_analysis")
+    assert analysis.handler.endswith("trusted_dispatch:dispatch_spec_domain")
 
     embeddings = get_trusted_action_wiring("embeddings_index")
     assert embeddings is not None

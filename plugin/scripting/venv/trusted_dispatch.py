@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -61,10 +62,10 @@ def parse_trusted_spec(
     *,
     helper_names: frozenset[str] | set[str],
     context: dict[str, Any] | None = None,
-) -> tuple[str, dict[str, Any], bool, int, dict[str, Any], dict[str, Any]] | dict[str, Any]:
+) -> tuple[str, dict[str, Any], bool, int, dict[str, Any]] | dict[str, Any]:
     """Shared preamble for run_analysis / run_forecast / run_optimize.
 
-    Returns ``(helper, params, headers, header_row, context, spec)`` or an error dict.
+    Returns ``(helper, params, headers, header_row, context)`` or an error dict.
     """
     if isinstance(spec, str):
         spec_dict: dict[str, Any] = {"helper": spec}
@@ -85,7 +86,7 @@ def parse_trusted_spec(
         return layout
     headers, header_row = layout
     ctx = context if isinstance(context, dict) else {}
-    return helper, params, headers, header_row, ctx, spec_dict
+    return helper, params, headers, header_row, ctx
 
 
 def resolve_spec_helper(
@@ -130,19 +131,17 @@ def run_trusted_spec(
     dispatch_fn: Any,
     domain: str,
     error_code: str,
-    logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
     """Shared execution body for run_analysis / run_forecast / run_optimize."""
     parsed = parse_trusted_spec(spec, helper_names=helper_names, context=context)
     if isinstance(parsed, dict):
         return parsed
-    helper, params, headers, header_row, ctx, _spec = parsed
+    helper, params, headers, header_row, ctx = parsed
 
     try:
         result = dispatch_fn(helper, data, params, headers=headers, header_row=header_row, context=ctx)
     except Exception as exc:
-        active_log = logger or log
-        active_log.exception("%s helper %s failed", domain, helper)
+        log.exception("%s helper %s failed", domain, helper)
         return error_result(error_code, str(exc), helper=helper)
 
     if isinstance(result, dict) and result.get("status") == "ok" and ctx:
@@ -199,46 +198,27 @@ def _dispatch_spec_data(run_fn: Callable[..., Any], data: dict[str, Any]) -> Any
     return run_fn(spec, data_range, context)
 
 
-def dispatch_units(data: dict[str, Any]) -> Any:
-    from plugin.scripting.venv.units import run_units
-
-    return _dispatch_spec_data(run_units, data)
-
-
-def dispatch_symbolic(data: dict[str, Any]) -> Any:
-    from plugin.scripting.venv.symbolic import run_symbolic
-
-    return _dispatch_spec_data(run_symbolic, data)
-
-
-def dispatch_viz(data: dict[str, Any]) -> Any:
-    from plugin.scripting.venv.viz import run_viz
-
-    return _dispatch_spec_data(run_viz, data)
+# Same seven domains as the spec rows in trusted_action_registry.
+# text, vision, sql, languagetool, vale, embedding, and langdetect do not fit.
+_SPEC_DOMAIN_RUNNERS: dict[str, tuple[str, str]] = {
+    "units": ("plugin.scripting.venv.units", "run_units"),
+    "symbolic": ("plugin.scripting.venv.symbolic", "run_symbolic"),
+    "viz": ("plugin.scripting.venv.viz", "run_viz"),
+    "analysis": ("plugin.scripting.venv.analysis", "run_analysis"),
+    "forecast": ("plugin.scripting.venv.forecast", "run_forecast"),
+    "optimize": ("plugin.scripting.venv.optimize", "run_optimize"),
+    "quant": ("plugin.scripting.venv.quant", "run_quant"),
+}
 
 
-def dispatch_analysis(data: dict[str, Any]) -> Any:
-    from plugin.scripting.venv.analysis import run_analysis
-
-    return _dispatch_spec_data(run_analysis, data)
-
-
-def dispatch_forecast(data: dict[str, Any]) -> Any:
-    from plugin.scripting.venv.forecast import run_forecast
-
-    return _dispatch_spec_data(run_forecast, data)
-
-
-def dispatch_optimize(data: dict[str, Any]) -> Any:
-    from plugin.scripting.venv.optimize import run_optimize
-
-    return _dispatch_spec_data(run_optimize, data)
-
-
-def dispatch_quant(data: dict[str, Any]) -> Any:
-    from plugin.scripting.venv.quant import run_quant
-
-    return _dispatch_spec_data(run_quant, data)
+def dispatch_spec_domain(data: dict[str, Any]) -> Any:
+    domain = data.get("domain")
+    target = _SPEC_DOMAIN_RUNNERS.get(domain) if isinstance(domain, str) else None
+    # Harness lookup used this same domain string. A miss is a direct call.
+    assert target is not None, domain
+    module_name, attr_name = target
+    mod = importlib.import_module(module_name)
+    return _dispatch_spec_data(getattr(mod, attr_name), data)
 
 
 def dispatch_text(data: dict[str, Any]) -> Any:

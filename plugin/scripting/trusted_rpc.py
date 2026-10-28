@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_GRACE_S, WORKER_POOL_DEFAULT
+from plugin.framework.constants import WORKER_POOL_DEFAULT
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.venv_worker import run_code_in_user_venv
@@ -72,7 +72,6 @@ def run_trusted_worker_action(
     worker_pool: str = WORKER_POOL_DEFAULT,
     additional_data: dict[str, Any] | None = None,
     allow_heartbeat: bool = False,
-    heartbeat_grace_sec: int | None = None,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
     stop_checker: Callable[[], bool] | None = None,
     error_code: str = "TRUSTED_ACTION_ERROR",
@@ -124,7 +123,6 @@ def run_trusted_worker_action(
         worker_pool=worker_pool,
         action="run_trusted_action",
         allow_heartbeat=allow_heartbeat,
-        heartbeat_grace_sec=heartbeat_grace_sec if heartbeat_grace_sec is not None else EMBEDDINGS_HEARTBEAT_GRACE_S,
         on_heartbeat=_on_heartbeat if allow_heartbeat else None,
         stop_checker=stop_checker,
         cancellation_scope=cancellation_scope,

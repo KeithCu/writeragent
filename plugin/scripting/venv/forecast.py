@@ -914,5 +914,4 @@ def run_forecast(
         dispatch_fn=_dispatch_helper,
         domain="Forecast",
         error_code="FORECAST_FAILED",
-        logger=log,
     )
