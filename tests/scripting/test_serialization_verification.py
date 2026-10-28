@@ -28,19 +28,14 @@ from hypothesis import given, strategies as st
 
 from plugin.scripting.payload_codec import (
     BINARY_MIN_CELLS,
-    PAYLOAD_MULTI_DATA,
     PAYLOAD_SPLIT_GRID,
     SPLIT_GRID_WIRE_DTYPE,
     _flatten_grid_to_components,
     child_unpack_split_grid,
-    column_kinds_for_grid,
     host_pack_data,
-    host_pack_multi_data,
     host_pack_split_grid,
     host_unpack_data,
     host_unpack_split_grid,
-    is_multi_data,
-    is_split_grid,
     should_use_binary_envelope,
 )
 from tests.scripting.serialization_ab_support import flatten_semantic_cells
@@ -151,15 +146,6 @@ def test_jagged_grid_raises_value_error() -> None:
         _flatten_grid_to_components(jagged)
 
 
-def test_column_kinds_for_grid_contract_kinds() -> None:
-    """column_kinds_for_grid kinds are only int/float/bool (deal.ensure); empty/cover edges."""
-    assert column_kinds_for_grid([]) == []
-    assert column_kinds_for_grid([0]) == ["int"]
-    kinds = column_kinds_for_grid([[1, "x", True], [2, "y", False]])
-    assert kinds == ["int", "float", "bool"]
-    assert all(k in ("int", "float", "bool") for k in kinds)
-
-
 def test_should_use_binary_envelope_force_contracts() -> None:
     """force=always/never overrides cell threshold (deal.ensure); cover-style empty shape.
 
@@ -182,10 +168,6 @@ def test_host_pack_data_force_min_cells_preconditions() -> None:
         host_pack_data([[1.0]], min_cells=-1)
     with pytest.raises(deal.PreContractError):
         host_pack_data([[1.0]], force="")
-    with pytest.raises(deal.PreContractError):
-        host_pack_multi_data([[[1.0]]], force="nope")
-    with pytest.raises(deal.PreContractError):
-        host_pack_multi_data([[[1.0]]], min_cells=-5)
 
 
 def test_host_unpack_data_plain_dict_recurses() -> None:
@@ -199,42 +181,11 @@ def test_host_unpack_data_plain_dict_recurses() -> None:
     assert host_unpack_data(nested) is nested
 
 
-def test_host_pack_multi_data_structure_and_roundtrip() -> None:
-    """multi_data envelope: detector, items length, host_unpack_data semantic cells per item."""
-    grids = [
-        [],
-        [1.5, 2.5],
-        [[1.0, "x"], [None, True]],
-    ]
-    envelope = host_pack_multi_data(grids, force="always")
-    assert is_multi_data(envelope) is True
-    assert envelope.get("__wa_payload__") == PAYLOAD_MULTI_DATA
-    items = envelope["items"]
-    assert len(items) == len(grids)
-    # Empty host pack stays a list even with force=always (`if grid` in host_pack_data).
-    assert is_split_grid(items[0]) is False
-    assert all(is_split_grid(item) for item in items[1:])
-
-    unpacked = host_unpack_data(envelope)
-    assert isinstance(unpacked, list)
-    assert len(unpacked) == len(grids)
-    for got, src in zip(unpacked, grids, strict=True):
-        assert flatten_semantic_cells(got) == flatten_semantic_cells(src)
-
-
-def test_host_pack_multi_data_empty_list() -> None:
-    envelope = host_pack_multi_data([])
-    assert is_multi_data(envelope) is True
-    assert envelope["items"] == []
-    assert host_unpack_data(envelope) == []
-
-
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 
 _CROSSHAIR_FQN_TARGETS = (
     "plugin.scripting.payload_codec.is_split_grid",
     "plugin.scripting.payload_codec.is_multi_data",
-    "plugin.scripting.payload_codec.host_pack_multi_data",
 )
 
 

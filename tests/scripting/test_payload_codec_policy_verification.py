@@ -38,7 +38,7 @@ from plugin.scripting.payload_codec import (
     is_dataframe_payload,
     is_image_payload,
     is_multi_data,
-    is_numeric_coercible,
+    _is_numeric_coercible_impl,
     is_numeric_grid,
     is_split_grid,
     should_use_binary_envelope,
@@ -49,7 +49,6 @@ from tests.harness.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
-    "plugin.scripting.payload_codec.is_numeric_coercible",
     "plugin.scripting.payload_codec.is_numeric_grid",
     "plugin.scripting.payload_codec.cell_count",
     "plugin.scripting.payload_codec.should_use_binary_envelope",
@@ -91,7 +90,7 @@ def _find_crosshair() -> str | None:
 @given(s=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), min_size=1, max_size=40).filter(lambda t: t.strip() != ""))
 @settings(max_examples=vhs_max_examples(80, 800), deadline=None)
 def test_hypothesis_nonempty_strings_never_coercible(s: str) -> None:
-    assert is_numeric_coercible(s) is False
+    assert _is_numeric_coercible_impl(s) is False
 
 
 def test_zero_dim_shape_cell_count() -> None:
@@ -149,19 +148,19 @@ def test_host_pack_split_grid_empty() -> None:
 @given(ws=st.from_regex(r"[ \t\n\r]*", fullmatch=True))
 @settings(max_examples=vhs_max_examples(40, 400), deadline=None)
 def test_hypothesis_whitespace_strings_coercible(ws: str) -> None:
-    assert is_numeric_coercible(ws) is True
+    assert _is_numeric_coercible_impl(ws) is True
 
 
 @given(cells=st.lists(_CELL, max_size=8))
 @settings(max_examples=vhs_max_examples(50, 500), deadline=None)
 def test_hypothesis_numeric_grid_matches_cellwise_1d(cells: list) -> None:
-    assert is_numeric_grid(cells) is all(is_numeric_coercible(c) for c in cells)
+    assert is_numeric_grid(cells) is all(_is_numeric_coercible_impl(c) for c in cells)
 
 
 @given(rows=st.lists(st.lists(_CELL, max_size=5), min_size=1, max_size=5))
 @settings(max_examples=vhs_max_examples(40, 400), deadline=None)
 def test_hypothesis_numeric_grid_matches_cellwise_2d(rows: list[list]) -> None:
-    assert is_numeric_grid(rows) is all(is_numeric_coercible(c) for row in rows for c in row)
+    assert is_numeric_grid(rows) is all(_is_numeric_coercible_impl(c) for row in rows for c in row)
 
 
 @given(
@@ -189,20 +188,20 @@ def test_hypothesis_wire_cell_count_nested_list(rows: list[list[int]]) -> None:
 
 
 def test_zip_code_string_not_coercible() -> None:
-    assert is_numeric_coercible("02138") is False
+    assert _is_numeric_coercible_impl("02138") is False
     assert is_numeric_grid([[1.0, "02138"], [2.0, None]]) is False
     assert is_numeric_grid([[1.0, 2.0], [3.0, None]]) is True
 
 
 def test_is_numeric_coercible_odd_values_return_false() -> None:
     """A list, a dict, or non-ASCII text is not coercible. It must not PreContract."""
-    assert is_numeric_coercible([1]) is False
-    assert is_numeric_coercible({"a": 1}) is False
-    assert is_numeric_coercible("café") is False
-    assert is_numeric_coercible("x" * (DEAL_MAX_SOURCE + 1)) is False
-    assert is_numeric_coercible(None) is True
-    assert is_numeric_coercible(True) is True
-    assert is_numeric_coercible(1) is True
+    assert _is_numeric_coercible_impl([1]) is False
+    assert _is_numeric_coercible_impl({"a": 1}) is False
+    assert _is_numeric_coercible_impl("café") is False
+    assert _is_numeric_coercible_impl("x" * (DEAL_MAX_SOURCE + 1)) is False
+    assert _is_numeric_coercible_impl(None) is True
+    assert _is_numeric_coercible_impl(True) is True
+    assert _is_numeric_coercible_impl(1) is True
 
 
 def test_wire_cell_count_split_grid_and_none() -> None:
@@ -326,7 +325,6 @@ def test_payload_codec_cover_all_33797534946_offs() -> None:
 
     fqns = cover_fqns_for_module(Path("plugin/scripting/payload_codec.py"))
     for name in (
-        "binary_envelope_skip_reason",
         "image_payload_suffix",
         "_uniform_column_kind",
     ):

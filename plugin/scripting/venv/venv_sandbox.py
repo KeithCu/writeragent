@@ -31,6 +31,7 @@ import sys
 import threading
 import time
 import types
+from collections.abc import Callable
 from contextvars import ContextVar
 from typing import Any
 
@@ -146,7 +147,6 @@ def _install_timeout_context_pool() -> None:
     from typing import TYPE_CHECKING
 
     if TYPE_CHECKING:
-        from collections.abc import Callable
         from concurrent.futures import Future
 
     from plugin.contrib.smolagents import local_python_executor as lpe
@@ -465,6 +465,47 @@ def _set_or_list(original: set[Any] | frozenset[Any], elements: list[Any]) -> An
         return elements
 
 
+def _walk_container(
+    obj: Any,
+    child: Callable[[Any, int, set[int]], Any],
+    *,
+    depth: int,
+    seen: set[int] | None,
+) -> Any:
+    if depth > _HOST_PICKLE_MAX_DEPTH:
+        raise ValueError("Result is too deeply nested to cross the LibreOffice pickle boundary")
+    path = seen if seen is not None else set()
+    oid = id(obj)
+    if oid in path:
+        raise ValueError(
+            "Result contains a self-referential container and cannot cross "
+            "the LibreOffice pickle boundary"
+        )
+    path.add(oid)
+    try:
+        if isinstance(obj, dict):
+            used: set[str] = set()
+            out_dict: dict[str, Any] = {}
+            for key, value in obj.items():
+                # wire_str_key raises when two keys stringify to the same string
+                # ({1: "a", "1": "b"} used to drop "a").
+                sk = wire_str_key(key, used)
+                out_dict[sk] = child(value, depth + 1, path)
+            return out_dict
+        if isinstance(obj, list):
+            return [child(v, depth + 1, path) for v in obj]
+        if isinstance(obj, tuple):
+            return tuple(child(v, depth + 1, path) for v in obj)
+        if isinstance(obj, (set, frozenset)):
+            # range becomes a list and a Figure becomes a dict. A set of those
+            # used to raise TypeError and turn a successful cell into an error
+            # frame; _set_or_list falls back to a list.
+            return _set_or_list(obj, [child(v, depth + 1, path) for v in obj])
+        assert False, f"Unexpected container type: {type(obj)}"
+    finally:
+        path.discard(oid)
+
+
 def _coerce_host_pickle_tree(
     obj: Any,
     pd_mod: Any,
@@ -487,35 +528,12 @@ def _coerce_host_pickle_tree(
         if scalar is not obj and isinstance(scalar, (list, tuple, dict, set, frozenset)):
             return _coerce_host_pickle_tree(scalar, pd_mod, depth=depth, seen=seen)
         return scalar
-    path = seen if seen is not None else set()
-    oid = id(obj)
-    if oid in path:
-        raise ValueError(
-            "Result contains a self-referential container and cannot cross "
-            "the LibreOffice pickle boundary"
-        )
-    path.add(oid)
-    try:
-        if isinstance(obj, dict):
-            used: set[str] = set()
-            out: dict[str, Any] = {}
-            for key, value in obj.items():
-                # wire_str_key raises when two keys stringify to the same string
-                # ({1: "a", "1": "b"} used to drop "a").
-                sk = wire_str_key(key, used)
-                out[sk] = _coerce_host_pickle_tree(value, pd_mod, depth=depth + 1, seen=path)
-            return out
-        if isinstance(obj, list):
-            return [_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj]
-        if isinstance(obj, tuple):
-            return tuple(_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj)
-        if isinstance(obj, (set, frozenset)):
-            # range becomes a list. A set of those lists used to raise
-            # TypeError and turn a successful cell into an error frame.
-            elements = [_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj]
-            return _set_or_list(obj, elements)
-    finally:
-        path.discard(oid)
+    return _walk_container(
+        obj,
+        lambda v, d, s: _coerce_host_pickle_tree(v, pd_mod, depth=d, seen=s),
+        depth=depth,
+        seen=seen,
+    )
 
 
 def _reject_host_unpickleable(obj: Any, *, depth: int = 0) -> None:
@@ -954,34 +972,12 @@ def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = 
         if _has_custom_serialize_objects(obj):
             # Recursing through serialize_result bypassed the depth and cycle checks,
             # letting self-referential custom containers loop to RecursionError.
-            if depth > _HOST_PICKLE_MAX_DEPTH:
-                raise ValueError("Result is too deeply nested to cross the LibreOffice pickle boundary")
-            path = seen if seen is not None else set()
-            oid = id(obj)
-            if oid in path:
-                raise ValueError(
-                    "Result contains a self-referential container and cannot cross "
-                    "the LibreOffice pickle boundary"
-                )
-            path.add(oid)
-            try:
-                if isinstance(obj, dict):
-                    used: set[str] = set()
-                    out_dict: dict[str, Any] = {}
-                    for key, value in obj.items():
-                        sk = wire_str_key(key, used)
-                        out_dict[sk] = _serialize_result_impl(value, depth=depth + 1, seen=path)
-                    return out_dict
-                elif isinstance(obj, list):
-                    return [_serialize_result_impl(v, depth=depth + 1, seen=path) for v in obj]
-                elif isinstance(obj, (set, frozenset)):
-                    # A Figure (or range coerced to a list) is unhashable after
-                    # serialize. The list fallback keeps the values.
-                    return _set_or_list(obj, [_serialize_result_impl(v, depth=depth + 1, seen=path) for v in obj])
-                else:
-                    return tuple(_serialize_result_impl(v, depth=depth + 1, seen=path) for v in obj)
-            finally:
-                path.discard(oid)
+            return _walk_container(
+                obj,
+                lambda v, d, s: _serialize_result_impl(v, depth=d, seen=s),
+                depth=depth,
+                seen=seen,
+            )
         # Short lists skip split_grid and are pickled as Python objects. A date
         # or Decimal in that list is a datetime/decimal global the host unpickler
         # rejects, which used to kill the shared worker.
@@ -1020,14 +1016,7 @@ def _get_or_create_session_executor(
         executor = _SESSION_EXECUTORS.get(session_id)
         if executor is not None and digest is not None:
             if getattr(executor, "_sandbox_policy_digest", None) != digest:
-                if session_id.endswith(":init"):
-                    _clear_init_session_unlocked(session_id)
-                else:
-                    _SESSION_EXECUTORS.pop(session_id, None)
-                    _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
-                    init_sid = _related_init_session_id(session_id)
-                    if init_sid:
-                        _clear_init_session_unlocked(init_sid)
+                _drop_session_unlocked(session_id)
                 executor = None
 
         if executor is None:
@@ -1040,27 +1029,8 @@ def _get_or_create_session_executor(
         return executor
 
 
-def _related_init_session_id(session_id: str) -> str | None:
-    """Return the ``{id}:init`` companion for a cell session.
-
-    Desktop workbooks use ``calc:…``. The compute service uses the raw Online
-    session id. Both store the init executor at ``{id}:init``. Reset used to
-    drop that companion only for ``calc:`` ids, so an Online reset left the
-    pre-reset snapshot and the next cell seeded from it.
-    """
-    if session_id.endswith(":init"):
-        return None
-    return f"{session_id}:init"
-
-
-def _cell_session_for_init(init_session_id: str) -> str | None:
-    if init_session_id.endswith(":init"):
-        return init_session_id[: -len(":init")]
-    return None
-
-
 def _clear_init_session_unlocked(init_session_id: str) -> None:
-    cell_sid = _cell_session_for_init(init_session_id)
+    cell_sid = init_session_id[:-len(":init")] if init_session_id.endswith(":init") else None
     _SESSION_EXECUTORS.pop(init_session_id, None)
     _INIT_SCRIPT_HASH.pop(init_session_id, None)
     if init_session_id.startswith("isolated:"):
@@ -1071,6 +1041,17 @@ def _clear_init_session_unlocked(init_session_id: str) -> None:
         _CELL_SESSION_INIT_DIGEST.pop(cell_sid, None)
         # Init-hash change drops the workbook kernel; DuckDB tables must go too.
         _reset_session_duckdb(cell_sid)
+
+
+def _drop_session_unlocked(session_id: str) -> None:
+    # Desktop workbooks use calc:… and compute uses the raw Online session id;
+    # both store the init executor at {id}:init. Reset drops both.
+    if session_id.endswith(":init"):
+        _clear_init_session_unlocked(session_id)
+    else:
+        _SESSION_EXECUTORS.pop(session_id, None)
+        _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
+        _clear_init_session_unlocked(f"{session_id}:init")
 
 
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
@@ -1084,14 +1065,7 @@ def reset_sandbox_session(session_id: str) -> dict[str, Any]:
     if not (session_id or "").strip():
         return {"status": "error", "message": "No session_id provided."}
     with _SESSION_LOCK:
-        if session_id.endswith(":init"):
-            _clear_init_session_unlocked(session_id)
-        else:
-            _SESSION_EXECUTORS.pop(session_id, None)
-            _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
-            init_sid = _related_init_session_id(session_id)
-            if init_sid:
-                _clear_init_session_unlocked(init_sid)
+        _drop_session_unlocked(session_id)
     return {"status": "ok"}
 
 
@@ -1578,16 +1552,9 @@ def _run_on_executor(
         # Wrapping host USER_STOPPED in RuntimeError lets the script keep
         # issuing wa.* calls after Stop.
         return _fail_cell(executor, prior_result, str(e) or "Stopped by user.", code="USER_STOPPED")
-    except ExecutionTimeoutError as e:
+    except (ExecutionTimeoutError, InterpreterError) as e:
         # ExecutionTimeoutError is BaseException; catch it before the broad
         # BaseException handler so timeout errors return without traceback.
-        return _fail_cell(
-            executor,
-            prior_result,
-            str(e),
-            stdout=print_outputs_from_state(executor.state),
-        )
-    except InterpreterError as e:
         return _fail_cell(
             executor,
             prior_result,
@@ -1718,11 +1685,7 @@ def run_sandboxed_code(
             with _SESSION_LOCK:
                 cached = _SESSION_EXECUTORS.get(session_id)
                 if cached is not None and getattr(cached, "_sandbox_policy_digest", None) != policy_digest_val:
-                    _SESSION_EXECUTORS.pop(session_id, None)
-                    _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
-                    init_sid_comp = _related_init_session_id(session_id)
-                    if init_sid_comp:
-                        _clear_init_session_unlocked(init_sid_comp)
+                    _drop_session_unlocked(session_id)
 
         if init_sid and (init_script or "").strip():
             init_err = _ensure_init_executed(
