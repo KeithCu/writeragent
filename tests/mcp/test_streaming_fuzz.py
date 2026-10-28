@@ -49,10 +49,10 @@ class TestStreamingFuzz:
         lines = _make_sse_lines(*lines, done=True)
 
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         content_parts = []
-        client.stream_request(
+        client._run_streaming_loop(
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
@@ -94,7 +94,7 @@ class TestStreamingFuzz:
         lines = _make_sse_lines(*chunks, done=True)
 
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         result = client.stream_request_with_tools(
             [{"role": "user", "content": "hi"}],
@@ -149,7 +149,7 @@ class TestStreamingFuzz:
         lines = _make_sse_lines(*chunks, done=True)
 
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         with pytest.raises(Exception) as ctx:
             client.stream_request_with_tools(

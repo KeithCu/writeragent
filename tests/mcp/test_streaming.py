@@ -71,11 +71,11 @@ class TestStreamingBasic:
         ]
         lines = _make_sse_lines(*chunks)
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         content_parts = []
 
-        client.stream_request(
+        client._run_streaming_loop(
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
@@ -90,10 +90,10 @@ class TestStreamingBasic:
         # No space after "data:"
         lines = [b"data:" + json.dumps(chunk).encode() + b"\n", b"data: [DONE]\n"]
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         content_parts = []
-        client.stream_request(
+        client._run_streaming_loop(
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
@@ -108,10 +108,10 @@ class TestStreamingBasic:
         lines = [b": OPENROUTER PROCESSING\n"]
         lines.extend(_make_sse_lines(*chunks))
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         content_parts = []
-        client.stream_request(
+        client._run_streaming_loop(
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
@@ -125,10 +125,10 @@ class TestStreamingBasic:
             *_make_sse_lines(_make_chat_chunk(content="fine")),
         ]
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         content_parts = []
-        client.stream_request(
+        client._run_streaming_loop(
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
@@ -148,10 +148,10 @@ class TestStreamingFinishReasonError:
         chunk = _make_chat_chunk(content="", finish_reason="error")
         lines = _make_sse_lines(chunk)
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         with pytest.raises(Exception) as ctx:
-            client.stream_request(
+            client._run_streaming_loop(
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
             )
@@ -173,10 +173,10 @@ class TestStreamingRepeatedChunks:
         chunks = [_make_chat_chunk(content="repeat") for _ in range(21)]
         lines = _make_sse_lines(*chunks)
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         with pytest.raises(Exception) as ctx:
-            client.stream_request(
+            client._run_streaming_loop(
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
             )
@@ -211,7 +211,7 @@ class TestNormalizeDelta:
         ]
         lines = _make_sse_lines(*chunks)
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         result = client.stream_request_with_tools(
             [{"role": "user", "content": "hi"}],
@@ -243,7 +243,7 @@ class TestNormalizeDelta:
         ]
         lines = _make_sse_lines(*chunks)
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         result = client.stream_request_with_tools(
             [{"role": "user", "content": "hi"}],
@@ -267,7 +267,7 @@ class TestNormalizeDelta:
         ]
         lines = _make_sse_lines(*chunks)
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         result = client.stream_request_with_tools(
             [{"role": "user", "content": "hi"}],
@@ -302,7 +302,7 @@ class TestFinishReasonRemap:
         ]
         lines = _make_sse_lines(*chunks)
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         result = client.stream_request_with_tools(
             [{"role": "user", "content": "hi"}],
@@ -356,7 +356,7 @@ class TestStreamingComplexDeltas:
         ]
         lines = _make_sse_lines(*chunks)
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         result = client.stream_request_with_tools(
             [{"role": "user", "content": "do something"}],
@@ -398,7 +398,7 @@ class TestStreamingComplexDeltas:
         ]
         lines = _make_sse_lines(*chunks)
         client = LlmClient(self.config, self.ctx)
-        client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
+        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
         result = client.stream_request_with_tools(
             [{"role": "user", "content": "do something"}],
@@ -439,10 +439,10 @@ class TestStreamingHttpErrors:
 
         # Scenario 1: JSON body with detailed error
         json_error_body = b'{"error": {"message": "Model not found"}}'
-        client._get_connection = lambda: _mock_error_connection(404, "Not Found", json_error_body)
+        client._transport.get_connection = lambda: _mock_error_connection(404, "Not Found", json_error_body)
 
         with pytest.raises(Exception) as ctx:
-            client.stream_request(
+            client._run_streaming_loop(
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
             )
@@ -453,10 +453,10 @@ class TestStreamingHttpErrors:
 
         # Scenario 2: Non-JSON body (e.g., HTML or plain text)
         plain_error_body = b"Internal Server Error: Database Down"
-        client._get_connection = lambda: _mock_error_connection(500, "Internal Server Error", plain_error_body)
+        client._transport.get_connection = lambda: _mock_error_connection(500, "Internal Server Error", plain_error_body)
 
         with pytest.raises(Exception) as ctx:
-            client.stream_request(
+            client._run_streaming_loop(
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
             )

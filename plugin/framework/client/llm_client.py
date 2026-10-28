@@ -47,8 +47,6 @@ import urllib.parse
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    import http.client
-
     from .base_provider_shim import BaseProviderShim
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
@@ -205,20 +203,6 @@ class LlmClient:
             shim_cls = get_provider_shim_class(provider)
             self._shims[shim_key] = shim_cls(self)
         return self._shims[shim_key]
-
-    @property
-    def _persistent_conn(self) -> http.client.HTTPConnection | http.client.HTTPSConnection | None:
-        return self._transport.persistent_conn
-
-    @property
-    def _conn_key(self) -> tuple[str, str, int, str] | None:
-        return self._transport.conn_key
-
-    def _get_connection(self) -> http.client.HTTPConnection | http.client.HTTPSConnection:
-        """Compatibility wrapper for tests and internal diagnostics."""
-        if self._stopped:
-            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-        return self._transport.get_connection()
 
     def _close_connection(self) -> None:
         self._transport.close()
@@ -377,24 +361,11 @@ class LlmClient:
         return self.config.get("request_timeout", 120)
 
     def _send_request(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
-        """Send through the transport while honoring tests/debuggers that override ``_get_connection`` on the instance."""
+        """Send through the transport with stop check."""
         if self._stopped:
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
 
-        connection_getter = self.__dict__.get("_get_connection")
-        return self._transport.send(method, path, body, headers, connection_getter=connection_getter, stop_checker=self._abort_checker(stop_checker), status_callback=status_callback)
-
-    def make_api_request(self, prompt: str, system_prompt: str = "", max_tokens: int = 70) -> Any:
-        """Build a streaming chat completions request (legacy/simple wrapper)."""
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        return self.make_chat_request(messages, max_tokens=max_tokens, stream=True)
-
-    def extract_content_from_response(self, chunk: Any, stream_state: dict[str, Any] | None = None) -> Any:
-        """Extract text content and optional thinking from response chunk (provider-aware)."""
-        return self._get_shim().parse_response_chunk(chunk, stream_state)
+        return self._transport.send(method, path, body, headers, stop_checker=self._abort_checker(stop_checker), status_callback=status_callback)
 
     def make_chat_request(self, messages: list[Any], max_tokens: int = 512, tools: Any = None, stream: bool = False, model: str | None = None, response_format: Any = None, chat_extra: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> tuple[str, str, Any, dict[str, str]]:
         """Build a chat completions request from a full messages array (provider-aware)."""
@@ -429,11 +400,6 @@ class LlmClient:
         _log_chat_request_body_diag(self, path, body, headers, tools)
 
         return method, path, body, headers
-
-    def make_image_request(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> Any:
-        """Build an image generation request (provider-aware)."""
-        shim = self._get_shim()
-        return shim.build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
 
     def _exchange_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None, retry_log_message: str, on_retry: Any = None, wrap_unexpected: bool = False, failure_log: str = "JSON request failed") -> tuple[str, Any]:
         """One non-streaming JSON exchange with the shared retry budget.
@@ -504,7 +470,7 @@ class LlmClient:
 
     def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None, *, stop_checker: Any = None, status_callback: Any = None) -> Any:
         """Generate images using the configured provider. Returns list of base64 strings."""
-        method, path, body, headers = self.make_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
+        method, path, body, headers = self._get_shim().build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
         endpoint = self._endpoint()
         if path.startswith("/"):
             parsed = urllib.parse.urlparse(endpoint)
@@ -638,8 +604,11 @@ class LlmClient:
 
     def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None) -> None:
         """Stream a chat completions response via callbacks."""
-        method, path, body, headers = self.make_api_request(prompt, system_prompt, max_tokens)
-        self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        self.stream_chat_response(messages, max_tokens, append_callback, append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
 
     def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, stop_checker: Any = None, status_callback: Any = None, reset_unemitted_attempt: Any = None) -> Any:
         """Common low-level streaming engine."""
@@ -788,7 +757,7 @@ class LlmClient:
                                 on_delta({"usage": usage_obj})
                             continue
 
-                        content, finish_reason, thinking, delta = self.extract_content_from_response(chunk, stream_state)
+                        content, finish_reason, thinking, delta = self._get_shim().parse_response_chunk(chunk, stream_state)
 
                         # Keep the provider's parsed SSE shape before normalization. Some
                         # OpenAI-compatible routes have appeared to continue one function's
@@ -955,15 +924,10 @@ class LlmClient:
             # If we completed successfully without retry, return
             return last_finish_reason
 
-    def stream_request(self, method: str, path: str, body: Any, headers: dict[str, str], append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None) -> None:
-        """Streaming request for chat completions, using persistent connection."""
-        init_logging(self.ctx)
-        self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
-
     def stream_chat_response(self, messages: list[Any], max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> None:
         """Stream a final chat response (no tools) using the messages array."""
         method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=None, stream=True, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
-        self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
+        self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
 
     def request_with_tools(
         self,
