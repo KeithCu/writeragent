@@ -50,7 +50,6 @@ _SIGN = r"([+-])?"
 _NUMBER = r"([\d,]+(?:\.\d+)?)"
 _CURRENCY_CHARS = r"[$€£¥₹]"
 _PERCENT_RE = re.compile(rf"^\s*{_SIGN}\s*{_NUMBER}\s*%\s*$")
-_CURRENCY_RE = re.compile(rf"^\s*{_SIGN}\s*{_CURRENCY_CHARS}+\s*{_SIGN}\s*{_NUMBER}\s*$")
 _NUMERIC_RE = re.compile(rf"^\s*{_SIGN}\s*{_CURRENCY_CHARS}*\s*{_SIGN}\s*{_NUMBER}\s*$")
 
 log = logging.getLogger(__name__)
@@ -146,9 +145,6 @@ def _parse_numeric_string(text: str) -> float | None:
     if pct:
         value = _signed_magnitude(pct.group(1), None, pct.group(2))
         return None if value is None else value / 100.0
-    cur = _CURRENCY_RE.match(stripped)
-    if cur:
-        return _signed_magnitude(cur.group(1), cur.group(2), cur.group(3))
     num = _NUMERIC_RE.match(stripped)
     if num:
         return _signed_magnitude(num.group(1), num.group(2), num.group(3))
@@ -171,25 +167,15 @@ def header_label(value: Any) -> str:
     return str(value).strip()
 
 
-def _coerce_cell_basic(value: Any) -> Any:
-    """Normalize blanks/errors; leave numbers and text unchanged."""
+def _coerce_cell(value: Any, *, parse: bool) -> Any:
+    """Normalize blanks and errors. Parse currency/percent/numeric text only when parse is true."""
     if is_missing_value(value):
         return None
-    # numbers and other objects pass through; only strings are stripped
     if isinstance(value, str):
-        return value.strip()
-    return value
-
-
-def _coerce_cell_parse_strings(value: Any) -> Any:
-    """Like basic coerce, but parse currency/percent/plain numeric strings."""
-    if is_missing_value(value):
-        return None
-    # numbers and other objects pass through; only strings are stripped
-    if isinstance(value, str):
-        parsed = _parse_numeric_string(value)
-        if parsed is not None:
-            return parsed
+        if parse:
+            parsed = _parse_numeric_string(value)
+            if parsed is not None:
+                return parsed
         return value.strip()
     return value
 
@@ -299,17 +285,14 @@ def _is_datetime_dtype(dtype: Any) -> bool:
     return bool(pd.api.types.is_datetime64_any_dtype(dtype))
 
 
-def _date_cols_requested(date_cols: Any) -> bool:
-    # not date_cols treated column index 0 as "no dates", so to_pandas(date_cols=0) left the first column as a float.
-    if isinstance(date_cols, bool):
-        return date_cols
-    if date_cols is None:
-        return False
-    if isinstance(date_cols, (int, str)):
-        return True
+def _date_cols_items(date_cols: Any) -> list[Any] | None:
+    if date_cols is True:
+        return None
+    if isinstance(date_cols, (int, str)) and not isinstance(date_cols, bool):
+        return [date_cols]
     if isinstance(date_cols, (list, tuple, set)):
-        return len(date_cols) > 0
-    return False
+        return list(date_cols)
+    return []
 
 
 def _coerce_column_types(
@@ -320,7 +303,8 @@ def _coerce_column_types(
     date_origin: str = "1899-12-30",
 ) -> Any:
     """Optional string→numeric/datetime inference and explicit date_cols conversion."""
-    if not parse_strings and not _date_cols_requested(date_cols):
+    items = _date_cols_items(date_cols)
+    if not parse_strings and items == []:
         return df
     import numpy as np
     import pandas as pd
@@ -328,21 +312,21 @@ def _coerce_column_types(
 
     # 1. Explicit date_cols handling
     target_date_cols: set[Any] = set()
-    if date_cols is True:
+    if items is None:
         for col in out.columns:
             if _is_date_like_column_name(str(col)):
                 target_date_cols.add(col)
     else:
-        raw_items = [date_cols] if isinstance(date_cols, (int, str)) and not isinstance(date_cols, bool) else (list(date_cols) if isinstance(date_cols, (list, tuple, set)) else [])
-        for item in raw_items:
+        col_str_map: dict[str, list[Any]] = {}
+        for c in out.columns:
+            col_str_map.setdefault(str(c), []).append(c)
+        for item in items:
             if isinstance(item, int) and 0 <= item < len(out.columns):
                 target_date_cols.add(out.columns[item])
             elif item in out.columns:
                 target_date_cols.add(item)
-            elif str(item) in [str(c) for c in out.columns]:
-                for c in out.columns:
-                    if str(c) == str(item):
-                        target_date_cols.add(c)
+            else:
+                target_date_cols.update(col_str_map.get(str(item), []))
 
     for col in target_date_cols:
         series = out[col]
@@ -359,7 +343,7 @@ def _coerce_column_types(
                 continue
             series = out[col]
             if series.dtype == object or str(series.dtype) == "string":
-                coerced = series.map(_coerce_cell_parse_strings)
+                coerced = series.map(lambda value: _coerce_cell(value, parse=True))
                 non_null = 0
                 all_numeric = True
                 for v in coerced:
@@ -428,13 +412,11 @@ def resolve_df(
     # DataFrame duck-type. Do not send it through grid_to_dataframe: that would
     # treat column names as a header row. CalcRange is unwrapped by
     # _normalize_input_grid inside coerce_to_dataframe.
-    if isinstance(data, CalcRange):
-        hint = sheet_hint or getattr(data, "address", None)
-        return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=hint)
     if hasattr(data, "columns") and hasattr(data, "index"):
         df = data.copy()
         return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=0))
-    return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    hint = (sheet_hint or data.address) if isinstance(data, CalcRange) else sheet_hint
+    return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=hint)
 
 
 def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
@@ -543,31 +525,42 @@ def _parse_numeric_date_series(series: Any, *, date_origin: str = "1899-12-30") 
         return pd.to_datetime(serials, unit="D", origin=date_origin, errors="coerce").astype("datetime64[ns]")
 
 
+def _optional_numpy() -> Any:
+    try:
+        import numpy as np
+        return np
+    except ImportError:
+        return None
+
+
+def _whole_number(value: Any) -> int | None:
+    if math.isfinite(value) and float(value).is_integer():
+        return int(value)
+    return None
+
+
 def coerce_int(value: Any, name: str = "value") -> int:
     """Coerce *value* to int or raise ValueError."""
     if isinstance(value, bool):
         raise ValueError(f"{name} must be an integer, got {value!r}")
-    try:
-        import numpy as np
-        int_types = (int, np.integer)
-        float_types = (float, np.floating)
-    except ImportError:
-        int_types = (int,)  # type: ignore[assignment]
-        float_types = (float,)  # type: ignore[assignment]
+    np = _optional_numpy()
+    int_types = (int, np.integer) if np is not None else (int,)
+    float_types = (float, np.floating) if np is not None else (float,)
 
     if isinstance(value, int_types):
         return int(value)
     if isinstance(value, float_types):
-        if math.isfinite(value) and float(value).is_integer():
-            return int(value)
+        whole = _whole_number(value)
+        if whole is not None:
+            return whole
         raise ValueError(f"{name} must be an integer, got {value!r}")
     if isinstance(value, str):
         stripped = value.strip()
         if stripped:
             try:
-                f = float(stripped)
-                if math.isfinite(f) and f.is_integer():
-                    return int(f)
+                whole = _whole_number(float(stripped))
+                if whole is not None:
+                    return whole
             except (ValueError, TypeError):
                 pass
         raise ValueError(f"{name} must be an integer, got {value!r}")
@@ -584,12 +577,8 @@ def _coerce_number(value: Any) -> float | None:
     """Coerce value to float or return None."""
     if isinstance(value, bool):
         return None
-    try:
-        import numpy as np
-
-        num_types = (int, float, np.integer, np.floating)
-    except ImportError:
-        num_types = (int, float)  # type: ignore[assignment]
+    np = _optional_numpy()
+    num_types = (int, float, np.integer, np.floating) if np is not None else (int, float)
     if isinstance(value, num_types):
         f = float(value)
         return f if math.isfinite(f) else None
@@ -627,9 +616,8 @@ def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bo
         return default
     if isinstance(value, bool):
         return value
-    try:
-        import numpy as np
-
+    np = _optional_numpy()
+    if np is not None:
         # What was wrong: coerce_bool(np.bool_(True)) raised ValueError.
         # How: np.bool_ is not a subclass of bool or of np.integer. islogical
         # already treats it as logical.
@@ -638,11 +626,8 @@ def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bo
         if isinstance(value, np.bool_):
             return bool(value)
 
-        int_types = (int, np.integer)
-        float_types = (float, np.floating)
-    except ImportError:
-        int_types = (int,)  # type: ignore[assignment]
-        float_types = (float,)  # type: ignore[assignment]
+    int_types = (int, np.integer) if np is not None else (int,)
+    float_types = (float, np.floating) if np is not None else (float,)
 
     if isinstance(value, int_types):
         if value == 1:
@@ -651,11 +636,11 @@ def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bo
             return False
         raise ValueError(f"{name} must be a boolean, got {value!r}")
     if isinstance(value, float_types):
-        if math.isfinite(value) and float(value).is_integer():
-            if int(value) == 1:
-                return True
-            if int(value) == 0:
-                return False
+        whole = _whole_number(value)
+        if whole == 1:
+            return True
+        if whole == 0:
+            return False
         raise ValueError(f"{name} must be a boolean, got {value!r}")
     if isinstance(value, str):
         stripped = value.strip().lower()
@@ -825,7 +810,6 @@ def grid_to_dataframe(
 
     grid = _normalize_input_grid(data)
     dropped_rows = 0
-    cell_fn = _coerce_cell_parse_strings if parse_strings else _coerce_cell_basic
 
     if not grid:
         empty = pd.DataFrame()
@@ -837,7 +821,7 @@ def grid_to_dataframe(
             raise ValueError(f"header_row {header_idx} is outside the grid (0..{len(grid) - 1})")
         # Labels, not values. parse_strings on this row turned "00123" into the
         # column name "123.0" and str(2024.0) into "2024.0".
-        raw_headers = [_coerce_cell_basic(cell) for cell in grid[header_idx]]
+        raw_headers = [_coerce_cell(cell, parse=False) for cell in grid[header_idx]]
         col_names = _dedupe_column_names([header_label(h) for h in raw_headers])
         body = grid[header_idx + 1 :]
     else:
@@ -848,7 +832,7 @@ def grid_to_dataframe(
     rows: list[list[Any]] = []
     for row in body:
         padded = list(row) + [None] * (len(col_names) - len(row))
-        coerced_row = [cell_fn(cell) for cell in padded[: len(col_names)]]
+        coerced_row = [_coerce_cell(cell, parse=parse_strings) for cell in padded[: len(col_names)]]
         if all(cell is None for cell in coerced_row):
             dropped_rows += 1
             continue
