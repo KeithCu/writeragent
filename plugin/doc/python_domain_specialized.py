@@ -303,14 +303,11 @@ def _normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: lis
         return payload
     if payload.get("finished") is True:
         return payload
-    if final_ans is None:
-        text = ""
-    elif isinstance(final_ans, str):
-        text = final_ans
-    elif isinstance(final_ans, dict):
+    # Discussion #2262: a plain-text return sits in result; move it to message instead of copying it.
+    if isinstance(final_ans, dict):
         text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
     else:
-        text = str(final_ans)
+        text = payload.pop("result")
     payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
     return payload
 

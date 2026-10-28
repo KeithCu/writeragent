@@ -537,14 +537,14 @@ class DelegateToSpecializedBase(ToolBase):
             payload["message"] = combined_message
             payload["error"] = combined_message
         elif not is_finished:
-            if isinstance(final_ans, str):
-                model_text = final_ans
-            elif isinstance(final_ans, dict):
+            # Discussion #2262: a plain-text return sits in result (plus any peer note); move it to
+            # message instead of copying it, so the text is sent once.
+            if isinstance(final_ans, dict):
                 model_text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
             elif final_ans is None:
                 model_text = ""
             else:
-                model_text = str(final_ans)
+                model_text = payload.pop("result")
             payload["status"] = "incomplete"
             payload["code"] = "SPECIALIZED_WORKFLOW_INCOMPLETE"
             payload["message"] = model_text

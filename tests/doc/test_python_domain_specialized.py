@@ -516,6 +516,7 @@ def test_run_inner_domain_tool_agent_prose_is_incomplete(mock_executor_cls, mock
     assert result["status"] == "incomplete"
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     assert result["message"] == "I could not place the shapes."
+    assert "result" not in result
 
 
 def test_run_inner_domain_tool_agent_inner_tool_error_is_error():
