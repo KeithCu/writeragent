@@ -71,9 +71,6 @@ _API = make_template_api(
 get_units_script_templates = _API.get_templates
 
 
-# --- Runner ---
-
-
 # --- Egress ---
 
 def resolve_output_style(helper: str, output_style: str | None) -> str:
@@ -85,26 +82,18 @@ def resolve_output_style(helper: str, output_style: str | None) -> str:
     return "detailed"
 
 
-def split_helper_params(params: dict[str, Any] | None) -> tuple[dict[str, Any], str | None]:
-    """Strip egress-only keys before dispatching to Pint helpers."""
-    if not isinstance(params, dict):
-        return {}, None
-    clean = dict(params)
-    raw_style = clean.pop("output_style", None)
-    output_style = str(raw_style).strip() if raw_style is not None else None
-    if output_style == "":
-        output_style = None
-    return clean, output_style
-
-
 def extract_units_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     """Extract units insertion kwargs (e.g. output_style) from script code."""
     body_params = parse_run_import_call_params(code, run_name="run_units")
-    if body_params is not None:
-        _unused, output_style = split_helper_params(body_params)
-        if output_style is not None:
-            return {"output_style": output_style}
-    return {}
+    if body_params is None:
+        return {}
+    raw_style = body_params.get("output_style")
+    if raw_style is None:
+        return {}
+    output_style = str(raw_style).strip()
+    if output_style == "":
+        return {}
+    return {"output_style": output_style}
 
 
 # Ordinary dicts with formatted and magnitude are not units results:
@@ -115,11 +104,7 @@ def is_units_result(value: Any) -> bool:
 
 
 def units_display_text(result: dict[str, Any]) -> str:
-    # str of the vector formatted list is a Python repr, and that repr was
-    # inserted into Writer and shown on the Run Python Script status line.
-    # A blank cell from map_over_range is "", and joining it produced
-    # 36 km/h, , 72 km/h in Writer and on the Run Python Script status line.
-    # Empty pieces are dropped. #VALUE! stays.
+    # Vector formatted is a list of cells. Join non-blank pieces so Writer does not insert a Python repr or ", ," gaps. Keep #VALUE!.
     formatted = result.get("formatted")
     if isinstance(formatted, (list, tuple)) and formatted:
         return ", ".join(part for part in (str(item).strip() for item in formatted) if part)
@@ -140,29 +125,25 @@ def format_units_for_calc(result: dict[str, Any], *, output_style: str | None = 
     formatted = units_display_text(result)
     style = resolve_output_style(helper, output_style)
 
+    head = formatted or helper
     if style == "formatted":
-        return [[formatted]] if formatted else [[helper]]
+        return [[head]]
 
-    rows: list[list[Any]] = []
-    if formatted:
-        rows.append([formatted])
-    else:
-        rows.append([helper])
+    rows: list[list[Any]] = [[head]]
     magnitude = result.get("magnitude")
     if magnitude is not None:
         rows.append(["Magnitude", magnitude])
-    units = str(result.get("units") or "").strip()
-    if units:
-        rows.append(["Units", units])
-    compatible = result.get("compatible")
-    if compatible is not None:
-        rows.append(["Compatible", compatible])
-    dimensionality_a = result.get("dimensionality_a")
-    dimensionality_b = result.get("dimensionality_b")
-    if dimensionality_a is not None:
-        rows.append(["Dimensionality A", dimensionality_a])
-    if dimensionality_b is not None:
-        rows.append(["Dimensionality B", dimensionality_b])
+    units_text = str(result.get("units") or "").strip()
+    if units_text:
+        rows.append(["Units", units_text])
+    for label, key in (
+        ("Compatible", "compatible"),
+        ("Dimensionality A", "dimensionality_a"),
+        ("Dimensionality B", "dimensionality_b"),
+    ):
+        value = result.get(key)
+        if value is not None:
+            rows.append([label, value])
     return rows
 
 
@@ -186,20 +167,6 @@ def insert_units_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any]) 
     insert_content_at_position(doc, ctx, text, "selection")
 
 
-def insert_units_result_into_calc(
-    doc: Any,
-    ctx: Any,
-    result: dict[str, Any],
-    *,
-    output_style: str | None = None,
-) -> int:
-    """Write units result rows on the active Calc sheet."""
-    from plugin.calc.tabular_egress import insert_tabular_result_into_calc
-
-    grid = format_units_for_calc(result, output_style=output_style)
-    return insert_tabular_result_into_calc(doc, ctx, grid)
-
-
 def insert_units_result_into_doc(
     ctx: Any,
     doc: Any,
@@ -212,5 +179,8 @@ def insert_units_result_into_doc(
         insert_units_result_into_writer(ctx, doc, result)
         return 1
     if is_calc(doc):
-        return insert_units_result_into_calc(doc, ctx, result, output_style=output_style)
+        from plugin.calc.tabular_egress import insert_tabular_result_into_calc
+
+        grid = format_units_for_calc(result, output_style=output_style)
+        return insert_tabular_result_into_calc(doc, ctx, grid)
     raise ToolExecutionError(_("Unsupported document type for units insertion."), code="UNITS_ERROR")
