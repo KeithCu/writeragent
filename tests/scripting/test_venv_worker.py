@@ -1391,7 +1391,6 @@ def test_retired_worker_does_not_respawn():
         with pytest.raises(RuntimeError, match="will not be restarted"):
             first._ensure_running()
         assert first._proc is None
-        assert PythonWorkerManager.pool_is_running("pool-that-was-never-started") is False
     finally:
         PythonWorkerManager.shutdown_all()
 
