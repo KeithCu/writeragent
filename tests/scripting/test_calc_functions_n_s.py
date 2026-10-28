@@ -297,6 +297,10 @@ def test_rank_small_extract_numeric():
     assert math.isnan(calc.rank(1, []))
     assert math.isnan(calc.rank(1, ["a", "b"]))
     assert math.isnan(calc.rank(1, [float("nan")]))
+    assert calc.rank(20, [10, 20, 20, 30]) == 2.0
+    assert calc.rank(20, [10, 20, 20, 30], 1) == 2.0
+    assert calc.rank(5, [5, 5, 5, 1]) == 1.0
+    assert calc.rank(5, [5, 5, 5, 1], 1) == 2.0
 
 
 def test_regex_calc_replacement_syntax():
@@ -326,6 +330,7 @@ def test_sort_sortby_dtype_object_and_ties():
     # Ties preserved in descending sort
     ties = [[1, "first"], [1, "second"]]
     assert calc.sort(ties, 1, -1) == [[1, "first"], [1, "second"]]
+    assert calc.sort([[1, 1], [10, 20]], 1, -1, True) == [[1, 1], [10, 20]]
 
     # sortby preserves mixed types
     res_sortby = calc.sortby([["a", 10], ["b", 9]], [10, 9])
@@ -335,6 +340,7 @@ def test_sort_sortby_dtype_object_and_ties():
 def test_rsq_slope_steyx_paired_clean():
     # Clean paired arrays mask out NaNs consistently across rsq, slope, steyx
     assert calc.rsq([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 1.0
+    assert calc.rsq([1, 2, 3], [3, 2, 1]) == 1.0
     assert calc.slope([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 2.0
     assert calc.steyx([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 0.0
 
