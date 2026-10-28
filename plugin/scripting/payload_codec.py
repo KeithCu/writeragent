@@ -2375,8 +2375,6 @@ def child_pack_result(
     datetime64/timedelta64 arrays first. ``float('nan')`` stays NaN.
     """
     # crosshair: off
-    # pre/post are intentionally ``lambda: True``. serialization-verification.md:
-    # dispatch wrappers keep a minimal contract; branch guarantees live in pytest.
     if _depth > _MAX_UNPACK_DEPTH:
         raise ValueError("payload_codec: child_pack_result maximum recursion depth exceeded")
     np = _optional_numpy()
