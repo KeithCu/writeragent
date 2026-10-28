@@ -26,17 +26,11 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("compute_service")
 
-# Imported by routes and server. A leading underscore would otherwise look unused here.
 __all__ = [
     "DeadlineRequestHandler",
     "DualStackThreadPoolHTTPServer",
     "ListenerBudget",
     "WSGIDualStackServer",
-    "_HTTP_DRAIN_SEC",
-    "_REQUEST_READ_TIMEOUT_SEC",
-    "_REQUEST_WRITE_TIMEOUT_SEC",
-    "_accept_clock",
-    "_request_deadline",
     "listener_budget",
     "listener_thread_count",
     "service_listener_threads",
@@ -45,8 +39,12 @@ __all__ = [
 
 # Bound the post-accept drain. Matches README 30s termination grace.
 _HTTP_DRAIN_SEC = 30.0
-# Header and body read. Reset to _REQUEST_WRITE_TIMEOUT_SEC once the body is
-# buffered so long calculations do not trip it during execution.
+# Header read deadline. Shorter fixed budget for request line and headers.
+_HEADER_READ_TIMEOUT_SEC = 10.0
+# Body read. Reset to _REQUEST_WRITE_TIMEOUT_SEC once the body is
+# buffered so long calculations do not trip it during execution. Parked idle
+# timeout also stays on this 30s constant so an idle keep-alive is not closed
+# inside the header budget.
 _REQUEST_READ_TIMEOUT_SEC = 30.0
 # Socket write deadline for sending the response once computation completes.
 _REQUEST_WRITE_TIMEOUT_SEC = 30.0
@@ -135,7 +133,7 @@ def _accept_clock(accept_time: Any) -> float:
     return time.monotonic()
 
 
-def _request_deadline(accept_time: Any, timeout_sec: float) -> float:
+def _request_deadline(accept_time: Any, timeout_sec: float) -> float:  # pyright: ignore[reportUnusedFunction]
     """One clock from request start through the worker lease and the child.
 
     Stamping occurs on the accept thread when a connection becomes readable,
@@ -371,7 +369,7 @@ class DeadlineRequestHandler(WSGIRequestHandler):
 
     def _install_header_deadline(self) -> None:
         accept_time = self._connection_accept_time()
-        header_deadline = _accept_clock(accept_time) + _REQUEST_READ_TIMEOUT_SEC
+        header_deadline = _accept_clock(accept_time) + _HEADER_READ_TIMEOUT_SEC
         rfile_raw: Any = getattr(self.rfile, "raw", None)
         orig_readinto = getattr(rfile_raw, "readinto", None) if rfile_raw is not None else None
         self._header_rfile_raw = rfile_raw
@@ -383,11 +381,15 @@ class DeadlineRequestHandler(WSGIRequestHandler):
             if remaining <= 0:
                 raise socket.timeout("Header read deadline expired")
             self.connection.settimeout(max(0.01, remaining))
-            if callable(orig_readinto):
-                res = orig_readinto(b)
-                if isinstance(res, int):
-                    return res
-            return 0
+            # Bugfix: what was wrong: returning 0 on non-int or non-callable made the HTTP
+            # parser treat a bad read as EOF and close the connection without a 408 response.
+            # How it happened: silent fallback `return 0` masked invalid states.
+            # Why this change fixes it: assert orig_readinto is callable and returned int,
+            # which is guaranteed for a timeout socket's readinto.
+            assert callable(orig_readinto)
+            res = orig_readinto(b)
+            assert isinstance(res, int)
+            return res
 
         if rfile_raw is not None and callable(orig_readinto):
             rfile_raw.readinto = _deadline_readinto

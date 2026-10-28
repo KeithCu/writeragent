@@ -1717,6 +1717,16 @@ class TestSessionResetHttp:
         assert body.get("code") == "RESULT_DECODE_ERROR"
         assert body.get("id") == "dec-1"
 
+    def test_execute_session_reset_failed_is_503(self) -> None:
+        def reset_failed(**_kwargs):
+            return {"status": "error", "code": "SESSION_RESET_FAILED", "error": "Session TTL reset failed; the cell was not run."}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=reset_failed)
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "res-fail-1", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("503")
+        assert body.get("code") == "SESSION_RESET_FAILED"
+        assert body.get("id") == "res-fail-1"
+
     def test_execute_rejected_frame_is_500(self) -> None:
         """A bad response frame killed the child. It is not a retryable 503."""
 
@@ -2480,7 +2490,7 @@ print("ok")
             check_dependencies(mock_pool)
 
         assert exc_info.value.code == 1
-        mock_pool.check_dependencies.assert_called_once_with(["numpy", "sympy", "pandas"])
+        mock_pool.check_dependencies.assert_called_once_with()
         captured = capsys.readouterr()
         assert "Error: fake_pkg is not installed" in captured.err
 
@@ -3868,7 +3878,8 @@ def test_header_deadline_fires_inside_handle() -> None:
 
 def test_slow_body_drip_is_408() -> None:
     """One socket timeout per large read used to let a drip outlive the body deadline."""
-    from compute_service.server import _REQUEST_READ_TIMEOUT_SEC, _read_request_body
+    from compute_service.http_server import _REQUEST_READ_TIMEOUT_SEC
+    from compute_service.server import _read_request_body
 
     class _Drip:
         def read1(self, _n: int) -> bytes:
