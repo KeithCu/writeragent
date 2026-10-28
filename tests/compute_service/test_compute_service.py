@@ -2572,7 +2572,7 @@ class TestListenerQueue:
         of being rejected. A worker or vision permit waits until the request
         deadline, then 503.
         """
-        from compute_service.http_server import DualStackThreadPoolHTTPServer
+        from compute_service.wsgi_server import DualStackThreadPoolHTTPServer
 
         server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _AcceptedConnectionHandler, max_threads=1)
         hold = threading.Event()
@@ -2616,7 +2616,7 @@ def test_flatten_config_json_rejects_api_key() -> None:
 
 def test_sticky_slots_scale_with_formula_workers() -> None:
     """Four formula workers used to share one sticky listener slot."""
-    from compute_service.http_server import listener_thread_count
+    from compute_service.wsgi_server import listener_thread_count
     from compute_service.server import service_listener_threads, sticky_listener_slots
 
     wide = ComputeSettings(workers=4, ocr_workers=0)
@@ -2774,7 +2774,7 @@ def test_partial_bind_address_in_use_raises() -> None:
     """
     import errno
 
-    from compute_service.http_server import DualStackThreadPoolHTTPServer
+    from compute_service.wsgi_server import DualStackThreadPoolHTTPServer
 
     holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     holder.bind(("127.0.0.1", 0))
@@ -2845,7 +2845,7 @@ def test_expect_100_continue_before_body() -> None:
 
 def test_dual_stack_closes_tcpserver_throwaway_socket(monkeypatch) -> None:
     """TCPServer.__init__ opens a socket even when bind_and_activate is False."""
-    from compute_service.http_server import DualStackThreadPoolHTTPServer
+    from compute_service.wsgi_server import DualStackThreadPoolHTTPServer
 
     created: list[socket.socket] = []
     real_socket = socket.socket
@@ -3849,7 +3849,7 @@ def test_isolated_mode_with_session_id_rejected() -> None:
 
 def test_header_deadline_fires_inside_handle() -> None:
     """A request line that arrives after the accept deadline returns 408 instead of a traceback."""
-    from compute_service.http_server import DeadlineRequestHandler
+    from compute_service.wsgi_server import DeadlineRequestHandler
 
     client, server_sock = socket.socketpair()
     try:
@@ -3877,7 +3877,7 @@ def test_header_deadline_fires_inside_handle() -> None:
 
 def test_slow_body_drip_is_408() -> None:
     """One socket timeout per large read used to let a drip outlive the body deadline."""
-    from compute_service.http_server import _REQUEST_READ_TIMEOUT_SEC
+    from compute_service.wsgi_server import _REQUEST_READ_TIMEOUT_SEC
     from compute_service.server import _read_request_body
 
     class _Drip:
@@ -4187,11 +4187,11 @@ def test_vision_image_bytes_not_parsed_as_json() -> None:
 def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
     """SIGTERM during a slow cell closes the listener, logs the drain warning, and exits 0.
 
-    The production drain is 30s (compute_service/http_server.py _HTTP_DRAIN_SEC).
+    The production drain is 30s (compute_service/wsgi_server.py _HTTP_DRAIN_SEC).
     This test assigns compute_service.server._HTTP_DRAIN_SEC = 1.0 inside a
     tmp_path wrapper before main(). server.py binds that name with
-    ``from compute_service.http_server import _HTTP_DRAIN_SEC``, so patching
-    the http_server module attribute does not affect run_server. 1.0 formats
+    ``from compute_service.wsgi_server import _HTTP_DRAIN_SEC``, so patching
+    the wsgi_server module attribute does not affect run_server. 1.0 formats
     as ``1s`` via ``%.0f``. The cell sleeps 8s, which is longer than the 6s
     exit bound, so a shutdown that waits for the cell fails.
 

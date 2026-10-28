@@ -162,7 +162,7 @@ Same contract as [`compute_service/README.md`](../../compute_service/README.md#h
 
 ### Python compute service
 
-- Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `http_server.py`, `config.py`, `formula_worker.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
+- Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `wsgi_server.py`, `config.py`, `formula_worker.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
 - Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"1.0.0"}` (unauthenticated for orchestrator liveness/readiness probes).
 - `POST /v1/execute[?session_id=...]` accepts **both** ingresses (`Content-Type` dispatch). Peel of `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` is today’s kit contract and will be retired after kit moves to `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional raw `data`). Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }` — worker-dumped, host-forwarded. Details: [`compute_service/README.md`](../../compute_service/README.md#http-ingress-peel-vs-multipart).
