@@ -86,26 +86,28 @@ def _schema_int(field_name: str, name: str, *, fallback: int | None = None, requ
     raise RuntimeError(f"scripting.{field_name}.{name} must be int in module.yaml/manifest")
 
 
+def _bounds(field_name: str) -> tuple[int, int]:
+    """Return (min, max) bounds for a scripting schema field."""
+    if field_name == "python_exec_timeout":
+        lo = _schema_int(field_name, "min", fallback=_TIMEOUT_FALLBACK_MIN)
+        hi = _schema_int(field_name, "max", fallback=_TIMEOUT_FALLBACK_MAX)
+    else:
+        lo = _schema_int(field_name, "min", required=True)
+        hi = _schema_int(field_name, "max", required=True)
+    return lo, hi
+
+
+@deal.ensure(lambda field_name, value, result: isinstance(result, int) and _bounds(field_name)[0] <= result <= _bounds(field_name)[1])
+def _clamp(field_name: str, value: int) -> int:
+    lo, hi = _bounds(field_name)
+    return max(lo, min(hi, value))
+
+
 # --- python_exec_timeout ---
 
 
 def python_exec_timeout_default() -> int:
     return _schema_int("python_exec_timeout", "default", fallback=_TIMEOUT_FALLBACK_DEFAULT)
-
-
-def python_exec_timeout_min() -> int:
-    return _schema_int("python_exec_timeout", "min", fallback=_TIMEOUT_FALLBACK_MIN)
-
-
-def python_exec_timeout_max() -> int:
-    return _schema_int("python_exec_timeout", "max", fallback=_TIMEOUT_FALLBACK_MAX)
-
-
-@deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
-def _clamp_timeout(value: int) -> int:
-    lo = python_exec_timeout_min()
-    hi = python_exec_timeout_max()
-    return max(lo, min(hi, value))
 
 
 def _timeout_int(value: object, fallback: int) -> int:
@@ -118,7 +120,7 @@ def _timeout_int(value: object, fallback: int) -> int:
         return fallback
 
 
-@deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
+@deal.post(lambda result: isinstance(result, int) and _bounds("python_exec_timeout")[0] <= result <= _bounds("python_exec_timeout")[1])
 def resolve_python_exec_timeout(
     timeout_sec: object,
     *,
@@ -128,7 +130,7 @@ def resolve_python_exec_timeout(
     base = python_exec_timeout_default()
     if configured is not None:
         base = _timeout_int(configured, base)
-    return _clamp_timeout(_timeout_int(timeout_sec, base))
+    return _clamp("python_exec_timeout", _timeout_int(timeout_sec, base))
 
 
 def _configured_int(key: str, fallback: Callable[[], int]) -> int:
@@ -143,7 +145,7 @@ def _configured_int(key: str, fallback: Callable[[], int]) -> int:
 
 def configured_python_exec_timeout() -> int:
     """Read Settings value for scripting.python_exec_timeout and clamp to schema bounds."""
-    return _clamp_timeout(_configured_int(_TIMEOUT_CONFIG_KEY, python_exec_timeout_default))
+    return _clamp("python_exec_timeout", _configured_int(_TIMEOUT_CONFIG_KEY, python_exec_timeout_default))
 
 
 def embeddings_worker_timeout_sec() -> int:
@@ -154,24 +156,16 @@ def embeddings_worker_timeout_sec() -> int:
 # --- python_max_data_cells ---
 
 
-def python_max_data_cells_default() -> int:
-    return _schema_int("python_max_data_cells", "default", required=True)
-
-
 def python_max_data_cells_min() -> int:
     return _schema_int("python_max_data_cells", "min", required=True)
 
 
-def python_max_data_cells_max() -> int:
-    return _schema_int("python_max_data_cells", "max", required=True)
-
-
-def _clamp_max_data_cells(value: int) -> int:
-    lo = python_max_data_cells_min()
-    hi = python_max_data_cells_max()
-    return max(lo, min(hi, value))
-
-
 def configured_python_max_data_cells() -> int:
     """Read Settings value for scripting.python_max_data_cells and clamp to schema bounds."""
-    return _clamp_max_data_cells(_configured_int(_DATA_CELLS_CONFIG_KEY, python_max_data_cells_default))
+    return _clamp(
+        "python_max_data_cells",
+        _configured_int(
+            _DATA_CELLS_CONFIG_KEY,
+            lambda: _schema_int("python_max_data_cells", "default", required=True),
+        ),
+    )

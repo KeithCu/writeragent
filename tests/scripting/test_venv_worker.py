@@ -1052,7 +1052,7 @@ def test_win32_partial_frame_timeout_with_stop_is_cancelled(monkeypatch: pytest.
         del args, kwargs
         raise IpcPartialFrameTimeout("timeout mid-frame")
 
-    monkeypatch.setattr("plugin.scripting.ipc._read_bytes_with_timeout_win32", _boom)
+    monkeypatch.setattr("plugin.scripting.ipc._poll_pipe", _boom)
     with pytest.raises(_StopRequested):
         mgr._read_frame_bytes(_Stdout(), 1.0, stop_checker=lambda: True)
 

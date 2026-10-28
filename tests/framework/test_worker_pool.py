@@ -11,14 +11,11 @@ from plugin.framework.thread_guard import get_background_task_name
 from plugin.framework.worker_pool import (
     BackgroundHandle,
     _DaemonWorkPool,
-    _PoolShutdown,
     _in_pool_worker,
     background_pool_max_workers,
-    reset_background_pool_for_tests,
     run_in_background,
     AsyncProcess,
     start_stderr_drain,
-    _get_pool,
 )
 from plugin.framework.errors import ToolExecutionError
 
@@ -543,101 +540,37 @@ def test_daemon_false_uses_dedicated_thread():
     assert handle._future is None
 
 
-def test_pool_bounds_native_thread_count():
-    reset_background_pool_for_tests(max_workers=2)
-    try:
-        two_running = threading.Event()
-        release = threading.Event()
-        n_started = 0
-        start_lock = threading.Lock()
-        handles = []
-
-        def job():
-            nonlocal n_started
-            with start_lock:
-                n_started += 1
-                if n_started >= 2:
-                    two_running.set()
-            release.wait(5)
-
-        for i in range(8):
-            handles.append(run_in_background(job, name=f"bound-{i}"))
-
-        assert two_running.wait(2)
-        pool = _get_pool()
-        assert len(pool._threads) == 2
-        assert all(t.is_alive() for t in pool._threads)
-        # Live pool workers only — retired threads from a prior larger pool
-        # keep running until their current job ends and must not count here.
-        live = [t for t in threading.enumerate() if t.name.startswith("wa-bg-") and not t.name.startswith("wa-bg-retired-")]
-        assert len(live) == 2
-        release.set()
-        for h in handles:
-            h.join(timeout=3)
-    finally:
-        reset_background_pool_for_tests()
-
-
-def test_reset_background_pool_creates_new_executor():
-    reset_background_pool_for_tests(max_workers=1)
-    first = []
-
-    def mark():
-        first.append(threading.current_thread().name)
-
-    run_in_background(mark, name="before-reset").join(timeout=2)
-    reset_background_pool_for_tests(max_workers=1)
-    second = []
-
-    def mark2():
-        second.append(threading.current_thread().name)
-
-    run_in_background(mark2, name="after-reset").join(timeout=2)
-    assert first and second
-    # After shutdown the old wa-bg-0 is dead; a new pool thread may reuse the name.
-    assert first[0].startswith("wa-bg-")
-    assert second[0].startswith("wa-bg-")
-    reset_background_pool_for_tests()
-
-
-def test_reset_background_pool_while_job_submits_does_not_deadlock(monkeypatch: pytest.MonkeyPatch):
-    """Joining the pool under _pool_lock deadlocks a job that calls run_in_background."""
+def test_pool_bounds_native_thread_count(monkeypatch: pytest.MonkeyPatch):
     import plugin.framework.worker_pool as worker_pool
 
-    reset_background_pool_for_tests(max_workers=1)
-    entered = threading.Event()
-    joining = threading.Event()
-    nested = threading.Event()
-    real_join = worker_pool._join_pool_workers
+    pool = _DaemonWorkPool(2)
+    monkeypatch.setattr(worker_pool, "_pool", pool)
+    two_running = threading.Event()
+    release = threading.Event()
+    n_started = 0
+    start_lock = threading.Lock()
+    handles = []
 
-    def wrapped(threads: list[threading.Thread]) -> None:
-        joining.set()
-        real_join(threads)
+    def job():
+        nonlocal n_started
+        with start_lock:
+            n_started += 1
+            if n_started >= 2:
+                two_running.set()
+        release.wait(5)
 
-    monkeypatch.setattr(worker_pool, "_join_pool_workers", wrapped)
+    for i in range(8):
+        handles.append(run_in_background(job, name=f"bound-{i}"))
 
-    def job() -> None:
-        entered.set()
-        assert joining.wait(3)
-        # No join(): joining a pooled job from a pool thread raises by design.
-        run_in_background(lambda: nested.set(), name="nested-from-pool-job")
-
-    run_in_background(job, name="holds-pool-worker")
-    assert entered.wait(2)
-    reset_thread = threading.Thread(target=lambda: reset_background_pool_for_tests(max_workers=1), daemon=True)
-    reset_thread.start()
-    reset_thread.join(3)
-    try:
-        assert not reset_thread.is_alive(), "reset_background_pool_for_tests deadlocked on _pool_lock"
-        # The nested job may start after reset returns (slow Windows runners).
-        assert nested.wait(3)
-    finally:
-        if not reset_thread.is_alive():
-            reset_background_pool_for_tests()
+    assert two_running.wait(2)
+    assert len(pool._threads) == 2
+    assert all(t.is_alive() for t in pool._threads)
+    release.set()
+    for h in handles:
+        h.join(timeout=3)
 
 
 def test_background_pool_max_workers_default_and_env(monkeypatch: pytest.MonkeyPatch):
-    reset_background_pool_for_tests()
     monkeypatch.delenv("WRITERAGENT_BG_POOL_WORKERS", raising=False)
     assert background_pool_max_workers() == 2
 
@@ -646,10 +579,6 @@ def test_background_pool_max_workers_default_and_env(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setenv("WRITERAGENT_BG_POOL_WORKERS", "invalid")
     assert background_pool_max_workers() == 2
-
-    reset_background_pool_for_tests(max_workers=5)
-    assert background_pool_max_workers() == 5
-    reset_background_pool_for_tests()
 
 
 class TestWorkerPoolErrorHandling():
@@ -845,63 +774,6 @@ def test_stderr_drain_joins_split_utf8():
     received: list[str] = []
     AsyncProcess(["dummy"])._read_stream(_Chunks(), received.append)
     assert received == ["é"]
-
-
-def test_shutdown_joins_worker_past_one_slice(monkeypatch: pytest.MonkeyPatch):
-    """One 5s join used to return while the in-flight job was still running."""
-    monkeypatch.setattr("plugin.framework.worker_pool._POOL_SHUTDOWN_JOIN_SLICE_SEC", 0.05)
-    pool = _DaemonWorkPool(1)
-    started = threading.Event()
-    release = threading.Event()
-
-    def job() -> None:
-        started.set()
-        release.wait(2.0)
-
-    pool.submit(job)
-    assert started.wait(1.0)
-    releaser = threading.Thread(target=lambda: (time.sleep(0.2), release.set()), daemon=True)
-    releaser.start()
-    try:
-        pool.shutdown(wait=True, cancel_futures=True)
-        # Before release.set() in finally: a single short join would still
-        # see the worker blocked in release.wait.
-        assert all(not thread.is_alive() for thread in pool._threads)
-    finally:
-        release.set()
-        releaser.join(timeout=1.0)
-
-
-def test_concurrent_submit_during_shutdown_does_not_hang():
-    pool = _DaemonWorkPool(1)
-    errors: list[str] = []
-    stop = threading.Event()
-
-    def hammer() -> None:
-        while not stop.is_set():
-            try:
-                fut = pool.submit(lambda: None)
-            except _PoolShutdown:
-                return
-            except Exception as exc:
-                errors.append(type(exc).__name__)
-                return
-            handle = BackgroundHandle(future=fut)
-            handle.join(timeout=2)
-            if handle.is_alive():
-                errors.append("hung")
-                return
-
-    worker = threading.Thread(target=hammer)
-    worker.start()
-    time.sleep(0.05)
-    try:
-        pool.shutdown(wait=True, cancel_futures=True)
-    finally:
-        stop.set()
-        worker.join(timeout=3)
-    assert not worker.is_alive()
-    assert errors == []
 
 
 def test_async_process_replaces_undecodable_stderr():
@@ -1192,72 +1064,35 @@ def test_async_process_terminate_delivers_sigterm_output():
             ap.process.wait(timeout=3)
 
 
-def test_run_in_background_retries_when_reset_shuts_down_pool():
-    reset_background_pool_for_tests(max_workers=2)
-    stop_event = threading.Event()
-    errors: list[Exception] = []
-    completed: list[int] = []
-
-    def submitter() -> None:
-        count = 0
-        while not stop_event.is_set() and count < 40:
-            count += 1
-            try:
-                handle = run_in_background(lambda: 1)
-                handle.join(timeout=2.0)
-                completed.append(count)
-            except Exception as exc:
-                errors.append(exc)
-                break
-
-    try:
-        t_submit = threading.Thread(target=submitter)
-        t_submit.start()
-        for _ in range(4):
-            time.sleep(0.02)
-            reset_background_pool_for_tests(max_workers=2)
-        stop_event.set()
-        t_submit.join(timeout=5.0)
-        assert not t_submit.is_alive()
-        assert errors == [], f"Unexpected error during reset race: {errors}"
-        assert len(completed) > 0
-    finally:
-        stop_event.set()
-        reset_background_pool_for_tests()
-
-
 def test_daemon_work_pool_logs_base_exception_and_keeps_worker_alive(caplog):
     pool = _DaemonWorkPool(1)
     started = threading.Event()
     release = threading.Event()
-    try:
-        def raise_system_exit() -> None:
-            started.set()
-            release.wait(2.0)
-            raise SystemExit(42)
+    def raise_system_exit() -> None:
+        started.set()
+        release.wait(2.0)
+        raise SystemExit(42)
 
-        import logging
-        with caplog.at_level(logging.ERROR):
-            fut = pool.submit(raise_system_exit)
-            assert started.wait(2.0)
-            handle = BackgroundHandle(future=fut)
-            release_thread = threading.Timer(0.05, release.set)
-            release_thread.start()
-            try:
-                handle.join()
-            finally:
-                release.set()
-                release_thread.join()
+    import logging
+    with caplog.at_level(logging.ERROR):
+        fut = pool.submit(raise_system_exit)
+        assert started.wait(2.0)
+        handle = BackgroundHandle(future=fut)
+        release_thread = threading.Timer(0.05, release.set)
+        release_thread.start()
+        try:
+            handle.join()
+        finally:
+            release.set()
+            release_thread.join()
 
-        assert any("Unhandled SystemExit in pooled background job" in r.message for r in caplog.records)
+    assert any("Unhandled SystemExit in pooled background job" in r.message for r in caplog.records)
 
-        # Worker thread must still be alive and process subsequent jobs
-        second_ran = []
-        fut2 = pool.submit(lambda: second_ran.append(True))
-        BackgroundHandle(future=fut2).join()
-        assert second_ran == [True]
-    finally:
-        pool.shutdown(wait=True)
+    # Worker thread must still be alive and process subsequent jobs
+    second_ran = []
+    fut2 = pool.submit(lambda: second_ran.append(True))
+    BackgroundHandle(future=fut2).join()
+    assert second_ran == [True]
 
 
 def test_in_pool_worker_is_false_on_a_dedicated_thread_named_wa_bg() -> None:
@@ -1283,96 +1118,6 @@ def test_in_pool_worker_is_false_on_a_dedicated_thread_named_wa_bg() -> None:
     h_dedicated.join(timeout=2)
     assert dedicated_info["in_pool"] is False
     assert dedicated_info["name"] == "wa-bg-0"
-
-
-def test_dedicated_thread_named_wa_bg_retired_can_join_pooled_future() -> None:
-    from concurrent.futures import Future
-
-    fut: Future[None] = Future()
-    handle = BackgroundHandle(future=fut)
-    errors: list[Exception] = []
-    seen_name: list[str] = []
-
-    def joiner() -> None:
-        seen_name.append(threading.current_thread().name)
-        try:
-            handle.join(timeout=0.2)
-        except Exception as exc:
-            errors.append(exc)
-
-    try:
-        outer = run_in_background(joiner, name="wa-bg-retired-0", dedicated=True)
-        outer.join(timeout=2)
-        assert seen_name == ["wa-bg-retired-0"]
-        assert errors == []
-    finally:
-        fut.cancel()
-
-
-def test_submit_on_shut_down_pool_raises_pool_shutdown() -> None:
-    pool = _DaemonWorkPool(1)
-    pool.shutdown(wait=True, cancel_futures=True)
-    with pytest.raises(_PoolShutdown) as excinfo:
-        pool.submit(lambda: None)
-    assert not isinstance(excinfo.value, RuntimeError)
-
-
-def test_run_in_background_reraises_when_installed_pool_is_already_shut_down() -> None:
-    pool = _get_pool()
-    pool.shutdown(wait=True, cancel_futures=True)
-    try:
-        with pytest.raises(_PoolShutdown):
-            run_in_background(lambda: None)
-    finally:
-        reset_background_pool_for_tests()
-
-
-def test_run_in_background_does_not_retry_runtime_error_with_shutdown_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    counter = 0
-
-    class DummyPool:
-        def submit(self, fn: Any) -> Any:
-            nonlocal counter
-            counter += 1
-            if counter > 1:
-                raise AssertionError("retried a RuntimeError")
-            raise RuntimeError("background pool is shut down")
-
-    monkeypatch.setattr("plugin.framework.worker_pool._get_pool", lambda: DummyPool())
-    with pytest.raises(RuntimeError, match="background pool is shut down"):
-        run_in_background(lambda: None)
-    assert counter == 1
-
-
-def test_run_in_background_retries_on_pool_shutdown_type(monkeypatch: pytest.MonkeyPatch) -> None:
-    reset_background_pool_for_tests(max_workers=1)
-    try:
-        real = _get_pool()
-        dead_submit_count = 0
-
-        class DeadPool:
-            def submit(self, fn: Any) -> Any:
-                nonlocal dead_submit_count
-                dead_submit_count += 1
-                raise _PoolShutdown("background pool is shut down")
-
-        calls = 0
-
-        def fake_get_pool() -> Any:
-            nonlocal calls
-            calls += 1
-            if calls == 1:
-                return DeadPool()
-            return real
-
-        monkeypatch.setattr("plugin.framework.worker_pool._get_pool", fake_get_pool)
-        results: list[bool] = []
-        handle = run_in_background(lambda: results.append(True))
-        handle.join(timeout=2)
-        assert results == [True]
-        assert dead_submit_count == 1
-    finally:
-        reset_background_pool_for_tests()
 
 
 def test_terminate_closes_captured_child_pipes_not_the_replacement() -> None:

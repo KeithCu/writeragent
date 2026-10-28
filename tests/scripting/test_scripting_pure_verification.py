@@ -18,11 +18,10 @@ from plugin.scripting.import_policy import (
     format_venv_import_policy_for_prompt,
 )
 from plugin.scripting.config_limits import (
+    _bounds,
+    _clamp,
     python_exec_timeout_default,
-    python_exec_timeout_min,
-    python_exec_timeout_max,
     resolve_python_exec_timeout,
-    _clamp_timeout,
 )
 from plugin.scripting.calc_range import (
     ensure_rectangular_2d,
@@ -55,27 +54,30 @@ def test_import_policy_contracts() -> None:
 def test_resolve_python_exec_timeout_clamping(val) -> None:
     timeout = resolve_python_exec_timeout(val)
     assert isinstance(timeout, int)
-    assert python_exec_timeout_min() <= timeout <= python_exec_timeout_max()
+    t_min, t_max = _bounds("python_exec_timeout")
+    assert t_min <= timeout <= t_max
 
 
 def test_clamp_timeout_overflow_clamps() -> None:
     """A timeout past DEAL_MAX_ARGV is user config. Clamp it; do not PreContract."""
-    assert _clamp_timeout(DEAL_MAX_ARGV + 1) == python_exec_timeout_max()
-    assert python_exec_timeout_min() <= _clamp_timeout(1) <= python_exec_timeout_max()
+    t_min, t_max = _bounds("python_exec_timeout")
+    assert _clamp("python_exec_timeout", DEAL_MAX_ARGV + 1) == t_max
+    assert t_min <= _clamp("python_exec_timeout", 1) <= t_max
 
 
 def test_resolve_python_exec_timeout_is_total() -> None:
+    t_min, t_max = _bounds("python_exec_timeout")
     assert resolve_python_exec_timeout(True) == 1
     assert resolve_python_exec_timeout(False) == 1
     assert resolve_python_exec_timeout(None, configured=True) == 1
     assert resolve_python_exec_timeout(None, configured="20") == 20
     assert resolve_python_exec_timeout(None, configured=float("nan")) == python_exec_timeout_default()
-    assert resolve_python_exec_timeout(None, configured=DEAL_MAX_ARGV + 1) == python_exec_timeout_max()
+    assert resolve_python_exec_timeout(None, configured=DEAL_MAX_ARGV + 1) == t_max
     assert resolve_python_exec_timeout(None, configured=33) == 33
     assert resolve_python_exec_timeout(None, configured=None) == python_exec_timeout_default()
     assert resolve_python_exec_timeout("100") == 100
     assert resolve_python_exec_timeout("bad") == python_exec_timeout_default()
-    assert resolve_python_exec_timeout(str(DEAL_MAX_ARGV + 1)) == python_exec_timeout_max()
+    assert resolve_python_exec_timeout(str(DEAL_MAX_ARGV + 1)) == t_max
 
 
 @given(grid=st.one_of(

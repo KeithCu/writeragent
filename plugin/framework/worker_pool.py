@@ -17,8 +17,7 @@
 """Centralized management for background worker threads and external subprocesses.
 
 Lock rules:
-- ``_pool_lock``: Guards creating or swapping the global pool instance; released before joining workers so nested ``run_in_background`` calls during reset do not deadlock.
-- ``_submit_lock``: Held across shutdown, queue drain, and sentinel queuing; prevents new tasks from being enqueued behind exit sentinels.
+- ``_pool_lock``: Guards creating the global pool instance.
 - ``StderrTail._lock``: Protects only the bounded child stderr chunk deque and character count; synchronizes background drain appends with consumer reads.
 - No pooled joins from pool workers: Enforced via thread-local flag in ``BackgroundHandle.join``; prevents deadlocking the fixed-size pool when all workers block on queued tasks.
 - Dedicated threads for blocking jobs: Servers, long pipes, and join targets pass ``dedicated=True``; prevents permanently exhausting fixed pool worker slots.
@@ -60,15 +59,10 @@ def _in_pool_worker() -> bool:
 
 
 _pool: "_DaemonWorkPool | None" = None
-_pool_size_override: int | None = None
-# shutdown() joins in slices so a KeyboardInterrupt can land between them.
-_POOL_SHUTDOWN_JOIN_SLICE_SEC = 5.0
 
 
 def background_pool_max_workers() -> int:
-    """Resolved pool size: test override, then env, then ``BACKGROUND_POOL_MAX_WORKERS``."""
-    if _pool_size_override is not None:
-        return _pool_size_override
+    """Resolved pool size: env, then ``BACKGROUND_POOL_MAX_WORKERS``."""
     raw = os.environ.get("WRITERAGENT_BG_POOL_WORKERS")
     if raw:
         try:
@@ -155,14 +149,6 @@ class BackgroundHandle:
         return thread is not None and thread is threading.current_thread()
 
 
-class _PoolShutdown(Exception):
-    """The pool's submit lock has observed shutdown.
-
-    Internal handshake between ``_DaemonWorkPool.submit`` and
-    ``run_in_background``. Task failures stay ``WorkerPoolError``.
-    """
-
-
 class _DaemonWorkPool:
     """Fixed daemon workers + unbounded queue. ThreadPoolExecutor is non-daemon on 3.9+.
 
@@ -171,40 +157,27 @@ class _DaemonWorkPool:
     """
 
     _max_workers: int
-    _shutdown: bool
-    _submit_lock: threading.Lock
 
     def __init__(self, max_workers: int) -> None:
         self._max_workers = max(1, max_workers)
-        self._queue: queue.SimpleQueue[tuple[Callable[[], None], Future[Any]] | None] = queue.SimpleQueue()
+        self._queue: queue.SimpleQueue[tuple[Callable[[], None], Future[Any]]] = queue.SimpleQueue()
         self._threads: list[threading.Thread] = []
-        self._shutdown = False
-        # Held across the shutdown flag, the pending-work drain, and the
-        # sentinel puts. submit() takes the same lock so a Future cannot land
-        # behind those sentinels after the workers have been told to exit.
-        self._submit_lock = threading.Lock()
         for i in range(self._max_workers):
             t = threading.Thread(target=self._run, name=f"wa-bg-{i}", daemon=True)
             t.start()
             self._threads.append(t)
 
     def submit(self, fn: Callable[[], None]) -> Future[Any]:
-        with self._submit_lock:
-            if self._shutdown:
-                raise _PoolShutdown("background pool is shut down")
-            fut: Future[Any] = Future()
-            self._queue.put((fn, fut))
-            return fut
+        fut: Future[Any] = Future()
+        self._queue.put((fn, fut))
+        return fut
 
     def _run(self) -> None:
         # The flag has to be set before caller_ctx.run, and it has to be a
         # thread-local so the copied context does not drop it while the job is inside join.
         _pool_worker_local.active = True
         while True:
-            item = self._queue.get()
-            if item is None:
-                return
-            fn, fut = item
+            fn, fut = self._queue.get()
             if not fut.set_running_or_notify_cancel():
                 continue
             try:
@@ -218,52 +191,6 @@ class _DaemonWorkPool:
             else:
                 fut.set_result(None)
 
-    def shutdown(self, *, wait: bool = True, cancel_futures: bool = True) -> None:
-        with self._submit_lock:
-            self._shutdown = True
-            # Drop the live pool prefix so tests (and diagnostics) do not count
-            # retiring workers as the new pool. The deadlock guard does not read
-            # this name. Retired workers still have the pool-worker thread-local set.
-            # The prefix change is what live ``wa-bg-N`` counts skip.
-            for i, t in enumerate(self._threads):
-                t.name = f"wa-bg-retired-{i}"
-            if cancel_futures:
-                pending: list[tuple[Callable[[], None], Future[Any]]] = []
-                while True:
-                    try:
-                        item = self._queue.get_nowait()
-                    except queue.Empty:
-                        break
-                    if item is None:
-                        continue
-                    pending.append(item)
-                for pending_item in pending:
-                    pending_item[1].cancel()
-            remaining = len(self._threads)
-            while remaining:
-                self._queue.put(None)
-                remaining -= 1
-        # Join outside the lock: a worker blocked in queue.get() only needs
-        # the sentinel, and join must not run while submit is waiting.
-        if wait:
-            _join_pool_workers(self._threads)
-
-
-def _join_pool_workers(threads: list[threading.Thread]) -> None:
-    """Join each pool worker. Do not return while it is still alive.
-
-    Keep joining. ``join(timeout=5.0)`` once, then dropping the pool,
-    treats the timeout as "joined". Under load the job already dequeued
-    outlasts 5s, the sentinel sits until that job ends, and the thread
-    keeps running as ``wa-bg-retired-*`` next to the next pool.
-    ``_wait_for_exit`` uses no timeout for the same reason (a reader is
-    not done until it returns). Slices stay interruptible. A job that
-    never returns blocks shutdown instead of leaving a live worker.
-    """
-    for thread in threads:
-        while thread.is_alive():
-            thread.join(timeout=_POOL_SHUTDOWN_JOIN_SLICE_SEC)
-
 
 def _get_pool() -> _DaemonWorkPool:
     global _pool
@@ -271,30 +198,6 @@ def _get_pool() -> _DaemonWorkPool:
         if _pool is None:
             _pool = _DaemonWorkPool(background_pool_max_workers())
         return _pool
-
-
-def reset_background_pool_for_tests(max_workers: int | None = None) -> None:
-    """Tear down the process pool so tests can bound size or avoid leaked work.
-
-    Detach the pool under the lock, then join it after the lock is
-    released. ``shutdown`` joining workers while this function holds
-    ``_pool_lock`` deadlocks: a pooled job that calls ``run_in_background``
-    takes that lock in ``_get_pool``, so reset waits on the job and the
-    job waits on reset.
-
-    ``submit`` that already queued a future can still lose it. This function’s
-    ``shutdown(cancel_futures=True)`` cancels queued futures,
-    ``BackgroundHandle.join`` returns because the future is done, and the job
-    does not run. ``run_in_background`` retries only when ``submit`` raises
-    ``_PoolShutdown`` and the global pool is no longer that instance.
-    """
-    global _pool, _pool_size_override
-    with _pool_lock:
-        old = _pool
-        _pool = None
-        _pool_size_override = max_workers
-    if old is not None:
-        old.shutdown(wait=True, cancel_futures=True)
 
 
 def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = None, error_callback: Callable[[WorkerPoolError], None] | None = None, daemon: bool = True, dedicated: bool = False, **kwargs: Any) -> BackgroundHandle:
@@ -361,21 +264,7 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
         t.start()
         return BackgroundHandle(thread=t)
 
-    while True:
-        pool = _get_pool()
-        try:
-            fut = pool.submit(_run_in_caller_context)
-            break
-        except _PoolShutdown:
-            # _PoolShutdown is the only signal, and the _pool is pool check
-            # still re-raises when reset did not publish a replacement.
-            # A future submit already queued can still be cancelled by
-            # reset_background_pool_for_tests (cancel_futures=True); join returns
-            # and the job does not run.
-            with _pool_lock:
-                if _pool is pool:
-                    raise
-
+    fut = _get_pool().submit(_run_in_caller_context)
     return BackgroundHandle(future=fut)
 
 
