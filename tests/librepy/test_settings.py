@@ -111,9 +111,7 @@ def test_venv_probe_progress_finish_pumps_only_on_main_thread() -> None:
 
 def test_venv_probe_close_listener_ends_dialog():
     dlg = MagicMock()
-    progress = VenvProbeProgressDialog(MagicMock())
-    progress._dlg = dlg
-    listener = _VenvProbeCloseListener(progress)
+    listener = _VenvProbeCloseListener(dlg)
 
     listener.on_action_performed(None)
 

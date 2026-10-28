@@ -83,8 +83,7 @@ class VenvProbeProgressDialog:
             self._append_log = append_log
             self._log_parts = []
             dlg = self._dlg
-            if dlg is None:
-                return
+            assert dlg is not None
 
             def on_display(text: str) -> None:
                 post_to_main_thread(lambda body=text: self.set_display(body))
@@ -142,7 +141,7 @@ class VenvProbeProgressDialog:
             # conversion (28bb44c1) dropped that and left the stock enabled button.
             # finish() is what turns the button back on. The title bar stays closeable.
             set_control_enabled(btn_close, False)
-            btn_close.addActionListener(_VenvProbeCloseListener(self))
+            btn_close.addActionListener(_VenvProbeCloseListener(dlg))
         self._parent_progress_dialog(dlg)
         return True
 
@@ -247,18 +246,16 @@ class VenvProbeProgressDialog:
 
 
 class _VenvProbeCloseListener(BaseActionListener):
-    _progress: VenvProbeProgressDialog
+    _dlg: Any
 
-    def __init__(self, progress: VenvProbeProgressDialog) -> None:
-        self._progress = progress
+    def __init__(self, dlg: Any) -> None:
+        self._dlg = dlg
 
     def on_action_performed(self, rEvent: Any) -> None:
-        dlg = self._progress._dlg
-        if dlg is not None:
-            try:
-                dlg.endDialog(0)
-            except Exception:
-                log.debug("Failed to close venv probe progress dialog", exc_info=True)
+        try:
+            self._dlg.endDialog(0)
+        except Exception:
+            log.debug("Failed to close venv probe progress dialog", exc_info=True)
 
 
 class ScriptingVenvTestListener(BaseActionListener):
