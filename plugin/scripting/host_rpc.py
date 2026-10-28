@@ -543,14 +543,10 @@ def handle_tool_call_frame(
     # host tools, including export, after the sidebar went idle. The same
     # checker the LLM frame already receives refuses the call and tells the
     # child to end with USER_STOPPED.
+    is_stopped = False
     if stop_checker is not None:
         try:
-            if stop_checker():
-                _reply(
-                    _error_frame("Stopped by user.", code="USER_STOPPED"),
-                    failure_log="venv tool_call USER_STOPPED reply failed (worker pipe closed)",
-                )
-                return True
+            is_stopped = stop_checker()
         except Exception:
             log.exception("stop_checker raised exception in handle_tool_call_frame")
             _reply(
@@ -558,6 +554,13 @@ def handle_tool_call_frame(
                 failure_log="venv tool_call error reply failed (worker pipe closed)",
             )
             return True
+
+    if is_stopped:
+        _reply(
+            _error_frame("Stopped by user.", code="USER_STOPPED"),
+            failure_log="venv tool_call USER_STOPPED reply failed (worker pipe closed)",
+        )
+        return True
 
     try:
         res = execute_tool(
