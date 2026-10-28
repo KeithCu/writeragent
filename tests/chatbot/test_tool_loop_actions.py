@@ -1836,6 +1836,12 @@ def test_execute_fn_drops_mcp_image_without_vision():
     assert "_mcp_image" not in res
     assert res == {"status": "ok", "source": "page 3", "image": "[image omitted: model has no vision]"}
 
+    # None (unknown) also strips
+    res_none, mock_vision_none = _run_get_image(turn, vision=None)
+    assert mock_vision_none.called
+    assert "_mcp_image" not in res_none
+    assert res_none == {"status": "ok", "source": "page 3", "image": "[image omitted: model has no vision]"}
+
 
 def test_execute_fn_drops_mcp_image_when_model_unknown():
     # A direct caller with no captured turn: the model is unknown, so no image.

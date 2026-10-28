@@ -3,15 +3,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for get_image tool-list gating by text model vision capability."""
-import logging
 from typing import Any
 from unittest.mock import patch
+
+import pytest
 
 from plugin.framework.service import ServiceRegistry
 from plugin.framework.tool import ToolBase, ToolRegistry
 from tests.testing_utils import TestingFactory
 from plugin.vision.image_filter import (
-    chat_text_model_has_native_vision,
     filter_get_image_for_text_only_model,
 )
 
@@ -40,6 +40,13 @@ def test_get_image_kept_for_vision_model():
     assert "get_image" in names
 
 
+def test_get_image_kept_when_vision_unknown():
+    p1, p2, p3 = _patch(None)
+    with p1, p2, p3:
+        names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
+    assert "get_image" in names
+
+
 def test_get_image_dropped_for_text_only_model():
     p1, p2, p3 = _patch(False)
     with p1, p2, p3:
@@ -48,34 +55,17 @@ def test_get_image_dropped_for_text_only_model():
     assert "apply_document_content" in names and "search_in_document" in names
 
 
-def test_fail_open_keeps_get_image_when_capability_unknown():
-    # If vision can't be determined (error), keep the tool rather than hide a working one.
+def test_exceptions_not_swallowed():
     with patch("plugin.framework.client.model_fetcher.has_native_vision", side_effect=RuntimeError("boom")), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"), \
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="e"):
-        names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
-    assert "get_image" in names
-
-
-def test_chat_text_model_has_native_vision_fail_open():
-    with patch("plugin.framework.client.model_fetcher.has_native_vision", side_effect=RuntimeError("boom")), \
-         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"), \
-         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="e"):
-        assert chat_text_model_has_native_vision() is True
-
-
-def test_fail_open_logs_capability_error(caplog):
-    with caplog.at_level(logging.DEBUG, logger="plugin.vision.image_filter"):
-        with patch("plugin.framework.client.model_fetcher.has_native_vision", side_effect=RuntimeError("boom")), \
-             patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"), \
-             patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="e"):
-            assert chat_text_model_has_native_vision() is True
-    assert any("capability lookup failed" in r.getMessage() for r in caplog.records)
+        with pytest.raises(RuntimeError, match="boom"):
+            filter_get_image_for_text_only_model(_tools())
 
 
 def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
     # Chat Send is on the UI thread. An id with no static row and no stored
-    # answer must stay fail-open and must not GET /v1/models.
+    # answer returns None on UI thread and keeps get_image without GET /v1/models.
     import plugin.framework.client.model_fetcher as mf
 
     mf._model_fetch_vision_cache.clear()
@@ -88,10 +78,13 @@ def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
          patch("plugin.framework.client.model_fetcher.set_config"), \
          patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="google/gemini-3.8-flash"), \
-         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"):
+         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+         patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True), \
+         patch("plugin.framework.client.model_fetcher.run_in_background") as bg:
         names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
-        assert chat_text_model_has_native_vision() is True
         sync.assert_not_called()
+        bg.assert_called_once()
+    mf._vision_in_flight.clear()
     assert "get_image" in names
 
 
@@ -102,10 +95,12 @@ def test_catalogued_text_only_model_drops_get_image_without_fetch():
     with patch("plugin.framework.client.model_fetcher.fetch_available_models") as fetch, \
          patch("plugin.framework.client.model_fetcher.get_config", return_value={}), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="openai/gpt-oss-20b"), \
-         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"):
+         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+         patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True), \
+         patch("plugin.framework.client.model_fetcher.run_in_background"):
         names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
-        assert chat_text_model_has_native_vision() is False
         fetch.assert_not_called()
+    mf._vision_in_flight.clear()
     assert "get_image" not in names
 
 

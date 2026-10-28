@@ -33,6 +33,7 @@ import json
 import ipaddress
 import logging
 import re
+import threading
 from typing import Any
 
 from plugin.framework.constants import ModelCapability
@@ -45,7 +46,9 @@ from plugin.framework.default_models import (
 from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_suffix
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint, is_openwebui_endpoint
 from plugin.framework.errors import NetworkError, best_effort
-from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
+from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent, resolve_openrouter_catalog_id
+from plugin.framework.thread_guard import on_main_thread
+from plugin.framework.worker_pool import run_in_background
 from plugin.framework.config import get_api_key_for_endpoint, get_config_bool_safe, get_config, get_current_endpoint, set_config, update_config_mapping
 from plugin.framework.config_schema import as_bool
 
@@ -109,6 +112,9 @@ _model_context_cache: dict[str, dict[str, int] | None] = {}
 # POST /api/show, once per process. Value is {capabilities: list[str], num_ctx: int|None}.
 # Vision probes and the #570 crash sentence share this so the first probe pays for both.
 _ollama_show_cache: dict[str, dict[str, Any]] = {}
+# Keys in flight for background vision capability resolution (UI thread schedule guard).
+_vision_in_flight_lock = threading.Lock()
+_vision_in_flight: set[str] = set()
 
 # Runtime PARAMETER / Modelfile line. Do not use this on model_info context_length.
 _OLLAMA_NUM_CTX_LINE = re.compile(r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\s*$")
@@ -763,6 +769,10 @@ def clear_settings_catalog_cache(endpoint: str, api_key_override: str | None = N
 
     Test Connection uses this. Other endpoints and keys stay cached.
     """
+    # Vision answers live in these memos, so Test Connection re-asks too.
+    show_prefix = _ollama_show_key(endpoint, "")
+    for show_key in [k for k in _ollama_show_cache if k.startswith(show_prefix)]:
+        del _ollama_show_cache[show_key]
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return
@@ -1230,60 +1240,25 @@ def _vision_memo_answer(provider: str | None, memo: dict[str, bool] | None, mode
     return None
 
 
-def _remember_vision_support(model_id: str, endpoint: str, supported: bool) -> None:
-    """Persist a modalities answer. A write failure must not change the answer."""
-    try:
-        set_native_vision_support(model_id, endpoint, supported)
-    except Exception as e:
-        log.debug("has_native_vision persist failed: %s", e)
+def _vision_support_key(endpoint: Any, model_id: Any) -> str:
+    """The one vision key: chat's endpoint normalization, OpenRouter suffix fold, casefold."""
+    raw_ep = endpoint if isinstance(endpoint, str) else ""
+    endpoint_str = normalize_endpoint_url(raw_ep, is_openwebui=_resolved_openwebui(raw_ep))
+    model_str = str(model_id).strip()
+    if get_provider_from_endpoint(endpoint_str) == "openrouter":
+        model_str = resolve_openrouter_catalog_id(model_str)
+    return f"{endpoint_str}@{model_str.casefold()}"
 
 
-def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True, unknown_is_vision: bool = False, api_key_override: str | None = None) -> bool:
-    """Check if the model supports native multimodal vision input.
+def _ollama_show_key(endpoint: str, model_id: str) -> str:
+    return f"{normalize_endpoint_url(endpoint)}@{model_id}"
 
-    Priority order:
-    1. Persistent user config (``vision_support_map``), including an explicit False.
-    2. Static default models list (``ModelCapability.VISION``). Defaults only —
-       uncatalogued ids are not added there.
-    3. Provider metadata:
-       - OpenRouter/Together: ``input_modalities`` contains ``image``. The sidebar
-         does not GET ``/v1/models`` for these hosts (the lists are huge). On a
-         process-cache miss this function fetches once, then remembers an
-         explicit yes or no. A row that omitted ``input_modalities`` is not stored.
-       - Ollama: ``POST /api/show`` capabilities list.
 
-    ``allow_fetch=False`` reads only those caches. Chat Send runs on the UI
-    thread; a cold catalog GET (10s, up to 3 attempts) would freeze LibreOffice.
-    ``unknown_is_vision`` is only for that UI gate: a model with no static row
-    and no stored answer stays True so ``get_image`` is not hidden. Callers
-    that attach an image keep the default False (do not attach when unknown).
+def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, api_key_override: str | None) -> tuple[bool, bool | None]:
+    """(memo is warm, answer) from the in-process provider memos. No I/O.
+
+    Providers without vision metadata are always warm with no answer.
     """
-    if not model_id:
-        return False
-    model_id_str = str(model_id).strip()
-    endpoint_str = normalize_endpoint_url(endpoint or "")
-
-    # 1. Persistent User Config Cache check
-    cache = get_config("vision_support_map")
-    if isinstance(cache, dict):
-        key = f"{endpoint_str}@{model_id_str.lower()}"
-        if key in cache:
-            return as_bool(cache[key])
-
-    # 2. Static Default Models check
-    caps = get_model_capability(model_id_str, endpoint_str)
-    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
-    if caps & ModelCapability.VISION:
-        return True
-
-    provider = get_provider_from_endpoint(endpoint_str)
-
-    # 3. Dynamic provider metadata
-    # 3a. OpenRouter / Together. Combobox population skips these hosts so the
-    # dropdown stays LRU + defaults. Vision still needs architecture.input_modalities.
-    # fetch_available_models memoizes a successful GET for the process. A failed
-    # lookup is not stored, so the next send retries. Do not cache None: a
-    # transient miss would hide vision until LibreOffice restarts.
     if provider in ("openrouter", "together"):
         # What was wrong: The memo lookup hashed the saved key and called
         # fetch_available_models on an already-normalized URL with no override,
@@ -1293,52 +1268,108 @@ def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True,
         # and only stripped the override.
         # Why this change: The same _v1_models_request triple the fetcher writes,
         # plus the override chat already has.
-        raw = endpoint if isinstance(endpoint, str) else ""
-        built = _v1_models_request(raw, api_key_override)
-        if built is not None:
-            vision_memo = _model_fetch_vision_cache.get(built[2])
-            if vision_memo is None and allow_fetch:
-                fetch_available_models(raw, api_key_override=api_key_override)
-                vision_memo = _model_fetch_vision_cache.get(built[2])
-            # Persist vision only when the row listed input_modalities. A
-            # successful catalog that omitted the field is not a "no": the config
-            # map is checked first, so storing False would skip later lookups for
-            # the rest of the process and the next one. An explicit list without
-            # image is still a no. A missing field falls through and is not written.
-            if vision_memo is not None:
-                supported = _vision_memo_answer(provider, vision_memo, model_id_str)
-                if supported is not None:
-                    _remember_vision_support(model_id_str, endpoint_str, supported)
-                    log.debug("has_native_vision: modalities model=%r vision=%s", model_id_str, supported)
-                    return supported
-
-    # 3b. Ollama (query POST /api/show). None means the probe did not answer.
-    # allow_fetch=False still honors a process cache hit from an earlier probe.
+        built = _v1_models_request(endpoint, api_key_override)
+        if built is None or built[2] not in _model_fetch_vision_cache:
+            return built is None, None
+        # A row that omitted input_modalities is not a "no": it stays unknown.
+        return True, _vision_memo_answer(provider, _model_fetch_vision_cache[built[2]], model_id)
     if provider == "ollama":
-        if not allow_fetch:
-            cached_show = _ollama_show_cache.get(f"{endpoint_str}@{model_id_str}")
-            if isinstance(cached_show, dict):
-                show_caps = cached_show.get("capabilities") or []
-                return "vision" in show_caps if isinstance(show_caps, list) else False
-        else:
-            res = query_ollama_model_capabilities(endpoint_str, model_id_str)
-            if res is not None:
-                return res
+        cached_show = _ollama_show_cache.get(_ollama_show_key(endpoint, model_id))
+        if cached_show is None:
+            return False, None
+        show_caps = cached_show.get("capabilities") or []
+        return True, "vision" in show_caps if isinstance(show_caps, list) else False
+    return True, None
 
-    # A static row without VISION is a real "no" (caps != NONE). No row and
-    # no modalities/map answer above is "not looked up". The UI tool gate
-    # must not treat that as text-only or it hides get_image from uncatalogued
-    # vision models it refused to fetch.
-    if unknown_is_vision and caps == ModelCapability.NONE:
+
+def _schedule_vision_lookup(support_key: str, model_id: str, endpoint: str, api_key_override: str | None) -> None:
+    """One background has_native_vision per key. A failed job leaves nothing behind."""
+    with _vision_in_flight_lock:
+        if support_key in _vision_in_flight:
+            return
+        _vision_in_flight.add(support_key)
+
+    def job() -> None:
+        try:
+            has_native_vision(model_id, endpoint, api_key_override=api_key_override)
+        finally:
+            with _vision_in_flight_lock:
+                _vision_in_flight.discard(support_key)
+
+    run_in_background(job, name="vision-lookup")
+
+
+def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | None = None) -> bool | None:
+    """Check if the model supports native multimodal vision input.
+
+    Returns:
+        True: Model has native vision support.
+        False: Model does not have native vision support.
+        None: Capability is unknown.
+
+    Callers attach image input only when the result ``is True`` and hide
+    ``get_image`` only when the result ``is False`` (never rely on truthiness,
+    since None is falsy).
+
+    Priority order:
+    1. Empty model_id -> False.
+    2. Persistent user config (``vision_support_map`` under ``_vision_support_key``),
+       including explicit False.
+    3. Static default models list (``ModelCapability.VISION``).
+    4. Warm in-process provider memo (OpenRouter/Together ``input_modalities``,
+       Ollama ``/api/show`` capabilities).
+    5. Cold memo (OpenRouter, Together, Ollama): on the UI thread
+       (``on_main_thread()``) never fetch; schedule one background lookup and
+       fall through. Off the UI thread, fetch inline and re-read the memo.
+       Answers live only in those process memos; a failed fetch stores
+       nothing, so the next check tries again.
+    6. Not settled: False when the static catalog has a row for this model
+       without VISION (caps != NONE), else None. No name heuristics.
+    """
+    if not model_id:
+        return False
+    model_id_str = str(model_id).strip()
+
+    # 2. Persistent User Config Cache check
+    support_key = _vision_support_key(endpoint, model_id_str)
+    cache = get_config("vision_support_map")
+    if isinstance(cache, dict) and support_key in cache:
+        return as_bool(cache[support_key])
+
+    # 3. Static Default Models check
+    raw_ep = endpoint if isinstance(endpoint, str) else ""
+    endpoint_str = normalize_endpoint_url(raw_ep)
+    caps = get_model_capability(model_id_str, endpoint_str)
+    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
+    if caps & ModelCapability.VISION:
         return True
-    return False
+
+    provider = get_provider_from_endpoint(endpoint_str)
+
+    # 4. Warm in-process memo. 5. Cold: the UI thread schedules, a worker fetches.
+    warm, answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)
+    if not warm:
+        if on_main_thread():
+            _schedule_vision_lookup(support_key, model_id_str, raw_ep, api_key_override)
+        else:
+            assert not on_main_thread()
+            if provider == "ollama":
+                query_ollama_show(raw_ep, model_id_str)
+            else:
+                fetch_available_models(raw_ep, api_key_override=api_key_override)
+            answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)[1]
+    if answer is not None:
+        return answer
+
+    # 6. A catalog row without VISION is a no; anything else is unknown.
+    if caps != ModelCapability.NONE:
+        return False
+    return None
 
 
 def set_native_vision_support(model_id: Any, endpoint: Any, supported: bool) -> None:
     """Save the vision support status for a model+endpoint pair to config."""
-    model_id_str = str(model_id).strip().lower()
-    endpoint_str = normalize_endpoint_url(endpoint or "")
-    key = f"{endpoint_str}@{model_id_str}"
+    key = _vision_support_key(endpoint, model_id)
     _update_support_map("vision_support_map", key, supported)
 
 
@@ -1389,8 +1420,8 @@ def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
     """
     if not endpoint or not model_id:
         return None
+    cache_key = _ollama_show_key(endpoint, model_id)
     endpoint = normalize_endpoint_url(endpoint)
-    cache_key = f"{endpoint}@{model_id}"
     cached = _ollama_show_cache.get(cache_key)
     if cached is not None:
         return cached
@@ -1466,8 +1497,7 @@ def peek_live_ollama_num_ctx(client: Any) -> int | None:
         if not model_name:
             return None
         endpoint = str(client._endpoint() or "")
-        cache_key = f"{normalize_endpoint_url(endpoint)}@{model_name}"
-        cached = _ollama_show_cache.get(cache_key)
+        cached = _ollama_show_cache.get(_ollama_show_key(endpoint, model_name))
         if not isinstance(cached, dict):
             return None
         num_ctx = cached.get("num_ctx")
