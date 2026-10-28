@@ -118,15 +118,12 @@ def test_replaced_child_drops_only_that_workers_session(monkeypatch: pytest.Monk
         with pool._cond:
             pool._sessions["owned"] = _Session(worker=owner, child=replaced)
             pool._sessions["reused"] = _Session(worker=other, child=kept)
-            pool._sessions["reserved"] = _Session(worker=owner, child=None)
             pool._reap_dead_sessions_unlocked()
             assert "owned" not in pool._sessions
             assert "owned" in pool._lost_sessions
             assert pool._sessions["reused"].worker is other
             assert pool._sessions["reused"].child is kept
             assert "reused" not in pool._lost_sessions
-            assert pool._sessions["reserved"].child is None
-            assert "reserved" not in pool._lost_sessions
     finally:
         pool.shutdown()
 
@@ -1772,6 +1769,58 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
+    def test_concurrent_first_calls_gate_prevents_split_placement(self) -> None:
+        """Per-session gate ensures concurrent first calls do not pick different workers."""
+        from compute_service.worker_base import BaseProcessWorker
+
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
+        try:
+            sid = "gate-split-test"
+            w0, w1 = pool.workers[0], pool.workers[1]
+            pick_returns = [w0, w1]
+            pick_calls: list[BaseProcessWorker] = []
+
+            def fake_pick() -> BaseProcessWorker | None:
+                if pick_returns:
+                    chosen = pick_returns.pop(0)
+                    pick_calls.append(chosen)
+                    return chosen
+                return None
+
+            setattr(pool, "_pick_new_shared_worker", fake_pick)
+
+            barrier = threading.Barrier(2)
+            results: list[dict[str, Any]] = [{}, {}]
+
+            def run_worker(idx: int, code: str) -> None:
+                barrier.wait()
+                res = pool.execute(code=code, session_id=sid, mode="shared", req_id=f"gate-{idx}")
+                results[idx] = res
+
+            t1 = threading.Thread(target=run_worker, args=(0, "result = 1"))
+            t2 = threading.Thread(target=run_worker, args=(1, "result = 2"))
+
+            t1.start()
+            t2.start()
+            t1.join(timeout=45)
+            t2.join(timeout=45)
+
+            assert len(pick_calls) == 1
+            assert results[0].get("status") == "ok"
+            assert results[1].get("status") == "ok"
+            with pool._cond:
+                worker_ids = [w.worker_id for w in pool.workers if sid in pool._worker_sessions_for(w)]
+                assert len(worker_ids) == 1
+
+            r3 = pool.execute(code="x = 100\nresult = x", session_id=sid, mode="shared")
+            assert r3.get("status") == "ok"
+            assert r3.get("result") == 100
+            r4 = pool.execute(code="result = x + 1", session_id=sid, mode="shared")
+            assert r4.get("status") == "ok"
+            assert r4.get("result") == 101
+        finally:
+            pool.shutdown()
+
     def test_explicit_reset_does_not_mark_session_lost(self) -> None:
         """Explicit reset_session clears session without marking it lost (no session_reset on next call)."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
@@ -2008,24 +2057,6 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
-    def test_reap_keeps_unbound_reservation(self) -> None:
-        """A new session with child None is not lost while its worker is still dead."""
-        from compute_service.formula_pool import _Session
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=5)
-        try:
-            worker = pool.workers[0]
-            worker.kill()
-            with pool._cond:
-                pool._sessions["pending"] = _Session(worker=worker, child=None)
-                pool._sessions["dead"] = _Session(worker=worker, child=object())
-                pool._reap_dead_sessions_unlocked()
-                assert "pending" in pool._sessions
-                assert "pending" not in pool._lost_sessions
-                assert "dead" not in pool._sessions
-                assert "dead" in pool._lost_sessions
-        finally:
-            pool.shutdown()
-
     def test_expired_lease_budget_does_not_execute(self) -> None:
         """Selecting a worker must not start the cell once the deadline has passed."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
@@ -2043,7 +2074,7 @@ class TestFormulaHttpEndpoint:
             setattr(worker, "execute", spy)
             orig = pool._select_shared_worker
 
-            def slow(sid: str) -> tuple[Any, bool, bool, int]:
+            def slow(sid: str) -> tuple[Any, bool]:
                 time.sleep(0.2)
                 return orig(sid)
 
@@ -2308,8 +2339,11 @@ def test_recycle_vs_new_shared_session_order_a() -> None:
     assert marked.wait(timeout=5.0)
     assert dying in pool._recycling
 
-    target_worker, session_was_lost, is_new_session = pool._select_shared_worker("s-new")
+    target_worker, session_was_lost = pool._select_shared_worker("s-new")
     assert target_worker is other
+    assert "s-new" not in pool._sessions
+    # The other worker gets the row only after a cell that actually ran.
+    pool._finalize_session(other, "s-new", "shared", result={"status": "ok"})
     assert pool._sessions["s-new"].worker is other
     assert dying not in [s.worker for s in pool._sessions.values()]
 
@@ -2325,78 +2359,57 @@ def test_recycle_vs_new_shared_session_order_a() -> None:
 
 
 def test_recycle_vs_new_shared_session_order_b() -> None:
-    """Order B: only worker marked, reservation lands via fallback before the second _cond block, recycle cancelled, worker idled, mark cleared."""
-    pool = FormulaProcessPool(num_workers=0, max_tasks=1, idle_worker_ttl_sec=0)
-    only_worker = _RecycleTestSlot(worker_id=1, tasks=1)
-    pool.workers.append(only_worker)
-    pool._leased.add(only_worker)
+    """The only worker is past max_tasks and has no row yet. Release kills it.
+    The new session's execute respawns and then inserts."""
+    pool = FormulaProcessPool(num_workers=1, max_tasks=1, idle_worker_ttl_sec=0)
+    try:
+        worker = pool.workers[0]
+        res1 = pool.execute(code="result = 1", mode="isolated")
+        assert res1.get("status") == "ok"
+        assert res1.get("result") == 1
+        assert worker.tasks_executed >= 1
+        # Worker was recycled and killed upon release
+        assert not worker.is_alive()
 
-    real_should_recycle = pool.should_recycle_worker
-    marked = threading.Event()
-    proceed = threading.Event()
-    call_count = 0
-
-    def wrapped_should_recycle(w: Any) -> bool:
-        nonlocal call_count
-        res = real_should_recycle(w)
-        call_count += 1
-        if call_count == 1 and res:
-            marked.set()
-            assert proceed.wait(timeout=5.0)
-        return res
-
-    pool.should_recycle_worker = wrapped_should_recycle  # type: ignore[method-assign]
-    thread_r = threading.Thread(target=pool._finish_release, args=(only_worker,), daemon=True)
-    thread_r.start()
-
-    assert marked.wait(timeout=5.0)
-    assert only_worker in pool._recycling
-
-    target_worker, session_was_lost, is_new_session = pool._select_shared_worker("s-new")
-    assert target_worker is only_worker
-    assert pool._sessions["s-new"].child is None
-
-    proceed.set()
-    thread_r.join(timeout=5.0)
-    assert not thread_r.is_alive()
-
-    assert only_worker.killed == 0
-    assert only_worker in pool._idle
-    assert only_worker not in pool._leased
-    assert only_worker not in pool._recycling
-    assert pool._sessions["s-new"].worker is only_worker
+        res2 = pool.execute(code="result = 42", session_id="s-new", mode="shared")
+        assert res2.get("status") == "ok"
+        assert res2.get("result") == 42
+        assert worker.is_alive()
+        with pool._cond:
+            sess = pool._sessions.get("s-new")
+            assert sess is not None
+            assert sess.child is not None
+            assert sess.child is getattr(worker, "child", None)
+            assert pool.live_session_worker("s-new") is worker
+    finally:
+        pool.shutdown()
 
 
 def test_session_created_before_should_recycle_prevents_mark() -> None:
     """A session created before should_recycle_worker prevents the mark."""
-    pool = FormulaProcessPool(num_workers=0, max_tasks=1, idle_worker_ttl_sec=0)
-    worker = _RecycleTestSlot(worker_id=1, tasks=1)
-    pool.workers.append(worker)
-    pool._leased.add(worker)
-
-    target_worker, session_was_lost, is_new_session = pool._select_shared_worker("s-existing")
-    assert target_worker is worker
-
-    assert pool.should_recycle_worker(worker) is False
-    assert worker not in pool._recycling
-
-    pool.release_worker(worker)
-    assert worker.killed == 0
-    assert worker in pool._idle
-    assert worker not in pool._recycling
+    pool = FormulaProcessPool(num_workers=1, max_tasks=1, idle_worker_ttl_sec=0)
+    try:
+        res = pool.execute(code="result = 1", session_id="s-existing", mode="shared")
+        assert res.get("status") == "ok"
+        worker = pool.workers[0]
+        assert worker.tasks_executed >= 1
+        assert pool.should_recycle_worker(worker) is False
+        assert worker not in pool._recycling
+    finally:
+        pool.shutdown()
 
 
 def test_pending_exit_reserves_with_none_child_and_release_kills() -> None:
-    """Single-threaded pending_exit test: only worker chosen with child None, release still kills it, no idle."""
+    """Single-threaded pending_exit test: release still kills it, no idle, no child None row."""
     pool = FormulaProcessPool(num_workers=0, max_tasks=1, idle_worker_ttl_sec=0)
     worker = _RecycleTestSlot(worker_id=1, tasks=0)
     worker.pending_exit = True
     pool.workers.append(worker)
     pool._leased.add(worker)
 
-    target_worker, session_was_lost, is_new_session = pool._select_shared_worker("s-pending")
+    target_worker, session_was_lost = pool._select_shared_worker("s-pending")
     assert target_worker is worker
-    assert pool._sessions["s-pending"].child is None
+    assert "s-pending" not in pool._sessions
 
     pool.release_worker(worker)
     assert worker.killed == 1
@@ -2404,6 +2417,7 @@ def test_pending_exit_reserves_with_none_child_and_release_kills() -> None:
     assert worker not in pool._leased
     assert worker.pending_exit is False
     assert worker not in pool._recycling
+    assert "s-pending" not in pool._sessions
 
 
 def test_new_session_spawn_failure_does_not_set_session_lost() -> None:
