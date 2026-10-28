@@ -535,8 +535,10 @@ def test_run_inner_domain_tool_agent_inner_tool_error_is_error():
 
     assert result["status"] == "error"
     assert result["code"] == "SPECIALIZED_TOOL_ERROR"
-    assert "Failed to insert the note" in result["message"]
-    assert "Tried the note" in result["message"]
+    # Discussion #2268: the finish answer is delivered once, in answer only.
+    assert result["message"] == "Failed to insert the note"
+    assert result["error"] == result["message"]
+    assert result["answer"] == "Tried the note"
     assert result["domains"] == ["footnotes"]
 
 

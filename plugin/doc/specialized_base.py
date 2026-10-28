@@ -512,7 +512,8 @@ class DelegateToSpecializedBase(ToolBase):
         # How it happened: execute wrapped any non-status return in a provisional ok payload
         # without inspecting inner tool execution results or requiring specialized_workflow_finished.
         # Why this change fixes it: inner tool errors are converted to status: "error" with code
-        # SPECIALIZED_TOOL_ERROR and their messages (plus finish answer if present). Runs without
+        # SPECIALIZED_TOOL_ERROR and their messages. Discussion #2268: a finish answer stays
+        # in answer only; message and error carry just the tool-error text. Runs without
         # specialized_workflow_finished returning and without tool errors become status: "incomplete"
         # with code SPECIALIZED_WORKFLOW_INCOMPLETE and the model text on message.
         is_finished = workflow_finished or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
@@ -524,13 +525,6 @@ class DelegateToSpecializedBase(ToolBase):
                     tool_msgs.append(str(msg))
                 else:
                     tool_msgs.append(str(err))
-            finish_answer = None
-            if isinstance(final_ans, dict):
-                finish_answer = final_ans.get("answer")
-            if not finish_answer and isinstance(payload.get("answer"), str):
-                finish_answer = payload.get("answer")
-            if finish_answer:
-                tool_msgs.append(str(finish_answer))
             combined_message = "; ".join(tool_msgs) or "Specialized tool error."
             payload["status"] = "error"
             payload["code"] = "SPECIALIZED_TOOL_ERROR"

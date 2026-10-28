@@ -166,8 +166,10 @@ def test_delegate_status_inner_tool_error(
 
     assert result["status"] == "error"
     assert result["code"] == "SPECIALIZED_TOOL_ERROR"
-    assert "Failed to read page objects" in result["message"]
-    assert "Final attempted answer" in result["message"]
+    # Discussion #2268: the finish answer is delivered once, in answer only.
+    assert result["message"] == "Failed to read page objects"
+    assert result["error"] == "Failed to read page objects"
+    assert result["answer"] == "Final attempted answer"
 
 
 def test_delegate_status_incomplete_no_finish_no_tool_error(
