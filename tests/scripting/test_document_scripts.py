@@ -311,7 +311,6 @@ def test_scripts_list_reports_unreadable_envelope():
         patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
     ):
         msg = build_scripts_list_message(
-            MagicMock(),
             session_doc=doc,
             session_doc_url=None,
         )
@@ -328,7 +327,6 @@ def test_scripts_list_reports_unreadable_envelope():
         patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
     ):
         msg_ok = build_scripts_list_message(
-            MagicMock(),
             session_doc=doc,
             session_doc_url=None,
             status_ok_text="All good",
@@ -345,7 +343,6 @@ def test_scripts_list_reports_unreadable_envelope():
         patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
     ):
         msg_corrupt = build_scripts_list_message(
-            MagicMock(),
             session_doc=doc_corrupt,
             session_doc_url=None,
         )
@@ -528,7 +525,6 @@ def test_resolve_run_script_name_config_key():
 
 
 def test_resolve_run_script_selection_uses_config_default():
-    ctx = MagicMock()
     doc = MagicMock()
     saved = {
         "Hello WriterAgent": "result = 'hello'",
@@ -538,21 +534,24 @@ def test_resolve_run_script_selection_uses_config_default():
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
-        name, code, merged = resolve_run_script_selection(ctx, doc, saved)
+        name, code, merged = resolve_run_script_selection(
+            doc, build_xdl_script_picker_state(doc, saved)
+        )
     assert name == "Prime Numbers"
     assert code == "result = 'gaps'"
     assert merged["Prime Numbers"] == "result = 'gaps'"
 
 
 def test_resolve_run_script_selection_falls_back_to_first_name():
-    ctx = MagicMock()
     doc = MagicMock()
     saved = {"Alpha": "a = 1", "Beta": "b = 2"}
     with patch("plugin.framework.config.get_config_str", return_value="Missing"), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ), patch("plugin.framework.config.set_config") as mock_set:
-        name, code, merged = resolve_run_script_selection(ctx, doc, saved)
+        name, code, merged = resolve_run_script_selection(
+            doc, build_xdl_script_picker_state(doc, saved)
+        )
     assert name == "Alpha"
     assert code == "a = 1"
     mock_set.assert_called_once_with("last_python_script_name_writer", "Alpha")
@@ -565,7 +564,6 @@ def test_resolve_script_picker_entry():
 
 
 def test_build_scripts_list_message_sections():
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
@@ -575,7 +573,7 @@ def test_build_scripts_list_message_sections():
     ), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url="file:///tmp/test.odt")
     assert msg["document_available"] is True
     assert msg["document_stale"] is False
     sections = {s["id"]: s["scripts"] for s in msg["sections"]}
@@ -587,7 +585,6 @@ def test_build_scripts_list_message_sections():
 
 
 def test_build_scripts_list_section_order_local_doc_vision_math_units_analysis():
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.ods")
@@ -600,28 +597,26 @@ def test_build_scripts_list_section_order_local_doc_vision_math_units_analysis()
     ), patch(
         "plugin.vision.vision_runner.supports_vision_manual", return_value=True
     ):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.ods")
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url="file:///tmp/test.ods")
     section_ids = [s["id"] for s in msg["sections"]]
     # Must be local ("user"), then document ("document"), then vision, math, units, analysis, and the rest
     assert section_ids[:6] == ["user", "document", "vision", "math", "units", "analysis"]
 
 
 def test_build_scripts_list_message_includes_selected_script():
-    ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={"Prime": "print('primes')"}), patch(
         "plugin.framework.config.get_config_str", return_value="Prime"
     ) as mock_get_str, patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ) as mock_key:
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     mock_key.assert_called_once_with(doc)
     mock_get_str.assert_called_once_with("last_python_script_name_writer")
     assert msg["selected_script_name"] == "Prime"
 
 
 def test_build_scripts_list_message_includes_selected_script_name_when_empty():
-    ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={"Alpha": "a = 1"}), patch(
         "plugin.framework.config.get_config_str", return_value=""
@@ -629,12 +624,11 @@ def test_build_scripts_list_message_includes_selected_script_name_when_empty():
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     assert msg["selected_script_name"] == "Alpha"
 
 
 def test_build_scripts_list_message_stale_when_url_changes():
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/other.odt")
@@ -644,14 +638,13 @@ def test_build_scripts_list_message_stale_when_url_changes():
     ), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/original.odt")
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url="file:///tmp/original.odt")
     assert msg["document_stale"] is True
     sections = {s["id"]: s["scripts"] for s in msg["sections"]}
     assert sections["document"] == {}
 
 
 def test_build_scripts_list_untitled_save_is_not_stale():
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/saved.odt")
@@ -662,21 +655,20 @@ def test_build_scripts_list_untitled_save_is_not_stale():
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="")
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url="")
     assert msg["document_stale"] is False
     sections = {s["id"]: s["scripts"] for s in msg["sections"]}
     assert sections["document"]  # non-empty; name may be display-prefixed
 
 
 def test_build_scripts_list_includes_analysis_section_for_calc():
-    ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.scripting.domain_registry.is_calc", return_value=True
     ), patch(
         "plugin.scripting.document_scripts.is_calc", return_value=True
     ):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
     assert SCRIPT_ORIGIN_ANALYSIS in section_ids
     analysis = next(s for s in msg["sections"] if s["id"] == SCRIPT_ORIGIN_ANALYSIS)
@@ -691,12 +683,11 @@ def test_resolve_analysis_script_picker_entry():
 
 
 def test_build_scripts_list_includes_vision_section_for_writer():
-    ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.vision.vision_runner.supports_vision_manual", return_value=True
     ):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
     assert SCRIPT_ORIGIN_VISION in section_ids
     vision = next(s for s in msg["sections"] if s["id"] == SCRIPT_ORIGIN_VISION)
@@ -705,14 +696,13 @@ def test_build_scripts_list_includes_vision_section_for_writer():
 
 
 def test_build_scripts_list_includes_vision_section_for_calc():
-    ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.scripting.document_scripts.is_calc", return_value=True
     ), patch("plugin.scripting.document_scripts.is_writer", return_value=False), patch(
         "plugin.vision.vision_runner.supports_vision_manual", return_value=True
     ):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
     assert SCRIPT_ORIGIN_VISION in section_ids
     vision = next(s for s in msg["sections"] if s["id"] == SCRIPT_ORIGIN_VISION)
@@ -720,14 +710,13 @@ def test_build_scripts_list_includes_vision_section_for_calc():
 
 
 def test_build_scripts_list_excludes_vision_section_for_draw():
-    ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.scripting.document_scripts.is_draw", return_value=True
     ), patch("plugin.scripting.document_scripts.is_calc", return_value=False), patch(
         "plugin.scripting.document_scripts.is_writer", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=False):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
     assert SCRIPT_ORIGIN_VISION not in section_ids
 
@@ -751,12 +740,11 @@ def test_resolve_vision_script_picker_entry():
 
 
 def test_build_scripts_list_excludes_text_analytics_section_for_writer():
-    ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.scripting.text_analytics.supports_text_analytics_manual", return_value=True
     ):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
     assert "text" not in section_ids
 
@@ -784,12 +772,11 @@ def test_save_and_delete_user_script():
 
 def test_handle_editor_script_message_unknown_kind():
     sent: list = []
-    assert handle_editor_script_message("save", {}, ctx=MagicMock(), session_doc=None, session_doc_url=None, send=sent.append) is False
+    assert handle_editor_script_message("save", {}, session_doc=None, session_doc_url=None, send=sent.append) is False
     assert sent == []
 
 
 def test_handle_editor_script_message_save_user_and_empty_name():
-    ctx = MagicMock()
     sent: list = []
     store = {"Mine": "a = 1"}
     with patch("plugin.framework.config.get_config", side_effect=lambda key: store if key == "saved_python_scripts" else {}), patch(
@@ -801,7 +788,6 @@ def test_handle_editor_script_message_save_user_and_empty_name():
         assert handle_editor_script_message(
             "save_script",
             {"name": "New", "code": "x = 1", "origin": "user"},
-            ctx=ctx,
             session_doc=None,
             session_doc_url=None,
             send=sent.append,
@@ -815,7 +801,6 @@ def test_handle_editor_script_message_save_user_and_empty_name():
         assert handle_editor_script_message(
             "save_script",
             {"name": "  ", "code": "x = 1"},
-            ctx=ctx,
             session_doc=None,
             session_doc_url=None,
             send=sent.append,
@@ -824,7 +809,6 @@ def test_handle_editor_script_message_save_user_and_empty_name():
 
 
 def test_handle_editor_script_message_save_document_script_updates_config():
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     sent: list = []
@@ -837,7 +821,6 @@ def test_handle_editor_script_message_save_document_script_updates_config():
         assert handle_editor_script_message(
             "save_script",
             {"name": "DocReport", "code": "y = 2", "origin": "document"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url=None,
             send=sent.append,
@@ -849,7 +832,6 @@ def test_handle_editor_script_message_save_document_script_updates_config():
 
 def test_doc_save_fallback_sends_success_with_migration_note_only():
     """A document save error that lands in My Scripts is one success string."""
-    ctx = MagicMock()
     doc = _DocWithUserDefinedProperties(_UserDefinedProperties())
     sent: list = []
     with patch("plugin.framework.config.get_config", return_value={}), patch(
@@ -864,7 +846,6 @@ def test_doc_save_fallback_sends_success_with_migration_note_only():
         assert handle_editor_script_message(
             "save_script",
             {"name": "DocReport", "code": "y = 2", "origin": "document"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url=None,
             send=sent.append,
@@ -881,7 +862,6 @@ def test_doc_save_fallback_sends_success_with_migration_note_only():
 
 def test_readonly_fallback_second_edit_follows_the_user_row():
     """A read-only document save falls back to My Scripts and later edits update that copy."""
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.isReadonly = MagicMock(return_value=False)
@@ -922,7 +902,6 @@ def test_readonly_fallback_second_edit_follows_the_user_row():
         assert handle_editor_script_message(
             "save_script",
             {"name": "[Doc] Report", "code": "edited-1", "origin": "document"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url=None,
             send=sent.append,
@@ -939,7 +918,6 @@ def test_readonly_fallback_second_edit_follows_the_user_row():
         assert handle_editor_script_message(
             "save_script",
             {"name": "Report", "code": "edited-2", "origin": "user"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url=None,
             send=sent.append,
@@ -954,7 +932,6 @@ def test_readonly_fallback_second_edit_follows_the_user_row():
 
 def test_doc_save_fallback_does_not_overwrite_my_scripts():
     """A document save error must not replace an existing My Scripts entry."""
-    ctx = MagicMock()
     doc = _DocWithUserDefinedProperties(_UserDefinedProperties())
     sent: list = []
     store = {"DocReport": "keep-me"}
@@ -976,7 +953,6 @@ def test_doc_save_fallback_does_not_overwrite_my_scripts():
         assert handle_editor_script_message(
             "save_script",
             {"name": "DocReport", "code": "y = 2", "origin": "document"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url=None,
             send=sent.append,
@@ -993,7 +969,6 @@ def test_doc_save_fallback_does_not_overwrite_my_scripts():
 
 
 def test_attach_script_stores_display_name_as_property_key():
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     sent: list = []
@@ -1006,7 +981,6 @@ def test_attach_script_stores_display_name_as_property_key():
         assert handle_editor_script_message(
             "save_script",
             {"name": "[Doc] Regional", "code": "doc-code", "origin": "document"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url=None,
             send=sent.append,
@@ -1021,7 +995,6 @@ def test_handle_editor_script_message_disposed_document_returns_list_error():
     """Closing the document mid-save must not raise out of the picker handler."""
     from plugin.framework.errors import DocumentDisposedError
 
-    ctx = MagicMock()
     sent: list = []
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.framework.config.get_config_str", return_value=""
@@ -1036,7 +1009,6 @@ def test_handle_editor_script_message_disposed_document_returns_list_error():
             handle_editor_script_message(
                 "save_script",
                 {"name": "A", "code": "x = 1", "origin": "document"},
-                ctx=ctx,
                 session_doc=MagicMock(),
                 session_doc_url="",
                 send=sent.append,
@@ -1048,14 +1020,12 @@ def test_handle_editor_script_message_disposed_document_returns_list_error():
 
 
 def test_scripts_list_without_session_doc_is_not_writable():
-    ctx = MagicMock()
     with (
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
     ):
         msg = build_scripts_list_message(
-            ctx,
             session_doc=None,
             session_doc_url=None,
         )
@@ -1075,7 +1045,6 @@ def test_scripts_list_without_session_doc_is_not_writable():
         handle_editor_script_message(
             "save_script",
             {"name": "A", "code": "x", "origin": "document"},
-            ctx=ctx,
             session_doc=None,
             session_doc_url=None,
             send=sent.append,
@@ -1085,7 +1054,6 @@ def test_scripts_list_without_session_doc_is_not_writable():
 
 
 def test_save_script_reserved_prefix_is_status_error():
-    ctx = MagicMock()
     sent: list = []
     with (
         patch("plugin.framework.config.get_config", return_value={}),
@@ -1096,7 +1064,6 @@ def test_save_script_reserved_prefix_is_status_error():
         handled = handle_editor_script_message(
             "save_script",
             {"name": "[Doc] foo", "code": "print(1)", "origin": "user"},
-            ctx=ctx,
             session_doc=None,
             session_doc_url=None,
             send=sent.append,
@@ -1128,7 +1095,6 @@ def test_closed_document_scripts_list_keeps_user_scripts():
 def test_second_disposal_sends_user_scripts():
     from plugin.framework.errors import DocumentDisposedError
 
-    ctx = MagicMock()
     sent: list = []
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Keep": "x = 1"}),
@@ -1138,7 +1104,6 @@ def test_second_disposal_sends_user_scripts():
         handled = handle_editor_script_message(
             "save_script",
             {"name": "A", "code": "x = 1", "origin": "document"},
-            ctx=ctx,
             session_doc=MagicMock(),
             session_doc_url="",
             send=sent.append,
@@ -1155,7 +1120,6 @@ def test_builtin_origin_delete_does_not_touch_user_scripts():
         handle_editor_script_message(
             "delete_script",
             {"name": "Plot", "origin": "viz"},
-            ctx=MagicMock(),
             session_doc=MagicMock(),
             session_doc_url="file:///a",
             send=sent.append,
@@ -1173,7 +1137,6 @@ def test_stale_document_save_does_not_write():
         handle_editor_script_message(
             "save_script",
             {"name": "A", "code": "x = 1", "origin": "document"},
-            ctx=MagicMock(),
             session_doc=MagicMock(),
             session_doc_url="file:///original",
             send=sent.append,
@@ -1208,7 +1171,6 @@ def test_script_picker_message_types():
 
 def test_document_script_reopen_after_select_and_save_uses_display_key():
     """List, selection, and save share the [Doc] key so a same-named user script is not overwritten."""
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
@@ -1234,7 +1196,7 @@ def test_document_script_reopen_after_select_and_save_uses_display_key():
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
-        listed = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
+        listed = build_scripts_list_message(session_doc=doc, session_doc_url="file:///tmp/test.odt")
         sections = {section["id"]: section["scripts"] for section in listed["sections"]}
         assert sections["user"]["Regional"] == "user-code"
         assert sections["document"]["[Doc] Regional"] == "doc-code"
@@ -1244,12 +1206,11 @@ def test_document_script_reopen_after_select_and_save_uses_display_key():
         assert handle_editor_script_message(
             "select_script",
             {"name": "[Doc] Regional"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url="file:///tmp/test.odt",
             send=sent.append,
         )
-        reopened = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
+        reopened = build_scripts_list_message(session_doc=doc, session_doc_url="file:///tmp/test.odt")
         assert reopened["selected_script_name"] == "[Doc] Regional"
         re_sections = {section["id"]: section["scripts"] for section in reopened["sections"]}
         assert re_sections["document"][reopened["selected_script_name"]] == "doc-code"
@@ -1257,7 +1218,6 @@ def test_document_script_reopen_after_select_and_save_uses_display_key():
         assert handle_editor_script_message(
             "save_script",
             {"name": "[Doc] Regional", "code": "doc-new", "origin": "document"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url="file:///tmp/test.odt",
             send=sent.append,
@@ -1323,7 +1283,6 @@ def test_monaco_overwrite_check_uses_document_display_key():
                 return lookup in (section.get("scripts") or {})
         return False
 
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
@@ -1334,7 +1293,7 @@ def test_monaco_overwrite_check_uses_document_display_key():
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
-        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
+        msg = build_scripts_list_message(session_doc=doc, session_doc_url="file:///tmp/test.odt")
     sections = msg["sections"]
     by_id = {section["id"]: section["scripts"] for section in sections}
     # The raw storage name is not a list key. The picker must still find it.
@@ -1444,7 +1403,6 @@ def test_build_scripts_list_message_loads_once_when_the_document_is_current():
         domain_counts += 1
         return real_domain(d)
 
-    ctx = MagicMock()
     with (
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
@@ -1453,7 +1411,6 @@ def test_build_scripts_list_message_loads_once_when_the_document_is_current():
         patch("plugin.scripting.document_scripts.domain_template_entries", side_effect=counting_domain),
     ):
         msg = build_scripts_list_message(
-            ctx,
             session_doc=doc,
             session_doc_url=None,
         )
@@ -1466,7 +1423,9 @@ def test_build_scripts_list_message_loads_once_when_the_document_is_current():
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.framework.config.set_config"),
     ):
-        expected_selected, _, _ = resolve_run_script_selection(ctx, doc, get_user_scripts())
+        expected_selected, _, _ = resolve_run_script_selection(
+            doc, build_xdl_script_picker_state(doc, get_user_scripts())
+        )
 
     assert msg["selected_script_name"] == expected_selected
 
@@ -1483,7 +1442,6 @@ def test_stale_list_selection_ignores_templates_of_the_stale_document():
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/current.odt")
 
-    ctx = MagicMock()
     with (
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
@@ -1491,7 +1449,6 @@ def test_stale_list_selection_ignores_templates_of_the_stale_document():
         patch("plugin.scripting.domain_registry.get_picker_domains", return_value=[domain]),
     ):
         msg = build_scripts_list_message(
-            ctx,
             session_doc=doc,
             session_doc_url="file:///tmp/stale.odt",
         )
@@ -1503,7 +1460,6 @@ def test_stale_list_selection_ignores_templates_of_the_stale_document():
 
 def test_build_scripts_list_message_stale_doc_does_not_select_doc_script():
     """Bug 2: stale doc passes None to selection resolution so no [Doc] script is selected."""
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/opened.ods")
@@ -1518,7 +1474,6 @@ def test_build_scripts_list_message_stale_doc_does_not_select_doc_script():
     ):
         # session_doc_url is different from doc.getURL(), marking document_stale = True
         msg = build_scripts_list_message(
-            ctx,
             session_doc=doc,
             session_doc_url="file:///tmp/other.ods",
         )
@@ -1532,7 +1487,6 @@ def test_build_scripts_list_message_stale_doc_does_not_select_doc_script():
 
 def test_save_script_reserved_name_init_does_not_fallback_to_my_scripts():
     """Bug 3: reserving name INIT returns an error to user and does not write to My Scripts."""
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/doc.ods")
@@ -1546,7 +1500,6 @@ def test_save_script_reserved_name_init_does_not_fallback_to_my_scripts():
         handled = handle_editor_script_message(
             "save_script",
             {"name": "INIT", "code": "malicious = 1", "origin": "document"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url="file:///tmp/doc.ods",
             send=sent.append,
@@ -1562,7 +1515,6 @@ def test_save_script_reserved_name_init_does_not_fallback_to_my_scripts():
 
 def test_save_script_too_large_does_not_fallback_to_my_scripts():
     """Bug 3: a script exceeding document size limits does not fall back to My Scripts."""
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/doc.ods")
@@ -1577,7 +1529,6 @@ def test_save_script_too_large_does_not_fallback_to_my_scripts():
         handled = handle_editor_script_message(
             "save_script",
             {"name": "TooLarge", "code": huge_code, "origin": "document"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url="file:///tmp/doc.ods",
             send=sent.append,
@@ -1613,7 +1564,6 @@ def test_delete_user_script_missing_returns_error_and_does_not_write():
 
 def test_picker_delete_missing_script_returns_error():
     """Bug 4: IPC message delete_script for non-existent script returns status_error_text."""
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/doc.ods")
@@ -1623,7 +1573,6 @@ def test_picker_delete_missing_script_returns_error():
     handle_editor_script_message(
         "delete_script",
         {"name": "NonExistentDoc", "origin": "document"},
-        ctx=ctx,
         session_doc=doc,
         session_doc_url="file:///tmp/doc.ods",
         send=sent_doc.append,
@@ -1637,7 +1586,6 @@ def test_picker_delete_missing_script_returns_error():
         handle_editor_script_message(
             "delete_script",
             {"name": "NonExistentUser", "origin": "user"},
-            ctx=ctx,
             session_doc=doc,
             session_doc_url="file:///tmp/doc.ods",
             send=sent_user.append,

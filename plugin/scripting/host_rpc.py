@@ -442,12 +442,11 @@ def _dispatch_named_script(
     *allow_document* is False off the main thread: document scripts need UNO,
     so only user origin is allowed there.
     """
+    from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
     from plugin.scripting.document_scripts import get_user_scripts
     from plugin.scripting.named_scripts import (
         GET_NAMED_PYTHON_SCRIPT,
         LIST_NAMED_PYTHON_SCRIPTS,
-        ORIGIN_DOCUMENT,
-        ORIGIN_USER,
         host_get_named_python_script,
         host_list_named_python_scripts,
     )
@@ -462,17 +461,17 @@ def _dispatch_named_script(
         raise RuntimeError(f"Unknown named-script tool {tool_name!r}")
 
     name = str(payload.get("name") or "")
-    origin = str(payload.get("origin") or ORIGIN_USER)
+    origin = str(payload.get("origin") or SCRIPT_ORIGIN_USER)
     known = payload.get("known_hash")
     known_hash = known if isinstance(known, str) else None
 
-    if not allow_document and origin != ORIGIN_USER:
+    if not allow_document and origin != SCRIPT_ORIGIN_USER:
         raise RuntimeError(
             "Document scripts cannot be loaded during =PY() recalculation off the UI thread. "
             "Use a user script (wa.scripts) or Run Python Script."
         )
-    user_scripts = get_user_scripts() if origin in (ORIGIN_USER, ORIGIN_DOCUMENT) else {}
-    document_scripts = _document_script_store(script_session_id) if origin == ORIGIN_DOCUMENT else {}
+    user_scripts = get_user_scripts() if origin in (SCRIPT_ORIGIN_USER, SCRIPT_ORIGIN_DOCUMENT) else {}
+    document_scripts = _document_script_store(script_session_id) if origin == SCRIPT_ORIGIN_DOCUMENT else {}
     return host_get_named_python_script(
         name=name, origin=origin, known_hash=known_hash, user_scripts=user_scripts, document_scripts=document_scripts
     )

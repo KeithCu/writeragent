@@ -115,6 +115,11 @@ def _unreadable_document_scripts() -> DocumentScriptError:
     )
 
 
+def _fail_unreadable(message: str, *args: object, exc_info: bool = False) -> tuple[dict[str, str], DocumentScriptError]:
+    log.warning(message, *args, exc_info=exc_info)
+    return {}, _unreadable_document_scripts()
+
+
 def _unsupported_document_scripts(version: object) -> DocumentScriptError:
     return DocumentScriptError(
         _("Stored document scripts are in an unsupported format (version {0}), so they were left unchanged.").format(
@@ -148,26 +153,21 @@ def _load_document_script_map(doc: Any) -> tuple[dict[str, str], DocumentScriptE
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        log.warning("document_scripts: failed to parse JSON envelope", exc_info=True)
-        return {}, _unreadable_document_scripts()
+        return _fail_unreadable("document_scripts: failed to parse JSON envelope", exc_info=True)
     if not isinstance(parsed, dict):
-        log.warning("document_scripts: expected object, got %s", type(parsed).__name__)
-        return {}, _unreadable_document_scripts()
-    if "version" in parsed and parsed.get("version") != _ENVELOPE_VERSION:
+        return _fail_unreadable("document_scripts: expected object, got %s", type(parsed).__name__)
+    if "version" not in parsed:
+        return _fail_unreadable("document_scripts: missing version")
+    if parsed.get("version") != _ENVELOPE_VERSION:
         log.warning("document_scripts: unsupported version %r", parsed.get("version"))
         return {}, _unsupported_document_scripts(parsed.get("version"))
-    if parsed.get("version") != _ENVELOPE_VERSION:
-        log.warning("document_scripts: missing version")
-        return {}, _unreadable_document_scripts()
     scripts_raw = parsed.get("scripts")
     if not isinstance(scripts_raw, dict):
-        log.warning("document_scripts: missing scripts map")
-        return {}, _unreadable_document_scripts()
+        return _fail_unreadable("document_scripts: missing scripts map")
     out: dict[str, str] = {}
     for key, value in scripts_raw.items():
         if not isinstance(key, str) or not isinstance(value, str):
-            log.warning("document_scripts: non-string script entry")
-            return {}, _unreadable_document_scripts()
+            return _fail_unreadable("document_scripts: non-string script entry")
         out[key] = value
     return out, None
 
@@ -540,27 +540,19 @@ def resolve_run_script_name_config_key(doc: Any) -> str:
     if doc:
         if is_calc(doc):
             return "last_python_script_name_calc"
-        if is_writer(doc):
-            return "last_python_script_name_writer"
         if is_draw(doc):
             return "last_python_script_name_draw"
     return "last_python_script_name_writer"
 
 
 def resolve_run_script_selection(
-    ctx: Any,
     doc: Any | None,
-    saved_scripts: dict[str, str],
-    *,
-    picker_state: tuple[list[str], dict[str, str], dict[str, str]] | None = None,
+    picker_state: tuple[list[str], dict[str, str], dict[str, str]],
 ) -> tuple[str, str, dict[str, str]]:
     """Return (selected_name, selected_code, merged_scripts) for Run Python Script."""
     name_config_key = resolve_run_script_name_config_key(doc)
     last_name = config.get_config_str(name_config_key)
-    if picker_state is not None:
-        names, merged_scripts, _unused_origin_map = picker_state
-    else:
-        names, merged_scripts, _unused_origin_map = build_xdl_script_picker_state(doc, saved_scripts)
+    names, merged_scripts, _unused_origin_map = picker_state
     # A raw document name from an older list still selects that script when
     # the picker key is the [Doc] display name and no user script uses the raw name.
     if last_name and last_name not in merged_scripts:
@@ -579,7 +571,6 @@ def resolve_run_script_selection(
 
 
 def build_scripts_list_message(
-    ctx: Any,
     *,
     session_doc: Any | None,
     session_doc_url: str | None,
@@ -659,7 +650,7 @@ def build_scripts_list_message(
         )
 
     selected_name, _selected_code, _merged_scripts = resolve_run_script_selection(
-        ctx, selection_doc, user_scripts, picker_state=picker_state
+        selection_doc, picker_state
     )
 
     msg: dict[str, Any] = {
@@ -829,8 +820,9 @@ def _remember_selection(session_doc: Any | None, name: str) -> None:
 def _on_request_scripts(
     msg: dict[str, Any],
     *,
+    session_doc: Any | None,
+    session_doc_url: str | None,
     send_list: Callable[..., None],
-    **_unused: Any,
 ) -> bool:
     log.info("scripts picker: request_scripts")
     send_list()
@@ -841,7 +833,8 @@ def _on_select_script(
     msg: dict[str, Any],
     *,
     session_doc: Any | None,
-    **_unused: Any,
+    session_doc_url: str | None,
+    send_list: Callable[..., None],
 ) -> bool:
     name = str(msg.get("name", "") or "").strip()
     _remember_selection(session_doc, name)
@@ -880,7 +873,6 @@ def _on_save_script(
     session_doc: Any | None,
     session_doc_url: str | None,
     send_list: Callable[..., None],
-    **_unused: Any,
 ) -> bool:
     target = _validate_script_target(
         msg,
@@ -907,7 +899,7 @@ def _on_save_script(
                     )
                     return True
                 user_err = save_user_script(storage_name, script_code)
-                if isinstance(user_err, str) and user_err:
+                if user_err:
                     send_list(status_error_text=str(user_err))
                     return True
                 _remember_selection(session_doc, storage_name)
@@ -922,7 +914,7 @@ def _on_save_script(
         send_list(status_ok_text=_("Saved script '{0}' to this document.").format(storage_name))
         return True
     user_err = save_user_script(name, script_code)
-    if isinstance(user_err, str) and user_err:
+    if user_err:
         send_list(status_error_text=str(user_err))
         return True
     _remember_selection(session_doc, name)
@@ -937,7 +929,6 @@ def _on_delete_script(
     session_doc: Any | None,
     session_doc_url: str | None,
     send_list: Callable[..., None],
-    **_unused: Any,
 ) -> bool:
     target = _validate_script_target(msg, send_list, session_doc=session_doc, session_doc_url=session_doc_url)
     if target is None:
@@ -972,33 +963,10 @@ _PICKER_HANDLERS: dict[str, Callable[..., bool]] = {
 SCRIPT_PICKER_MESSAGE_TYPES = frozenset(_PICKER_HANDLERS)
 
 
-def _apply_script_picker_message(
-    kind: str,
-    msg: dict[str, Any],
-    *,
-    ctx: Any,
-    session_doc: Any | None,
-    session_doc_url: str | None,
-    send_list: Callable[..., None],
-) -> bool:
-    """Picker message body. Disposal is caught by ``handle_editor_script_message``."""
-    handler = _PICKER_HANDLERS.get(kind)
-    if handler is None:
-        return False
-    return handler(
-        msg,
-        ctx=ctx,
-        session_doc=session_doc,
-        session_doc_url=session_doc_url,
-        send_list=send_list,
-    )
-
-
 def handle_editor_script_message(
     kind: str,
     msg: dict[str, Any],
     *,
-    ctx: Any,
     session_doc: Any | None,
     session_doc_url: str | None,
     send: Callable[[dict[str, Any]], None],
@@ -1008,7 +976,6 @@ def handle_editor_script_message(
     def _send_list(*, status_ok_text: str | None = None, status_error_text: str | None = None) -> None:
         send(
             build_scripts_list_message(
-                ctx,
                 session_doc=session_doc,
                 session_doc_url=session_doc_url,
                 status_ok_text=status_ok_text,
@@ -1016,18 +983,19 @@ def handle_editor_script_message(
             )
         )
 
+    handler = _PICKER_HANDLERS.get(kind)
+    if handler is None:
+        return False
     try:
-        return _apply_script_picker_message(
-            kind,
+        return handler(
             msg,
-            ctx=ctx,
             session_doc=session_doc,
             session_doc_url=session_doc_url,
             send_list=_send_list,
         )
     except DocumentDisposedError:
         # Known handlers and set_document_scripts re-raise DocumentDisposedError.
-        # An unknown kind never enters this except because _apply_script_picker_message
+        # An unknown kind never enters this except because the handler lookup
         # returns False first. A second disposal uses _closed_document_scripts_list,
         # which does not touch the document.
         log.exception("scripts picker: document disposed during %s", kind)

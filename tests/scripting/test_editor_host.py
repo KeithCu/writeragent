@@ -2075,7 +2075,7 @@ def test_picker_known_session_still_dispatches():
     live_state = launch_mod.EditorSessionState(session_id="sid-live", mode="calc_cell", target={"cell": "A1"})
     pe.register_session(live_state)
 
-    def fake_handler(kind, msg, *, ctx, session_doc, session_doc_url, send):
+    def fake_handler(kind, msg, *, session_doc, session_doc_url, send):
         send({"type": "scripts_list"})
         return True
 

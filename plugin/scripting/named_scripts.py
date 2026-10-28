@@ -23,14 +23,11 @@ import re
 import sys
 from contextvars import ContextVar
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 log = logging.getLogger(__name__)
 
 from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
-
-ORIGIN_USER = SCRIPT_ORIGIN_USER
-ORIGIN_DOCUMENT = SCRIPT_ORIGIN_DOCUMENT
 
 _NAMED_SCRIPT_MAX_BYTES = 200_000
 _IDENT_NON_ALNUM = re.compile(r"[^0-9A-Za-z_]+")
@@ -110,16 +107,14 @@ def _is_name_only_target(node: ast.AST) -> bool:
     return False
 
 
-def _record_line(lines: list[int], node: ast.AST) -> None:
+def _flag_line(lines: list[int], node: ast.AST | None, *, effect: bool = False) -> None:
+    if node is None:
+        return
+    if effect and not _expr_has_load_time_effect(node):
+        return
     lineno = getattr(node, "lineno", 0)
     if lineno not in lines:
         lines.append(lineno)
-
-
-def _record_load_time_expr(lines: list[int], expr: ast.AST | None) -> None:
-    if expr is None or not _expr_has_load_time_effect(expr):
-        return
-    _record_line(lines, expr)
 
 
 def _raise_not_library(lines: list[int]) -> None:
@@ -131,12 +126,12 @@ def _function_import_time_call_lines(node: ast.FunctionDef) -> list[int]:
     """Decorators are always rejected; defaults and annotations are rejected when they have a load-time effect."""
     lines: list[int] = []
     for dec in node.decorator_list:
-        _record_line(lines, dec)
+        _flag_line(lines, dec)
     for default in node.args.defaults:
-        _record_load_time_expr(lines, default)
+        _flag_line(lines, default, effect=True)
     for kw_default in node.args.kw_defaults:
-        _record_load_time_expr(lines, kw_default)
-    _record_load_time_expr(lines, node.returns)
+        _flag_line(lines, kw_default, effect=True)
+    _flag_line(lines, node.returns, effect=True)
     all_args = (
         node.args.posonlyargs
         + node.args.args
@@ -145,7 +140,7 @@ def _function_import_time_call_lines(node: ast.FunctionDef) -> list[int]:
         + ([node.args.kwarg] if node.args.kwarg else [])
     )
     for arg in all_args:
-        _record_load_time_expr(lines, arg.annotation)
+        _flag_line(lines, arg.annotation, effect=True)
     return lines
 
 
@@ -159,34 +154,34 @@ def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
     """
     lines: list[int] = []
     for dec in node.decorator_list:
-        _record_line(lines, dec)
+        _flag_line(lines, dec)
     for base in node.bases:
-        _record_load_time_expr(lines, base)
+        _flag_line(lines, base, effect=True)
     for kw in node.keywords:
-        _record_load_time_expr(lines, kw.value)
+        _flag_line(lines, kw.value, effect=True)
     for stmt in node.body:
         if isinstance(stmt, ast.FunctionDef):
             lines.extend(_function_import_time_call_lines(stmt))
         elif isinstance(stmt, ast.AnnAssign):
             if isinstance(stmt.target, (ast.Name, ast.Attribute, ast.Subscript)):
-                _record_load_time_expr(lines, stmt.value)
-                _record_load_time_expr(lines, stmt.annotation)
+                _flag_line(lines, stmt.value, effect=True)
+                _flag_line(lines, stmt.annotation, effect=True)
                 # What was wrong: a call in a class-body assignment target was kept
                 # (make().x = 1, make()[0]: int = 1) and ran while the library loaded.
                 # How it happened: only the value and the annotation were scanned.
                 # evaluate_class_def evaluates an Attribute target's value, and a
                 # Subscript target's value and slice, even when the AnnAssign has no value.
                 # Why this change: scan the target with the same load-time check.
-                _record_load_time_expr(lines, stmt.target)
+                _flag_line(lines, stmt.target, effect=True)
             else:
-                _record_line(lines, stmt)
+                _flag_line(lines, stmt)
         elif isinstance(stmt, ast.Assign):
             if all(isinstance(t, (ast.Name, ast.Attribute)) for t in stmt.targets):
-                _record_load_time_expr(lines, stmt.value)
+                _flag_line(lines, stmt.value, effect=True)
                 for target in stmt.targets:
-                    _record_load_time_expr(lines, target)
+                    _flag_line(lines, target, effect=True)
             else:
-                _record_line(lines, stmt)
+                _flag_line(lines, stmt)
         elif isinstance(stmt, ast.Pass):
             continue
         elif (
@@ -198,7 +193,7 @@ def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
             # A docstring: evaluate_class_def in plugin/contrib/smolagents/local_python_executor.py
             continue
         else:
-            _record_line(lines, stmt)
+            _flag_line(lines, stmt)
     return lines
 
 
@@ -244,7 +239,7 @@ def extract_library_source(code: str) -> str:
             if not call_lines:
                 keep.append(node)
         elif isinstance(node, ast.AsyncFunctionDef):
-            _record_line(dropped, node)
+            _flag_line(dropped, node)
         elif isinstance(node, ast.FunctionDef):
             call_lines = _function_import_time_call_lines(node)
             dropped.extend(call_lines)
@@ -255,28 +250,28 @@ def extract_library_source(code: str) -> str:
         elif isinstance(node, ast.Assign):
             if node.value is not None and all(_is_name_only_target(t) for t in node.targets):
                 if _expr_has_load_time_effect(node.value):
-                    _record_line(dropped, node)
+                    _flag_line(dropped, node)
                 else:
                     keep.append(node)
             else:
-                _record_line(dropped, node)
+                _flag_line(dropped, node)
         elif isinstance(node, ast.AnnAssign):
             if isinstance(node.target, ast.Name) and node.value is not None:
                 if _expr_has_load_time_effect(node.value) or _expr_has_load_time_effect(node.annotation):
-                    _record_line(dropped, node)
+                    _flag_line(dropped, node)
                 else:
                     keep.append(node)
             else:
-                _record_line(dropped, node)
+                _flag_line(dropped, node)
         elif isinstance(node, ast.Expr):
             if _import_time_has(node, (ast.NamedExpr,)):
-                _record_line(dropped, node)
+                _flag_line(dropped, node)
             else:
-                _record_line(omitted, node)
+                _flag_line(omitted, node)
         elif isinstance(node, ast.Pass):
             continue
         else:
-            _record_line(dropped, node)
+            _flag_line(dropped, node)
 
     if dropped:
         _raise_not_library(dropped)
@@ -314,20 +309,12 @@ def _rpc_named(tool_name: str, **kwargs: Any) -> Any:
     return execute_tool(tool_name, kwargs, caller="script")
 
 
-def _executor_cache(executor: Any) -> dict[tuple[str, str], tuple[str, Any]]:
-    cache = getattr(executor, "_named_script_cache", None)
-    if cache is None:
-        cache = {}
-        executor._named_script_cache = cache
-    return cache
-
-
-def _checked_keys(executor: Any) -> set[tuple[str, str]]:
-    checked = getattr(executor, "_named_script_checked", None)
-    if checked is None:
-        checked = set()
-        executor._named_script_checked = checked
-    return checked
+def _executor_slot(executor: Any, attr: str, factory: Callable[[], Any]) -> Any:
+    value = getattr(executor, attr, None)
+    if value is None:
+        value = factory()
+        setattr(executor, attr, value)
+    return value
 
 
 def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
@@ -371,8 +358,8 @@ def load_named_script(origin: str, name: str, executor: Any | None = None) -> An
     if not isinstance(name, str) or not name.strip():
         raise AttributeError("Named script title must be a non-empty string")
     name = name.strip()
-    cache = _executor_cache(executor)
-    checked = _checked_keys(executor)
+    cache = _executor_slot(executor, "_named_script_cache", dict)
+    checked = _executor_slot(executor, "_named_script_checked", set)
     key = (origin, name)
     # Once per execute (Isolated Run or Shared cell): hash-check. Same execute
     # later (Helpers.add then Helpers.mul) stays local.
@@ -478,7 +465,7 @@ class ScriptLibrary:
 
 def _library_for_executor(executor: Any, origin: str) -> ScriptLibrary:
     """Return the ScriptLibrary bound to *executor*, creating it once."""
-    attr = "_named_scripts_library" if origin == ORIGIN_USER else "_named_doc_library"
+    attr = "_named_scripts_library" if origin == SCRIPT_ORIGIN_USER else "_named_doc_library"
     existing = getattr(executor, attr, None)
     if isinstance(existing, ScriptLibrary) and existing._origin == origin and existing._executor is executor:
         return existing
@@ -518,11 +505,11 @@ def attach_named_script_libraries(executor: Any | None = None) -> None:
     # holds: one module-level ScriptLibrary meant a second document's run
     # redirected the first run's object.
     if executor is None:
-        scripts = ScriptLibrary(ORIGIN_USER)
-        doc = ScriptLibrary(ORIGIN_DOCUMENT)
+        scripts = ScriptLibrary(SCRIPT_ORIGIN_USER)
+        doc = ScriptLibrary(SCRIPT_ORIGIN_DOCUMENT)
     else:
-        scripts = _library_for_executor(executor, ORIGIN_USER)
-        doc = _library_for_executor(executor, ORIGIN_DOCUMENT)
+        scripts = _library_for_executor(executor, SCRIPT_ORIGIN_USER)
+        doc = _library_for_executor(executor, SCRIPT_ORIGIN_DOCUMENT)
     for mod in mods:
         mod.scripts = scripts
         mod.doc = doc
@@ -561,8 +548,8 @@ def host_list_named_python_scripts(*, user_scripts: dict[str, str], document_scr
     from plugin.scripting.document_scripts import picker_document_scripts
 
     return {
-        ORIGIN_USER: sorted(user_scripts.keys()),
-        ORIGIN_DOCUMENT: sorted(picker_document_scripts(document_scripts)),
+        SCRIPT_ORIGIN_USER: sorted(user_scripts.keys()),
+        SCRIPT_ORIGIN_DOCUMENT: sorted(picker_document_scripts(document_scripts)),
     }
 
 
@@ -574,15 +561,15 @@ def host_get_named_python_script(
     user_scripts: dict[str, str],
     document_scripts: dict[str, str],
 ) -> dict[str, Any]:
-    if origin not in (ORIGIN_USER, ORIGIN_DOCUMENT):
+    if origin not in (SCRIPT_ORIGIN_USER, SCRIPT_ORIGIN_DOCUMENT):
         raise RuntimeError(f"Unknown named-script origin {origin!r}")
-    if origin == ORIGIN_DOCUMENT:
+    if origin == SCRIPT_ORIGIN_DOCUMENT:
         from plugin.scripting.document_scripts import is_calc_init_script_name
 
         # INIT is the workbook init script, not a wa.doc library.
         if is_calc_init_script_name(name):
             raise RuntimeError(f"No {origin} script named {name!r}")
-    store = user_scripts if origin == ORIGIN_USER else document_scripts
+    store = user_scripts if origin == SCRIPT_ORIGIN_USER else document_scripts
     code = store.get(name)
     if not isinstance(code, str):
         raise RuntimeError(f"No {origin} script named {name!r}")
