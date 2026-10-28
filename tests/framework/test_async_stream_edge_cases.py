@@ -81,10 +81,8 @@ class TestRunAsyncWorkerOnStoppedFallback:
 def test_stream_queue_helpers_parameterize_queue() -> None:
     """Bare queue.Queue leftovers trip reportMissingTypeArgument."""
 
-    from plugin.framework.async_stream import put_stream_queue_stopped, run_async_worker_with_drain
+    from plugin.framework.async_stream import run_async_worker_with_drain
 
-    stopped = inspect.signature(put_stream_queue_stopped)
-    assert "Queue[Any]" in str(stopped.parameters["q"].annotation)
     drain = inspect.signature(run_async_worker_with_drain)
     assert "Queue[Any]" in str(drain.parameters["worker_fn"].annotation)
 

@@ -39,6 +39,7 @@ returning to VCL between slices is what keeps Stop and paints alive.
 
 from __future__ import annotations
 
+import functools
 import inspect
 import json
 import logging
@@ -92,12 +93,6 @@ def _format_agent_tool_stream_line(prefix: str, data: Any) -> str:
     except Exception:
         body = str(data)
     return "\n%s %s\n" % (prefix, body)
-
-
-def put_stream_queue_stopped(q: queue.Queue[Any]) -> None:
-    """Enqueue a user-stopped signal. Always uses (kind, payload); do not use a 1-tuple."""
-    # crosshair: off
-    q.put((StreamQueueKind.STOPPED, None))
 
 
 @dataclass(slots=True)
@@ -188,21 +183,23 @@ def _drain_batch(q: queue.Queue[Any], timeout: float) -> list[Any]:
     return [first, *_drain_ready(q, max_items=None)]
 
 
-def _handle_chunk(state: _DrainState, data: Any, _item: Any) -> None:
+def _append_stream_text(
+    target_attr: str,
+    other_attr: str,
+    state: _DrainState,
+    data: Any,
+    _item: Any,
+    *,
+    is_tool: bool = False,
+) -> None:
     # crosshair: off
-    if state.current_thinking:
+    if is_tool and not state.show_search_thinking:
+        return
+    if getattr(state, other_attr):
         state.flush_buffers()
     # BatchingStreamQueue stores ``data or ""``. A raw queue can put None,
     # and ``"".join`` then raises TypeError.
-    state.current_content.append(data or "")
-
-
-def _handle_thinking(state: _DrainState, data: Any, _item: Any) -> None:
-    # crosshair: off
-    if state.current_content:
-        state.flush_buffers()
-    # Same as _handle_chunk: a raw None payload must not reach "".join.
-    state.current_thinking.append(data or "")
+    getattr(state, target_attr).append(data or "")
 
 
 def _handle_status(state: _DrainState, data: Any, _item: Any) -> None:
@@ -235,25 +232,10 @@ def _handle_next_tool(state: _DrainState, _data: Any, item: Any) -> None:
     state.defer_next_tool_exit = bool(state.on_stream_done(item))
 
 
-def _handle_tool_thinking(state: _DrainState, data: Any, _item: Any) -> None:
-    # crosshair: off
-    if state.show_search_thinking:
-        if state.current_content:
-            state.flush_buffers()
-        # Same as _handle_chunk: a raw None payload must not reach "".join.
-        state.current_thinking.append(data or "")
-
-
-def _handle_tool_call_line(state: _DrainState, data: Any, _item: Any) -> None:
+def _append_tool_line(prefix: str, state: _DrainState, data: Any, _item: Any) -> None:
     # crosshair: off
     state.finish_display()
-    state.apply_chunk_fn(_format_agent_tool_stream_line("[Tool call]", data), False)
-
-
-def _handle_tool_result_line(state: _DrainState, data: Any, _item: Any) -> None:
-    # crosshair: off
-    state.finish_display()
-    state.apply_chunk_fn(_format_agent_tool_stream_line("[Tool result]", data), False)
+    state.apply_chunk_fn(_format_agent_tool_stream_line(prefix, data), False)
 
 
 def _set_approval_event(item: Any) -> None:
@@ -318,16 +300,16 @@ def _handle_error(state: _DrainState, data: Any, _item: Any) -> None:
 
 
 _DISPATCH: dict[StreamQueueKind, Callable[[_DrainState, Any, Any], None]] = {
-    StreamQueueKind.CHUNK: _handle_chunk,
-    StreamQueueKind.THINKING: _handle_thinking,
+    StreamQueueKind.CHUNK: functools.partial(_append_stream_text, "current_content", "current_thinking"),
+    StreamQueueKind.THINKING: functools.partial(_append_stream_text, "current_thinking", "current_content"),
     StreamQueueKind.STATUS: _handle_status,
     StreamQueueKind.STREAM_DONE: _handle_stream_done_like,
     StreamQueueKind.TOOL_DONE: _handle_stream_done_like,
     StreamQueueKind.FINAL_DONE: _handle_stream_done_like,
     StreamQueueKind.NEXT_TOOL: _handle_next_tool,
-    StreamQueueKind.TOOL_THINKING: _handle_tool_thinking,
-    StreamQueueKind.TOOL_CALL: _handle_tool_call_line,
-    StreamQueueKind.TOOL_RESULT: _handle_tool_result_line,
+    StreamQueueKind.TOOL_THINKING: functools.partial(_append_stream_text, "current_thinking", "current_content", is_tool=True),
+    StreamQueueKind.TOOL_CALL: functools.partial(_append_tool_line, "[Tool call]"),
+    StreamQueueKind.TOOL_RESULT: functools.partial(_append_tool_line, "[Tool result]"),
     StreamQueueKind.APPROVAL_REQUIRED: _handle_approval_required,
     StreamQueueKind.STOPPED: _handle_stopped,
     StreamQueueKind.ERROR: _handle_error,
@@ -349,9 +331,9 @@ def _apply_display_item(state: _DrainState, item: Any) -> None:
     if not isinstance(raw_kind, StreamQueueKind):
         return
     if raw_kind == StreamQueueKind.CHUNK:
-        _handle_chunk(state, data, item)
+        _append_stream_text("current_content", "current_thinking", state, data, item)
     elif raw_kind == StreamQueueKind.THINKING:
-        _handle_thinking(state, data, item)
+        _append_stream_text("current_thinking", "current_content", state, data, item)
     elif raw_kind == StreamQueueKind.APPROVAL_REQUIRED:
         # Set the event and do not open the dialog. Dropping this item on
         # Stop leaves the event unset and the worker in wait_for_approval
@@ -864,12 +846,10 @@ class _EventDrain:
         if callable(bind):
             bind(self._on_idle_rearm_exhausted)
         try:
-            self._schedule_next(idle=False)
+            self._schedule_next()
         except Exception as exc:
             log.exception("event drain failed to arm")
-            self._report_slice_error(exc)
-            self._state.job_done[0] = True
-            self._finish()
+            self._fail(exc)
             return
         if self._on_started is not None:
             # Bugfix: the worker used to start before the first slice was armed,
@@ -879,23 +859,23 @@ class _EventDrain:
                 self._on_started()
             except Exception as exc:
                 log.exception("drain on_drain_started failed")
-                self._report_slice_error(exc)
-                self._state.job_done[0] = True
-                self._finish()
+                self._fail(exc)
 
     def _on_idle_rearm_exhausted(self) -> None:
-        from plugin.framework.queue_executor import default_executor
-
         default_executor.post(self._abort_idle_rearm_exhausted, bound_scope=None)
 
     def _abort_idle_rearm_exhausted(self) -> None:
         if self.closed:
             return
-        self._report_slice_error(RuntimeError("event drain idle re-arm failed %d times" % _IDLE_REARM_MAX_FAILURES))
+        self._fail(RuntimeError("event drain idle re-arm failed %d times" % _IDLE_REARM_MAX_FAILURES))
+
+    def _fail(self, exc: BaseException) -> None:
+        # crosshair: off
+        self._report_slice_error(exc)
         self._state.job_done[0] = True
         self._finish()
 
-    def _schedule_next(self, *, idle: bool, delay: float | None = None) -> None:
+    def _schedule_next(self, delay: float | None = None) -> None:
         # crosshair: off
         if self.closed:
             return
@@ -908,9 +888,7 @@ class _EventDrain:
                 return
             self._slice()
 
-        if idle:
-            self._scheduler.post_after(_DRAIN_IDLE_REARM_SEC, _run)
-        elif delay is not None:
+        if delay is not None:
             self._scheduler.post_after(delay, _run)
         else:
             self._scheduler.post(_run)
@@ -975,18 +953,16 @@ class _EventDrain:
 
             if pending == 0:
                 self._immediate_streak = 0
-                self._schedule_next(idle=True)
+                self._schedule_next(_DRAIN_IDLE_REARM_SEC)
             elif self._immediate_streak >= _DRAIN_MAX_IMMEDIATE_REARMS:
                 self._immediate_streak = 0
-                self._schedule_next(idle=False, delay=_DRAIN_YIELD_GAP_SEC)
+                self._schedule_next(_DRAIN_YIELD_GAP_SEC)
             else:
                 self._immediate_streak += 1
-                self._schedule_next(idle=False)
+                self._schedule_next()
         except Exception as exc:
             log.exception("event drain slice failed")
-            self._report_slice_error(exc)
-            state.job_done[0] = True
-            self._finish()
+            self._fail(exc)
 
     def _finish(self) -> None:
         """Release the pump owner, then run epilogues. Later slices are no-ops."""
@@ -1459,31 +1435,13 @@ def run_async_worker_with_drain(
             return False
         return True
 
-    def _noop_error(_payload: Any) -> None:
-        return None
-
-    def _noop_stopped() -> None:
-        return None
-
-    def _noop_chunk(_text: str, _is_thinking: bool) -> None:
-        return None
-
-    resolved_apply_chunk = apply_chunk_fn or _noop_chunk
-    resolved_on_error = on_error_fn or _noop_error
-
-    if on_done_fn is not None:
-        done_fn = on_done_fn
-
-        def _call_done_on_stopped() -> None:
-            # Mirror on_stream_done_wrapper. _call_item_or_zero_arg picks the
-            # arity before the call, so a TypeError from the body is not retried.
-            _call_item_or_zero_arg(done_fn, None)
-
-        stopped_fallback: Callable[[], None] = _call_done_on_stopped
-    else:
-        stopped_fallback = _noop_stopped
-
-    resolved_on_stopped = on_stopped_fn or stopped_fallback
+    resolved_apply_chunk = apply_chunk_fn or (lambda _text, _is_thinking: None)
+    resolved_on_error = on_error_fn or (lambda _payload: None)
+    resolved_on_stopped = on_stopped_fn or (
+        (lambda: _call_item_or_zero_arg(on_done_fn, None))
+        if on_done_fn is not None
+        else (lambda: None)
+    )
 
     # Chat's tool loop passes flush_pending so Stop emits text still inside
     # the 250ms batcher. This helper accepted a batcher and only flushed it
@@ -1535,7 +1493,7 @@ def run_stream_completion_async(
         }
         client.stream_completion(prompt, system_prompt, max_tokens, **kwargs)
         if stop_checker and stop_checker():
-            put_stream_queue_stopped(q)
+            q.put((StreamQueueKind.STOPPED, None))
 
     run_async_worker_with_drain(
         ctx,
