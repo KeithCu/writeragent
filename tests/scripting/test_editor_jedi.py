@@ -65,7 +65,6 @@ def test_jedi_graceful_fallback(monkeypatch):
     """Verify that the engine handles missing jedi module without crashing."""
     monkeypatch.setattr(ej, "jedi", None)
     session = ej.JediSession()
-    assert session.is_available() is False
     res = session.get_completions("def ", 1, 5)
     assert res == {"items": []}
 

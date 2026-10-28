@@ -47,11 +47,11 @@ def _bootstrap_plugin_import_path() -> None:
         sys.path.remove(_SCRIPT_DIR)
 
 
-def _fatal(msg: str, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
+def _fatal(msg: str, *, exc: BaseException | None = None) -> NoReturn:
     print(msg, file=sys.stderr, flush=True)
     if exc is not None:
         traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
-    raise SystemExit(code)
+    raise SystemExit(1)
 
 
 log = logging.getLogger(__name__)
@@ -108,11 +108,8 @@ class JediSession:
         except Exception as e:
             log.warning("Could not create persistent Jedi environment, falling back to default: %s", e)
 
-    def is_available(self) -> bool:
-        return jedi is not None
-
-    def get_completions(self, code: str, line: int, column: int, *, max_docstrings: int = 20) -> dict[str, Any]:
-        if not self.is_available() or jedi is None:
+    def get_completions(self, code: str, line: int, column: int) -> dict[str, Any]:
+        if jedi is None:
             return {"items": []}
 
         try:
@@ -128,7 +125,7 @@ class JediSession:
             items = []
             for idx, comp in enumerate(completions):
                 doc = ""
-                if idx < max_docstrings:
+                if idx < 20:
                     try:
                         doc = comp.docstring()
                     except Exception:
@@ -181,10 +178,6 @@ def _note_load(msg: dict[str, Any]) -> None:
     """The reader publishes identity as soon as the load frame arrives; poll_messages applies the same helper again on the GUI thread immediately before show."""
     _remember_session(msg)
     _reset_closed_sent()
-
-
-def _put_ui(msg: dict[str, Any]) -> None:
-    _ui_queue.put(msg)
 
 
 def _reset_closed_sent() -> None:
@@ -271,7 +264,7 @@ def _pipe_reader_loop(stdin: IO[bytes] | None = None) -> None:
             if kind in PARENT_TO_CHILD_TYPES:
                 if kind == "load":
                     _note_load(msg)
-                _put_ui(msg)
+                _ui_queue.put(msg)
             elif kind == "closed":
                 break
     except Exception:
@@ -292,11 +285,6 @@ def _pipe_reader_loop(stdin: IO[bytes] | None = None) -> None:
                 pass
 
 
-def _is_shutting_down() -> bool:
-    with _lifecycle_lock:
-        return _shutting_down
-
-
 def _claim_gui_loop() -> bool:
     # Bugfix: The stdin reader used to start before _window existed; EOF set
     # _shutting_down and skipped destroy, leaving main to block in webview.start
@@ -315,16 +303,12 @@ class MonacoEditorApi:
     """JS API exposed via pywebview (runs on the GUI thread)."""
 
     def __init__(self) -> None:
-        self._window: Any = None
         self._jedi: JediSession | None = None
         self._jedi_thread: threading.Thread | None = None
         self._jedi_started: float = 0.0
         self._jedi_lock: threading.Lock = threading.Lock()
         self._completion_gen: int = 0
         self._completion_lock: threading.Lock = threading.Lock()
-
-    def set_window(self, window: Any) -> None:
-        self._window = window
 
     def poll_messages(self) -> list[dict[str, Any]]:
         batch: list[dict[str, Any]] = []
@@ -338,25 +322,25 @@ class MonacoEditorApi:
                 log.info("editor_main: poll_messages received load; showing window")
                 _note_load(msg)
                 try:
-                    if self._window is not None:
+                    if _window is not None:
                         title = msg.get("title")
                         if title:
-                            self._window.title = title
-                        if hasattr(self._window, "restore"):
+                            _window.title = title
+                        if hasattr(_window, "restore"):
                             try:
-                                self._window.restore()
+                                _window.restore()
                             except Exception:
                                 log.debug("editor_main: window.restore failed", exc_info=True)
-                        self._window.show()
-                        if hasattr(self._window, "on_top"):
+                        _window.show()
+                        if hasattr(_window, "on_top"):
                             try:
-                                self._window.on_top = True
-                                self._window.on_top = False
+                                _window.on_top = True
+                                _window.on_top = False
                             except Exception:
                                 log.debug("editor_main: window on_top toggle failed", exc_info=True)
-                        if hasattr(self._window, "focus"):
+                        if hasattr(_window, "focus"):
                             try:
-                                self._window.focus()
+                                _window.focus()
                             except Exception:
                                 log.debug("editor_main: window.focus failed", exc_info=True)
                 except Exception:
@@ -473,34 +457,30 @@ class MonacoEditorApi:
     def notify_save_script(self, code: str, session_id: str = "", mode: str = "", target: Any = None) -> None:
         self.notify_save(code, action="save", session_id=session_id, mode=mode, target=target)
 
-    def _forward(self, type_name: str, **fields: Any) -> None:
-        _write_parent({"type": type_name, **fields})
-
     def request_scripts(self) -> None:
-        self._forward("request_scripts")
+        _write_parent({"type": "request_scripts"})
 
     def save_script(self, name: str, code: str, origin: str = "user") -> None:
-        self._forward("save_script", name=name, code=code, origin=origin)
+        _write_parent({"type": "save_script", "name": name, "code": code, "origin": origin})
 
     def delete_script(self, name: str, origin: str = "user") -> None:
-        self._forward("delete_script", name=name, origin=origin)
+        _write_parent({"type": "delete_script", "name": name, "origin": origin})
 
     def select_script(self, name: str) -> None:
-        self._forward("select_script", name=str(name) if name is not None else "")
+        _write_parent({"type": "select_script", "name": str(name) if name is not None else ""})
 
     def ask_unsaved(self, name: str) -> None:
-        self._forward("ask_unsaved", name=str(name) if name is not None else "")
+        _write_parent({"type": "ask_unsaved", "name": str(name) if name is not None else ""})
 
     def notify_cancel(self) -> None:
         log.info("editor_main: notify_cancel called; hiding window")
         _send_closed_once()
-        _hide_and_clear(self._window)
+        _hide_and_clear(_window)
 
 
 def _hide_and_clear(win: Any) -> None:
     try:
-        if win is not None:
-            win.hide()
+        win.hide()
     except Exception:
         pass
 
@@ -509,7 +489,9 @@ def _handle_window_closing() -> bool:
     """Hides the window instead of closing/destroying it, notifying the parent."""
     # Return True while shutting down so the window can be destroyed. False
     # cancels close and leaves the editor process running after stdin EOF.
-    if _is_shutting_down():
+    with _lifecycle_lock:
+        shutting_down = _shutting_down
+    if shutting_down:
         return True
     log.info("editor_main: intercepting window close. Hiding window instead.")
     _send_closed_once()
@@ -522,20 +504,18 @@ def _bind_window_events(window: Any) -> None:
     events = getattr(window, "events", None)
     if events is None:
         return
-    closing_ev = getattr(events, "closing", None)
-    if closing_ev is not None:
+    for name, handler in (
+        ("closing", _handle_window_closing),
+        ("closed", _send_closed_once),
+    ):
+        ev = getattr(events, name, None)
+        if ev is None:
+            continue
         try:
-            closing_ev += _handle_window_closing
-            log.info("editor_main: hooked window.events.closing")
+            ev += handler
+            log.info("editor_main: hooked window.events.%s", name)
         except Exception:
-            log.debug("editor_main: could not hook events.closing", exc_info=True)
-    closed_ev = getattr(events, "closed", None)
-    if closed_ev is not None:
-        try:
-            closed_ev += _send_closed_once
-            log.info("editor_main: hooked window.events.closed")
-        except Exception:
-            log.debug("editor_main: could not hook events.closed", exc_info=True)
+            log.debug("editor_main: could not hook events.%s", name, exc_info=True)
     for name in ("loaded", "shown"):
         ev = getattr(events, name, None)
         if ev is None:
@@ -673,13 +653,13 @@ def main() -> None:
     print(f"editor_main: serving {index_html} via WSGI app", file=sys.stderr, flush=True)
     global _window
     try:
-        window = webview.create_window(EDITOR_DEFAULT_TITLE, url=wsgi_app, width=900, height=640, js_api=api, hidden=True)
-        _window = window
+        _window = webview.create_window(
+            EDITOR_DEFAULT_TITLE, url=wsgi_app, width=900, height=640, js_api=api, hidden=True
+        )
     except Exception as e:
         _fatal(f"webview.create_window failed: {e}", exc=e)
 
-    api.set_window(window)
-    _bind_window_events(window)
+    _bind_window_events(_window)
 
     # Listen for parent messages after window and API events are set up.
     threading.Thread(target=_pipe_reader_loop, name="editor-stdin-reader", daemon=True).start()
