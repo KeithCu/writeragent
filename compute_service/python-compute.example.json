@@ -10,7 +10,7 @@
     "max_body_bytes": 33554432,
     "default_timeout_sec": 30,
     "max_timeout_sec": 600,
-    "shared_kernel_ttl_sec": 3600.0,
+    "idle_worker_ttl_sec": 3600.0,
     "max_code_chars": 262144
   },
   "ocr": {

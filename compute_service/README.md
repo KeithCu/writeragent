@@ -80,7 +80,7 @@ request shapes, why multipart exists, and the plan to retire peel.
   ```
 
 - **Session Reset on Lost Kernel (`session_reset: true`)**:
-  If a shared session's worker process crashed, was recycled, was killed (e.g. by `SIGKILL` on an unrecoverable timeout), or was evicted by idle TTL, the pool loses the session state. The next sticky call that observes that loss lands on a fresh kernel and includes `"session_reset": true` once. A session idle past `shared_kernel_ttl_sec` is reset on that next sticky call, which is the call that reports the flag. A new session whose first cell did not run (`WORKER_SPAWN_FAILED` and the other `_UNRUN_RESULT_CODES`) does not set the flag. A request that fails before the cell runs (`PAYLOAD_TOO_LARGE`, `QUEUE_TIMEOUT`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `SESSION_RESET_FAILED`) does not consume that flag:
+  If a shared session's worker process crashed, was recycled, was killed (e.g. by `SIGKILL` on an unrecoverable timeout), or was evicted by idle TTL, the pool loses the session state. The next sticky call that observes that loss lands on a fresh kernel and includes `"session_reset": true` once. A new session whose first cell did not run (`WORKER_SPAWN_FAILED` and the other `_UNRUN_RESULT_CODES`) does not set the flag. A request that fails before the cell runs (`PAYLOAD_TOO_LARGE`, `QUEUE_TIMEOUT`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`) does not consume that flag:
   ```json
   {
     "id": "req-123",
@@ -128,7 +128,7 @@ Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This
   ```
 - **Errors:** `400` missing/empty query `session_id`, `session_id` in the JSON body, or reserved `session_id`; `401` auth (case-insensitive Bearer); worker reset failure → `{ "id?", "status": "error", "error": "..." }` with HTTP `500`; worker lease failure → `{ "id?", "status": "error", "code": "WORKER_POOL_BUSY", "error": "..." }` with HTTP `503`.
 - The supervisor drops its session map only when the worker reset returns `status: ok`. A failed reset is logged and the map stays: that process may still hold the namespace. Forgetting the id would make the next sticky cell look new on a kernel that is not empty.
-- Session TTL (`shared_kernel_ttl_sec`) remains the safety net if reset is missed. The next sticky call resets that kernel. The idle-worker reaper kills a process whose sessions are all past that TTL. Do not remove it.
+- Idle worker TTL (`idle_worker_ttl_sec`) is the safety net if reset is missed: once the worker sits idle past that timeout, the process is terminated and its sessions die with it.
 
 ### 4. Vision & OCR Endpoint (`POST /v1/vision`)
 
@@ -192,7 +192,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes`, the execute frame exceeds the IPC limit (`PAYLOAD_TOO_LARGE`), the result frame does (`RESULT_TOO_LARGE`), or a vision image is larger than 32 MiB (`FILE_TOO_LARGE`) | `{"status": "error", "code"?: "RESULT_TOO_LARGE", "error": "..."}` |
 | **`414 URI Too Long`** | Request line exceeds 65536 bytes | Stdlib HTML error page (not JSON) |
 | **`501 Not Implemented`** | `/v1/vision` when this server's `ocr_workers` is 0 (`VISION_SERVICE_DISABLED`). A vision pool already built in-process with workers does not make this HTTP 200. | `{"id"?: "...", "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "..."}` |
-| **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the cell never ran and a proxy may retry (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `QUEUE_TIMEOUT`, `VISION_UNAVAILABLE`, `SESSION_RESET_FAILED`). A full permit set queues until the request deadline. Execute and vision use the clamped `timeout_ms` (the pool default when it is omitted: `default_timeout_sec` or `ocr_timeout_sec`, at most `max_timeout_sec`). Session reset uses `default_timeout_sec`. 503 is that timeout. A few milliseconds of queueing is the steady state at 200–400 rps and stays HTTP 200. Sticky execute and session reset share a listener cap. A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
+| **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the cell never ran and a proxy may retry (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `QUEUE_TIMEOUT`, `VISION_UNAVAILABLE`). A full permit set queues until the request deadline. Execute and vision use the clamped `timeout_ms` (the pool default when it is omitted: `default_timeout_sec` or `ocr_timeout_sec`, at most `max_timeout_sec`). Session reset uses `default_timeout_sec`. 503 is that timeout. A few milliseconds of queueing is the steady state at 200–400 rps and stays HTTP 200. Sticky execute and session reset share a listener cap. A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception, JSON encoding failure, worker-side session reset error, a worker that died, rejected a response frame, or returned no frame (`WORKER_CRASHED`, `WORKER_IPC_ERROR`, `EMPTY_RESPONSE`), or a host that could not decode `result_json` (`RESULT_DECODE_ERROR`; the child stays up), or a dict-shaped internal fault (`VISION_WORKER_ERROR`, `WORKER_EXECUTION_ERROR`). A `WORKER_EXECUTION_ERROR` wrapped in forwarded `result_json` stays HTTP 200 | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 
 ---
@@ -219,7 +219,7 @@ Rules:
 - **Key configured** → `/v1/execute`, `/v1/session/reset`, and `/v1/vision` require a `Bearer <token>` match
   (`hmac.compare_digest` on the UTF-8 bytes). The scheme prefix `Bearer ` is matched case-insensitively per RFC 7235 (`bearer `, `BEARER `, etc.). A non-ASCII token or key is a 401 or a match, not a dropped connection. Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
 - `PYTHON_COMPUTE_API_KEY` is not stripped. A key file drops one trailing newline and keeps surrounding spaces. The same secret text is the same bytes from either source.
-- **Unknown JSON keys** are a startup error. A raw `api_key` in the file is a startup error. Aliases `max_workers` and `session_ttl_sec` are accepted.
+- **Unknown JSON keys** are a startup error. A raw `api_key` in the file is a startup error. Alias `max_workers` is accepted.
 
 Match coolwsd (`coolwsd.xml`):
 
@@ -237,7 +237,7 @@ Match coolwsd (`coolwsd.xml`):
 ## Configuration & Ops (no writeragent.json)
 
 Precedence (later wins): defaults → `--config` / `PYTHON_COMPUTE_CONFIG` JSON →
-`PYTHON_COMPUTE_*` env → `--host` / `--port` / `--api-key-file`. When a canonical variable and its alias are both set, the canonical name wins (`PYTHON_COMPUTE_WORKERS` over `PYTHON_COMPUTE_MAX_WORKERS`, `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` over `PYTHON_COMPUTE_SESSION_TTL_SEC`), with a warning when they differ. An empty value is ignored and falls back to JSON or the default, with a warning.
+`PYTHON_COMPUTE_*` env → `--host` / `--port` / `--api-key-file`. When a canonical variable and its alias are both set, the canonical name wins (`PYTHON_COMPUTE_WORKERS` over `PYTHON_COMPUTE_MAX_WORKERS`), with a warning when they differ. An empty value is ignored and falls back to JSON or the default, with a warning.
 
 Example JSON: [`python-compute.example.json`](python-compute.example.json).
 
@@ -254,7 +254,6 @@ Example JSON: [`python-compute.example.json`](python-compute.example.json).
 | `PYTHON_COMPUTE_MAX_TIMEOUT_SEC` | Upper bound clamp for `timeout_ms` | `600` |
 | `PYTHON_COMPUTE_WORKERS` | Number of formula worker subprocesses. `PYTHON_COMPUTE_MAX_WORKERS` is an accepted alias. | `2` |
 | `PYTHON_COMPUTE_WORKER_MAX_TASKS` | Tasks before recycling formula worker | `500` |
-| `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` | Session idle timeout in seconds. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. The next sticky call resets a session past this. `0` disables that expiry. `PYTHON_COMPUTE_SESSION_TTL_SEC` is an accepted alias. | `3600` (1 hour) |
 | `PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC` | Worker process idle timeout in seconds before termination. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. `0` disables eviction (the reaper does not start). | `3600` (1 hour) |
 | `PYTHON_COMPUTE_OCR_WORKERS` | Dedicated OCR/Vision worker subprocesses | `0` (disabled by default) |
 | `PYTHON_COMPUTE_OCR_TIMEOUT_SEC` | OCR/Vision execution timeout in seconds | `60` |
@@ -282,7 +281,7 @@ PYTHON_COMPUTE_API_KEY_FILE=./secret ./compute_service/start-docker.sh
 PYTHON_COMPUTE_PORT=9001 PYTHON_COMPUTE_API_KEY_FILE=./secret ./compute_service/start-docker.sh
 ```
 
-Shared `mode=shared` **must** use a per-document `session_id` query parameter (`?session_id=<id>`) (not a user id). coolwsd should `POST /v1/session/reset?session_id=<id>` on DocumentBroker destroy / last view leave (caller not shipped; Online still hard-codes isolated). Session TTL (`shared_kernel_ttl_sec`) remains the safety net if reset is missed: the next sticky call resets that kernel.
+Shared `mode=shared` **must** use a per-document `session_id` query parameter (`?session_id=<id>`) (not a user id). coolwsd should `POST /v1/session/reset?session_id=<id>` on DocumentBroker destroy / last view leave (caller not shipped; Online still hard-codes isolated). Idle worker TTL (`idle_worker_ttl_sec`) is the safety net if reset is missed: once the worker sits idle past that timeout, the process is terminated and its sessions die with it.
 
 ---
 
@@ -339,8 +338,8 @@ Kit-side dumb JSON contract: [`docs/scripting/numpy-jailsafe.md`](../docs/script
 - **Sticky Session Affinity**: For stateful calculations (`mode="shared"`), requests with the same `session_id` are routed to the process that owns that workbook. The supervisor maps are a cache of that pid: when the process exits, every session on it is dropped, and a respawn is not the same workbook. Clean workers without shared sessions are preferred for isolated work (`mode="isolated"`); however, when all idle workers hold shared sessions, isolated work falls back to the worker with the fewest sessions to avoid starving isolated calculations while waiting for shared session TTL. Shared sessions on one process still occupy it exclusively (one cell at a time). There are no explicit per-host caps on the number of active shared sessions: only coolwsd calls this service, and container OOM kills everything if memory limits are exceeded.
 - **Stderr log**: Each worker's stderr is a file, read when a spawn fails or a request fails and kills the child, and removed when the child is reaped. The host keeps the last 64 KiB after each request, on each idle-reaper scan, and when a reap leaves the child alive, so one chatty child cannot grow the file between requests. A pipe would need a drain thread so a noisy child cannot fill the kernel buffer and deadlock the handshake. After `wait` reaps the child, the parent closes its stdin and stdout copies instead of leaving them until the `Popen` object is collected.
 - **Timeouts**: The accept timestamp, the worker lease, and the child share one deadline. Reaping the previous child is inside that deadline; if the reap leaves under one second on a longer request, the slot does not start a new process. A one-second budget stays usable with a short remainder so the pool can lift it to one second. A dead slot does not `Popen` once less than 0.25s is left on that clock. The child is given the time still left and returns an error frame when its alarm fires, so a normal timeout leaves the process up. `SIGKILL` is only when that frame never arrives. The exit callback runs only after `wait` reaps the pid, and that kill drops every shared session on it. A child still alive after the reap wait keeps the slot and its sessions.
-- **Task Recycling**: After `worker_max_tasks` (default: 500) the slot is killed and left dead; the next lease respawns it. Workers holding active stateful sessions (`mode="shared"`) skip that kill so the workbook stays up. A session past `shared_kernel_ttl_sec` (default: 1 hour) is reset on the next sticky call for that id.
-- **Idle Worker Reaper**: All worker pools terminate worker subprocesses that remain idle for > `idle_worker_ttl_sec` (default: 1 hour) to free system RAM. A dead pid is not idle. The next lease claims that slot and the following request respawns it after a ready handshake. A worker that still owns a shared session inside the session TTL is not idle-evicted. A worker whose sessions are all past that TTL is killed on the idle pass; process exit marks those ids lost. The reaper thread also runs when `shared_kernel_ttl_sec` is positive and `idle_worker_ttl_sec` is 0, so those abandoned kernels are not left up.
+- **Task Recycling**: After `worker_max_tasks` (default: 500) the slot is killed and left dead; the next lease respawns it. Workers holding active stateful sessions (`mode="shared"`) skip that kill so the workbook stays up.
+- **Idle Worker Reaper**: All worker pools terminate worker subprocesses that remain idle for > `idle_worker_ttl_sec` (default: 1 hour) to free system RAM. A dead pid is not idle. The next lease claims that slot and the following request respawns it after a ready handshake. A worker idle past `idle_worker_ttl_sec` is killed and every shared session on it is lost; the next sticky call that observes that loss reports `session_reset` once.
 
 ### 3. Tier 2: Isolated Vision & OCR Pool (`VisionProcessPool`)
 - Dedicated worker subprocesses (`ocr_workers`, default `0`, disabled until configured) for heavy Docling and PaddleOCR tasks.

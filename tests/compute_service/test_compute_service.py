@@ -981,7 +981,7 @@ class TestComputeSettings:
                 {
                     "listen": {"host": "127.0.0.1", "port": 8123},
                     "auth": {"api_key_file": str(key_path)},
-                    "limits": {"max_body_bytes": 4096, "default_timeout_sec": 12, "shared_kernel_ttl_sec": 1800.0},
+                    "limits": {"max_body_bytes": 4096, "default_timeout_sec": 12, "idle_worker_ttl_sec": 1800.0},
                 }
             ),
             encoding="utf-8",
@@ -991,7 +991,7 @@ class TestComputeSettings:
         assert s.api_key == "json-secret"
         assert s.max_body_bytes == 4096
         assert s.default_timeout_sec == 12
-        assert s.shared_kernel_ttl_sec == 1800.0
+        assert s.idle_worker_ttl_sec == 1800.0
 
     def test_raw_api_key_in_json_fails_closed(self, tmp_path) -> None:
         cfg = tmp_path / "python-compute.json"
@@ -1002,9 +1002,9 @@ class TestComputeSettings:
         with pytest.raises(ConfigError, match="api_key"):
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
-    def test_shared_kernel_ttl_env(self) -> None:
-        s = load_settings(environ={"PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC": "7200.0", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.shared_kernel_ttl_sec == 7200.0
+    def test_idle_worker_ttl_env(self) -> None:
+        s = load_settings(environ={"PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC": "7200.0", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert s.idle_worker_ttl_sec == 7200.0
 
     def test_cli_host_overrides_config(self, tmp_path) -> None:
         cfg = tmp_path / "cfg.json"
@@ -1069,13 +1069,7 @@ class TestComputeSettings:
             assert s_same.workers == 4
             assert "differ" not in caplog.text
 
-            # 2. Canonical PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC over alias PYTHON_COMPUTE_SESSION_TTL_SEC
-            caplog.clear()
-            s_ttl = load_settings(environ={"PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC": "1800", "PYTHON_COMPUTE_SESSION_TTL_SEC": "3600", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-            assert s_ttl.shared_kernel_ttl_sec == 1800.0
-            assert "Both PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC and PYTHON_COMPUTE_SESSION_TTL_SEC are set and differ" in caplog.text
-
-            # 3. Known variable present but empty logs warning and falls back to default; never log API key value
+            # 2. Known variable present but empty logs warning and falls back to default; never log API key value
             caplog.clear()
             s_empty = load_settings(environ={"PYTHON_COMPUTE_PORT": "", "PYTHON_COMPUTE_API_KEY": "", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
             assert s_empty.port == 8000
@@ -1131,13 +1125,11 @@ class TestComputeSettings:
     @pytest.mark.parametrize(
         "value, value_2, value_3, match",
         [
-            # Negative shared_kernel_ttl_sec must be rejected by validate().
-            pytest.param("neg_ttl.json", "shared_kernel_ttl_sec", 1, "shared_kernel_ttl_sec", id="test_negative_shared_kernel_ttl_rejected"),
             # Negative idle_worker_ttl_sec must be rejected by validate().
             pytest.param("neg_idle_ttl.json", "idle_worker_ttl_sec", 5, "idle_worker_ttl_sec", id="test_negative_idle_worker_ttl_rejected"),
         ],
     )
-    def test_negative_shared_kernel_ttl_rejected(self, tmp_path, value, value_2, value_3, match) -> None:
+    def test_negative_idle_worker_ttl_rejected(self, tmp_path, value, value_2, value_3, match) -> None:
         from compute_service.config import ConfigError
 
         cfg = tmp_path / value
@@ -1214,17 +1206,16 @@ class TestComputeSettings:
 
         ttl = tmp_path / "ttl.json"
         ttl.write_text(
-            '{"limits": {"shared_kernel_ttl_sec": ' + ("1" + "0" * 400) + "}}",
+            '{"limits": {"idle_worker_ttl_sec": ' + ("1" + "0" * 400) + "}}",
             encoding="utf-8",
         )
-        with pytest.raises(ConfigError, match="shared_kernel_ttl_sec must be a number") as exc_info:
+        with pytest.raises(ConfigError, match="idle_worker_ttl_sec must be a number") as exc_info:
             load_settings(config_path=ttl, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert isinstance(exc_info.value.__cause__, OverflowError)
 
     @pytest.mark.parametrize(
         ("field", "env_name"),
         [
-            ("shared_kernel_ttl_sec", "PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC"),
             ("idle_worker_ttl_sec", "PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC"),
         ],
     )
@@ -1243,7 +1234,7 @@ class TestComputeSettings:
         with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
             load_settings(environ={"PYTHON_COMPUTE_HOST": "127.0.0.1", env_name: token})
 
-    @pytest.mark.parametrize("field", ["shared_kernel_ttl_sec", "idle_worker_ttl_sec"])
+    @pytest.mark.parametrize("field", ["idle_worker_ttl_sec"])
     @pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
     def test_compute_settings_rejects_nonfinite_ttl(self, field: str, value: float) -> None:
         """Direct construction skips _as_float. validate() still rejects non-finite TTLs."""
@@ -1716,16 +1707,6 @@ class TestSessionResetHttp:
         assert status.startswith("500")
         assert body.get("code") == "RESULT_DECODE_ERROR"
         assert body.get("id") == "dec-1"
-
-    def test_execute_session_reset_failed_is_503(self) -> None:
-        def reset_failed(**_kwargs):
-            return {"status": "error", "code": "SESSION_RESET_FAILED", "error": "Session TTL reset failed; the cell was not run."}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=reset_failed)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "res-fail-1", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("503")
-        assert body.get("code") == "SESSION_RESET_FAILED"
-        assert body.get("id") == "res-fail-1"
 
     def test_execute_rejected_frame_is_500(self) -> None:
         """A bad response frame killed the child. It is not a retryable 503."""

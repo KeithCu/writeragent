@@ -461,7 +461,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 **Today:**
 
 - Service [`execute_code`](../../compute_service/formula_worker.py) already honors `mode=="shared"` + non-empty `session_id`, with a per-id `threading.Lock`.
-- Service `POST /v1/session/reset?session_id=...` reuses [`FormulaProcessPool.reset_session`](../../compute_service/formula_pool.py) → worker `action: reset_session` → LibrePy [`reset_sandbox_session`](../../plugin/scripting/venv/venv_sandbox.py). Query-only `session_id`; idempotent `ok`; the session map is dropped only when the worker reports `status: ok` (a failed reset keeps the map). Idle TTL (`shared_kernel_ttl_sec`) stays the safety net. This is **service-side only** — the coolwsd caller is not shipped. Online still hard-codes isolated.
+- Service `POST /v1/session/reset?session_id=...` reuses [`FormulaProcessPool.reset_session`](../../compute_service/formula_pool.py) → worker `action: reset_session` → LibrePy [`reset_sandbox_session`](../../plugin/scripting/venv/venv_sandbox.py). Query-only `session_id`; idempotent `ok`; the session map is dropped only when the worker reports `status: ok` (a failed reset keeps the map). Idle TTL (`idle_worker_ttl_sec`) stays the safety net. This is **service-side only** — the coolwsd caller is not shipped. Online still hard-codes isolated.
 - Online AddIn [`buildExecuteRequestJson`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_anyjson.cxx) **hard-codes** `"mode": "isolated"` (via `tools::JsonWriter`) and never sends `session_id` / `init_script`. That emit is the **peel / single-JSON** ingress (today’s contract). Compute already accepts `multipart/form-data` too (`meta` + raw `code` + optional `init_script` + optional `data`); when kit switches to multipart, peel retires. See [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
 - LibrePy derives workbook ids via [`session_manager.calc_workbook_base_session_id`](../../plugin/scripting/session_manager.py) and seeds init scripts from document properties.
 
@@ -481,7 +481,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 3. **AddIn:** keep emitting isolated always **or** emit `mode` omit and let wsd decide — prefer **wsd owns mode** so a rebuilt AddIn is not required to flip admin policy.
 4. **Lifecycle:**
    - On DocumentBroker destroy / last session leave: coolwsd `POST /v1/session/reset?session_id=<id>` (service endpoint is landed; **coolwsd caller is not**). Query-only `session_id` (same L7 sticky as execute). Idempotent `ok` if the kernel is already gone. Do not put `session_id` in the JSON body.
-   - TTL: expire idle shared sessions in the service (`shared_kernel_ttl_sec`) to bound memory if reset is missed. The next sticky call resets that kernel. The idle-worker reaper kills a process whose sessions are all past that TTL. Do not remove that expiry.
+   - TTL: terminate idle worker processes (`idle_worker_ttl_sec`) to bound memory if reset is missed. A worker idle past that timeout is killed and every shared session on it is lost.
 5. **Recalc semantics:** document Online limitation — without Excel-style co-volatility, multi-cell shared-kernel scripts need real `data` precedents for dirtying and operator-managed run order (same advisory as LibrePy §6; the OOXML rewriter does not invent prior-PY edges). Do not invent Online co-volatility in v1.
 6. **Tests:**
    - Service unit: two sequential executes with same `session_id` share a name; different ids do not.

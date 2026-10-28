@@ -341,47 +341,32 @@ class BaseProcessPool:
         if self._is_shutdown:
             return
         now = time.monotonic()
-        # Split the reason. One "idle for" line blamed the idle timer when
-        # the kill was a worker whose sessions were already past session TTL.
         idle_hits: list[BaseProcessWorker] = []
-        abandoned_hits: list[BaseProcessWorker] = []
         idle_ttl = self.idle_worker_ttl_sec
         with self._cond:
             # Drop dead pids before the TTL pass so lease_any cannot pop them.
             # A dead pid is not idle: the next lease performs the handshake.
             self._prune_dead_idle_unlocked()
             for w in list(self._idle):
-                if self._skip_idle_evict(w):
-                    continue
                 last_active = self._idle.get(w, now)
                 # 0 and None do not expire. A zero TTL used to compare as
                 # already elapsed and kill every idle child on the first tick.
-                idle_expired = idle_ttl is not None and idle_ttl > 0 and now - last_active >= idle_ttl
-                # Past idle TTL stays in the idle bucket even if the sessions
-                # are also stale: that sentence is still true. The other
-                # bucket is only the kill that happened before idle TTL.
-                # The base pool has no session map, so abandoned is false there.
-                if idle_expired:
+                if idle_ttl is not None and idle_ttl > 0 and now - last_active >= idle_ttl:
                     idle_hits.append(w)
-                elif self._abandoned_sessions(w):
-                    abandoned_hits.append(w)
-            to_kill = idle_hits + abandoned_hits
-            for w in to_kill:
+            for w in idle_hits:
                 self._drop_evicted_unlocked(w)
-        for w in to_kill:
+        for w in idle_hits:
             # A child that survives SIGKILL is abandoned inside kill().
             # The slot is then not alive, and the next lease can respawn it.
             w.kill()
         # Do not put the killed process back in idle. Idle is a successful
         # handshake or a consumed response frame. lease_any claims the cold
         # slot and respawns it.
-        if idle_hits or abandoned_hits:
+        if idle_hits:
             with self._cond:
                 self._cond.notify_all()
         if idle_hits and idle_ttl is not None:
             log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(idle_hits), self.worker_name, idle_ttl)
-        if abandoned_hits:
-            log.info("Idle worker reaper terminated %d %s(s) whose shared sessions were all past the session TTL", len(abandoned_hits), self.worker_name)
 
     def _drop_evicted_unlocked(self, worker: BaseProcessWorker) -> None:
         """Remove *worker* from idle. Caller holds ``self._cond``.
@@ -390,21 +375,6 @@ class BaseProcessPool:
         The next idle writes a new stamp.
         """
         self._idle.pop(worker, None)
-
-    def _skip_idle_evict(self, _worker: BaseProcessWorker) -> bool:
-        """Return true to leave *_worker* running past the idle TTL.
-
-        Formula sessions override this. The base pool has no session map.
-        """
-        return False
-
-    def _abandoned_sessions(self, _worker: BaseProcessWorker) -> bool:
-        """True when *_worker* should be killed before idle TTL elapses.
-
-        Formula overrides this for a process whose shared sessions are all
-        past the session TTL. The base pool has no session map.
-        """
-        return False
 
     def is_enabled(self) -> bool:
         return self.num_workers > 0 and not self._is_shutdown
