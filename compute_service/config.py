@@ -29,7 +29,7 @@ from typing import Any, Mapping
 log = logging.getLogger("compute_service.config")
 
 # Alias -> canonical env name. The canonical name wins when both are set.
-_ENV_ALIAS_TO_CANONICAL = {"PYTHON_COMPUTE_MAX_WORKERS": "PYTHON_COMPUTE_WORKERS", "PYTHON_COMPUTE_SESSION_TTL_SEC": "PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC"}
+_ENV_ALIAS_TO_CANONICAL = {"PYTHON_COMPUTE_MAX_WORKERS": "PYTHON_COMPUTE_WORKERS"}
 
 MIN_MAX_CODE_CHARS = 64
 # HTTP body cap and the vision worker's file_path read cap. One value so a
@@ -183,7 +183,6 @@ class ComputeSettings:
     threads: int = field(init=False, default=0)
     workers: int = 2
     worker_max_tasks: int = 500
-    shared_kernel_ttl_sec: float = 3600.0
     idle_worker_ttl_sec: float = 3600.0
     ocr_workers: int = 0
     ocr_timeout_sec: int = 60
@@ -206,7 +205,6 @@ class ComputeSettings:
         # request deadline; 503 is that timeout, not a miss of a few milliseconds.
         object.__setattr__(self, "threads", self.workers + self.ocr_workers)
         object.__setattr__(self, "ocr_allow_paths", _as_path_tuple(self.ocr_allow_paths))
-        object.__setattr__(self, "shared_kernel_ttl_sec", float(self.shared_kernel_ttl_sec))
         object.__setattr__(self, "idle_worker_ttl_sec", float(self.idle_worker_ttl_sec))
         object.__setattr__(self, "log_level", normalize_log_level(self.log_level))
         self.validate()
@@ -249,15 +247,6 @@ class ComputeSettings:
             raise ConfigError("ocr_max_tasks must be >= 1")
         if self.max_code_chars < MIN_MAX_CODE_CHARS:
             raise ConfigError(f"max_code_chars must be >= {MIN_MAX_CODE_CHARS}")
-        # inf < 0 and nan < 0 are both false, so a bare >= 0 check accepted
-        # them. inf never satisfies `now - last_active >= ttl`, so a sticky
-        # call never treats the session as stale and the idle reaper skips
-        # workers that still hold one. nan fails the > 0 guard, so expiry
-        # stays off.
-        # _as_float rejects the same values from JSON and the environment;
-        # ComputeSettings() can be built without that helper.
-        if not math.isfinite(self.shared_kernel_ttl_sec) or self.shared_kernel_ttl_sec < 0:
-            raise ConfigError("shared_kernel_ttl_sec must be a finite number >= 0")
         if not math.isfinite(self.idle_worker_ttl_sec) or self.idle_worker_ttl_sec < 0:
             raise ConfigError("idle_worker_ttl_sec must be a finite number >= 0")
         if self.log_level.upper() not in VALID_LOG_LEVELS:
@@ -392,11 +381,11 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
 # are unknown keys, not a TypeError inside ComputeSettings(**values).
 _FIELD_NAMES = frozenset(f.name for f in fields(ComputeSettings) if f.init)
 _SECTION_KEYS = frozenset({"listen", "auth", "limits", "ocr", "logging"})
-_ALIASES = frozenset({"max_workers", "session_ttl_sec", "api_key_file"})
+_ALIASES = frozenset({"max_workers", "api_key_file"})
 _TOP_LEVEL_KEYS = _FIELD_NAMES | _SECTION_KEYS | _ALIASES
 _LISTEN_KEYS = frozenset({"host", "port"})
 _AUTH_KEYS = frozenset({"api_key", "api_key_file"})
-_LIMIT_KEYS = frozenset({"max_body_bytes", "default_timeout_sec", "max_timeout_sec", "workers", "max_workers", "worker_max_tasks", "shared_kernel_ttl_sec", "session_ttl_sec", "idle_worker_ttl_sec", "max_code_chars"})
+_LIMIT_KEYS = frozenset({"max_body_bytes", "default_timeout_sec", "max_timeout_sec", "workers", "max_workers", "worker_max_tasks", "idle_worker_ttl_sec", "max_code_chars"})
 _OCR_KEYS = frozenset({"workers", "timeout_sec", "max_tasks", "allow_paths"})
 _LOGGING_KEYS = frozenset({"log_level", "level"})
 
@@ -412,8 +401,6 @@ _ENV_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("PYTHON_COMPUTE_WORKERS", "workers"),
     ("PYTHON_COMPUTE_MAX_WORKERS", "workers"),
     ("PYTHON_COMPUTE_WORKER_MAX_TASKS", "worker_max_tasks"),
-    ("PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC", "shared_kernel_ttl_sec"),
-    ("PYTHON_COMPUTE_SESSION_TTL_SEC", "shared_kernel_ttl_sec"),
     ("PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC", "idle_worker_ttl_sec"),
     ("PYTHON_COMPUTE_OCR_WORKERS", "ocr_workers"),
     ("PYTHON_COMPUTE_OCR_TIMEOUT_SEC", "ocr_timeout_sec"),
@@ -485,8 +472,6 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
             out[key] = raw[key]
 
     # Resolve aliases once after collecting all nested and flat keys
-    if "session_ttl_sec" in out:
-        out.setdefault("shared_kernel_ttl_sec", out.pop("session_ttl_sec"))
     if "max_workers" in out:
         out.setdefault("workers", out.pop("max_workers"))
     return out
