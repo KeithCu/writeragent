@@ -14,9 +14,9 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, NamedTuple
 
-from plugin.framework.i18n import _
+from plugin.framework.i18n import N_, _
 from plugin.scripting.config_limits import (
     SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
     VECTOR_SEARCH_PROBE_TIMEOUT_SEC,
@@ -181,29 +181,12 @@ _AUDIO_PROBE_SCRIPT = _import_probe_script(
     _import_try_block("piper", "piper"),
     _import_try_block("faster_whisper", "faster_whisper"),
 )
-def _audio_probe_timeout_hint() -> str:
-    return _("Audio probe timed out (sounddevice import failed or hung).")
-
-
-def _audio_probe_failed_hint() -> str:
-    return _("Audio probe failed (see writeragent_debug.log).")
-
 
 _NLP_PACKAGE_KEYS = ("spacy", "textdescriptives", "transformers", "language_tool_python")
 _NLP_OPTIONAL_KEYS = ("language_tool_python",)
 _NLP_PROBE_SCRIPT = _import_probe_script(
     *(_import_try_block(name, name) for name in _NLP_PACKAGE_KEYS)
 )
-
-def _nlp_probe_timeout_hint() -> str:
-    return _(
-        "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s on first check)."
-    )
-
-
-def _nlp_probe_failed_hint() -> str:
-    return _("Text/NLP probe failed (see writeragent_debug.log).")
-
 
 _RAPIDOCR_PROBE_BODY = """\
 try:
@@ -226,16 +209,6 @@ _VISION_PROBE_SCRIPT = _import_probe_script(
     _import_try_block("skimage", "skimage"),
     _import_try_block("css_inline", "css_inline"),
 )
-
-
-def _vision_probe_timeout_hint() -> str:
-    return _(
-        "Vision probe timed out (Docling import can take 10–30s on first check)."
-    )
-
-
-def _vision_probe_failed_hint() -> str:
-    return _("Vision probe failed (see writeragent_debug.log).")
 
 # Vector Search stack: probed outside the AST sandbox (WriterAgent embeddings only).
 _VECTOR_SEARCH_PACKAGE_KEYS = (
@@ -270,15 +243,6 @@ _VECTOR_SEARCH_PROBE_SCRIPT = _import_probe_script(
     _import_try_block("python_docx", "docx"),
     _import_try_block("langdetect", "langdetect"),
 )
-
-def _vector_search_probe_timeout_hint() -> str:
-    return _(
-        "Vector Search probe timed out (sentence-transformers import can take 10–30s on first check)."
-    )
-
-
-def _vector_search_probe_failed_hint() -> str:
-    return _("Vector Search probe failed (see writeragent_debug.log).")
 
 
 def _parse_probe_stdout(stdout: str) -> dict[str, Any] | None:
@@ -367,95 +331,12 @@ def _run_json_probe(
     return parsed, None
 
 
-def _probe_nlp_packages(
-    python_exe: str,
-    timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
-) -> Tuple[dict[str, Any], Optional[str]]:
-    """Import-check Text/NLP stack in the real venv interpreter (not the sandboxed warm worker)."""
-    return _run_json_probe(
-        python_exe,
-        _NLP_PROBE_SCRIPT,
-        timeout,
-        timeout_hint=_nlp_probe_timeout_hint(),
-        fail_hint=_nlp_probe_failed_hint(),
-        log_label="Text/NLP",
-    )
-
-
-def _probe_vector_search_packages(
-    python_exe: str,
-    timeout: float = VECTOR_SEARCH_PROBE_TIMEOUT_SEC,
-) -> Tuple[dict[str, Any], Optional[str]]:
-    """Import-check embeddings stack in the real venv interpreter (not the sandboxed warm worker)."""
-    return _run_json_probe(
-        python_exe,
-        _VECTOR_SEARCH_PROBE_SCRIPT,
-        timeout,
-        timeout_hint=_vector_search_probe_timeout_hint(),
-        fail_hint=_vector_search_probe_failed_hint(),
-        log_label="Vector Search",
-    )
-
-
-def probe_vision_packages(
-    python_exe: str,
-    timeout: float = VISION_PROBE_TIMEOUT_SEC,
-) -> Tuple[dict[str, Any], Optional[str]]:
-    """Import-check vision stack in the real venv interpreter (not the sandboxed warm worker)."""
-    return _run_json_probe(
-        python_exe,
-        _VISION_PROBE_SCRIPT,
-        timeout,
-        timeout_hint=_vision_probe_timeout_hint(),
-        fail_hint=_vision_probe_failed_hint(),
-        log_label="Vision",
-    )
-
-
-def _probe_audio_packages(
-    python_exe: str,
-    timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
-) -> tuple[dict[str, str | None], str | None]:
-    return _run_json_probe(
-        python_exe,
-        _AUDIO_PROBE_SCRIPT,
-        timeout,
-        timeout_hint=_audio_probe_timeout_hint(),
-        fail_hint=_audio_probe_failed_hint(),
-        log_label="Audio",
-    )
-
-
 # Editor GUI stacks. Probed in a one-shot subprocess so Qt/WebEngine never
 # land in the warm worker that later runs =PY() and Run Python Script.
 _UI_PACKAGE_KEYS = ("webview", "rocher", "jedi", "PyQt6", "PyQt6.QtWebEngineWidgets", "qtpy")
 _UI_PROBE_SCRIPT = _import_probe_script(
     *(_import_try_block(name, name) for name in _UI_PACKAGE_KEYS)
 )
-
-
-def _ui_probe_failed_hint() -> str:
-    return _("UI / Monaco probe failed (see writeragent_debug.log).")
-
-
-def _probe_ui_packages(
-    python_exe: str,
-    timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
-) -> Tuple[dict[str, Any], Optional[str]]:
-    """Import-check editor GUI packages outside the sandboxed warm worker."""
-    return _run_json_probe(
-        python_exe,
-        _UI_PROBE_SCRIPT,
-        timeout,
-        timeout_hint=_("UI / Monaco probe timed out."),
-        fail_hint=_ui_probe_failed_hint(),
-        log_label="UI",
-    )
-
-
-def _duckdb_probe_failed_hint() -> str:
-    return _("DuckDB probe failed (see writeragent_debug.log).")
-
 
 # Not a _package_probe_script target: duckdb is off the venv AST allowlist.
 # A sandbox import raises InterpreterError, which is not ImportError, so the
@@ -465,19 +346,99 @@ _DUCKDB_PROBE_SCRIPT = _import_probe_script(
 )
 
 
-def _probe_duckdb(
+class _JsonProbeSpec(NamedTuple):
+    script: str
+    timeout_sec: float
+    log_label: str
+    timeout_msgid: str
+    fail_msgid: str
+    keys: tuple[str, ...] | None = None
+    failure_key: str | None = None
+
+
+_JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
+    "audio": _JsonProbeSpec(
+        script=_AUDIO_PROBE_SCRIPT,
+        timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
+        log_label="Audio",
+        timeout_msgid=N_("Audio probe timed out (sounddevice import failed or hung)."),
+        fail_msgid=N_("Audio probe failed (see writeragent_debug.log)."),
+        keys=_AUDIO_PACKAGE_KEYS,
+        failure_key="audio_probe_failure",
+    ),
+    "ui": _JsonProbeSpec(
+        script=_UI_PROBE_SCRIPT,
+        timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
+        log_label="UI",
+        timeout_msgid=N_("UI / Monaco probe timed out."),
+        fail_msgid=N_("UI / Monaco probe failed (see writeragent_debug.log)."),
+        keys=_UI_PACKAGE_KEYS,
+        failure_key="ui_probe_failure",
+    ),
+    "nlp": _JsonProbeSpec(
+        script=_NLP_PROBE_SCRIPT,
+        timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
+        log_label="Text/NLP",
+        timeout_msgid=N_(
+            "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s on first check)."
+        ),
+        fail_msgid=N_("Text/NLP probe failed (see writeragent_debug.log)."),
+        keys=_NLP_PACKAGE_KEYS,
+        failure_key="nlp_probe_failure",
+    ),
+    "vision": _JsonProbeSpec(
+        script=_VISION_PROBE_SCRIPT,
+        timeout_sec=VISION_PROBE_TIMEOUT_SEC,
+        log_label="Vision",
+        timeout_msgid=N_("Vision probe timed out (Docling import can take 10–30s on first check)."),
+        fail_msgid=N_("Vision probe failed (see writeragent_debug.log)."),
+        keys=_VISION_PACKAGE_KEYS,
+        failure_key="vision_probe_failure",
+    ),
+    "vector_search": _JsonProbeSpec(
+        script=_VECTOR_SEARCH_PROBE_SCRIPT,
+        timeout_sec=VECTOR_SEARCH_PROBE_TIMEOUT_SEC,
+        log_label="Vector Search",
+        timeout_msgid=N_(
+            "Vector Search probe timed out (sentence-transformers import can take 10–30s on first check)."
+        ),
+        fail_msgid=N_("Vector Search probe failed (see writeragent_debug.log)."),
+        keys=_VECTOR_SEARCH_PACKAGE_KEYS,
+        failure_key="vector_search_probe_failure",
+    ),
+    "duckdb": _JsonProbeSpec(
+        script=_DUCKDB_PROBE_SCRIPT,
+        timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
+        log_label="DuckDB",
+        timeout_msgid=N_("DuckDB probe timed out."),
+        fail_msgid=N_("DuckDB probe failed (see writeragent_debug.log)."),
+    ),
+}
+
+
+def _run_named_json_probe(
     python_exe: str,
-    timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
-) -> Tuple[dict[str, Any], Optional[str]]:
-    """Import-check duckdb outside the sandboxed warm worker."""
+    name: str,
+    timeout: float | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    spec = _JSON_PROBE_SPECS[name]
+    t = spec.timeout_sec if timeout is None else timeout
     return _run_json_probe(
         python_exe,
-        _DUCKDB_PROBE_SCRIPT,
-        timeout,
-        timeout_hint=_("DuckDB probe timed out."),
-        fail_hint=_duckdb_probe_failed_hint(),
-        log_label="DuckDB",
+        spec.script,
+        t,
+        timeout_hint=_(spec.timeout_msgid),
+        fail_hint=_(spec.fail_msgid),
+        log_label=spec.log_label,
     )
+
+
+def probe_vision_packages(
+    python_exe: str,
+    timeout: float = VISION_PROBE_TIMEOUT_SEC,
+) -> tuple[dict[str, Any], str | None]:
+    """Import-check vision stack in the real venv interpreter (not the sandboxed warm worker)."""
+    return _run_named_json_probe(python_exe, "vision", timeout=timeout)
 
 
 def _merge_duckdb_probe(python_exe: str, data: dict[str, Any], timeout: float) -> None:
@@ -486,20 +447,14 @@ def _merge_duckdb_probe(python_exe: str, data: dict[str, Any], timeout: float) -
     Appends duckdb to data['data_eng'] when the sandbox group no longer lists it,
     so the Settings install line still renders.
     """
-    probes, failure = _probe_duckdb(python_exe, timeout=timeout)
-    packages = data.get("p")
-    if not isinstance(packages, dict):
-        packages = {}
-        data["p"] = packages
+    probes, failure = _run_named_json_probe(python_exe, "duckdb", timeout=timeout)
+    packages = data["p"]
     if failure:
         packages["duckdb"] = None
     else:
         value = probes.get("duckdb")
         packages["duckdb"] = value if value == "present" else None
-    data_eng = data.get("data_eng")
-    if not isinstance(data_eng, list):
-        data_eng = list(data_eng) if isinstance(data_eng, tuple) else []
-        data["data_eng"] = data_eng
+    data_eng = data["data_eng"]
     if "duckdb" not in data_eng:
         data_eng.append("duckdb")
 
@@ -513,6 +468,10 @@ _SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Quantitative Finance Libraries", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),
     ("Data Engineering Libraries", ("pint",)),
 )
+
+_SANDBOX_DATA_KEYS = ("sci", "eda", "ui", "viz", "cas", "quant", "data_eng")
+assert len(_SANDBOX_DATA_KEYS) == len(_SANDBOX_SELF_CHECK_GROUPS)
+_SANDBOX_PACKAGES_BY_KEY = dict(zip(_SANDBOX_DATA_KEYS, (pkgs for _, pkgs in _SANDBOX_SELF_CHECK_GROUPS)))
 
 # Display order includes NLP (probed via subprocess, not the sandbox worker loop).
 _SELF_CHECK_SANDBOX_GROUP_COUNT = len(_SANDBOX_SELF_CHECK_GROUPS)
@@ -870,7 +829,7 @@ def _format_self_check_success(data: dict[str, Any]) -> str:  # pyright: ignore[
     data.setdefault("vision", list(_VISION_PACKAGE_KEYS))
     data.setdefault("audio", list(_AUDIO_PACKAGE_KEYS))
     data.setdefault("nlp", list(_NLP_PACKAGE_KEYS))
-    data.setdefault("data_eng", list(_SANDBOX_SELF_CHECK_GROUPS[6][1]))
+    data.setdefault("data_eng", list(_SANDBOX_PACKAGES_BY_KEY["data_eng"]))
     return _build_probe_display(
         data,
         completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
@@ -902,59 +861,35 @@ def _attach_probe_group(
 def _attach_external_probes(
     python_exe: str,
     data: dict[str, Any],
-    *,
-    include_audio: bool = True,
-    include_ui: bool = True,
-    include_nlp: bool = True,
-    include_vision: bool = True,
-    include_vector_search: bool = True,
+    group: str,
 ) -> None:
-    """Audio, UI, NLP, vision, and vector probes. Not the warm =PY() worker."""
-    if include_audio:
-        probes, failure = _probe_audio_packages(
-            python_exe,
-            timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
-        )
-        _attach_probe_group(
-            data, probes, failure, group="audio", keys=_AUDIO_PACKAGE_KEYS, failure_key="audio_probe_failure"
-        )
-    if include_ui:
-        probes, failure = _probe_ui_packages(
-            python_exe,
-            timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
-        )
-        _attach_probe_group(
-            data, probes, failure, group="ui", keys=list(_SANDBOX_SELF_CHECK_GROUPS[2][1]), failure_key="ui_probe_failure"
-        )
-    if include_nlp:
-        probes, failure = _probe_nlp_packages(
-            python_exe,
-            timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
-        )
-        _attach_probe_group(
-            data, probes, failure, group="nlp", keys=_NLP_PACKAGE_KEYS, failure_key="nlp_probe_failure"
-        )
-    if include_vision:
+    """Audio, UI, NLP, vision, or vector probe. Not the warm =PY() worker."""
+    spec = _JSON_PROBE_SPECS[group]
+    assert spec.keys is not None and spec.failure_key is not None
+    if group == "vision":
         probes, failure = probe_vision_packages(
             python_exe,
             timeout=float(VISION_PROBE_TIMEOUT_SEC),
         )
-        _attach_probe_group(
-            data, probes, failure, group="vision", keys=_VISION_PACKAGE_KEYS, failure_key="vision_probe_failure"
-        )
-    if include_vector_search:
-        probes, failure = _probe_vector_search_packages(
+    else:
+        probes, failure = _run_named_json_probe(
             python_exe,
-            timeout=float(VECTOR_SEARCH_PROBE_TIMEOUT_SEC),
+            group,
+            timeout=float(spec.timeout_sec),
         )
-        _attach_probe_group(
-            data,
-            probes,
-            failure,
-            group="vector_search",
-            keys=_VECTOR_SEARCH_PACKAGE_KEYS,
-            failure_key="vector_search_probe_failure",
-        )
+    _attach_probe_group(
+        data,
+        probes,
+        failure,
+        group=group,
+        keys=spec.keys,
+        failure_key=spec.failure_key,
+    )
+
+
+def _emit_status(on_status: Callable[[str], None] | None, text: str) -> None:
+    if on_status is not None:
+        on_status(text)
 
 
 def run_venv_self_check_with_progress(
@@ -1007,8 +942,7 @@ def run_venv_self_check_with_progress(
         return False, msg
 
     def _status(text: str) -> None:
-        if on_status is not None:
-            on_status(text)
+        _emit_status(on_status, text)
 
     def _refresh(
         data: dict[str, Any],
@@ -1064,71 +998,38 @@ def run_venv_self_check_with_progress(
         "v": version_data.get("v", "unknown"),
         "arch": version_data.get("arch", ""),
         "p": {},
-        "sci": list(_SANDBOX_SELF_CHECK_GROUPS[0][1]),
-        "eda": list(_SANDBOX_SELF_CHECK_GROUPS[1][1]),
-        "ui": list(_SANDBOX_SELF_CHECK_GROUPS[2][1]),
-        "viz": list(_SANDBOX_SELF_CHECK_GROUPS[3][1]),
-        "cas": list(_SANDBOX_SELF_CHECK_GROUPS[4][1]),
-        "quant": list(_SANDBOX_SELF_CHECK_GROUPS[5][1]),
-        "data_eng": list(_SANDBOX_SELF_CHECK_GROUPS[6][1]),
         "nlp": list(_NLP_PACKAGE_KEYS),
     }
+    for key in _SANDBOX_DATA_KEYS:
+        data[key] = list(_SANDBOX_PACKAGES_BY_KEY[key])
 
     if include_audio:
         _status(_("Audio & Speech: checking sounddevice, TTS, and local Whisper..."))
-        _attach_external_probes(
-            python_exe,
-            data,
-            include_ui=False,
-            include_nlp=False,
-            include_vision=False,
-            include_vector_search=False,
-        )
+        _attach_external_probes(python_exe, data, "audio")
         _refresh(data, include_audio=True)
 
     for group_index, (group_title, packages) in enumerate(_SANDBOX_SELF_CHECK_GROUPS):
         if group_title == "UI / Monaco Libraries":
             # Qt/WebEngine in the warm worker would stay loaded for later =PY() cells.
             _status(_("UI / Monaco Libraries: checking outside the script worker..."))
-            ui_probes, ui_failure = _probe_ui_packages(python_exe, timeout=float(per_pkg_timeout))
-            _attach_probe_group(
-                data, ui_probes, ui_failure, group="ui", keys=packages, failure_key="ui_probe_failure"
-            )
+            _attach_external_probes(python_exe, data, "ui")
             _refresh(data, completed_groups=group_index + 1, include_audio=include_audio)
             continue
         checked: list[str] = []
-        packages_raw = data.get("p")
-        packages_seen: dict[Any, Any] = packages_raw if isinstance(packages_raw, dict) else {}
+        packages_seen = data["p"]
         for pkg in packages:
             _status(f"{group_title}: {pkg}")
             # sympy and matplotlib are listed in more than one group.
-            if pkg in packages_seen:
-                checked.append(pkg)
-                _refresh(
-                    data,
-                    completed_groups=group_index,
-                    partial_group_keys=tuple(checked),
-                    partial_group_title=_(group_title),
-                    include_audio=include_audio,
-                )
-                continue
-            pkg_resp = manager.execute(_package_probe_script(pkg), timeout_sec=per_pkg_timeout)
-            if pkg_resp.get("status") != "ok":
-                msg = str(pkg_resp.get("message", "Unknown error"))
-                log.warning("Package probe failed for %s: %s", pkg, msg)
-                _record_probe_warning(data, pkg, msg)
-                data["p"][pkg] = None
-                checked.append(pkg)
-                _refresh(
-                    data,
-                    completed_groups=group_index,
-                    partial_group_keys=tuple(checked),
-                    partial_group_title=_(group_title),
-                    include_audio=include_audio,
-                )
-                continue
-            present = pkg_resp.get("result") == "present"
-            data["p"][pkg] = "present" if present else None
+            if pkg not in packages_seen:
+                pkg_resp = manager.execute(_package_probe_script(pkg), timeout_sec=per_pkg_timeout)
+                if pkg_resp.get("status") != "ok":
+                    msg = str(pkg_resp.get("message", "Unknown error"))
+                    log.warning("Package probe failed for %s: %s", pkg, msg)
+                    _record_probe_warning(data, pkg, msg)
+                    data["p"][pkg] = None
+                else:
+                    present = pkg_resp.get("result") == "present"
+                    data["p"][pkg] = "present" if present else None
             checked.append(pkg)
             _refresh(
                 data,
@@ -1142,25 +1043,11 @@ def run_venv_self_check_with_progress(
         _refresh(data, completed_groups=group_index + 1, include_audio=include_audio)
 
     _status(_("Text / NLP Libraries: loading (first run may take a while)..."))
-    _attach_external_probes(
-        python_exe,
-        data,
-        include_audio=False,
-        include_ui=False,
-        include_vision=False,
-        include_vector_search=False,
-    )
+    _attach_external_probes(python_exe, data, "nlp")
     _refresh(data, completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT, include_audio=include_audio)
 
     _status(_("Vision Libraries: loading (first run may take a while)..."))
-    _attach_external_probes(
-        python_exe,
-        data,
-        include_audio=False,
-        include_ui=False,
-        include_nlp=False,
-        include_vector_search=False,
-    )
+    _attach_external_probes(python_exe, data, "vision")
     _refresh(
         data,
         completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
@@ -1170,14 +1057,7 @@ def run_venv_self_check_with_progress(
 
     if include_vector_search:
         _status(_("Vector Search Libraries: loading (first run may take a while)..."))
-        _attach_external_probes(
-            python_exe,
-            data,
-            include_audio=False,
-            include_ui=False,
-            include_nlp=False,
-            include_vision=False,
-        )
+        _attach_external_probes(python_exe, data, "vector_search")
         _refresh(
             data,
             completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
@@ -1210,45 +1090,37 @@ def probe_venv_path_with_progress(
 ) -> tuple[bool, str]:
     """Resolve *venv_dir* and run a self-check, refreshing the legacy grouped view."""
     def _status(text: str) -> None:
-        if on_status is not None:
-            on_status(text)
+        _emit_status(on_status, text)
 
-    if not venv_dir or not str(venv_dir).strip():
+    is_blank = not venv_dir or not str(venv_dir).strip()
+    if is_blank:
         _status(_("Using LibreOffice process Python..."))
         exe = resolve_libreoffice_python()
         if not exe:
             msg = _("No process interpreter: sys.executable is missing, not a file, or not executable. Set a venv path in Settings → Python, or fix the LibreOffice install.")
             on_display(msg)
             return False, msg
-        ok, msg = run_venv_self_check_with_progress(
-            exe,
-            on_display,
-            on_status=on_status,
-            extra_lines_after_header=extra_lines_after_header,
-            include_vector_search=include_vector_search,
-            include_audio=include_audio,
-        )
-        if ok:
-            return True, f"LibreOffice process Python ({exe}) responds OK."
-        return ok, msg
-    expanded = os.path.expanduser(os.path.expandvars(str(venv_dir).strip()))
-    _status(_("Resolving venv Python..."))
-    exe = resolve_venv_python(str(venv_dir).strip())
-    if not exe:
-        if os.path.isfile(expanded):
-            msg = _("Not a Python executable: {0}").format(expanded)
-        elif os.path.isdir(expanded):
-            msg = _(
-                "No python found. Use the venv root (folder containing bin/ or Scripts/), "
-                "the bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), "
-                "or the full path to the interpreter."
-            )
-        else:
-            msg = _("Path not found: {0}").format(expanded)
-        on_display(msg)
-        return False, msg
-    _status(f"{_('Using')} {exe}")
-    return run_venv_self_check_with_progress(
+    else:
+        stripped = str(venv_dir).strip()
+        expanded = os.path.expanduser(os.path.expandvars(stripped))
+        _status(_("Resolving venv Python..."))
+        exe = resolve_venv_python(stripped)
+        if not exe:
+            if os.path.isfile(expanded):
+                msg = _("Not a Python executable: {0}").format(expanded)
+            elif os.path.isdir(expanded):
+                msg = _(
+                    "No python found. Use the venv root (folder containing bin/ or Scripts/), "
+                    "the bin/ or Scripts/ folder, env-root python.exe (conda/pyenv-win), "
+                    "or the full path to the interpreter."
+                )
+            else:
+                msg = _("Path not found: {0}").format(expanded)
+            on_display(msg)
+            return False, msg
+        _status(f"{_('Using')} {exe}")
+
+    ok, msg = run_venv_self_check_with_progress(
         exe,
         on_display,
         on_status=on_status,
@@ -1256,3 +1128,6 @@ def probe_venv_path_with_progress(
         include_vector_search=include_vector_search,
         include_audio=include_audio,
     )
+    if is_blank and ok:
+        return True, f"LibreOffice process Python ({exe}) responds OK."
+    return ok, msg
