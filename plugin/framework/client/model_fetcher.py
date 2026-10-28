@@ -291,39 +291,24 @@ def _v1_prefix(endpoint: str) -> str:
     return f"{http_base}{get_api_version_suffix(http_base, is_openwebui=_resolved_openwebui(http_base))}"
 
 
-def _models_list_url(endpoint: str) -> str:
-    """Same URL ``fetch_available_models`` caches under."""
-    prefix = _v1_prefix(endpoint)
-    return f"{prefix}/models" if prefix else ""
+def _v1_url(endpoint: str, path: str, **query: str) -> str:
+    """``prefix + path`` when the endpoint can serve ``/v1``, else ``""``.
 
-
-def _openrouter_image_models_url(endpoint: str) -> str:
-    """OpenRouter image catalog. Not the architecture slice of ``/v1/models``."""
-    prefix = _v1_prefix(endpoint)
-    return f"{prefix}/images/models" if prefix else ""
-
-
-def _openrouter_modality_models_url(endpoint: str, modality: str) -> str:
+    ``path`` includes the leading slash. An empty query value is left off so
+    ``model=""`` stays the list-all voices URL.
+    """
     prefix = _v1_prefix(endpoint)
     if not prefix:
         return ""
-    query = urllib.parse.urlencode({"output_modalities": modality})
-    return f"{prefix}/models?{query}"
-
-
-def _together_voices_url(endpoint: str, model_id: str = "") -> str:
-    prefix = _v1_prefix(endpoint)
-    if not prefix:
-        return ""
-    root = f"{prefix}/voices"
-    requested = str(model_id or "").strip()
-    if not requested:
-        return root
-    return f"{root}?{urllib.parse.urlencode({'model': requested})}"
+    url = f"{prefix}{path}"
+    parts = {key: value for key, value in query.items() if value != ""}
+    if not parts:
+        return url
+    return f"{url}?{urllib.parse.urlencode(parts)}"
 
 
 def _catalog_base(endpoint: str) -> str:
-    if not _models_list_url(endpoint):
+    if not _v1_url(endpoint, "/models"):
         return ""
     return _key_slot_base(endpoint)
 
@@ -345,7 +330,7 @@ def _model_fetch_cache_key(url: str, base: str, api_key_override: str | None = N
 
 
 def _v1_models_request(endpoint: str, api_key_override: str | None = None) -> tuple[str, str, str] | None:
-    url = _models_list_url(endpoint)
+    url = _v1_url(endpoint, "/models")
     if not url:
         return None
     key_slot = _key_slot_base(endpoint)
@@ -517,7 +502,7 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
     provider = get_provider_from_endpoint(key_slot)
 
     if provider == "openrouter":
-        url = _openrouter_image_models_url(endpoint)
+        url = _v1_url(endpoint, "/images/models")
         or_cache_key = _model_fetch_cache_key(url, key_slot, api_key_override)
         if or_cache_key in _model_fetch_image_cache:
             found = _model_fetch_image_cache[or_cache_key]
@@ -614,7 +599,7 @@ def _fetch_openrouter_modality_models(endpoint: str, modality: str, cache: dict[
     if get_provider_from_endpoint(key_slot) != "openrouter":
         return None
 
-    url = _openrouter_modality_models_url(endpoint, modality)
+    url = _v1_url(endpoint, "/models", output_modalities=modality)
     if not url:
         return None
     cache_key = _model_fetch_cache_key(url, key_slot, api_key_override)
@@ -669,7 +654,7 @@ def cached_image_models(endpoint: str, api_key_override: str | None = None) -> l
         return None
     key_slot, _url, cache_key = built
     if get_provider_from_endpoint(key_slot) == "openrouter":
-        url = _openrouter_image_models_url(endpoint)
+        url = _v1_url(endpoint, "/images/models")
         if not url:
             return None
         return _cached_id_list(_model_fetch_image_cache, _model_fetch_cache_key(url, key_slot, api_key_override))
@@ -685,7 +670,7 @@ def _cached_modality_models(
     base = _catalog_base(endpoint)
     if not base or get_provider_from_endpoint(base) != "openrouter":
         return None
-    url = _openrouter_modality_models_url(endpoint, modality)
+    url = _v1_url(endpoint, "/models", output_modalities=modality)
     if not url:
         return None
     key = _model_fetch_cache_key(url, base, api_key_override)
@@ -704,7 +689,7 @@ def cached_stt_models(endpoint: str, api_key_override: str | None = None) -> lis
 
 def _together_voices_cache_keys(base: str, api_key_override: str | None) -> list[str]:
     """List-all and ``?model=`` memo keys for this endpoint+key."""
-    root = _together_voices_url(base)
+    root = _v1_url(base, "/voices")
     sample = _model_fetch_cache_key(root, base, api_key_override)
     digest = sample.split("\x1f", 1)[1]
     found: list[str] = []
@@ -782,12 +767,12 @@ def clear_settings_catalog_cache(endpoint: str, api_key_override: str | None = N
         _model_context_cache,
     ):
         cache.pop(text_key, None)
-    image_url = _openrouter_image_models_url(endpoint)
+    image_url = _v1_url(endpoint, "/images/models")
     image_key = _model_fetch_cache_key(image_url, key_slot, api_key_override)
     _model_fetch_image_cache.pop(image_key, None)
-    tts_url = _openrouter_modality_models_url(endpoint, "speech")
+    tts_url = _v1_url(endpoint, "/models", output_modalities="speech")
     tts_key = _model_fetch_cache_key(tts_url, key_slot, api_key_override)
-    stt_url = _openrouter_modality_models_url(endpoint, "transcription")
+    stt_url = _v1_url(endpoint, "/models", output_modalities="transcription")
     stt_key = _model_fetch_cache_key(stt_url, key_slot, api_key_override)
     _model_fetch_tts_cache.pop(tts_key, None)
     _model_fetch_stt_cache.pop(stt_key, None)
@@ -950,7 +935,7 @@ def fetch_together_tts_voices(endpoint: str, model_id: str | None = None, api_ke
         return None
 
     requested = str(model_id or "").strip()
-    url = _together_voices_url(endpoint, requested)
+    url = _v1_url(endpoint, "/voices", model=requested)
     if not url:
         return None
     cache_key = _model_fetch_cache_key(url, key_slot, api_key_override)
@@ -999,45 +984,38 @@ def preferred_openrouter_tts_model_id(model_id: str) -> str:
     return mid
 
 
+# vision / llava / coder used to hide chat models (Gemini vision, Qwen coder).
+# Specific non-chat names stay: codellama, whisper, dall-e, and the rest.
+_TEXT_MODEL_EXCLUDES = frozenset({
+    "embedding", "embed", "aqa", "attribution", "retrieval", "rerank",
+    "classifier", "moderation", "whisper", "speech", "audio",
+    "stable-diffusion", "sdxl", "dall", "aurora", "imagen", "codellama",
+    "codegemma", "starcoder", "deepseek-coder",
+})
+
+_INCLUDE_MODEL_KEYWORDS: dict[str, frozenset[str]] = {
+    "image": frozenset({
+        "flux", "stable-diffusion", "sdxl", "dall-e", "aurora", "imagen",
+        "dreamshaper", "playground", "juggernaut", "-image",
+    }),
+    "tts": frozenset({"tts", "kokoro", "sonic", "speech"}),
+}
+
+# Audio/STT heuristics for local /v1/models, and the fallback for any other req_cap.
+# OpenRouter STT uses fetch_available_stt_models. Together's type enum has no transcription value.
+_AUDIO_MODEL_KEYWORDS = frozenset({
+    "whisper", "voxtral", "parakeet", "transcribe", "speech", "asr",
+})
+
+
 def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
     """Filter raw model IDs from /v1/models based on the requested capability (text/image/audio)."""
     if not models:
         return []
-
-    out = []
     if req_cap == "text":
-        # Exclude known non-chat models (mirrors LibreAI C++ logic)
-        # vision / llava / coder used to hide chat models (Gemini vision, Qwen coder).
-        # Specific non-chat names stay: codellama, whisper, dall-e, and the rest.
-        exclude = {"embedding", "embed", "aqa", "attribution", "retrieval", "rerank", "classifier", "moderation", "whisper", "speech", "audio", "stable-diffusion", "sdxl", "dall", "aurora", "imagen", "codellama", "codegemma", "starcoder", "deepseek-coder"}
-        for m in models:
-            m_lower = m.lower()
-            if any(kw in m_lower for kw in exclude):
-                continue
-            out.append(m)
-    elif req_cap == "image":
-        # Ollama / local / Google models matching image keywords
-        include = {"flux", "stable-diffusion", "sdxl", "dall-e", "aurora", "imagen", "dreamshaper", "playground", "juggernaut", "-image"}
-        for m in models:
-            m_lower = m.lower()
-            if any(kw in m_lower for kw in include):
-                out.append(m)
-    elif req_cap == "tts":
-        include = {"tts", "kokoro", "sonic", "speech"}
-        for m in models:
-            m_lower = m.lower()
-            if any(kw in m_lower for kw in include):
-                out.append(m)
-    else:
-        # Audio/STT name heuristics for local /v1/models. OpenRouter STT uses
-        # fetch_available_stt_models (output_modalities=transcription). Together's
-        # /v1/models type enum has no transcription value.
-        include = {"whisper", "voxtral", "parakeet", "transcribe", "speech", "asr"}
-        for m in models:
-            m_lower = m.lower()
-            if any(kw in m_lower for kw in include):
-                out.append(m)
-    return out
+        return [m for m in models if not any(kw in m.lower() for kw in _TEXT_MODEL_EXCLUDES)]
+    include = _INCLUDE_MODEL_KEYWORDS.get(req_cap, _AUDIO_MODEL_KEYWORDS)
+    return [m for m in models if any(kw in m.lower() for kw in include)]
 
 
 # --- Model capability and audio support ---
@@ -1346,6 +1324,27 @@ def set_native_vision_support(model_id: Any, endpoint: Any, supported: bool) -> 
     _update_support_map("vision_support_map", key, supported)
 
 
+def _num_ctx_from_ollama(value: Any, *, last: bool) -> int | None:
+    if isinstance(value, dict):
+        if last:
+            return None
+        for key, val in value.items():
+            if str(key).strip().lower() == "num_ctx":
+                return _parse_positive_ctx(val)
+        return None
+    if not isinstance(value, str):
+        return None
+    found: int | None = None
+    for line in value.splitlines():
+        matched = _OLLAMA_NUM_CTX_LINE.match(line)
+        if not matched:
+            continue
+        found = _parse_positive_ctx(matched.group(1))
+        if not last:
+            return found
+    return found
+
+
 def parse_ollama_runtime_num_ctx(show_body: Any) -> int | None:
     """Runtime ``num_ctx`` from Ollama ``/api/show`` parameters or Modelfile.
 
@@ -1355,35 +1354,10 @@ def parse_ollama_runtime_num_ctx(show_body: Any) -> int | None:
     """
     if not isinstance(show_body, dict):
         return None
-    parsed = _num_ctx_from_parameters(show_body.get("parameters"))
+    parsed = _num_ctx_from_ollama(show_body.get("parameters"), last=False)
     if parsed is not None:
         return parsed
-    return _num_ctx_from_modelfile(show_body.get("modelfile"))
-
-
-def _num_ctx_from_parameters(parameters: Any) -> int | None:
-    if isinstance(parameters, dict):
-        for key, val in parameters.items():
-            if str(key).strip().lower() == "num_ctx":
-                return _parse_positive_ctx(val)
-        return None
-    if isinstance(parameters, str):
-        for line in parameters.splitlines():
-            matched = _OLLAMA_NUM_CTX_LINE.match(line)
-            if matched:
-                return _parse_positive_ctx(matched.group(1))
-    return None
-
-
-def _num_ctx_from_modelfile(modelfile: Any) -> int | None:
-    if not isinstance(modelfile, str):
-        return None
-    last: int | None = None
-    for line in modelfile.splitlines():
-        matched = _OLLAMA_NUM_CTX_LINE.match(line)
-        if matched:
-            last = _parse_positive_ctx(matched.group(1))
-    return last
+    return _num_ctx_from_ollama(show_body.get("modelfile"), last=True)
 
 
 def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
