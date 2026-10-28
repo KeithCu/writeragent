@@ -2678,3 +2678,17 @@ def test_preseeded_lost_marker_preserved_on_spawn_failure() -> None:
     finally:
         pool.shutdown()
 
+
+def test_check_dependencies_does_not_import_packages(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The worker check finds packages without importing them (no import cost at startup)."""
+    from compute_service.formula_worker import _handle_request
+
+    (tmp_path / "wa_dep_probe_xyz.py").write_text("raise RuntimeError('check_dependencies must not import')\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    res = _handle_request({"id": "deps-1", "action": "check_dependencies", "packages": ["wa_dep_probe_xyz"]})
+    assert res == {"id": "deps-1", "status": "ok"}
+    assert "wa_dep_probe_xyz" not in sys.modules
+
+    missing = _handle_request({"id": "deps-2", "action": "check_dependencies", "packages": ["nonexistent_pkg_xyz_12345", "nonexistent_parent_xyz.child"]})
+    assert missing["code"] == "MISSING_DEPENDENCIES"
+    assert missing["missing"] == ["nonexistent_pkg_xyz_12345", "nonexistent_parent_xyz.child"]

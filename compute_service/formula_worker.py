@@ -12,7 +12,7 @@ termination on hangs/timeouts without affecting the master HTTP server.
 from __future__ import annotations
 
 import hashlib
-import importlib
+import importlib.util
 import json
 import os
 import sys
@@ -81,9 +81,14 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     if action == "check_dependencies":
         packages = req.get("packages") or ["numpy", "sympy", "pandas"]
         missing: list[str] = []
+        # find_spec locates a package without importing it. Importing
+        # scipy and pandas here cost startup time for a check that
+        # only needs to know they are installed. A dotted name imports its
+        # parent and raises when that parent is missing, so keep the except.
         for pkg in packages:
             try:
-                importlib.import_module(str(pkg))
+                if importlib.util.find_spec(str(pkg)) is None:
+                    missing.append(str(pkg))
             except Exception:
                 missing.append(str(pkg))
         if missing:
