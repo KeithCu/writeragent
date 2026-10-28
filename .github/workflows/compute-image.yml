@@ -5,6 +5,10 @@ on:
     types: [published]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,6 +21,12 @@ jobs:
       PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Image version
         id: ver
         run: |
@@ -24,9 +34,24 @@ jobs:
           echo "version=$ver" >> "$GITHUB_OUTPUT"
       - name: Build
         run: |
+          IMAGE="ghcr.io/keithcu/writeragent-compute"
+          VER="${{ steps.ver.outputs.version }}"
           docker build -f compute_service/Dockerfile \
-            -t "python-compute:${{ steps.ver.outputs.version }}" .
+            --label "org.opencontainers.image.source=https://github.com/KeithCu/writeragent" \
+            -t "python-compute:${VER}" \
+            -t "${IMAGE}:${VER}" \
+            -t "${IMAGE}:latest" .
           if [ "${{ github.event_name }}" = "release" ]; then
             tag="${GITHUB_REF_NAME#v}"
-            docker tag "python-compute:${{ steps.ver.outputs.version }}" "python-compute:${tag}"
+            docker tag "python-compute:${VER}" "python-compute:${tag}"
+            docker tag "python-compute:${VER}" "${IMAGE}:${tag}"
+          fi
+      - name: Push to GHCR
+        run: |
+          IMAGE="ghcr.io/keithcu/writeragent-compute"
+          docker push "${IMAGE}:${{ steps.ver.outputs.version }}"
+          docker push "${IMAGE}:latest"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            docker push "${IMAGE}:${tag}"
           fi

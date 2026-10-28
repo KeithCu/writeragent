@@ -25,6 +25,62 @@ python compute_service/server.py --host 127.0.0.1 --port 8000
 
 ---
 
+## Install
+
+The compute service image is published to GitHub Container Registry (GHCR) at `ghcr.io/keithcu/writeragent-compute` upon release or manually via the [Compute image](https://github.com/KeithCu/writeragent/actions/workflows/compute-image.yml) workflow (`workflow_dispatch`).
+
+### 1. Prebuilt image from GHCR
+
+Pull the prebuilt image:
+
+```bash
+docker pull ghcr.io/keithcu/writeragent-compute:latest
+```
+
+Run with Collabora-oriented hardening flags matching `start-docker.sh` (loopback only on port 8000, read-only root, dropped capabilities, non-root user, memory limits):
+
+```bash
+docker run --rm --init \
+  -p 127.0.0.1:8000:8000 \
+  --read-only \
+  --tmpfs /tmp:rw,size=64m,mode=1777 \
+  --memory=1g --memory-swap=1g \
+  --cpus=1 --pids-limit=256 \
+  --security-opt no-new-privileges \
+  --cap-drop ALL \
+  --user "$(id -u):$(id -g)" \
+  -v /path/to/key_file:/run/secrets/python_compute_api_key:ro \
+  -e PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key \
+  ghcr.io/keithcu/writeragent-compute:latest
+```
+
+If you have the repository cloned, you can also run the prebuilt image with `start-docker.sh`:
+
+```bash
+PYTHON_COMPUTE_IMAGE=ghcr.io/keithcu/writeragent-compute:latest \
+PYTHON_COMPUTE_API_KEY="your-secret-key" \
+./compute_service/start-docker.sh
+```
+
+### 2. From source
+
+Clone the repository and build the compute runtime bundle:
+
+```bash
+git clone https://github.com/KeithCu/writeragent.git
+cd writeragent
+
+# Build the runtime bundle in build/bundle-compute/ (scripts/build_compute_bundle.py):
+make build-compute
+
+# Build the container image and run with hardened flags:
+PYTHON_COMPUTE_API_KEY="your-secret-key" ./compute_service/start-docker.sh
+# or using an API key file:
+PYTHON_COMPUTE_API_KEY_FILE=/path/to/key ./compute_service/start-docker.sh
+```
+
+---
+
 ## API & Wire Protocol
 
 ### 1. Health Endpoint (`GET /health`)
