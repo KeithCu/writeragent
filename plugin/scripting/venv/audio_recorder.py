@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 import threading
@@ -67,8 +68,12 @@ def record_to_wav(
         else None
     )
     auto_stopped = False
-    write_error: BaseException | None = None
-    capture_error: BaseException | None = None
+    latched: tuple[int, BaseException | None] | None = None
+
+    def note_failure(rank: int, exc: BaseException | None) -> None:
+        nonlocal latched
+        if latched is None or rank >= latched[0]:
+            latched = (rank, exc)
 
     # Open the WAV before PortAudio. A disk or permission error must not be
     # reported as PORTAUDIO_LINUX_HINT.
@@ -80,10 +85,8 @@ def record_to_wav(
         wav_file.setframerate(SAMPLE_RATE)
     except Exception as exc:
         if wav_file is not None:
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 wav_file.close()
-            except (OSError, ValueError):
-                pass
         raise RuntimeError(f"Failed to create audio WAV file at {output_path}: {exc}") from exc
 
     # Bugfix:
@@ -98,23 +101,21 @@ def record_to_wav(
         progress_after_ready.set()
 
     stream = None
-    device_aborted = False
 
     def on_stream_finished() -> None:
-        nonlocal device_aborted
         if not stop_event.is_set():
-            device_aborted = True
+            note_failure(1, None)
             stop_event.set()
 
     def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
-        nonlocal auto_stopped, write_error, capture_error
+        nonlocal auto_stopped
         if status:
             log.debug("audio capture status: %s", status)
         pcm = bytes(indata)
         try:
             wav_file.writeframes(pcm)
         except Exception as exc:
-            write_error = exc
+            note_failure(3, exc)
             stop_event.set()
             return
         if vad is None or auto_stopped:
@@ -130,7 +131,7 @@ def record_to_wav(
                     {"status": "silence_progress", "ms": result.silence_ms, "rms": round(result.rms, 5)}
                 )
         except Exception as exc:
-            capture_error = exc
+            note_failure(2, exc)
             stop_event.set()
             return
         if result.should_stop:
@@ -163,28 +164,23 @@ def record_to_wav(
         raise RuntimeError(f"Failed to start audio capture: {exc}") from exc
     finally:
         if stream is not None:
-            try:
+            with contextlib.suppress(Exception):
                 stream.stop()
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 stream.close()
-            except Exception:
-                pass
-        try:
+        with contextlib.suppress(OSError, ValueError):
             wav_file.close()
-        except (OSError, ValueError):
-            pass
 
     # An exception inside callback used to leave the callback, sounddevice
     # aborted the stream, and stop_event.wait blocked until the 4 hour cap.
-    if write_error is not None:
-        raise RuntimeError(
-            f"Failed to write audio WAV file at {output_path}: {write_error}"
-        ) from write_error
-    if capture_error is not None:
-        raise RuntimeError(f"Audio capture failed: {capture_error}") from capture_error
-    if device_aborted:
+    if latched is not None:
+        rank, latched_exc = latched
+        if rank == 3:
+            raise RuntimeError(
+                f"Failed to write audio WAV file at {output_path}: {latched_exc}"
+            ) from latched_exc
+        if rank == 2:
+            raise RuntimeError(f"Audio capture failed: {latched_exc}") from latched_exc
         raise RuntimeError(
             "Audio capture stopped unexpectedly; the microphone may have been disconnected."
         )

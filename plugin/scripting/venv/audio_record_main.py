@@ -107,11 +107,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         _emit({"status": "ok", "path": output_path, "auto_stopped": auto_stopped})
         return 0
-    except RuntimeError as exc:
-        _emit({"status": "error", "message": str(exc)})
-        return 1
     except Exception as exc:
-        _emit({"status": "error", "message": f"Audio recording failed: {exc}"})
+        if isinstance(exc, RuntimeError):
+            message = str(exc)
+        else:
+            message = f"Audio recording failed: {exc}"
+        _emit({"status": "error", "message": message})
         return 1
 
 
