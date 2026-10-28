@@ -40,10 +40,11 @@ def _make_spec_runner(
     *,
     domain: str,
     error_code: str,
-    error_label: str,
     long_timeout: bool = False,
 ) -> Callable[..., dict[str, Any]]:
     """Build a ``run_*(ctx, spec, data, context=)`` client using run_trusted_action RPC."""
+    # optimize uses "Optimization" for error reporting and docstrings.
+    error_label = "Optimization" if domain == "optimize" else domain.capitalize()
 
     def _runner(
         ctx: Any,
@@ -82,38 +83,27 @@ def _make_spec_runner(
 run_analysis = _make_spec_runner(
     domain="analysis",
     error_code="ANALYSIS_ERROR",
-    error_label="Analysis",
 )
 
 run_viz = _make_spec_runner(
     domain="viz",
     error_code="VIZ_ERROR",
-    error_label="Viz",
 )
 
 run_symbolic = _make_spec_runner(
     domain="symbolic",
     error_code="SYMBOLIC_ERROR",
-    error_label="Symbolic",
     long_timeout=True,
-)
-
-run_units = _make_spec_runner(
-    domain="units",
-    error_code="UNITS_ERROR",
-    error_label="Units",
 )
 
 run_optimize = _make_spec_runner(
     domain="optimize",
     error_code="OPTIMIZE_ERROR",
-    error_label="Optimization",
 )
 
 run_forecast = _make_spec_runner(
     domain="forecast",
     error_code="FORECAST_ERROR",
-    error_label="Forecast",
 )
 
 
@@ -133,12 +123,10 @@ def _resolve_vision_timeout_sec(spec: dict[str, Any] | str) -> int:
     if custom > 0 and custom != DOCLING_WORKER_TIMEOUT_SEC:
         return int(custom)
 
-    long_budget = long_trusted_worker_timeout_sec()
-    helper, params = _split_spec(spec)
-    del helper
+    _unused_helper, params = _split_spec(spec)
     if resolve_engine(params) == "paddle":
         return VISION_WORKER_TIMEOUT_SEC  # slightly lighter than full Docling
-    return long_budget  # Docling default path uses the long trusted budget
+    return long_trusted_worker_timeout_sec()
 
 
 def run_vision(

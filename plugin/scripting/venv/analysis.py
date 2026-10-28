@@ -1402,5 +1402,4 @@ def run_analysis(
         dispatch_fn=_dispatch_helper,
         domain="Analysis",
         error_code="ANALYSIS_FAILED",
-        logger=log,
     )

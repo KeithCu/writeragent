@@ -556,5 +556,4 @@ def run_optimize(
         dispatch_fn=_dispatch_helper,
         domain="Optimization",
         error_code="OPTIMIZATION_FAILED",
-        logger=log,
     )

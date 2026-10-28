@@ -431,7 +431,7 @@ def run_symbolic(
     parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
     if isinstance(parsed, dict):
         return parsed
-    helper, params, _headers, _header_row, ctx, _spec = parsed
+    helper, params, _headers, _header_row, ctx = parsed
 
     result = _dispatch_helper(helper, params)
     if result.get("status") == "ok" and ctx:

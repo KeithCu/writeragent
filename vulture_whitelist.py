@@ -339,20 +339,14 @@ _.long_running  # variable: plugin/calc/analysis.py:354
 # =============================================================================
 _.IndexService  # class: plugin/writer/locale/linguistic_index.py:145
 _.ProximityService  # class: plugin/writer/proximity.py:62
-_.dispatch_analysis  # function: plugin/scripting/venv/trusted_dispatch.py:85
 _.dispatch_embedding  # function: plugin/scripting/venv/trusted_dispatch.py:160
-_.dispatch_forecast  # function: plugin/scripting/venv/trusted_dispatch.py:91
 _.dispatch_langdetect  # function: plugin/scripting/venv/trusted_dispatch.py:168
 _.dispatch_languagetool  # function: plugin/scripting/venv/trusted_dispatch.py:141
-_.dispatch_optimize  # function: plugin/scripting/venv/trusted_dispatch.py:97
-_.dispatch_quant  # function: plugin/scripting/venv/trusted_dispatch.py:103
+_.dispatch_spec_domain  # function: plugin/scripting/venv/trusted_dispatch.py
 _.dispatch_sql  # function: plugin/scripting/venv/trusted_dispatch.py:126
-_.dispatch_symbolic  # function: plugin/scripting/venv/trusted_dispatch.py:73
 _.dispatch_text  # function: plugin/scripting/venv/trusted_dispatch.py:109
-_.dispatch_units  # function: plugin/scripting/venv/trusted_dispatch.py:67
 _.dispatch_vale  # function: plugin/scripting/venv/trusted_dispatch.py:150
 _.dispatch_vision  # function: plugin/scripting/venv/trusted_dispatch.py:119
-_.dispatch_viz  # function: plugin/scripting/venv/trusted_dispatch.py:79
 _.initialize_all  # method: plugin/framework/service.py:175
 _.service_names  # other: plugin/framework/service.py:183
 
