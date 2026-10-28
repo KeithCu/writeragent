@@ -395,18 +395,15 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
     # would call on_error again.
     state.defer_next_tool_exit = False
     state.error_callback_entered = False
-    skip_trailing_flush = False
     for index, item in enumerate(items):
         if stop_checker and stop_checker():
             log.info("run_stream_drain_loop: Stop requested via checker.")
             # This tail is already off state.q, so the queue read inside
             # _finish_on_stop cannot see it.
             _finish_on_stop(state, flush_pending, items[index:])
-            # That second flush is not the success-path flush. Leaving
-            # skip_trailing_flush False runs it after _finish_on_stop has
-            # already flushed.
-            skip_trailing_flush = True
-            break
+            # That second flush is not the success-path flush: _finish_on_stop
+            # has already flushed.
+            return
 
         raw_kind, data = split_stream_item(item)
 
@@ -422,6 +419,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
                 state.error_callback_entered = True
                 state.on_error(format_error_payload(ek))
                 state.job_done[0] = True
+                # Break so this path still runs the trailing flush.
                 break
 
             _DISPATCH[raw_kind](state, data, item)
@@ -433,8 +431,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
                 # different error.
                 log.exception("on_error failed")
                 state.job_done[0] = True
-                skip_trailing_flush = True
-                break
+                return
             # Dispatch handler (chunk/thinking UI) raised. Re-queuing ERROR used
             # to continue the batch: later CHUNKs still applied, STREAM_DONE ran
             # as success, and on_error never ran. Call on_error inline.
@@ -457,36 +454,31 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
                 # Continuing used to run STREAM_DONE and set job_done, so the
                 # replacement worker's chunks were ignored. Leave job_done
                 # clear so the drain waits for that worker.
-                # on_error already ran; do not flush again. Leaving
-                # skip_trailing_flush False lets the trailing flush_buffers()
-                # raise, and run_stream_drain_loop then calls on_error a
-                # second time for the same failure. The fatal path already
-                # skips it.
-                skip_trailing_flush = True
-                break
+                # on_error already ran; return so we do not flush again. A
+                # second flush that raises would call on_error again, and a
+                # deferred NEXT_TOOL must not set job_done after a recovered
+                # error.
+                return
             state.job_done[0] = True
-            skip_trailing_flush = True
-            break
+            return
 
         if state.job_done[0] or raw_kind == StreamQueueKind.ERROR:
             # A recovered ERROR keeps the drain alive but must not apply the
             # rest of this batch (same reason as the handler-raise path).
             # NEXT_TOOL does not set job_done here, so a tail already pulled
             # (chunk, STREAM_DONE) still runs in this pass.
-            # Same as the handler-raise path. Do not flush again, and do not
-            # honor a deferred NEXT_TOOL exit. Leaving skip_trailing_flush
-            # False lets the trailing flush raise and call on_error again
-            # after finish_display already flushed, and that deferred exit
-            # still sets job_done after a recovered ERROR.
-            skip_trailing_flush = True
-            break
+            # Same as the handler-raise path. Return so we do not flush
+            # again or honor a deferred NEXT_TOOL exit: a second flush that
+            # raises would call on_error again after finish_display already
+            # flushed, and a deferred NEXT_TOOL exit must not set job_done
+            # after a recovered ERROR.
+            return
 
-    if not skip_trailing_flush:
-        state.flush_buffers()
+    state.flush_buffers()
     # Honor a true NEXT_TOOL return only after the pulled batch is done,
     # and not after stop or a recovered error (those already decided).
     # Breaking above on that return drops the tail.
-    if state.defer_next_tool_exit and not state.job_done[0] and not skip_trailing_flush:
+    if state.defer_next_tool_exit and not state.job_done[0]:
         state.job_done[0] = True
 
 
