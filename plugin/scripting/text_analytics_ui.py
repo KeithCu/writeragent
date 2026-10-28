@@ -13,6 +13,7 @@ Check Venv does not read the document. The install command comes from the worker
 from __future__ import annotations
 
 from collections import Counter
+from functools import partial
 import json
 import logging
 from typing import TYPE_CHECKING, Any, Callable
@@ -52,22 +53,23 @@ _COMPUTE_BUTTONS: tuple[tuple[str, str, bool], ...] = (
     ("BtnCheck", "diagnostics", False),
 )
 
-_BUSY_CONTROL_IDS: tuple[str, ...] = (
-    "BtnRead",
-    "BtnEntities",
-    "BtnPhrases",
-    "BtnTopics",
-    "BtnSentiment",
-    "BtnCheck",
-    "BtnInsert",
-)
-
-_MISSING_IMPORT_MARKERS = ("No module named", "ModuleNotFoundError", "ImportError")
+_BUSY_CONTROL_IDS: tuple[str, ...] = tuple(
+    btn_id for btn_id, _helper, _scoped in _COMPUTE_BUTTONS
+) + ("BtnInsert",)
 
 
-def _exception_suggests_missing_package(error: BaseException) -> bool:
-    text = str(error)
-    return any(marker in text for marker in _MISSING_IMPORT_MARKERS)
+class _TextAnalyticsAction(BaseActionListener):
+    _fn: Callable[[], None]
+
+    def __init__(self, fn: Callable[[], None]) -> None:
+        super().__init__()
+        self._fn = fn
+
+    def on_action_performed(self, rEvent: ActionEvent) -> None:
+        try:
+            self._fn()
+        except Exception:
+            log.exception("Text analytics button failed")
 
 
 class TextAnalyticsDialog:
@@ -129,7 +131,7 @@ class TextAnalyticsDialog:
                 return
             self._dlg = dlg
 
-            self._wire(dlg)
+            self._wire()
 
             self._top_listener = ModelessWindowClosingListener(self)
             dlg.addTopWindowListener(self._top_listener)
@@ -139,48 +141,32 @@ class TextAnalyticsDialog:
             log.exception("TextAnalyticsDialog._open failed")
             self.close()
 
-    def _wire(self, dlg: Any) -> None:
-        owner = self
-
-        class _Btn(BaseActionListener):
-            _fn: Callable[[Any], Any]
-
-            def __init__(self, fn: Callable[[Any], Any]) -> None:
-                super().__init__()
-                self._fn = fn
-
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                try:
-                    self._fn(dlg)
-                except Exception:
-                    log.exception("Text analytics button failed")
-
+    def _wire(self) -> None:
+        assert self._dlg is not None
         for btn_id, helper, uses_scope in _COMPUTE_BUTTONS:
-            ctrl = dlg.getControl(btn_id)
+            ctrl = self._dlg.getControl(btn_id)
             if ctrl is not None:
-                h_name = helper
+                ctrl.addActionListener(_TextAnalyticsAction(partial(self._on_compute, helper, uses_scope)))
 
-                def _cb(d: Any, h: str = h_name, scoped: bool = uses_scope) -> None:
-                    if scoped:
-                        scope = owner._scope_from_dialog(d)
-                        if scope is None:
-                            return
-                    else:
-                        scope = "whole"
-                    owner._compute(d, h, scope)
-
-                ctrl.addActionListener(_Btn(_cb))
-
-        btn_insert = dlg.getControl("BtnInsert")
+        btn_insert = self._dlg.getControl("BtnInsert")
         if btn_insert is not None:
-            btn_insert.addActionListener(_Btn(lambda d: owner._insert_report(d)))
-        btn_close = dlg.getControl("BtnClose")
+            btn_insert.addActionListener(_TextAnalyticsAction(self._insert_report))
+        btn_close = self._dlg.getControl("BtnClose")
         if btn_close is not None:
-            btn_close.addActionListener(_Btn(lambda d: owner.close()))
+            btn_close.addActionListener(_TextAnalyticsAction(self.close))
 
-    def _scope_from_dialog(self, dlg: Any) -> str | None:
+    def _on_compute(self, helper: str, scoped: bool) -> None:
+        if scoped:
+            scope = self._scope_from_dialog()
+            if scope is None:
+                return
+        else:
+            scope = "whole"
+        self._compute(helper, scope)
+
+    def _scope_from_dialog(self) -> str | None:
         try:
-            chk = dlg.getControl("ChkScope")
+            chk = self._dlg.getControl("ChkScope") if self._dlg is not None else None
             if chk is None:
                 return "whole"
             # getattr(chk, "State", 0) only saw a forwarded model attribute, and a missing attribute was unchecked.
@@ -195,21 +181,27 @@ class TextAnalyticsDialog:
             # Why this change: write the error into ResultsEdit, the same place as the
             # other analysis messages, and do not start a run.
             log.exception("text analytics: scope checkbox failed")
-            self._report_scope_read_failure(dlg)
+            self._report_scope_read_failure()
             return None
 
-    def _report_scope_read_failure(self, dlg: Any) -> None:
-        self._last_result = None
-        self._source_uid = None
+    def _report_scope_read_failure(self) -> None:
+        self._clear_result()
         message = _("Could not read the scope checkbox.")
         try:
-            res = dlg.getControl("ResultsEdit")
+            res = self._results_ctrl()
             if res is not None:
                 res.getModel().Text = message
                 return
         except Exception:
             log.exception("text analytics: could not show scope error in ResultsEdit")
         msgbox(self._ctx, _("Text Analytics"), message)
+
+    def _clear_result(self) -> None:
+        self._last_result = None
+        self._source_uid = None
+
+    def _results_ctrl(self) -> Any | None:
+        return None if self._dlg is None else self._dlg.getControl("ResultsEdit")
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -225,11 +217,11 @@ class TextAnalyticsDialog:
             if ctrl is not None:
                 set_control_enabled(ctrl, not busy)
 
-    def _compute(self, dlg: Any, helper: str, scope: str) -> None:
+    def _compute(self, helper: str, scope: str) -> None:
         if self._busy or self._closed:
             return
 
-        res_ctrl = dlg.getControl("ResultsEdit")
+        res_ctrl = self._results_ctrl()
         if res_ctrl is None:
             return
 
@@ -238,45 +230,41 @@ class TextAnalyticsDialog:
         # to be inserted after a failed analysis attempt.
         # How it happened: _last_result was only overwritten on success and never reset at compute start.
         # Why this change: clear _last_result before validation and background execution.
-        self._last_result = None
-        self._source_uid = None
+        self._clear_result()
 
         ctx = self._ctx
         doc = get_active_document(ctx)
 
-        if helper in ("diagnostics", "check"):
+        is_diag = helper in ("diagnostics", "check")
+        if is_diag:
             text: str | list[str] | None = None
             doc_lang = get_doc_language(doc) if doc else None
             context: dict[str, Any] | None = {"lang": doc_lang} if doc_lang else None
+            res_ctrl.getModel().Text = _("Checking spaCy / textdescriptives / transformers installation...")
         else:
             if not doc or not is_writer(doc):
                 res_ctrl.getModel().Text = _("Open a Writer document to analyze.")
                 return
 
             try:
-                raw, context = resolve_text_analytics_document_inputs(doc, helper, scope=scope)
+                text, context = resolve_text_analytics_document_inputs(doc, helper, scope=scope)
             except DocumentDisposedError:
                 res_ctrl.getModel().Text = _("The document was closed.")
                 return
 
-            if scope == "selection" and (not raw or (isinstance(raw, str) and not raw.strip())):
-                res_ctrl.getModel().Text = _("Nothing is selected.")
+            too_short = not text or (isinstance(text, str) and len(text.strip()) < 20)
+            if too_short:
+                nothing_selected = scope == "selection" and (
+                    not text or (isinstance(text, str) and not text.strip())
+                )
+                res_ctrl.getModel().Text = (
+                    _("Nothing is selected.")
+                    if nothing_selected
+                    else _("Not enough text in the chosen scope.")
+                )
                 return
 
-            if (
-                not raw
-                or (isinstance(raw, str) and len(raw.strip()) < 20)
-                or (isinstance(raw, list) and len(raw) == 0)
-            ):
-                res_ctrl.getModel().Text = _("Not enough text in the chosen scope.")
-                return
-
-            text = raw
             self._source_uid = get_runtime_uid(doc) or None
-
-        if helper in ("diagnostics", "check"):
-            res_ctrl.getModel().Text = _("Checking spaCy / textdescriptives / transformers installation...")
-        else:
             res_ctrl.getModel().Text = _("Analyzing...")
 
         self._set_busy(True)
@@ -338,23 +326,21 @@ class TextAnalyticsDialog:
         result: dict[str, Any] | None,
         error: Exception | None,
     ) -> None:
-        self._busy = False
+        self._set_busy(False)
         if self._closed or self._dlg is None:
             return
-        self._set_busy(False)
 
-        res_ctrl = self._dlg.getControl("ResultsEdit")
+        res_ctrl = self._results_ctrl()
         if res_ctrl is None:
             return
 
         if error is not None:
-            self._last_result = None
-            self._source_uid = None
+            self._clear_result()
             if helper in ("diagnostics", "check"):
                 text = _("Error from the Text Analytics worker:\n{err}").format(err=str(error))
             else:
                 # every non-diagnostics exception, including Python worker failed: timed out after …, used this package paragraph. The paragraph stays for messages that are failed imports. Other failures show only Error: plus the exception text.
-                if _exception_suggests_missing_package(error):
+                if any(marker in str(error) for marker in ("No module named", "ModuleNotFoundError", "ImportError")):
                     text = _(
                         "Error: %s\n\nRequired packages may be missing in your configured venv (Settings → Python). "
                         "Click Check Venv in this dialog or use the full Test in Settings → Python for details on "
@@ -374,8 +360,7 @@ class TextAnalyticsDialog:
         ):
             self._last_result = result
         else:
-            self._last_result = None
-            self._source_uid = None
+            self._clear_result()
 
         try:
             display_text = format_text_analytics_result_for_display(helper, result)
@@ -386,7 +371,7 @@ class TextAnalyticsDialog:
         # A raised ResultsEdit write is already logged by process_queue or the button listener.
         res_ctrl.getModel().Text = display_text
 
-    def _insert_report(self, dlg: Any) -> None:
+    def _insert_report(self) -> None:
         if self._busy or self._closed:
             return
         ctx = self._ctx
@@ -413,7 +398,7 @@ class TextAnalyticsDialog:
             msgbox(ctx, _("Text Analytics"), _("Insert failed: %s") % e)
             return
 
-        res_ctrl = dlg.getControl("ResultsEdit")
+        res_ctrl = self._results_ctrl()
         if res_ctrl is not None:
             res_ctrl.getModel().Text = (res_ctrl.getModel().Text or "") + "\n\n" + _("Inserted after selection/caret.")
 
@@ -428,15 +413,29 @@ def _text_analytics_error_line(result: dict[str, Any] | None) -> str:
 
 
 def _format_metric_lines(mapping: dict[str, Any]) -> list[str]:
-    lines: list[str] = []
-    for k, v in mapping.items():
-        if isinstance(v, bool):
-            lines.append(f"  {k}: {v}")
-        elif isinstance(v, float):
-            lines.append(f"  {k}: {v:.2f}")
-        else:
-            lines.append(f"  {k}: {v}")
-    return lines
+    return [
+        f"  {k}: {v:.2f}" if isinstance(v, float) else f"  {k}: {v}"
+        for k, v in mapping.items()
+    ]
+
+
+def _capped_list(title: str, items: list[Any], fmt: Callable[[Any], str]) -> str:
+    lines = [f"{title} ({len(items)}):"]
+    lines.extend(fmt(item) for item in items[:30])
+    if len(items) > 30:
+        lines.append(f"  ... and {len(items) - 30} more")
+    return "\n".join(lines)
+
+
+def _install_suffix_parts(data: dict[str, Any]) -> list[str]:
+    parts: list[str] = []
+    hint = str(data.get("install_hint") or "").strip()
+    if hint:
+        parts.append(hint)
+    install = str(data.get("install") or "").strip()
+    if install:
+        parts.append(f"Suggested install: {install}")
+    return parts
 
 
 def format_text_analytics_result_for_display(helper: str, result: dict[str, Any] | None) -> str:
@@ -473,16 +472,15 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
         else:
             lines.append("  No models detected/loaded.")
 
-        lines.append(f"  transformers: {'Installed' if data.get('has_transformers') else 'Missing'}")
-        if data.get("has_transformers"):
-            lines.append(f"  transformers version: {data.get('transformers_version', 'N/A')}")
-        lines.append(f"  torch: {'Installed' if data.get('has_torch') else 'Missing'}")
-        if data.get("has_torch"):
-            lines.append(f"  torch version: {data.get('torch_version', 'N/A')}")
-        has_sklearn = bool(data.get("has_sklearn"))
-        lines.append(f"  scikit-learn: {'Installed' if has_sklearn else 'Missing'}")
-        if has_sklearn:
-            lines.append(f"  scikit-learn version: {data.get('sklearn_version', 'N/A')}")
+        for label, flag, version_key in (
+            ("transformers", "has_transformers", "transformers_version"),
+            ("torch", "has_torch", "torch_version"),
+            ("scikit-learn", "has_sklearn", "sklearn_version"),
+        ):
+            installed = bool(data.get(flag))
+            lines.append(f"  {label}: {'Installed' if installed else 'Missing'}")
+            if installed:
+                lines.append(f"  {label} version: {data.get(version_key, 'N/A')}")
 
         install = data.get("text_analytics_install")
         if install:
@@ -518,23 +516,13 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
             ents = data.get("entities") or []
             if not ents:
                 return "No entities found."
-            lines = [f"Entities ({len(ents)}):"]
-            for e in ents[:30]:
-                lines.append(f"  {e.get('text')} [{e.get('label')}]")
-            if len(ents) > 30:
-                lines.append(f"  ... and {len(ents) - 30} more")
-            return "\n".join(lines)
+            return _capped_list("Entities", ents, lambda e: f"  {e.get('text')} [{e.get('label')}]")
 
         if helper in ("key_phrases", "chunks"):
             kps = data.get("key_phrases") or []
             if not kps:
                 return "No key phrases found."
-            lines = [f"Key Phrases ({len(kps)}):"]
-            for kp in kps[:30]:
-                lines.append(f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
-            if len(kps) > 30:
-                lines.append(f"  ... and {len(kps) - 30} more")
-            return "\n".join(lines)
+            return _capped_list("Key Phrases", kps, lambda kp: f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
 
     if helper == "topics":
         tops = data.get("topics") or []
@@ -562,14 +550,7 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
         # Why this change: inspect payload error and hint fields even when status is not ok.
         err = data.get("error") or data.get("note")
         if err and "MISSING_PACKAGE" in str(err):
-            parts = ["Topics: MISSING_PACKAGE"]
-            hint = str(data.get("install_hint") or "").strip()
-            install = str(data.get("install") or "").strip()
-            if hint:
-                parts.append(hint)
-            if install:
-                parts.append(f"Suggested install: {install}")
-            return "\n\n".join(parts)
+            return "\n\n".join(["Topics: MISSING_PACKAGE", *_install_suffix_parts(data)])
         if err:
             return f"Topics: {err}"
         if result.get("status") != "ok":
@@ -595,16 +576,11 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
                 msg = "Sentiment: model load failed (package is present, but loading the model/tokenizer failed)"
             else:
                 msg = f"Sentiment error: {err}"
-            hint = str(data.get("install_hint") or "").strip()
-            if hint:
-                msg += f"\n\n{hint}"
-            install = str(data.get("install") or "").strip()
-            if install:
-                msg += f"\n\nSuggested install: {install}"
+            parts = [msg, *_install_suffix_parts(data)]
             detail = str(data.get("detail") or "").strip()
             if detail:
-                msg += f"\n\nReal error details from the worker process:\n{detail}"
-            return msg
+                parts.append(f"Real error details from the worker process:\n{detail}")
+            return "\n\n".join(parts)
 
         sent = data.get("sentiment") or {}
         if not sent or "score" not in sent:

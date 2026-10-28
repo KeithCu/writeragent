@@ -96,7 +96,7 @@ def test_compute_schedules_dedicated_worker_and_applies_on_main_thread(monkeypat
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", failing_run_rpc)
 
-    dlg_obj._compute(fake_dlg, "readability", "whole")
+    dlg_obj._compute("readability", "whole")
 
     res_ctrl = fake_dlg.controls["ResultsEdit"]
     assert res_ctrl.getModel().Text == "Analyzing..."
@@ -143,7 +143,7 @@ def test_topics_error_does_not_become_last_result(monkeypatch):
         lambda func, name="", dedicated=False: recorded_worker.append(func),
     )
 
-    dlg_obj._compute(fake_dlg, "topics", "whole")
+    dlg_obj._compute("topics", "whole")
     assert len(recorded_worker) == 1
     worker_fn = recorded_worker[0]
 
@@ -189,7 +189,7 @@ def test_empty_entities_result_is_not_insertable(monkeypatch):
         lambda ctx, title, msg: recorded_msgbox.append((title, msg)),
     )
 
-    dlg_obj._insert_report(fake_dlg)
+    dlg_obj._insert_report()
     assert len(recorded_msgbox) == 1
     assert "Nothing to insert" in recorded_msgbox[0][1]
 
@@ -221,7 +221,7 @@ def test_generic_worker_exception_omits_package_hint(monkeypatch):
         lambda func, name="", dedicated=False: recorded_worker.append(func),
     )
 
-    dlg_obj._compute(fake_dlg, "readability", "whole")
+    dlg_obj._compute("readability", "whole")
     worker_fn = recorded_worker[0]
 
     def failing_rpc(*a, **kw):
@@ -254,7 +254,7 @@ def test_timeout_worker_exception_omits_package_hint(monkeypatch):
         lambda func, name="", dedicated=False: recorded_worker.append(func),
     )
 
-    dlg_obj._compute(fake_dlg, "readability", "whole")
+    dlg_obj._compute("readability", "whole")
     worker_fn = recorded_worker[0]
 
     def failing_rpc(*a, **kw):
@@ -285,7 +285,7 @@ def test_import_worker_exception_keeps_package_hint(monkeypatch):
         lambda func, name="", dedicated=False: recorded_worker.append(func),
     )
 
-    dlg_obj._compute(fake_dlg, "readability", "whole")
+    dlg_obj._compute("readability", "whole")
     worker_fn = recorded_worker[0]
 
     def failing_rpc(*a, **kw):
@@ -313,7 +313,7 @@ def test_diagnostics_exception_has_no_install_command(monkeypatch):
         lambda func, name="", dedicated=False: recorded_worker.append(func),
     )
 
-    dlg_obj._compute(fake_dlg, "diagnostics", "whole")
+    dlg_obj._compute("diagnostics", "whole")
     worker_fn = recorded_worker[0]
 
     def failing_rpc(*a, **kw):
@@ -349,7 +349,7 @@ def test_failed_validation_clears_previous_result(monkeypatch):
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_in_background", fake_run_in_background)
 
-    dlg_obj._compute(fake_dlg, "readability", "selection")
+    dlg_obj._compute("readability", "selection")
 
     assert fake_dlg.controls["ResultsEdit"].getModel().Text == "Nothing is selected."
     assert dlg_obj._last_result is None
@@ -365,7 +365,7 @@ def test_short_text_keeps_not_enough_text_message(monkeypatch):
         lambda doc, helper, scope="whole": ("short", {}),
     )
 
-    dlg_obj._compute(fake_dlg, "readability", "whole")
+    dlg_obj._compute("readability", "whole")
     assert fake_dlg.controls["ResultsEdit"].getModel().Text == "Not enough text in the chosen scope."
 
 
@@ -392,7 +392,7 @@ def test_compute_disposed_document_sets_closed_message(monkeypatch):
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_in_background", fake_run_in_background)
 
-    dlg_obj._compute(fake_dlg, "readability", "whole")
+    dlg_obj._compute("readability", "whole")
     assert fake_dlg.controls["ResultsEdit"].getModel().Text == "The document was closed."
     assert dlg_obj._last_result is None
     assert called_background is False
@@ -413,7 +413,7 @@ def test_busy_click_does_not_clear_or_reschedule(monkeypatch):
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_in_background", fake_run_in_background)
 
-    dlg_obj._compute(fake_dlg, "readability", "whole")
+    dlg_obj._compute("readability", "whole")
 
     assert dlg_obj._last_result is sentinel
     assert called_background is False
@@ -434,7 +434,7 @@ def test_closed_dialog_drops_posted_result(monkeypatch):
         lambda func, name="", dedicated=False: recorded_worker.append(func),
     )
 
-    dlg_obj._compute(fake_dlg, "readability", "whole")
+    dlg_obj._compute("readability", "whole")
     worker_fn = recorded_worker[0]
 
     readability_result = {
@@ -478,7 +478,7 @@ def test_insert_delegates_to_host_helper(monkeypatch):
     fake_result = {"status": "ok", "result": {"readability": {"score": 10}}}
     dlg_obj._last_result = fake_result
 
-    dlg_obj._insert_report(fake_dlg)
+    dlg_obj._insert_report()
 
     assert len(recorded_insert) == 1
     assert recorded_insert[0] == (dlg_obj._ctx, fake_doc, fake_result)
@@ -488,7 +488,7 @@ def test_insert_delegates_to_host_helper(monkeypatch):
 def test_topics_checkbox_off_passes_selection_scope(monkeypatch):
     dlg_obj, fake_dlg = _make_dialog()
     fake_dlg.controls["ChkScope"].State = 0
-    dlg_obj._wire(fake_dlg)
+    dlg_obj._wire()
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
@@ -513,7 +513,7 @@ def test_scope_prefers_get_state_over_state_attribute(monkeypatch):
     chk = fake_dlg.controls["ChkScope"]
     chk.State = 1
     chk.getState = lambda: 0
-    dlg_obj._wire(fake_dlg)
+    dlg_obj._wire()
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
@@ -537,7 +537,7 @@ def test_scope_read_failure_shows_error_and_does_not_analyze(monkeypatch):
     dlg_obj, fake_dlg = _make_dialog()
     dlg_obj._last_result = {"status": "ok"}
     dlg_obj._source_uid = "uid-a"
-    dlg_obj._wire(fake_dlg)
+    dlg_obj._wire()
 
     orig_get_control = fake_dlg.getControl
 
@@ -580,7 +580,7 @@ def test_scope_read_failure_uses_msgbox_when_results_edit_unavailable(monkeypatc
     dlg_obj, fake_dlg = _make_dialog()
     dlg_obj._last_result = {"status": "ok"}
     dlg_obj._source_uid = "uid-a"
-    dlg_obj._wire(fake_dlg)
+    dlg_obj._wire()
 
     orig_get_control = fake_dlg.getControl
 
@@ -614,7 +614,7 @@ def test_scope_read_failure_uses_msgbox_when_results_edit_unavailable(monkeypatc
 def test_missing_scope_checkbox_still_analyzes_whole(monkeypatch):
     dlg_obj, fake_dlg = _make_dialog()
     del fake_dlg.controls["ChkScope"]
-    dlg_obj._wire(fake_dlg)
+    dlg_obj._wire()
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
@@ -675,7 +675,7 @@ def test_post_failure_uses_execute_on_main_thread(monkeypatch):
         lambda func, name="", dedicated=False: recorded_worker.append(func),
     )
 
-    dlg_obj._compute(fake_dlg, "readability", "whole")
+    dlg_obj._compute("readability", "whole")
     worker_fn = recorded_worker[0]
 
     readability_result = {
@@ -718,7 +718,7 @@ def test_marshal_failure_clears_busy_without_touching_controls(monkeypatch):
         lambda func, name="", dedicated=False: recorded_worker.append(func),
     )
 
-    dlg_obj._compute(fake_dlg, "readability", "whole")
+    dlg_obj._compute("readability", "whole")
     worker_fn = recorded_worker[0]
 
     monkeypatch.setattr(
@@ -766,7 +766,7 @@ def test_insert_refuses_when_runtime_uid_differs(monkeypatch):
         lambda ctx, doc, res: recorded_insert.append((ctx, doc, res)),
     )
 
-    dlg_obj._insert_report(fake_dlg)
+    dlg_obj._insert_report()
 
     assert len(recorded_insert) == 0
     assert len(recorded_msgbox) == 1
@@ -792,7 +792,7 @@ def test_insert_allows_same_runtime_uid(monkeypatch):
         lambda ctx, doc, res: recorded_insert.append((ctx, doc, res)),
     )
 
-    dlg_obj._insert_report(fake_dlg)
+    dlg_obj._insert_report()
 
     assert len(recorded_insert) == 1
     assert recorded_insert[0] == (dlg_obj._ctx, fake_doc, fake_result)
@@ -816,7 +816,7 @@ def test_insert_allows_when_either_runtime_uid_missing(monkeypatch):
     dlg_obj1._last_result = fake_result1
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_runtime_uid", lambda doc: "uid-b")
 
-    dlg_obj1._insert_report(fake_dlg1)
+    dlg_obj1._insert_report()
     assert len(recorded_insert) == 1
     assert recorded_insert[0] == (dlg_obj1._ctx, fake_doc, fake_result1)
 
@@ -827,7 +827,7 @@ def test_insert_allows_when_either_runtime_uid_missing(monkeypatch):
     dlg_obj2._last_result = fake_result2
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_runtime_uid", lambda doc: "")
 
-    dlg_obj2._insert_report(fake_dlg2)
+    dlg_obj2._insert_report()
     assert len(recorded_insert) == 2
     assert recorded_insert[1] == (dlg_obj2._ctx, fake_doc, fake_result2)
 
@@ -849,8 +849,8 @@ def test_insert_twice_inserts_twice(monkeypatch):
     fake_result = {"status": "ok", "result": {"readability": {"score": 10}}}
     dlg_obj._last_result = fake_result
 
-    dlg_obj._insert_report(fake_dlg)
-    dlg_obj._insert_report(fake_dlg)
+    dlg_obj._insert_report()
+    dlg_obj._insert_report()
 
     assert len(recorded_insert) == 2
     assert fake_dlg.controls["ResultsEdit"].getModel().Text.endswith(
