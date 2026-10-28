@@ -16,13 +16,15 @@ def test_mcp_protocol_threads_send_cancellation():
     protocol.tool_registry = tool_registry_mock
 
     cancellation = SendCancellation()
-    token = _current_send_cancellation.set(cancellation)
+    ambient = SendCancellation()
+    token = _current_send_cancellation.set(ambient)
 
     try:
         cancellation._cancelled.set()
 
-        prepared = protocol._prepare_mcp_execution("some_tool", {}, None)
+        prepared = protocol._prepare_mcp_execution("some_tool", {}, None, send_cancellation=cancellation)
         assert prepared.context.send_cancellation is cancellation
+        assert prepared.context.send_cancellation is not ambient
         assert prepared.context.stop_checker() is True
     finally:
         _current_send_cancellation.reset(token)
@@ -101,10 +103,10 @@ def test_cancellation_isolated_by_session():
     assert (session_b, 1) not in protocol._cancelled_requests
 
     # Verify stop_checker isolation
-    prepared_a = protocol._prepare_mcp_execution("tool", {}, req_id=1, session=session_a)
+    prepared_a = protocol._prepare_mcp_execution("tool", {}, req_id=1, session=session_a, send_cancellation=None)
     assert hasattr(prepared_a, "context") and prepared_a.context.stop_checker() is True
 
-    prepared_b = protocol._prepare_mcp_execution("tool", {}, req_id=1, session=session_b)
+    prepared_b = protocol._prepare_mcp_execution("tool", {}, req_id=1, session=session_b, send_cancellation=None)
     assert hasattr(prepared_b, "context") and prepared_b.context.stop_checker() is False
 
     # Client A attempting to cancel Client B's request 2 (which Client A does not have) is dropped
@@ -128,7 +130,7 @@ def test_mcp_protocol_async_tool_no_timeout_runs():
     del tool_mock.timeout
     protocol.tool_registry.get.return_value = tool_mock
 
-    prepared = protocol._prepare_mcp_execution("async_tool", {}, None)
+    prepared = protocol._prepare_mcp_execution("async_tool", {}, None, send_cancellation=None)
     assert hasattr(prepared, "context")
 
 
@@ -144,7 +146,7 @@ def test_mcp_protocol_async_tool_non_positive_timeout_errors():
     tool_mock.timeout = 0
     protocol.tool_registry.get.return_value = tool_mock
 
-    prepared = protocol._prepare_mcp_execution("async_tool", {}, None)
+    prepared = protocol._prepare_mcp_execution("async_tool", {}, None, send_cancellation=None)
     assert isinstance(prepared, dict)
     assert prepared.get("status") == "error"
     assert prepared.get("code") == "TOOL_EXECUTION_ERROR"

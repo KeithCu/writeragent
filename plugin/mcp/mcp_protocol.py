@@ -211,9 +211,6 @@ _BUSY_MESSAGE = "LibreOffice is busy processing another tool call. Please wait a
 _PROCESS_TIMEOUT = 60.0
 
 _ACTIVE_DOCUMENT_SENTINEL = "__active_document__"
-# Omitted means "read the caller's ambient send". An explicit None means the
-# worker had no scope; do not substitute the main thread's contextvar after marshal.
-_SEND_CANCELLATION_UNSET = object()
 
 
 def _doc_titles(docs: list[Any]) -> list[str]:
@@ -1051,20 +1048,14 @@ class MCPProtocolHandler:
         log.debug("tools/list broadened past the active %s document to also cover: %s", active_doc_type, ", ".join(sorted(others)))
         return schemas, others
 
-    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, send_cancellation: Any = _SEND_CANCELLATION_UNSET, session: Any = None) -> Any:
+    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, *, send_cancellation: Any, session: Any = None) -> Any:
         """Main-thread only: unknown-tool check, document resolve, ToolContext, precomputed echo.
 
         Returns ``_PreparedMcpCall`` or a structured error dict.
 
-        Marshalled callers pass the scope captured on the worker, including
-        None, so this does not inherit the main thread's ambient send.
-        Direct callers omit the argument and use the scope on this thread.
+        Callers pass the scope captured on the worker, including None.
+        None means that worker had no scope. This method does not read the main thread's send contextvar.
         """
-        if send_cancellation is _SEND_CANCELLATION_UNSET:
-            from plugin.framework.send_cancellation import get_current_send_cancellation
-
-            send_cancellation = get_current_send_cancellation()
-
         tool = self.tool_registry.get(tool_name)
         if tool is None:
             return {"status": "error", "code": "UNKNOWN_TOOL", "message": "No tool named '%s'. Check tools/list for the exact name (tools are filtered by the open document's type)." % tool_name}
@@ -1159,9 +1150,9 @@ class MCPProtocolHandler:
         """
         stop_checker = prepared.context.stop_checker
         if callable(stop_checker) and stop_checker() is True:
-            # What was wrong: only _run_prepared_mcp_execute checked Stop, so a fast
-            # tool cancelled during prepare or the gate wait still ran.
-            # How: both paths call this method.
+            # What was wrong: the fast path used to skip the Stop check, so a tool
+            # cancelled during prepare or the gate wait still ran.
+            # How: both paths call this method before execute.
             # Why: the checker only reads the cancel set and the send scope.
             return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
         # Security: keyword-only bypass flag must never come from a client
@@ -1176,15 +1167,6 @@ class MCPProtocolHandler:
             if prepared.echo and "document" not in result:
                 result["document"] = prepared.echo
         return result
-
-    def _run_prepared_mcp_execute(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
-        """Hold the per-document gate on the caller, then run the tool.
-
-        Long-running tools call this on the HTTP worker. Sync UNO inside the
-        registry is marshalled to the main thread from there.
-        """
-        with document_mutation_gate._document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
-            return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 
     def _execute_long_running(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
         """Execute a long-running tool on the current background HTTP thread.
@@ -1201,20 +1183,8 @@ class MCPProtocolHandler:
         prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation, session=session)
         if not isinstance(prepared, _PreparedMcpCall):
             return prepared
-        return self._run_prepared_mcp_execute(prepared, tool_name, arguments)
-
-    def _execute_tool_on_main(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
-        """Prepare and run a tool on the caller, including the mutation-gate wait.
-
-        In-process helper (tests, direct calls). Production backpressure must
-        not marshal this whole function: the gate wait would freeze the VCL
-        thread. ``_execute_with_backpressure`` waits on the HTTP worker, then
-        dispatches ``_invoke_prepared_mcp_tool`` alone.
-        """
-        prepared = self._prepare_mcp_execution(tool_name, arguments, document_url)
-        if not isinstance(prepared, _PreparedMcpCall):
-            return prepared
-        return self._run_prepared_mcp_execute(prepared, tool_name, arguments)
+        with document_mutation_gate._document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
+            return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 
     # ── Debug helpers ────────────────────────────────────────────────
 

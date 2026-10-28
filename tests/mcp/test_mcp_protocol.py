@@ -95,7 +95,9 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
 
     class _FakeMainThread:
         def execute(self, fn, *args, **kwargs):
-            return fn(*args)
+            kwargs.pop("timeout", None)
+            kwargs.pop("bound_scope", None)
+            return fn(*args, **kwargs)
 
     class _FakeDocSvc:
         def resolve_document_by_url(self, url):
@@ -167,7 +169,9 @@ class _DocSvc:
 
 class _InlineMain:
     def execute(self, fn, *args, **kwargs):
-        return fn(*args)
+        kwargs.pop("timeout", None)
+        kwargs.pop("bound_scope", None)
+        return fn(*args, **kwargs)
 
 
 class _Services:
@@ -854,7 +858,7 @@ def test_timeout_zero_rejects_async_tool():
     registry._tools["async_zero_timeout"] = MockAsyncZeroTimeoutTool()
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
-    result = handler._prepare_mcp_execution("async_zero_timeout", {}, None)
+    result = handler._prepare_mcp_execution("async_zero_timeout", {}, None, send_cancellation=None)
     assert isinstance(result, dict)
     assert result["status"] == "error"
     assert result["code"] == "TOOL_EXECUTION_ERROR"
@@ -878,7 +882,7 @@ def test_async_tool_without_timeout_runs():
     registry._tools["async_no_timeout"] = MockAsyncNoTimeoutTool()
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
-    result = handler._prepare_mcp_execution("async_no_timeout", {}, None)
+    result = handler._prepare_mcp_execution("async_no_timeout", {}, None, send_cancellation=None)
     assert not isinstance(result, dict) or result.get("status") != "error"
 
 
@@ -1109,7 +1113,7 @@ def test_resolve_exception_is_not_document_not_found():
     services.document.resolve_document_by_url.side_effect = DocumentDisposedError("closed", object_type="Document")
     handler = MCPProtocolHandler(services)
     with pytest.raises(DocumentDisposedError):
-        handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///gone.odt")
+        handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///gone.odt", send_cancellation=None)
 
 
 def test_unresolved_document_url_is_still_document_not_found():
@@ -1122,7 +1126,7 @@ def test_unresolved_document_url_is_still_document_not_found():
     services.tools.get.return_value = tool
     services.document.resolve_document_by_url.return_value = (None, None)
     handler = MCPProtocolHandler(services)
-    result = handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///missing.odt")
+    result = handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///missing.odt", send_cancellation=None)
     assert result["code"] == "DOCUMENT_NOT_FOUND"
     assert "missing.odt" in result["message"]
 
@@ -1139,7 +1143,7 @@ def test_open_documents_failure_is_not_no_document_open():
     services.document.open_documents.side_effect = RuntimeError("desktop")
     handler = MCPProtocolHandler(services)
     with pytest.raises(RuntimeError, match="desktop"):
-        handler._prepare_mcp_execution("t", {})
+        handler._prepare_mcp_execution("t", {}, send_cancellation=None)
 
 
 def test_draw_page_index_failure_propagates():
@@ -1154,7 +1158,7 @@ def test_draw_page_index_failure_propagates():
     handler = MCPProtocolHandler(services)
     with patch("plugin.draw.bridge.DrawBridge", side_effect=RuntimeError("no page")):
         with pytest.raises(RuntimeError, match="no page"):
-            handler._prepare_mcp_execution("t", {}, document_url="file:///a.odg")
+            handler._prepare_mcp_execution("t", {}, document_url="file:///a.odg", send_cancellation=None)
 
 
 def test_sse_keepalive_unexpected_error_is_logged(caplog):
