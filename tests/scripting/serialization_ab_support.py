@@ -22,10 +22,10 @@ import plugin.scripting.payload_codec as pc
 from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.payload_codec import (
     BINARY_MIN_CELLS,
+    PAYLOAD_MULTI_DATA,
     ForceBinary,
     child_unpack_data,
     host_pack_data,
-    host_pack_multi_data,
     host_unpack_data,
     is_numeric_grid,
     is_split_grid,
@@ -470,6 +470,14 @@ def all_codec_ab_cases() -> list[AbGridCase]:
     return out
 
 
+def _pack_multi_data(
+    grids: list[list[Any] | list[list[Any]]],
+    *,
+    force: ForceBinary = "auto",
+) -> dict[str, Any]:
+    return {"__wa_payload__": PAYLOAD_MULTI_DATA, "items": [host_pack_data(g, force=force) for g in grids]}
+
+
 def run_venv_roundtrip(
     grid: list[Any] | list[list[Any]],
     code: str,
@@ -480,7 +488,7 @@ def run_venv_roundtrip(
 ) -> Any:
     """Pack on host, execute in venv sandbox (or warm subprocess), return host-side result."""
     if grid_b is not None:
-        wire = host_pack_multi_data([grid, grid_b], force=pack_force)
+        wire = _pack_multi_data([grid, grid_b], force=pack_force)
     else:
         wire = host_pack_data(grid, force=pack_force)
     if use_subprocess:
@@ -875,7 +883,7 @@ def multi_range_child_materialization(
     force: ForceBinary = "auto",
 ) -> Any:
     """Child-side materialization for a list of Calc ranges (multi_data envelope)."""
-    return child_unpack_data(host_pack_multi_data(grids, force=force))
+    return child_unpack_data(_pack_multi_data(grids, force=force))
 
 
 def run_multi_venv_echo(
@@ -886,7 +894,7 @@ def run_multi_venv_echo(
 ) -> Any:
     """Echo ``data`` through venv when injected as a multi-range list."""
     code = "result = [r.values for r in ranges]"
-    wire = host_pack_multi_data(grids, force=pack_force)
+    wire = _pack_multi_data(grids, force=pack_force)
     if use_subprocess:
         mgr = PythonWorkerManager.get(sys.executable, _WORKER_ENV, pool=_TEST_SUBPROCESS_POOL)
         response = mgr.execute(code, data=wire)

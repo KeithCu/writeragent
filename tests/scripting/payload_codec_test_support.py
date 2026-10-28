@@ -20,8 +20,8 @@ from plugin.scripting.payload_codec import (
     SPLIT_GRID_WIRE_DTYPE,
     _flatten_grid_to_components,
     _apply_column_kinds_to_ndarray,
+    _uniform_column_kind,
     envelope_column_kinds,
-    envelope_uniform_column_kind,
     host_pack_split_grid,
     host_unpack_split_grid,
     child_pack_split_grid,
@@ -130,7 +130,7 @@ def legacy_b64_host_unpack_split_grid(envelope: dict[str, Any]) -> list[Any] | l
     is_1d = len(shape) == 1
     nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
     strings = envelope.get("strings", {})
-    uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
+    uniform = _uniform_column_kind(envelope_column_kinds(envelope, ncols=ncols))
 
     flat_list: list[Any]
     if not strings and uniform is not None:
@@ -180,7 +180,7 @@ def legacy_b64_child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
     nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
     b64_str = envelope.get("b64", "")
     raw = base64.b64decode(b64_str.encode("ascii"))
-    uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
+    uniform = _uniform_column_kind(envelope_column_kinds(envelope, ncols=ncols))
     column_kinds = envelope_column_kinds(envelope, ncols=ncols)
     strings = envelope.get("strings", {})
 

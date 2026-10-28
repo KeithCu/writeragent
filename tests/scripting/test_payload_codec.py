@@ -31,18 +31,16 @@ from plugin.scripting.payload_codec import (
     PAYLOAD_DATAFRAME,
     PAYLOAD_MULTI_DATA,
     PAYLOAD_SPLIT_GRID,
-    binary_envelope_skip_reason,
+    _is_numeric_coercible_impl,
     child_pack_result,
     child_unpack_data,
     child_unpack_split_grid,
     describe_wire_value,
     host_pack_data,
-    host_pack_multi_data,
     host_unpack_data,
     host_unpack_split_grid,
     is_dataframe_payload,
     is_multi_data,
-    is_numeric_coercible,
     is_numeric_grid,
     is_split_grid,
     should_use_binary_envelope,
@@ -100,15 +98,6 @@ def test_should_use_binary_envelope_1d_boundary() -> None:
     assert should_use_binary_envelope((BINARY_MIN_CELLS,), force="auto") is True
 
 
-def test_binary_envelope_skip_reason_below_threshold() -> None:
-    """Policy helper explains why a grid below BINARY_MIN_CELLS skips split_grid."""
-    n = BINARY_MIN_CELLS - 1
-    rows, cols = rect_shape_for_cell_count(n)
-    reason = binary_envelope_skip_reason((rows, cols), force="auto")
-    assert reason is not None
-    assert str(BINARY_MIN_CELLS) in reason
-
-
 def test_host_pack_auto_uses_split_grid_for_large_rect():
     """Auto policy uses split_grid when cell count >= BINARY_MIN_CELLS."""
     grid = NUMERIC_AT_THRESHOLD
@@ -151,26 +140,15 @@ def test_round_trip_child_split_grid_host_list():
     assert back[2][3] == pytest.approx(11.0)
 
 
-def test_column_kinds_from_cell_types():
-    from plugin.scripting.payload_codec import column_kinds_for_grid
-
-    assert column_kinds_for_grid([[100, 541], [101, 547]]) == ["int", "int"]
-    assert column_kinds_for_grid([[100, 1.5], [101, 2.5]]) == ["int", "float"]
-    assert column_kinds_for_grid([[1.5, 2.0]]) == ["float", "float"]
-    assert column_kinds_for_grid([[1, None]]) == ["int", "float"]
-    assert column_kinds_for_grid([[1, "x"]]) == ["int", "float"]
-    assert column_kinds_for_grid([["x"], ["y"]]) == ["float"]
-
-
 def test_uniform_unpack_uses_full_column_kinds_on_wire():
     """Fast decode path must not require a shortened wire tag; column_kinds stays per-column."""
-    from plugin.scripting.payload_codec import envelope_uniform_column_kind
+    from plugin.scripting.payload_codec import _uniform_column_kind, envelope_column_kinds
 
     grid = [[100, 541], [101, 547], [102, 557], [103, 563], [104, 569], [105, 571], [106, 577]]
     wire = host_pack_data(grid, force="always")
     assert wire["column_kinds"] == ["int", "int"]
     assert "uniform_column_kind" not in wire
-    assert envelope_uniform_column_kind(wire, ncols=2) == "int"
+    assert _uniform_column_kind(envelope_column_kinds(wire, ncols=2)) == "int"
 
 
 def test_host_unpack_restores_integer_grid():
@@ -648,12 +626,6 @@ def test_split_grid_bad_b64_raises_valueerror() -> None:
             assert type(caught.value) is ValueError
 
 
-def test_column_kinds_for_grid_jagged_raises() -> None:
-    """The kinds helper used to return [] and hide the flatten ValueError."""
-    with pytest.raises(ValueError, match="Uneven row lengths"):
-        payload_codec.column_kinds_for_grid([[1, 2], [3]])
-
-
 def test_envelope_detectors_reject_bool_shape_dims() -> None:
     """bool is an int subclass. True used to pass as a shape extent."""
     from plugin.scripting.payload_codec import is_calc_range_payload
@@ -880,13 +852,13 @@ def test_unknown_dtype_kind_promotes_column_like_cython() -> None:
 
     The pure path used to leave the column bool while Cython set float.
     """
-    from plugin.scripting.payload_codec import column_kinds_for_grid
+    from plugin.scripting.payload_codec import _flatten_grid_to_components
 
     grid = [[True, 0], [_WeirdFloat(), 0]]
     with cython_accelerator_context(enabled=False):
-        assert column_kinds_for_grid(grid) == ["float", "int"]
+        assert _flatten_grid_to_components(grid)[2] == ["float", "int"]
     if payload_codec.fast_flatten_grid_2d is not None:
-        assert column_kinds_for_grid(grid) == ["float", "int"]
+        assert _flatten_grid_to_components(grid)[2] == ["float", "int"]
 
 
 def test_int_subclass_column_kind_matches_cython() -> None:
@@ -1302,17 +1274,17 @@ def test_child_mixed_2d_returns_list_not_ndarray() -> None:
 
 def test_is_numeric_coercible_and_is_numeric_grid() -> None:
     """Helpers gate numeric-only fast paths."""
-    assert is_numeric_coercible(None) is True
-    assert is_numeric_coercible("42") is False
-    assert is_numeric_coercible("") is True
-    assert is_numeric_coercible("hello") is False
+    assert _is_numeric_coercible_impl(None) is True
+    assert _is_numeric_coercible_impl("42") is False
+    assert _is_numeric_coercible_impl("") is True
+    assert _is_numeric_coercible_impl("hello") is False
     assert is_numeric_grid([[1, 2], [3, 4]]) is True
     assert is_numeric_grid([1, "x"]) is False
     # A user type whose name starts with "int" is not a NumPy scalar.
     internal = type("internal", (), {})
-    assert is_numeric_coercible(internal()) is False
+    assert _is_numeric_coercible_impl(internal()) is False
     np = pytest.importorskip("numpy")
-    assert is_numeric_coercible(np.int64(3)) is True
+    assert _is_numeric_coercible_impl(np.int64(3)) is True
 
 
 def test_pickle5_roundtrip_numeric_4x4() -> None:
@@ -1373,7 +1345,7 @@ def test_split_grid_boolean_roundtrip_fidelity():
     ]
     
     # 1. Test column kinds computed correctly
-    kinds = payload_codec.column_kinds_for_grid(grid)
+    kinds = payload_codec._flatten_grid_to_components(grid)[2]
     # Text-only column is float, not int. The int column keeps int even with a None
     # because the grid has strings, so the pure-numeric None promotion does not fire.
     assert kinds == ["bool", "float", "int"]
@@ -1473,15 +1445,15 @@ def test_split_grid_lattice_promotion_comprehensive():
     """Verify structural type promotions and kinds behavior for all scenarios."""
     # 1. Boolean-only column keeps bool kind in mixed grid
     grid1 = [[True, "apple"], [False, "banana"], [None, "cherry"]]
-    assert payload_codec.column_kinds_for_grid(grid1) == ["bool", "float"]
+    assert payload_codec._flatten_grid_to_components(grid1)[2] == ["bool", "float"]
     
     # 2. Boolean mixed with integers becomes int
     grid2 = [[True], [10], [False]]
-    assert payload_codec.column_kinds_for_grid(grid2) == ["int"]
+    assert payload_codec._flatten_grid_to_components(grid2)[2] == ["int"]
     
     # 3. Integer mixed with float becomes float
     grid3 = [[10], [1.5], [20]]
-    assert payload_codec.column_kinds_for_grid(grid3) == ["float"]
+    assert payload_codec._flatten_grid_to_components(grid3)[2] == ["float"]
     
     # 4. Purely numeric grid (no strings) with None forces float
     grid4 = [[10], [None], [20]]
@@ -1492,7 +1464,7 @@ def test_split_grid_lattice_promotion_comprehensive():
 def test_host_pack_multi_data_numeric_columns():
     np = pytest.importorskip("numpy")
     ranges = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
-    wire = host_pack_multi_data(ranges, force="always")
+    wire = {"__wa_payload__": PAYLOAD_MULTI_DATA, "items": [host_pack_data(g, force="always") for g in ranges]}
     assert is_multi_data(wire)
     assert wire["__wa_payload__"] == PAYLOAD_MULTI_DATA
     assert wire_cell_count(wire) == 6
@@ -1504,7 +1476,7 @@ def test_host_pack_multi_data_numeric_columns():
 
 def test_host_unpack_multi_data_mixed_grids():
     ranges = [[[1.0, "a"], [2.0, "b"]], [[3.0, "c"]]]
-    wire = host_pack_multi_data(ranges, force="never")
+    wire = {"__wa_payload__": PAYLOAD_MULTI_DATA, "items": [host_pack_data(g, force="never") for g in ranges]}
     host_decoded = host_unpack_data(wire)
     assert len(host_decoded) == 2
     assert host_decoded[0] == [[1.0, "a"], [2.0, "b"]]

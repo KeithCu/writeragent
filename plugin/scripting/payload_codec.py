@@ -47,9 +47,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_ROW_INDEX,
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SHAPE_RANK,
-    DEAL_MAX_SOURCE,
     _profile,
-    ascii_bounded,
     deal,
     inverse_ensure,
 )
@@ -463,16 +461,6 @@ def _bounded_rect_grid_ok(grid: object, max_rows: int, max_cols: int) -> bool:
     return True
 
 
-def _deal_grid_ok(grid: object) -> bool:
-    """CrossHair domain for list grids. Production ``_is_grid_sequence`` stays uncapped.
-
-    Unbounded lists let deep check materialize huge nested grids in
-    ``is_numeric_grid`` / pack. Side length follows ``DEAL_MAX_SHAPE_DIM``
-    (pytest 256 still fits 100×100 pack-speed tests; CrossHair uses 4).
-    """
-    return _bounded_rect_grid_ok(grid, DEAL_MAX_SHAPE_DIM, DEAL_MAX_SHAPE_DIM)
-
-
 def _deal_product_grid_ok(grid: object) -> bool:
     """Deal domain for live Calc→worker pack (``host_pack_*`` / flatten).
 
@@ -482,37 +470,6 @@ def _deal_product_grid_ok(grid: object) -> bool:
     Caps at Calc sheet bounds (``DEAL_MAX_ROW_INDEX`` / ``DEAL_MAX_COL_INDEX``).
     """
     return _bounded_rect_grid_ok(grid, DEAL_MAX_ROW_INDEX + 1, DEAL_MAX_COL_INDEX + 1)
-
-
-def _deal_numeric_cell_ok_pytest(value: object) -> bool:
-    """Pytest/production: the detector is total.
-
-    A list, a long string, or non-ASCII text used to raise PreContractError
-    instead of False. The body already returns a bool. CrossHair keeps the
-    scalar/ascii domain. ``value`` is unused.
-    """
-    return True
-
-
-def _deal_numeric_cell_ok_crosshair(value: object) -> bool:
-    """CrossHair domain for ``is_numeric_coercible``.
-
-    Numpy scalars stay allowed in the body (``type(value).__name__``);
-    the pre keeps SMT off ``Any`` + ``startswith``.
-    """
-    if value is None:
-        return True
-    t = type(value)
-    if t is bool:
-        return True
-    if t is int or t is float:
-        return True
-    if t is str:
-        return ascii_bounded(value, DEAL_MAX_SOURCE)
-    return False
-
-
-_deal_numeric_cell_ok = _profile(_deal_numeric_cell_ok_crosshair, _deal_numeric_cell_ok_pytest)
 
 
 def _deal_wire_dict_ok_crosshair(obj: object) -> bool:
@@ -835,26 +792,6 @@ def _is_ndarray(obj: object) -> bool:
     return type(obj).__name__ == "ndarray" and type(obj).__module__ == "numpy"
 
 
-# Pytest accepts real sheets. ``_deal_grid_ok``'s 256-row cap raised
-# PreContractError on a sheet pack accepts. CrossHair keeps that small domain.
-_deal_column_kinds_grid_ok = _profile(_deal_grid_ok, _deal_product_grid_ok)
-
-
-@deal.pre(lambda grid, *_unused, **__: _deal_column_kinds_grid_ok(grid))
-@deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), list))
-@deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: all(x in ("int", "float", "bool") for x in _deal_return(*a, result=result)))
-@deal.raises(ValueError)
-def column_kinds_for_grid(grid: list[Any] | list[list[Any]]) -> list[str]:
-    """Policy helper (tests): per-column int/float/bool from source types; mirrors host_pack_split_grid."""
-    # crosshair: off
-    # ``except Exception: return []`` hid the jagged-grid ValueError that
-    # flatten raises, and the small deal domain rejected a sheet pack accepts.
-    # Call flatten directly. pytest uses the product-grid pre, and a jagged
-    # grid raises.
-    _unused, _unused2, kinds, _unused3 = _flatten_grid_to_components(grid)
-    return kinds
-
-
 def _uniform_column_kind(kinds: list[str]) -> str | None:
     """Return the kind when every column matches; else None (mixed columns)."""
     # crosshair: off
@@ -879,12 +816,6 @@ def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[str]:
     if isinstance(kinds, list) and len(kinds) == ncols:
         return ["int" if k == "int" else ("bool" if k == "bool" else "float") for k in kinds]
     return ["float"] * ncols
-
-
-def envelope_uniform_column_kind(envelope: dict[str, Any], *, ncols: int) -> str | None:
-    """Decode-only: all-int or all-float fast path when ``column_kinds`` are uniform; None if mixed."""
-    # crosshair: off
-    return _uniform_column_kind(envelope_column_kinds(envelope, ncols=ncols))
 
 
 def _apply_column_kinds_to_ndarray(arr: Any, *, uniform: str | None) -> Any:
@@ -1016,8 +947,7 @@ def cell_count(shape: tuple[int, ...]) -> int:
 def _deal_force_min_cells_domain(min_cells: object, force: object, *, max_cells: int) -> bool:
     """Shared ``force`` / ``min_cells`` domain for policy and pack contracts.
 
-    ``should_use_binary_envelope``, ``binary_envelope_skip_reason``,
-    ``host_pack_data``, and ``host_pack_multi_data`` used to repeat this
+    ``should_use_binary_envelope`` and ``host_pack_data`` used to repeat this
     check. Each ``@deal.pre`` stays a keyword-default lambda so CrossHair's
     call shape still matches. The cap is chosen once via ``_profile``:
     CrossHair keeps ``DEAL_MAX_SHAPE_DIM`` so the search domain stays small.
@@ -1072,30 +1002,16 @@ def should_use_binary_envelope(
     return len(shape) > 0 and cell_count(shape) >= min_cells
 
 
-@deal.pre(lambda shape, *_unused, **__: _deal_shape_ok(shape))
-@deal.pre(
-    lambda shape, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: _deal_force_min_cells_ok(
-        min_cells, force
-    )
-)
-def binary_envelope_skip_reason(
-    shape: tuple[int, ...],
-    *,
-    min_cells: int = BINARY_MIN_CELLS,
-    force: ForceBinary = "auto",
-) -> str | None:
-    """Human-readable reason split_grid was not used; None if envelope would be used."""
-    # crosshair: off
-    if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
-        return None
-    if force == "never":
-        return "force=never"
-    ncells = cell_count(shape)
-    return f"needs cells >= {min_cells} (got {ncells} in shape {shape})"
-
-
 def _is_numeric_coercible_impl(value: Any) -> bool:
-    """Body of ``is_numeric_coercible`` without ``@deal.pre`` (used by ``is_numeric_grid``)."""
+    """True when a cell may enter the numeric-grid / ``np.array(list)`` gate.
+
+    The name is that gate, not "``float()`` succeeds". Non-empty strings are
+    never coercible here — even ``\"02138\"`` parses as a float — so mixed
+    grids stay lists after child split_grid unpack (zip codes and labels
+    preserved). Empty and whitespace strings return True because they match
+    Calc blanks. ``np.array(..., dtype=float64)`` still raises ``ValueError``
+    on them, and ``_child_unpack_single_data`` keeps the list in that case.
+    """
     # crosshair: off
     if value is None or isinstance(value, (bool, int, float)):
         return True
@@ -1112,31 +1028,6 @@ def _is_numeric_coercible_impl(value: Any) -> bool:
     if isinstance(value, str):
         return not value.strip()
     return False
-
-
-@deal.pre(lambda value: _deal_numeric_cell_ok(value))
-@deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), bool))
-@deal.ensure(
-    lambda value, *a, result=_DEAL_RETURN, **k: not (isinstance(value, str) and value.strip())
-    or _deal_return(*a, result=result) is False
-)
-@deal.ensure(lambda value, *a, result=_DEAL_RETURN, **k: value is not None or _deal_return(*a, result=result) is True)
-@deal.ensure(
-    lambda value, *a, result=_DEAL_RETURN, **k: not isinstance(value, (bool, int, float))
-    or _deal_return(*a, result=result) is True
-)
-def is_numeric_coercible(value: Any) -> bool:
-    """True when a cell may enter the numeric-grid / ``np.array(list)`` gate.
-
-    The name is that gate, not "``float()`` succeeds". Non-empty strings are
-    never coercible here — even ``\"02138\"`` parses as a float — so mixed
-    grids stay lists after child split_grid unpack (zip codes and labels
-    preserved). Empty and whitespace strings return True because they match
-    Calc blanks. ``np.array(..., dtype=float64)`` still raises ``ValueError``
-    on them, and ``_child_unpack_single_data`` keeps the list in that case.
-    """
-    # crosshair: off
-    return _is_numeric_coercible_impl(value)
 
 
 @deal.pre(lambda grid: isinstance(grid, list) and _deal_product_grid_ok(grid))
@@ -1810,39 +1701,6 @@ def host_pack_data(
         raise
 
 
-@deal.pre(lambda grids, *_unused, **__: isinstance(grids, list) and len(grids) <= DEAL_MAX_SHAPE_DIM and all(_deal_product_grid_ok(g) for g in grids))
-@deal.pre(
-    lambda grids, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: _deal_force_min_cells_ok(
-        min_cells, force
-    )
-)
-@deal.post(lambda *a, result=_DEAL_RETURN, **k: _is_multi_data_envelope(_deal_return(*a, result=result)))
-@deal.ensure(
-    lambda grids, *a, result=_DEAL_RETURN, **k: len(_deal_return(*a, result=result).get("items", []))
-    == len(grids)
-)
-@deal.raises(ValueError)
-def host_pack_multi_data(
-    grids: list[list[Any] | list[list[Any]]],
-    *,
-    min_cells: int = BINARY_MIN_CELLS,
-    force: ForceBinary = "auto",
-) -> dict[str, Any]:
-    """Pack multiple Calc ranges as a ``multi_data`` envelope for the worker."""
-    # crosshair: off
-    items = [host_pack_data(grid, min_cells=min_cells, force=force) for grid in grids]
-    envelope: dict[str, Any] = {
-        "__wa_payload__": PAYLOAD_MULTI_DATA,
-        "items": items,
-    }
-    log.debug(
-        "payload_codec host_pack multi_data items=%s cells=%s",
-        len(items),
-        wire_cell_count(envelope),
-    )
-    return envelope
-
-
 def _split_grid_string_index(key: Any) -> int:
     """Flat cell index for one ``strings`` key.
 
@@ -1978,7 +1836,7 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     # Uniform kind is only the empty-strings fast path. Building it for a wide
     # mixed grid walked every column and threw the list away. Same deferral as
     # child_unpack_split_grid.
-    uniform = None if strings else envelope_uniform_column_kind(envelope, ncols=ncols)
+    uniform = None if strings else _uniform_column_kind(envelope_column_kinds(envelope, ncols=ncols))
 
     flat_list: list[Any]
     if not strings and uniform is not None:
@@ -2245,7 +2103,7 @@ def _child_unpack_single_data(wire: Any) -> Any:
         else:
             grid = list(unpacked)
         if is_numeric_grid(grid):
-            # is_numeric_coercible treats whitespace/"" as Calc blanks, but
+            # _is_numeric_coercible_impl treats whitespace/"" as Calc blanks, but
             # np.float64 cannot convert those strings (ValueError). Keep the list.
             # No NumPy: a numeric list cannot become an ndarray. Return it so
             # plain inbound data still materializes.
@@ -2499,8 +2357,6 @@ def _needs_elementwise_pack(obj: Any, _depth: int = 0) -> bool:
     return any(_container_has_packable_nested(item, _depth=_depth + 1, _np=np) for item in obj)
 
 
-@deal.pre(lambda result, *_unused, **__: True)
-@deal.post(lambda _unused: True)
 @deal.raises(ValueError, TypeError, AttributeError)
 def child_pack_result(
     result: Any,

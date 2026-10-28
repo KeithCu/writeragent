@@ -244,14 +244,12 @@
       "payload_codec.py": {
         "status": "partial",
         "tool": "crosshair+deal+pytest+hypothesis",
-        "contracts": 26,
+        "contracts": 8,
         "functions_contracted": [
           "_flatten_grid_to_components",
-          "column_kinds_for_grid",
           "should_use_binary_envelope",
           "host_pack_split_grid",
           "host_pack_data",
-          "host_pack_multi_data",
           "host_unpack_split_grid",
           "host_unpack_data",
           "child_unpack_split_grid",
@@ -259,7 +257,6 @@
           "child_pack_split_grid",
           "child_pack_result",
           "cell_count",
-          "is_numeric_coercible",
           "is_numeric_grid",
           "wire_cell_count",
           "is_split_grid",
@@ -277,7 +274,7 @@
         "crosshair_last_run": "2026-08-09",
         "crosshair_result": "no_counterexamples",
         "ci_integration": false,
-        "notes": "Envelope detectors + host_pack_multi_data items-len ensure 2026-08-09; wire_cell_count and several pack/unpack remain # crosshair: off; FQN CrossHair on detectors/policy; status partial until pack/unpack CrossHair bar defined"
+        "notes": "Envelope detectors 2026-08-09; wire_cell_count and several pack/unpack remain # crosshair: off; FQN CrossHair on detectors/policy; status partial until pack/unpack CrossHair bar defined"
       },
       "import_policy.py": {
         "status": "verified",
