@@ -369,13 +369,7 @@ def _prepare_time_series_with_period(
     return coerced, series, season, None
 
 
-def _forecast_moving_average(
-    series: Any,
-    *,
-    periods: int,
-    future_dates: Any,
-    freq_label: str,
-) -> tuple[Any, dict[str, Any]]:
+def _forecast_moving_average(series: Any, *, periods: int, future_dates: Any, freq_label: str) -> tuple[Any, dict[str, Any]]:
     import pandas as pd
 
     window = max(2, min(12, len(series) // 3))
@@ -391,14 +385,7 @@ def _forecast_moving_average(
     return forecast_df, metrics
 
 
-def _fallback_ma(
-    series: Any,
-    periods: int,
-    flags: list[str],
-    future_dates: Any,
-    freq_label: str,
-    reason: str | None,
-) -> tuple[Any, dict[str, Any]]:
+def _fallback_ma(series: Any, periods: int, flags: list[str], future_dates: Any, freq_label: str, reason: str | None) -> tuple[Any, dict[str, Any]]:
     """Moving average plus its flags.
 
     `reason` is appended before the fixed interval sentence. None means there
@@ -406,9 +393,7 @@ def _fallback_ma(
     Holt-Winters fallback must pass the Holt-Winters exception; the inner
     ARIMA exception is discarded on purpose.
     """
-    forecast_df, metrics = _forecast_moving_average(
-        series, periods=periods, future_dates=future_dates, freq_label=freq_label,
-    )
+    forecast_df, metrics = _forecast_moving_average(series, periods=periods, future_dates=future_dates, freq_label=freq_label)
     if reason is not None:
         flags.append(reason)
     flags.append("moving_average has no prediction interval")
@@ -472,14 +457,7 @@ def _holt_winters_intervals(fit: Any, periods: int) -> tuple[Any, Any] | None:
     return lower, upper
 
 
-def _forecast_holt_winters(
-    series: Any,
-    *,
-    periods: int,
-    seasonal_periods: int,
-    future_dates: Any,
-    freq_label: str,
-) -> tuple[Any, dict[str, Any], list[str]]:
+def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int, future_dates: Any, freq_label: str) -> tuple[Any, dict[str, Any], list[str]]:
     import numpy as np
     import pandas as pd
     from statsmodels.tsa.holtwinters import ExponentialSmoothing
@@ -532,13 +510,7 @@ def _forecast_holt_winters(
     return forecast_df, metrics, flags
 
 
-def _forecast_arima(
-    series: Any,
-    *,
-    periods: int,
-    future_dates: Any,
-    freq_label: str,
-) -> tuple[Any, dict[str, Any]]:
+def _forecast_arima(series: Any, *, periods: int, future_dates: Any, freq_label: str) -> tuple[Any, dict[str, Any]]:
     import numpy as np
     import pandas as pd
     from statsmodels.tsa.arima.model import ARIMA
@@ -652,24 +624,11 @@ def forecast_time_series(
         )
 
     if model_name == "moving_average":
-        reason = (
-            "seasonal_periods does not apply to moving_average; ignored"
-            if seasonal_periods_val is not None
-            else None
-        )
-        forecast_df, metrics = _fallback_ma(
-            series, periods_clamped, flags, future_dates, freq_label, reason,
-        )
+        reason = "seasonal_periods does not apply to moving_average; ignored" if seasonal_periods_val is not None else None
+        forecast_df, metrics = _fallback_ma(series, periods_clamped, flags, future_dates, freq_label, reason)
     elif _require_statsmodels() is None:
         if model_name == "auto":
-            forecast_df, metrics = _fallback_ma(
-                series,
-                periods_clamped,
-                flags,
-                future_dates,
-                freq_label,
-                "statsmodels missing; used moving_average fallback",
-            )
+            forecast_df, metrics = _fallback_ma(series, periods_clamped, flags, future_dates, freq_label, "statsmodels missing; used moving_average fallback")
         else:
             return _missing_package_error(helper, "statsmodels")
     elif model_name == "holt_winters":
@@ -684,21 +643,13 @@ def forecast_time_series(
         if shortfall is not None:
             return _error_result("INSUFFICIENT_DATA", shortfall, helper=helper)
         try:
-            forecast_df, metrics, hw_flags = _forecast_holt_winters(
-                series,
-                periods=periods_clamped,
-                seasonal_periods=season,
-                future_dates=future_dates,
-                freq_label=freq_label,
-            )
+            forecast_df, metrics, hw_flags = _forecast_holt_winters(series, periods=periods_clamped, seasonal_periods=season, future_dates=future_dates, freq_label=freq_label)
             flags.extend(hw_flags)
         except Exception as exc:
             return _error_result("FORECAST_FAILED", str(exc), helper=helper)
     elif model_name == "arima":
         try:
-            forecast_df, metrics = _forecast_arima(
-                series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label,
-            )
+            forecast_df, metrics = _forecast_arima(series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label)
             if seasonal_periods_val is not None:
                 flags.append("seasonal_periods does not apply to non-seasonal ARIMA(1,1,1); ignored")
         except Exception as exc:
@@ -710,29 +661,14 @@ def forecast_time_series(
         if has_enough:
             assert season is not None
             try:
-                forecast_df, metrics, hw_flags = _forecast_holt_winters(
-                    series,
-                    periods=periods_clamped,
-                    seasonal_periods=season,
-                    future_dates=future_dates,
-                    freq_label=freq_label,
-                )
+                forecast_df, metrics, hw_flags = _forecast_holt_winters(series, periods=periods_clamped, seasonal_periods=season, future_dates=future_dates, freq_label=freq_label)
                 flags.extend(hw_flags)
             except Exception as exc:
                 try:
-                    forecast_df, metrics = _forecast_arima(
-                        series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label,
-                    )
+                    forecast_df, metrics = _forecast_arima(series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label)
                     flags.append(f"primary model failed ({exc}); used arima")
                 except Exception:
-                    forecast_df, metrics = _fallback_ma(
-                        series,
-                        periods_clamped,
-                        flags,
-                        future_dates,
-                        freq_label,
-                        f"statsmodels forecast failed ({exc}); used moving_average",
-                    )
+                    forecast_df, metrics = _fallback_ma(series, periods_clamped, flags, future_dates, freq_label, f"statsmodels forecast failed ({exc}); used moving_average")
         else:
             if seasonal_periods_val is not None:
                 need = seasonal_periods_val * _MIN_DECOMPOSE_CYCLES
@@ -742,18 +678,9 @@ def forecast_time_series(
             else:
                 flags.append(_seasonality_skip_reason(series))
             try:
-                forecast_df, metrics = _forecast_arima(
-                    series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label,
-                )
+                forecast_df, metrics = _forecast_arima(series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label)
             except Exception as exc:
-                forecast_df, metrics = _fallback_ma(
-                    series,
-                    periods_clamped,
-                    flags,
-                    future_dates,
-                    freq_label,
-                    f"statsmodels forecast failed ({exc}); used moving_average",
-                )
+                forecast_df, metrics = _fallback_ma(series, periods_clamped, flags, future_dates, freq_label, f"statsmodels forecast failed ({exc}); used moving_average")
 
     if irregular_dates:
         flags.append("Dates are irregular, so the forecast assumes equal spacing between observations.")
