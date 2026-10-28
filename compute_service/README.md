@@ -17,10 +17,10 @@ Multipart is the long-term preferred kit↔compute shape. See
 python compute_service/server.py --host 127.0.0.1 --port 8000
 ```
 
-- `GET /health` → `{"status":"healthy","service":"python-compute","version":"<version>"}` (no auth required)
-- `POST /v1/execute[?session_id=<id>]` — `application/json` (peel one object) **or** `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional `data`). Same execute fields; same egress. Peel is compatibility; multipart is the preferred wire.
+- `GET /health` → `{"status":"healthy","service":"python-compute","version":"{version}"}` (no auth required)
+- `POST /v1/execute[?session_id={id}]` — `application/json` (peel one object) **or** `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional `data`). Same execute fields; same egress. Peel is compatibility; multipart is the preferred wire.
   (`init_script` runs **once** per worker. Later cells are seeded from that namespace. Shared uses one key, `{session_id}:init`, so a changed script replaces the snapshot. Isolated keys on a hash of the script, so a changed script is a new key; old isolated snapshots stay until a per-worker LRU of 32 or the `max_tasks` recycle drops them.)
-- `POST /v1/session/reset?session_id=<id>` — optional `{ "id?" }` → `{ "id?", "status": "ok" }`. Query-only `session_id` (same L7 sticky reason as execute). Idempotent: unknown / already-gone is still `ok`. Caller is coolwsd on DocumentBroker destroy / last view leave (service-side only today; Online still hard-codes `isolated`).
+- `POST /v1/session/reset?session_id={id}` — optional `{ "id?" }` → `{ "id?", "status": "ok" }`. Query-only `session_id` (same L7 sticky reason as execute). Idempotent: unknown / already-gone is still `ok`. Caller is coolwsd on DocumentBroker destroy / last view leave (service-side only today; Online still hard-codes `isolated`).
 - Docker (hardened run flags): `./compute_service/start-docker.sh` — see **Production / Collabora Online** below.
 
 ---
@@ -39,15 +39,15 @@ Always unauthenticated even when Bearer authentication is configured for executi
   {
     "status": "healthy",
     "service": "python-compute",
-    "version": "<compute_service.__version__>"
+    "version": "{compute_service.__version__}"
   }
   ```
 
-### 2. Execution Endpoint (`POST /v1/execute[?session_id=<id>]`)
+### 2. Execution Endpoint (`POST /v1/execute[?session_id={id}]`)
 
 Evaluates sandboxed Python code and emits kit-safe dumb JSON (`allow_nan=False`, `NaN`/`Inf` → `null`).
 
-- **Sticky Routing via URL Query Parameter**: For stateful calculations (`mode="shared"`), `session_id` is supplied as a URL query parameter (`POST /v1/execute?session_id=<id>`) so Layer 7 routers, ingress proxies, and load balancers can route stickily without buffering and parsing JSON request bodies:
+- **Sticky Routing via URL Query Parameter**: For stateful calculations (`mode="shared"`), `session_id` is supplied as a URL query parameter (`POST /v1/execute?session_id={id}`) so Layer 7 routers, ingress proxies, and load balancers can route stickily without buffering and parsing JSON request bodies:
   - **HAProxy**: `balance url_param session_id`
   - **NGINX**: `hash $arg_session_id consistent;`
   - **Envoy**: `hash_policy: [query_parameter: { name: "session_id" }]`
@@ -73,9 +73,9 @@ request shapes, why multipart exists, and the plan to retire peel.
   {
     "id": "req-123",
     "status": "error",
-    "error": "SyntaxError: invalid syntax (<string>, line 1)",
+    "error": "SyntaxError: invalid syntax ({string}, line 1)",
     "stdout": "",
-    "message": "SyntaxError: invalid syntax (<string>, line 1)"
+    "message": "SyntaxError: invalid syntax ({string}, line 1)"
   }
   ```
 
@@ -110,13 +110,13 @@ Both formats work **now**. Dispatch is strictly `Content-Type`.
 
 **Unchanged either way:** worker dumps kit JSON once (`result_json`); the HTTP host forwards those bytes (no host re-`dumps` of a large result). LibrePy desktop `=PY()` stays Pickle5 + `split_grid` both ways and never uses this HTTP hop.
 
-### 3. Session Reset Endpoint (`POST /v1/session/reset?session_id=<id>`)
+### 3. Session Reset Endpoint (`POST /v1/session/reset?session_id={id}`)
 
 Drops the shared sandbox and init companion for one workbook kernel. Reuses `FormulaPool.reset_session` → worker `action: reset_session` → LibrePy `reset_sandbox_session` (no second reset path).
 
 Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This endpoint lands ahead of Online shared-kernel work; Collabora Online still hard-codes `mode: isolated` and does not call reset yet.
 
-- **Sticky routing:** `session_id` is **URL query only** (`POST /v1/session/reset?session_id=<id>`), same L7 reason as `/v1/execute` — the request must hit the host that owns the kernel. Reject if `session_id` is only in the JSON body (or present in the body at all), or uses reserved prefixes/suffixes (`:init`, `isolated:`).
+- **Sticky routing:** `session_id` is **URL query only** (`POST /v1/session/reset?session_id={id}`), same L7 reason as `/v1/execute` — the request must hit the host that owns the kernel. Reject if `session_id` is only in the JSON body (or present in the body at all), or uses reserved prefixes/suffixes (`:init`, `isolated:`).
 - **Request body** (optional; empty body is fine):
   ```json
   { "id": "corr-1" }
@@ -147,7 +147,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
       "timeout_ms": 60000
     }
     ```
-  - `image` part (`application/octet-stream`): `<raw binary image bytes>`
+  - `image` part (`application/octet-stream`): `{raw binary image bytes}`
 
 - **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks the opened path against the same prefix list. On Linux that is `/proc/self/fd` for the descriptor, so a symlink swapped in after the name check cannot leave the allowlist. macOS and Windows have no `/proc`; realpath of that string used to deny every file, so those platforms realpath the path that was opened (a swap that landed before `open` returns is still rejected). An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return HTTP 413 with `FILE_TOO_LARGE`. A missing, blank, or whitespace-only `file_path` with no `image` part is HTTP 400 `MISSING_IMAGE_SOURCE` and is not sent to the worker. A missing file, a directory, or a read error on a path that was sent returns HTTP 400 (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`). `INVALID_FILE_PATH` is the worker's rejection of a non-string or empty path if one reaches `read_allowlisted_file`:
   - `meta` part (`application/json`):
@@ -184,7 +184,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | :--- | :--- | :--- |
 | **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone). A formula `WORKER_EXECUTION_ERROR` inside forwarded `result_json` stays 200 so the sheet shows the text | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
 | **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, reserved `session_id` namespace (`:init` or `isolated:`), a non-finite or non-scalar `id` (`NaN`, `Infinity`, `1e9999`, or a nested value such as `[1e999]`) on execute, vision, or reset, a bad vision multipart body, a missing vision `image` part and `file_path` (`MISSING_IMAGE_SOURCE`; a non-string or empty path that reaches the worker is `INVALID_FILE_PATH`), vision `image` part and `file_path` together (`INVALID_REQUEST`), vision `params` that is not an object, an unknown vision `helper` (`INVALID_REQUEST`; omitted or blank stays `extract_text`), vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`), a vision path that is missing, not a regular file, or unreadable (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`), or `Transfer-Encoding: chunked` on any POST | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
-| **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
+| **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer {secret}` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`403 Forbidden`** | Cross-origin request or non-loopback Host header in keyless mode (`CROSS_ORIGIN_REFUSED`) | `{"status": "error", "code": "CROSS_ORIGIN_REFUSED", "error": "..."}` |
 | **`404 Not Found`** | Unknown path | Plaintext `Not Found` |
 | **`405 Method Not Allowed`** | Known path with wrong HTTP verb | Plaintext `Method Not Allowed` + `Allow` header |
@@ -199,7 +199,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 
 ## Authentication (shared Bearer secret)
 
-coolwsd sends `Authorization: Bearer <security.python_compute.api_key>` when that
+coolwsd sends `Authorization: Bearer {security.python_compute.api_key}` when that
 key is non-empty. Configure the **same** secret on the service:
 
 | Source | How |
@@ -216,7 +216,7 @@ Rules:
 - **Host header validation in keyless mode** → When running without an API key, the server rejects requests with a missing, empty, or non-loopback `Host` header with `403 Forbidden` (for example, accessing via a Docker service name such as `http://python-compute:8000` gets 403, and an HTTP/1.0 client that omits `Host` does too). Only loopback Host headers (`localhost`, `127.0.0.1`, `[::1]`) are accepted.
 - **Empty bind address (`--host ""`)** → Binding `--host ""` binds loopback interfaces only.
 - **Any other bind without a key** → `ComputeSettings.validate` refuses to start. This includes `0.0.0.0` and `::`. `docker-entrypoint.sh` only execs the server.
-- **Key configured** → `/v1/execute`, `/v1/session/reset`, and `/v1/vision` require a `Bearer <token>` match
+- **Key configured** → `/v1/execute`, `/v1/session/reset`, and `/v1/vision` require a `Bearer {token}` match
   (`hmac.compare_digest` on the UTF-8 bytes). The scheme prefix `Bearer ` is matched case-insensitively per RFC 7235 (`bearer `, `BEARER `, etc.). A non-ASCII token or key is a 401 or a match, not a dropped connection. Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
 - `PYTHON_COMPUTE_API_KEY` is not stripped. A key file drops one trailing newline and keeps surrounding spaces. The same secret text is the same bytes from either source.
 - **Unknown JSON keys** are a startup error. A raw `api_key` in the file is a startup error.
@@ -288,7 +288,7 @@ PYTHON_COMPUTE_API_KEY_FILE=./secret ./compute_service/start-docker.sh
 PYTHON_COMPUTE_PORT=9001 PYTHON_COMPUTE_API_KEY_FILE=./secret ./compute_service/start-docker.sh
 ```
 
-Shared `mode=shared` **must** use a per-document `session_id` query parameter (`?session_id=<id>`) (not a user id). coolwsd should `POST /v1/session/reset?session_id=<id>` on DocumentBroker destroy / last view leave (caller not shipped; Online still hard-codes isolated). Idle worker TTL (`idle_worker_ttl_sec`) is the safety net if reset is missed: once the worker sits idle past that timeout, the process is terminated and its sessions die with it.
+Shared `mode=shared` **must** use a per-document `session_id` query parameter (`?session_id={id}`) (not a user id). coolwsd should `POST /v1/session/reset?session_id={id}` on DocumentBroker destroy / last view leave (caller not shipped; Online still hard-codes isolated). Idle worker TTL (`idle_worker_ttl_sec`) is the safety net if reset is missed: once the worker sits idle past that timeout, the process is terminated and its sessions die with it.
 
 ---
 
@@ -323,7 +323,7 @@ The host is a proxy: auth, sticky routing, timeouts, worker lease. One deseriali
 
 - Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker after kit switches to multipart.
 - Multipart (preferred): `parse_multipart_execute` boundary-scans the body and `json.loads` only the small `meta` part (`id`, `mode`, `timeout_ms`; 64 KiB cap). `code` and `init_script` are raw UTF-8 parts. Peel passes those fields as strings. Both are character-capped with `max_code_chars` (not byte length) and both use the same mode check. `data` is `data_json` as-is. `meta` must not nest `code`, `data`, `data_json`, or `init_script`.
-- Envelope: `{code, mode, timeout_sec, session_id, init_script, wire: "json_forward", data_json: <bytes>}`. That is the only payload. `wire` other than `json_forward` is rejected. Pickle copies the byte buffer; it does not walk the JSON tree and there is no `split_grid` field on this pipe.
+- Envelope: `{code, mode, timeout_sec, session_id, init_script, wire: "json_forward", data_json: {bytes}}`. That is the only payload. `wire` other than `json_forward` is rejected. Pickle copies the byte buffer; it does not walk the JSON tree and there is no `split_grid` field on this pipe.
 - Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`. Plots `find_image_payloads` returns move to `images` and become null in `result`. An image that scan did not return stays inline; it is not replaced with null.
 - HTTP: `_start_raw_json` writes `result_json` as the response body.
 
