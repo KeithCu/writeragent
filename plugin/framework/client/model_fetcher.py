@@ -174,8 +174,9 @@ def _stated_input_modalities(row: dict[str, Any]) -> list[Any] | None:
     nested = None
     if isinstance(arch, dict):
         nested = arch.get("input_modalities")
-    top = row.get("input_modalities") if "input_modalities" in row else None
-    chosen = top if top is not None else nested
+    chosen = row.get("input_modalities")
+    if chosen is None:
+        chosen = nested
     if isinstance(chosen, list):
         return chosen
     return None
@@ -274,12 +275,6 @@ def _resolved_openwebui(endpoint: str) -> bool:
     return is_openwebui_endpoint(endpoint, explicit_is_openwebui=get_config_bool_safe("is_openwebui"))
 
 
-def _catalog_http_base(endpoint: str) -> str:
-    if not endpoint or not isinstance(endpoint, str):
-        return ""
-    return normalize_endpoint_url(endpoint, is_openwebui=_resolved_openwebui(endpoint))
-
-
 def _key_slot_base(endpoint: str) -> str:
     if not endpoint or not isinstance(endpoint, str):
         return ""
@@ -287,7 +282,10 @@ def _key_slot_base(endpoint: str) -> str:
 
 
 def _v1_prefix(endpoint: str) -> str:
-    http_base = _catalog_http_base(endpoint)
+    if not endpoint or not isinstance(endpoint, str):
+        http_base = ""
+    else:
+        http_base = normalize_endpoint_url(endpoint, is_openwebui=_resolved_openwebui(endpoint))
     if not http_base or not endpoint_url_suitable_for_v1_models_fetch(http_base):
         return ""
     return f"{http_base}{get_api_version_suffix(http_base, is_openwebui=_resolved_openwebui(http_base))}"
@@ -434,9 +432,9 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     if built is None:
         return None
     key_slot, url, cache_key = built
-    if cache_key in _model_fetch_cache:
-        found = _model_fetch_cache[cache_key]
-        return list(found) if isinstance(found, list) else None
+    cached = _cached_id_list(_model_fetch_cache, cache_key)
+    if cached is not None:
+        return cached
 
     is_openwebui = _resolved_openwebui(endpoint)
     # Hostname equality, same rule as get_provider_from_endpoint. A path that
@@ -857,24 +855,6 @@ def remember_tts_response_format(model_id: str, fmt: str) -> None:
     _tts_response_format[key] = clean
 
 
-def openrouter_speech_list_loaded() -> bool:
-    """True after a successful OpenRouter speech-list fetch in this process."""
-    return any(isinstance(ids, list) for ids in list(_model_fetch_tts_cache.values()))
-
-
-def openrouter_speech_list_has_model(model_id: str) -> bool:
-    """True when ``model_id`` appeared on a fetched OpenRouter speech list."""
-    mid = str(model_id or "").strip().casefold()
-    if not mid:
-        return False
-    for ids in list(_model_fetch_tts_cache.values()):
-        if not ids:
-            continue
-        if any(str(api_id).casefold() == mid for api_id in ids):
-            return True
-    return False
-
-
 def remember_tts_supported_voices(model_id: str, voices: list[str]) -> None:
     """Store speech voice tokens for ``model_id`` until this process exits.
 
@@ -1230,16 +1210,6 @@ def _declared_vision_flag(provider: str | None, declared: dict[str, bool], model
     return None
 
 
-def _vision_memo_answer(provider: str | None, memo: dict[str, bool] | None, model_id: str) -> bool | None:
-    """Answer to persist, or None when the catalog did not say.
-
-    A dict is the parse: only ids whose row listed input_modalities.
-    """
-    if isinstance(memo, dict):
-        return _declared_vision_flag(provider, memo, model_id)
-    return None
-
-
 def _vision_support_key(endpoint: Any, model_id: Any) -> str:
     """The one vision key: chat's endpoint normalization, OpenRouter suffix fold, casefold."""
     raw_ep = endpoint if isinstance(endpoint, str) else ""
@@ -1272,7 +1242,10 @@ def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, ap
         if built is None or built[2] not in _model_fetch_vision_cache:
             return built is None, None
         # A row that omitted input_modalities is not a "no": it stays unknown.
-        return True, _vision_memo_answer(provider, _model_fetch_vision_cache[built[2]], model_id)
+        memo = _model_fetch_vision_cache[built[2]]
+        if not isinstance(memo, dict):
+            return True, None
+        return True, _declared_vision_flag(provider, memo, model_id)
     if provider == "ollama":
         cached_show = _ollama_show_cache.get(_ollama_show_key(endpoint, model_id))
         if cached_show is None:
@@ -1458,15 +1431,6 @@ def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
     except Exception as e:
         log.debug("query_ollama_show failed: %s", e)
     return None
-
-
-def query_ollama_model_capabilities(endpoint: str, model_id: str) -> bool | None:
-    """Query POST /api/show to check if an Ollama model supports vision."""
-    info = query_ollama_show(endpoint, model_id)
-    if info is None:
-        return None
-    caps = info.get("capabilities") or []
-    return "vision" in caps if isinstance(caps, list) else False
 
 
 def query_ollama_runtime_num_ctx(endpoint: str, model_id: str) -> int | None:
