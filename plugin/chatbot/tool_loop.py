@@ -141,6 +141,7 @@ class ToolLoopHost(Protocol):
     def _handle_stream_error(self, e: Any) -> bool | None: ...
     def _on_tool_loop_approval_required(self, item: Any) -> None: ...
     def _execute_effect(self, effect: Any) -> bool: ...
+    def _apply(self, event: ToolLoopEvent) -> bool: ...
     def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
     def _refresh_active_tools_for_session(self) -> None: ...
     def rerender_rich_text_session(self) -> bool: ...
@@ -411,7 +412,6 @@ class ToolCallingMixin:
             active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
             python_tool_domain = getattr(turn_session, "python_tool_domain", None) if turn_session is not None else None
             from plugin.framework.queue_executor import pump_ui_idle
-            from plugin.framework.uno_context import get_toolkit
 
             toolkit = get_toolkit(self._panel.ctx)
             if toolkit:
@@ -629,7 +629,7 @@ class ToolCallingMixin:
 
             turn_session = session_for_turn(self._panel)
             active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
-            refresh_doc = turn.model if turn.model is not None else None
+            refresh_doc = turn.model
             if refresh_doc is None:
                 refresh_doc = self._panel._get_document_model()
             turn.active_tools = get_tools().get_schemas(
@@ -652,11 +652,12 @@ class ToolCallingMixin:
 
         update_activity_state("tool_loop", round_num=round_num)
         log.debug("Tool loop round %d: sending %d messages to API..." % (round_num, len(self._panel.session.messages)))
+        resume_status = "Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1)
         # Overflow retry already set "Compacting conversation..." on the drain
         # thread. Host Thinking here would flash over that ack before the
         # worker's status_callback can post Compacting again.
         if not force_compact:
-            self._panel._set_status("Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1))
+            self._panel._set_status(resume_status)
 
         self._panel._record_assistant_start = True
 
@@ -693,7 +694,6 @@ class ToolCallingMixin:
                     retry_shown = True
                     emit((StreamQueueKind.STATUS, t))
 
-                resume_status = "Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1)
                 raw_chunk = batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))
 
                 def on_chunk(t: str) -> None:
@@ -807,9 +807,6 @@ class ToolCallingMixin:
                     content_cb(c)
                     last_streamed.append(c)
 
-                def append_t(t: str) -> None:
-                    thinking_cb(t)
-
                 if stopped_for_this_send():
                     emit((StreamQueueKind.STOPPED,))
                     return
@@ -830,7 +827,7 @@ class ToolCallingMixin:
                         emit((StreamQueueKind.STOPPED,))
                         return
                     client.stream_chat_response(
-                        messages_for_llm(session), max_tokens, append_c, append_t,
+                        messages_for_llm(session), max_tokens, append_c, thinking_cb,
                         stop_checker=stop_checker,
                         status_callback=status_cb,
                     )
@@ -931,6 +928,15 @@ class ToolCallingMixin:
             self._panel._tool_loop_interpreter = interpreter
         return interpreter.execute(effect)
 
+    def _apply(self: ToolLoopHost, event: ToolLoopEvent) -> bool:
+        tr = next_state(self._sm_state, event)
+        self._sm_state = tr.state
+        exit_loop = False
+        for effect in tr.effects:
+            if self._execute_effect(effect):
+                exit_loop = True
+        return exit_loop
+
     def _handle_stream_completion(self: ToolLoopHost, item: Any) -> bool:
         # A sentinel after abort is not another tool round.
         live = current_turn(self._panel)
@@ -946,17 +952,7 @@ class ToolCallingMixin:
         if not event:
             return False
 
-        # Run the state machine transition
-        tr = next_state(self._sm_state, event)
-        self._sm_state = tr.state
-
-        # Execute the effects
-        exit_loop = False
-        for effect in tr.effects:
-            if self._execute_effect(effect):
-                exit_loop = True
-
-        return exit_loop
+        return self._apply(event)
 
     def _handle_stream_stopped(self: ToolLoopHost) -> None:
         # The turn commits the open row, closes tool calls that have no
@@ -966,11 +962,8 @@ class ToolCallingMixin:
         if isinstance(turn, TurnController):
             turn.close_stopped(self._panel, partial)
         event = ToolLoopEvent(kind=EventKind.STOP_REQUESTED, data={})
-        tr = next_state(self._sm_state, event)
-        self._sm_state = tr.state
-
-        for effect in tr.effects:
-            self._execute_effect(effect)
+        # Discard the exit_loop flag: on_stopped notification returns None.
+        self._apply(event)
 
     def _handle_stream_error(self: ToolLoopHost, e: Any) -> bool | None:
         from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
@@ -1122,7 +1115,8 @@ class ToolCallingMixin:
                 if tool.name is not None and getattr(tool, "is_async", lambda: False)()
             )
 
-        async_tools = best_effort(_get_async_tools, "Failed to get async tools list, falling back to defaults", default=frozenset({"web_research", "image_generate"})) or frozenset({"web_research", "image_generate"})
+        async_tool_default = frozenset({"web_research", "image_generate"})
+        async_tools = best_effort(_get_async_tools, "Failed to get async tools list, falling back to defaults", default=async_tool_default) or async_tool_default
 
         self._sm_state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=max_tool_rounds, status="Thinking...", async_tools=async_tools)
 
@@ -1208,10 +1202,3 @@ class ToolCallingMixin:
                 self._panel.sidebar_state = dataclasses.replace(self._panel.sidebar_state, tool_loop=None)
 
             defer_until_drain_done(_end_tool_drain)
-
-    def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
-        """Override on ``SendButtonListener`` for real UI. Default: auto-approve (tests / no panel)."""
-        if event is not None:
-            event.approved = True
-            event.query_override = None
-            event.set()
