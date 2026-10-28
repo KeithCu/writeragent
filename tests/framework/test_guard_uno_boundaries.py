@@ -62,7 +62,13 @@ class TestGuardUnoBoundaries:
         from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
         handler = MCPProtocolHandler(services)
-        handler.queue_executor.execute = lambda fn, *a, **k: fn(*a)
+
+        def _exec(fn, *a, **k):
+            k.pop("timeout", None)
+            k.pop("bound_scope", None)
+            return fn(*a, **k)
+
+        handler.queue_executor.execute = _exec
 
         with (
             patch("plugin.mcp.mcp_protocol._real_active_document", return_value=None),

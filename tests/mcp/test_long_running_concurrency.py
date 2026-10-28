@@ -35,8 +35,10 @@ class _FakeMainThread:
         self._lock = threading.Lock()
 
     def execute(self, fn, *args, **kwargs):  # ignores timeout=
+        kwargs.pop("timeout", None)
+        kwargs.pop("bound_scope", None)
         with self._lock:
-            return fn(*args)
+            return fn(*args, **kwargs)
 
 
 class _Doc:
@@ -264,12 +266,14 @@ class _DepthMainThread:
         self.seen = []
 
     def execute(self, fn, *args, **kwargs):
+        kwargs.pop("timeout", None)
+        kwargs.pop("bound_scope", None)
         name = getattr(fn, "__name__", str(fn))
         with self._lock:
             self.depth += 1
             self.seen.append(name)
         try:
-            return fn(*args)
+            return fn(*args, **kwargs)
         finally:
             with self._lock:
                 self.depth -= 1
@@ -325,7 +329,7 @@ def test_backpressure_waits_for_document_gate_off_the_main_thread():
         with main._lock:
             names = list(main.seen)
             depth = main.depth
-        if "_execute_tool_on_main" in names:
+        if any(name != "_prepare_mcp_execution" for name in names):
             release.set()
             t_long.join(timeout=2)
             t_bp.join(timeout=2)
@@ -451,7 +455,7 @@ def test_gate_wait_does_not_hold_global_semaphore():
         with main._lock:
             names = list(main.seen)
             depth = main.depth
-        if "_execute_tool_on_main" in names:
+        if any(name != "_prepare_mcp_execution" for name in names):
             release.set()
             t_long.join(timeout=2)
             t_fast_a.join(timeout=2)

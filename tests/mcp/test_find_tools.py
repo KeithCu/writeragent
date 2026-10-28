@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from plugin.doc.find_tools_tool import FindTools, get_domain_guidance
 from plugin.framework.prompts import get_specialized_domain_catalog
 from plugin.framework.tool import ToolBase, ToolRegistry
-from plugin.mcp.mcp_protocol import MCPProtocolHandler
+from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
 
@@ -459,16 +459,24 @@ def test_specialized_tool_allowed_in_direct_discovery():
 
 
 
+def _prepare_and_invoke(handler, tool_name, arguments=None):
+    arguments = {} if arguments is None else arguments
+    prepared = handler._prepare_mcp_execution(tool_name, arguments, None, send_cancellation=None)
+    if not isinstance(prepared, _PreparedMcpCall):
+        return prepared
+    return handler._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
+
+
 def test_execute_tool_on_main_runs_document_optional_without_doc():
     handler = _handler_real("direct_discovery", _real_registry())
-    res = handler._execute_tool_on_main("find_tools", {})
+    res = _prepare_and_invoke(handler, "find_tools", {})
     assert res.get("status") == "ok"
     assert res.get("tools") == []
 
 
 def test_execute_tool_on_main_still_requires_doc_for_normal_tools():
     handler = _handler_real("direct_discovery", _real_registry())
-    res = handler._execute_tool_on_main("apply_document_content", {})
+    res = _prepare_and_invoke(handler, "apply_document_content", {})
     assert res.get("code") == "NO_DOCUMENT_OPEN"
 
 
@@ -695,7 +703,7 @@ def test_gate_falls_back_to_the_single_open_document():
     handler.services.document.open_documents.return_value = [only_doc]
     handler.services.document.detect_doc_type.return_value = "writer"
 
-    res = handler._execute_tool_on_main("apply_document_content", {})
+    res = _prepare_and_invoke(handler, "apply_document_content", {})
     assert res.get("code") not in ("NO_DOCUMENT_OPEN", "NO_ACTIVE_DOCUMENT")
 
 
@@ -710,7 +718,7 @@ def test_gate_names_the_candidates_when_several_are_open():
     handler.services.document.get_active_document.return_value = None
     handler.services.document.open_documents.return_value = [_titled("peca1.odt"), _titled("planilha.ods")]
 
-    res = handler._execute_tool_on_main("apply_document_content", {})
+    res = _prepare_and_invoke(handler, "apply_document_content", {})
     assert res.get("code") == "NO_ACTIVE_DOCUMENT"
     assert "document_url" in res["message"]
     assert "peca1.odt" in res["message"] and "planilha.ods" in res["message"]
@@ -723,7 +731,7 @@ def test_gate_never_guesses_between_two_documents_of_the_same_type():
     handler.services.document.get_active_document.return_value = None
     handler.services.document.open_documents.return_value = [_titled("peca1.odt"), _titled("peca2.odt")]
 
-    res = handler._execute_tool_on_main("apply_document_content", {})
+    res = _prepare_and_invoke(handler, "apply_document_content", {})
     assert res.get("code") == "NO_ACTIVE_DOCUMENT"
     assert "peca1.odt" in res["message"] and "peca2.odt" in res["message"]
 
@@ -733,7 +741,7 @@ def test_gate_still_says_no_document_when_nothing_is_open():
     handler.services.document.get_active_document.return_value = None
     handler.services.document.open_documents.return_value = []
 
-    res = handler._execute_tool_on_main("apply_document_content", {})
+    res = _prepare_and_invoke(handler, "apply_document_content", {})
     assert res.get("code") == "NO_DOCUMENT_OPEN"
 
 

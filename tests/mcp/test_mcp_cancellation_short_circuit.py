@@ -19,7 +19,8 @@ def test_mcp_protocol_short_circuits_if_stopped_after_gate():
         echo=None
     )
 
-    result = protocol._run_prepared_mcp_execute(prepared, "test_tool", {})
+    protocol.queue_executor.execute.return_value = prepared
+    result = protocol._execute_long_running("test_tool", {})
     assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
 
 
