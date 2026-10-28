@@ -59,9 +59,20 @@ log = logging.getLogger("writeragent.mcp.protocol")
 # Longest an SSE keepalive wait goes without checking HttpServer.stop's flag.
 _SSE_STOP_POLL_SEC = 0.5
 
-# Local binding for headers/handlers; canonical constant is wire_types.MCP_PROTOCOL_VERSION.
-MCP_PROTOCOL_VERSION = wire_types.MCP_PROTOCOL_VERSION
-_SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION, "2024-11-05", "2025-06-18", "2025-03-26"})
+_SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({wire_types.MCP_PROTOCOL_VERSION, "2024-11-05", "2025-06-18", "2025-03-26"})
+
+
+def _is_long_running(tool: Any) -> bool:
+    fn = getattr(tool, "is_async", None) if tool is not None else None
+    return fn() is True if callable(fn) else False
+
+
+def _send_405(handler: Any, allow: str) -> None:
+    def _headers(h: Any) -> None:
+        mcp_session._send_mcp_response_headers(h)
+        h.send_header("Allow", allow)
+
+    write_http_empty(handler, 405, extra_headers=_headers)
 
 
 def _document_echo_payload(doc: Any) -> dict[str, Any] | None:
@@ -128,11 +139,6 @@ class _PreparedMcpCall:
     echo: dict[str, Any] | None
 
 
-def _attach_precomputed_echo(result: Any, echo: dict[str, Any] | None) -> None:
-    if isinstance(result, dict) and echo and "document" not in result:
-        result["document"] = echo
-
-
 
 # Pointer to the on-demand manual (T4 / G2 consolidation). The full how-to — editing, editing-html,
 # review-modes, search, navigation, images, concurrency — is served per topic by get_guidance(topic), so the model
@@ -183,16 +189,10 @@ def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = 
     return _format_mcp_clock_context(now) + " " + base + mode_hint + _MCP_CALC_DATETIME_HINT + _MCP_GUIDANCE_POINTER
 
 
-def _get_request_protocol_version(handler: Any) -> str | None:
-    value = handler.headers.get("Mcp-Protocol-Version")
-    if value:
-        return value.strip()
-    return None
-
-
 def _validate_http_protocol_version(handler: Any) -> tuple[int, dict[str, Any]] | None:
     """Return (status, jsonrpc_body) when the HTTP Mcp-Protocol-Version header is unsupported."""
-    requested = _get_request_protocol_version(handler)
+    value = handler.headers.get("Mcp-Protocol-Version")
+    requested = value.strip() if value else None
     if requested is None or requested in _SUPPORTED_HTTP_PROTOCOL_VERSIONS:
         return None
     log_unsupported_protocol_version(handler, requested)
@@ -274,23 +274,6 @@ def _resolve_mcp_doc_key(document_url: str | None, doc: Any) -> str:
     if document_url:
         return "url:%s" % normalize_doc_url(document_url)
     return _ACTIVE_DOCUMENT_SENTINEL
-
-
-def _arguments_without_thread_guard_bypass(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Copy client arguments and drop ``bypass_thread_guard``.
-
-    ``tools/call`` and the localhost ``/debug`` ``call_tool`` action spread
-    arguments into ``ToolRegistry.execute``. ``bypass_thread_guard`` is
-    keyword-only, so a client value in that spread was bound to the parameter. The registry then called
-    ``tool.execute`` instead of ``execute_safe`` (no disposed-document check)
-    and, for a sync long-running tool, ran UNO on the HTTP worker. The flag
-    is an internal eval-harness switch. Drop the key and do not pass the
-    keyword at all. The registry then keeps ``execute_safe``. A long-running
-    tool is ``is_async`` with a positive timeout and takes that same path.
-    """
-    cleaned = dict(arguments)
-    cleaned.pop("bypass_thread_guard", None)
-    return cleaned
 
 
 def _echoable_jsonrpc_id(msg: Any) -> str | int | None:
@@ -416,11 +399,7 @@ class MCPProtocolHandler:
         sock = getattr(handler, "connection", None)
         stop_event = try_reserve_sse(tcp_server, sock)
         if stop_event is None:
-            def _headers(h: Any) -> None:
-                mcp_session._send_mcp_response_headers(h)
-                h.send_header("Allow", "POST, DELETE, OPTIONS")
-
-            write_http_empty(handler, 405, extra_headers=_headers)
+            _send_405(handler, "POST, DELETE, OPTIONS")
             return
         reserved = True
         try:
@@ -455,12 +434,7 @@ class MCPProtocolHandler:
         # other client off. 405 tells spec clients the session is still here.
         # They recover on 404 (stale id after restart), not 409 or 200.
         log_mcp_transport_entry(handler, "mcp")
-
-        def _headers(h: Any) -> None:
-            mcp_session._send_mcp_response_headers(h)
-            h.send_header("Allow", "GET, POST, OPTIONS")
-
-        write_http_empty(handler, 405, extra_headers=_headers)
+        _send_405(handler, "GET, POST, OPTIONS")
 
     def handle_sse_stream(self, handler: Any) -> None:
         """GET /sse — legacy SSE transport (keepalive only)."""
@@ -680,17 +654,13 @@ class MCPProtocolHandler:
             if responses:
                 self._send_json(handler, 200, responses)
             else:
-                # Passing _send_mcp_response_headers directly calls it with
-                # session_id=None, so a notifications-only batch omits
-                # Mcp-Session-Id. A single notification already passes the
-                # process id. Use that same lambda.
-                write_http_empty(handler, 202, extra_headers=lambda h: mcp_session._send_mcp_response_headers(h, session_id=mcp_session._mcp_session_id))
+                self._send_empty(handler, 202)
             return
 
         # Single request
         result = self._process_jsonrpc(msg, document_url=document_url, session=session)
         if result is None:
-            write_http_empty(handler, 202, extra_headers=lambda h: mcp_session._send_mcp_response_headers(h, session_id=mcp_session._mcp_session_id))
+            self._send_empty(handler, 202)
             return
         status, response = result
 
@@ -698,7 +668,7 @@ class MCPProtocolHandler:
             mcp_session._mint_session_id_once()
 
         log.info("[MCP] >>> %s (id=%s) -> %d", method, req_id, status)
-        write_http_json(handler, status, response, extra_headers=lambda h: mcp_session._send_mcp_response_headers(h, session_id=mcp_session._mcp_session_id))
+        self._send_json(handler, status, response)
 
     # ── MCP method handlers ──────────────────────────────────────────
 
@@ -707,15 +677,15 @@ class MCPProtocolHandler:
         # _SUPPORTED_HTTP_PROTOCOL_VERSIONS, not any string it sends, because
         # the client then sends that value as Mcp-Protocol-Version and
         # _validate_http_protocol_version answers 400 to every later request.
-        client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
+        client_version = params.get("protocolVersion", wire_types.MCP_PROTOCOL_VERSION)
         if not isinstance(client_version, str):
             # protocolVersion must be a string. A non-string raises TypeError
             # on set membership and becomes HTTP 500 instead of a JSON-RPC
             # INVALID_PARAMS error.
             raise ValueError("protocolVersion must be a string")
         if client_version not in _SUPPORTED_HTTP_PROTOCOL_VERSIONS:
-            client_version = MCP_PROTOCOL_VERSION
-        return wire_types.initialize_result(protocol_version=MCP_PROTOCOL_VERSION, client_protocol_version=client_version, server_version=self.version, instructions=build_initialize_instructions(self._tool_exposure_mode()))
+            client_version = wire_types.MCP_PROTOCOL_VERSION
+        return wire_types.initialize_result(protocol_version=wire_types.MCP_PROTOCOL_VERSION, client_protocol_version=client_version, server_version=self.version, instructions=build_initialize_instructions(self._tool_exposure_mode()))
 
     def _mcp_ping(self, params: Any) -> Any:
         return wire_types.ping_result()
@@ -870,8 +840,7 @@ class MCPProtocolHandler:
         # (positive timeout checked in _prepare_mcp_execution) and runs through
         # execute_safe. The long_running attribute alone must not select a second
         # path. MagicMock is_async() is not exactly True, so it stays on backpressure.
-        is_async_attr = getattr(tool, "is_async", None) if tool is not None else None
-        is_long_running = is_async_attr() is True if callable(is_async_attr) else False
+        is_long_running = _is_long_running(tool)
 
         log.debug("*** tools/call: %s, event_bus=%s ***", tool_name, self.event_bus)
         event_bus = self.event_bus
@@ -1172,8 +1141,7 @@ class MCPProtocolHandler:
         # MagicMock tools (and any non-bool is_async result) are not async. A
         # non-numeric timeout is not a positive timeout: comparing MagicMock
         # to int raises TypeError and aborts preparation before ToolContext.
-        _is_async_attr = getattr(tool, "is_async", None)
-        _is_async = _is_async_attr() is True if callable(_is_async_attr) else False
+        _is_async = _is_long_running(tool)
         _timeout = getattr(tool, "timeout", None)
         if _is_async and _timeout is not None and not (isinstance(_timeout, (int, float)) and _timeout > 0):
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
@@ -1186,8 +1154,7 @@ class MCPProtocolHandler:
 
         ``prepared.echo`` must already be computed on the main thread.
         Client ``bypass_thread_guard`` is dropped and the keyword is not passed,
-        so ``ToolRegistry.execute`` keeps ``execute_safe`` (see
-        ``_arguments_without_thread_guard_bypass``). Do not call ``tool.execute``.
+        so ``ToolRegistry.execute`` keeps ``execute_safe``. Do not call ``tool.execute``.
         A latched Stop is refused here so the fast path and the long-running path share one pre-execute check.
         """
         stop_checker = prepared.context.stop_checker
@@ -1197,7 +1164,8 @@ class MCPProtocolHandler:
             # How: both paths call this method.
             # Why: the checker only reads the cancel set and the send scope.
             return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
-        safe_args = _arguments_without_thread_guard_bypass(dict(arguments))
+        # Security: keyword-only bypass flag must never come from a client
+        safe_args = {k: v for k, v in arguments.items() if k != "bypass_thread_guard"}
         t0 = time.perf_counter()
 
         result = self.tool_registry.execute(tool_name, prepared.context, **safe_args)
@@ -1205,7 +1173,8 @@ class MCPProtocolHandler:
         elapsed = time.perf_counter() - t0
         if isinstance(result, dict):
             result["_elapsed_ms"] = round(elapsed * 1000, 1)
-            _attach_precomputed_echo(result, prepared.echo)
+            if prepared.echo and "document" not in result:
+                result["document"] = prepared.echo
         return result
 
     def _run_prepared_mcp_execute(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
@@ -1225,8 +1194,7 @@ class MCPProtocolHandler:
         read-only tools skip it. is_async tools (the long-running path) run
         here through execute_safe; the registry marshals sync tools back to
         the main thread. Client arguments cannot set bypass_thread_guard, and
-        this method does not pass that keyword (see
-        _arguments_without_thread_guard_bypass).
+        this method does not pass that keyword.
         """
         from plugin.framework.send_cancellation import get_current_send_cancellation
         send_cancellation = get_current_send_cancellation()
@@ -1314,6 +1282,10 @@ class MCPProtocolHandler:
             self._send_json(handler, status, format_error_payload(err))
             return None
         return data
+
+    def _send_empty(self, handler: Any, status: int) -> None:
+        """Send an empty response via an HTTP handler."""
+        write_http_empty(handler, status, extra_headers=lambda h: mcp_session._send_mcp_response_headers(h, session_id=mcp_session._mcp_session_id))
 
     def _send_json(self, handler: Any, status: int, data: Any) -> None:
         """Send a JSON response via an HTTP handler."""
