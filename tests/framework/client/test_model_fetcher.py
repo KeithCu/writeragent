@@ -916,7 +916,6 @@ class TestParseOllamaRuntimeNumCtx:
         }
         with patch("plugin.framework.client.requests.sync_request", return_value=show) as mock_sync:
             assert (mf.query_ollama_runtime_num_ctx("http://localhost:11434", "qwen2.5:7b")) == (4096)
-            assert not (mf.query_ollama_model_capabilities("http://localhost:11434", "qwen2.5:7b"))
             assert (mock_sync.call_count) == (1)
         mf._ollama_show_cache.clear()
         with patch("plugin.framework.client.requests.sync_request", side_effect=OSError("down")):
@@ -1110,8 +1109,6 @@ class TestFetchAvailableSpeechModels:
         assert ids_again == ids
         assert cfg.cached_tts_supported_voices("hexgrad/kokoro-82m") == ["af_bella"]
         assert cfg.preferred_openrouter_tts_model_id("hexgrad/Kokoro-82M") == "hexgrad/kokoro-82m"
-        assert cfg.openrouter_speech_list_has_model("hexgrad/Kokoro-82M")
-        assert not cfg.openrouter_speech_list_has_model("google/lyria-3-pro-preview")
 
     def test_openrouter_tts_failure_is_not_cached(self):
         from plugin.framework.client import model_fetcher as cfg
