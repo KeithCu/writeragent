@@ -393,8 +393,8 @@ def test_document_research_return_idles_outer_after_peer_send(
             result = gw.execute_safe(ctx, domain="document_research", task="Get KPIs from the open sheet")
     assert result["status"] == "ok"
     assert PEER_OUTER_IDLE_AFTER_SEND in result["message"]
-    assert PEER_OUTER_IDLE_AFTER_SEND in result["result"]
-    assert "Ask handed off." in result["result"]
+    assert result["answer"] == "Ask handed off."
+    assert "result" not in result
 
 
 @patch(
@@ -444,7 +444,7 @@ def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(
     result = gw.execute_safe(ctx, domain="ranges", task="Sort A2:B5 descending")
     assert result["status"] == "ok"
     assert PEER_OUTER_DELIVERY_STILL_REQUIRED in result["message"]
-    assert PEER_OUTER_DELIVERY_STILL_REQUIRED in result["result"]
+    assert "result" not in result
     assert result["instruction"] == PEER_OUTER_DELIVERY_STILL_REQUIRED
 
 

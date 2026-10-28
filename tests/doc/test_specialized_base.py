@@ -206,6 +206,89 @@ def test_delegate_status_incomplete_no_finish_no_tool_error(
     assert result["message"] == "I searched but could not find the heading."
 
 
+def _structural_registry(writer_gateway: DelegateToSpecializedWriter) -> MagicMock:
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
+
+    class _DummyStructuralTool(ToolWriterStructuralBase):
+        name = "dummy_structural_tool"
+        description = "A dummy structural tool."
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kw):
+            return {"status": "ok"}
+
+    reg = ToolRegistry(services={})
+    reg.register(_DummyStructuralTool())
+    reg.register(SpecializedWorkflowFinished())
+    reg.register(writer_gateway)
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = True
+    ctx.services = {"tools": reg}
+    ctx.stop_checker = lambda: False
+    return ctx
+
+
+def test_delegate_length_truncated_reply_is_incomplete_not_finished(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    """Discussion #2262: a plain-text reply cut off by finish_reason=length must not become a
+    synthetic specialized_workflow_finished call; the delegate reports incomplete with the partial text."""
+    from unittest.mock import patch
+
+    from plugin.chatbot.smol_agent import WriterAgentSmolModel
+
+    partial = "I'll now build the final JSON delivery with both original returns"
+    client = MagicMock()
+    client.config = {"model": "test/local"}
+    client.request_with_tools.return_value = {
+        "content": partial,
+        "tool_calls": None,
+        "finish_reason": "length",
+        "images": None,
+        "usage": {"prompt_tokens": 10, "completion_tokens": 16384},
+    }
+    ctx = _structural_registry(writer_gateway)
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.chatbot.smol_agent.create_smol_model", return_value=WriterAgentSmolModel(client, max_tokens=256)), patch("plugin.chatbot.smol_agent.get_config_int", return_value=5):
+            result = writer_gateway.execute(ctx, domain="structural", task="Build the delivery")
+
+    assert client.request_with_tools.call_count == 1
+    assert result["status"] == "incomplete"
+    assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
+    assert result["message"] == partial
+    assert "finished" not in result
+
+
+def test_delegate_finished_payload_does_not_duplicate_answer(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    """Discussion #2262: the finish answer is sent once, not copied again into ``result``."""
+    import json
+    from unittest.mock import patch
+
+    answer = "ENTRY-" + "x" * 5000
+    ctx = _structural_registry(writer_gateway)
+
+    def fake_run_inner(ctx, tools, **kwargs):
+        tool_map = {t.name: t for t in tools}
+        return tool_map["specialized_workflow_finished"](answer=answer)
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+            result = writer_gateway.execute(ctx, domain="structural", task="Deliver entries")
+
+    assert result["status"] == "ok"
+    assert result["finished"] is True
+    assert result["answer"] == answer
+    assert "result" not in result
+    assert json.dumps(result).count("ENTRY-") == 1
+
+
 def test_delegate_status_user_stopped_left_unchanged(
     writer_gateway: DelegateToSpecializedWriter,
 ) -> None:

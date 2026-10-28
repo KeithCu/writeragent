@@ -998,6 +998,12 @@ class ToolCallingAgent(MultiStepAgent):
 
         if chat_message.tool_calls is None or len(chat_message.tool_calls) == 0:
             raw_content = (chat_message.content or "").strip()
+            # Discussion #2262: a reply cut off by the output limit is not an answer. Return the
+            # partial text as a plain final output (no finish tool call) so callers report it
+            # as incomplete instead of wrapping it in a synthetic final-answer call.
+            if chat_message.finish_reason == "length":
+                yield ActionOutput(output=raw_content, is_final_answer=True)
+                return
             implicit_final = (
                 try_parse_implicit_final_answer_tool_call(raw_content, self.final_answer_tool_name)
                 if raw_content
