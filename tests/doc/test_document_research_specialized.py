@@ -753,7 +753,7 @@ def test_delegate_read_document_closes_after_inner_error(
     mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
 
 
-@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value="42")
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "finished": True, "answer": "42"})
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
@@ -926,8 +926,8 @@ def test_delegate_read_document_unwraps_finish_answer(
 @pytest.mark.parametrize(
     ("inner_payload", "expected"),
     [
-        ("plain text", "plain text"),
         ({"status": "ok", "result": "42"}, "42"),
+        ({"status": "ok", "finished": True, "answer": "Q4=100"}, "Q4=100"),
     ],
 )
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent")
@@ -935,7 +935,7 @@ def test_delegate_read_document_unwraps_finish_answer(
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
 @patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
-def test_delegate_read_document_passes_through_plain_string_and_result(
+def test_delegate_read_document_passes_through_result(
     mock_main,
     mock_resolve,
     mock_open,
@@ -961,6 +961,60 @@ def test_delegate_read_document_passes_through_plain_string_and_result(
     result = tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
     assert result["status"] == "ok"
     assert result["result"] == expected
+
+
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
+@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+def test_delegate_read_document_length_truncated_read_is_incomplete(
+    mock_main,
+    mock_resolve,
+    mock_open,
+    mock_close,
+):
+    """Discussion #2262: a read cut off by finish_reason=length is incomplete, with the partial text once."""
+    import json
+
+    from plugin.chatbot.smol_agent import WriterAgentSmolModel
+
+    partial = "PARTIAL-READ " + "z" * 3000
+    client = MagicMock()
+    client.config = {"model": "test/local"}
+    client.request_with_tools.return_value = {
+        "content": partial,
+        "tool_calls": None,
+        "finish_reason": "length",
+        "images": None,
+        "usage": {"prompt_tokens": 10, "completion_tokens": 16384},
+    }
+    opened_model = MagicMock()
+    mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
+    mock_open.return_value = (opened_model, "calc", None, True)
+
+    r = ToolRegistry(services={})
+    r.register(DelegateReadDocument())
+    r.register(SpecializedWorkflowFinished())
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.services = {"tools": r}
+    ctx.stop_checker = lambda: False
+    ctx.derive.return_value.stop_checker = lambda: False
+
+    with (
+        patch("plugin.chatbot.smol_agent.create_smol_model", return_value=WriterAgentSmolModel(client, max_tokens=256)),
+        patch("plugin.chatbot.smol_agent.get_config_int", return_value=5),
+    ):
+        result = r.get("delegate_read_document").execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
+
+    assert client.request_with_tools.call_count == 1
+    assert result["status"] == "incomplete"
+    assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
+    assert result["message"] == partial
+    assert "result" not in result
+    assert json.dumps(result).count("PARTIAL-READ") == 1
+    mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
 
 
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value=None)
@@ -994,7 +1048,7 @@ def test_delegate_read_document_no_answer_is_error(
     mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
 
 
-@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value="42")
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "finished": True, "answer": "42"})
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
@@ -1036,7 +1090,7 @@ def test_delegate_read_document_resolves_before_the_main_thread_open(
         assert order == ["resolve", "main", "open", "main"]
 
 
-@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value="42")
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "finished": True, "answer": "42"})
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")

@@ -212,7 +212,7 @@ def test_cancel_pending_work_wakes_blocking_waiter():
 def test_delegate_read_runs_inner_agent_off_main_thread(mock_resolve, mock_open, mock_inner, mock_main):
     mock_resolve.return_value = ("/tmp/budget.ods", None)
     mock_open.return_value = (MagicMock(), "calc", None, True)
-    mock_inner.return_value = "Q4=100"
+    mock_inner.return_value = {"status": "ok", "finished": True, "answer": "Q4=100"}
 
     captured_fns: list = []
 

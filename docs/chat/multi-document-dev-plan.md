@@ -201,7 +201,7 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 
 - [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): dedicated tool — **not** recursive `DelegateToSpecializedBase.execute`. Resolves name off the main thread via [`resolve_path_or_name`](../../plugin/doc/document_research.py), opens via [`open_document_for_read`](../../plugin/doc/document_research.py) on the main thread (`run_on_main`).
 - [`run_inner_read_agent`](../../plugin/doc/document_research_specialized.py): builds `ToolContext(doc=opened_model, read_only_target=True, …)`; runs smol with `READ_TOOLS_BY_DOC_TYPE[doc_type]` + `specialized_workflow_finished`.
-- The tool returns `{status: "ok", path, doc_type, result}`; result is the finish tool's answer string (or a plain-string final answer). Inner error payloads pass through unchanged; a run with no answer returns the coded error `READ_EMPTY_RESULT`.
+- The tool returns `{status: "ok", path, doc_type, result}`; result is the finish tool's answer string. A plain-string final answer (no finish call: output-limit truncation or max steps) returns `status: "incomplete"`, code `SPECIALIZED_WORKFLOW_INCOMPLETE`, with the text on `message`. Inner error payloads pass through unchanged; a run with no answer returns the coded error `READ_EMPTY_RESULT`.
 - Outer document_research sub-agent is still launched by [`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py) with `active_domain="document_research"` (tools from [`document_research_tools.py`](../../plugin/doc/document_research_tools.py) + `DelegateReadDocument`).
 - Inner ends with `specialized_workflow_finished` / `final_answer`; outer accumulates and returns one payload to main.
 
