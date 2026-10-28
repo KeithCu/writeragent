@@ -101,27 +101,19 @@ def _ltrb_to_xywh(l: float, t: float, r: float, b: float, coord_origin: str, pag
     else:
         h = max(0, b - t)
         top_y = t
-    try:
-        return [int(l), int(top_y), int(w), int(h)]
-    except (TypeError, ValueError, OverflowError):
-        log.debug("bbox_to_xywh: non-finite Docling box %r", (l, top_y, w, h))
-        return [0, 0, 0, 0]
+    return [int(l), int(top_y), int(w), int(h)]
 
 
 def _docling_ltrb(bbox: Any) -> tuple[float, float, float, float, str] | None:
     """(l, t, r, b, coord_origin) for a Docling dict/object box, else None."""
-    try:
-        if isinstance(bbox, dict):
+    if isinstance(bbox, dict):
+        if all(k in bbox for k in ("l", "t", "r", "b")):
             origin = str(bbox.get("coord_origin") or "").strip().upper()
-            for keys in (("l", "t", "r", "b"), ("left", "top", "right", "bottom")):
-                if all(k in bbox for k in keys):
-                    return (float(bbox[keys[0]]), float(bbox[keys[1]]), float(bbox[keys[2]]), float(bbox[keys[3]]), origin)
-            return None
-        if all(hasattr(bbox, name) for name in ("l", "t", "r", "b")):
-            origin = str(getattr(bbox, "coord_origin", "") or "").strip().upper()
-            return (float(bbox.l), float(bbox.t), float(bbox.r), float(bbox.b), origin)
-    except (TypeError, ValueError):
-        log.debug("bbox_to_xywh: malformed Docling box %r", bbox)
+            return (float(bbox["l"]), float(bbox["t"]), float(bbox["r"]), float(bbox["b"]), origin)
+        return None
+    if all(hasattr(bbox, name) for name in ("l", "t", "r", "b")):
+        origin = str(getattr(bbox, "coord_origin", "") or "").strip().upper()
+        return (float(bbox.l), float(bbox.t), float(bbox.r), float(bbox.b), origin)
     return None
 
 
@@ -129,70 +121,48 @@ def _box_to_xywh(box_points: Any) -> list[int]:
     """Convert quadrilateral corner points to [x, y, w, h] in PNG pixel space."""
     xs: list[float] = []
     ys: list[float] = []
-    try:
-        for point in box_points:
-            xs.append(float(point[0]))
-            ys.append(float(point[1]))
-    except (TypeError, ValueError, IndexError, KeyError):
-        log.debug("bbox_to_xywh: malformed quad %r", box_points)
-        return [0, 0, 0, 0]
+    for point in box_points:
+        xs.append(float(point[0]))
+        ys.append(float(point[1]))
     if not xs or not ys:
         return [0, 0, 0, 0]
-    try:
-        x_min = int(min(xs))
-        y_min = int(min(ys))
-        x_max = int(max(xs))
-        y_max = int(max(ys))
-    except (TypeError, ValueError, OverflowError):
-        log.debug("bbox_to_xywh: non-finite quad %r", box_points)
-        return [0, 0, 0, 0]
+    x_min = int(min(xs))
+    y_min = int(min(ys))
+    x_max = int(max(xs))
+    y_max = int(max(ys))
     return [x_min, y_min, max(0, x_max - x_min), max(0, y_max - y_min)]
 
 
 def bbox_to_xywh(bbox: Any, *, page_height: float | None = None) -> list[int]:
     """Normalize to [x, y, w, h].
 
-    Accepts Docling l/t/r/b (or left/top/right/bottom) dicts and objects, with
-    optional coord_origin / page_height flipping, x/y/w/h dicts, bare
-    4-number [x1, y1, x2, y2] xyxy sequences (list, tuple, numpy row), and
-    quadrilateral corner lists. Malformed input returns [0, 0, 0, 0].
+    Accepts Docling l/t/r/b dicts and objects, with optional coord_origin /
+    page_height flipping, bare 4-number [x1, y1, x2, y2] xyxy sequences (list,
+    tuple, numpy row), and quadrilateral corner lists. Malformed input returns
+    [0, 0, 0, 0].
     """
-    # BOTTOMLEFT boxes have t > b; the flip needs the page height. Docling
-    # callers currently pass page_height=None (see vision_docling.prov_bbox_to_xywh).
-    if isinstance(bbox, dict) and all(k in bbox for k in ("x", "y", "w", "h")):
-        try:
-            return [int(float(bbox["x"])), int(float(bbox["y"])), int(max(0, float(bbox["w"]))), int(max(0, float(bbox["h"])))]
-        except (TypeError, ValueError, OverflowError):
-            log.debug("bbox_to_xywh: malformed xywh dict %r", bbox)
+    try:
+        ltrb = _docling_ltrb(bbox)
+        if ltrb is not None:
+            l, t, r, b, origin = ltrb  # noqa: E741
+            return _ltrb_to_xywh(l, t, r, b, origin, page_height)
+        if isinstance(bbox, dict):
             return [0, 0, 0, 0]
-    ltrb = _docling_ltrb(bbox)
-    if ltrb is not None:
-        l, t, r, b, origin = ltrb  # noqa: E741
-        return _ltrb_to_xywh(l, t, r, b, origin, page_height)
-    if isinstance(bbox, dict):
-        log.debug("bbox_to_xywh: malformed box dict %r", bbox)
-        return [0, 0, 0, 0]
 
-    try:
-        size = len(bbox)
-    except TypeError:
-        return [0, 0, 0, 0]
-    if size == 0:
-        return [0, 0, 0, 0]
-    try:
-        x0 = float(bbox[0])
-    except (TypeError, ValueError):
-        return _box_to_xywh(bbox)
-    if size != 4:
-        log.debug("bbox_to_xywh: expected 4 numbers, got %r", bbox)
-        return [0, 0, 0, 0]
-    try:
+        if len(bbox) == 0:
+            return [0, 0, 0, 0]
+        try:
+            x0 = float(bbox[0])
+        except (TypeError, ValueError):
+            return _box_to_xywh(bbox)
+        if len(bbox) != 4:
+            return [0, 0, 0, 0]
         y0 = float(bbox[1])
         x1 = float(bbox[2])
         y1 = float(bbox[3])
         return [int(x0), int(y0), int(max(0, x1 - x0)), int(max(0, y1 - y0))]
-    except (TypeError, ValueError, OverflowError):
-        log.debug("bbox_to_xywh: malformed xyxy %r", bbox)
+    except (TypeError, ValueError, OverflowError, IndexError, KeyError):
+        log.debug("bbox_to_xywh: malformed box %r", bbox)
         return [0, 0, 0, 0]
 
 
@@ -224,7 +194,7 @@ def detect_vision_input_format(data: Any, params: dict[str, Any] | None = None) 
 
 
 def resolve_ocr_backend(params: dict[str, Any]) -> str:
-    return str(params.get("ocr_backend") or DEFAULT_OCR_BACKEND).strip().lower() or DEFAULT_OCR_BACKEND
+    return str(params.get("ocr_backend") or "").strip().lower() or DEFAULT_OCR_BACKEND
 
 
 def fallback_engine_enabled(params: dict[str, Any]) -> bool:
