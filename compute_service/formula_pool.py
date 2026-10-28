@@ -52,8 +52,9 @@ class _Session:
     """
 
     worker: BaseProcessWorker
-    child: object
+    child: object | None
     last_used: float = field(default_factory=time.monotonic)
+    stale_since: float | None = None
 
 
 @dataclass
@@ -149,7 +150,7 @@ class FormulaProcessPool(BaseProcessPool):
         )
 
     def _expire_stale_sessions_unlocked(self) -> None:
-        """Drop stale session rows older than idle_worker_ttl_sec.
+        """Drop stale session rows that have been stale for longer than idle_worker_ttl_sec.
 
         A session row is stale when its child is no longer that slot's live child.
         Stale rows are kept so the next call reports session_reset, but must expire
@@ -162,8 +163,12 @@ class FormulaProcessPool(BaseProcessPool):
         now = time.monotonic()
         for sid, s in list(self._sessions.items()):
             if not self._is_session_live(s):
-                if now - s.last_used >= ttl:
+                if s.stale_since is None:
+                    s.stale_since = now
+                elif now - s.stale_since >= ttl:
                     self._sessions.pop(sid, None)
+            else:
+                s.stale_since = None
 
     def _evict_idle_workers(self) -> None:
         with self._cond:
@@ -450,7 +455,6 @@ class FormulaProcessPool(BaseProcessPool):
         """
         try:
             with self._cond:
-                current = leased.child or object()
                 result_code = result.get("code") if isinstance(result, dict) else None
                 if (
                     mode == "shared"
@@ -458,13 +462,25 @@ class FormulaProcessPool(BaseProcessPool):
                     and result is not None
                     and result_code not in _UNRUN_RESULT_CODES
                 ):
+                    now = time.monotonic()
                     sess = self._sessions.get(session_id)
+                    # If child is None, the session is registered as stale so the next call reports session_reset.
                     if sess is not None:
                         sess.worker = leased
-                        sess.child = current
-                        sess.last_used = time.monotonic()
+                        sess.child = leased.child
+                        sess.last_used = now
+                        if leased.child is None:
+                            if sess.stale_since is None:
+                                sess.stale_since = now
+                        else:
+                            sess.stale_since = None
                     else:
-                        self._sessions[session_id] = _Session(worker=leased, child=current, last_used=time.monotonic())
+                        self._sessions[session_id] = _Session(
+                            worker=leased,
+                            child=leased.child,
+                            last_used=now,
+                            stale_since=now if leased.child is None else None,
+                        )
         finally:
             self.release_worker(leased)
 

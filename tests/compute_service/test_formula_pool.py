@@ -1880,7 +1880,7 @@ class TestFormulaHttpEndpoint:
             from compute_service.formula_pool import _Session
             with pool._cond:
                 # Stale row older than idle_worker_ttl_sec
-                pool._sessions["stale-old"] = _Session(worker=worker, child=dead_child, last_used=old_time)
+                pool._sessions["stale-old"] = _Session(worker=worker, child=dead_child, last_used=old_time, stale_since=old_time)
                 # Stale row newer than idle_worker_ttl_sec
                 pool._sessions["stale-fresh"] = _Session(worker=worker, child=dead_child, last_used=fresh_time)
                 # Live row older than idle_worker_ttl_sec (live rows unaffected)
@@ -1897,6 +1897,71 @@ class TestFormulaHttpEndpoint:
             res = pool.execute(code="result = 42", session_id="stale-fresh", mode="shared")
             assert res.get("status") == "ok"
             assert res.get("session_reset") is True
+        finally:
+            pool.shutdown()
+
+    def test_idle_evicted_session_preserves_session_reset_across_reaper_passes(self) -> None:
+        """A session whose worker was idle-evicted preserves its stale row across multiple reaper passes until TTL."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0.2)
+        try:
+            sid = "idle-evict-reaper-test"
+            r1 = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared")
+            assert r1.get("status") == "ok"
+            assert r1.get("result") == 1
+            worker = pool.live_session_worker(sid)
+            assert worker is not None
+            assert worker.is_alive()
+
+            # Wait for worker idle TTL to elapse, then evict
+            time.sleep(0.3)
+            pool._evict_idle_workers()
+            assert not worker.is_alive()
+
+            # Second pass occurs well after eviction but before TTL elapses since eviction
+            time.sleep(0.05)
+            pool._evict_idle_workers()
+            time.sleep(0.05)
+            pool._evict_idle_workers()
+            with pool._cond:
+                assert sid in pool._sessions
+
+            # Next sticky call on that session must report session_reset is True and x is gone
+            r2 = pool.execute(
+                code="try:\n    result = x\nexcept NameError:\n    result = 'gone'",
+                session_id=sid,
+                mode="shared",
+            )
+            assert r2.get("status") == "ok"
+            assert r2.get("result") == "gone"
+            assert r2.get("session_reset") is True
+        finally:
+            pool.shutdown()
+
+    def test_stale_session_row_dropped_after_ttl_elapses(self) -> None:
+        """A stale session row is popped only after idle_worker_ttl_sec elapses since it became stale."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0.2)
+        try:
+            sid = "stale-ttl-expiry-test"
+            r1 = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared")
+            assert r1.get("status") == "ok"
+            worker = pool.live_session_worker(sid)
+            assert worker is not None
+
+            # Idle evict the worker
+            time.sleep(0.3)
+            pool._evict_idle_workers()
+            assert not worker.is_alive()
+
+            # Record that it is stale on the first reaper pass
+            pool._evict_idle_workers()
+            with pool._cond:
+                assert sid in pool._sessions
+
+            # Wait until TTL elapses since it went stale
+            time.sleep(0.3)
+            pool._evict_idle_workers()
+            with pool._cond:
+                assert sid not in pool._sessions
         finally:
             pool.shutdown()
 
