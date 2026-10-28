@@ -695,7 +695,6 @@ class PersistentEditor:
                 handle_editor_script_message(
                     kind,
                     msg,
-                    ctx=self.ctx,
                     # Launch document, not whichever window is focused now.
                     session_doc=self.run_script_doc,
                     session_doc_url=self.run_script_doc_url,

@@ -35,7 +35,14 @@ from plugin.writer.format import insert_content_at_position
 from plugin.doc.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import index_to_column
 from plugin.scripting.payload_codec import is_dataframe_payload
-from plugin.scripting.document_scripts import document_scripts_identity, get_user_scripts, resolve_run_script_name_config_key, resolve_run_script_selection, save_selected_script
+from plugin.scripting.document_scripts import (
+    build_xdl_script_picker_state,
+    document_scripts_identity,
+    get_user_scripts,
+    resolve_run_script_name_config_key,
+    resolve_run_script_selection,
+    save_selected_script,
+)
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
     format_elapsed_time,
@@ -827,7 +834,9 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
         desktop = get_desktop(uno_ctx)
         doc = desktop.getCurrentComponent()
 
-        last_name, initial_code = resolve_run_script_selection(uno_ctx, doc, get_user_scripts())[:2]
+        last_name, initial_code = resolve_run_script_selection(
+            doc, build_xdl_script_picker_state(doc, get_user_scripts())
+        )[:2]
 
         user_alerted = False
         if monaco_expected and exe:

@@ -2,10 +2,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
 from plugin.scripting.named_scripts import (
     GET_NAMED_PYTHON_SCRIPT,
     LIST_NAMED_PYTHON_SCRIPTS,
-    ORIGIN_USER,
     extract_library_source,
     host_get_named_python_script,
     host_list_named_python_scripts,
@@ -167,7 +167,7 @@ def test_host_get_named_python_script_hash_short_circuit():
     digest = script_body_hash(code)
     out = host_get_named_python_script(
         name="Helpers",
-        origin=ORIGIN_USER,
+        origin=SCRIPT_ORIGIN_USER,
         known_hash=digest,
         user_scripts={"Helpers": code},
         document_scripts={},
@@ -181,7 +181,7 @@ def test_host_list_named_python_scripts_splits_origins():
         user_scripts={"B": "1", "A": "2"},
         document_scripts={"Doc": "3"},
     )
-    assert listing[ORIGIN_USER] == ["A", "B"]
+    assert listing[SCRIPT_ORIGIN_USER] == ["A", "B"]
     assert listing["document"] == ["Doc"]
 
 
@@ -362,12 +362,12 @@ def test_doc_hello_function_call():
 
 def test_script_library_uses_bound_executor_not_contextvar():
     """The timeout pool copies context; self._executor is fallback when ContextVar was never set."""
-    from plugin.scripting.named_scripts import ORIGIN_DOCUMENT, ScriptLibrary, _current_executor
+    from plugin.scripting.named_scripts import ScriptLibrary, _current_executor
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
     code = "def hello():\n    return 'Hello, Keith'\n"
     exe = _new_executor(10)
-    lib = ScriptLibrary(ORIGIN_DOCUMENT)
+    lib = ScriptLibrary(SCRIPT_ORIGIN_DOCUMENT)
     lib._executor = exe
 
     def fake_rpc(tool: str, **kwargs):
@@ -446,13 +446,13 @@ def test_bind_keeps_each_executor_library():
 
 
 def test_library_lookup_prefers_contextvar_executor():
-    from plugin.scripting.named_scripts import ORIGIN_USER, ScriptLibrary, _current_executor
+    from plugin.scripting.named_scripts import ScriptLibrary, _current_executor
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
     code = "def n():\n    return 'from-context'\n"
     exe_a = _new_executor(10)
     exe_b = _new_executor(10)
-    lib = ScriptLibrary(ORIGIN_USER)
+    lib = ScriptLibrary(SCRIPT_ORIGIN_USER)
     lib._executor = exe_a
     token = _current_executor.set(exe_b)
 

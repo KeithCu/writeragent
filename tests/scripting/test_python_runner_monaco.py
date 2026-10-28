@@ -121,9 +121,19 @@ def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
                 mock_desktop.return_value.getCurrentComponent.return_value = doc
                 with patch.object(pr, "is_calc", return_value=False):
                     with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
-                        with patch(
-                            "plugin.scripting.python_runner.resolve_run_script_selection",
-                            return_value=("Demo", "print(1)", {}),
+                        with (
+                            patch(
+                                "plugin.scripting.python_runner.resolve_run_script_selection",
+                                return_value=("Demo", "print(1)", {}),
+                            ),
+                            patch(
+                                "plugin.scripting.document_scripts.build_xdl_script_picker_state",
+                                return_value=([], {}, {}),
+                            ),
+                            patch(
+                                "plugin.scripting.python_runner.build_xdl_script_picker_state",
+                                return_value=([], {}, {}),
+                            ),
                         ):
                             with patch.object(launch_mod, "confirm_unsaved_monaco_edit", return_value="cancel") as confirm:
                                 with patch.object(pr, "show_python_input_dialog") as mock_native:
@@ -150,7 +160,11 @@ def test_run_python_dialog_msgbox_when_monaco_and_native_fail():
     with patch.object(pr, "get_ctx", return_value=ctx):
         with patch.object(pr, "get_desktop") as mock_desktop:
             mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})):
+            with (
+                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
+                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
+                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
+            ):
                 with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
                     with patch.object(pr, "_run_python_monaco", return_value=False):
                         with patch.object(pr, "show_python_input_dialog", return_value=(False, None)):
@@ -167,7 +181,11 @@ def test_run_python_dialog_msgbox_when_native_only_path_fails():
     with patch.object(pr, "get_ctx", return_value=ctx):
         with patch.object(pr, "get_desktop") as mock_desktop:
             mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})):
+            with (
+                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
+                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
+                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
+            ):
                 with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
                     with patch.object(pr, "show_python_input_dialog", return_value=(False, "dialog load failed")):
                         with patch.object(pr, "_report_run_python_open_failed") as mock_report:
@@ -186,7 +204,11 @@ def test_run_python_dialog_native_failure_detail_in_msgbox():
     with patch.object(pr, "get_ctx", return_value=ctx):
         with patch.object(pr, "get_desktop") as mock_desktop:
             mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})):
+            with (
+                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
+                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
+                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
+            ):
                 with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
                     with patch.object(pr, "show_python_input_dialog", return_value=(False, native_detail)):
                         with patch.object(pr, "_report_run_python_open_failed") as mock_report:
@@ -232,7 +254,11 @@ def test_run_python_dialog_msgbox_includes_monaco_exception_when_native_fails():
     with patch.object(pr, "get_ctx", return_value=ctx):
         with patch.object(pr, "get_desktop") as mock_desktop:
             mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})):
+            with (
+                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
+                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
+                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
+            ):
                 with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
                     with patch.object(pr, "_run_python_monaco", side_effect=monaco_exc):
                         with patch.object(pr, "show_python_input_dialog", return_value=(False, None)):
@@ -260,7 +286,11 @@ def test_run_python_dialog_immediate_msgbox_on_monaco_exception_then_native():
     with patch.object(pr, "get_ctx", return_value=ctx):
         with patch.object(pr, "get_desktop") as mock_desktop:
             mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})):
+            with (
+                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
+                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
+                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
+            ):
                 with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
                     with patch.object(pr, "_run_python_monaco", side_effect=monaco_exc):
                         with patch.object(pr, "show_python_input_dialog", side_effect=native):
@@ -277,7 +307,11 @@ def test_run_python_dialog_no_msgbox_when_monaco_not_expected_and_native_opens()
     with patch.object(pr, "get_ctx", return_value=ctx):
         with patch.object(pr, "get_desktop") as mock_desktop:
             mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})):
+            with (
+                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
+                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
+                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
+            ):
                 with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
                     with patch.object(pr, "_run_python_monaco") as mock_monaco:
                         with patch.object(pr, "show_python_input_dialog", return_value=(True, None)):
