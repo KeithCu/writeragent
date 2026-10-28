@@ -576,7 +576,11 @@ def find_image_payloads(
     # crosshair: off
     if _depth > _MAX_IMAGE_DEPTH:
         return []
-    if is_image_payload(obj):
+    # What was wrong: every cell of a plain-list grid went through the
+    # deal-wrapped is_image_payload, so a 200x200 list result spent most of
+    # its egress time in contract wrappers. How: compute returns lists, not a
+    # split_grid envelope. Why: the walk calls the undecorated check.
+    if _is_image_payload_envelope(obj):
         return [obj]
     if isinstance(obj, (dict, list, tuple)):
         if _seen is None:

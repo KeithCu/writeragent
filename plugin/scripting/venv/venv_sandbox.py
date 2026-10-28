@@ -47,6 +47,7 @@ from plugin.contrib.smolagents.local_python_executor import (
 )
 from plugin.scripting.payload_codec import (
     PAYLOAD_DATAFRAME,
+    ForceBinary,
     child_pack_result,
     describe_wire_value,
     find_image_payloads,
@@ -569,7 +570,12 @@ def _reject_host_unpickleable(obj: Any, *, depth: int = 0) -> None:
     )
 
 
-def serialize_result(obj: Any, *, log_failure: bool = True) -> Any:
+def serialize_result(
+    obj: Any,
+    *,
+    force: ForceBinary = "auto",
+    log_failure: bool = True,
+) -> Any:
     """Convert numpy/pandas and containers to JSON-safe values (split_grid for large numeric/mixed arrays).
 
     DataFrames (and named Series) are returned as a dataframe envelope with 'columns' and 'data'
@@ -578,7 +584,7 @@ def serialize_result(obj: Any, *, log_failure: bool = True) -> Any:
     the binary grid fast path.
     """
     try:
-        out = _serialize_result_impl(obj)
+        out = _serialize_result_impl(obj, force=force)
         # A type we did not convert must not leave the child: the host treats
         # the unpickle error as a bad frame and restarts every workbook.
         _reject_host_unpickleable(out)
@@ -852,7 +858,13 @@ def _temporal_ndarray_to_python(arr: Any, pd_mod: Any) -> Any:
     return [flat[i * ncols : (i + 1) * ncols] for i in range(nrows)]
 
 
-def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = None) -> Any:
+def _serialize_result_impl(
+    obj: Any,
+    *,
+    force: ForceBinary = "auto",
+    depth: int = 0,
+    seen: set[int] | None = None,
+) -> Any:
     from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
 
     if isinstance(obj, CalcRange):
@@ -860,8 +872,8 @@ def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = 
         # The host would otherwise treat it as a matrix and walk
         # MATRIX_SCALAR_SESSIONS. Multi-cell ranges echo values.
         if obj.shape == (1, 1) and obj.values and obj.values[0]:
-            return _serialize_result_impl(obj.values[0][0])
-        return child_pack_result(obj.values)
+            return _serialize_result_impl(obj.values[0][0], force=force)
+        return child_pack_result(obj.values, force=force)
     if is_calc_range_payload(obj):
         return obj
     mpl_fig = sys.modules.get("matplotlib.figure")
@@ -882,7 +894,8 @@ def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = 
                 # fractional days. DataFrame and Series already coerce.
                 # datetime64 is already ISO text; coercion leaves that string.
                 return child_pack_result(
-                    _coerce_host_pickle_tree(_temporal_ndarray_to_python(obj, pd_mod), pd_mod)
+                    _coerce_host_pickle_tree(_temporal_ndarray_to_python(obj, pd_mod), pd_mod),
+                    force=force,
                 )
             if kind == "O":
                 # tolist() then the same tree coercer as the container arm.
@@ -890,15 +903,17 @@ def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = 
                 # array under BINARY_MIN_CELLS otherwise leaves np.int64,
                 # datetime, Decimal, and Fraction for the pickle check.
                 # At or above 100 cells, split_grid already normalizes them.
-                return child_pack_result(_coerce_host_pickle_tree(obj.tolist(), pd_mod))
-            return child_pack_result(obj)
+                return child_pack_result(
+                    _coerce_host_pickle_tree(obj.tolist(), pd_mod), force=force
+                )
+            return child_pack_result(obj, force=force)
         if isinstance(obj, (np_mod.datetime64, np_mod.timedelta64)):
             # np.timedelta64 subclasses np.integer, so the branch below would
             # int() the datetime.timedelta from .item() and raise TypeError.
             # datetime64 is already an ISO string; coercion leaves it as-is.
             return _coerce_host_pickle_scalar(obj, pd_mod)
         if isinstance(obj, (np_mod.integer, np_mod.floating, np_mod.bool_)):
-            return child_pack_result(obj)
+            return child_pack_result(obj, force=force)
     if pd_mod is not None:
         def _pack_coerced_grid(grid: Any) -> Any:
             # _coerce_host_pickle_tree unwraps np.generic via .item(),
@@ -913,7 +928,7 @@ def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = 
             # nanosecond or day int, not the ISO or fractional-day value
             # this function emits. pd.NA and the temporal policy live here;
             # moving them would import pandas into payload_codec.
-            return child_pack_result(_coerce_host_pickle_tree(grid, pd_mod))
+            return child_pack_result(_coerce_host_pickle_tree(grid, pd_mod), force=force)
 
         if isinstance(obj, pd_mod.DataFrame):
             df: Any = obj
@@ -933,7 +948,7 @@ def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = 
                     arr = df.to_numpy(copy=False)
                     kind = _dtype_kind(arr)
                     if kind is not None and _is_numeric_wire_kind(kind):
-                        data_part = child_pack_result(arr)
+                        data_part = child_pack_result(arr, force=force)
                     else:
                         grid = [[_dataframe_cell(cell) for cell in row] for row in df.itertuples(index=False, name=None)]
                         data_part = _pack_coerced_grid(grid)
@@ -955,7 +970,7 @@ def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = 
                     arr = s.to_numpy(copy=False)
                     kind = _dtype_kind(arr)
                     if kind is not None and _is_numeric_wire_kind(kind):
-                        packed = child_pack_result(arr)
+                        packed = child_pack_result(arr, force=force)
                     else:
                         # Same coerce as _pack_coerced_grid. tolist() keeps np.int64.
                         packed = _pack_coerced_grid([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
@@ -974,14 +989,14 @@ def _serialize_result_impl(obj: Any, *, depth: int = 0, seen: set[int] | None = 
             # letting self-referential custom containers loop to RecursionError.
             return _walk_container(
                 obj,
-                lambda v, d, s: _serialize_result_impl(v, depth=d, seen=s),
+                lambda v, d, s: _serialize_result_impl(v, force=force, depth=d, seen=s),
                 depth=depth,
                 seen=seen,
             )
         # Short lists skip split_grid and are pickled as Python objects. A date
         # or Decimal in that list is a datetime/decimal global the host unpickler
         # rejects, which used to kill the shared worker.
-        return child_pack_result(_coerce_host_pickle_tree(obj, pd_mod))
+        return child_pack_result(_coerce_host_pickle_tree(obj, pd_mod), force=force)
     return _coerce_host_pickle_scalar(obj, pd_mod)
 
 
@@ -1426,7 +1441,12 @@ def _error_result(
     return out
 
 
-def _serialize_cell_result(result: Any, *, log_failure: bool = True) -> tuple[Any, str]:
+def _serialize_cell_result(
+    result: Any,
+    *,
+    force: ForceBinary = "auto",
+    log_failure: bool = True,
+) -> tuple[Any, str]:
     """Serialize *result*, swapping in open matplotlib figures when that is the output.
 
     A helper-only init script evaluates to the function, and plt.plot()
@@ -1444,12 +1464,12 @@ def _serialize_cell_result(result: Any, *, log_failure: bool = True) -> tuple[An
     if _is_mpl_artist_result(result):
         captured, note = _capture_open_figures_payload()
         if captured is None:
-            serialized = serialize_result(result, log_failure=log_failure)
+            serialized = serialize_result(result, force=force, log_failure=log_failure)
         else:
             serialized = captured
             extra_stdout = note
     else:
-        serialized = serialize_result(result, log_failure=log_failure)
+        serialized = serialize_result(result, force=force, log_failure=log_failure)
         if not find_image_payloads(serialized):
             captured, note = _capture_open_figures_payload()
             if captured is not None:
@@ -1478,7 +1498,11 @@ def _fail_cell(
 
 
 def _run_on_executor(
-    executor: LocalPythonExecutor, code: str, *, result_optional: bool = False
+    executor: LocalPythonExecutor,
+    code: str,
+    *,
+    force: ForceBinary = "auto",
+    result_optional: bool = False,
 ) -> dict[str, Any]:
     # Keep ``result`` in the namespace. Egress uses it when this cell stored
     # the name. Popping it after every cell would make ``result * 2`` in a
@@ -1514,7 +1538,7 @@ def _run_on_executor(
 
         try:
             serialized, extra_stdout = _serialize_cell_result(
-                result, log_failure=not result_optional
+                result, force=force, log_failure=not result_optional
             )
         except Exception:
             if not result_optional:
@@ -1605,6 +1629,7 @@ def run_sandboxed_code(
     code: str,
     data: Any | None = None,
     *,
+    force: ForceBinary = "auto",
     bindings: dict[str, Any] | None = None,
     timeout_sec: int | None = None,
     session_id: str | None = None,
@@ -1727,7 +1752,7 @@ def run_sandboxed_code(
         executor.state.pop("scoped_dir", None)
         _inject_bindings(executor, bindings)
         _inject_session_duckdb(executor)
-        return _run_on_executor(executor, code)
+        return _run_on_executor(executor, code, force=force)
     finally:
         SANDBOX_EXTRA_MODULES.reset(extra_token)
         SANDBOX_BLOCKED_MODULES.reset(blocked_token)
