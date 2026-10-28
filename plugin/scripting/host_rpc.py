@@ -138,12 +138,7 @@ def inner_script_tool_domain(domains: list[str]) -> str:
     (``"writer"``, ``"shapes"``) does not gain ``core`` — only this inner path
     appends it — and ``None`` / ``""`` are unchanged.
     """
-    parts: list[str] = []
-    seen: set[str] = set()
-    for name in domains:
-        if name and name not in seen and name != "core":
-            seen.add(name)
-            parts.append(name)
+    parts = [name for name in dict.fromkeys(domains) if name and name != "core"]
     parts.append("core")
     return ",".join(parts)
 
@@ -267,8 +262,7 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
             continue
         seen.add(key)
         namespaces.append(key)
-    blocks: list[str] = [_catalog_lead(namespaces), ""]
-    any_entry = False
+    blocks: list[str] = []
     for namespace in namespaces:
         entries: list[str] = []
         for tool_name in tools.get(namespace) or ():
@@ -285,9 +279,9 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
             blocks.append(f"{namespace}:")
             blocks.append("\n\n".join(entries))
             blocks.append("")
-            any_entry = True
-    if not any_entry:
+    if not blocks:
         return ""
+    blocks = [_catalog_lead(namespaces), "", *blocks]
     return "\n".join(blocks).rstrip() + "\n"
 
 def format_script_api_catalog(domains: list[str]) -> str:
@@ -329,8 +323,8 @@ def execute_tool(
             "Document tool RPC is disabled during =PY() recalculation. "
             "Use Run Python Script… to call writeragent tools."
         )
+    payload = args if isinstance(args, dict) else {}
     if tool_name in _NAMED_SCRIPT_TOOLS:
-        payload = args if isinstance(args, dict) else {}
         from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
 
         # Off-main callers cannot wait on execute_on_main_thread (deadlock #402).
@@ -340,17 +334,11 @@ def execute_tool(
             return _dispatch_named_script(tool_name, payload, allow_document=False)
         from plugin.framework.queue_executor import execute_on_main_thread
 
-        return execute_on_main_thread(
-            lambda: _dispatch_named_script(
-                tool_name, payload, script_session_id=script_session_id
-            )
-        )
+        return execute_on_main_thread(lambda: _dispatch_named_script(tool_name, payload, script_session_id=script_session_id))
     if allowed_tools is not None and tool_name not in allowed_tools:
         raise RuntimeError(
             f"Tool {tool_name!r} is not available in this Python tool domain."
         )
-
-    payload = args if isinstance(args, dict) else {}
 
     def _run() -> Any:
         try:
@@ -478,43 +466,15 @@ def _dispatch_named_script(
     known = payload.get("known_hash")
     known_hash = known if isinstance(known, str) else None
 
-    if not allow_document:
-        if origin != ORIGIN_USER:
-            raise RuntimeError(
-                "Document scripts cannot be loaded during =PY() recalculation off the UI thread. "
-                "Use a user script (wa.scripts) or Run Python Script."
-            )
-        return host_get_named_python_script(
-            name=name,
-            origin=ORIGIN_USER,
-            known_hash=known_hash,
-            user_scripts=get_user_scripts(),
-            document_scripts={},
+    if not allow_document and origin != ORIGIN_USER:
+        raise RuntimeError(
+            "Document scripts cannot be loaded during =PY() recalculation off the UI thread. "
+            "Use a user script (wa.scripts) or Run Python Script."
         )
-    if origin == ORIGIN_USER:
-        # User scripts live in config; do not resolve the document store.
-        return host_get_named_python_script(
-            name=name,
-            origin=origin,
-            known_hash=known_hash,
-            user_scripts=get_user_scripts(),
-            document_scripts={},
-        )
-    if origin == ORIGIN_DOCUMENT:
-        return host_get_named_python_script(
-            name=name,
-            origin=origin,
-            known_hash=known_hash,
-            user_scripts=get_user_scripts(),
-            document_scripts=_document_script_store(script_session_id),
-        )
-    # Unknown origin: host_get_named_python_script raises the documented error.
+    user_scripts = get_user_scripts() if origin in (ORIGIN_USER, ORIGIN_DOCUMENT) else {}
+    document_scripts = _document_script_store(script_session_id) if origin == ORIGIN_DOCUMENT else {}
     return host_get_named_python_script(
-        name=name,
-        origin=origin,
-        known_hash=known_hash,
-        user_scripts={},
-        document_scripts={},
+        name=name, origin=origin, known_hash=known_hash, user_scripts=user_scripts, document_scripts=document_scripts
     )
 
 
@@ -535,21 +495,23 @@ def handle_tool_call_frame(
     tool_name = response.get("tool")
     call_id = response.get("id")
 
+    def _error_frame(message: str, code: str | None = None) -> dict[str, Any]:
+        frame: dict[str, Any] = {"status": "error", "id": call_id, "message": message}
+        if code:
+            frame["code"] = code
+        return frame
+
     def _reply(payload: dict[str, Any], *, failure_log: str) -> None:
         try:
             frame = pack_pickle_frame(payload, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except IpcFrameError as exc:
             # An oversized tool result used to be written anyway. The host read
             # then killed the child and restarted every workbook's shared kernel.
-            frame = pack_pickle_frame(
-                {"status": "error", "id": call_id, "message": str(exc)},
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-            )
+            frame = pack_pickle_frame(_error_frame(str(exc)), max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except Exception as exc:
             # Unpicklable tool result. Fall back to sending an error frame instead of hanging.
             frame = pack_pickle_frame(
-                {"status": "error", "id": call_id, "message": f"Result not serializable: {exc}"},
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+                _error_frame(f"Result not serializable: {exc}"), max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES
             )
 
         # A broken worker pipe raises from stdin_write (e.g. ValueError when
@@ -566,14 +528,14 @@ def handle_tool_call_frame(
 
     if not isinstance(tool_name, str):
         _reply(
-            {"status": "error", "id": call_id, "message": f"Invalid tool_call: {tool_name!r}"},
+            _error_frame(f"Invalid tool_call: {tool_name!r}"),
             failure_log="venv tool_call reply failed (worker pipe closed)",
         )
         return True
     args = response.get("args")
     if args is not None and not isinstance(args, dict):
         _reply(
-            {"status": "error", "id": call_id, "message": "args must be a dictionary"},
+            _error_frame("args must be a dictionary"),
             failure_log="venv tool_call reply failed (worker pipe closed)",
         )
         return True
@@ -581,29 +543,22 @@ def handle_tool_call_frame(
     # host tools, including export, after the sidebar went idle. The same
     # checker the LLM frame already receives refuses the call and tells the
     # child to end with USER_STOPPED.
-    is_stopped = False
     if stop_checker is not None:
         try:
-            is_stopped = stop_checker()
+            if stop_checker():
+                _reply(
+                    _error_frame("Stopped by user.", code="USER_STOPPED"),
+                    failure_log="venv tool_call USER_STOPPED reply failed (worker pipe closed)",
+                )
+                return True
         except Exception:
             log.exception("stop_checker raised exception in handle_tool_call_frame")
             _reply(
-                {"status": "error", "id": call_id, "message": "stop_checker raised exception"},
+                _error_frame("stop_checker raised exception"),
                 failure_log="venv tool_call error reply failed (worker pipe closed)",
             )
             return True
 
-    if is_stopped:
-        _reply(
-            {
-                "status": "error",
-                "id": call_id,
-                "code": "USER_STOPPED",
-                "message": "Stopped by user.",
-            },
-            failure_log="venv tool_call USER_STOPPED reply failed (worker pipe closed)",
-        )
-        return True
     try:
         res = execute_tool(
             tool_name,
@@ -620,9 +575,7 @@ def handle_tool_call_frame(
         # Copy code onto the response when the exception has one
         # (ToolExecutionError code="USER_STOPPED", domain codes). A payload of
         # only status and message hid that code from the child worker.
-        tool_response = {"status": "error", "id": call_id, "message": str(exc)}
         err_code = getattr(exc, "code", None)
-        if err_code:
-            tool_response["code"] = str(err_code)
+        tool_response = _error_frame(str(exc), code=str(err_code) if err_code else None)
     _reply(tool_response, failure_log="venv tool_call reply failed (worker pipe closed)")
     return True
