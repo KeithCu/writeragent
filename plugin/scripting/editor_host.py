@@ -284,9 +284,22 @@ class EditorSessionState:
     save_token: object | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
+    def _clear_pending(self) -> None:
+        self.pending_load = None
+        self.pending_on_save = None
+        self.pending_on_closed = None
+
     @property
     def target_key(self) -> tuple[str, ...]:
         return target_identity_key(self.mode, self.target)
+
+
+def _poll_readable(stream: Any, timeout: float) -> bool:
+    """POSIX select. Windows pipes are not selectable, so the caller blocks in read."""
+    if sys.platform == "win32":
+        return True
+    ready, _unused_w, _unused_x = select.select([stream], [], [], timeout)
+    return bool(ready)
 
 
 class PersistentEditor:
@@ -472,15 +485,10 @@ class PersistentEditor:
                 detail = self.read_stderr_tail()
                 raise RuntimeError(f"Editor process closed stdin. {detail}") from e
 
-    def read_stderr_tail(self, max_chars: int = 65536, max_bytes: int | None = None) -> str:
+    def read_stderr_tail(self) -> str:
         """Return stderr already captured by the drain thread."""
-        limit = max_chars if max_bytes is None else max_bytes
         with self._stderr_tail_lock:
-            if not self._stderr_tail:
-                return ""
             text = "\n".join(self._stderr_tail)
-        if len(text) > limit:
-            return text[-limit:].strip()
         return text.strip()
 
     def _append_stderr_line(self, line: str, generation: int | None = None) -> None:
@@ -518,28 +526,16 @@ class PersistentEditor:
             return
         stderr = proc.stderr
         try:
-            if sys.platform == "win32":
-                # Windows: blocking readline (pipe close on exit unblocks).
-                while proc.poll() is None:
-                    if not self._read_and_append_stderr_line(stderr, generation):
-                        break
-            else:
-                while proc.poll() is None:
-                    ready, _unused_w, _unused_x = select.select([stderr], [], [], 0.5)
-                    if not ready:
-                        continue
-                    if not self._read_and_append_stderr_line(stderr, generation):
-                        break
+            while proc.poll() is None:
+                if not _poll_readable(stderr, 0.5):
+                    continue
+                if not self._read_and_append_stderr_line(stderr, generation):
+                    break
         except Exception:
             log.debug("editor stderr drain failed", exc_info=True)
         finally:
             try:
-                # Flag instead of return: return in finally is a SyntaxWarning.
-                ready_to_read = True
-                if sys.platform != "win32":
-                    ready, _unused_w, _unused_x = select.select([stderr], [], [], 0.05)
-                    ready_to_read = bool(ready)
-                if ready_to_read:
+                if _poll_readable(stderr, 0.05):
                     remainder = stderr.read()
                     if remainder:
                         for piece in remainder.decode("utf-8", errors="replace").splitlines():
@@ -578,10 +574,7 @@ class PersistentEditor:
             return
         stdout = proc.stdout
         try:
-            if sys.platform == "win32":
-                self._read_loop_blocking(proc, stdout)
-            else:
-                self._read_loop_select(proc, stdout)
+            self._read_incoming(proc, stdout)
         except Exception:
             log.exception("Editor pipe reader failed")
         finally:
@@ -615,30 +608,20 @@ class PersistentEditor:
             return None
         return cast("dict[str, Any]", msg)
 
-    def _read_loop_select(self, proc: subprocess.Popen[bytes], stdout: Any) -> None:
-        """POSIX: use select() to poll the pipe with periodic liveness checks."""
+    def _read_incoming(self, proc: subprocess.Popen[bytes], stdout: Any) -> None:
         while proc.poll() is None:
-            ready, _unused_w, _unused_x = select.select([stdout], [], [], 0.5)
-            if not ready:
-                continue
-            msg = self._read_editor_message(proc, stdout)
-            if msg is None:
-                break
-            if self._proc is proc:
-                self._dispatch_incoming(msg)
+            if sys.platform == "win32":
+                try:
+                    msg = self._read_editor_message(proc, stdout)
+                except subprocess.TimeoutExpired:
+                    # Idle pipe: no bytes consumed, keep waiting. A stalled partial
+                    # frame has already been pulled into the helper's buffer, so the
+                    # next read raises and the reader exits.
+                    continue
             else:
-                log.warning("editor_host: ignored incoming message from old process")
-
-    def _read_loop_blocking(self, proc: subprocess.Popen[bytes], stdout: Any) -> None:
-        """Windows: peek-with-timeout so a partial frame cannot block ReadFile forever."""
-        while proc.poll() is None:
-            try:
+                if not _poll_readable(stdout, 0.5):
+                    continue
                 msg = self._read_editor_message(proc, stdout)
-            except subprocess.TimeoutExpired:
-                # Idle pipe: no bytes consumed, keep waiting. A stalled partial
-                # frame has already been pulled into the helper's buffer, so the
-                # next read raises and the reader exits.
-                continue
             if msg is None:
                 break
             if self._proc is proc:
@@ -660,6 +643,15 @@ class PersistentEditor:
             log.exception("%s timed out" if isinstance(exc, TimeoutError) else "%s marshal failed", label)
             return exc
         return None
+
+    def _report_marshal_failure(self, send: Callable[[dict[str, Any]], None], timed_out: bool, messages: tuple[str, str], who: str) -> None:
+        timed_out_message, failed_message = messages
+        message = timed_out_message if timed_out else failed_message
+        # A bare send here lets a broken pipe escape _dispatch_incoming and terminate() the editor. Log and continue.
+        try:
+            send(error_frame(message))
+        except Exception:
+            log.warning("Editor %s could not send timeout error frame" if timed_out else "Editor %s could not send marshal-failure error frame", who, exc_info=True)
 
     def set_run_script_document(self, doc: Any | None) -> None:
         from plugin.scripting.document_scripts import document_scripts_identity
@@ -710,21 +702,7 @@ class PersistentEditor:
 
         exc = self._run_on_main(_handle_picker, "Editor script picker")
         if exc is not None:
-            timed_out = isinstance(exc, TimeoutError)
-            message = (
-                _("The script list update timed out.")
-                if timed_out
-                else _("The script list update failed.")
-            )
-            try:
-                _picker_send(error_frame(message))
-            except Exception:
-                log.warning(
-                    "Editor script picker could not send timeout error frame"
-                    if timed_out
-                    else "Editor script picker could not send marshal-failure error frame",
-                    exc_info=True,
-                )
+            self._report_marshal_failure(_picker_send, isinstance(exc, TimeoutError), (_("The script list update timed out."), _("The script list update failed.")), "script picker")
 
     def _on_dirty(self, msg: dict[str, Any]) -> None:
         state = self.resolve_incoming(msg)
@@ -804,9 +782,7 @@ class PersistentEditor:
                 if pending is not None and (result.get("type") == "saved" or result.get("ok")):
                     next_on_save = captured.pending_on_save
                     next_on_closed = captured.pending_on_closed
-                    captured.pending_load = None
-                    captured.pending_on_save = None
-                    captured.pending_on_closed = None
+                    captured._clear_pending()
                     self.end_session(captured.session_id, call_closed=True)
                     if next_on_save is not None:
                         _activate_load(pending, next_on_save, next_on_closed or (lambda: None))
@@ -819,32 +795,11 @@ class PersistentEditor:
 
         exc = self._run_on_main(_handle_save, "Editor save handler")
         if exc is not None:
-            timed_out = isinstance(exc, TimeoutError)
             with self._save_lock:
                 self._save_token = None
                 captured.save_token = None
-            captured.pending_load = None
-            captured.pending_on_save = None
-            captured.pending_on_closed = None
-            message = (
-                _("Saving the script timed out.")
-                if timed_out
-                else _("Saving the script failed.")
-            )
-            try:
-                self.send(
-                    error_frame(message),
-                    session=captured,
-                )
-            except Exception:
-                # A bare self.send on save timeout lets a broken pipe escape
-                # _dispatch_incoming and terminate() the editor. Log and continue.
-                log.warning(
-                    "Editor save handler could not send timeout error frame"
-                    if timed_out
-                    else "Editor save handler could not send marshal-failure error frame",
-                    exc_info=True,
-                )
+            captured._clear_pending()
+            self._report_marshal_failure(lambda payload: self.send(payload, session=captured), isinstance(exc, TimeoutError), (_("Saving the script timed out."), _("Saving the script failed.")), "save handler")
 
     def _on_close(self, kind: str, msg: dict[str, Any]) -> None:
         log.info("editor_host _dispatch_incoming: received close/cancel kind=%r", kind)
@@ -943,15 +898,6 @@ class EditorSession:
     def start_reader(self) -> None:
         if _PERSISTENT_EDITOR.proc is not self._proc:
             _PERSISTENT_EDITOR.start(self._proc)
-
-    def send(self, message: dict[str, Any]) -> None:
-        _PERSISTENT_EDITOR.send(message)
-
-    def read_stderr_tail(self, max_chars: int = 65536, max_bytes: int | None = None) -> str:
-        return _PERSISTENT_EDITOR.read_stderr_tail(max_chars=max_chars, max_bytes=max_bytes)
-
-    def wait_for_ready(self, ctx: Any, timeout_sec: float = 30.0) -> bool:
-        return _PERSISTENT_EDITOR.wait_for_ready(ctx, timeout_sec)
 
     def _finish(self, *, clearing: bool = False) -> None:
         if self.session_id:
@@ -1071,12 +1017,6 @@ def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
         log.debug("monaco_editor_available: webview probe failed for %s: %s", exe, detail[:200] if detail else "")
         return exe, False
     return exe, True
-
-
-def monaco_open_expected(ctx: Any) -> tuple[str | None, bool]:
-    """Return (venv python exe, True) when Run Python Script should use Monaco."""
-    exe, ok = monaco_editor_available(ctx)
-    return exe, ok
 
 
 def monaco_session_needs_flush() -> bool:
@@ -1248,9 +1188,7 @@ def _register_load_session(
         # the next buffer. Resetting dirty alone left pending_load /
         # pending_on_save / pending_on_closed, and a queue_save_then_load still
         # in flight then applied that stale load on a later unrelated save.
-        existing.pending_load = None
-        existing.pending_on_save = None
-        existing.pending_on_closed = None
+        existing._clear_pending()
         state = existing
     else:
         if focused is not None:
@@ -1302,9 +1240,7 @@ def queue_save_then_load(
     except Exception:
         # The queued load must not fire on a later unrelated save when the
         # request never reached the child.
-        focused.pending_load = None
-        focused.pending_on_save = None
-        focused.pending_on_closed = None
+        focused._clear_pending()
         raise
 
 
@@ -1327,6 +1263,10 @@ def launch_monaco_editor(
     from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
 
     title = product_display_name(ctx)
+
+    def _launch_fail(msg_text: str, report_title: str) -> bool:
+        msgbox_with_report(ctx, title, msg_text, box_type=3, reportable=True, report_title=report_title, report_extra=msg_text)
+        return False
 
     _PERSISTENT_EDITOR.ctx = ctx
     # ui is attached later, once. Enriching before the unsaved-changes gate
@@ -1378,22 +1318,20 @@ def launch_monaco_editor(
         except OSError as e:
             log.exception("Failed to spawn editor")
             msg = failure_message(_("Could not start the Python editor."), exc=e)
-            msgbox_with_report(ctx, title, msg, box_type=3, reportable=True, report_title="Python editor spawn failed", report_extra=msg)
-            return False
+            return _launch_fail(msg, "Python editor spawn failed")
 
         session = EditorSession(proc, on_save=on_save, on_closed=closed_handler)
         set_active_session(session)
         session.start_reader()
 
-        if not session.wait_for_ready(ctx, timeout_sec=45.0):
-            detail = session.read_stderr_tail()
+        if not _PERSISTENT_EDITOR.wait_for_ready(ctx, timeout_sec=45.0):
+            detail = _PERSISTENT_EDITOR.read_stderr_tail()
             # set_active_session(None) does not kill the child. The next open
             # saw is_running and skipped wait_for_ready.
             terminate_persistent_editor()
             set_active_session(None)
             msg = failure_message(_("The Python editor window did not start."), detail=detail)
-            msgbox_with_report(ctx, title, msg, box_type=3, reportable=True, report_title="Python editor did not start", report_extra=msg)
-            return False
+            return _launch_fail(msg, "Python editor did not start")
 
         # Finite pre-warm, same as the native script dialog; the shared daemon pool
         # is for this; dedicated=True is for servers, pipe drains, and jobs another
@@ -1401,25 +1339,16 @@ def launch_monaco_editor(
         run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
 
     if not session.is_running:
-        detail = session.read_stderr_tail()
+        detail = _PERSISTENT_EDITOR.read_stderr_tail()
         set_active_session(None)
         msg = failure_message(_("The Python editor exited before it could load your code."), detail=detail)
-        msgbox_with_report(
-            ctx,
-            title,
-            msg,
-            box_type=3,
-            reportable=True,
-            report_title="Python editor exited early",
-            report_extra=msg,
-        )
-        return False
+        return _launch_fail(msg, "Python editor exited early")
 
     try:
         ipc_message = enrich_monaco_load_message(ipc_message)
         state, stamped = _register_load_session(ipc_message, on_save, closed_handler)
         session.session_id = state.session_id
-        session.send(stamped)
+        _PERSISTENT_EDITOR.send(stamped)
     except DirtyBufferError:
         # The confirm gate should have queued, cancelled, or marked discard.
         # Killing the child here would throw away the buffer we just refused
@@ -1428,21 +1357,12 @@ def launch_monaco_editor(
         return True
     except Exception as e:
         log.exception("Failed to send load to editor")
-        ipc_detail = "\n\n".join(filter(None, [session.read_stderr_tail(), exception_traceback(e)]))
+        ipc_detail = "\n\n".join(filter(None, [_PERSISTENT_EDITOR.read_stderr_tail(), exception_traceback(e)]))
         # Same as the ready-timeout path: a live child with no session makes
         # the next open skip the webview probe.
         terminate_persistent_editor()
         set_active_session(None)
         msg = failure_message(_("Could not talk to the Python editor."), detail=ipc_detail)
-        msgbox_with_report(
-            ctx,
-            title,
-            msg,
-            box_type=3,
-            reportable=True,
-            report_title="Python editor IPC failed",
-            report_extra=msg,
-        )
-        return False
+        return _launch_fail(msg, "Python editor IPC failed")
 
     return True
