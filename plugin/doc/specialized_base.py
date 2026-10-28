@@ -92,9 +92,22 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
         return False
 
 
-def _path_or_name_from_tool_arguments(arguments: Any) -> str:
-    val = field_from_tool_arguments(arguments, "path_or_name")
-    return str(val) if val is not None else ""
+def _main_thread_or_warn(fn: Any, what: str, default: Any = "") -> Any:
+    """Marshal fn to the main thread. Re-raise real document disposal.
+
+    Bugfix: a closed document raises DisposedException while reading the shapes
+    canvas, Calc context, or open-document list. Those except blocks turned
+    disposal into a missing page or a partial prompt. Re-raise real disposal so
+    execute_safe reports DOCUMENT_DISPOSED. Any other failure keeps the empty
+    context.
+    """
+    try:
+        return queue_executor.execute_on_main_thread(fn)
+    except Exception as e:
+        if is_real_disposal(e):
+            raise
+        log.warning("Failed to get %s for sub-agent: %s", what, e)
+        return default
 
 
 class DelegateToSpecializedBase(ToolBase):
@@ -128,18 +141,9 @@ class DelegateToSpecializedBase(ToolBase):
             "type": "object",
             "properties": {
                 "domain": {"type": "string", "enum": sorted(domains), "description": "The specialized domain to activate."},
-                # Left commented on purpose. Domain access for the python specialized
-                # agent is delegate_tool_domains (domains + task → inner agent in
-                # plugin/doc/python_domain_specialized.py). This single-string name is
-                # the venv → LO RPC allowlist (host_rpc.resolve_allowed_tools), including
-                # "" to disable RPC during =PY(). The inner agent sets
-                # ToolContext.python_tool_domain from the delegated list plus core
-                # (comma-separated). Turning the parameter on here would advertise a second
-                # API beside the list+task tool.
-                # "python_tool_domain": {
-                #     "type": "string",
-                #     "description": "Optional domain for tools to expose to Python, e.g. 'core', or a specialized domain like 'footnotes'. Required when domain='python' to specify tool access for the script.",
-                # },
+                # python_tool_domain stays off this schema on purpose. delegate_tool_domains
+                # (plugin/doc/python_domain_specialized.py) sets ToolContext.python_tool_domain
+                # (delegated domains plus core, including "" during =PY()). A property here would be a second API.
                 "task": {"type": "string", "description": DELEGATE_SPECIALIZED_TASK_PARAM_HINT},
             },
             "required": ["domain", "task"],
@@ -360,19 +364,10 @@ class DelegateToSpecializedBase(ToolBase):
             # Page size stays on the shapes loop (and the inner domain agent when
             # shapes is requested). The outer python agent passes layout in task.
             if domain == "shapes":
-                try:
-                    canvas = queue_executor.execute_on_main_thread(lambda: format_shapes_canvas_context(getattr(ctx, "doc", None)))
-                except Exception as e:
-                    # Bugfix: a closed document raises DisposedException while reading the shapes canvas,
-                    # and this except turned that into a missing page / not-found result.
-                    # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-                    # Any other failure stays on the existing missing-page path.
-                    if is_real_disposal(e):
-                        raise
-                    log.warning("Failed to get shapes canvas for sub-agent: %s", e)
-                    canvas = ""
-                if canvas:
-                    shapes_canvas = canvas
+                shapes_canvas = _main_thread_or_warn(
+                    lambda: format_shapes_canvas_context(getattr(ctx, "doc", None)),
+                    "shapes canvas",
+                )
 
             charts_hint = ""
             if domain == "charts":
@@ -390,16 +385,7 @@ class DelegateToSpecializedBase(ToolBase):
                 def _fetch_calc_context() -> str:
                     return "\n\n[SPREADSHEET CONTEXT]\n" + get_calc_context_for_chat(ctx.doc, ctx=ctx.ctx)
 
-                try:
-                    # Sub-agent runs on a worker thread; UNO reads must go through the main thread.
-                    calc_ctx = queue_executor.execute_on_main_thread(_fetch_calc_context)
-                except Exception as e:
-                    # Bugfix: a document closed during the async run landed here; swallowing it
-                    # dropped the context and let the inner agent answer from a partial prompt.
-                    # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-                    if is_real_disposal(e):
-                        raise
-                    log.warning("Failed to get Calc context for sub-agent: %s", e)
+                calc_ctx = _main_thread_or_warn(_fetch_calc_context, "Calc context")
 
             open_docs_context = ""
             if domain == "document_research":
@@ -448,7 +434,8 @@ class DelegateToSpecializedBase(ToolBase):
                 if domain == "document_research" and step.name == "delegate_read_document" and chat_append_callback:
                     from plugin.chatbot.web_research_chat import document_open_step_chat_text
 
-                    path_or_name = _path_or_name_from_tool_arguments(step.arguments)
+                    val = field_from_tool_arguments(step.arguments, "path_or_name")
+                    path_or_name = str(val) if val is not None else ""
                     chat_append_callback(document_open_step_chat_text(path_or_name, document_open_step_index))
                     document_open_step_index += 1
                 if append_thinking_callback:
@@ -483,12 +470,10 @@ class DelegateToSpecializedBase(ToolBase):
         # `instruction` field web research uses when empty tabs were created.
         if domain == "sheets" or create_sheet_ran or captured_tool_results:
             payload = attach_sheets_create_completion_instruction(
-                dict(payload),
+                payload,
                 create_sheet_ran=create_sheet_ran,
                 tool_results=captured_tool_results,
             )
-        else:
-            payload = dict(payload)
 
         # Peer-work receiving turn: nested specialize (or research without an
         # accepted send_peer_result) is not delivery — stamp still-required
@@ -518,14 +503,9 @@ class DelegateToSpecializedBase(ToolBase):
         # with code SPECIALIZED_WORKFLOW_INCOMPLETE and the model text on message.
         is_finished = workflow_finished or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
         if inner_tool_errors:
-            tool_msgs: list[str] = []
-            for err in inner_tool_errors:
-                msg = err.get("message") or err.get("error")
-                if msg:
-                    tool_msgs.append(str(msg))
-                else:
-                    tool_msgs.append(str(err))
-            combined_message = "; ".join(tool_msgs) or "Specialized tool error."
+            combined_message = "; ".join(
+                str(e.get("message") or e.get("error") or e) for e in inner_tool_errors
+            )
             payload["status"] = "error"
             payload["code"] = "SPECIALIZED_TOOL_ERROR"
             payload["message"] = combined_message
