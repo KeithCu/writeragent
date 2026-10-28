@@ -70,9 +70,7 @@ def test_start_raises_immediately_when_port_busy(monkeypatch):
 def test_is_port_in_use_error_by_errno():
     assert is_port_in_use_error(OSError(98, "Address already in use"))
     assert is_port_in_use_error(OSError(48, "Address already in use"))
-    err = OSError("busy")
-    err.winerror = 10048
-    assert is_port_in_use_error(err)
+    assert is_port_in_use_error(OSError(10048, "busy"))
     assert not is_port_in_use_error(OSError(13, "Permission denied"))
     assert not is_port_in_use_error(RuntimeError("boom"))
 

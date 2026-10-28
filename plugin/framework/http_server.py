@@ -60,9 +60,6 @@ def is_port_in_use_error(exc: BaseException) -> bool:
         err = getattr(exc, "errno", None)
         if err in _PORT_IN_USE_ERRNOS:
             return True
-        winerr = getattr(exc, "winerror", None)
-        if winerr in _PORT_IN_USE_ERRNOS:
-            return True
     msg = str(exc).lower()
     return "address already in use" in msg or "only one usage of each socket address" in msg
 
@@ -119,12 +116,8 @@ class _RequestThreads:
     _sentinels: bool
     _pending: int
 
-    def __init__(self, max_workers: int | None, thread_name_prefix: str, *, max_queued: int = 128) -> None:
-        # Same default as ThreadPoolExecutor: an omitted count stays bounded.
-        if max_workers is None:
-            max_workers = min(32, (os.cpu_count() or 1) + 4)
-        if max_workers <= 0:
-            raise ValueError("max_workers must be greater than 0")
+    def __init__(self, max_workers: int, thread_name_prefix: str, *, max_queued: int = 128) -> None:
+        assert max_workers > 0
         self._max_workers = max_workers
         self._max_queued = max_queued
         self._prefix = thread_name_prefix
@@ -254,49 +247,12 @@ def format_bind_failure(host: str, port: int | str, exc: BaseException, service_
     return "\n".join(lines)
 
 
-_BENIGN_ACCEPT_ERRNOS: frozenset[int] = frozenset(
-    code
-    for code in (
-        getattr(errno, "ECONNABORTED", None),
-        getattr(errno, "ECONNRESET", None),
-        getattr(errno, "EINTR", None),
-        getattr(errno, "EAGAIN", None),
-        getattr(errno, "EWOULDBLOCK", None),
-        getattr(errno, "EPROTO", None),
-        10053,  # WSAECONNABORTED
-        10054,  # WSAECONNRESET
-        10004,  # WSAEINTR
-        10035,  # WSAEWOULDBLOCK
-    )
-    if code is not None
-)
-
-_RESOURCE_ACCEPT_ERRNOS: frozenset[int] = frozenset(
-    code
-    for code in (
-        getattr(errno, "EMFILE", None),
-        getattr(errno, "ENFILE", None),
-        getattr(errno, "ENOBUFS", None),
-        getattr(errno, "ENOMEM", None),
-        10024,  # WSAEMFILE
-        10055,  # WSAENOBUFS
-    )
-    if code is not None
-)
-
-
-def _accept_errno(exc: BaseException) -> int | None:
-    """Extract socket errno or winerror from an accept exception."""
-    if isinstance(exc, OSError):
-        err = getattr(exc, "errno", None)
-        winerr = getattr(exc, "winerror", None)
-        if winerr in _BENIGN_ACCEPT_ERRNOS or winerr in _RESOURCE_ACCEPT_ERRNOS:
-            return winerr
-        if isinstance(err, int):
-            return err
-        if isinstance(winerr, int):
-            return winerr
-    return None
+def _close_quiet(sock: Socket | None) -> None:
+    if sock is not None:
+        try:
+            sock.close()
+        except OSError:
+            pass
 
 
 def _drain_wake_socket(sock: Socket) -> None:
@@ -305,8 +261,6 @@ def _drain_wake_socket(sock: Socket) -> None:
             chunk = sock.recv(128)
             if not chunk:
                 break
-        except (BlockingIOError, InterruptedError):
-            break
         except OSError:
             break
 
@@ -352,7 +306,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         server_address: tuple[str, int],
         RequestHandlerClass: Any,
         bind_and_activate: bool = True,
-        max_threads: int | None = None,
+        max_threads: int = 8,
         *,
         thread_name_prefix: str = "http-worker",
         max_queued: int = 128,
@@ -382,11 +336,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self.executor = _RequestThreads(max_threads, thread_name_prefix, max_queued=max_queued)
 
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
-        inherited = self.socket
-        try:
-            inherited.close()
-        except OSError:
-            pass
+        _close_quiet(self.socket)
 
         host, port = server_address
 
@@ -411,7 +361,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
         # One family failing (port taken on 127.0.0.1, ::1 free) closes what did bind and raises.
         # EAFNOSUPPORT / EADDRNOTAVAIL means that family is not on this host and is safely ignored.
-        bind_errors: list[OSError] = []
+        first_error: OSError | None = None
         optional_family = {errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL}
         for family, ip in bind_addresses:
             sock: socket.socket | None = None
@@ -436,23 +386,20 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                 self.sockets.append(sock)
                 sock = None
             except OSError as e:
-                if sock is not None:
-                    try:
-                        sock.close()
-                    except OSError:
-                        pass
+                _close_quiet(sock)
                 if e.errno in optional_family:
                     log.warning("Address family unavailable for %s:%s: %s", ip, port, e)
                     continue
                 log.warning("Failed to bind to %s:%s: %s", ip, port, e)
-                bind_errors.append(e)
+                first_error = e
+                break
 
-        if bind_errors or not self.sockets:
+        if first_error is not None or not self.sockets:
             # The executor was already created. Raising without shutdown leaks
             # its threads; server_close drops them and any socket that bound.
             self.server_close()
-            if bind_errors:
-                raise bind_errors[0]
+            if first_error is not None:
+                raise first_error
             raise OSError(f"Could not bind to any address for {host}:{port}")
 
         self.socket = self.sockets[0]
@@ -500,10 +447,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                 try:
                     self.shutdown_request(sock)
                 except Exception:
-                    try:
-                        sock.close()
-                    except OSError:
-                        pass
+                    _close_quiet(sock)
 
     def drain_executor(self, timeout: float) -> None:
         """Wait until accepted requests finish, then return."""
@@ -531,8 +475,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         if wake_write is not None:
             try:
                 wake_write.send(b"\x00")
-            except (BlockingIOError, InterruptedError):
-                pass
             except OSError:
                 pass
 
@@ -559,22 +501,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     def _on_queue_full(self, request: Any) -> None:
         pass
-
-    def _wrap_accepted_socket(self, conn: Socket, addr: Any) -> tuple[Socket, Any]:
-        """Optional TLS wrap of an accepted socket."""
-        # What was wrong: conn.setsockopt was unguarded. If the client reset the
-        # connection between accept() and this call, setsockopt raised OSError and broke
-        # the accept path.
-        # How: setsockopt was called directly without catching OSError.
-        # Why: wrap in try/except OSError: pass so early client disconnects or socket
-        # resets do not crash the accept path.
-        try:
-            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Tip: small JSON/SSE replies must not wait on Nagle.
-        except OSError:
-            pass
-        if self.ssl_ctx is not None:
-            conn = self.ssl_ctx.wrap_socket(conn, server_side=True, do_handshake_on_connect=False)
-        return conn, addr
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         """A stalled read is a closed request, not a traceback on the console.
@@ -604,28 +530,36 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         """Accept one connection, wrap it, and hand it to the pool."""
         try:
             raw_conn, client_address = ready_sock.accept()
+        except (ConnectionError, InterruptedError, BlockingIOError):
+            return
         except OSError as e:
-            err_no = _accept_errno(e)
-            if err_no in _BENIGN_ACCEPT_ERRNOS:
-                return
             now = time.monotonic()
             if self._warn_due("_last_accept_error_warn", now):
-                log.warning("Accept error (errno %s): %s; backing off", err_no, e)
+                log.warning("Accept error (errno %s): %s; backing off", e.errno, e)
             self._accept_pause_until = now + self._accept_backoff_sec
             self._accept_backoff_sec = min(1.0, self._accept_backoff_sec * 2.0)
             return
         self._accept_backoff_sec = 0.05
         self._accept_pause_until = 0.0
+        conn = raw_conn
+        # What was wrong: conn.setsockopt was unguarded. If the client reset the
+        # connection between accept() and this call, setsockopt raised OSError and broke
+        # the accept path.
+        # How: setsockopt was called directly without catching OSError.
+        # Why: wrap in try/except OSError: pass so early client disconnects or socket
+        # resets do not crash the accept path.
         try:
-            conn, client_address = self._wrap_accepted_socket(raw_conn, client_address)
-        except OSError as e:
-            # Tip: close raw_conn on wrap failure without backoff; only accept failures back off.
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Tip: small JSON/SSE replies must not wait on Nagle.
+        except OSError:
+            pass
+        if self.ssl_ctx is not None:
             try:
-                raw_conn.close()
-            except OSError:
-                pass
-            log.warning("Socket setup failed: %s", e)
-            return
+                conn = self.ssl_ctx.wrap_socket(conn, server_side=True, do_handshake_on_connect=False)
+            except OSError as e:
+                # Tip: close raw_conn on wrap failure without backoff; only accept failures back off.
+                _close_quiet(raw_conn)
+                log.warning("Socket setup failed: %s", e)
+                return
         if not self.verify_request(conn, client_address):
             self.shutdown_request(conn)
             return
@@ -712,16 +646,8 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                         self._park_shutdown(selector)
         finally:
             self._wake_write = None
-            if wake_read is not None:
-                try:
-                    wake_read.close()
-                except OSError:
-                    pass
-            if wake_write is not None:
-                try:
-                    wake_write.close()
-                except OSError:
-                    pass
+            _close_quiet(wake_read)
+            _close_quiet(wake_write)
             self._serving = False
             self._dual_shutdown_request = False
             self._dual_is_shut_down.set()

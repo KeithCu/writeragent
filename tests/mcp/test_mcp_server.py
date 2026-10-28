@@ -502,12 +502,19 @@ def test_wrap_accepted_socket_wraps_tls_per_connection():
     from plugin.mcp.server import _ThreadedHTTPServer
 
     server = _ThreadedHTTPServer.__new__(_ThreadedHTTPServer)
+    server._accept_pause_until = 0.0
+    server._accept_backoff_sec = 0.05
+    server.park_idle_connections = False
+    server._accept_times = {}
     conn, wrapped = MagicMock(name="conn"), MagicMock(name="tls")
+    listener = MagicMock()
+    listener.accept.return_value = (conn, ("127.0.0.1", 5))
     server.ssl_ctx = MagicMock()
     server.ssl_ctx.wrap_socket.return_value = wrapped
-    got, addr = server._wrap_accepted_socket(conn, ("127.0.0.1", 5))
-    assert got is wrapped
-    assert addr == ("127.0.0.1", 5)
+    processed = []
+    server.process_request = lambda c, a: processed.append((c, a))
+    server._accept_one(listener)
+    assert processed == [(wrapped, ("127.0.0.1", 5))]
     server.ssl_ctx.wrap_socket.assert_called_once_with(conn, server_side=True, do_handshake_on_connect=False)
 
 

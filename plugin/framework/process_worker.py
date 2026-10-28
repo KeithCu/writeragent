@@ -215,24 +215,14 @@ class Child:
     which CPython's GIL provides. A free-threaded build would need a lock.
     """
 
-    managed: ManagedSubprocess
-    worker_name: str
-    worker_id: int
-    _io_owner: int | None
-    _signaled: bool
-    _settled: bool
-    _abandoned: bool
-    _once: threading.Lock
-
     def __init__(self, managed: ManagedSubprocess, *, worker_name: str, worker_id: int) -> None:
-        self.managed = managed
-        self.worker_name = worker_name
-        self.worker_id = worker_id
-        self._io_owner = None
-        self._signaled = False
-        self._settled = False
-        self._abandoned = False
-        self._once = threading.Lock()
+        self.managed: ManagedSubprocess = managed
+        self.worker_name: str = worker_name
+        self.worker_id: int = worker_id
+        self._io_owner: int | None = None
+        self._signaled: bool = False
+        self._settled: bool = False
+        self._once: threading.Lock = threading.Lock()
 
     def begin_io(self) -> None:
         """Mark this thread as the one inside a ready read or a request."""
@@ -275,18 +265,10 @@ class Child:
         return self._finish()
 
     def diagnostic_tail(self) -> str:
-        """Last stderr characters. Join the drain only after a finished reap.
-
-        An abandoned child is still holding the pipe. Joining that drain
-        would wait out the timeout for text that cannot arrive yet.
-        """
+        """Last stderr characters from the child's diagnostic drain."""
         if self.managed.stderr_tail is None:
             return ""
-        if self._abandoned or not self._settled:
-            raw = self.managed.stderr_text()
-        else:
-            raw = self.managed.join_stderr(1.0)
-        text = raw.strip()
+        text = self.managed.stderr_text().strip()
         if not text:
             return ""
         return text[-_STDERR_SNIPPET:]
@@ -313,7 +295,6 @@ class Child:
                 self.managed.join_stderr(1.0)
                 self.managed.unregister()
                 return True
-            self._abandoned = True
             pid = getattr(self.managed.popen, "pid", None)
             log.warning("%s #%s pid=%s still alive after SIGKILL; abandoning", self.worker_name, self.worker_id, pid)
             self.managed.abandon()
@@ -329,41 +310,21 @@ class BaseProcessWorker:
     even if that process has not exited yet.
     """
 
-    worker_id: int
-    script_path: str
-    worker_name: str
-    executable: str
-    max_payload_bytes: int
-    lock: threading.Lock
-    _lifecycle_lock: threading.Lock
-    tasks_executed: int
-    child: Child | None
-    _shutting_down: bool
-    pending_exit: bool
-    _child_env: dict[str, str] | None
-    _ready_timeout_sec: float
-    _unpacker: Callable[[bytes], Any] | None
-
-    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, executable: str | None = None, env: dict[str, str] | None = None, ready_timeout_sec: float | None = None, unpacker: Callable[[bytes], Any] | None = None, start: bool = True) -> None:
-        self.worker_id = worker_id
-        self.script_path = script_path
-        self.worker_name = worker_name
-        self.max_payload_bytes = max_payload_bytes
-        self.executable = sys.executable if executable is None else executable
-        self._child_env = env
-        # None copies the module constant here, in __init__. Patching it after
-        # this returns does not change the handshake.
-        self._ready_timeout_sec = _SPAWN_READY_TIMEOUT_SEC if ready_timeout_sec is None else ready_timeout_sec
+    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, unpacker: Callable[[bytes], Any] | None = None, start: bool = True) -> None:
+        self.worker_id: int = worker_id
+        self.script_path: str = script_path
+        self.worker_name: str = worker_name
+        self.max_payload_bytes: int = max_payload_bytes
         # None is stock pickle.
-        self._unpacker = unpacker
-        self.child = None
-        self.lock = threading.Lock()
+        self._unpacker: Callable[[bytes], Any] | None = unpacker
+        self.child: Child | None = None
+        self.lock: threading.Lock = threading.Lock()
         # Serializes adopt and drop. Distinct from ``lock``, which execute
         # holds across spawn, so reap must not take ``lock``. Do not take
         # this from execute: a caller that already holds the pool condition
         # would deadlock with a drop that waited on that condition.
-        self._lifecycle_lock = threading.Lock()
-        self.tasks_executed = 0
+        self._lifecycle_lock: threading.Lock = threading.Lock()
+        self.tasks_executed: int = 0
         # shutdown calls request_shutdown() before kill(). execute and respawn
         # read the flag without self.lock: kill takes _lifecycle_lock, not the
         # execute lock, so a flag under self.lock would stay invisible until
@@ -373,8 +334,8 @@ class BaseProcessWorker:
         # the read under _lifecycle_lock. The pool may hold its condition
         # while it reads the flag, and adopt holds this lock, so the read
         # stays unlocked.
-        self._shutting_down = False
-        self.pending_exit = False
+        self._shutting_down: bool = False
+        self.pending_exit: bool = False
         # start=True spawns in __init__.
         if start:
             self.respawn()
@@ -460,7 +421,7 @@ class BaseProcessWorker:
             self.child = child
             return True
 
-    def respawn(self, timeout_sec: float | None = None, *, deadline: Deadline | None = None) -> None:
+    def respawn(self, *, deadline: Deadline | None = None) -> None:
         """Spawn worker subprocess and await readiness handshake.
 
         Returns without a new child when the pool is stopping, when another
@@ -473,17 +434,9 @@ class BaseProcessWorker:
         *deadline* is the caller's request clock. The reap wait is inside that
         clock: budgeting the handshake from the time left before the reap let
         a call run about a second past its timeout. ``None`` is startup, which
-        has no request clock. Pass *timeout_sec* or *deadline*, not both: the
-        handshake budget is ``_spawn_budget`` after ``Popen``, so an explicit
-        *timeout_sec* would be discarded.
+        has no request clock.
         """
-        # What was wrong: both arguments were accepted and deadline silently
-        # replaced timeout_sec. A caller that set a handshake cap next to a
-        # request clock thought the cap applied.
-        if deadline is not None and timeout_sec is not None:
-            raise ValueError("respawn accepts timeout_sec or deadline, not both")
-        if timeout_sec is None:
-            timeout_sec = self._ready_timeout_sec
+        timeout_sec = _SPAWN_READY_TIMEOUT_SEC
         if self._shutting_down:
             return
         if not self.kill():
@@ -499,9 +452,9 @@ class BaseProcessWorker:
         if deadline is not None and _spawn_budget(deadline) is None:
             return
         managed = ManagedSubprocess(
-            [self.executable, self.script_path],
-            base_env=None if self._child_env is None else self._child_env,
-            scrub_env=self._child_env is None,
+            [sys.executable, self.script_path],
+            base_env=None,
+            scrub_env=True,
             optimize_pipes=True,
             stderr_tail_chars=_STDERR_LOG_CAP,
             stderr_name=self._drain_name(),
@@ -529,7 +482,7 @@ class BaseProcessWorker:
                 if spawn_for is None:
                     self.kill()
                     return
-                timeout_sec = min(self._ready_timeout_sec, spawn_for)
+                timeout_sec = min(_SPAWN_READY_TIMEOUT_SEC, spawn_for)
             # The ready read is the pipe owner. Stop can signal during it.
             # end_io closes after the read returns, including on timeout.
             spawned.begin_io()
@@ -584,12 +537,9 @@ class BaseProcessWorker:
             # published, and that child was healthy. Only the Child this call
             # constructed is signaled on that path.
             if not published:
-                if self._shutting_down:
-                    log.info("%s", message)
-                else:
-                    log.error("%s", message)
                 if spawned is not None:
                     spawned.signal_from()
+                self._log_spawn_outcome(message, spawned)
             else:
                 self.kill()
                 self._log_spawn_outcome(message, spawned)
@@ -869,14 +819,10 @@ class BaseProcessWorker:
                     return self._fail_timeout(deadline, pid)
                 try:
                     resp = read_pickle_frame(stdout, remaining, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, unpacker=self._unpacker)
-                except subprocess.TimeoutExpired:
-                    # The frame never arrived. Kill rather than read it later:
-                    # the next caller would consume this response as its own.
-                    return self._fail_timeout(deadline, pid)
-                except IpcPartialFrameTimeout:
-                    # A deadline after the first byte is a timeout, not a crash.
-                    # The next read would consume the rest of this frame as a
-                    # new response, so the child is killed.
+                except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
+                    # No frame or partial frame arrival before deadline is a timeout.
+                    # Kill rather than read it later: the next caller would consume
+                    # leftover bytes or this response as its own.
                     return self._fail_timeout(deadline, pid)
                 except ValueError as exc:
                     # What was wrong: an invalid or oversized response frame was

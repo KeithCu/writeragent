@@ -1571,28 +1571,6 @@ def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatc
         worker.kill()
 
 
-def test_respawn_rejects_timeout_and_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An explicit handshake cap and a request clock cannot both apply.
-
-    What was wrong: deadline replaced timeout_sec with no error, so a
-    caller that passed both thought the cap was in force.
-    """
-    from plugin.framework import process_worker as worker_base
-    from compute_service.worker_base import Deadline
-
-    popen_calls: list[object] = []
-
-    def _popen(*_args: object, **_kwargs: object) -> object:
-        popen_calls.append(_args)
-        raise AssertionError("Popen when both budgets were passed")
-
-    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _popen)
-    worker = worker_base.BaseProcessWorker(1, "unused.py", worker_name="Budget", start=False)
-    with pytest.raises(ValueError, match="not both"):
-        worker.respawn(timeout_sec=1.0, deadline=Deadline(5.0))
-    assert popen_calls == []
-
-
 def test_stderr_drain_name_uses_worker_name() -> None:
     """The drain thread names the pool, not a generic compute worker.
 
@@ -1702,7 +1680,7 @@ def test_partial_handshake_timeout_logs_timeout(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     worker = _worker_without_spawn(monkeypatch)
     with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
-        worker.respawn(timeout_sec=2.0)
+        worker.respawn()
     assert "spawn handshake timed out" in caplog.text
     assert "Failed to spawn" not in caplog.text
     assert worker.process is None
@@ -1747,7 +1725,7 @@ def test_shutdown_handshake_is_not_a_spawn_error(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(worker_base, "read_pickle_frame", _read)
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     with caplog.at_level(logging.INFO, logger="compute_service.worker"):
-        worker.respawn(timeout_sec=2.0)
+        worker.respawn()
     matches = [record for record in caplog.records if "spawn handshake was not ready" in record.message]
     assert len(matches) == 1
     assert matches[0].levelno == logging.INFO
@@ -3137,30 +3115,6 @@ def test_respawn_popen_kwargs_scrub_session_and_drain(monkeypatch: pytest.Monkey
         assert drain_calls[0].get("max_tail_chars") == 65536
     finally:
         worker.kill()
-
-
-def test_explicit_child_env_is_not_scrubbed_again(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.framework.process_worker import BaseProcessWorker
-
-    recorded_kwargs: dict[str, Any] = {}
-
-    def _fake_popen(_args: object, **kwargs: Any) -> Any:
-        recorded_kwargs.update(kwargs)
-        raise OSError("stop after recording Popen kwargs")
-
-    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _fake_popen)
-    monkeypatch.setenv("LEAKED_VAR", "parent_secret")
-
-    custom_env = {"PLAIN": "1", "OPENAI_API_KEY": "keep"}
-    worker = BaseProcessWorker(1, "unused.py", env=custom_env, start=False)
-    try:
-        worker.respawn()
-    except Exception:
-        pass
-    env = recorded_kwargs.get("env")
-    assert env == custom_env
-    assert "LEAKED_VAR" not in env
-    assert env.get("OPENAI_API_KEY") == "keep"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")

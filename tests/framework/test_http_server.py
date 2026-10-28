@@ -156,19 +156,26 @@ def test_wrap_failure_closes_socket_without_backoff(monkeypatch) -> None:
 def test_socket_timeout_none_does_not_set_deadline() -> None:
     server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
     conn = MagicMock()
+    listener = MagicMock()
+    listener.accept.return_value = (conn, ("127.0.0.1", 1))
+    processed: list[tuple[Any, Any]] = []
+    server.process_request = lambda c, a: processed.append((c, a))
     try:
-        wrapped, _addr = server._wrap_accepted_socket(conn, ("127.0.0.1", 1))
+        server._accept_one(listener)
     finally:
         server.server_close()
-    assert wrapped is conn
+    assert processed == [(conn, ("127.0.0.1", 1))]
     conn.settimeout.assert_not_called()
 
 
 def test_wrap_accepted_socket_sets_tcp_nodelay() -> None:
     server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
     conn = MagicMock()
+    listener = MagicMock()
+    listener.accept.return_value = (conn, ("127.0.0.1", 1))
+    server.process_request = MagicMock()
     try:
-        server._wrap_accepted_socket(conn, ("127.0.0.1", 1))
+        server._accept_one(listener)
     finally:
         server.server_close()
     conn.setsockopt.assert_any_call(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -178,12 +185,15 @@ def test_wrap_accepted_socket_setsockopt_oserror_returns_socket() -> None:
     server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
     conn = MagicMock()
     conn.setsockopt.side_effect = OSError("Connection reset by peer")
+    listener = MagicMock()
+    listener.accept.return_value = (conn, ("127.0.0.1", 1))
+    processed: list[tuple[Any, Any]] = []
+    server.process_request = lambda c, a: processed.append((c, a))
     try:
-        wrapped, addr = server._wrap_accepted_socket(conn, ("127.0.0.1", 1))
+        server._accept_one(listener)
     finally:
         server.server_close()
-    assert wrapped is conn
-    assert addr == ("127.0.0.1", 1)
+    assert processed == [(conn, ("127.0.0.1", 1))]
 
 
 def test_server_close_closes_queued_socket_without_running_handler() -> None:
