@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import json
 import logging
 import math
@@ -256,9 +257,6 @@ def describe_data(
 
     cols = list(df.columns)[:max_cols_val]
     limited = df[cols].copy()
-    column_summaries: list[dict[str, Any]] = []
-    flags: list[str] = []
-    profile_messages: list[Any] = []
 
     try:
         from data_profiling import ProfileReport  # type: ignore[import-not-found, ty:unresolved-import]  # pyright: ignore[reportMissingImports]
@@ -378,6 +376,17 @@ def kpi_summary(
     )
 
 
+def _choice(value: Any, allowed: tuple[str, ...], msg: str, helper: str) -> str | dict[str, Any]:
+    # msg is the full INVALID_PARAM sentence and already quotes the original value.
+    # The returned token is the allowed spelling: "IQR" -> "iqr", "m" -> "M".
+    if isinstance(value, str):
+        folded = value.strip().lower()
+        for token in allowed:
+            if token.lower() == folded:
+                return token
+    return _error_result("INVALID_PARAM", msg, helper=helper)
+
+
 def detect_outliers(
     data: Any,
     *,
@@ -389,11 +398,14 @@ def detect_outliers(
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """Flag outliers using IQR, z-score, or sklearn IsolationForest."""
-    if not isinstance(method, str):
-        return _error_result("INVALID_PARAM", f"method must be iqr, zscore, or isolation_forest, got {method!r}", helper="detect_outliers")
-    method_name = method.strip().lower()
-    if method_name not in ("iqr", "zscore", "isolation_forest"):
-        return _error_result("INVALID_PARAM", f"method must be iqr, zscore, or isolation_forest, got {method!r}", helper="detect_outliers")
+    method_name = _choice(
+        method,
+        ("iqr", "zscore", "isolation_forest"),
+        f"method must be iqr, zscore, or isolation_forest, got {method!r}",
+        "detect_outliers",
+    )
+    if isinstance(method_name, dict):
+        return method_name
 
     try:
         threshold_val = coerce_float(threshold, name="threshold")
@@ -488,8 +500,6 @@ class QuickStats:
 
     df: Any
     metadata: dict[str, Any]
-    numeric_columns: list[str]
-    record_count: int
     _requested_columns: Any
 
     def __init__(
@@ -504,14 +514,13 @@ class QuickStats:
         coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
         self.df = coerced.df
         self.metadata = coerced.metadata
-        self.numeric_columns = []
         self._requested_columns = numeric_columns
-        self.record_count = int(len(self.df))
 
     def tooltip(self) -> dict[str, Any]:
         rejected_dupes = _reject_duplicate_columns(self.df, helper="quick_stats")
         if rejected_dupes is not None:
             return rejected_dupes
+        record_count = int(len(self.df))
         if self._requested_columns is not None:
             coerced_cols = _coerce_columns(self._requested_columns, "numeric_columns", "quick_stats")
             if isinstance(coerced_cols, dict):
@@ -523,14 +532,14 @@ class QuickStats:
             rejected = _reject_non_numeric(self.df, cols_list, helper="quick_stats")
             if rejected is not None:
                 return rejected
-            self.numeric_columns = list(cols_list)
+            numeric_columns = list(cols_list)
         else:
             cols = self.metadata.get("numeric_cols") or _numeric_columns(self.df)
-            self.numeric_columns = [c for c in cols if c in self.df.columns]
+            numeric_columns = [c for c in cols if c in self.df.columns]
 
         columns: list[str] = ["Metric", "Value"]
-        rows: list[list[Any]] = [["Records", self.record_count]]
-        for col in self.numeric_columns[:8]:
+        rows: list[list[Any]] = [["Records", record_count]]
+        for col in numeric_columns[:8]:
             series = self.df[col].dropna()
             if series.empty:
                 continue
@@ -540,7 +549,7 @@ class QuickStats:
         table = {"name": "quick_stats", "columns": columns, "rows": rows, "truncated": False, "total_rows": len(rows)}
         return _ok_result(
             "quick_stats",
-            metrics={"record_count": self.record_count, "numeric_columns": self.numeric_columns},
+            metrics={"record_count": record_count, "numeric_columns": numeric_columns},
             tables=[table],
             metadata=self.metadata,
             writer_cleanup_hints={"markdown_table": _markdown_table(columns, rows)},
@@ -632,14 +641,30 @@ def clean_and_prepare(
                 actions.append(f"Filled categorical column {col} with {fill_categorical}")
 
     table = _table_from_df(df, name="cleaned_data", max_rows=DATA_TABLE_ROWS)
-    result = _ok_result(
+    return _ok_result(
         "clean_and_prepare",
         metrics={"row_count": int(len(df)), "col_count": int(len(df.columns))},
         tables=[table],
         flags=actions,
         metadata={**coerced.metadata, "n_rows": int(len(df))},
     )
-    return result
+
+
+def _agg_name(value: Any, *, helper: str, allowed_str: str) -> str | dict[str, Any]:
+    if not isinstance(value, str):
+        return _error_result(
+            "INVALID_PARAM",
+            f"aggfunc must be a string, list of strings, or dict of column to string, got {value!r}",
+            helper=helper,
+        )
+    name = value.strip().lower()
+    if name not in _AGG_FUNCS:
+        return _error_result(
+            "INVALID_PARAM",
+            f"aggfunc must be one of {allowed_str}, got {value!r}",
+            helper=helper,
+        )
+    return name
 
 
 def _normalize_aggfunc(
@@ -651,14 +676,10 @@ def _normalize_aggfunc(
     allowed_str = ", ".join(sorted(_AGG_FUNCS))
     # None is not a str, list, or dict; the final return is the same INVALID_PARAM
     if isinstance(aggfunc, str):
-        val = aggfunc.strip().lower()
-        if val not in _AGG_FUNCS:
-            return None, _error_result(
-                "INVALID_PARAM",
-                f"aggfunc must be one of {allowed_str}, got {aggfunc!r}",
-                helper=helper,
-            )
-        return val, None
+        name = _agg_name(aggfunc, helper=helper, allowed_str=allowed_str)
+        if isinstance(name, dict):
+            return None, name
+        return name, None
 
     if isinstance(aggfunc, list):
         if not aggfunc:
@@ -669,20 +690,10 @@ def _normalize_aggfunc(
             )
         normalized_list: list[str] = []
         for item in aggfunc:
-            if not isinstance(item, str):
-                return None, _error_result(
-                    "INVALID_PARAM",
-                    f"aggfunc must be a string, list of strings, or dict of column to string, got {item!r}",
-                    helper=helper,
-                )
-            val = item.strip().lower()
-            if val not in _AGG_FUNCS:
-                return None, _error_result(
-                    "INVALID_PARAM",
-                    f"aggfunc must be one of {allowed_str}, got {item!r}",
-                    helper=helper,
-                )
-            normalized_list.append(val)
+            name = _agg_name(item, helper=helper, allowed_str=allowed_str)
+            if isinstance(name, dict):
+                return None, name
+            normalized_list.append(name)
         return normalized_list, None
 
     if isinstance(aggfunc, dict):
@@ -713,19 +724,9 @@ def _normalize_aggfunc(
                     f"aggfunc key {key!r} is not in {', '.join(key_columns)}",
                     helper=helper,
                 )
-            if not isinstance(v, str):
-                return None, _error_result(
-                    "INVALID_PARAM",
-                    f"aggfunc must be a string, list of strings, or dict of column to string, got {v!r}",
-                    helper=helper,
-                )
-            val = v.strip().lower()
-            if val not in _AGG_FUNCS:
-                return None, _error_result(
-                    "INVALID_PARAM",
-                    f"aggfunc must be one of {allowed_str}, got {v!r}",
-                    helper=helper,
-                )
+            val = _agg_name(v, helper=helper, allowed_str=allowed_str)
+            if isinstance(val, dict):
+                return None, val
             normalized_dict[key] = val
         return normalized_dict, None
 
@@ -795,14 +796,15 @@ def pivot_aggregate(
 
     # fill_value=0 wrote 0 into missing mean/median groups (South with no Q2 became 0).
     # Zero is an honest empty sum/count/prod/nunique and a lie for the others.
+    agg_names: Iterable[str]
     if isinstance(norm_agg, str):
-        all_zero_fill = norm_agg in _ZERO_FILL_AGGS
-    elif isinstance(norm_agg, list):
-        all_zero_fill = all(a in _ZERO_FILL_AGGS for a in norm_agg)
+        agg_names = (norm_agg,)
     elif isinstance(norm_agg, dict):
-        all_zero_fill = all(a in _ZERO_FILL_AGGS for a in norm_agg.values())
+        agg_names = norm_agg.values()
     else:
-        all_zero_fill = False
+        # The other success value from _normalize_aggfunc is a list
+        agg_names = norm_agg
+    all_zero_fill = all(name in _ZERO_FILL_AGGS for name in agg_names)
     fill_value: int | None = 0 if all_zero_fill else None
 
     # pandas errors propagate; run_analysis returns ANALYSIS_FAILED, and a direct raise is #VALUE!
@@ -898,19 +900,25 @@ def compare_periods(
     if agg_name not in ("sum", "mean", "last"):
         return _error_result("INVALID_PARAM", f"agg must be sum, mean, or last, got {agg_name!r}", helper="compare_periods")
 
-    if not isinstance(period, str):
-        return _error_result("INVALID_PARAM", f"period must be Y, Q, M, YE, QE, or ME, got {period!r}", helper="compare_periods")
-    period_upper = period.strip().upper()
     freq_map = {"Y": "YE", "Q": "QE", "M": "ME", "YE": "YE", "QE": "QE", "ME": "ME"}
-    if period_upper not in freq_map:
-        return _error_result("INVALID_PARAM", f"period must be Y, Q, M, YE, QE, or ME, got {period!r}", helper="compare_periods")
+    period_upper = _choice(
+        period,
+        tuple(freq_map),
+        f"period must be Y, Q, M, YE, QE, or ME, got {period!r}",
+        "compare_periods",
+    )
+    if isinstance(period_upper, dict):
+        return period_upper
     freq = freq_map[period_upper]
 
-    if not isinstance(calc, str):
-        return _error_result("INVALID_PARAM", f"calc must be pct_change or diff, got {calc!r}", helper="compare_periods")
-    calc_lower = calc.strip().lower()
-    if calc_lower not in ("pct_change", "diff"):
-        return _error_result("INVALID_PARAM", f"calc must be pct_change or diff, got {calc!r}", helper="compare_periods")
+    calc_lower = _choice(
+        calc,
+        ("pct_change", "diff"),
+        f"calc must be pct_change or diff, got {calc!r}",
+        "compare_periods",
+    )
+    if isinstance(calc_lower, dict):
+        return calc_lower
 
     # pd.to_datetime on a Calc serial or a year integer is nanoseconds since 1970,
     # not NaT, so three years became one 1970 period (confirmed: serials 44927,
@@ -949,11 +957,14 @@ def correlation_matrix(
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """Pairwise correlations — Excel CORREL matrix, top pairs above threshold."""
-    if not isinstance(method, str):
-        return _error_result("INVALID_PARAM", f"method must be pearson, spearman, or kendall, got {method!r}", helper="correlation_matrix")
-    method_name = method.strip().lower()
-    if method_name not in ("pearson", "spearman", "kendall"):
-        return _error_result("INVALID_PARAM", f"method must be pearson, spearman, or kendall, got {method!r}", helper="correlation_matrix")
+    method_name = _choice(
+        method,
+        ("pearson", "spearman", "kendall"),
+        f"method must be pearson, spearman, or kendall, got {method!r}",
+        "correlation_matrix",
+    )
+    if isinstance(method_name, dict):
+        return method_name
 
     try:
         min_abs_val = coerce_float(min_abs, name="min_abs")
@@ -1310,82 +1321,71 @@ def monte_carlo(
     )
 
 
+_DISPATCH_KEYS: dict[str, tuple[str, ...]] = {
+    "describe_data": ("include_outliers", "max_cols"),
+    "kpi_summary": ("metrics", "agg"),
+    "detect_outliers": ("columns", "method", "threshold"),
+    "quick_stats": ("numeric_columns",),
+    "clean_and_prepare": ("drop_duplicates", "fill_numeric", "fill_categorical"),
+    "pivot_aggregate": ("index", "columns", "values", "aggfunc"),
+    "group_summary": ("by", "metrics", "aggfunc"),
+    "compare_periods": ("date_col", "value_col", "period", "calc", "agg"),
+    "correlation_matrix": ("method", "min_abs"),
+    "run_regression": ("target", "features", "add_constant"),
+    "cluster_numeric": ("columns", "n_clusters", "method", "scale"),
+    "monte_carlo": ("sims", "bust", "goal"),
+}
+
+
+def _decimals(params: dict[str, Any], default: int, helper: str) -> int | dict[str, Any]:
+    try:
+        decimals = coerce_int(params.get("decimals", default), name="decimals")
+    except ValueError as exc:
+        return _error_result("INVALID_PARAM", str(exc), helper=helper)
+    if decimals < 0:
+        return _error_result("INVALID_PARAM", f"decimals must be an integer >= 0, got {decimals!r}", helper=helper)
+    return decimals
+
+
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
     common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
 
-    if name == "describe_data":
-        return describe_data(data, include_outliers=params.get("include_outliers", True), max_cols=params.get("max_cols", MAX_COLS), **common)
     if name == "kpi_summary":
-        metrics = params.get("metrics")
-        if not metrics:
+        if not params.get("metrics"):
             return _error_result("MISSING_PARAM", "kpi_summary requires params.metrics", helper=name)
-        return kpi_summary(data, metrics, agg=params.get("agg", ("mean", "min", "max", "sum")), **common)
-    if name == "detect_outliers":
-        return detect_outliers(data, columns=params.get("columns"), method=params.get("method", "iqr"), threshold=params.get("threshold", 1.5), **common)
-    if name == "quick_stats":
-        qs = QuickStats(data, numeric_columns=params.get("numeric_columns"), **common)
-        return qs.tooltip()
-    if name == "format_currency":
+    elif name == "pivot_aggregate":
+        if not params.get("index") or not params.get("values"):
+            return _error_result("MISSING_PARAM", "pivot_aggregate requires params.index and params.values", helper=name)
+    elif name == "group_summary":
+        if not params.get("by") or not params.get("metrics"):
+            return _error_result("MISSING_PARAM", "group_summary requires params.by and params.metrics", helper=name)
+    elif name == "compare_periods":
+        if not params.get("date_col") or not params.get("value_col"):
+            return _error_result("MISSING_PARAM", "compare_periods requires params.date_col and params.value_col", helper=name)
+    elif name == "run_regression":
+        if not params.get("target"):
+            return _error_result("MISSING_PARAM", "run_regression requires params.target", helper=name)
+    elif name == "format_currency":
         symbol = params.get("symbol", "$")
         if not isinstance(symbol, str):
             return _error_result("INVALID_PARAM", f"symbol must be a string, got {symbol!r}", helper=name)
-        try:
-            decimals = coerce_int(params.get("decimals", 2), name="decimals")
-        except ValueError as exc:
-            return _error_result("INVALID_PARAM", str(exc), helper=name)
-        if decimals < 0:
-            return _error_result("INVALID_PARAM", f"decimals must be an integer >= 0, got {decimals!r}", helper=name)
+        decimals = _decimals(params, 2, name)
+        if isinstance(decimals, dict):
+            return decimals
         values = params.get("values", data)
         return _format_cells_result(name, format_currency(values, symbol=symbol, decimals=decimals))
-    if name == "format_percent":
-        try:
-            decimals = coerce_int(params.get("decimals", 1), name="decimals")
-        except ValueError as exc:
-            return _error_result("INVALID_PARAM", str(exc), helper=name)
-        if decimals < 0:
-            return _error_result("INVALID_PARAM", f"decimals must be an integer >= 0, got {decimals!r}", helper=name)
+    elif name == "format_percent":
+        decimals = _decimals(params, 1, name)
+        if isinstance(decimals, dict):
+            return decimals
         values = params.get("values", data)
         return _format_cells_result(name, format_percent(values, decimals=decimals))
-    if name == "clean_and_prepare":
-        return clean_and_prepare(data, drop_duplicates=params.get("drop_duplicates", False), fill_numeric=params.get("fill_numeric", "median"), fill_categorical=params.get("fill_categorical", "mode"), **common)
-    if name == "pivot_aggregate":
-        if not params.get("index") or not params.get("values"):
-            return _error_result("MISSING_PARAM", "pivot_aggregate requires params.index and params.values", helper=name)
-        return pivot_aggregate(data, index=params["index"], columns=params.get("columns"), values=params["values"], aggfunc=params.get("aggfunc", "sum"), **common)
-    if name == "group_summary":
-        if not params.get("by") or not params.get("metrics"):
-            return _error_result("MISSING_PARAM", "group_summary requires params.by and params.metrics", helper=name)
-        return group_summary(data, by=params["by"], metrics=params["metrics"], aggfunc=params.get("aggfunc", "sum"), **common)
-    if name == "compare_periods":
-        if not params.get("date_col") or not params.get("value_col"):
-            return _error_result("MISSING_PARAM", "compare_periods requires params.date_col and params.value_col", helper=name)
-        return compare_periods(
-            data,
-            date_col=params["date_col"],
-            value_col=params["value_col"],
-            period=params.get("period", "Y"),
-            calc=params.get("calc", "pct_change"),
-            agg=params.get("agg", "sum"),
-            **common,
-        )
-    if name == "correlation_matrix":
-        return correlation_matrix(data, method=params.get("method", "pearson"), min_abs=params.get("min_abs", 0.0), **common)
-    if name == "run_regression":
-        if not params.get("target"):
-            return _error_result("MISSING_PARAM", "run_regression requires params.target", helper=name)
-        return run_regression(data, target=params["target"], features=params.get("features"), add_constant=params.get("add_constant", True), **common)
-    if name == "cluster_numeric":
-        return cluster_numeric(
-            data,
-            columns=params.get("columns"),
-            n_clusters=params.get("n_clusters", 3),
-            method=params.get("method", "kmeans"),
-            scale=params.get("scale", True),
-            **common,
-        )
-    if name == "monte_carlo":
-        return monte_carlo(data, sims=params.get("sims", 100), bust=params.get("bust", -1.0), goal=params.get("goal", 0.0), **common)
-    return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
+    elif name not in _DISPATCH_KEYS:
+        return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
+
+    fn = globals()[name]
+    picked = {key: params[key] for key in _DISPATCH_KEYS[name] if key in params}
+    return cast("dict[str, Any]", fn(data, **picked, **common))
 
 
 def run_analysis(
