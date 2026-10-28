@@ -253,7 +253,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 
 | File | Role |
 |------|------|
-| [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) | Child stdin/stdout loop, trusted-action handler |
+| [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) | Child stdin/stdout loop, trusted-action handler, heartbeat and result frames |
 | [`plugin/scripting/venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `LocalPythonExecutor`, user-code sandbox |
 | [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py) | Grid → DataFrame coercion |
 | [`plugin/scripting/venv/__init__.py`](../../plugin/scripting/venv/__init__.py) | Package |
@@ -290,7 +290,6 @@ Required for NumPy domain helpers, Vision OCR, and any `run_trusted_worker_actio
 | [`plugin/scripting/sheet_layout.py`](../../plugin/scripting/sheet_layout.py) | `SHEET_LAYOUT_KEYS` and `extract_sheet_layout` (host client and venv child; no `venv_worker` import) |
 | [`plugin/scripting/trusted_action_registry.py`](../../plugin/scripting/trusted_action_registry.py) | Domain → venv dispatcher wiring |
 | [`plugin/scripting/venv/trusted_dispatch.py`](../../plugin/scripting/venv/trusted_dispatch.py) | Routes `run_trusted_action` to domain `run_*` |
-| [`plugin/scripting/venv/worker_heartbeat.py`](../../plugin/scripting/venv/worker_heartbeat.py) | Child heartbeat emitter and result-frame writer. `FRAME_HEARTBEAT` and `FRAME_RESULT` live in `ipc.py`; `parse_worker_stdout_frame` lives in `venv_worker.py`. |
 | [`plugin/scripting/_lazy_venv.py`](../../plugin/scripting/_lazy_venv.py) | Lazy `plugin.scripting.*` → `plugin.scripting.venv.*` |
 | [`plugin/scripting/helper_domain.py`](../../plugin/scripting/helper_domain.py) | Shared helper-domain glue |
 | [`plugin/scripting/domain_registry.py`](../../plugin/scripting/domain_registry.py) | RPS fast-path, picker origins, post-venv specs/order (routing helper in `python_runner.py`) |
@@ -828,7 +827,7 @@ Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_path
 
 ### Layer 1 adds (~12 paths)
 
-`client.py`, `trusted_rpc.py`, `sheet_layout.py`, `trusted_action_registry.py`, `venv/trusted_dispatch.py`, `venv/worker_heartbeat.py`, `_lazy_venv.py`, `helper_domain.py`, `domain_registry.py`, `calc_functions_common.py`, `import_policy.py`, `venv_diagnostics.py`
+`client.py`, `trusted_rpc.py`, `sheet_layout.py`, `trusted_action_registry.py`, `venv/trusted_dispatch.py`, `_lazy_venv.py`, `helper_domain.py`, `domain_registry.py`, `calc_functions_common.py`, `import_policy.py`, `venv_diagnostics.py`
 
 ### Layer 2 adds (~18 paths)
 

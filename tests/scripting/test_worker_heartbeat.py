@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for plugin.scripting.venv.worker_heartbeat."""
+"""Tests for heartbeat and result frames in plugin.scripting.venv.worker_harness."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from plugin.scripting.ipc import (
     read_frame_payload,
 )
 from plugin.scripting.venv_worker import parse_worker_stdout_frame
-from plugin.scripting.venv.worker_heartbeat import (
-    HeartbeatEmitter,
+from plugin.scripting.venv.worker_harness import (
+    emit_heartbeat,
     write_result_frame,
 )
 
@@ -40,7 +40,7 @@ class _GateStream:
 
 def test_write_and_parse_heartbeat_frame():
     buf = io.BytesIO()
-    HeartbeatEmitter(buf).emit({"phase": "extract"})
+    emit_heartbeat(buf, {"phase": "extract"})
     buf.seek(0)
     payload = read_frame_payload(buf)
     assert payload is not None
@@ -51,7 +51,7 @@ def test_write_and_parse_heartbeat_frame():
 
 def test_heartbeat_emitter_writes_frame():
     buf = io.BytesIO()
-    HeartbeatEmitter(buf).emit({"phase": "embed", "paragraphs": 2})
+    emit_heartbeat(buf, {"phase": "embed", "paragraphs": 2})
     buf.seek(0)
     payload = read_frame_payload(buf)
     assert payload is not None
@@ -73,7 +73,7 @@ def test_write_result_frame():
 def test_emit_holds_tool_call_lock_across_the_write():
     buf = io.BytesIO()
     stream = _GateStream(buf)
-    t = threading.Thread(target=lambda: HeartbeatEmitter(stream).emit({"phase": "a"}))
+    t = threading.Thread(target=lambda: emit_heartbeat(stream, {"phase": "a"}))
     t.start()
     try:
         assert stream.first_write_entered.wait(timeout=2.0)
