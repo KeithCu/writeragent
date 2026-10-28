@@ -35,8 +35,9 @@ from plugin.chatbot.tool_loop_state import (
 )
 from plugin.chatbot.web_research_chat import format_research_cache_result_chat
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.client.model_fetcher import set_native_audio_support
+from plugin.framework.client.model_fetcher import has_native_vision, set_native_audio_support
 from plugin.framework.html_stripper import StreamingHTMLStripper
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.config import get_config_bool
 from plugin.framework.errors import (
     DocumentDisposedError,
@@ -779,6 +780,50 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
     put_for_turn(turn, (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(formatted, default=str)))
 
 
+def drop_mcp_image_without_vision(res: dict[str, Any], turn: Any) -> dict[str, Any]:
+    """Keep get_image's ``_mcp_image`` only when the turn's chat model has vision.
+
+    Discussion #2268: the sidebar sent the base64 as tool text (about 300k
+    chars), and Ollama returned HTTP 500. Runs on the tool worker, so
+    has_native_vision may fetch: Ollama ``/api/show`` capabilities and the
+    OpenRouter/Together ``input_modalities`` catalog, each cached per process.
+    A model it cannot answer for gets the marker, not the image.
+    """
+    vision = False
+    if isinstance(turn, TurnController) and turn.text_model:
+        model_id = turn.text_model
+        config = getattr(turn.active_client, "config", None)
+        typed_key = str(config.get("api_key") or "").strip() if isinstance(config, dict) else ""
+        vision = bool(best_effort(lambda: has_native_vision(model_id, turn.endpoint, api_key_override=typed_key or None), "get_image: vision lookup failed", default=False))
+    if vision:
+        return res
+    stripped = {key: value for key, value in res.items() if key != "_mcp_image"}
+    stripped["image"] = "[image omitted: model has no vision]"
+    return stripped
+
+
+def tool_message_content(content: Any) -> Any:
+    """Tool row content. A kept ``_mcp_image`` becomes an ``image_url`` part.
+
+    The text keeps a short marker in place of the base64.
+    normalize_multimodal_messages then moves the part to the preceding user
+    message (Anthropic keeps it on the tool result), like other images.
+    """
+    if not isinstance(content, str) or '"_mcp_image"' not in content:
+        return content
+    data = safe_json_loads(content)
+    image = data.get("_mcp_image") if isinstance(data, dict) else None
+    if not isinstance(image, dict):
+        return content
+    assert isinstance(data, dict)
+    b64 = image.get("data")
+    mime = image.get("mimeType")
+    assert isinstance(b64, str) and isinstance(mime, str), "get_image always sets data and mimeType"
+    text = {key: value for key, value in data.items() if key != "_mcp_image"}
+    text["image"] = "[image: %s, %d KB attached]" % (mime, (len(b64) * 3 // 4 + 1023) // 1024)
+    return [{"type": "text", "text": json.dumps(text, default=str)}, {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}]
+
+
 def persist_tool_on_turn(host: Any, call_id: str | None, content: Any) -> None:
     turn = current_turn(host)
     if not isinstance(turn, TurnController):
@@ -954,6 +999,8 @@ def build_tool_execute_fn(
             message = res.get("message")
             text = message.strip() if isinstance(message, str) and message.strip() else "Document was closed or disposed by LibreOffice"
             raise DocumentDisposedError(text)
+        if isinstance(res, dict) and isinstance(res.get("_mcp_image"), dict):
+            res = drop_mcp_image_without_vision(res, captured_turn)
         return json.dumps(res, default=str) if isinstance(res, dict) else str(res)
 
     return execute_fn
@@ -1083,7 +1130,7 @@ class ToolLoopEffectInterpreter:
                 reasoning_replay=effect.reasoning_replay,
             )
         elif effect.role == MessageRole.TOOL:
-            persist_tool_on_turn(self.host, effect.call_id, content)
+            persist_tool_on_turn(self.host, effect.call_id, tool_message_content(content))
 
     def _update_activity_state(self, effect: UpdateActivityStateEffect) -> None:
         if effect.action == "tool_execute":
