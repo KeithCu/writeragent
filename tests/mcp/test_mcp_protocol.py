@@ -17,21 +17,38 @@ from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
 
 def test_precomputed_echo_shape_and_absence():
-    from plugin.mcp.mcp_protocol import _attach_precomputed_echo, _document_echo_payload
+    from plugin.framework.tool import ToolContext
+    from plugin.mcp.mcp_protocol import _PreparedMcpCall, _document_echo_payload
+
+    protocol = MCPProtocolHandler(MagicMock())
+    protocol.tool_registry = MagicMock()
 
     doc = MagicMock()
     doc.URL = "file:///Users/x/Peti%C3%A7%C3%A3o%20Inicial.odt"
     doc.RuntimeUID = "42"
-    result: dict[str, Any] = {"status": "ok"}
-    _attach_precomputed_echo(result, _document_echo_payload(doc))
+
+    def make_prepared(echo: dict[str, Any] | None) -> _PreparedMcpCall:
+        ctx_mock = MagicMock(spec=ToolContext)
+        ctx_mock.stop_checker = None
+        return _PreparedMcpCall(
+            tool=MagicMock(),
+            context=ctx_mock,
+            doc=doc,
+            doc_key="test_key",
+            needs_gate=False,
+            echo=echo,
+        )
+
+    protocol.tool_registry.execute.return_value = {"status": "ok"}
+    result = protocol._invoke_prepared_mcp_tool(make_prepared(_document_echo_payload(doc)), "test_tool", {})
     assert result["document"]["name"] == "Petição Inicial.odt"
     assert result["document"]["uid"]
     # No doc -> no field; existing field -> untouched.
-    r2 = {"status": "ok"}
-    _attach_precomputed_echo(r2, _document_echo_payload(None))
+    protocol.tool_registry.execute.return_value = {"status": "ok"}
+    r2 = protocol._invoke_prepared_mcp_tool(make_prepared(_document_echo_payload(None)), "test_tool", {})
     assert "document" not in r2
-    r3 = {"status": "ok", "document": {"name": "keep"}}
-    _attach_precomputed_echo(r3, _document_echo_payload(doc))
+    protocol.tool_registry.execute.return_value = {"status": "ok", "document": {"name": "keep"}}
+    r3 = protocol._invoke_prepared_mcp_tool(make_prepared(_document_echo_payload(doc)), "test_tool", {})
     assert r3["document"]["name"] == "keep"
 
 
