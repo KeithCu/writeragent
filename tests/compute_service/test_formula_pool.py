@@ -1841,6 +1841,71 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
+    def test_session_locks_refcounted_and_pruned(self) -> None:
+        """Verify per-session locks are refcounted, shared by concurrent callers, and pruned on exit."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "refcount-prune-test"
+            assert not pool._session_locks
+
+            # Shared execute prunes lock upon completion
+            res = pool.execute(code="x = 10\nresult = x", session_id=sid, mode="shared")
+            assert res.get("status") == "ok"
+            assert res.get("result") == 10
+            assert not pool._session_locks
+
+            # reset_session prunes lock upon completion
+            res_reset = pool.reset_session(sid)
+            assert res_reset.get("status") == "ok"
+            assert not pool._session_locks
+
+            # Concurrent callers on same session_id share one lock and prune upon completion
+            gate1_entered = threading.Event()
+            gate1_proceed = threading.Event()
+            gate2_entered = threading.Event()
+            same_lock_verified = False
+
+            def caller1() -> None:
+                with pool._session_gate(sid):
+                    gate1_entered.set()
+                    gate1_proceed.wait(timeout=10.0)
+
+            def caller2() -> None:
+                with pool._session_gate(sid):
+                    gate2_entered.set()
+
+            t1 = threading.Thread(target=caller1)
+            t2 = threading.Thread(target=caller2)
+
+            t1.start()
+            assert gate1_entered.wait(timeout=10.0)
+
+            with pool._cond:
+                entry1 = pool._session_locks.get(sid)
+                assert entry1 is not None
+                assert entry1.users == 1
+                lock1 = entry1.lock
+
+            t2.start()
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 5.0:
+                with pool._cond:
+                    if entry1.users == 2:
+                        same_lock_verified = (pool._session_locks.get(sid) is entry1) and (entry1.lock is lock1)
+                        break
+                time.sleep(0.01)
+
+            assert same_lock_verified
+            gate1_proceed.set()
+            assert gate2_entered.wait(timeout=10.0)
+
+            t1.join(timeout=10.0)
+            t2.join(timeout=10.0)
+
+            assert not pool._session_locks
+        finally:
+            pool.shutdown()
+
     def test_reaper_expires_old_lost_markers_and_keeps_fresh(self) -> None:
         """The reaper pass drops markers older than the idle TTL and keeps fresh ones."""
         pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=60)

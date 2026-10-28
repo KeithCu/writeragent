@@ -18,14 +18,14 @@ Maintains a bounded pool of warm subprocesses. Provides:
 from __future__ import annotations
 
 from collections import OrderedDict
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 import json
 import logging
 import os
 import threading
 import time
-from typing import Any
+from typing import Any, Iterator
 
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, require_execute_wire, validate_session_id
@@ -54,6 +54,14 @@ class _Session:
 
     worker: BaseProcessWorker
     child: object
+
+
+@dataclass
+class _SessionGate:
+    """Placement gate for one shared session id (reference-counted)."""
+
+    lock: threading.Lock
+    users: int = 0
 
 
 def decode_worker_result(res: dict[str, Any]) -> dict[str, Any]:
@@ -86,7 +94,7 @@ class FormulaProcessPool(BaseProcessPool):
         # Consumed by the next sticky call that observes the id. The reaper
         # expires ids older than idle_worker_ttl_sec, so it does not grow forever.
         self._lost_sessions: OrderedDict[str, float] = OrderedDict()
-        self._session_locks: dict[str, threading.Lock] = {}
+        self._session_locks: dict[str, _SessionGate] = {}
         self._recycling: set[BaseProcessWorker] = set()
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
 
@@ -98,15 +106,44 @@ class FormulaProcessPool(BaseProcessPool):
         self._session_locks.clear()
         self._recycling.clear()
 
-    def _session_gate(self, session_id: str) -> threading.Lock:
-        """Return the per-session placement lock for *session_id*.
+    @contextmanager
+    def _session_gate(self, session_id: str) -> Iterator[None]:
+        """Placement gate for *session_id* (reference-counted).
 
         Held from lookup through worker release on shared execute/reset calls
         to prevent concurrent first-calls from selecting different workers.
-        Caller must acquire the returned lock outside self._cond.
+        The lock entry in ``_session_locks`` is pruned as soon as no caller holds
+        or waits on it.
+
+        Bugfix: what was wrong: _session_locks accumulated an entry per shared session
+        id that was never pruned (only cleared at shutdown), leaking a Lock for the life
+        of the service.
+        How it happened: _session_gate used setdefault to create Lock instances without
+        tracking when callers finished using them.
+        Why this change fixes it: reference-counts active callers [lock, users] under
+        self._cond, acquiring the lock outside self._cond, and deletes the entry in finally
+        when users drops to 0.
         """
         with self._cond:
-            return self._session_locks.setdefault(session_id, threading.Lock())
+            entry = self._session_locks.get(session_id)
+            if entry is None:
+                entry = _SessionGate(lock=threading.Lock())
+                self._session_locks[session_id] = entry
+            entry.users += 1
+            lock = entry.lock
+
+        acquired = False
+        try:
+            lock.acquire()
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                lock.release()
+            with self._cond:
+                entry.users -= 1
+                if entry.users <= 0 and self._session_locks.get(session_id) is entry:
+                    self._session_locks.pop(session_id, None)
 
     def _mark_session_lost_unlocked(self, session_id: str) -> None:
         """Remember that *session_id* lost its kernel. Caller holds ``self._cond``.
@@ -301,8 +338,7 @@ class FormulaProcessPool(BaseProcessPool):
         except ExecuteRequestError as exc:
             return {"status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
 
-        gate = self._session_gate(session_id)
-        with gate:
+        with self._session_gate(session_id):
             with self._cond:
                 self._reap_dead_sessions_unlocked()
                 s = self._sessions.get(session_id)
