@@ -1,6 +1,6 @@
 # Collabora Online and jail-safe execution
 
-> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Correctness/lifecycle/platform blockers from the 2026-07 review are addressed in tree. **G6a (active pending timeout)** and **G6c (weak AddIn.idl identity cache)** are done. The uncommitted 2026-07-23 C++ cleanup in the current working tree adds emitter re-entrancy/ABI fixes, corrupt-frame replies, Unicode-surrogate and rectangular-grid hardening, reviewer hygiene, and **F1 UnitWSD enable/disable + POST/result CI**. Core CppUnit, UnitWSD, `coolwsd`, and both forkit variants pass locally. Still open before Gerrit: request/in-flight caps, the remaining service-isolation work, and commit-series preparation — see [Still open before Gerrit](#still-open-before-gerrit). Product follow-ups (not coded): **visible short Python errors ([F6](#f6--visible-short-python-errors))** and **single-cell auto-spill ([F7](#f7--single-cell-auto-spill))**. Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
+ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
 
 Related architecture comparison (AI chat / kit protocol, not Python compute): [../chat/collabora-online-ai.md](../chat/collabora-online-ai.md).
 
@@ -177,10 +177,10 @@ Same contract as [`compute_service/README.md`](../../compute_service/README.md#h
 
 Live in the Collabora Online / LibreOffice trees (`collabofficefull`), not writeragent:
 
-1. **Config:** `security.python_compute.enable` (default `false`), `url`, optional `api_key` (Bearer), `timeout_secs` in `coolwsd.xml.in` / `ConfigUtil.cpp`. No HTTP retries (formula POST is not idempotent).
-2. **coolwsd:** `ClientSession::handlePythonComputeFromKit` — kit `pythoncompute:` → `http::Session` POST → `pythoncomputeresult:`.
-3. **kit:** `PythonComputeEmitter` — spreadsheet-only install; one stable egress owner among live views (no last-wins steal); MOBILEAPP no-op; `handlePythonComputeResult` → `pythoncompute_complete_json` (no product browser echo). Retries `dlsym` until AddIn symbols resolve. Debug kick: `pythonexecute` (`ENABLE_DEBUG` only; rejects `py-*` ids).
-4. **Core AddIn (Step C):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) (`addin` / `anyjson` / `bridge` / `volatile`; no `pythoncompute_` filename prefix) — UNO `org.collaboraoffice.sheet.addin.PythonComputeFunctions`, C++ ns `collaboraoffice::pythoncompute`, `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile weak-ref identity map, **SolarMutex-only** (no extra `std::mutex`; `finish` under `SolarMutexGuard`), Any↔dumb JSON (see [JSON note](#anyjson-dumb-json-note)), pending map + timer. List/grid results → `sequence<sequence<…>>` → Core `ScMatrix` (see [matrix / spill](#matrix-list-results--auto-spill-not-yet)). No `FormulaError::Busy`.
+1. **Config** (`coolwsd.xml.in` / `ConfigUtil.cpp`, `<security><python_compute>`): `enable` (default `false`), `url`, optional `api_key` (Bearer), `timeout_secs` (default 60), `max_payload_bytes` (default 16 MiB; 0 or less means the default, so nothing is unbounded). No HTTP retries (formula POST is not idempotent). **No other knobs on purpose:** every other limit is a named constant or is derived from `max_payload_bytes`. A separate queue cap (`max_queued_requests`, 128) was considered and rejected.
+2. **coolwsd** (`DocumentBroker`, broker thread, `ASSERT_CORRECT_THREAD`): kit `pythoncompute:` → `http::Session` POST (same outbound shape as AI chat) → result sent back as a **document-level** message, so closing a view does not lose it. Per document at most `MAX_PYTHON_COMPUTE_IN_FLIGHT` = 8 POSTs; more wait in a FIFO and are never refused. The request JSON is trimmed (`Util::trimmed`) so its byte count matches what `bridge.cxx` checked; over `max_payload_bytes` → `too_large`. Responses are capped while streaming with `setBodySizeLimit(max_payload_bytes)`. Every POST ends at `timeout_secs`. On teardown `shutdownPythonCompute` moves the in-flight map out, then calls `asyncShutdown` on each session and drops the queue. Each in-flight slot is released through a `weak_ptr<SocketPoll>`: the release only does `addCallback`, and the broker is locked inside the callback on the broker thread.
+3. **kit** (`PythonComputeEmitter`, kit poll thread only): sets `COOL_PYTHON_COMPUTE` so the AddIn queues requests (elsewhere the cell shows `#DISABLED`). The AddIn's wakeup only does `addCallback`; the kit then calls `pythoncompute_take_requests()` without SolarMutex and hands results to `pythoncompute_complete()`, which takes Solar itself. Symbols are looked up (`dlsym(RTLD_DEFAULT)`, then `dlopen(NOLOAD)` for non-merged builds) until found, so a late-loaded AddIn is still served; `ensureWakeup` runs **only for spreadsheet documents** and has its own `catch`. MOBILEAPP no-op.
+4. **Core AddIn (8122):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) (`addin` / `anyjson` / `bridge` / `volatile`) — UNO `org.collaboraoffice.sheet.addin.PythonComputeFunctions`, C++ ns `co::pythoncompute`, `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile weak-ref cache (identical args do not resend), **SolarMutex-only**. **No timer:** coolwsd answers every accepted request exactly once (result, error, or its own HTTP timeout). Limits, all from `max_payload_bytes`: a request over it is a transient `#VALUE!`; the kit is handed requests while those it holds without a result total ≤ 16 × payload (`kHandedOffPayloads`), the rest wait as `#BUSY!` and go oldest first; past max(1 GiB, 64 × payload) of held request JSON (`kHeldPayloads`, `kMinHeldBytes`) a new request is a transient error. Transient errors retry only after `kRetryAfterMs` (30 s), so an error cannot cause a recalc/request storm. Results decode with `comphelper::parseJsonToInferredAny` plus a strict UTF-8 string path; `null`, `[]` and `[[]]` all give an empty cell. List/grid results → `ScMatrix` (see [matrix / spill](#matrix-list-results--auto-spill-not-yet)).
 5. **Future work:** see [below](#future-work-prototype--hardened-online). Monaco / browser cell editor remains a separate Online UI track (LibrePy uses pywebview; do not port that into the kit).
 
 #### Cell markers / diagnosis (`#BUSY!`, `#DISABLED`, `#VALUE!`)
@@ -194,7 +194,7 @@ Volatile / finish values are **not** new Core `FormulaError` enum entries (Excel
 
 | Cell shows | Kind | Meaning | Where |
 |------------|------|---------|--------|
-| `#BUSY!` | string | Request in flight | AddIn before `complete_json` |
+| `#BUSY!` | string | Request queued or in flight | AddIn before `pythoncompute_complete` |
 | `#DISABLED` | string | Feature flag off | exact coolwsd error `"Python compute is disabled"` → literal in `jsonResultToAny` |
 | `#VALUE!` | `FormulaError::NoValue` | Most `status=error`, bad JSON, missing `result` | opaque — **Python exception text is log-only** |
 | `#N/A` | `FormulaError::NotAvailable` (void Any) | No emitter, pending timeout, superseded | Bridge lifecycle |
@@ -432,13 +432,13 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 
 **Implemented:**
 
-1. **Configurable / Safe Binding**: `server.py` defaults to binding to `127.0.0.1` (loopback only) instead of wildcard, preventing external exposure by default. It supports configuring the host via the `HOST` environment variable.
+1. **Configurable / Safe Binding**: `server.py` defaults to binding to `127.0.0.1` (loopback only) instead of wildcard, preventing external exposure by default. It supports configuring the host via the `PYTHON_COMPUTE_HOST` environment variable.
 2. **Dual-Stack & IPv6**: Server binds using a dual-stack configuration (`DualStackThreadingHTTPServer`), allowing concurrent IPv4 and IPv6 connections on supported systems with graceful fallback.
-3. **Multi-stage Dockerfile**: The [`compute_service/Dockerfile`](../../compute_service/Dockerfile) uses a multi-stage build where all compiler tools (`build-essential`) are restricted to the builder stage. The runner image copies pre-installed packages, reducing the runtime container's attack surface.
+3. **Multi-stage Dockerfile**: The [`compute_service/Dockerfile`](../../compute_service/Dockerfile) installs the pinned stack with `pip --only-binary=:all:` into `/app/pkgs`. Neither stage installs a compiler. A source build would link against libraries the runner never copies. The runner image has no compiler, which keeps that attack surface out of the runtime container.
 4. **Startup Dependency Check**: The server runs a pre-check to ensure required libraries like `sympy` are importable, failing fast at startup if dependencies are missing.
 5. **Runtime flags (recommended for ops):**
    ```bash
-   docker run --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
+   docker run --init --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
      --memory=1g --cpus=1 --pids-limit=256 \
      --security-opt no-new-privileges \
      --cap-drop ALL \
@@ -450,7 +450,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 6. **No docker.sock, no privileged, no host FS mounts** of tenant data. Scratch only under `/tmp`. If models/weights are needed later, bake into the image (admin curates) — never bind-mount `~/.writeragent_venv`.
 7. **Auth between coolwsd and service:** coolwsd sends optional `security.python_compute.api_key` as `Authorization: Bearer …`. The compute service verifies that Bearer only when a key is configured (`PYTHON_COMPUTE_API_KEY` / key file / `python-compute.json`); empty key = no auth (dev/test). Remaining ops: cgroup/network isolation ([F4](#f4--compute-service-container-hardening) / G5).
 8. **Resource quotas already partially exist:** `timeout_ms` / `clamp_timeout_sec` in [`config.py`](../../compute_service/config.py) and [`formula_worker.py`](../../compute_service/formula_worker.py); add RSS watch or rely on cgroup `--memory`. Document that wall-clock alone does not stop a malloc bomb — cgroup does.
-9. **Health / readiness:** keep `/health` (`status`, `service`, `version`); orchestrators use it. Do not expose `/v1/execute` without the allowlist auth once enabled.
+9. **Health / readiness:** keep `/health` (`status`, `service`, `version`); orchestrators use it. The image `HEALTHCHECK` calls that route with the Python stdlib (the base image has no curl). Do not expose `/v1/execute` without the allowlist auth once enabled.
 10. **Signal handling & structured logging:** `SIGTERM`/`SIGINT` graceful shutdown for orchestrators; structured logging with request durations and configurable verbosity (`PYTHON_COMPUTE_LOG_LEVEL`). Request `id` is echoed on success and error payloads for async tracing.
 
 
@@ -481,7 +481,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 3. **AddIn:** keep emitting isolated always **or** emit `mode` omit and let wsd decide — prefer **wsd owns mode** so a rebuilt AddIn is not required to flip admin policy.
 4. **Lifecycle:**
    - On DocumentBroker destroy / last session leave: coolwsd `POST /v1/session/reset?session_id=<id>` (service endpoint is landed; **coolwsd caller is not**). Query-only `session_id` (same L7 sticky as execute). Idempotent `ok` if the kernel is already gone. Do not put `session_id` in the JSON body.
-   - TTL: terminate idle worker processes (`idle_worker_ttl_sec`) to bound memory if reset is missed. A worker idle past that timeout is killed and every shared session on it is lost.
+   - TTL: expire idle shared sessions in the service (`shared_kernel_ttl_sec`) to bound memory if reset is missed. The next sticky call resets that kernel. The idle-worker reaper kills a process whose sessions are all past that TTL. Do not remove that expiry.
 5. **Recalc semantics:** document Online limitation — without Excel-style co-volatility, multi-cell shared-kernel scripts need real `data` precedents for dirtying and operator-managed run order (same advisory as LibrePy §6; the OOXML rewriter does not invent prior-PY edges). Do not invent Online co-volatility in v1.
 6. **Tests:**
    - Service unit: two sequential executes with same `session_id` share a name; different ids do not.
@@ -556,9 +556,9 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 
 | # | Topic | Status |
 |---|--------|--------|
-| G4 | No size / in-flight caps | **Service-side done** (`max_body_bytes`, `max_code_chars` in `compute_service`; a call waits for a worker until its timeout). WSD POST caps still deferred for Collabora |
+| G4 | Size / in-flight caps | **Done** — one `max_payload_bytes` (AddIn + wsd), 8 in flight + FIFO, `timeout_secs`, `asyncShutdown` on close; service-side `max_body_bytes` / `max_code_chars` too. See [G4](#g4--resource-caps--done) |
 | G5 | Service isolation | Bearer verify when key set; empty key = open (dev); cgroup/network isolation still ops — [F4](#f4--compute-service-container-hardening) |
-| G6a | Pending timeout is passive | Done — AddIn one-shot `vcl::Timer` expires pending → `#N/A` without recalc |
+| G6a | Pending timeout is passive | Superseded — the AddIn has no timer; wsd answers every accepted request once (incl. its own HTTP timeout) |
 | G6c | LRU breaks AddIn.idl identity; sticky errors | Done — weak-ref identity map never evicts live entries; sticky retry = change params (documented) |
 | G8 | UnitWSD / formula-level CI | UnitWSD done; full formula-level Online CI remains optional follow-up |
 | G9 | Series / hygiene | Hygiene done; series preparation remains intentionally pending |
@@ -576,18 +576,22 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 - **Envelope:** `id`, `status`, `error`, `result`, optional `images[]` (sheet insert still [F3](#f3--images-sheet-insert); Core shows a placeholder string today). Request emit today is one JSON object (peel path). Service also accepts multipart; kit will switch later — [HTTP ingress](#http-ingress-peel-vs-multipart).
 - **Tests:** `engine/scaddins/qa/pythoncompute.cxx` + writeragent `tests/compute_service/test_online_py_json_contract.py`.
 
-### G4 — No request / response / in-flight resource caps
+### G4 — Resource caps — **done**
 
-**Impact:** High / DoS once the feature is on. Prototype leaves this open on purpose.
+One admin setting, `security.python_compute.max_payload_bytes` (default 16 MiB), bounds both ends:
 
-**Evidence:** `handlePythonComputeFromKit` posts the full kit JSON body with no max size, no max `code` length, no per-session/doc concurrent POST counter. HTTP responses use `response->getBody()` with only the generic http max (~2 GB). Client JSON may carry `timeout_ms` up to ~620 s wall clock. AI chat already enforces payload caps.
+| Where | Limit |
+|---|---|
+| AddIn, request out | over `max_payload_bytes` → transient `#VALUE!` (retry after 30 s) |
+| AddIn → kit hand-off | ≤ 16 × payload held by the kit without a result; the rest wait `#BUSY!`, oldest first |
+| AddIn memory backstop | past max(1 GiB, 64 × payload) held request JSON → transient error |
+| wsd, request | trimmed JSON over `max_payload_bytes` → `too_large` (same byte count as `bridge.cxx`) |
+| wsd, response | `setBodySizeLimit(max_payload_bytes)` while streaming |
+| wsd, concurrency | 8 POSTs in flight per document (`MAX_PYTHON_COMPUTE_IN_FLIGHT`); FIFO behind it, never refused, needs no cap because the hand-off budget bounds it |
+| wsd, time | `timeout_secs` (default 60) ends every POST |
+| wsd, close | in-flight sessions `asyncShutdown`, queue dropped |
 
-**Recommended solution:**
-
-1. Config knobs: `max_request_bytes`, `max_response_bytes`, `max_inflight_per_doc`, admin-owned `timeout_secs`.
-2. Hard-reject oversized bodies with `status=error` JSON back to kit.
-3. Fail-visible handling for corrupt `pythoncompute:` frames (`replyError`) — **done**.
-4. Cancel in-flight HTTP on disconnect; optionally cap AddIn `g_aPending`.
+**Policy:** no extra knobs. The 128-entry `max_queued_requests` cap was rejected: the byte budget already bounds the queue, and a count cap would only add a `busy` failure mode. Known edge (accepted, low): `asyncShutdown` flushes rather than cancels, so a POST still connecting at close may reach the service; the document is gone by then.
 
 ### G5 — Compute-service isolation claims are not operational
 
@@ -597,9 +601,9 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 
 ### G6 — Remaining lifecycle gaps
 
-#### G6a — Pending timeout is passive — **done**
+#### G6a — Pending timeout is passive — **superseded**
 
-AddIn arms a process-wide one-shot `vcl::Timer` to the earliest `g_aPending` deadline (default 90 s, cushion above WSD’s ~60 s HTTP timeout). `Invoke` reuses `expireStale_NoLock` + `finishExpired` under Solar (Unipoll feeds SalTimer into `kitPoll`). Idle sheet + silent service → `#N/A` without another `startCompute` / `complete_json`. CppUnit: `test_pendingTimeoutWithoutRecalc`.
+The old AddIn `vcl::Timer` and 90 s pending deadline are gone. coolwsd answers every request it accepts exactly once (result, error or its own `timeout_secs` timeout), and the kit and document go away together, so the AddIn needs no clock of its own.
 
 #### G6c — LRU breaks AddIn.idl identity; sticky errors — **done**
 
@@ -616,7 +620,7 @@ the zero-POST disabled invariant. Remaining coverage gaps:
 |------|----------------|
 | UnitWSD | allowlist reject; direct corrupt upward-frame injection (production handler now replies with structured error) |
 | Lifecycle | disconnect mid-flight (timeout-without-recalc covered by AddIn CppUnit) |
-| Limits | oversize body rejected; inflight cap (when G4 lands) |
+| Limits | covered: `unit-python-compute` tests request and response caps, close mid-flight, FIFO behind 8 in flight, a result after its view closed, a silent service, 500, non-JSON, refused connection |
 
 [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) is implemented and registered with the Online unit suite.
 
@@ -656,8 +660,8 @@ From Tomaž’s reviews on [Gerrit 8122](https://gerrit.collaboraoffice.com/c/on
 
 **ABI and lock order**
 
-- `extern "C"` that reaches `finish()` (`pythoncompute_complete_json`, and the pending-timeout timer) must not throw into kit. UNO exceptions do not inherit `std::exception`, so `catch (const std::exception&)` alone misses `RuntimeException`. `catch (...)` at that edge is enough. Do not wrap trivial setters (`set_emitter`, the test timeout setter).
-- Lock order is Solar, then kit `gMutex`. `pythoncompute_set_emitter` takes Solar. `emitThunk` takes `gMutex` under Solar. Snapshot `gSetEmitter` under `gMutex`, release, then call. Same pattern already used for `clear_caches` and `complete_json`. Calling the setter inside the `gMutex` scope deadlocks.
+- `extern "C"` entry points that reach `finish()` (`pythoncompute_complete`) must not throw into kit. UNO exceptions do not inherit `std::exception`, so `catch (...)` at that edge. Do not wrap trivial setters.
+- Lock order is trivial now: there is no kit mutex. The AddIn's wakeup only does `addCallback`; `take_requests` runs without Solar (`assert`); `complete` takes Solar itself.
 
 **Build files: take upstream’s new shape**
 
@@ -734,14 +738,34 @@ LibrePy **does not** register Collabora's UNO service (that would add a second F
 
 ---
 
+## Bug classes fixed (and how we prevent them)
+
+From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-compute`), Tomaž's reviews, Chief's audits (2026-10-24, 2026-10-26) and the DeepSeek review of the rebased series. Grouped by class.
+
+| Class | What went wrong | Fix | What keeps it out |
+|---|---|---|---|
+| **Lock order / wrong thread** | Kit `gMutex` was held across `dlopen`/`dlsym` and the Solar→`gMutex` edge risked deadlock (R2-4). `take_requests` called with Solar held was only a `SAL_WARN`. `shutdownPythonCompute` had no thread check. | Kit mutex removed; wakeup only does `addCallback`; `take_requests` runs without Solar, `complete` takes it. | `assert(!SolarMutex held)` in `take_requests`; `ASSERT_CORRECT_THREAD` in wsd entry points incl. shutdown; kit `assertKitThread`. Rule: AddIn callbacks only queue work. |
+| **Lifetime / ownership** | ClientSession captured the broker strongly and routed via a view (R2-6). The slot release later called `weakBroker.lock()` on whichever thread dropped the last Session ref, so `~DocumentBroker` could run off-thread. | Weak broker, document-level `sendTextFrameToKit`. Slot captures `weak_ptr<SocketPoll>`, only `addCallback`s, and locks the broker inside the callback on the broker thread. Shutdown moves the in-flight map out before `asyncShutdown`. | Rule: never lock a broker `weak_ptr` off the broker thread. `unit-python-compute`: close mid-flight, result after its view closed. |
+| **Size accounting mismatch** | wsd checked `payload->jsonString()`, which keeps the separator space, so a request exactly at the cap passed the AddIn but got `too_large` from wsd forever. | wsd trims (`Util::trimmed`) before the check and the POST. | One setting, one byte definition in both components. `unit-python-compute` request-cap test (`kSmallReplyCap` 4096 with an assert that the request fits). |
+| **Unbounded resources / knob creep** | No request/response/in-flight caps at first (G4). Later fixes grew a busy-resend loop and proposals for more settings (`max_queued_requests`, separate request/response caps, `kMaxPendingRequests`). | One `max_payload_bytes`; byte budgets derived from it (16× hand-off, max(1 GiB, 64×) backstop); 8 in flight + FIFO; `setBodySizeLimit`; `timeout_secs`; `kRetryAfterMs` against storms. Busy/resend path removed. | Rule: no new knob unless a derived limit cannot work; tunables are named constants. ucalc `testPythonComputeErrorNoStorm`; `test_oversizeRequestIsValueError`, `test_handOffBudgetHoldsRequestsUntilResults`, `test_heldBytesBackstopFailsTransient`; `unit-python-compute` FIFO and cap tests. |
+| **Stale or sticky state on error paths** | Missing emitter or timeout results were cached so the next recalc never retried (R1-8, R1-10). | No-emitter/transient results are not cached; transient errors retry after `kRetryAfterMs`. The AddIn timer was removed instead of patched. | `test_transientErrorRetriesAfterWindow`, `test_recalcsOfOneCellLeaveOneEntry`; rule: never cache a failure the next recalc should retry. |
+| **Lenient UTF-8** | The string decoder checked lead/continuation bytes only; overlong, surrogate and >U+10FFFF sequences reached `fromUtf8`. | Multi-byte runs are converted strictly (rejects all three); the input comes from user code. | `test_jsonRejectsInvalidUtf8`. |
+| **Degenerate result shapes** | `[]` returned an empty `Sequence<Any>` that Calc's `SetResult` cannot show (DeepSeek); `[[]]` likewise. | `[]` and all-zero-column rows (`[[]]`, `[[],[]]`) map to an empty cell, like JSON `null`; with `images[]` they get the plot placeholder. | `test_jsonResultToAny` (`[]`, `[[]]`, `[[]]` + `images`). |
+| **Exceptions escaping into the kit** | Catch blocks at the C ABI missed UNO `RuntimeException` (R1-9). Result decoding could throw `std::exception` out of `jsonResultToAny`. `ensureWakeup` failing inside `drainQueue` led to `flushAndExit`. | `catch (...)` at the C ABI edge; `jsonResultToAny` catches and reports "result JSON parse failed"; `ensureWakeup` has a local catch. | Rule: nothing escapes an `extern "C"`, UNO or poll-callback boundary. |
+| **Doc-type assumptions** | `ensureWakeup` ran on every `drainQueue` in every document type, doing `dlsym` + `dlopen(NOLOAD)` until the AddIn loaded. | Gated on `COKitDocumentType::SPREADSHEET`, like the post-load drain in `ChildSession`. | Same gate in both places; non-Calc documents do no symbol lookups. |
+| **Init ordering** | The emitter was installed after `onLoad`, but import already recalculates, so cells on load had no path (R2-5). | Kit announces brokering via `COOL_PYTHON_COMPUTE` and drains after load; the AddIn queues until then. | `unit-python-compute`: a saved cell computed on load. |
+| **Test linking (dlsym in ucalc)** | The ucalc test found the bridge with a local `dlsym`/`dlopen` helper. | ucalc links pythoncompute (`ucalc_setup.mk` `use_libraries` + `-I`) and calls the `bridge.h` hooks directly. | No `dlsym` in tests; a missing symbol is a link error. |
+| **Build guards** | IDL and `testFunctionLists` expectations were not guarded, so `--disable-python-compute` left a wizard name with no implementation (R1-5). | `gb_Helper_optional,PYTHON_COMPUTE` around library, CppUnit and IDL; `HAVE_FEATURE_PYTHON_COMPUTE` in ucalc. | Build with the feature off before upload. |
+| **Rebase drift** | Rebasing onto `5ce8dbc6d60b` met upstream changes: `SAL_CALL` removed tree-wide, scfilt merged into sc, `kit_sources` removed from `test/Makefile.am`, loplugin:ostr. | `SAL_CALL` dropped in addin/volatile; scfilt neighbours kept; kit sources only from `coolforkit_sources`; ostr/`RepeatedUChar` in qa. | `git range-diff` against the previous patch set after every rebase; confirm logic is byte-identical apart from context. |
+
 ## Open before PR
 
 Code / product gaps still relevant for a Collabora-facing PR (overlaps the open checklist above).
 
 | Item | Where | Notes |
 |------|--------|--------|
-| **Request size / in-flight caps** | `wsd/ClientSession.cpp` | G4 |
-| **Pending timeout is passive** | `pythoncompute_bridge.cxx` | G6a — **done** (VCL one-shot timer) |
+| **Request size / in-flight caps** | `wsd/DocumentBroker.cpp`, `bridge.cxx` | G4 — **done** |
+| **Pending timeout is passive** | `bridge.cxx` | G6a — superseded (no AddIn timer; wsd answers once) |
 | **LRU / sticky errors** | param cache in bridge | G6c — **done** (weak-ref identity map) |
 | **Display name `PY`** | IDL / release notes | G9 |
 | **UnitWSD wire CI** | `test/UnitPythonCompute.cpp` | **Done** — enabled/disabled, POST/result, and zero-POST invariant |
@@ -753,3 +777,32 @@ Code / product gaps still relevant for a Collabora-facing PR (overlaps the open 
 | **`SAL_DLLPUBLIC_EXPORT` on anyjson** | helpers | Prefer C ABI-only exports long-term |
 | **Kit/Core length ABI** | emitter vs Core | **Done** — fixed-width 32-bit C ABI |
 | **anyjson structure** | duplicated writers | Maintainability nit |
+
+---
+
+## Next steps (roadmap)
+
+### Phases
+
+| # | Phase | Scope |
+|---|---|---|
+| 0 | **MVP** | Merge experimental `=PY()` (default off); publish the first compute image. |
+| 1 | **Calc parity** | Visible short Python errors ([F6](#f6--visible-short-python-errors)); auto-spill ([F7](#f7--single-cell-auto-spill)); plot insert ([F3](#f3--online-images--plot-insert)); optional shared kernel ([F5](#f5--shared-workbook-kernel-modeshared--session_id), wsd-owned `session_id`). |
+| 2 | **Authoring UX** | Browser Monaco / Run Script / diagnostics. Not pywebview in the jail. |
+| 3 | **Excel files** | Use the LibrePy OOXML rewriter; Online calls convert on open/save (or a thin filter hook). |
+| 4 | **OCR** | Expose LibrePy-style local OCR, plus a config settings UI. |
+| 5 | **Science** | Helper analysis tools; admin-baked domain stacks in the image. |
+
+### Baby steps
+
+| Step | What | Why / done when |
+|---|---|---|
+| **0a** | Publish the compute image with a pinned NumPy; short admin doc on enabling it; CI smoke test running `=PY("1+1")` against the image. | An admin can turn it on from the doc alone, and CI proves the image answers. |
+| **0b** | Multipart POST: a JSON `meta` part plus binary parts for arrays and images, instead of one JSON blob ([HTTP ingress](#http-ingress-peel-vs-multipart)). | Keith's planned follow-up patch. Early, because spill and plots want binary parts. |
+| **0c** | Gather real latency and payload-size numbers from early users. | Before touching any limit (see [G4](#g4--resource-caps--done): no new knobs without data). |
+| **1a** | Short Python error in the cell; full traceback in a tooltip or comment. | Smallest step, most visible. |
+| **1b** | Auto-spill array results into neighbouring cells; `#SPILL!`-style error when the spill would overwrite cells. | Replaces top-left only. |
+| **1c** | Plot insert: an image result becomes an anchored image, not only the "Image generated" marker. | Uses 0b's binary parts. |
+| **1d** | Shared kernel per document, wsd-owned `session_id`. | Last: it brings back state and lifetime risk (see [Bug classes fixed](#bug-classes-fixed-and-how-we-prevent-them)). |
+
+Phases 2–5 each get a one-page plan when they come up.
