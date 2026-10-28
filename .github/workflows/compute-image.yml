@@ -1,0 +1,32 @@
+name: Compute image
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Image version
+        id: ver
+        run: |
+          ver=$(python -c 'import re; t=open("plugin/version.py").read(); print(re.search(r"EXTENSION_VERSION = \"([^\"]+)\"", t).group(1))')
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: |
+          docker build -f compute_service/Dockerfile \
+            -t "python-compute:${{ steps.ver.outputs.version }}" .
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            docker tag "python-compute:${{ steps.ver.outputs.version }}" "python-compute:${tag}"
+          fi
