@@ -95,8 +95,7 @@ def test_dataframe_egress_includes_header_row():
     }
     grid = result_to_calc_grid(envelope)
     assert grid == [["A", "B"], [1, 2], [3, 4]]
-    assert dataframe_to_labeled_grid(["X"], [[9]], include_header=True) == [["X"], [9]]
-    assert dataframe_to_labeled_grid(["X"], [[9]], include_header=False) == [[9]]
+    assert dataframe_to_labeled_grid(["X"], [[9]]) == [["X"], [9]]
 
 
 def test_result_to_calc_grid_ndarray_body_is_data():
@@ -116,7 +115,6 @@ def test_dataframe_to_labeled_grid_zero_row_is_header_only():
     """0-row DataFrame envelope spills the header row only — not an error and not a new payload kind."""
     assert dataframe_to_labeled_grid(["A", "B"], []) == [["A", "B"]]
     assert dataframe_to_labeled_grid(["A", "B"], None) == [["A", "B"]]
-    assert dataframe_to_labeled_grid(["A"], [], include_header=False) == []
     envelope = {"__wa_payload__": PAYLOAD_DATAFRAME, "columns": ["A", "B"], "data": []}
     assert result_to_calc_grid(envelope) == [["A", "B"]]
 
@@ -324,8 +322,10 @@ def test_tall_sheet_materialize_and_arithmetic_do_not_precontract():
     ranges = materialize_inputs(rows)
     assert len(ranges) == 1
     assert ranges[0].shape == (DEAL_MAX_SHAPE_DIM + 1, 1)
-    labeled = dataframe_to_labeled_grid(["n" * 80], rows, include_header=False)
-    assert len(labeled) == DEAL_MAX_SHAPE_DIM + 1
+    labeled = dataframe_to_labeled_grid(["n" * 80], rows)
+    assert labeled[0] == ["n" * 80]
+    assert labeled[1:] == rows
+    assert len(labeled) == DEAL_MAX_SHAPE_DIM + 2
     try:
         _ = CalcRange(rows) + 1
     except deal.PreContractError:

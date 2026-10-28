@@ -28,7 +28,12 @@ from plugin.framework.deal_shim import (
     deal,
     str_bounded,
 )
-from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload, is_dataframe_payload
+from plugin.scripting.payload_codec import (
+    PAYLOAD_CALC_RANGE,
+    is_calc_range_payload,
+    is_dataframe_payload,
+    is_multi_data,
+)
 
 log = logging.getLogger(__name__)
 
@@ -45,17 +50,6 @@ def _assert_rectangular(grid: list[list[Any]]) -> None:
         return
     width = len(grid[0])
     assert all(isinstance(row, list) and len(row) == width for row in grid), "Grid must be rectangular list[list]"
-
-
-def _cells_of_row(row: Any, width: int = 0) -> list[Any]:
-    """One logical row, padded to *width* if specified. Non-sequences, ``str``, and ``bytes`` are one cell."""
-    if not isinstance(row, (list, tuple)) or isinstance(row, (str, bytes)):
-        pad = width - 1
-        return [row] if pad <= 0 else [row] + [None] * pad
-    pad = width - len(row)
-    if pad <= 0:
-        return list(row)
-    return list(row) + [None] * pad
 
 
 @deal.post(lambda result: isinstance(result, list))
@@ -82,13 +76,17 @@ def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
             rlen = len(row) if isinstance(row, (list, tuple)) and not isinstance(row, (str, bytes)) else 1
             if rlen > width:
                 width = rlen
-        out = [_cells_of_row(row, width) for row in grid]
-        _assert_rectangular(out)
+        out: list[list[Any]] = []
+        for row in grid:
+            if not isinstance(row, (list, tuple)) or isinstance(row, (str, bytes)):
+                pad = width - 1
+                out.append([row] if pad <= 0 else [row] + [None] * pad)
+            else:
+                pad = width - len(row)
+                out.append(list(row) if pad <= 0 else list(row) + [None] * pad)
         return out
     # Flat sequence → single row (Calc 1D row) unless callers pass column shape.
-    out = [list(grid)]
-    _assert_rectangular(out)
-    return out
+    return [list(grid)]
 
 
 @deal.post(lambda result: isinstance(result, dict) and is_calc_range_payload(result))
@@ -106,7 +104,6 @@ def pack_calc_range_envelope(
     """
     # crosshair: off
     rows = ensure_rectangular_2d(grid)
-    _assert_rectangular(rows)
     nrows = len(rows)
     ncols = len(rows[0]) if rows else 0
     inner = pack_inner(rows) if callable(pack_inner) else rows
@@ -174,6 +171,33 @@ def _whole_floats_to_int(grid: list[list[Any]]) -> list[list[Any]]:
 def _numpy_required(exc: ImportError) -> NoReturn:
     # Missing NumPy is ImportError. Any other to_numpy failure propagates.
     raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
+
+
+def _blank_to_nan(val: Any, op: Any) -> Any:
+    if val is None and op not in (operator.eq, operator.ne):
+        return math.nan
+    return val
+
+
+def _arith_operand(value: Any, op: Any, *, wrap_import: bool) -> Any:
+    """One side of a binary/unary op.
+
+    1x1 CalcRange stays a Python scalar. to_numpy() is only for a multi-cell
+    CalcRange. wrap_import is True only where the previous code caught
+    ImportError: a multi-cell self, a multi-cell right operand when self is
+    1x1, and unary multi-cell. A multi-cell self does not wrap ImportError
+    from the right operand's to_numpy.
+    """
+    if isinstance(value, CalcRange):
+        if value.shape == (1, 1):
+            return _blank_to_nan(value._values[0][0], op)
+        try:
+            return value.to_numpy()
+        except ImportError as exc:
+            if wrap_import:
+                _numpy_required(exc)
+            raise
+    return _blank_to_nan(value, op)
 
 
 def _binop(op: Any, reverse: bool = False) -> Any:
@@ -369,39 +393,32 @@ class CalcRange:
             return format(self._values[0][0], format_spec)
         return format(str(self), format_spec)
 
+    def _scalar(self, what: str, *, none_message: str | None = None) -> Any:
+        # crosshair: off
+        if self.shape != (1, 1):
+            raise TypeError(f"Only 1x1 CalcRange can be {what}, got shape {self.shape}")
+        val = self._values[0][0]
+        if val is None and none_message is not None:
+            raise TypeError(none_message)
+        return val
+
     # Scalar conversions
     def __float__(self) -> float:
         # crosshair: off
-        if self.shape == (1, 1):
-            val = self._values[0][0]
-            if val is None:
-                raise TypeError("Cannot convert empty cell (None) to float")
-            return float(val)
-        raise TypeError(f"Only 1x1 CalcRange can be converted to float, got shape {self.shape}")
+        return float(self._scalar("converted to float", none_message="Cannot convert empty cell (None) to float"))
 
     def __int__(self) -> int:
         # crosshair: off
-        if self.shape == (1, 1):
-            val = self._values[0][0]
-            if val is None:
-                raise TypeError("Cannot convert empty cell (None) to int")
-            return int(val)
-        raise TypeError(f"Only 1x1 CalcRange can be converted to int, got shape {self.shape}")
+        return int(self._scalar("converted to int", none_message="Cannot convert empty cell (None) to int"))
 
     def __index__(self) -> int:
         # crosshair: off
-        if self.shape == (1, 1):
-            return operator.index(self._values[0][0])
-        raise TypeError(f"Only 1x1 CalcRange can be used as an index, got shape {self.shape}")
+        return operator.index(self._scalar("used as an index"))
 
     def __round__(self, ndigits: int | None = None) -> Any:
         # crosshair: off
-        if self.shape == (1, 1):
-            val = self._values[0][0]
-            if val is None:
-                raise TypeError("Cannot round empty cell (None)")
-            return round(val, ndigits) if ndigits is not None else round(val)
-        raise TypeError(f"Only 1x1 CalcRange can be rounded, got shape {self.shape}")
+        val = self._scalar("rounded", none_message="Cannot round empty cell (None)")
+        return round(val, ndigits) if ndigits is not None else round(val)
 
     def __trunc__(self) -> int:
         # crosshair: off
@@ -418,49 +435,17 @@ class CalcRange:
     # Dispatchers
     def _binary_op(self, other: Any, op: Any, *, is_reverse: bool = False) -> Any:
         # crosshair: off
-        # A 1x1 None raises TypeError on arithmetic (None + 1). Multi-cell
-        # ranges already map None to nan; do the same here except for equality.
-        def _blank_to_nan(val: Any) -> Any:
-            if val is None and op not in (operator.eq, operator.ne):
-                return math.nan
-            return val
-
         if self.shape == (1, 1):
-            val = _blank_to_nan(self._values[0][0])
-            if isinstance(other, CalcRange):
-                if other.shape == (1, 1):
-                    other_val = _blank_to_nan(other._values[0][0])
-                    return op(other_val, val) if is_reverse else op(val, other_val)
-                try:
-                    other_arr = other.to_numpy()
-                except ImportError as exc:
-                    _numpy_required(exc)
-                return op(other_arr, val) if is_reverse else op(val, other_arr)
-            other = _blank_to_nan(other)
-            return op(other, val) if is_reverse else op(val, other)
-
-        try:
-            self_arr = self.to_numpy()
-        except ImportError as exc:
-            _numpy_required(exc)
-        if isinstance(other, CalcRange):
-            other_val = other._values[0][0] if other.shape == (1, 1) else other.to_numpy()
-            other = _blank_to_nan(other_val)
+            val = _arith_operand(self, op, wrap_import=False)
+            other_v = _arith_operand(other, op, wrap_import=True)
         else:
-            other = _blank_to_nan(other)
-        return op(other, self_arr) if is_reverse else op(self_arr, other)
+            val = _arith_operand(self, op, wrap_import=True)
+            other_v = _arith_operand(other, op, wrap_import=False)
+        return op(other_v, val) if is_reverse else op(val, other_v)
 
     def _unary_op(self, op: Any) -> Any:
         # crosshair: off
-        if self.shape == (1, 1):
-            val = self._values[0][0]
-            if val is None:
-                val = math.nan
-            return op(val)
-        try:
-            return op(self.to_numpy())
-        except ImportError as exc:
-            _numpy_required(exc)
+        return op(_arith_operand(self, op, wrap_import=True))
 
     # Binary arithmetic
     __add__: Callable[..., Any] = _binop(operator.add)
@@ -608,25 +593,26 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     if _is_pandas_frame_or_series(unpacked):
         unpacked = unpacked.to_numpy()
 
+    np: Any = None
     try:
         import numpy as np
-
-        if isinstance(unpacked, np.ndarray):
-            if unpacked.ndim == 0:
-                val = unpacked.item()
-                return [[_numpy_scalar_item(val) if unpacked.dtype == object else val]]
-            # tolist() already returns native Python values for non-object
-            # arrays, so those cells do not need an imported-numpy unwrap.
-            if unpacked.dtype != object:
-                raw_list = unpacked.tolist()
-                if unpacked.ndim == 1:
-                    return [raw_list]
-                return raw_list
-            if unpacked.ndim == 1:
-                return [[_numpy_scalar_item(v) for v in unpacked.tolist()]]
-            return [[_numpy_scalar_item(c) for c in row] for row in unpacked.tolist()]
     except ImportError:
         pass
+    if np is not None and isinstance(unpacked, np.ndarray):
+        if unpacked.ndim == 0:
+            val = unpacked.item()
+            if unpacked.dtype == object:
+                val = _numpy_scalar_item(val)
+            return [[val]]
+        raw = unpacked.tolist()
+        if unpacked.dtype == object:
+            if unpacked.ndim == 1:
+                raw = [_numpy_scalar_item(v) for v in raw]
+            else:
+                raw = [[_numpy_scalar_item(c) for c in row] for row in raw]
+        if unpacked.ndim == 1:
+            return [raw]
+        return raw
 
     if isinstance(unpacked, (list, tuple)):
         return ensure_rectangular_2d(unpacked)
@@ -645,17 +631,17 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
     # crosshair: off
     if wire is None:
         return ()
-    from plugin.scripting.payload_codec import is_multi_data
-
     if is_calc_range_payload(wire):
         return (materialize_calc_range(wire),)
+    selected: Any = None
     if is_multi_data(wire):
-        items = wire.get("items") or []
-        return tuple(materialize_calc_range(item) for item in items)
-    if isinstance(wire, (list, tuple)) and wire and all(is_calc_range_payload(x) or isinstance(x, CalcRange) for x in wire):
-        return tuple(materialize_calc_range(x) for x in wire)
-    if _is_json_list_of_grids(wire):
-        return tuple(materialize_calc_range(item) for item in wire)
+        selected = wire.get("items") or []
+    elif isinstance(wire, (list, tuple)) and wire and all(is_calc_range_payload(x) or isinstance(x, CalcRange) for x in wire):
+        selected = wire
+    elif _is_json_list_of_grids(wire):
+        selected = wire
+    if selected is not None:
+        return tuple(materialize_calc_range(item) for item in selected)
     return (materialize_calc_range(wire),)
 
 
@@ -677,7 +663,7 @@ def _is_json_list_of_grids(obj: Any) -> bool:
 
 
 def _deal_labeled_grid_ok_crosshair(
-    columns: object, data: object = None, include_header: object = True
+    columns: object, data: object = None
 ) -> bool:
     return (
         type(columns) is list
@@ -700,22 +686,19 @@ def _deal_labeled_grid_ok_crosshair(
                 )
             )
         )
-        and type(include_header) is bool
     )
 
 
 _deal_labeled_grid_ok = _profile(_deal_labeled_grid_ok_crosshair)
 
 
-@deal.pre(lambda columns, data=None, include_header=True, **__: _deal_labeled_grid_ok(columns, data, include_header))
+@deal.pre(lambda columns, data=None, **__: _deal_labeled_grid_ok(columns, data))
 def dataframe_to_labeled_grid(
     columns: list[str],
     data: list[list[Any]] | list[Any] | None,
-    *,
-    include_header: bool = True,
 ) -> list[list[Any]]:
     # crosshair: off
-    """Build a Calc-ready grid from a dataframe envelope (optional header row)."""
+    """Build a Calc-ready grid from a dataframe envelope (starts with header row)."""
     body: list[list[Any]]
     if data is None:
         body = []
@@ -729,9 +712,6 @@ def dataframe_to_labeled_grid(
             body = [[cell] for cell in data]
     else:
         body = [[data]]
-    if not include_header:
-        _assert_rectangular(body)
-        return body
     header = [str(c) for c in columns]
     if body and len(body[0]) != len(header):
         # Pad/truncate header to body width if inconsistent.
