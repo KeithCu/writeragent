@@ -238,7 +238,7 @@ class WriterAgentSmolModel(Model):
 
         usage = result.get("usage") or {}
         token_usage = TokenUsage(input_tokens=usage.get("prompt_tokens", 0), output_tokens=usage.get("completion_tokens", 0)) if usage else None
-        return ChatMessage.from_dict({"role": "assistant", "content": content, "tool_calls": result.get("tool_calls") or None}, raw=result, token_usage=token_usage)
+        return ChatMessage.from_dict({"role": "assistant", "content": content, "tool_calls": result.get("tool_calls") or None, "finish_reason": result.get("finish_reason")}, raw=result, token_usage=token_usage)
 
 
 class SmolAgentExecutor:

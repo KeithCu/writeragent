@@ -342,7 +342,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     result = run_inner_domain_tool_agent(parent, ["footnotes", "shapes"], "Add a footnote and summarize shapes")
     assert result["status"] == "ok"
     assert result["domains"] == ["footnotes", "shapes"]
-    assert result["result"] == "Inserted the footnote."
+    assert "result" not in result
     assert result["answer"] == "Inserted the footnote."
 
     tools_arg = mock_build.call_args[0][1]

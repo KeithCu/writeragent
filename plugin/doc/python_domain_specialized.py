@@ -291,8 +291,6 @@ def _normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: lis
     payload: dict[str, Any]
     if isinstance(final_ans, dict) and "status" in final_ans:
         payload = dict(final_ans)
-        if "answer" in payload:
-            payload.setdefault("result", str(payload["answer"]))
     else:
         payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
     payload["domains"] = list(domains)

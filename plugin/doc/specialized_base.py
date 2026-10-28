@@ -477,8 +477,6 @@ class DelegateToSpecializedBase(ToolBase):
 
         if isinstance(final_ans, dict) and "status" in final_ans:
             payload = dict(final_ans)
-            if "answer" in payload:
-                payload.setdefault("result", str(payload["answer"]))
         else:
             payload = {"status": "ok", "message": _("Specialized task ({domain}) completed.").format(domain=domain), "result": str(final_ans)}
         # Outer never sees create_sheet's inner-only ok string; forward the same
