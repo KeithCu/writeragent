@@ -781,20 +781,20 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
 
 
 def drop_mcp_image_without_vision(res: dict[str, Any], turn: Any) -> dict[str, Any]:
-    """Keep get_image's ``_mcp_image`` only when the turn's chat model has vision.
+    """Keep get_image's ``_mcp_image`` only when the turn's chat model is known to have vision.
 
     Discussion #2268: the sidebar sent the base64 as tool text (about 300k
     chars), and Ollama returned HTTP 500. Runs on the tool worker, so
-    has_native_vision may fetch: Ollama ``/api/show`` capabilities and the
+    has_native_vision may fetch inline: Ollama ``/api/show`` capabilities and the
     OpenRouter/Together ``input_modalities`` catalog, each cached per process.
-    A model it cannot answer for gets the marker, not the image.
+    Keeps ``_mcp_image`` only when vision is explicitly True.
     """
     vision = False
     if isinstance(turn, TurnController) and turn.text_model:
         model_id = turn.text_model
         config = getattr(turn.active_client, "config", None)
         typed_key = str(config.get("api_key") or "").strip() if isinstance(config, dict) else ""
-        vision = bool(best_effort(lambda: has_native_vision(model_id, turn.endpoint, api_key_override=typed_key or None), "get_image: vision lookup failed", default=False))
+        vision = has_native_vision(model_id, turn.endpoint, api_key_override=typed_key or None) is True
     if vision:
         return res
     stripped = {key: value for key, value in res.items() if key != "_mcp_image"}

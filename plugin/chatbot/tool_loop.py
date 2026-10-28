@@ -146,6 +146,32 @@ class ToolLoopHost(Protocol):
     def rerender_rich_text_session(self) -> bool: ...
 
 
+def _last_user_message_with_image(session: Any) -> dict[str, Any] | None:
+    """The session's last user message when it carries an image_url part."""
+    for msg in reversed(getattr(session, "messages", None) or []):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            content = msg.get("content")
+            if isinstance(content, list) and any(isinstance(p, dict) and p.get("type") == "image_url" for p in content):
+                return msg
+            return None
+    return None
+
+
+def _strip_user_image(session: Any, msg: dict[str, Any], fallback_text: str) -> None:
+    """Drop msg's image_url parts. Text-only leftovers collapse to a string.
+
+    Other parts (input_audio appended in memory for this turn) stay.
+    """
+    rest = [p for p in msg["content"] if not (isinstance(p, dict) and p.get("type") == "image_url")]
+    if all(isinstance(p, dict) and p.get("type") == "text" for p in rest):
+        clean_text = "\n".join(t for t in (str(p.get("text", "")) for p in rest) if t).strip()
+        msg["content"] = clean_text or fallback_text
+    else:
+        msg["content"] = rest
+    if getattr(session, "db", None) is not None:
+        session.db.update_last_user_content(msg["content"])
+
+
 def _live_text(turn: Any, callback: Callable[[str], None]) -> Callable[[str], None]:
     """Ignore deltas after this turn has been aborted."""
 
@@ -502,14 +528,15 @@ class ToolCallingMixin:
             # get_api_config stores the chat model as "model". Reading
             # "text_model" was always empty, so has_native_vision returned
             # False and a selected image was never attached.
-            # allow_fetch=False: _do_send runs on the UI thread. A cold
-            # OpenRouter/Together catalog GET would freeze LibreOffice.
-            # The static catalog and vision_support_map still apply.
+            # _do_send runs on the UI thread: a cold model answers None here
+            # without blocking. Capture unless it is a known no; round 0 of
+            # the LLM worker resolves it and drops the image unless True.
             b64_image = None
             from plugin.framework.client.model_fetcher import has_native_vision
             text_model_id = str(api_config.get("model") or "")
             typed_key = str(api_config.get("api_key") or "").strip()
-            if has_native_vision(text_model_id, client._endpoint(), allow_fetch=False, api_key_override=typed_key if typed_key else None):
+            vision = has_native_vision(text_model_id, client._endpoint(), api_key_override=typed_key or None)
+            if vision is not False:
                 doc = self._panel._get_document_model()
                 if doc:
                     try:
@@ -675,6 +702,17 @@ class ToolCallingMixin:
                         retry_shown = False
                         emit((StreamQueueKind.STATUS, resume_status))
                     raw_chunk(t)
+
+                # The send attached the selection unless the UI-thread answer
+                # was False. Resolve here, off the UI thread, so the first
+                # request to a cold model is right; unknown does not attach.
+                image_msg = _last_user_message_with_image(session) if round_num == 0 else None
+                if image_msg is not None:
+                    client_config = getattr(client, "config", None)
+                    typed_key = str(client_config.get("api_key") or "").strip() if isinstance(client_config, dict) else ""
+                    from plugin.framework.client.model_fetcher import has_native_vision
+                    if has_native_vision(turn.text_model, turn.endpoint, api_key_override=typed_key or None) is not True:
+                        _strip_user_image(session, image_msg, turn.active_query_text or "")
 
                 with llm_request_lane(status_callback=status_cb, resume_status=resume_status):
                     # Compact + stream share one lane hold. compaction.py must
@@ -986,24 +1024,10 @@ class ToolCallingMixin:
             # How it happened: Mode switch or session rebind points host.session to a new chat transcript.
             # Why this fixes it: Use session_for_turn so modifications only apply to the active turn's session.
             turn_session = session_for_turn(self._panel)
-            if turn_session is not None and getattr(turn_session, "messages", None):
-                for msg in reversed(turn_session.messages):
-                    if isinstance(msg, dict) and msg.get("role") == "user":
-                        content = msg.get("content")
-                        if isinstance(content, list):
-                            text_parts = [
-                                str(p.get("text", ""))
-                                for p in content
-                                if isinstance(p, dict) and p.get("type") == "text"
-                            ]
-                            clean_text = "\n".join(t for t in text_parts if t).strip()
-                            if not clean_text:
-                                turn = current_turn(self._panel)
-                                clean_text = (turn.active_query_text if turn else "") or ""
-                            msg["content"] = clean_text
-                            if getattr(turn_session, "db", None) is not None:
-                                turn_session.db.update_last_user_content(clean_text)
-                        break
+            image_msg = _last_user_message_with_image(turn_session)
+            if image_msg is not None:
+                turn = current_turn(self._panel)
+                _strip_user_image(turn_session, image_msg, (turn.active_query_text if turn else "") or "")
 
         # Prompt-too-large: respawn the worker with force_compact. Never call
         # compact_session on this drain / UI thread (UNO + lane). Process death

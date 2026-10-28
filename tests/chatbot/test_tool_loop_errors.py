@@ -925,6 +925,7 @@ def test_text_only_model_does_not_attach_image(test_instance, mock_get_tools):
         patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
         patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
         patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
         patch("plugin.writer.images.image_tools.get_selected_image_base64") as mock_get_img,
     ):
         test_instance._do_send_chat_with_tools("describe the image", MagicMock(), "writer")
@@ -933,6 +934,206 @@ def test_text_only_model_does_not_attach_image(test_instance, mock_get_tools):
     mock_get_img.assert_not_called()
     user_msgs = [m for m in test_instance.session.messages if m.get("role") == "user"]
     assert user_msgs[-1]["content"] == "describe the image"
+
+
+def test_ui_thread_send_never_calls_fetch_for_cold_model(test_instance, mock_get_tools):
+    """UI thread send captures selected image when vision is None without calling HTTP."""
+    test_instance._get_document_model = MagicMock()
+    mock_get_tools.get_schemas.return_value = []
+    test_instance._start_tool_calling_async = MagicMock()
+
+    api_config = {
+        "endpoint": "https://openrouter.ai/api",
+        "model": "google/gemini-3.8-flash",
+        "api_key": "test-key",
+        "chat_max_tool_rounds": 1,
+    }
+    with (
+        patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True),
+        patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
+        patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.framework.client.requests.sync_request") as mock_sync,
+        patch("plugin.framework.client.model_fetcher.fetch_available_models") as mock_fetch,
+        patch("plugin.writer.images.image_tools.get_selected_image_base64", return_value="FAKE_B64") as mock_get_img,
+    ):
+        test_instance._do_send_chat_with_tools("describe the image", MagicMock(), "writer")
+
+    # UI thread must not do HTTP:
+    mock_sync.assert_not_called()
+    mock_fetch.assert_not_called()
+    # But because vision is None (not False), it captures the selected image:
+    mock_get_img.assert_called_once()
+    user_msgs = [m for m in test_instance.session.messages if m.get("role") == "user"]
+    content = user_msgs[-1]["content"]
+    assert isinstance(content, list)
+    assert any(isinstance(p, dict) and p.get("type") == "image_url" for p in content)
+
+
+def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_tools):
+    """Cold uncatalogued vision model: the UI thread does no HTTP, the first request still has the image."""
+    import plugin.framework.client.model_fetcher as mf
+    from plugin.chatbot.compaction import CompactResult
+
+    endpoint = "https://openrouter.ai/api"
+    model_id = "vendor/cold-vision-model"
+    mf._model_fetch_vision_cache.clear()
+    for cache in (mf._model_fetch_cache, mf._model_fetch_image_cache, mf._model_context_cache):
+        for key in list(cache):
+            if "openrouter.ai" in key:
+                cache.pop(key, None)
+    test_instance._get_document_model = MagicMock()
+    mock_get_tools.get_schemas.return_value = []
+    test_instance._start_tool_calling_async = MagicMock()
+    api_config = {"endpoint": endpoint, "model": model_id, "api_key": "", "chat_max_tool_rounds": 1}
+    catalog = {"data": [{"id": model_id, "architecture": {"input_modalities": ["text", "image"]}}]}
+
+    class _Lane:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+
+    captured = {}
+
+    def capture_run(fn, name=None, dedicated=False):
+        captured["fn"] = fn
+
+    client = MagicMock()
+    client.stream_request_with_tools.return_value = {"content": "ok"}
+    client._stopped = False
+    client.config = {"api_key": ""}
+    with (
+        patch("plugin.framework.client.model_fetcher.get_config", return_value={}),
+        patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""),
+        patch("plugin.framework.client.requests.sync_request", return_value=catalog) as mock_sync,
+    ):
+        # UI thread: cold model, no HTTP, the selection is captured.
+        with (
+            patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True),
+            patch("plugin.framework.client.model_fetcher.run_in_background"),
+            patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
+            patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
+            patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+            patch("plugin.writer.images.image_tools.get_selected_image_base64", return_value="FAKE_B64"),
+        ):
+            test_instance._do_send_chat_with_tools("describe the image", MagicMock(), "writer")
+        mock_sync.assert_not_called()
+        mf._vision_in_flight.clear()
+        turn = current_turn(test_instance)
+        turn.text_model = model_id
+        turn.endpoint = endpoint
+
+        # Send worker, round 0: resolves the cold model before building the request.
+        with (
+            patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=False),
+            patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
+            patch("plugin.chatbot.tool_loop.llm_request_lane", side_effect=_Lane),
+            patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),
+            patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
+        ):
+            test_instance._spawn_llm_worker(MagicMock(), client, 128, [], 0)
+            captured["fn"]()
+        assert mock_sync.call_count == 1
+
+    payload = client.stream_request_with_tools.call_args[0][0]
+    user_payload = [m for m in payload if m.get("role") == "user"][-1]
+    assert any(isinstance(p, dict) and p.get("type") == "image_url" for p in user_payload["content"])
+
+
+def test_first_send_cold_model_worker_resolves_true_keeps_image(test_instance):
+    """When worker resolves has_native_vision to True, image_url part is preserved."""
+    from plugin.chatbot.compaction import CompactResult
+
+    q = MagicMock()
+    client = MagicMock()
+    client.stream_request_with_tools.return_value = {"content": "ok"}
+    client._stopped = False
+    client.config = {"api_key": "test-key"}
+
+    test_instance.session.messages = [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "describe the image"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        ],
+    }]
+    test_instance.session.db = MagicMock()
+
+    class _Lane:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+
+    captured = {}
+    def capture_run(fn, name=None, dedicated=False):
+        captured["fn"] = fn
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
+        patch("plugin.chatbot.tool_loop.llm_request_lane", side_effect=_Lane),
+        patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),
+        patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True) as mock_vision,
+    ):
+        test_instance._spawn_llm_worker(q, client, 128, [], 0)
+        captured["fn"]()
+
+    mock_vision.assert_called_once()
+    client.stream_request_with_tools.assert_called_once()
+    payload = client.stream_request_with_tools.call_args[0][0]
+    user_payload = [m for m in payload if m.get("role") == "user"][-1]
+    assert isinstance(user_payload["content"], list)
+    assert any(isinstance(p, dict) and p.get("type") == "image_url" for p in user_payload["content"])
+
+
+def test_first_send_cold_model_worker_resolves_false_or_none_strips_image(test_instance):
+    """When worker resolves has_native_vision to False or None, image_url is stripped while text and audio survive."""
+    from plugin.chatbot.compaction import CompactResult
+
+    class _Lane:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+
+    for vision_result in (False, None):
+        q = MagicMock()
+        client = MagicMock()
+        client.stream_request_with_tools.return_value = {"content": "ok"}
+        client._stopped = False
+        client.config = {"api_key": "test-key"}
+
+        test_instance.session.messages = [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "describe the image"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                {"type": "input_audio", "input_audio": {"data": "wav_data", "format": "wav"}},
+            ],
+        }]
+        test_instance.session.db = MagicMock()
+
+        captured = {}
+        def capture_run(fn, name=None, dedicated=False):
+            captured["fn"] = fn
+
+        with (
+            patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
+            patch("plugin.chatbot.tool_loop.llm_request_lane", side_effect=_Lane),
+            patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),
+            patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
+            patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=vision_result),
+        ):
+            test_instance._spawn_llm_worker(q, client, 128, [], 0)
+            captured["fn"]()
+
+        client.stream_request_with_tools.assert_called_once()
+        payload = client.stream_request_with_tools.call_args[0][0]
+        user_payload = [m for m in payload if m.get("role") == "user"][-1]
+        parts = user_payload["content"]
+        assert isinstance(parts, list)
+        assert not any(isinstance(p, dict) and p.get("type") == "image_url" for p in parts)
+        assert any(isinstance(p, dict) and p.get("type") == "text" and p.get("text") == "describe the image" for p in parts)
+        assert any(isinstance(p, dict) and p.get("type") == "input_audio" for p in parts)
 
 
 def test_native_audio_stt_fallback_replaces_db_row():

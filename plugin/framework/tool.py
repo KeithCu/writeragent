@@ -854,9 +854,11 @@ class ToolRegistry:
         if protocol == "openai":
             # get_image is only useful to a vision-capable text model on the chat path; hide it from
             # text-only models. The MCP path (below) always keeps it (client assumed vision-capable).
+            # UI thread: the cached answer; a cold model schedules a background lookup.
+            from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
             from plugin.vision.image_filter import filter_get_image_for_text_only_model
 
-            tools = filter_get_image_for_text_only_model(tools)
+            tools = filter_get_image_for_text_only_model(tools, has_native_vision(get_text_model(), get_current_endpoint()))
             schemas = narrow_delegate_domain_enums([to_openai_schema(t, doc_type=doc_type) for t in tools], tools, uno_services)
             ctx = kwargs.get("ctx")
             if ctx is not None:

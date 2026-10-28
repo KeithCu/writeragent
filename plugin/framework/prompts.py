@@ -1102,9 +1102,9 @@ def get_specialized_delegation_tool_hint(special_base_class: Any, agent_label: s
 
 def _apply_draw_get_image_tool_line(prompt: str) -> str:
     """Omit the Draw/Impress get_image TOOLS bullet when the chat model has no vision."""
-    from plugin.vision.image_filter import chat_text_model_has_native_vision
+    from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
 
-    if chat_text_model_has_native_vision():
+    if has_native_vision(get_text_model(), get_current_endpoint()) is not False:
         return prompt
     line = DRAW_GET_IMAGE_TOOL_LINE
     return prompt.replace(line + "\n", "").replace(line, "")
