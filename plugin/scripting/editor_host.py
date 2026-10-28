@@ -644,25 +644,14 @@ class PersistentEditor:
             return exc
         return None
 
-    def _report_marshal_failure(
-        self,
-        send: Callable[[dict[str, Any]], None],
-        timed_out: bool,
-        messages: tuple[str, str],
-        who: str,
-    ) -> None:
+    def _report_marshal_failure(self, send: Callable[[dict[str, Any]], None], timed_out: bool, messages: tuple[str, str], who: str) -> None:
         timed_out_message, failed_message = messages
         message = timed_out_message if timed_out else failed_message
+        # A bare send here lets a broken pipe escape _dispatch_incoming and terminate() the editor. Log and continue.
         try:
             send(error_frame(message))
         except Exception:
-            log.warning(
-                "Editor %s could not send timeout error frame"
-                if timed_out
-                else "Editor %s could not send marshal-failure error frame",
-                who,
-                exc_info=True,
-            )
+            log.warning("Editor %s could not send timeout error frame" if timed_out else "Editor %s could not send marshal-failure error frame", who, exc_info=True)
 
     def set_run_script_document(self, doc: Any | None) -> None:
         from plugin.scripting.document_scripts import document_scripts_identity
@@ -713,15 +702,7 @@ class PersistentEditor:
 
         exc = self._run_on_main(_handle_picker, "Editor script picker")
         if exc is not None:
-            self._report_marshal_failure(
-                _picker_send,
-                isinstance(exc, TimeoutError),
-                (
-                    _("The script list update timed out."),
-                    _("The script list update failed."),
-                ),
-                "script picker",
-            )
+            self._report_marshal_failure(_picker_send, isinstance(exc, TimeoutError), (_("The script list update timed out."), _("The script list update failed.")), "script picker")
 
     def _on_dirty(self, msg: dict[str, Any]) -> None:
         state = self.resolve_incoming(msg)
@@ -818,15 +799,7 @@ class PersistentEditor:
                 self._save_token = None
                 captured.save_token = None
             captured._clear_pending()
-            self._report_marshal_failure(
-                lambda payload: self.send(payload, session=captured),
-                isinstance(exc, TimeoutError),
-                (
-                    _("Saving the script timed out."),
-                    _("Saving the script failed."),
-                ),
-                "save handler",
-            )
+            self._report_marshal_failure(lambda payload: self.send(payload, session=captured), isinstance(exc, TimeoutError), (_("Saving the script timed out."), _("Saving the script failed.")), "save handler")
 
     def _on_close(self, kind: str, msg: dict[str, Any]) -> None:
         log.info("editor_host _dispatch_incoming: received close/cancel kind=%r", kind)
@@ -1292,15 +1265,7 @@ def launch_monaco_editor(
     title = product_display_name(ctx)
 
     def _launch_fail(msg_text: str, report_title: str) -> bool:
-        msgbox_with_report(
-            ctx,
-            title,
-            msg_text,
-            box_type=3,
-            reportable=True,
-            report_title=report_title,
-            report_extra=msg_text,
-        )
+        msgbox_with_report(ctx, title, msg_text, box_type=3, reportable=True, report_title=report_title, report_extra=msg_text)
         return False
 
     _PERSISTENT_EDITOR.ctx = ctx
