@@ -10,6 +10,7 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 from __future__ import annotations
 
 import datetime as dt
+from itertools import islice
 import math
 import sys
 import re
@@ -227,23 +228,26 @@ def normsinv(prob: Any) -> float:
     return norminv(prob, 0, 1)
 
 
-def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
+def _npf_call(kind: str, a: Any, b: Any, c: Any, d: Any, type_val: Any) -> float:
+    # Only type 1 is beginning-of-period, same rule as PMT/FV/PV.
+    # The old closed form plugged any integer into (1+rate*type).
+    # float() of an oversized int raises OverflowError. Excel is #VALUE!.
     try:
-        r = float(rate)
-        pmt_f = float(pmt_val)
-        pv_f = float(pv_val)
-        fv_f = float(fv_val)
-        # Only type 1 is beginning-of-period, same as PMT/FV/PV. The old
-        # closed form plugged any integer into (1+rate*type).
-        # float() of an oversized int raises OverflowError. pmt/pv already
-        # catch it; this used to escape. Excel is #VALUE!.
+        a_f = float(a)
+        b_f = float(b)
+        c_f = float(c)
+        d_f = float(d)
         t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
+    return _npf_result(kind, a_f, b_f, c_f, d_f, t)
+
+
+def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     # numpy-financial returns ±inf when the payment does not amortize
     # (pmt == 0, or the log argument is non-positive). log(1+rate) at
     # rate == -1 used to raise ValueError. Both are Excel #NUM!.
-    return _npf_result("nper", r, pmt_f, pv_f, fv_f, t)
+    return _npf_call("nper", rate, pmt_val, pv_val, fv_val, type_val)
 
 
 def npv(rate: Any, *args: Any) -> float:
@@ -349,24 +353,39 @@ def odd(n: Any) -> float:
         return float("nan")
 
 
+def _parse_odd_args(
+    settlement: Any,
+    maturity: Any,
+    before: tuple[Any, ...],
+    frequency: Any,
+    basis: Any,
+) -> tuple[float, float, float, int, tuple[float, ...]] | None:
+    """Shared ODDFPRICE / ODDFYIELD / ODDLPRICE header, or None for NaN.
+
+    Float settlement, maturity, each extra, frequency, then int(float(basis)),
+    in that order. Frequency stays a float and must be exactly 1, 2, or 4
+    (1.5 and 4.9 are NaN; 1.0 and 4.0 are legal). Basis is truncated and
+    must be 0..4, so 4.9 is basis 4.
+    """
+    try:
+        s = float(settlement)
+        m = float(maturity)
+        extra = tuple(float(x) for x in before)
+        f = float(frequency)
+        b = int(float(basis))
+    except (ValueError, TypeError, OverflowError):
+        return None
+    if f not in (1, 2, 4) or b < 0 or b > 4:
+        return None
+    return s, m, f, b, extra
+
+
 def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
     # Regular-period approximation. GetOddfprice (analysishelper.cxx) throws
     # unconditionally after AnalysisAddIn::getOddfprice checks its arguments.
     # issue and first_coupon are float()-converted and then unused. A
     # non-numeric date is NaN from that conversion. They are not range-checked,
     # and they do not change this price.
-    try:
-        s = float(settlement)
-        m = float(maturity)
-        _iss = float(issue)
-        _fc = float(first_coupon)
-        r = float(rate)
-        y = float(yld)
-        red = float(redemption)
-        f = float(frequency)
-        b = int(float(basis))
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
     # What was wrong: ODDFPRICE with frequency 1e7 hung, and frequency 3 or
     # basis 9 returned a price.
     # How it happened: only f == 0 was rejected. n = years * f, and the coupon
@@ -377,8 +396,14 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     # plus basis outside 0..4. An illegal frequency never enters the loop.
     # Dates _serial_to_date accepts lie in year 1..9999, so f in {1, 2, 4}
     # keeps int(n) on the order of 1e4. Do not add a second iteration cap.
-    if f not in (1, 2, 4) or b < 0 or b > 4:
+    parsed = _parse_odd_args(
+        settlement, maturity,
+        (issue, first_coupon, rate, yld, redemption),
+        frequency, basis,
+    )
+    if parsed is None:
         return float("nan")
+    s, m, f, b, (_iss, _fc, r, y, red) = parsed
     # basic PV approximation
     years = yearfrac(s, m, b)
     n = years * f
@@ -406,26 +431,20 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
     # Y = (C + (F-P)/n) / ((F+P)/2). GetOddfyield throws unconditionally.
     # A legal frequency does not enter this approximation.
-    try:
-        s = float(settlement)
-        m = float(maturity)
-        _iss = float(issue)
-        _fc = float(first_coupon)
-        r = float(rate)
-        price = float(pr)
-        red = float(redemption)
-        f = float(frequency)
-        b = int(float(basis))
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
     # What was wrong: ODDFYIELD(frequency=3) and basis 9 returned a yield.
     # How it happened: only f == 0 was rejected, and _days_between does not
     # reject basis outside 0..4. The formula never reads frequency.
     # Why this change fixes it: same isFreqInvalid / basis pair as oddfprice
     # and duration(). The approximation is unchanged for frequency in {1, 2, 4}
     # and basis in 0..4.
-    if f not in (1, 2, 4) or b < 0 or b > 4:
+    parsed = _parse_odd_args(
+        settlement, maturity,
+        (issue, first_coupon, rate, pr, redemption),
+        frequency, basis,
+    )
+    if parsed is None:
         return float("nan")
+    s, m, _f, b, (_iss, _fc, r, price, red) = parsed
 
     years = yearfrac(s, m, b)
     if years <= 0 or not math.isfinite(years):
@@ -440,17 +459,6 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
 
 
 def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
-    try:
-        s = float(settlement)
-        m = float(maturity)
-        li = float(last_interest)
-        r = float(rate)
-        y = float(yld)
-        red = float(redemption)
-        f = float(frequency)
-        b = int(float(basis))
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
     # What was wrong: ODDLPRICE(frequency=3) returned a price.
     # How it happened: only f == 0 was rejected. GetOddlprice cancels
     # frequency (fDCi * rate / fFreq), and this formula already did too,
@@ -458,13 +466,17 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
     # Why this change fixes it: isFreqInvalid still applies. Basis outside
     # 0..4 is NaN here, before yearfrac, which already rejected it.
     # Frequency in {1, 2, 4} does not change the number.
-    if f not in (1, 2, 4) or b < 0 or b > 4:
+    parsed = _parse_odd_args(
+        settlement, maturity,
+        (last_interest, rate, yld, redemption),
+        frequency, basis,
+    )
+    if parsed is None:
         return float("nan")
+    s, m, _f, b, (li, r, y, red) = parsed
     # GetOddlprice (analysishelper.cxx). The old power of (1 + y/f) used
     # 365.25 or 360 for every other basis, so basis 3 was Actual/360.
     # A negative base raised to that fraction was a Python complex.
-    from .calc_functions_util import yearfrac
-
     span_last_mat = yearfrac(li, m, b)
     span_set_mat = yearfrac(s, m, b)
     span_last_set = yearfrac(li, s, b)
@@ -563,18 +575,9 @@ def permut(n: Any, k: Any) -> float:
 
 
 def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
-    # Same guard as nper: a text cell used to raise ValueError from float().
-    try:
-        r = float(rate)
-        n = float(nper)
-        p = float(pv)
-        f = float(fv_val)
-        t = 1 if int(float(type_val)) == 1 else 0
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
     # nper == 0 used to raise ZeroDivisionError. numpy-financial returns
     # ±inf; Calc/Excel are #DIV/0!, returned here as NaN.
-    return _npf_result("pmt", r, n, p, f, t)
+    return _npf_call("pmt", rate, nper, pv, fv_val, type_val)
 
 
 def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
@@ -620,16 +623,7 @@ def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float
 
 
 def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
-    # Same guard as nper: a text cell used to raise ValueError from float().
-    try:
-        r = float(rate)
-        n = float(nper)
-        pm = float(pmt_val)
-        f = float(fv_val)
-        t = 1 if int(float(type_val)) == 1 else 0
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
-    return _npf_result("pv", r, n, pm, f, t)
+    return _npf_call("pv", rate, nper, pmt_val, fv_val, type_val)
 
 
 def quartile(r: Any, q: Any) -> float | str:
@@ -658,7 +652,7 @@ def quartile(r: Any, q: Any) -> float | str:
     except (ValueError, TypeError):
         return "#VALUE!"
     arr = arr[~np.isnan(arr)]
-    pct = (0.0, 25.0, 50.0, 75.0, 100.0)[qi]
+    pct = qi * 25.0
     return float(np.percentile(arr, pct)) if len(arr) else float("nan")
 
 
@@ -674,26 +668,20 @@ def rank(val: Any, r: Any, order: int | float = 0) -> float | str:
         descending = int(float(order)) == 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    arr = _extract_numeric_array(r, propagate_nan=False).tolist()
-    # Empty after dropping text, bools, and NaN. ScRank PushNoValue is
-    # #VALUE!, Excel's empty ref is #N/A. This helper already returns nan
-    # here; that path is not the not-found bug. Leave it.
-    if not arr:
+    arr = _extract_numeric_array(r, propagate_nan=False)
+    if arr.size == 0:
         return float("nan")
-    if descending:
-        arr.sort(reverse=True)
-    else:
-        arr.sort()
-    try:
-        return float(arr.index(target) + 1)
-    except ValueError:
-        # What was wrong: RANK of a number that is not in the list returned
-        # nan, so the sheet showed #NUM!.
-        # How it happened: arr.index raises ValueError and this handler
-        # returned nan. ScRank PushError(NotAvailable) is #N/A. Excel RANK
-        # of a missing number is #N/A.
-        # Why this change fixes it: the token "#N/A" is the real #N/A.
+    # What was wrong: RANK of a number that is not in the list returned
+    # nan, so the sheet showed #NUM!.
+    # How it happened: arr.index raises ValueError and this handler
+    # returned nan. ScRank PushError(NotAvailable) is #N/A. Excel RANK
+    # of a missing number is #N/A.
+    # Why this change fixes it: the token "#N/A" is the real #N/A.
+    if not (arr == target).any():
         return "#N/A"
+    if descending:
+        return float(1 + np.count_nonzero(arr > target))
+    return float(1 + np.count_nonzero(arr < target))
 
 
 def _translate_calc_replacement(rep: str) -> str:
@@ -741,12 +729,13 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
             return text_str
         if replacement is None:
             # "g" with no replacement does not comma-join every match.
-            found = 0
-            for match in re.finditer(expr_str, text_str, flags=re_flags):
-                found += 1
-                if found == occurrence:
-                    return match.group(0)
-            return "#N/A"
+            match = next(
+                islice(re.finditer(expr_str, text_str, flags=re_flags), occurrence - 1, None),
+                None,
+            )
+            if match is None:
+                return "#N/A"
+            return match.group(0)
         rep_str = _translate_calc_replacement(str(replacement))
         seen = 0
 
@@ -791,14 +780,8 @@ def rept(text: Any, n: Any) -> str | float:
 
 
 def rsq(data_y: Any, data_x: Any) -> float:
-    cleaned = _clean_paired_arrays(data_y, data_x)
-    if cleaned is None:
-        return float("nan")
-    y, x = cleaned
-    if len(y) < 2:
-        return float("nan")
-    corr = np.corrcoef(x, y)[0, 1]
-    return float(corr**2)
+    # Pearson's r, squared. Same pairs and short-sample NaN as pearson.
+    return pearson(data_y, data_x) ** 2
 
 
 def sec(x: Any) -> float:
@@ -939,22 +922,20 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
         indices = list(range(arr.size))
         indices.sort(key=lambda i: _calc_sort_key(arr[i]), reverse=not asc)
         return arr[indices].tolist()
-    if bool(by_col):
-        # Excel SORT(..., by_col=TRUE) orders columns by the sort_index-th ROW
-        # (1-based; arr[si - 1, :]). The old path keyed off a column and then
-        # transposed, so both the permutation and the result shape were wrong.
-        # An index outside 1..nrows fell back to row 0. Excel is #VALUE!.
-        if si < 1 or si > arr.shape[0]:
-            return float("nan")
-        col_indices = list(range(arr.shape[1]))
-        col_indices.sort(key=lambda c: _calc_sort_key(arr[si - 1, c]), reverse=not asc)
-        return arr[:, col_indices].tolist()
+    # Excel SORT(..., by_col=TRUE) orders columns by the sort_index-th ROW
+    # (1-based; arr[si - 1, :]). The old path keyed off a column and then
+    # transposed, so both the permutation and the result shape were wrong.
+    # An index outside 1..nrows fell back to row 0. Excel is #VALUE!.
     # A column index outside 1..ncols fell back to column 0. Excel is #VALUE!.
-    if si < 1 or si > arr.shape[1]:
+    work = np.swapaxes(arr, 0, 1) if bool(by_col) else arr
+    if si < 1 or si > work.shape[1]:
         return float("nan")
-    row_indices = list(range(arr.shape[0]))
-    row_indices.sort(key=lambda r: _calc_sort_key(arr[r, si - 1]), reverse=not asc)
-    return arr[row_indices].tolist()
+    indices = list(range(work.shape[0]))
+    indices.sort(key=lambda i: _calc_sort_key(work[i, si - 1]), reverse=not asc)
+    result = work[indices]
+    if bool(by_col):
+        result = np.swapaxes(result, 0, 1)
+    return result.tolist()
 
 
 def _sort_order_sign(val: Any) -> int | None:
@@ -1016,8 +997,8 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
     keys: list[tuple[Any, bool]] = []
     for key, sign in specs:
         key_arr = np.asarray(key, dtype=object)
+        flat = key_arr.ravel()
         if arr.ndim == 1 or key_arr.ndim <= 1:
-            flat = key_arr.ravel()
             if int(flat.size) != nrows:
                 return float("nan")
             this_axis = "row"
@@ -1026,10 +1007,8 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
             and key_arr.ndim == 2
             and tuple(key_arr.shape) == (1, ncols)
         ):
-            flat = key_arr.ravel()
             this_axis = "col"
         elif key_arr.ndim == 2 and tuple(key_arr.shape) == (nrows, 1):
-            flat = key_arr.ravel()
             this_axis = "row"
         else:
             return float("nan")
@@ -1125,14 +1104,18 @@ def _cell_number(val: Any) -> float | None:
     """Calc number in a range cell, or None when the cell is blank or text.
 
     TRUE is 1 and FALSE is 0. Text, including ``"5"``, is not a number
-    (GetDoubleArray / ScSumProduct skip ElementNaN and strings). OverflowError
-    from a huge integer propagates so the caller can return NaN for the call.
+    (GetDoubleArray / ScSumProduct skip ElementNaN and strings). ValueError
+    and TypeError are None, while OverflowError from a huge integer propagates
+    so the caller can return NaN for the call.
     """
     if val is None or val == "":
         return None
     if isinstance(val, str):
         return None
-    return float(val)
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
 
 
 def subtotal(fn_num: Any, r: Any) -> float:
@@ -1158,8 +1141,6 @@ def subtotal(fn_num: Any, r: Any) -> float:
             v = _cell_number(x)
         except OverflowError:
             return float("nan")
-        except (ValueError, TypeError):
-            continue
         if v is None:
             continue
         # What was wrong: SUBTOTAL skipped a numeric NaN, so SUM of an
@@ -1258,9 +1239,6 @@ def sumproduct(*args: Any) -> float:
             except OverflowError:
                 # float(10**10000) used to escape the ValueError handler.
                 return float("nan")
-            except (ValueError, TypeError):
-                prod = 0.0
-                break
             # Blank and text are a zero factor. A numeric NaN stays NaN.
             if val is None:
                 prod = 0.0
@@ -1285,8 +1263,6 @@ def sumsq(*args: Any) -> float:
                 num = _cell_number(val)
             except OverflowError:
                 return float("nan")
-            except (ValueError, TypeError):
-                continue
             if num is None:
                 continue
             # What was wrong: SUMSQ skipped a numeric NaN, so an error cell
