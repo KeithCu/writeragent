@@ -13,11 +13,11 @@ import pytest
 
 from plugin.scripting.calc_range import CalcRange
 from plugin.scripting.units import (
+    extract_units_insert_kwargs,
     format_units_for_calc,
     insert_units_result_into_writer,
     is_units_result,
     resolve_output_style,
-    split_helper_params,
     units_display_text,
 )
 from plugin.scripting.units import run_units
@@ -140,12 +140,31 @@ def test_resolve_output_style_defaults():
     assert resolve_output_style("convert_quantity", "detailed") == "detailed"
 
 
-def test_split_helper_params_strips_output_style():
-    clean, style = split_helper_params(
-        {"value": "1", "from_unit": "m", "to_unit": "ft", "output_style": "detailed"}
+def test_extract_units_insert_kwargs():
+    header = "from writeragent.scripting.units import run_units\n"
+    code_detailed = (
+        header
+        + 'result = run_units({"helper": "convert_quantity", "params": {"value": "1", "output_style": "detailed"}}, None, {})\n'
     )
-    assert clean == {"value": "1", "from_unit": "m", "to_unit": "ft"}
-    assert style == "detailed"
+    assert extract_units_insert_kwargs(None, code_detailed) == {"output_style": "detailed"}
+
+    code_padded = (
+        header
+        + 'result = run_units({"helper": "convert_quantity", "params": {"value": "1", "output_style": "  detailed  "}}, None, {})\n'
+    )
+    assert extract_units_insert_kwargs(None, code_padded) == {"output_style": "detailed"}
+
+    code_blank = (
+        header
+        + 'result = run_units({"helper": "convert_quantity", "params": {"value": "1", "output_style": "   "}}, None, {})\n'
+    )
+    assert extract_units_insert_kwargs(None, code_blank) == {}
+
+    code_none = (
+        header
+        + 'result = run_units({"helper": "convert_quantity", "params": {"value": "1"}}, None, {})\n'
+    )
+    assert extract_units_insert_kwargs(None, code_none) == {}
 
 
 def test_format_units_for_calc_formatted_mode():

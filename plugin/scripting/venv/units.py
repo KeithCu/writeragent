@@ -11,6 +11,7 @@ A blank RPC magnitude is a parse error. Numeric 0 is a real zero.
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from typing import Any, Callable
 
 from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
@@ -20,13 +21,6 @@ from plugin.scripting.venv.trusted_dispatch import (
     error_result as _error_result,
     resolve_spec_helper,
 )
-
-# Filled on first use. The venv worker handles one request at a time on the
-# main thread (worker_harness.main), so this lazy registry has no lock.
-_UREG: Any | None = None
-_PINT: Any | None = None
-_PINT_TRIED = False
-
 
 class _FormatSpecError(Exception):
     """Invalid format specifier passed to format_quantity."""
@@ -38,15 +32,13 @@ def _ok_result(
     magnitude: float | None = None,
     units: str = "",
     formatted: str = "",
-    text: str = "",
     **extra: Any,
 ) -> dict[str, Any]:
-    display = formatted or text
     out: dict[str, Any] = {
         "status": "ok",
         "helper": helper,
-        "formatted": display,
-        "text": display,
+        "formatted": formatted,
+        "text": formatted,
         "writer_cleanup_hints": [],
         **extra,
     }
@@ -57,17 +49,15 @@ def _ok_result(
     return out
 
 
+# The worker handles one request at a time; the cache remembers a failed import.
+@lru_cache(maxsize=None)
 def _require_pint() -> Any | None:
     """Import pint once. Later calls reuse the module or the recorded miss."""
-    global _PINT, _PINT_TRIED
-    if not _PINT_TRIED:
-        try:
-            import pint
-        except ImportError:
-            pint = None
-        _PINT = pint
-        _PINT_TRIED = True
-    return _PINT
+    try:
+        import pint
+    except ImportError:
+        return None
+    return pint
 
 
 def _missing_package(helper: str) -> dict[str, Any]:
@@ -78,14 +68,12 @@ def _missing_package(helper: str) -> dict[str, Any]:
     )
 
 
+@lru_cache(maxsize=None)
 def _get_ureg() -> Any:
-    global _UREG
-    if _UREG is None:
-        pint = _require_pint()
-        if pint is None:
-            raise RuntimeError("pint is required")
-        _UREG = pint.UnitRegistry()
-    return _UREG
+    pint = _require_pint()
+    if pint is None:
+        raise RuntimeError("pint is required")
+    return pint.UnitRegistry()
 
 
 def _require_finite(num: float, message: str) -> float:
@@ -412,9 +400,9 @@ def _scalar_cell(value: Any) -> Any:
     return None
 
 
-def _vector_payload(
+def _vector_result(
     name: str,
-    res: Any,
+    call: Callable[[], Any],
     text: str,
     fields: Callable[[list[Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -423,6 +411,12 @@ def _vector_payload(
     ``fields`` sees the flattened cells once, so convert can attach magnitudes
     and the per-cell ``"{mag} {unit}"`` strings without walking the grid twice.
     """
+    try:
+        res = call()
+    except Exception as exc:
+        return _error_result("UNITS_ERROR", str(exc), helper=name)
+    if isinstance(res, dict) and res.get("status") == "error":
+        return res
     grid = ensure_rectangular_2d(res)
     flat = [cell for row in grid for cell in row]
     out: dict[str, Any] = {
@@ -462,16 +456,6 @@ def _convert_formatted(flat: list[Any], suffixes: list[str]) -> list[Any]:
     return out
 
 
-def _dispatch_vector(name: str, call: Callable[[], Any], pack: Callable[[Any], dict[str, Any]]) -> dict[str, Any]:
-    try:
-        res = call()
-    except Exception as exc:
-        return _error_result("UNITS_ERROR", str(exc), helper=name)
-    if isinstance(res, dict) and res.get("status") == "error":
-        return res
-    return pack(res)
-
-
 def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
     name = "convert_quantity"
     if _require_pint() is None:
@@ -495,30 +479,27 @@ def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
 
         return _guarded(name, _run)
 
-    def _pack(res: Any) -> dict[str, Any]:
-        def _build_fields(flat: list[Any]) -> dict[str, Any]:
-            suffixes = _target_unit_suffixes(raw_to, len(flat))
-            fields_dict: dict[str, Any] = {
-                "magnitudes": flat,
-                "formatted": _convert_formatted(flat, suffixes),
-            }
-            if suffixes:
-                first = suffixes[0]
-                if all(s == first for s in suffixes):
-                    if first:
-                        fields_dict["units"] = first
-                else:
-                    fields_dict["units"] = suffixes
-            return fields_dict
+    def _build_fields(flat: list[Any]) -> dict[str, Any]:
+        suffixes = _target_unit_suffixes(raw_to, len(flat))
+        fields_dict: dict[str, Any] = {
+            "magnitudes": flat,
+            "formatted": _convert_formatted(flat, suffixes),
+        }
+        if suffixes:
+            first = suffixes[0]
+            if all(s == first for s in suffixes):
+                if first:
+                    fields_dict["units"] = first
+            else:
+                fields_dict["units"] = suffixes
+        return fields_dict
 
-        return _vector_payload(
-            name,
-            res,
-            "{n} quantities converted",
-            _build_fields,
-        )
-
-    return _dispatch_vector(name, lambda: convert_quantity(raw_val, from_unit=raw_from, to_unit=raw_to), _pack)
+    return _vector_result(
+        name,
+        lambda: convert_quantity(raw_val, from_unit=raw_from, to_unit=raw_to),
+        "{n} quantities converted",
+        _build_fields,
+    )
 
 
 def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
@@ -545,10 +526,12 @@ def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
 
         return _guarded(name, _run)
 
-    def _pack(res: Any) -> dict[str, Any]:
-        return _vector_payload(name, res, "{n} quantities parsed", lambda flat: {"magnitudes": flat})
-
-    return _dispatch_vector(name, lambda: parse_quantity(quantity=raw_qty), _pack)
+    return _vector_result(
+        name,
+        lambda: parse_quantity(quantity=raw_qty),
+        "{n} quantities parsed",
+        lambda flat: {"magnitudes": flat},
+    )
 
 
 def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
@@ -576,13 +559,11 @@ def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
 
         return _guarded(name, _run)
 
-    def _pack(res: Any) -> dict[str, Any]:
-        return _vector_payload(name, res, "{n} quantities formatted", lambda flat: {"formatted": flat})
-
-    return _dispatch_vector(
+    return _vector_result(
         name,
         lambda: format_quantity(magnitude=raw_mag, units=raw_units, format_spec=raw_spec),
-        _pack,
+        "{n} quantities formatted",
+        lambda flat: {"formatted": flat},
     )
 
 
@@ -601,13 +582,6 @@ _DISPATCH: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "format_quantity": _dispatch_format,
     "check_dimensionality": _dispatch_check,
 }
-
-
-def _dispatch_helper(name: str, params: dict[str, Any]) -> dict[str, Any]:
-    fn = _DISPATCH.get(name)
-    if fn is None:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
-    return fn(params)
 
 
 def run_units(
@@ -633,7 +607,8 @@ def run_units(
     # output_style is host egress only. Pop it so it is not a helper argument.
     clean = dict(params)
     clean.pop("output_style", None)
-    result = _dispatch_helper(helper, clean)
+    assert helper in _DISPATCH, helper
+    result = _DISPATCH[helper](clean)
     if result.get("status") == "ok" and context and "task_hint" in context:
         result["task_hint"] = context["task_hint"]
     return result
