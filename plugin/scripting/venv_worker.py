@@ -147,33 +147,6 @@ def _worker_error_message(exc: BaseException) -> str:
     return f"Python worker failed: {text}"
 
 
-def _maybe_dispatch_ppt_master_response(
-    response: dict[str, Any],
-    *,
-    stdin_write: Callable[[bytes], None],
-    on_worker_event: Callable[[dict[str, Any]], None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    cancellation_scope: Any | None = None,
-) -> bool:
-    """Handle ppt-master intermediate worker frames; no-op when ppt_master is not bundled."""
-    try:
-        from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
-    except ModuleNotFoundError as exc:
-        # Only "the ppt_master bundle is absent" is not-an-error. A missing
-        # dependency *inside* host_rpc (e.g. numpy) must stay visible.
-        name = exc.name or ""
-        if name != "plugin.ppt_master" and not name.startswith("plugin.ppt_master."):
-            raise
-        return False
-    return dispatch_worker_response(
-        response,
-        stdin_write=stdin_write,
-        on_worker_event=on_worker_event,
-        stop_checker=stop_checker,
-        cancellation_scope=cancellation_scope,
-    )
-
-
 def host_script_session_id(request_session_id: Any, script_session_id: str | None) -> str | None:
     """Document id for host tool RPC.
 
@@ -225,7 +198,16 @@ def _maybe_dispatch_intermediate_response(
     # stays open to every caller.
     if caller != "ppt_master_venv":
         return False
-    return _maybe_dispatch_ppt_master_response(
+    try:
+        from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
+    except ModuleNotFoundError as exc:
+        # Only "the ppt_master bundle is absent" is not-an-error. A missing
+        # dependency *inside* host_rpc (e.g. numpy) must stay visible.
+        name = exc.name or ""
+        if name != "plugin.ppt_master" and not name.startswith("plugin.ppt_master."):
+            raise
+        return False
+    return dispatch_worker_response(
         response,
         stdin_write=stdin_write,
         on_worker_event=on_worker_event,

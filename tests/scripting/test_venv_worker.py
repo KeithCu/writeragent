@@ -706,8 +706,6 @@ def test_write_timeout_skips_terminate_when_writer_already_detached():
 
 
 def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
-    import plugin.scripting.venv_worker as venv_worker_module
-
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
     proc.poll.return_value = None
@@ -730,7 +728,7 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
         stdin_write(b"host response")
         return True
 
-    monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_ppt_master_response", dispatch)
+    monkeypatch.setattr("plugin.ppt_master.venv.host_rpc.dispatch_worker_response", dispatch)
 
     result = mgr._execute_ipc_unlocked(
         _ExecRequest("result = 1", timeout_sec=1, caller="ppt_master_venv")
@@ -746,8 +744,6 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
 
 def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     """A tool_call that already ran must not be followed by a second copy of the script."""
-    import plugin.scripting.venv_worker as venv_worker_module
-
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
     proc.poll.return_value = None
@@ -766,7 +762,7 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
         del response, stdin_write, on_worker_event, stop_checker, cancellation_scope
         return True
 
-    monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_ppt_master_response", dispatch)
+    monkeypatch.setattr("plugin.ppt_master.venv.host_rpc.dispatch_worker_response", dispatch)
 
     result = mgr._execute_ipc_unlocked(
         _ExecRequest("result = 1", timeout_sec=1, caller="ppt_master_venv")
@@ -2006,7 +2002,7 @@ class TestExecuteOSErrorRetry:
 def test_maybe_dispatch_ppt_master_skips_when_module_missing(monkeypatch):
     import builtins
 
-    from plugin.scripting.venv_worker import _maybe_dispatch_ppt_master_response
+    from plugin.scripting.venv_worker import _maybe_dispatch_intermediate_response
 
     real_import = builtins.__import__
 
@@ -2019,9 +2015,10 @@ def test_maybe_dispatch_ppt_master_skips_when_module_missing(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
     assert (
-        _maybe_dispatch_ppt_master_response(
+        _maybe_dispatch_intermediate_response(
             {"status": "ok", "result": 2},
             stdin_write=MagicMock(),
+            caller="ppt_master_venv",
         )
         is False
     )
@@ -3731,7 +3728,7 @@ def test_non_default_pool_failure_does_not_clear_calc_addin_cache(monkeypatch):
 
 def test_maybe_dispatch_ppt_master_missing_dependency_reraises(monkeypatch):
     import builtins
-    from plugin.scripting.venv_worker import _maybe_dispatch_ppt_master_response
+    from plugin.scripting.venv_worker import _maybe_dispatch_intermediate_response
 
     real_import = builtins.__import__
 
@@ -3744,9 +3741,10 @@ def test_maybe_dispatch_ppt_master_missing_dependency_reraises(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
     with pytest.raises(ModuleNotFoundError) as exc_info:
-        _maybe_dispatch_ppt_master_response(
+        _maybe_dispatch_intermediate_response(
             {"status": "ok", "result": 2},
             stdin_write=MagicMock(),
+            caller="ppt_master_venv",
         )
     assert exc_info.value.name == "numpy"
 
