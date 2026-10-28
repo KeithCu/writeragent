@@ -31,6 +31,18 @@ def _msgbox(ctx: Any, message: str) -> None:
     msgbox(ctx, product_display_name(ctx), message)
 
 
+def _msgbox_reset_failure(ctx: Any, res: dict[str, Any], default: str) -> bool:
+    """Show the shared reset error dialog. Return True when the caller must stop.
+
+    *default* is already translated. Empty message is treated as missing.
+    """
+    if res.get("status") == "ok":
+        return False
+    msg = res.get("message") or default
+    _msgbox(ctx, _("Error: {0}").format(msg))
+    return True
+
+
 def _call_reset_python_session(ctx: Any, session_id: str) -> dict[str, Any]:
     """Lazy: LibrePy sidebar and document_scripts import this module for ids only."""
     from plugin.scripting.venv_worker import reset_python_session
@@ -43,6 +55,18 @@ def _has_notebook_registry(doc: Any) -> bool:
     from plugin.notebook.cell_registry import has_notebook_registry
 
     return has_notebook_registry(doc)
+
+
+def _reset_notebook_exec_count(target: Any) -> None:
+    try:
+        from plugin.notebook.cell_registry import load_registry, save_registry
+
+        state = load_registry(target)
+        if state is not None:
+            state.next_execution_count = 1
+            save_registry(target, state)
+    except Exception:
+        log.debug("notebook reset: could not reset execution counter", exc_info=True)
 
 
 PYTHON_WORKBOOK_SESSION_PROP = "WriterAgentPythonSessionId"
@@ -110,13 +134,9 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
             reraise_if_disposed(e, "Focused document was closed", object_type="document")
             log.debug("session_manager: focused component unusable", exc_info=True)
 
-    try:
-        matches = _enumerated_matching_models(ctx, predicate)
-        if len(matches) == 1:
-            return matches[0]
-
-    except Exception:
-        log.debug("session_manager: document resolution failed", exc_info=True)
+    matches = _enumerated_matching_models(ctx, predicate)
+    if len(matches) == 1:
+        return matches[0]
     return None
 
 
@@ -174,19 +194,22 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
         # Why: a second read that is still truthy means the id is not orphaned
         # yet, so skip IPC until a later call actually removes it.
         still_present = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
-        if still_present:
-            log.debug("session_manager: session property still present after remove; skipping reset")
-        elif str(existing).startswith("unsaved:"):
-            from plugin.framework.uno_context import get_ctx
-
-            try:
-                ctx = get_ctx()
-                for prefix in _SESSION_PREFIXES:
-                    _call_reset_python_session(ctx, f"{prefix}:{existing}")
-            except Exception:
-                log.debug("session_manager: cleanup of unsaved session failed", exc_info=True)
     except Exception:
         log.debug("session_manager: removing session property failed", exc_info=True)
+        return
+    if still_present:
+        log.debug("session_manager: session property still present after remove; skipping reset")
+        return
+    if not str(existing).startswith("unsaved:"):
+        return
+    try:
+        from plugin.framework.uno_context import get_ctx
+
+        ctx = get_ctx()
+        for prefix in _SESSION_PREFIXES:
+            _call_reset_python_session(ctx, f"{prefix}:{existing}")
+    except Exception:
+        log.debug("session_manager: cleanup of unsaved session failed", exc_info=True)
 
 
 def _existing_workbook_session_key(doc: Any) -> str | None:
@@ -206,13 +229,12 @@ def _session_key_for_reset(doc: Any) -> str | None:
 
 
 def _workbook_session_key(doc: Any) -> str:
-    raw_doc, url, existing = _read_workbook_key_parts(doc, include_property_when_url=True)
-    if url:
-        _retire_orphaned_unsaved_session(raw_doc, url, existing)
-        return url
+    key = _session_key_for_reset(doc)
+    if key:
+        return key
+    from plugin.framework.thread_guard import _unwrap_uno
 
-    if existing:
-        return existing
+    raw_doc = _unwrap_uno(doc)
     new_id = f"unsaved:{uuid.uuid4()}"
     try:
         set_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP, new_id)
@@ -314,13 +336,13 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     ``run_venv_python_script``). It returns that object and does not walk
     the desktop. A pin that was already released does not match.
     """
+    from plugin.framework.thread_guard import guard_uno
+
     if isinstance(session_id, str) and session_id.startswith("doc:"):
         with _SCRIPT_DOC_PIN_LOCK:
             pinned = _SCRIPT_DOC_PINS.get(session_id)
         if pinned is None:
             return None
-        from plugin.framework.thread_guard import guard_uno
-
         # Same main-thread wrap as the desktop enumeration path below.
         return guard_uno(pinned)
     if not isinstance(session_id, str) or ":" not in session_id:
@@ -338,8 +360,6 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
                 # Read-only: _workbook_session_key would mint a UDProp on docs
                 # that have never run Python.
                 if _existing_workbook_session_key(model) == key:
-                    from plugin.framework.thread_guard import guard_uno
-
                     # Desktop enumeration hands back the component itself. Returning
                     # it raw let a worker that resolved wa.doc / tool RPC call
                     # UNO off the main thread. guard_uno asserts on later
@@ -377,35 +397,16 @@ def reset_notebook_python_session(ctx: Any, doc: Any | None = None) -> None:
 
     key = _session_key_for_reset(target)
     if key is None:
-        try:
-            from plugin.notebook.cell_registry import load_registry, save_registry
-
-            state = load_registry(target)
-            if state is not None:
-                state.next_execution_count = 1
-                save_registry(target, state)
-        except Exception:
-            log.debug("notebook reset: could not reset execution counter", exc_info=True)
+        _reset_notebook_exec_count(target)
         _msgbox(ctx, _("This notebook has no Python worker session yet. The execution counter was reset."))
         return
 
     res = _call_reset_python_session(ctx, f"notebook:{key}")
     # Restart Kernel: next In count is 1 even if the worker reset fails (timeout).
-    try:
-        from plugin.notebook.cell_registry import load_registry, save_registry
-
-        state = load_registry(target)
-        if state is not None:
-            state.next_execution_count = 1
-            save_registry(target, state)
-    except Exception:
-        log.debug("notebook reset: could not reset execution counter", exc_info=True)
-    if res.get("status") == "ok":
-        _msgbox(ctx, _("Notebook Python session reset for this document."))
+    _reset_notebook_exec_count(target)
+    if _msgbox_reset_failure(ctx, res, _("Could not reset Python session.")):
         return
-
-    msg = res.get("message") or _("Could not reset Python session.")
-    _msgbox(ctx, _("Error: {0}").format(msg))
+    _msgbox(ctx, _("Notebook Python session reset for this document."))
 
 
 def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
@@ -428,9 +429,7 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     from plugin.calc.python.function import clear_python_addin_cache
 
     clear_python_addin_cache()
-    if res.get("status") != "ok":
-        msg = res.get("message") or _("Could not reset Python session.")
-        _msgbox(ctx, _("Error: {0}").format(msg))
+    if _msgbox_reset_failure(ctx, res, _("Could not reset Python session.")):
         return
 
     # What was wrong: only the base res was tested, so a failed :init reset still
@@ -438,9 +437,7 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     # How: the :init call's return value was discarded.
     # Why: init state lives in the :init session, and a non-ok reset means that
     # state is still there, so the dialog must be the error and the reseed must not run.
-    if res_init.get("status") != "ok":
-        msg = res_init.get("message") or _("Could not reset Python session.")
-        _msgbox(ctx, _("Error: {0}").format(msg))
+    if _msgbox_reset_failure(ctx, res_init, _("Could not reset Python session.")):
         return
 
     # Re-seed init script immediately after reset (C2.2.3) so helper functions (e.g. def double(x): ...)
@@ -450,9 +447,7 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
         from plugin.scripting.venv_worker import run_code_in_user_venv
 
         seed = run_code_in_user_venv(ctx, "None", session_id=session_id if python_session_mode(ctx) == "shared" else None, **init_kwargs)
-        if seed.get("status") != "ok":
-            msg = seed.get("message") or _("Could not restore the initialization script.")
-            _msgbox(ctx, _("Error: {0}").format(msg))
+        if _msgbox_reset_failure(ctx, seed, _("Could not restore the initialization script.")):
             return
 
     has_init = bool((get_calc_init_script(target) or "").strip())
@@ -475,11 +470,9 @@ def _reset_rps_python_session(ctx: Any, doc: Any, *, notify: bool = True) -> Non
     res = _call_reset_python_session(ctx, sid)
     if not notify:
         return
-    if res.get("status") == "ok":
-        _msgbox(ctx, _("Python session reset for this document."))
+    if _msgbox_reset_failure(ctx, res, _("Could not reset Python session.")):
         return
-    msg = res.get("message") or _("Could not reset Python session.")
-    _msgbox(ctx, _("Error: {0}").format(msg))
+    _msgbox(ctx, _("Python session reset for this document."))
 
 
 def _reset_writer_sessions(ctx: Any, doc: Any) -> None:
@@ -509,6 +502,9 @@ def _reset_on_main(ctx: Any, doc: Any | None = None) -> None:
     # there is no session to reset. A focused Base, Math, or Start Center
     # window is not Writer, Draw, or Calc; falling through to desktop
     # enumeration cleared a background Calc document. Tell the user and return.
+    if doc is None:
+        desktop = get_desktop(ctx)
+        doc = desktop.getCurrentComponent() if desktop else None
     if doc is not None:
         if is_writer(doc):
             _reset_writer_sessions(ctx, doc)
@@ -522,42 +518,18 @@ def _reset_on_main(ctx: Any, doc: Any | None = None) -> None:
         _msgbox(ctx, _("Reset Python Session applies to Writer, Calc, and Draw documents."))
         return
 
-    # The menubar handler is registered with no document. Reset the focused
-    # window. Searching every open component used to clear a background Calc
-    # kernel when the user pressed reset from Writer.
-    desktop = get_desktop(ctx)
-    current = desktop.getCurrentComponent() if desktop else None
-
-    if current is not None:
-        if not (is_writer(current) or is_draw(current) or is_calc(current)):
-            _msgbox(ctx, _("Reset Python Session applies to Writer, Calc, and Draw documents."))
-            return
-        _reset_on_main(ctx, current)
-        return
-
     # No current component (headless): keep the open-document search.
-    calc_matches = _enumerated_matching_models(ctx, is_calc)
-    if len(calc_matches) > 1:
-        _msgbox(ctx, _("Several Calc spreadsheets are open and none is focused. Switch to the spreadsheet to reset and try again."))
-        return
-    if len(calc_matches) == 1:
-        _reset_calc_python_sessions(ctx, calc_matches[0])
-        return
-
-    writer_matches = _enumerated_matching_models(ctx, is_writer)
-    if len(writer_matches) > 1:
-        _msgbox(ctx, _("Several Writer documents are open and none is focused. Switch to the document to reset and try again."))
-        return
-    if len(writer_matches) == 1:
-        _reset_writer_sessions(ctx, writer_matches[0])
-        return
-
-    draw_matches = _enumerated_matching_models(ctx, is_draw)
-    if len(draw_matches) > 1:
-        _msgbox(ctx, _("Several Draw documents are open and none is focused. Switch to the document to reset and try again."))
-        return
-    if len(draw_matches) == 1:
-        _reset_rps_python_session(ctx, draw_matches[0])
-        return
+    for predicate, several, reset in (
+        (is_calc, _("Several Calc spreadsheets are open and none is focused. Switch to the spreadsheet to reset and try again."), _reset_calc_python_sessions),
+        (is_writer, _("Several Writer documents are open and none is focused. Switch to the document to reset and try again."), _reset_writer_sessions),
+        (is_draw, _("Several Draw documents are open and none is focused. Switch to the document to reset and try again."), _reset_rps_python_session),
+    ):
+        matches = _enumerated_matching_models(ctx, predicate)
+        if len(matches) > 1:
+            _msgbox(ctx, several)
+            return
+        if len(matches) == 1:
+            reset(ctx, matches[0])
+            return
 
     _msgbox(ctx, _("Open a Writer, Calc, or Draw document and try again."))
