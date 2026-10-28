@@ -14,7 +14,6 @@ from typing import Any
 
 from plugin.vision.vision_common import (
     DEFAULT_VISION_INSERT_MODE,
-    HELPER_NAMES,
     IMPLEMENTED_HELPERS,
     VISION_IMAGE_MAX_BYTES,
     error_result,
@@ -87,10 +86,7 @@ def _apply_paddle_fallback(
         return docling_result
 
     warnings = list(paddle_result.get("warnings") or [])
-    if code == "DOCLING_API_MISMATCH":
-        warnings.insert(0, "Docling layout API error; fell back to PaddleOCR.")
-    else:
-        warnings.insert(0, "Docling unavailable; fell back to PaddleOCR.")
+    warnings.insert(0, f"{code or 'Docling unavailable'}; fell back to PaddleOCR.")
     paddle_result["warnings"] = warnings
     metrics = dict(paddle_result.get("metrics") or {})
     metrics["fallback_from"] = "docling"
@@ -121,9 +117,6 @@ def _dispatch_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[st
 def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
     """When insert_mode=structured, replace html in the worker before LO insert (css-inline lives in venv)."""
     if result.get("status") != "ok":
-        return result
-    helper = str(result.get("helper") or "")
-    if helper not in ("extract_text", "extract_structure"):
         return result
     mode = str(params.get("insert_mode") or DEFAULT_VISION_INSERT_MODE).strip().lower()
     if mode != "structured":
@@ -159,8 +152,6 @@ def run_vision(
     helper = str(spec_dict.get("helper") or "").strip()
     if not helper:
         return error_result("MISSING_HELPER", "spec.helper is required")
-    if helper not in HELPER_NAMES:
-        return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
 
     raw_params = spec_dict.get("params")
     if raw_params is not None and not isinstance(raw_params, dict):

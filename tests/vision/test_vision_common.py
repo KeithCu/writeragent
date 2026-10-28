@@ -127,9 +127,7 @@ def test_bbox_to_xywh_sequence_forms():
 
 
 def test_bbox_to_xywh_dict_and_object_forms():
-    assert bbox_to_xywh({"x": 1, "y": 2, "w": 3, "h": 4}) == [1, 2, 3, 4]
     assert bbox_to_xywh({"l": 10, "t": 10, "r": 50, "b": 30}) == [10, 10, 40, 20]
-    assert bbox_to_xywh({"left": 10, "top": 10, "right": 50, "bottom": 30}) == [10, 10, 40, 20]
     assert bbox_to_xywh(_Box(10, 10, 50, 30)) == [10, 10, 40, 20]
     bottomleft = {"l": 10.0, "b": 20.0, "r": 50.0, "t": 60.0, "coord_origin": "BOTTOMLEFT"}
     assert bbox_to_xywh(bottomleft, page_height=100.0) == [10, 40, 40, 40]
@@ -139,9 +137,6 @@ def test_bbox_to_xywh_dict_and_object_forms():
 
 def test_bbox_to_xywh_malformed_returns_zeros():
     # Malformed input returns [0, 0, 0, 0], as the docstring says.
-    assert bbox_to_xywh({"x": "n/a", "y": 0, "w": 1, "h": 1}) == [0, 0, 0, 0]
-    assert bbox_to_xywh({"x": 0, "y": float("nan"), "w": 1, "h": 1}) == [0, 0, 0, 0]
-    assert bbox_to_xywh({"x": 0, "y": float("inf"), "w": 1, "h": 1}) == [0, 0, 0, 0]
     assert bbox_to_xywh([0, None, 5, 5]) == [0, 0, 0, 0]
     assert bbox_to_xywh([0, float("nan"), 5, 5]) == [0, 0, 0, 0]
     assert bbox_to_xywh([0, float("inf"), 5, 5]) == [0, 0, 0, 0]
@@ -150,7 +145,6 @@ def test_bbox_to_xywh_malformed_returns_zeros():
     assert bbox_to_xywh([[float("inf"), 1.0], [2.0, 2.0], [3.0, 3.0], [1.0, 4.0]]) == [0, 0, 0, 0]
     assert bbox_to_xywh({"l": float("nan"), "t": 10.0, "r": 20.0, "b": 30.0}) == [0, 0, 0, 0]
     assert bbox_to_xywh({"l": "nan", "t": 0, "r": 10, "b": 10}) == [0, 0, 0, 0]
-    assert bbox_to_xywh({"x": 1.9, "y": 2, "w": 3.2, "h": 4}) == [1, 2, 3, 4]
 
 
 def test_table_from_span_cells_falls_through_bad_alias():

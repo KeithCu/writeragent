@@ -104,7 +104,7 @@ def test_extract_text_docling_unavailable_falls_back_to_paddle(mock_convert):
     assert result["full_text"] == "Hello\nWorld"
     assert "Hello</p>" in result["html"]
     assert "World</p>" in result["html"]
-    assert "Docling unavailable; fell back to PaddleOCR." in result["warnings"]
+    assert "DOCLING_UNAVAILABLE; fell back to PaddleOCR." in result["warnings"]
     assert result["metrics"]["fallback_from"] == "docling"
 
 
@@ -140,7 +140,7 @@ def test_extract_text_docling_api_error_falls_back_to_paddle(mock_convert):
 
     assert result["status"] == "ok"
     assert result["full_text"] == "Hello\nWorld"
-    assert "Docling layout API error; fell back to PaddleOCR." in result["warnings"]
+    assert "DOCLING_API_MISMATCH; fell back to PaddleOCR." in result["warnings"]
     assert result["metrics"]["fallback_from"] == "docling"
 
 
