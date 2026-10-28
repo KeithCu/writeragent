@@ -23,6 +23,7 @@ COPY scripts/__init__.py scripts/librepy_bundle_paths.py \
 RUN python scripts/build_compute_bundle.py --output /out
 
 FROM python:3.12-slim
+LABEL org.opencontainers.image.source="https://github.com/KeithCu/writeragent"
 WORKDIR /app
 COPY --from=wheels /app/pkgs /app/pkgs
 COPY --from=bundle /out/ /app/
