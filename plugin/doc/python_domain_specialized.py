@@ -295,9 +295,8 @@ def _normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: lis
         payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
     payload["domains"] = list(domains)
     if tool_errors:
+        # Discussion #2268: the finish answer stays in answer only, not copied into message and error.
         messages = [str(err.get("message") or err.get("error") or err) for err in tool_errors]
-        if payload.get("answer"):
-            messages.append(str(payload["answer"]))
         text = "; ".join(messages) or "Specialized tool error."
         payload.update(status="error", code="SPECIALIZED_TOOL_ERROR", message=text, error=text)
         return payload
