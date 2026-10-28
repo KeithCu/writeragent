@@ -1793,3 +1793,89 @@ def test_turn_session_or_stop():
 
     abort_turn(host)
     assert turn_session_or_stop(host) is None
+
+
+# Discussion #2268: get_image's _mcp_image reached the model as ~300k chars of base64 tool text.
+_IMAGE_B64 = "iVBORw0KGgo" + "A" * 4085
+
+
+def _get_image_result() -> dict:
+    return {"status": "ok", "source": "page 3", "_mcp_image": {"data": _IMAGE_B64, "mimeType": "image/png"}}
+
+
+def _run_get_image(captured_turn, vision):
+    import json
+
+    host = FakeHost()
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    registry, old_main = _install_fake_main_registry()
+    registry.execute.return_value = _get_image_result()
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.has_native_vision", return_value=vision) as mock_vision:
+            out = execute_fn("get_image", {"page": 2}, MagicMock(), MagicMock(), captured_turn=captured_turn)
+    finally:
+        _restore_main(old_main)
+    return json.loads(out), mock_vision
+
+
+def test_execute_fn_keeps_mcp_image_for_vision_model():
+    from plugin.chatbot.tool_loop_actions import TurnController
+
+    turn = TurnController(None, "chat", text_model="qwen3.8:27b-q4_K_M", endpoint="http://localhost:11434")
+    res, mock_vision = _run_get_image(turn, vision=True)
+    assert res["_mcp_image"]["data"] == _IMAGE_B64
+    assert mock_vision.call_args.args == ("qwen3.8:27b-q4_K_M", "http://localhost:11434")
+
+
+def test_execute_fn_drops_mcp_image_without_vision():
+    from plugin.chatbot.tool_loop_actions import TurnController
+
+    turn = TurnController(None, "chat", text_model="text-only", endpoint="http://localhost:11434")
+    res, mock_vision = _run_get_image(turn, vision=False)
+    assert mock_vision.called
+    assert "_mcp_image" not in res
+    assert res == {"status": "ok", "source": "page 3", "image": "[image omitted: model has no vision]"}
+
+
+def test_execute_fn_drops_mcp_image_when_model_unknown():
+    # A direct caller with no captured turn: the model is unknown, so no image.
+    res, mock_vision = _run_get_image(None, vision=True)
+    assert not mock_vision.called
+    assert res == {"status": "ok", "source": "page 3", "image": "[image omitted: model has no vision]"}
+
+
+def test_tool_row_carries_mcp_image_as_image_part_not_text():
+    import json
+
+    host = FakeHost()
+    interpreter = ToolLoopEffectInterpreter(host)
+    interpreter.execute(AddMessageEffect(role=MessageRole.TOOL, call_id="call_1", content=json.dumps(_get_image_result())))
+
+    call_id, content = host.session.tool_results[0]
+    assert call_id == "call_1"
+    text_part, image_part = content
+    assert _IMAGE_B64 not in text_part["text"]
+    assert json.loads(text_part["text"]) == {"status": "ok", "source": "page 3", "image": "[image: image/png, 3 KB attached]"}
+    assert image_part == {"type": "image_url", "image_url": {"url": "data:image/png;base64," + _IMAGE_B64}}
+
+
+def test_tool_row_image_reaches_request_as_image_not_text():
+    """The stored tool row goes through the request normalizer like any other image."""
+    import json
+
+    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
+
+    host = FakeHost()
+    ToolLoopEffectInterpreter(host).execute(AddMessageEffect(role=MessageRole.TOOL, call_id="call_1", content=json.dumps(_get_image_result())))
+    messages = [
+        {"role": "user", "content": "Show page 3"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "get_image", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call_1", "content": host.session.tool_results[0][1]},
+    ]
+    normalize_multimodal_messages(messages, "ollama")
+
+    tool_text = json.dumps(messages[2]["content"])
+    assert _IMAGE_B64 not in tool_text
+    assert "[image: image/png, 3 KB attached]" in tool_text
+    user_parts = messages[0]["content"]
+    assert {"type": "image_url", "image_url": {"url": "data:image/png;base64," + _IMAGE_B64}} in user_parts
