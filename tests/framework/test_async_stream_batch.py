@@ -75,7 +75,7 @@ def test_process_batch_handler_raises_on_second_chunk_ends_batch(monkeypatch):
     applied = []
     errors = []
     done_calls = []
-    orig = async_stream._handle_chunk
+    orig = async_stream._DISPATCH[StreamQueueKind.CHUNK]
     calls = [0]
 
     def boom_chunk(state, data, item):
@@ -126,7 +126,7 @@ def test_process_batch_handler_raises_on_second_thinking_ends_batch(monkeypatch)
     applied = []
     errors = []
     done_calls = []
-    orig = async_stream._handle_thinking
+    orig = async_stream._DISPATCH[StreamQueueKind.THINKING]
     calls = [0]
 
     def boom_thinking(state, data, item):
@@ -176,7 +176,7 @@ def test_process_batch_handler_error_on_error_true_drops_batch_tail(monkeypatch)
     applied = []
     errors = []
     done_calls = []
-    orig = async_stream._handle_chunk
+    orig = async_stream._DISPATCH[StreamQueueKind.CHUNK]
     calls = [0]
 
     def boom_chunk(state, data, item):
@@ -224,7 +224,7 @@ def test_process_batch_handler_error_on_error_raises_still_sets_job_done(monkeyp
     q.put((StreamQueueKind.STREAM_DONE, None))
 
     errors = []
-    orig = async_stream._handle_chunk
+    orig = async_stream._DISPATCH[StreamQueueKind.CHUNK]
     calls = [0]
 
     def boom_chunk(state, data, item):
