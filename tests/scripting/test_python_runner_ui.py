@@ -520,7 +520,7 @@ def test_save_current_script_fallback_success():
         patch.object(ui, "resolve_script_picker_entry", return_value=("MyDocScript", ui.SCRIPT_ORIGIN_DOCUMENT)),
         patch.object(ui, "save_document_script", return_value=doc_err),
         patch.object(ui, "get_user_scripts", return_value={}),
-        patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(ui, "save_user_script", return_value=None) as mock_save_user,
         patch.object(inst, "_refresh_script_dropdown") as mock_refresh,
     ):
         res = inst._save_current_script("new code")
@@ -633,7 +633,7 @@ def test_save_current_script_user_success_is_ok():
     with (
         patch.object(ui, "_picker_selected_name", return_value="Mine"),
         patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
-        patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(ui, "save_user_script", return_value=None) as mock_save_user,
     ):
         res = inst._save_current_script("new code")
 
@@ -652,7 +652,7 @@ def test_save_current_script_user_success_updates_catalog():
     with (
         patch.object(ui, "_picker_selected_name", return_value="Mine"),
         patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
-        patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(ui, "save_user_script", return_value=None) as mock_save_user,
     ):
         res = inst._save_current_script("new code")
 
@@ -757,9 +757,9 @@ def _setup_dialog_and_listeners(doc=None, code="result = 1"):
     for name in ("BtnRun", "BtnSave", "BtnNew", "BtnSaveAs", "BtnDelete", "BtnCancel"):
         mock_btn = controls[name]
 
-        def _make_adder(btn_mock=mock_btn):
+        def _make_adder(btn_mock=mock_btn, button_name=name):
             def _add(listener):
-                action_listeners[listener.action_name] = listener
+                action_listeners[button_name] = listener
             btn_mock.addActionListener.side_effect = _add
 
         _make_adder()
@@ -900,7 +900,7 @@ def test_run_unchanged_text_skips_the_save():
     with (
         patch.object(ui, "_picker_selected_name", return_value="Mine"),
         patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
-        patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(ui, "save_user_script", return_value=None) as mock_save_user,
         patch.object(pr, "start_native_script_run") as mock_start_run,
         patch.object(ui, "msgbox") as mock_msgbox,
     ):
@@ -920,7 +920,7 @@ def test_run_changed_text_saves_once():
     with (
         patch.object(ui, "_picker_selected_name", return_value="Mine"),
         patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
-        patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(ui, "save_user_script", return_value=None) as mock_save_user,
         patch.object(pr, "start_native_script_run") as mock_start_run,
         patch.object(ui, "msgbox") as mock_msgbox,
     ):

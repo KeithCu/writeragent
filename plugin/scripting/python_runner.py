@@ -35,6 +35,7 @@ from plugin.writer.format import insert_content_at_position
 from plugin.doc.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import index_to_column
 from plugin.scripting.payload_codec import is_dataframe_payload
+from plugin.scripting.document_scripts import document_scripts_identity, get_user_scripts, resolve_run_script_name_config_key, resolve_run_script_selection, save_selected_script
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
     format_elapsed_time,
@@ -339,8 +340,6 @@ def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] 
         "helper_name": helper_name,
         "params": params,
         "image_name": image_name,
-        "py_data": {},
-        "session_id": "",
     }
 
 
@@ -356,9 +355,6 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
     from plugin.calc.calc_addin_data import _resolve_python_data
 
     t0 = time.perf_counter()
-
-    def _early(outcome: dict[str, Any]) -> dict[str, Any]:
-        return {"early_outcome": outcome}
 
     # Vision does not use py_data, so the vision branch runs before
     # _resolve_python_data. Resolving Calc data first failed when a graphic
@@ -385,7 +381,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
             # Pass the full address list so multi Data: bindings become data / ranges.
             py_data, err = _resolve_python_data(doc, data_range=drs, data=None)
             if err:
-                return _early({"ok": False, "message": err})
+                return {"early_outcome": {"ok": False, "message": err}}
 
     # A substring search matches comments and docstrings. Check the import
     # with script_imports_module (AST), or document bindings get prepended
@@ -412,7 +408,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         ensure_python_session_cleared_on_unload(ctx, doc, rps_sid)
     except Exception as e:
         log.exception("prepare Run Python Script failed")
-        return _early(rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e)))
+        return {"early_outcome": rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e))}
 
     return {
         "early_outcome": None,
@@ -558,17 +554,12 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
         try:
             # Domain-shaped results from generic venv execution (ordered registry).
             for spec in get_post_venv_domains():
-                if spec.id == "viz":
-                    # Viz domain result first, then raw matplotlib envelope below.
-                    post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout, code=code)
-                    if post is not None:
-                        return post
-                    if try_insert_plot_result(ctx, doc, result_data):
-                        return plot_insert_ok_outcome(helper="", title="Plot", t0=t0, stdout=stdout, result=result_data)
-                    continue
+                # Viz domain result first; raw matplotlib envelope is the plot fallback.
                 post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout, code=code)
                 if post is not None:
                     return post
+                if spec.id == "viz" and try_insert_plot_result(ctx, doc, result_data):
+                    return plot_insert_ok_outcome(helper="", title="Plot", t0=t0, stdout=stdout, result=result_data)
 
             if isinstance(result_data, dict) and is_shape_tool_status_result(result_data):
                 log.debug("Skipping result insert for shape tool status dict (keys=%s)", sorted(result_data.keys()))
@@ -652,14 +643,9 @@ def start_native_script_run(
     not a silent return.
     """
     from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
-    from plugin.scripting.editor_errors import exception_traceback
-    from plugin.scripting.helper_domain import rps_error_outcome
 
     def _deliver(outcome: dict[str, Any]) -> None:
-        def _apply() -> None:
-            on_complete(outcome)
-
-        post_to_main_thread(_apply)
+        post_to_main_thread(on_complete, outcome)
 
     def _native_script_run_worker() -> None:
         from plugin.scripting.session_manager import pin_script_document, release_script_document
@@ -725,13 +711,6 @@ def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str, code: 
     return {"type": "saved", "ok": True, "status_ok_text": status, "markers": []}
 
 
-def _picker_template_name(name: str) -> bool:
-    """True for a read-only built-in picker label such as ``[Vision] …``."""
-    from plugin.scripting.document_scripts import is_picker_template_name
-
-    return is_picker_template_name(name)
-
-
 def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script_name: str, exe: str) -> bool:
     """Open Monaco for Run Python Script. Return True when the editor session started."""
     run_ok_text = _("Script executed successfully.")
@@ -762,8 +741,6 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         if action != "save" and run_key in _monaco_run_in_flight:
             return {"type": "error", "message": _("A script is already running.")}
         # Save the edited code back to the currently selected script
-        from plugin.scripting.document_scripts import resolve_run_script_name_config_key
-
         name_config_key = resolve_run_script_name_config_key(doc)
         last_name = get_config_str(name_config_key).strip()
         if not last_name:
@@ -773,14 +750,11 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
                 # Why this change fixes it: Return an error frame on Save when no script is selected, preserving the dirty buffer.
                 return {"type": "error", "message": _("No script is selected. Use New or Save As to keep this code.")}
         else:
-            from plugin.scripting.document_scripts import save_selected_script
-
             err = save_selected_script(
                 doc,
                 last_name,
                 code,
                 allow_builtin_skip=(action != "save"),
-                is_builtin_fn=_picker_template_name,
             )
             if err:
                 return {"type": "error", "message": err}
@@ -830,8 +804,6 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         "doc_url": "",
         "resource": "run_script",
     }
-    from plugin.scripting.document_scripts import document_scripts_identity
-
     load_msg["doc_url"] = document_scripts_identity(doc)
     return launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save)
 
@@ -855,9 +827,7 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
         desktop = get_desktop(uno_ctx)
         doc = desktop.getCurrentComponent()
 
-        from plugin.scripting.document_scripts import get_user_scripts, resolve_run_script_selection
-
-        last_name, initial_code, _merged_scripts = resolve_run_script_selection(uno_ctx, doc, get_user_scripts())
+        last_name, initial_code = resolve_run_script_selection(uno_ctx, doc, get_user_scripts())[:2]
 
         user_alerted = False
         if monaco_expected and exe:

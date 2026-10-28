@@ -14,7 +14,7 @@ class TestPythonRunnerConfig:
     @patch('plugin.scripting.python_runner.is_writer')
     @patch('plugin.scripting.python_runner.is_calc')
     @patch('plugin.scripting.python_runner.is_draw')
-    @patch('plugin.scripting.document_scripts.get_user_scripts', return_value={})
+    @patch('plugin.scripting.python_runner.get_user_scripts', return_value={})
     @patch('plugin.framework.config.get_config_str')
     @patch('plugin.scripting.document_scripts.resolve_run_script_name_config_key')
     @patch('plugin.scripting.python_runner.execute_and_insert_result')
