@@ -9,12 +9,12 @@ from __future__ import annotations
 from plugin.calc.python.diagnostics import (
     PythonDiagnosticsStore,
     diagnostics_detail_text,
-    record_python_eval,
+    get_diagnostics_store,
 )
 
 
 def test_record_and_filter_errors_and_output():
-    store = PythonDiagnosticsStore(max_entries=10)
+    store = PythonDiagnosticsStore()
     store.record(workbook_key="wb1", code="print(1)", status="ok", stdout="1\n")
     store.record(workbook_key="wb1", code="raise", status="error", message="boom")
     store.record(workbook_key="wb1", code="result=1", status="ok", stdout="")
@@ -30,8 +30,9 @@ def test_record_and_filter_errors_and_output():
     assert len(all_entries) == 3
 
 
-def test_ring_buffer_bound():
-    store = PythonDiagnosticsStore(max_entries=3)
+def test_ring_buffer_bound(monkeypatch):
+    monkeypatch.setattr("plugin.calc.python.diagnostics._MAX_ENTRIES_PER_WORKBOOK", 3)
+    store = PythonDiagnosticsStore()
     for i in range(5):
         store.record(workbook_key="wb", code=f"c{i}", status="error", message=str(i))
     entries = store.list_entries("wb", newest_first=False)
@@ -105,7 +106,7 @@ def test_latest_for_code_requires_exact_code():
 
 
 def test_module_singleton_record_python_eval():
-    entry = record_python_eval(
+    entry = get_diagnostics_store().record(
         workbook_key="singleton-test",
         code="x",
         status="error",
@@ -120,7 +121,6 @@ def test_diagnostics_workbook_key_uses_caller_doc_only():
     from unittest.mock import MagicMock, patch
     from plugin.calc.python.diagnostics import diagnostics_workbook_key
 
-    ctx = MagicMock()
     doc = MagicMock()
     doc.getURL.return_value = "file:///other.ods"
 
@@ -128,7 +128,7 @@ def test_diagnostics_workbook_key_uses_caller_doc_only():
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx") as front_window,
     ):
-        assert diagnostics_workbook_key(ctx, doc=doc) == "calc:file:///other.ods"
+        assert diagnostics_workbook_key(doc) == "calc:file:///other.ods"
         # No caller doc: no front-window guess.
-        assert diagnostics_workbook_key(ctx, doc=None) == "unknown"
+        assert diagnostics_workbook_key(doc=None) == "unknown"
     front_window.assert_not_called()

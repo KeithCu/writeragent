@@ -102,6 +102,57 @@ def test_get_parameters_calc_vs_writer():
     assert "data" not in writer_props
 
 
+def test_parameters_and_descriptions_by_doc_type():
+    tool = RunVenvPythonScript()
+    calc_props = tool.get_parameters("calc")["properties"]
+    none_props = tool.get_parameters(None)["properties"]
+
+    expected_data_range_desc = (
+        "Optional A1 range(s) injected as CalcRange: one address → `data` is that range and `ranges == [data]`; "
+        "two or more → `data` is the same list as `ranges`. Pass one address string, a comma/semicolon-separated string "
+        "(e.g. 'A1:A10, C1:C10'), or an array of address strings."
+    )
+    assert calc_props["data_range"] == {"description": expected_data_range_desc, "type": "string"}
+    assert none_props["data_range"]["description"] == "(Calc only) " + calc_props["data_range"]["description"]
+    assert none_props["data_range"]["type"] == "string"
+
+    calc_data_desc = "Optional 2D array of cell values as `data` (use data_range for bulk data; the host resolves addresses without putting values in the LLM context)."
+    none_data_desc = "(Calc only) Optional 2D array of cell values as `data` (prefer data_range for bulk data)."
+    assert calc_props["data"]["description"] == calc_data_desc
+    assert none_props["data"]["description"] == none_data_desc
+    assert none_props["data"]["description"] != "(Calc only) " + calc_props["data"]["description"]
+
+    expected_calc_data = {"type": "array", "items": {"type": "array", "items": {}}, "description": calc_data_desc}
+    expected_none_data = {"type": "array", "items": {"type": "array", "items": {}}, "description": none_data_desc}
+    assert calc_props["data"] == expected_calc_data
+    assert list(calc_props["data"].keys()) == list(expected_calc_data.keys())
+    assert none_props["data"] == expected_none_data
+    assert list(none_props["data"].keys()) == list(expected_none_data.keys())
+
+    assert calc_props["data"]["items"] is not none_props["data"]["items"]
+
+    for dt in ("writer", "draw", "impress"):
+        props = tool.get_parameters(dt)["properties"]
+        assert "data" not in props
+        assert "data_range" not in props
+
+    writer_desc = tool.get_description("writer")
+    assert "does not inject spreadsheet" in writer_desc
+    assert "the file" in writer_desc
+
+    draw_desc = tool.get_description("draw")
+    impress_desc = tool.get_description("impress")
+    assert "slide/page" in draw_desc
+    assert "slide/page" in impress_desc
+
+    calc_desc = tool.get_description("calc")
+    assert "Optional data_range" in calc_desc
+
+    none_desc = tool.get_description(None)
+    assert "In Calc, optional data_range" in none_desc
+    assert "document tools" in none_desc
+
+
 def test_calc_schema_includes_data_range():
     from plugin.framework.tool import ToolRegistry
 

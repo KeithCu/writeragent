@@ -25,8 +25,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_ALL_VENV_DOCS = list(ALL_DOCUMENT_SERVICES)
-
 _RESULT_NOTE = "Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar)."
 _CODE_PROP = {
     "type": "string",
@@ -43,6 +41,11 @@ _DATA_RANGE_SCHEMA = {
     # accepts a list of addresses if a model sends one.
     "type": "string",
 }
+
+
+def _data_value_schema(description: str) -> dict[str, Any]:
+    return {"type": "array", "items": {"type": "array", "items": {}}, "description": description}
+
 
 _IMPORT_NOTE_MARKER = _RESULT_NOTE + " "
 
@@ -69,11 +72,7 @@ def _venv_schema_and_description(doc_type: str | None) -> tuple[str, dict[str, A
     props: dict[str, Any] = {"code": dict(_CODE_PROP)}
     if doc_type == "calc":
         props["data_range"] = dict(_DATA_RANGE_SCHEMA)
-        props["data"] = {
-            "type": "array",
-            "items": {"type": "array", "items": {}},
-            "description": "Optional 2D array of cell values as `data` (use data_range for bulk data; the host resolves addresses without putting values in the LLM context).",
-        }
+        props["data"] = _data_value_schema("Optional 2D array of cell values as `data` (use data_range for bulk data; the host resolves addresses without putting values in the LLM context).")
         base_desc = (
             f"Run Python code. {_RESULT_NOTE} "
             "Optional data_range (one A1 address, comma-separated addresses, or an array) injects "
@@ -88,11 +87,7 @@ def _venv_schema_and_description(doc_type: str | None) -> tuple[str, dict[str, A
         )
     elif doc_type is None:
         props["data_range"] = {**_DATA_RANGE_SCHEMA, "description": "(Calc only) " + _DATA_RANGE_DESCRIPTION}
-        props["data"] = {
-            "type": "array",
-            "items": {"type": "array", "items": {}},
-            "description": "(Calc only) Optional 2D array of cell values as `data` (prefer data_range for bulk data).",
-        }
+        props["data"] = _data_value_schema("(Calc only) Optional 2D array of cell values as `data` (prefer data_range for bulk data).")
         base_desc = (
             f"Run Python code in the configured venv. {_RESULT_NOTE} "
             "In Calc, optional data_range injects `data` / `ranges` from one or more A1 addresses; "
@@ -122,7 +117,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         "properties": {"code": dict(_CODE_PROP)},
         "required": ["code"],
     }
-    uno_services: list[str] | None = list(_ALL_VENV_DOCS)
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
     long_running: bool = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
@@ -166,9 +161,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
 
         script_session_id = pin_script_document(ctx.doc)
 
-        stop_checker = ctx.stop_checker
-        cancellation_scope = ctx.send_cancellation
-
         try:
             res = run_code_in_user_venv(
                 ctx.ctx,
@@ -176,8 +168,8 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 data=py_data,
                 python_tool_domain=ctx.python_tool_domain,
                 script_session_id=script_session_id,
-                stop_checker=stop_checker,
-                cancellation_scope=cancellation_scope,
+                stop_checker=ctx.stop_checker,
+                cancellation_scope=ctx.send_cancellation,
             )
         finally:
             release_script_document(script_session_id)
