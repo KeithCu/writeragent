@@ -12,7 +12,6 @@ Writer/Draw inserters are ``(ctx, doc, result)``. ``build_rps_spec`` keeps that 
 
 from __future__ import annotations
 
-import functools
 import logging
 import re
 import time
@@ -25,9 +24,8 @@ from plugin.framework.i18n import N_, _
 from plugin.scripting.helper_domain import (
     format_elapsed_time,
     plot_insert_ok_outcome,
+    preview_insert_ok_outcome,
     rps_ok_outcome,
-    symbolic_insert_ok_outcome,
-    units_insert_ok_outcome,
 )
 
 log = logging.getLogger("writeragent.scripting")
@@ -87,10 +85,6 @@ class RpsDomainSpec:
     insert_kwargs_fn: Callable[[Any, str], dict[str, Any]] | None = None
 
 
-# --- Domain adapters (lazy imports) ---
-
-
-# --- Declarative Domain registry wiring ---
 FormatOkKind = Literal["generic", "plot", "symbolic", "units", "vision", "rows"]
 
 
@@ -110,16 +104,11 @@ class DomainWiring:
     insert_kwargs_from_code: str | None = None
 
 
-@functools.cache
-def _import_module(mod_name: str) -> Any:
+def _resolve_module_attr(target: str) -> Any:
     import importlib
 
-    return importlib.import_module(mod_name)
-
-
-def _resolve_module_attr(target: str) -> Any:
     mod_name, attr_name = target.rsplit(":", 1)
-    return getattr(_import_module(mod_name), attr_name)
+    return getattr(importlib.import_module(mod_name), attr_name)
 
 
 def _resolve_fn(path: str | None) -> Any:
@@ -168,12 +157,12 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
             return plot_insert_ok_outcome(helper=helper, title=title, t0=t0, stdout=stdout, result=result)
         if w.format_ok_kind == "symbolic":
             latex = str(result.get("latex") or result.get("text") or helper or "")
-            return symbolic_insert_ok_outcome(helper=helper, latex=latex, t0=t0, stdout=stdout, result=result)
+            return preview_insert_ok_outcome(domain_label=domain_label, helper=helper, preview_text=latex, t0=t0, stdout=stdout, result=result)
         if w.format_ok_kind == "units":
             from plugin.scripting.units import units_display_text
 
             formatted = units_display_text(result) or helper
-            return units_insert_ok_outcome(helper=helper, formatted=formatted, t0=t0, stdout=stdout, result=result)
+            return preview_insert_ok_outcome(domain_label=domain_label, helper=helper, preview_text=formatted, t0=t0, stdout=stdout, result=result)
         if w.format_ok_kind == "vision":
             metrics_raw = result.get("metrics")
             metrics: dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
@@ -310,16 +299,20 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
 )
 
 
-_rps_cache: list[RpsDomainSpec] | None = None
 _rps_by_id: dict[str, RpsDomainSpec] | None = None
 
 
+def _rps_specs_by_id() -> dict[str, RpsDomainSpec]:
+    global _rps_by_id
+    if _rps_by_id is None:
+        _rps_by_id = {wiring.id: build_rps_spec(wiring) for wiring in WIRING_TABLE}
+    return _rps_by_id
+
+
 def get_rps_domains() -> Sequence[RpsDomainSpec]:
-    """Ordered RPS domain specs (cached after first call)."""
-    global _rps_cache
-    if _rps_cache is None:
-        _rps_cache = [build_rps_spec(wiring) for wiring in WIRING_TABLE]
-    return _rps_cache
+    """Ordered RPS domain specs. Spec objects are built on first use and reused."""
+    by_id = _rps_specs_by_id()
+    return [by_id[wiring.id] for wiring in WIRING_TABLE]
 
 
 # Post-venv is_result order differs slightly (symbolic before units, then plot special case, then vision, then calc domains)
@@ -339,21 +332,10 @@ POST_VENV_DOMAIN_ORDER: tuple[str, ...] = (
 )
 
 
-def get_rps_domain_by_id(domain_id: str) -> RpsDomainSpec | None:
-    global _rps_by_id
-    if _rps_by_id is None:
-        _rps_by_id = {spec.id: spec for spec in get_rps_domains()}
-    return _rps_by_id.get(domain_id)
-
-
 def get_post_venv_domains() -> list[RpsDomainSpec]:
     """Domains that participate in post-venv result routing, in order."""
-    out: list[RpsDomainSpec] = []
-    for domain_id in POST_VENV_DOMAIN_ORDER:
-        spec = get_rps_domain_by_id(domain_id)
-        if spec is not None:
-            out.append(spec)
-    return out
+    by_id = _rps_specs_by_id()
+    return [by_id[domain_id] for domain_id in POST_VENV_DOMAIN_ORDER]
 
 
 # --- Picker domains (order in build_xdl_script_picker_state) ---
