@@ -465,8 +465,7 @@ AllowlistUnpickler.dispatch = pickle._Unpickler.dispatch.copy()
 AllowlistUnpickler.dispatch[pickle.REDUCE[0]] = _guarded_load_reduce
 AllowlistUnpickler.dispatch[pickle.NEWOBJ[0]] = _guarded_load_newobj
 AllowlistUnpickler.dispatch[pickle.NEWOBJ_EX[0]] = _guarded_load_newobj_ex
-if hasattr(pickle, "BYTEARRAY8"):
-    AllowlistUnpickler.dispatch[pickle.BYTEARRAY8[0]] = _guarded_load_bytearray8
+AllowlistUnpickler.dispatch[pickle.BYTEARRAY8[0]] = _guarded_load_bytearray8
 
 
 class _SafeUnpickler(AllowlistUnpickler):
@@ -533,14 +532,6 @@ _PICKLE_LOAD_ERRORS = (
 )
 
 
-def _validate_frame_size(size: int, *, max_payload_bytes: int | None, frame_label: str) -> None:
-    if size <= 0 or (max_payload_bytes is not None and size > max_payload_bytes):
-        header = struct.pack("!I", size & 0xFFFFFFFF)
-        raise IpcFrameReadError(
-            f"Invalid {frame_label} size: {size} (header={header!r})"
-        )
-
-
 def pack_pickle_frame(
     message: Any, *, max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES
 ) -> bytes:
@@ -566,21 +557,16 @@ def _write_all(stream: IO[Any], data: bytes | str) -> None:
     stuck pipe, not a short count to retry forever.
     """
     if isinstance(data, str):
-        written = 0
-        total = len(data)
-        while written < total:
-            n = stream.write(data[written:])
-            if not isinstance(n, int) or n <= 0:
-                raise OSError("zero bytes written to pipe")
-            written += n
+        src: str | memoryview = data
     else:
-        view = memoryview(data)
-        written = 0
-        while written < len(view):
-            n = stream.write(view[written:])
-            if not isinstance(n, int) or n <= 0:
-                raise OSError("zero bytes written to pipe")
-            written += n
+        src = memoryview(data)
+    written = 0
+    total = len(src)
+    while written < total:
+        n = stream.write(src[written:])
+        if not isinstance(n, int) or n <= 0:
+            raise OSError("zero bytes written to pipe")
+        written += n
     stream.flush()
 
 
@@ -665,9 +651,7 @@ def _write_fd_with_timeout(
                 continue
             try:
                 written = os.write(fd, view[offset:])
-            except BlockingIOError:
-                continue
-            except InterruptedError:
+            except (BlockingIOError, InterruptedError):
                 continue
             if written <= 0:
                 raise OSError("zero bytes written to pipe")
@@ -1018,13 +1002,12 @@ def read_frame_payload(
             f"{frame_label}: truncated header (expected {FRAME_HEADER_SIZE} bytes, got {len(header)})"
         )
     size = struct.unpack("!I", header)[0]
-    try:
-        _validate_frame_size(size, max_payload_bytes=max_payload_bytes, frame_label=frame_label)
-    except IpcFrameError as exc:
+    if size <= 0 or (max_payload_bytes is not None and size > max_payload_bytes):
+        header = struct.pack("!I", size & 0xFFFFFFFF)
         rest = _unread_pipe_bytes(stream)
-        msg = f"{exc} stdout_rest={rest!r}"
+        msg = f"Invalid {frame_label} size: {size} (header={header!r}) stdout_rest={rest!r}"
         log.error("%s", msg)
-        raise IpcFrameReadError(msg) from None
+        raise IpcFrameReadError(msg)
     payload = _read_exact(size, frame_started=True)
     if len(payload) < size:
         # The payload ended before its declared size: the pipe is out of sync.
