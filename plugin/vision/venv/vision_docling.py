@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from dataclasses import astuple, dataclass
+from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Literal
 
@@ -70,8 +70,7 @@ class DoclingPipelineParams:
     do_formula_enrichment: bool
     do_code_enrichment: bool
     text_score: float
-    force_full_page_ocr: bool
-    ocr_mode: str
+    full_page_ocr: bool
     document_timeout: float
     artifacts_path: str
 
@@ -84,6 +83,16 @@ class DoclingPipelineParams:
         text_score = 0.5 if (text_score_val is None or text_score_val == "") else float(text_score_val)
         threads_raw = params.get("num_threads")
         num_threads = int(threads_raw) if threads_raw is not None and str(threads_raw).strip() != "" else 0
+        ocr_mode = str(params.get("ocr_mode") or "").strip().lower()
+        force_full_page_ocr = _as_bool(params.get("force_full_page_ocr", True))
+        if ocr_mode in ("full_page", "full-page"):
+            full_page_ocr = True
+        elif ocr_mode in ("default", "layout_regions", "pdf_aware_layout_regions"):
+            full_page_ocr = False
+        elif input_format == "pdf":
+            full_page_ocr = False
+        else:
+            full_page_ocr = force_full_page_ocr
         return cls(
             backend=resolve_ocr_backend(params),
             lang=str(params.get("lang") or "en").strip() or "en",
@@ -98,75 +107,21 @@ class DoclingPipelineParams:
             do_formula_enrichment=_as_bool(params.get("do_formula_enrichment", False)),
             do_code_enrichment=_as_bool(params.get("do_code_enrichment", False)),
             text_score=text_score,
-            force_full_page_ocr=_as_bool(params.get("force_full_page_ocr", True)),
-            ocr_mode=str(params.get("ocr_mode") or "").strip().lower(),
+            full_page_ocr=full_page_ocr,
             document_timeout=float(params.get("document_timeout") or 0),
             artifacts_path=str(params.get("artifacts_path") or "").strip(),
         )
 
 
-class _ConverterCache:
-    """Single (key, converter) entry cache per worker process."""
-    def __init__(self) -> None:
-        self._entry: tuple[tuple[Any, ...], Any] | None = None
-
-    def get(self, key: tuple[Any, ...]) -> Any:
-        if self._entry is not None and self._entry[0] == key:
-            return self._entry[1]
-        return None
-
-    def set(self, key: tuple[Any, ...], converter: Any) -> None:
-        self._entry = (key, converter)
-
-    def clear(self) -> None:
-        self._entry = None
-
-    def __getitem__(self, key: tuple[Any, ...]) -> Any:
-        val = self.get(key)
-        if val is None:
-            raise KeyError(key)
-        return val
-
-    def __setitem__(self, key: tuple[Any, ...], converter: Any) -> None:
-        self.set(key, converter)
-
-    def __contains__(self, key: tuple[Any, ...]) -> bool:
-        return self._entry is not None and self._entry[0] == key
-
-    def __len__(self) -> int:
-        return 1 if self._entry is not None else 0
-
-    def __iter__(self):
-        if self._entry is not None:
-            yield self._entry[0]
+# One converter per worker process. A new key replaces the previous entry.
+_converter_cache: dict[DoclingPipelineParams, Any] = {}
 
 
-_converter_cache = _ConverterCache()
-
-
-def _cache_key(params: dict[str, Any] | DoclingPipelineParams, input_format: str = "image") -> tuple[Any, ...]:
-    norm = params if isinstance(params, DoclingPipelineParams) else DoclingPipelineParams.from_params(params, input_format=input_format)
-    return astuple(norm)
-
-
-def _resolve_ocr_options(backend_or_params: str | dict[str, Any] | DoclingPipelineParams, lang: str = "en", text_score: float | None = None) -> Any:
+def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
     """Build Docling OcrOptions for the requested backend, raising OcrBackendError on failure."""
-    if isinstance(backend_or_params, DoclingPipelineParams):
-        backend = backend_or_params.backend
-        lang = backend_or_params.lang
-        text_score = backend_or_params.text_score
-    elif isinstance(backend_or_params, dict):
-        norm = DoclingPipelineParams.from_params(backend_or_params)
-        backend = norm.backend
-        lang = norm.lang
-        text_score = norm.text_score
-    else:
-        backend = backend_or_params
+    backend = norm.backend
 
-    try:
-        pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
-    except ImportError as exc:
-        raise ImportError("docling.datamodel.pipeline_options is unavailable") from exc
+    pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
 
     if backend == "auto":
         return None
@@ -181,33 +136,30 @@ def _resolve_ocr_options(backend_or_params: str | dict[str, Any] | DoclingPipeli
                 "rapidocr_openvino": "openvino",
                 "rapidocr_torch": "torch",
             }
-            ocr_opts = rapid_cls(backend=backend_map.get(backend, "paddle"))
+            ocr_opts = rapid_cls(backend=backend_map[backend])
             if hasattr(ocr_opts, "lang"):
-                ocr_opts.lang = [lang]
-            if text_score is not None and hasattr(ocr_opts, "text_score"):
-                ocr_opts.text_score = float(text_score)
+                ocr_opts.lang = [norm.lang]
+            if hasattr(ocr_opts, "text_score"):
+                ocr_opts.text_score = float(norm.text_score)
             return ocr_opts
         except (ImportError, AttributeError) as exc:
             raise OcrBackendError(f"OCR backend {backend!r} is not available: {exc}") from exc
 
-    if backend == "easyocr":
+    simple = {
+        "easyocr": ("EasyOcrOptions", "EasyOCR backend is not available"),
+        "tesseract": ("TesseractOcrOptions", "Tesseract backend is not available"),
+    }.get(backend)
+    if simple is not None:
+        cls_name, message = simple
         try:
-            easy_cls = pipeline_options_mod.EasyOcrOptions
-            return easy_cls(lang=[lang])
+            return getattr(pipeline_options_mod, cls_name)(lang=[norm.lang])
         except (ImportError, AttributeError) as exc:
-            raise OcrBackendError(f"EasyOCR backend is not available: {exc}") from exc
-
-    if backend == "tesseract":
-        try:
-            tess_cls = pipeline_options_mod.TesseractOcrOptions
-            return tess_cls(lang=[lang])
-        except (ImportError, AttributeError) as exc:
-            raise OcrBackendError(f"Tesseract backend is not available: {exc}") from exc
+            raise OcrBackendError(f"{message}: {exc}") from exc
 
     if backend == "surya":
         try:
             surya_mod = importlib.import_module("docling_surya")
-            return surya_mod.SuryaOcrOptions(lang=[lang])
+            return surya_mod.SuryaOcrOptions(lang=[norm.lang])
         except ImportError as exc:
             raise OcrBackendError(
                 "Surya OCR backend is not installed. pip install docling-surya surya-ocr — or choose another ocr_backend."
@@ -293,14 +245,10 @@ def _resolve_od_layout_model_spec(layout_key: str) -> Any:
     raise RuntimeError("Docling ObjectDetectionModelSpec is unavailable")
 
 
-def _apply_pipeline_params(pipeline_options: Any, params: dict[str, Any] | DoclingPipelineParams) -> None:
+def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -> None:
     """Map normalized params onto Docling PdfPipelineOptions."""
-    norm = params if isinstance(params, DoclingPipelineParams) else DoclingPipelineParams.from_params(params)
     pipeline_options.images_scale = norm.images_scale
-    if norm.document_timeout > 0:
-        pipeline_options.document_timeout = norm.document_timeout
-    else:
-        pipeline_options.document_timeout = None
+    pipeline_options.document_timeout = norm.document_timeout if norm.document_timeout > 0 else None
 
     if norm.artifacts_path:
         pipeline_options.artifacts_path = norm.artifacts_path
@@ -308,14 +256,13 @@ def _apply_pipeline_params(pipeline_options: Any, params: dict[str, Any] | Docli
     pipeline_options.do_formula_enrichment = norm.do_formula_enrichment
     pipeline_options.do_code_enrichment = norm.do_code_enrichment
 
-    if norm.device:
+    if norm.device or norm.num_threads > 0:
         acc = getattr(pipeline_options, "accelerator_options", None)
         if acc is not None:
-            acc.device = norm.device
-    if norm.num_threads > 0:
-        acc = getattr(pipeline_options, "accelerator_options", None)
-        if acc is not None:
-            acc.num_threads = norm.num_threads
+            if norm.device:
+                acc.device = norm.device
+            if norm.num_threads > 0:
+                acc.num_threads = norm.num_threads
 
     table_opts = pipeline_options.table_structure_options
     if norm.table_mode == "fast":
@@ -339,28 +286,12 @@ def _apply_pipeline_params(pipeline_options: Any, params: dict[str, Any] | Docli
             layout_opts.model_spec = _resolve_layout_model_spec(norm.layout_model)
 
 
-def _want_full_page_ocr(params: dict[str, Any] | DoclingPipelineParams, input_format: str = "image") -> bool:
-    """Images default to full-page OCR; PDFs keep native text unless overridden."""
-    if isinstance(params, DoclingPipelineParams):
-        norm = params
-    else:
-        norm = DoclingPipelineParams.from_params(params, input_format=input_format)
-    explicit_mode = norm.ocr_mode
-    if explicit_mode in ("full_page", "full-page"):
-        return True
-    if explicit_mode in ("default", "layout_regions", "pdf_aware_layout_regions"):
-        return False
-    if norm.input_format == "pdf":
-        return False
-    return norm.force_full_page_ocr
-
-
 def _apply_ocr_mode(pipeline_options: Any, norm: DoclingPipelineParams) -> None:
     """Prefer Docling ``OcrMode.FULL_PAGE`` over deprecated ``force_full_page_ocr``."""
     ocr_opts = getattr(pipeline_options, "ocr_options", None)
     if ocr_opts is None:
         return
-    want_full = _want_full_page_ocr(norm)
+    want_full = norm.full_page_ocr
     pipeline_mod = importlib.import_module("docling.datamodel.pipeline_options")
     ocr_mode_cls = getattr(pipeline_mod, "OcrMode", None)
     if ocr_mode_cls is not None and hasattr(ocr_opts, "mode"):
@@ -376,8 +307,7 @@ def _apply_ocr_mode(pipeline_options: Any, norm: DoclingPipelineParams) -> None:
         ocr_opts.force_full_page_ocr = want_full
 
 
-def _build_pipeline_options(params: dict[str, Any] | DoclingPipelineParams, input_format: str = "image") -> Any:
-    norm = params if isinstance(params, DoclingPipelineParams) else DoclingPipelineParams.from_params(params, input_format=input_format)
+def _build_pipeline_options(norm: DoclingPipelineParams) -> Any:
     pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
     pdf_opts_cls = pipeline_options_mod.PdfPipelineOptions
 
@@ -397,10 +327,8 @@ def _build_pipeline_options(params: dict[str, Any] | DoclingPipelineParams, inpu
     return pipeline_options
 
 
-def _get_docling_converter(params: dict[str, Any] | DoclingPipelineParams, input_format: str = "image") -> Any:
-    norm = params if isinstance(params, DoclingPipelineParams) else DoclingPipelineParams.from_params(params, input_format=input_format)
-    key = _cache_key(norm)
-    cached = _converter_cache.get(key)
+def _get_docling_converter(norm: DoclingPipelineParams) -> Any:
+    cached = _converter_cache.get(norm)
     if cached is not None:
         return cached
 
@@ -420,7 +348,8 @@ def _get_docling_converter(params: dict[str, Any] | DoclingPipelineParams, input
         allowed_formats=[allowed],
         format_options={allowed: format_option_cls(pipeline_options=pipeline_options)},
     )
-    _converter_cache.set(key, converter)
+    _converter_cache.clear()
+    _converter_cache[norm] = converter
     return converter
 
 
@@ -633,9 +562,8 @@ def _handle_docling_import_error(exc: Exception, *, helper: str) -> dict[str, An
     )
 
 
-def export_docling_to_html(document: Any, params: dict[str, Any]) -> str:
+def export_docling_to_html(document: Any) -> str:
     """Return rich HTML from a DoclingDocument (bold, tables, headings), css-inlined for LO."""
-    del params  # reserved for future Docling HTML export options
 
     if hasattr(document, "export_to_html"):
         docling_doc_mod = importlib.import_module("docling_core.types.doc")
@@ -667,7 +595,7 @@ def _run_docling_conversion(
     # (bad parameters, pydantic validation) are INVALID_PARAMS.
     try:
         document = _convert_image_bytes(image, params)
-        html = export_docling_to_html(document, params)
+        html = export_docling_to_html(document)
         regions, blocks, tables, text_parts = _map_docling_document(document)
         return None, document, html, regions, blocks, tables, text_parts
     except ImportError as exc:
