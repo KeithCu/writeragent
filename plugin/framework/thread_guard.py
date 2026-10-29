@@ -168,9 +168,6 @@ def background_if_dummy_thread(name: str) -> Generator[None, None, None]:
     must keep marshaling (proofreading PE2I, ``=PY()`` / ``=PROMPT()``).
     """
     current = threading.current_thread()
-    if _designated_main_thread is not None and current is _designated_main_thread:
-        yield
-        return
     if not isinstance(current, threading._DummyThread):
         yield
         return

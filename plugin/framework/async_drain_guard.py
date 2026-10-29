@@ -105,9 +105,6 @@ def release_drain_owner() -> None:
             return
         if _drain_depth <= 0:
             log.warning("release_drain_owner underflow (owner=%r depth=%s)", _active_owner_name, _drain_depth)
-            _drain_depth = 0
-            _active_owner_name = None
-            _owner_thread_ident = None
             return
         _drain_depth -= 1
         if _drain_depth == 0:
@@ -212,7 +209,6 @@ def _notify_drain_idle() -> None:
         return
 
     _idle_notify.active = True
-    _idle_notify.again = False
     try:
         for _ in range(_IDLE_NOTIFY_MAX_PASSES):
             _idle_notify.again = False
@@ -235,7 +231,6 @@ def _notify_drain_idle() -> None:
         log.warning("drain idle notification stopped after %d passes", _IDLE_NOTIFY_MAX_PASSES)
     finally:
         _idle_notify.active = False
-        _idle_notify.again = False
 
 
 def reset_sentry_state() -> None:
