@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import ast
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from plugin.calc.excel_py_convert.models import (
     BindingInfo,
@@ -54,7 +54,7 @@ from plugin.calc.excel_py_convert.models import (
     ExcelWorkbookModel,
     HeaderMode,
 )
-from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
+from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_dep
 from plugin.calc.excel_py_convert.script_bank import formula_for_converted_cell
 from plugin.calc.excel_py_convert.to_dag_contracts import (
     _DEAL_BINDING_A1_LEN,
@@ -95,20 +95,6 @@ class _XlCall:
     end: int
     p_num: int | None  # None → dynamic / literal / unsupported
     header_mode: str  # HeaderMode values; str so CrossHair can proxy (not Literal)
-    literal: str | None = None
-    dynamic: bool = False
-    raw: str = ""
-
-
-@dataclass
-class RewriteResult:
-    """Outcome of rewriting Excel xl() bindings for DAG."""
-
-    code: str
-    issues: list[str]
-    header_modes: dict[int, str]
-    fatal: bool = False
-    used: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -118,7 +104,6 @@ class _XlAnalysis:
     calls: list[_XlCall]
     issues: list[str]
     header_modes: dict[int, str]
-    used: set[int]
     fatal: bool
 
 
@@ -135,11 +120,8 @@ def _xl_binding_expr(index: int, header_mode: str) -> str:
     """Runnable DAG ``xl("%Pn%", …)`` (quoted token; MS package uses bare ``%Pn%``)."""
     tok = f'"%P{index + 2}%"'
     # Match Microsoft samples: no space after the comma in ``headers=…``.
-    if header_mode == "true":
-        return f"xl({tok},headers=True)"
-    if header_mode == "false":
-        return f"xl({tok},headers=False)"
-    return f"xl({tok})"
+    suffix = {"true": ",headers=True", "false": ",headers=False"}.get(header_mode, "")
+    return f"xl({tok}{suffix})"
 
 
 def _header_mode_from_keywords(node: ast.Call) -> tuple[HeaderMode, str | None]:
@@ -228,24 +210,22 @@ def _normalize_excel_placeholders(src: str) -> str:
     return "".join(out)
 
 
-def _p_num_from_arg(arg0: ast.AST) -> tuple[int | None, str | None, bool]:
-    """Interpret ``xl`` first arg → ``(p_num, literal, dynamic)``."""
+def _p_num_from_arg(arg0: ast.AST) -> int | None:
+    """Interpret ``xl`` first arg → p_num or None."""
     if isinstance(arg0, ast.Name):
         # Sentinel from ``_normalize_excel_placeholders``: ``_P2_`` ↔ ``%P2%``.
         m = _P_SENTINEL_RE.match(arg0.id)
         if m:
-            return int(m.group(1)), None, False
+            return int(m.group(1))
         # xl(name) / xl(P2) — not a formula-static placeholder.
-        return None, None, True
+        return None
     if isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
         m = _P_TOKEN_RE.match(arg0.value)
         if m:
-            return int(m.group(1)), None, False
+            return int(m.group(1))
         # literal xl("A1") without formula dep binding
-        return None, arg0.value, True
-    if isinstance(arg0, (ast.JoinedStr, ast.BinOp)):
-        return None, None, True
-    return None, None, True
+        return None
+    return None
 
 
 def format_python_syntax_issue(exc: BaseException) -> str:
@@ -287,14 +267,8 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
         if len(node.args) > 1:
             issues.append("xl() does not accept positional arguments beyond the first")
 
-        p_num: int | None = None
-        literal: str | None = None
-        dynamic = False
-        if not node.args:
-            dynamic = True
-        else:
-            p_num, literal, dynamic = _p_num_from_arg(node.args[0])
-        calls.append(_XlCall(start=start, end=end, p_num=p_num, header_mode=header_mode, literal=literal, dynamic=dynamic, raw=src[start:end]))
+        p_num = _p_num_from_arg(node.args[0]) if node.args else None
+        calls.append(_XlCall(start=start, end=end, p_num=p_num, header_mode=header_mode))
 
     # Overlapping xl() spans fail the conversion. Rewriting the inner call
     # first (xl(%P2%, headers=xl(%P3%))) changes the source length, so the
@@ -329,15 +303,12 @@ def analyze_xl_calls(code: str, *, num_deps: int) -> _XlAnalysis:
     issues = list(find_issues)
     fatal = bool(find_issues)
 
-    used: set[int] = set()
     header_modes: dict[int, str] = {}
 
     for call in calls:
-        if call.dynamic and call.p_num is None:
+        if call.p_num is None:
             issues.append("dynamic xl() reference (not a %Pn% placeholder)")
             fatal = True
-            continue
-        if call.p_num is None:
             continue
         # Check p_num before _placeholder_to_data_index. Its precondition
         # requires 2 <= p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX, so %P0%,
@@ -355,7 +326,6 @@ def analyze_xl_calls(code: str, *, num_deps: int) -> _XlAnalysis:
             issues.append(f"%P{call.p_num}% has no matching formula dep (need {idx + 1} deps, have {num_deps})")
             fatal = True
             continue
-        used.add(idx)
         # First seen header mode wins for a given original index; conflict → warn.
         prev = header_modes.get(idx)
         if prev is None:
@@ -363,63 +333,20 @@ def analyze_xl_calls(code: str, *, num_deps: int) -> _XlAnalysis:
         elif prev != call.header_mode and call.header_mode != "omit":
             issues.append(f"conflicting headers mode for %P{call.p_num}%: {prev} vs {call.header_mode}")
 
-    return _XlAnalysis(calls=calls, issues=issues, header_modes=header_modes, used=used, fatal=fatal)
+    return _XlAnalysis(calls=calls, issues=issues, header_modes=header_modes, fatal=fatal)
 
 
-def apply_rewrite(src: str, calls: list[_XlCall], *, index_map: dict[int, int] | None = None) -> str:
+def apply_rewrite(src: str, calls: list[_XlCall], *, index_map: dict[int, int]) -> str:
     """Rewrite binding call sites in *src* to quoted xl("%Pn%", ...) with remapped indices."""
-    imap = index_map or {}
     new_code = src
     for call in sorted(calls, key=lambda c: c.start, reverse=True):
-        if call.dynamic and call.p_num is None:
-            continue
-        if call.p_num is None:
-            continue
-        if call.p_num < 2 or call.p_num > 2 + DEAL_MAX_PLACEHOLDER_INDEX:
+        if call.p_num is None or not 2 <= call.p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX:
             continue
         orig_idx = _placeholder_to_data_index(call.p_num)
-        norm_idx = imap.get(orig_idx, orig_idx)
+        norm_idx = index_map.get(orig_idx, orig_idx)
         repl = _xl_binding_expr(norm_idx, call.header_mode)
         new_code = new_code[: call.start] + repl + new_code[call.end :]
     return new_code
-
-
-@deal.pre(
-    lambda code, num_deps, index_map=None, *_unused, **__: (
-        _deal_excel_src_ok(code or "")
-        and type(num_deps) is int
-        and 0 <= num_deps <= _DEAL_CONVERT_LIST
-        and (index_map is None or (isinstance(index_map, dict) and len(index_map) <= _DEAL_CONVERT_LIST and all(type(k) is int and type(v) is int and 0 <= k <= _DEAL_CONVERT_LIST and 0 <= v <= _DEAL_CONVERT_LIST for k, v in index_map.items())))
-    )
-)
-def rewrite_excel_code(code: str, *, num_deps: int, index_map: dict[int, int] | None = None) -> RewriteResult:
-    """Normalize ``xl(...)`` bindings to runnable ``xl("%Pn%", …)``; leave other code intact.
-
-    *index_map* maps original 0-based dep index → normalized binding index after dedup.
-    Returns a ``RewriteResult`` dataclass.
-
-    Statement-form ``xl`` (e.g. under ``if``) is kept and quoted like any other
-    binding site. Literal / dynamic ``xl(...)`` is reported and fail-closed by
-    the converter — not silently deleted.
-    """
-    src = code or ""
-    analysis = analyze_xl_calls(src, num_deps=num_deps)
-    if analysis.fatal:
-        return RewriteResult(
-            code=src,
-            issues=analysis.issues,
-            header_modes=analysis.header_modes,
-            fatal=True,
-            used=[str(i) for i in sorted(analysis.used)],
-        )
-    new_code = apply_rewrite(src, analysis.calls, index_map=index_map)
-    return RewriteResult(
-        code=new_code,
-        issues=analysis.issues,
-        header_modes=analysis.header_modes,
-        fatal=False,
-        used=[str(i) for i in sorted(analysis.used)],
-    )
 
 
 def _excel_execution_order(model: ExcelWorkbookModel) -> list[ExcelPyCell]:
@@ -525,16 +452,14 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
         )
 
     original = model.scripts[cell.script_index]
-    resolved = resolve_deps(cell.deps, model, sheet_hint=cell.sheet)
+    resolved = [resolve_dep(d, model, sheet_hint=cell.sheet) for d in cell.deps]
 
     # Parse once: analyze xl() calls, placeholders, header modes, and fatal errors in one pass.
     analysis = analyze_xl_calls(original, num_deps=len(cell.deps))
     bindings, index_map, data_args, excel_deps, bind_issues = _normalize_bindings(resolved, analysis.header_modes)
 
-    issues: list[str] = list(bind_issues)
-    for issue in analysis.issues:
-        if issue not in issues:
-            issues.append(issue)
+    issues = list(bind_issues)
+    issues.extend(analysis.issues)
 
     snapshot_notes = [r.note for r in resolved if r.kind in ("table_snapshot", "anchor_snapshot") and r.note]
 
@@ -543,7 +468,7 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
 
     # Second rewrite step with dedup index map when all deps resolved and no fatal issues.
     # Merge every analysis issue. When deps are unresolved, dropping
-    # rewrite_excel_code issues hides syntax errors and bad placeholders.
+    # analyze_xl_calls issues hides syntax errors and bad placeholders.
     # In best_effort mode say that placeholder remapping was skipped. The
     # old warning claimed shifted data indices were refused in both modes.
     if unresolved:
@@ -554,13 +479,13 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
     if fatal:
         new_code = original
     else:
-        new_code = apply_rewrite(original, analysis.calls, index_map=index_map if index_map else None)
+        new_code = apply_rewrite(original, analysis.calls, index_map=index_map)
 
     # Advisory only: multi-cell Excel workbooks often need shared-kernel mode.
     # We do not inject prior-PY formula args for Calc ordering.
     prior = prior_in_order or []
     shared_kernel = bool(prior) or (not cell.deps and "xl(" not in original.replace(" ", ""))
-    if shared_kernel and prior:
+    if prior:
         issues.append("shared-kernel workbook: enable shared session; converter does not add order edges")
 
     if cell.return_type == 1:
@@ -582,21 +507,19 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
         excel_deps=excel_deps,
         ordering_args=[],
         bindings=bindings,
-        issues=list(dict.fromkeys(issues)),
+        issues=issues,
         shared_kernel=shared_kernel,
         snapshot_deps=snapshot_notes,
         dag_formula="",
     )
-    if failed:
-        return out
-    try:
-        out.dag_formula = formula_for_converted_cell(out, separator=";")
-    except ValueError as exc:
-        out.converted = False
-        out.converted_code = original
-        out.issues.append(str(exc))
-        out.issues = list(dict.fromkeys(out.issues))
-        return out
+    if not failed:
+        try:
+            out.dag_formula = formula_for_converted_cell(out, separator=";")
+        except ValueError as exc:
+            out.converted = False
+            out.converted_code = original
+            out.issues.append(str(exc))
+    out.issues = list(dict.fromkeys(out.issues))
     return out
 
 
