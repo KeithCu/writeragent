@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBaseDummy
-from plugin.scripting.optimize import HELPER_NAMES, HELPER_PARAM_HELP
+from plugin.scripting.optimize import HELPER_NAMES, HELPER_PARAM_HELP, insert_optimize_result_into_calc, run_trusted_optimize
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -49,7 +49,6 @@ class OptimizeDataTool(ToolBaseDummy):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.calc.analysis import extract_calc_data_tool_args, write_anchor_result
-        from plugin.scripting.optimize import insert_optimize_result_into_calc, run_trusted_optimize
 
         helper, dr, data, params, headers, task_hint, output_range = extract_calc_data_tool_args(kwargs)
 
