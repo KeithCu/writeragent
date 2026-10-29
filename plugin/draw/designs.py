@@ -594,6 +594,12 @@ def _reimport_graphic(
     return False
 
 
+def _record_shape_warning(shape_warnings: list[str], warnings: list[str] | None, token: str) -> None:
+    shape_warnings.append(token)
+    if warnings is not None:
+        warnings.append(token)
+
+
 def _clone_one_shape(
     dest_doc: Any,
     dest_master: Any,
@@ -620,10 +626,7 @@ def _clone_one_shape(
     for prop in _CLONE_SHAPE_PROPS:
         res = _copy_uno_prop(clone, src_shape, prop)
         if res == "rejected":
-            token = f"rejected {prop} on shape {shape_index}"
-            shape_warnings.append(token)
-            if warnings is not None:
-                warnings.append(token)
+            _record_shape_warning(shape_warnings, warnings, f"rejected {prop} on shape {shape_index}")
         elif res == "copied" and prop == "FillStyle":
             try:
                 val = src_shape.getPropertyValue("FillStyle")
@@ -633,31 +636,17 @@ def _clone_one_shape(
                 val = getattr(src_shape, "FillStyle", None)
             fill_kind = _fill_style_kind(val)
             if fill_kind == "gradient":
-                grad_res = _copy_uno_prop(clone, src_shape, "FillGradient")
-                if grad_res != "copied":
-                    token = f"fill gradient not copied on shape {shape_index}"
-                    shape_warnings.append(token)
-                    if warnings is not None:
-                        warnings.append(token)
+                if _copy_uno_prop(clone, src_shape, "FillGradient") != "copied":
+                    _record_shape_warning(shape_warnings, warnings, f"fill gradient not copied on shape {shape_index}")
                 else:
                     _copy_uno_prop(clone, src_shape, "FillTransparenceGradient")
             elif fill_kind == "hatch":
-                hatch_res = _copy_uno_prop(clone, src_shape, "FillHatch")
-                if hatch_res != "copied":
-                    token = f"fill hatch not copied on shape {shape_index}"
-                    shape_warnings.append(token)
-                    if warnings is not None:
-                        warnings.append(token)
+                if _copy_uno_prop(clone, src_shape, "FillHatch") != "copied":
+                    _record_shape_warning(shape_warnings, warnings, f"fill hatch not copied on shape {shape_index}")
             elif fill_kind == "bitmap":
-                token = f"fill bitmap not copied on shape {shape_index}"
-                shape_warnings.append(token)
-                if warnings is not None:
-                    warnings.append(token)
+                _record_shape_warning(shape_warnings, warnings, f"fill bitmap not copied on shape {shape_index}")
             elif fill_kind not in ("none", "solid"):
-                token = f"fill {fill_kind} not copied on shape {shape_index}"
-                shape_warnings.append(token)
-                if warnings is not None:
-                    warnings.append(token)
+                _record_shape_warning(shape_warnings, warnings, f"fill {fill_kind} not copied on shape {shape_index}")
 
     reimported: bool | None = None
     if "GraphicObject" in shape_type:
@@ -1113,12 +1102,8 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
             "message": "Presentation document is read-only.",
         }
     src = None
+    cloned: ClonedMaster | None = None
     master_name = ""
-    source_master = ""
-    selection = ""
-    shape_count = 0
-    graphic_shapes = 0
-    graphic_reimports = 0
     slides_updated = 0
     clone_warnings_list: list[str] = []
     design_label = design.get("name") or design.get("id") or "?"
@@ -1127,14 +1112,8 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     try:
         src = open_design_source_hidden(uno_ctx, design, as_template=True)
         cloned = clone_master_into_doc(dest_doc, src, design, uno_ctx)
-        _master = cloned.master
         master_name = cloned.name
-        source_master = getattr(cloned, "source_master", "")
-        selection = getattr(cloned, "selection", "")
-        shape_count = cloned.shape_count
-        graphic_shapes = cloned.graphic_shapes
-        graphic_reimports = cloned.graphic_reimports
-        clone_warnings_list = list(getattr(cloned, "warnings", ()) or ())
+        clone_warnings_list = list(cloned.warnings)
 
         # Snapshot each page's MasterPage before assign
         snapshot: list[tuple[Any, Any]] = []
@@ -1144,28 +1123,28 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
                 p = pages.getByIndex(i)
                 snapshot.append((p, getattr(p, "MasterPage", None)))
 
-            slides_updated = assign_master_to_all_slides(dest_doc, _master)
+            slides_updated = assign_master_to_all_slides(dest_doc, cloned.master)
             slide_count = int(dest_doc.getDrawPages().getCount())
             if slides_updated != slide_count:
                 raise RuntimeError("Partial slide assignment")
 
             # Replace previous unreferenced master of the same design name
-            _cleanup_previous_same_named_masters(dest_doc, _master, target_design_name)
+            _cleanup_previous_same_named_masters(dest_doc, cloned.master, target_design_name)
             try:
-                _master.Name = target_design_name
+                cloned.master.Name = target_design_name
                 master_name = target_design_name
             except Exception as exc:
                 if is_real_disposal(exc):
                     raise
-                master_name = str(getattr(_master, "Name", "") or "") or target_design_name
+                master_name = str(getattr(cloned.master, "Name", "") or "") or target_design_name
         except Exception as post_exc:
             if is_real_disposal(post_exc):
                 _restore_slide_masters(snapshot, swallow_disposal=True)
                 raise
             slides_restored = _restore_slide_masters(snapshot)
-            if not _is_master_referenced(dest_doc, _master):
+            if not _is_master_referenced(dest_doc, cloned.master):
                 try:
-                    dest_doc.getMasterPages().remove(_master)
+                    dest_doc.getMasterPages().remove(cloned.master)
                 except Exception as rem_exc:
                     if is_real_disposal(rem_exc):
                         raise
@@ -1187,9 +1166,9 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
                 "message": "Rolled back after applying '%s' to %s of %s slides." % (design.get("name"), slides_updated, slide_count),
                 "design": design,
                 "applied_master": master_name,
-                "source_master": source_master,
-                "selection": selection,
-                "applied_master_shape_count": shape_count,
+                "source_master": cloned.source_master,
+                "selection": cloned.selection,
+                "applied_master_shape_count": cloned.shape_count,
                 "masters": _master_entries(dest_doc),
                 "slides_updated": slides_updated,
                 "slide_count": slide_count,
@@ -1204,14 +1183,14 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
             "apply_design design=%s master=%s shapes=%s graphics=%s/%s slides=%s",
             design_label,
             master_name,
-            shape_count,
-            graphic_reimports,
-            graphic_shapes,
+            cloned.shape_count,
+            cloned.graphic_reimports,
+            cloned.graphic_shapes,
             slides_updated,
         )
     except DesignChromeMissingError as exc:
         log.warning("apply_design failed chrome missing: %s", exc)
-        warns = list(getattr(exc, "warnings", ()) or ())
+        warns = list(exc.warnings)
         return {
             "status": "error",
             "code": "DESIGN_CHROME_MISSING",
@@ -1225,12 +1204,13 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     finally:
         _close_hidden_doc(src)
 
+    assert cloned is not None
     masters = _master_entries(dest_doc)
     slide_count = int(dest_doc.getDrawPages().getCount())
-    if graphic_shapes > 0 and graphic_reimports < graphic_shapes:
+    if cloned.graphic_shapes > 0 and cloned.graphic_reimports < cloned.graphic_shapes:
         msg = (
             "Applied design '%s' (master '%s') to the current presentation (%s of %s chrome shapes imported)."
-            % (design.get("name"), master_name, graphic_reimports, graphic_shapes)
+            % (design.get("name"), master_name, cloned.graphic_reimports, cloned.graphic_shapes)
         )
     else:
         msg = "Applied design '%s' (master '%s') to the current presentation." % (design.get("name"), master_name)
@@ -1238,11 +1218,11 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         "status": "ok",
         "design": design,
         "applied_master": master_name,
-        "source_master": source_master,
-        "selection": selection,
-        "applied_master_shape_count": shape_count,
-        "graphic_shapes": graphic_shapes,
-        "graphic_reimports": graphic_reimports,
+        "source_master": cloned.source_master,
+        "selection": cloned.selection,
+        "applied_master_shape_count": cloned.shape_count,
+        "graphic_shapes": cloned.graphic_shapes,
+        "graphic_reimports": cloned.graphic_reimports,
         "masters": masters,
         "blank_master": _blank_master_signal(masters),
         "slides_updated": slides_updated,
