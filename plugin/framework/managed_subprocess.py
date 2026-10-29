@@ -35,8 +35,6 @@ from plugin.scripting.sandbox import scrub_subprocess_env
 log = logging.getLogger(__name__)
 
 # Wait timeout before reaping an orphaned process.
-_GRACE_KILL_TIMEOUT_SEC = 3.0
-_REAP_CLOSE_WAIT_SEC = 5.0
 _REAP_WAIT_SEC = 1.0
 _REAPER_MAX_PASSES = 5
 _REAPER_RETRY_PAUSE_SEC = 0.1
@@ -47,7 +45,7 @@ _RealPopen = subprocess.Popen
 class ManagedSubprocess:
     """A managed child process providing explicit start, safe shutdown, and stderr tailing.
 
-    The default constructor is the worker (pipes, drain, registry, close()).
+    The default constructor is the worker (pipes, drain, registry).
     raw_spawn=True is the TTS path and does not do those things. Callers of raw mode
     own stop and reap. run does not create an instance.
     Callers own the stdout and stdin pipes (e.g. for JSON-RPC or custom framing).
@@ -90,7 +88,6 @@ class ManagedSubprocess:
     _reaper_passes: int
     _stdio_closed: bool
     _lock: threading.Lock
-    _closed: bool
 
     def __init__(
         self,
@@ -166,7 +163,6 @@ class ManagedSubprocess:
         self._proc = None
         self._stderr_drain = None
         self._lock = threading.Lock()
-        self._closed = False
 
     @property
     def popen(self) -> subprocess.Popen[bytes] | None:
@@ -206,9 +202,6 @@ class ManagedSubprocess:
         """Immediate SIGKILL of the process group. No pipe close, no wait, no unregister.
 
         A double is not a Popen because kill_process_tree treats an int pid above 1 as a process group.
-        close() is a different method because it waits out SIGTERM, closes stdin, leaves stdout alone,
-        and leaves a drained stderr to the drain thread; the compute io-owner forbids close() on the
-        non-owner thread, which calls kill_tree only.
         """
         proc = self._proc
         if proc is None:
@@ -280,11 +273,11 @@ class ManagedSubprocess:
         return drain.text()
 
     def abandon(self) -> None:
-        """Enqueue ``("abandon", self)``. Does not close pipes."""
-        _enqueue_reaper(("abandon", self))
+        """Enqueue ``self``. Does not close pipes."""
+        _enqueue_reaper(self)
 
     def reaper_pass(self) -> None:
-        """One abandon pass. See binding decision 9. Not used by ``close()``."""
+        """One abandon pass."""
         proc = self._proc
         if proc is None:
             return
@@ -325,7 +318,7 @@ class ManagedSubprocess:
                 _reaper_given_up.append(self)
             return
         time.sleep(_REAPER_RETRY_PAUSE_SEC)
-        _enqueue_reaper(("abandon", self))
+        _enqueue_reaper(self)
 
     @property
     def stdin(self) -> IO[bytes] | None:
@@ -353,13 +346,13 @@ class ManagedSubprocess:
         Worker path is unchanged (pipes, drain, registry). In raw_spawn mode,
         Popen runs with requested stdio and environment; OSError propagates.
         A second start() raises RuntimeError after a child was published
-        (_proc is not None) or after close(); a start() that fails before _proc
+        (_proc is not None); a start() that fails before _proc
         is set leaves the instance reusable (worker and raw).
         """
         with self._lock:
-            # Single-use once a child is published or close() has run; a failure
-            # before _proc is set does not set _closed, so start() may be retried.
-            if self._closed or self._proc is not None:
+            # Single-use once a child is published. A failure before _proc is set
+            # leaves the instance reusable.
+            if self._proc is not None:
                 raise RuntimeError("ManagedSubprocess is single-use")
 
             if self._raw_spawn:
@@ -405,35 +398,21 @@ class ManagedSubprocess:
             proc: subprocess.Popen[bytes] | None = None
             drain: StderrTail | None = None
             try:
-                if self._text:
-                    proc = cast(
-                        "subprocess.Popen[bytes]",
-                        subprocess.Popen(
-                            cmd,
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE,
-                            stderr=self._stderr,
-                            env=merged_env,
-                            cwd=self._cwd,
-                            bufsize=1,
-                            text=True,
-                            **popen_kw,
-                        ),
-                    )
-                else:
-                    proc = cast(
-                        "subprocess.Popen[bytes]",
-                        subprocess.Popen(
-                            cmd,
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE,
-                            stderr=self._stderr,
-                            env=merged_env,
-                            cwd=self._cwd,
-                            bufsize=0,
-                            **popen_kw,
-                        ),
-                    )
+                extra: dict[str, Any] = {"text": True} if self._text else {}
+                proc = cast(
+                    "subprocess.Popen[bytes]",
+                    subprocess.Popen(
+                        cmd,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=self._stderr,
+                        env=merged_env,
+                        cwd=self._cwd,
+                        bufsize=1 if self._text else 0,
+                        **extra,
+                        **popen_kw,
+                    ),
+                )
                 if self._stderr == subprocess.PIPE and self._drain_stderr:
                     if self._stderr_name is not None:
                         drain_name = (
@@ -586,95 +565,6 @@ class ManagedSubprocess:
         """Unregister this instance from shutdown_all without closing pipes or killing processes."""
         with self._lock:
             _unregister_instance(self)
-
-    def close(self) -> None:
-        """Idempotent; closes stdin; SIGTERM grace; tree kill; unregisters; joins a drain when one exists; does not close stdout; does not close stderr when a drain exists; may block for the grace wait plus 1s. shutdown_all and Kokoro do not call it."""
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-            proc = self._proc
-            drain = self._stderr_drain
-            _unregister_instance(self)
-
-        if proc is None:
-            return
-
-        # 1. Close stdin in its own try block so child observes EOF.
-        stdin = getattr(proc, "stdin", None)
-        if stdin:
-            try:
-                stdin.close()
-            except OSError:
-                log.debug("Error closing stdin for pid=%s", getattr(proc, "pid", None), exc_info=True)
-
-        # 2. Terminate gracefully if still running.
-        poll_fn = getattr(proc, "poll", None)
-        if callable(poll_fn) and poll_fn() is None:
-            terminate = getattr(proc, "terminate", None)
-            if callable(terminate):
-                try:
-                    terminate()
-                except OSError:
-                    log.debug("Error terminating pid=%s", getattr(proc, "pid", None), exc_info=True)
-            wait = getattr(proc, "wait", None)
-            if callable(wait):
-                try:
-                    wait(timeout=_GRACE_KILL_TIMEOUT_SEC)
-                except subprocess.TimeoutExpired:
-                    pass
-                except OSError:
-                    log.debug("Error waiting for pid=%s after terminate", getattr(proc, "pid", None), exc_info=True)
-
-        # 3. Always kill process tree.
-        # What was wrong: previously close() only killed the process tree if wait() timed out.
-        # If the leader process died within the grace period (or had already exited before close()),
-        # the tree kill was skipped entirely, leaving orphaned grandchildren running in the background.
-        # How it happened: early return on poll() or wait() success bypassed the process group kill.
-        # Why this change fixes it: always invoking kill_process_tree ensures the entire process
-        # group is signaled, cleaning up all descendant processes even when the leader is dead.
-        #
-        # What was wrong: close() called kill_process_tree directly, so a non-Popen with an int pid
-        # was a process group and a double with no pid raised AttributeError out of close().
-        # How it happened: close() called kill_process_tree instead of kill_tree().
-        # Why this change fixes it: kill_tree already refused non-Popen doubles; calling it applies
-        # that guard and still runs the stderr cleanup below.
-        self.kill_tree()
-
-        # 4. If the process is still alive after the tree kill, enqueue to reaper so caller isn't blocked.
-        if callable(poll_fn) and poll_fn() is None:
-            _enqueue_reaper(("close", self))
-
-        # What was wrong: closing stderr before finish_text drops unread tail bytes and, on a
-        # text pipe, can block in BufferedReader.close() against the drain's read1; closing
-        # stdout from this thread is the race Child._finish and ACPConnection._writer_drain_loop
-        # already refuse.
-        # How it happened: close() previously closed proc.stdout and proc.stderr directly on
-        # this thread, even when a background drain thread was reading stderr or a caller owned stdout.
-        # Why this change fixes it: stdout stays open because the caller owns it; ACPConnection
-        # can be inside readline, and BufferedReader.close() waits on that lock; the child's
-        # death closes the write end. The drain's finally in start_stderr_drain
-        # (plugin/framework/worker_pool.py) closes stderr. When no drain exists, close() closes
-        # stderr directly. close_stdio() remains the owner-thread stdin/stdout close.
-
-        # 5. Do not close proc.stdout: stdout stays open because the caller owns it;
-        # ACPConnection can be inside readline, and BufferedReader.close() waits on that lock;
-        # the child's death closes the write end.
-
-        # 6. If drain is None and proc.stderr is set, close stderr.
-        stderr = getattr(proc, "stderr", None)
-        if drain is None and stderr:
-            try:
-                stderr.close()
-            except OSError:
-                log.debug("Error closing stderr for pid=%s", getattr(proc, "pid", None), exc_info=True)
-
-        # 7. If drain is not None, finish drain.
-        if drain is not None:
-            try:
-                drain.finish_text(timeout=1.0)
-            except Exception:
-                log.debug("Error finishing stderr drain for pid=%s", getattr(proc, "pid", None), exc_info=True)
 
 
 def _kill_direct(proc: Any) -> None:
@@ -853,12 +743,12 @@ def shutdown_all() -> None:
             log.exception("Error abandoning managed subprocess during shutdown_all")
 
 
-_reaper_queue: queue.Queue[tuple[str, ManagedSubprocess]] = queue.Queue()
+_reaper_queue: queue.Queue[ManagedSubprocess] = queue.Queue()
 _reaper_lock = threading.Lock()
 _reaper_started = False
 
 
-def _enqueue_reaper(item: tuple[str, ManagedSubprocess]) -> None:
+def _enqueue_reaper(item: ManagedSubprocess) -> None:
     """Hand off a process that refused to die gracefully so the caller isn't blocked."""
     global _reaper_started
     with _reaper_lock:
@@ -881,40 +771,10 @@ def _enqueue_reaper(item: tuple[str, ManagedSubprocess]) -> None:
 
 def _reaper_loop() -> None:
     while True:
-        kind, inst = _reaper_queue.get()
+        inst = _reaper_queue.get()
         try:
-            if kind == "close":
-                _reap_close(inst)
-            elif kind == "abandon":
-                inst.reaper_pass()
-            else:
-                log.error("unknown reaper job %r", kind)
+            inst.reaper_pass()
         except Exception:
             log.exception("abandoned child reap failed")
         finally:
             _reaper_queue.task_done()
-
-
-def _reap_close(inst: ManagedSubprocess) -> None:
-    proc = inst.popen
-    if proc is None:
-        return
-    try:
-        if proc.poll() is None:
-            proc.wait(timeout=_REAP_CLOSE_WAIT_SEC)
-    except subprocess.TimeoutExpired:
-        # What was wrong: the warning said "abandoning" and returned without pinning,
-        # so the reaper could drop the last reference and Popen.__del__ would wait()
-        # with no timeout on that thread.
-        # How it happened: _reap_close logged without pinning unkillable instances.
-        # Why this change fixes it: unregister plus _reaper_given_up is the same hold
-        # reaper_pass uses after max passes; do not enqueue another job.
-        log.warning(
-            "Managed subprocess pid=%s still alive after SIGKILL; reaper giving up",
-            getattr(proc, "pid", None),
-        )
-        inst.unregister()
-        if inst not in _reaper_given_up:
-            _reaper_given_up.append(inst)
-    except Exception:
-        log.exception("Error reaping managed subprocess pid=%s", getattr(proc, "pid", None))
