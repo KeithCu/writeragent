@@ -213,7 +213,7 @@ def _install_fake_paddleocr(monkeypatch: MonkeyPatch, fake_mod: SimpleNamespace,
         monkeypatch.setattr(paddle_mod, "_paddle_ocr_engine", None)
         monkeypatch.setattr(paddle_mod, "_paddle_ocr_lang", None)
     monkeypatch.setattr(paddle_mod.importlib, "import_module", _import_module)
-    monkeypatch.setattr(paddle_mod, "decode_image_bytes", lambda image_bytes: "decoded")
+    monkeypatch.setattr(paddle_mod, "decode_image_bytes", lambda image_bytes, scale=1.0: "decoded")
 
 
 def test_run_paddle_ocr_v3_uses_predict_not_cls() -> None:
