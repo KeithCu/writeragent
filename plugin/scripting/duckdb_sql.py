@@ -75,29 +75,28 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
         params_json = json.dumps(params, separators=(",", ":"))
     desc = _HELPER_DESCRIPTIONS.get(helper, helper)
     if helper == "query_sheet_sql":
-        return (
-            f"{SQL_HEADER_PREFIX} helper={helper} params={params_json}\n"
-            f"# {desc}\n"
-            f"# {note}\n"
-            f"# Set the Data range in the toolbar (or select cells), then Run.\n"
-            f"from writeragent.scripting.duckdb_sql import query_folder_sql\n\n"
-            f"result = query_folder_sql(\n"
-            f'    None,  # folder not used for sheet\n'
-            f'    "SELECT ... FROM data",\n'
-            f"    None,\n"
-            f"    {{\"data\": data}},  # provided by Run Python Script UI from data_range\n"
-            f")\n"
+        how_to = "# Set the Data range in the toolbar (or select cells), then Run.\n"
+        call_args = (
+            '    None,  # folder not used for sheet\n'
+            '    "SELECT ... FROM data",\n'
+            '    None,\n'
+            '    {"data": data},  # provided by Run Python Script UI from data_range\n'
+        )
+    else:
+        how_to = "# Files must live beside the saved .ods/.xlsx. Edit the files list.\n"
+        call_args = (
+            "    None,  # resolved by runner from document folder (or pass explicit)\n"
+            '    "SELECT ... FROM \'yourfile.csv\'",\n'
+            f"    {params_json}.get('files', ['yourfile.csv']),\n"
         )
     return (
         f"{SQL_HEADER_PREFIX} helper={helper} params={params_json}\n"
         f"# {desc}\n"
         f"# {note}\n"
-        f"# Files must live beside the saved .ods/.xlsx. Edit the files list.\n"
+        f"{how_to}"
         f"from writeragent.scripting.duckdb_sql import query_folder_sql\n\n"
         f"result = query_folder_sql(\n"
-        f"    None,  # resolved by runner from document folder (or pass explicit)\n"
-        f'    "SELECT ... FROM \'yourfile.csv\'",\n'
-        f"    {params_json}.get('files', ['yourfile.csv']),\n"
+        f"{call_args}"
         f")\n"
     )
 
@@ -121,12 +120,9 @@ def get_sql_script_templates() -> dict[str, str]:
     return {helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {}))) for helper in sorted(SQL_HELPER_NAMES)}
 
 
-SqlScriptMeta = HelperScriptMeta
-
-
 @deal.pre(lambda code: _deal_sql_code_ok(code))
-@deal.post(lambda result: result is None or isinstance(result, SqlScriptMeta))
-def parse_sql_script_header(code: str) -> SqlScriptMeta | None:
+@deal.post(lambda result: result is None or isinstance(result, HelperScriptMeta))
+def parse_sql_script_header(code: str) -> HelperScriptMeta | None:
     """Parse machine header from SQL script template."""
     # Header regex ``params=({.*})`` hangs deep check even via this thin wrapper.
     # crosshair: off

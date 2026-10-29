@@ -11,6 +11,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
     header_prefix,
     parse_run_import_call_spec,
 )
@@ -19,7 +20,6 @@ from plugin.scripting.trusted_action_registry import (
     get_trusted_action_wiring,
 )
 from plugin.scripting.duckdb_sql import (
-    SqlScriptMeta,
     get_sql_script_templates,
     parse_sql_script_header,
 )
@@ -42,7 +42,7 @@ def test_sql_script_templates_and_header_parsing() -> None:
     for helper, code in templates.items():
         assert isinstance(code, str)
         meta = parse_sql_script_header(code)
-        assert isinstance(meta, SqlScriptMeta)
+        assert isinstance(meta, HelperScriptMeta)
         assert meta.helper == helper
         assert isinstance(meta.params, dict)
 
