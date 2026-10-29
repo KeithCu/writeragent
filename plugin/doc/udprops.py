@@ -68,10 +68,16 @@ def _user_defined_property_exists(props: Any, name: str) -> bool:
     return False
 
 
-def _user_defined_properties(raw_model: Any) -> Any:
-    """Return the unwrapped UserDefinedProperties bag, or None when absent."""
+def _user_defined_properties(model: Any) -> Any:
+    """Return the unwrapped UserDefinedProperties bag, or None when absent.
+
+    PropertyBag hasPropertyByName / addProperty is unreliable through the
+    guard proxy; unwrap the model then talk to the raw PropertyBag.
+    """
     from plugin.framework.thread_guard import _unwrap_uno
 
+    raw_model = _unwrap_uno(model)
+    check_disposed(raw_model, "Document Model")
     if not hasattr(raw_model, "getDocumentProperties"):
         return None
     doc_props = safe_call(raw_model.getDocumentProperties, "Get document properties")
@@ -90,13 +96,7 @@ def get_document_property(model: Any, name: str, default: Any = None) -> Any:
     client is a socket bootstrap), so this is not @main_thread_only.
     """
     try:
-        from plugin.framework.thread_guard import _unwrap_uno
-
-        # PropertyBag hasPropertyByName / addProperty is unreliable through the
-        # guard proxy; unwrap the model then talk to the raw PropertyBag.
-        raw_model = _unwrap_uno(model)
-        check_disposed(raw_model, "Document Model")
-        props = _user_defined_properties(raw_model)
+        props = _user_defined_properties(model)
         if props is None:
             return default
         if _user_defined_property_exists(props, name):
@@ -163,12 +163,8 @@ def set_document_property(model: Any, name: str, value: Any) -> bool:
 
 def remove_document_property(doc: Any, name: str) -> bool:
     """Remove a custom document property. True when it is absent afterwards."""
-    from plugin.framework.thread_guard import _unwrap_uno
-
     try:
-        raw_doc = _unwrap_uno(doc)
-        check_disposed(raw_doc, "Document Model")
-        props = _user_defined_properties(raw_doc)
+        props = _user_defined_properties(doc)
         if props is None or not _user_defined_property_exists(props, name):
             return True
         safe_call(props.removeProperty, "Remove property", name)
