@@ -114,13 +114,20 @@ def _sympy_name_dict(sp: Any) -> dict[str, Any]:
     dict. ``__builtins__`` is present so ``eval`` does not inject the real
     builtins when the key is missing. Callers must not mutate the dict.
     """
-    # Every _SYMPY_NAMES entry is an attribute of sympy. A missing one raises
-    # here; it is not skipped.
-    names: dict[str, Any] = {"__builtins__": {}, **{name: getattr(sp, name) for name in _SYMPY_NAMES}}
+    names: dict[str, Any] = {"__builtins__": {}}
+    # A name missing here is split into letters or fails to parse.
+    for name in _SYMPY_NAMES:
+        obj = getattr(sp, name, None)
+        if obj is not None:
+            names[name] = obj
     # ln is sp.log. e is Euler's number (sympy spells it E). getattr(sp, "e")
     # is None, and storing that None would make parse_expr treat e as missing.
-    names["ln"] = sp.log
-    names["e"] = sp.E
+    log_fn = getattr(sp, "log", None)
+    if log_fn is not None:
+        names["ln"] = log_fn
+    euler = getattr(sp, "E", None)
+    if euler is not None:
+        names["e"] = euler
     return names
 
 
