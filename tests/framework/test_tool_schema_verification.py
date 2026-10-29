@@ -16,10 +16,11 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.framework.tool import _normalize_schema_for_strict_providers, to_openai_schema, to_mcp_schema, ToolBase
+from plugin.framework.tool import to_openai_schema, to_mcp_schema, ToolBase
+from plugin.framework.tool_schema import _normalize_schema_for_strict_providers
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
-_CROSSHAIR_TARGET = "plugin.framework.tool._normalize_schema_for_strict_providers"
+_CROSSHAIR_TARGET = "plugin.framework.tool_schema._normalize_schema_for_strict_providers"
 
 
 def _find_crosshair() -> str | None:
