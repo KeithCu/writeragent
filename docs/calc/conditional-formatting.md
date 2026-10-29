@@ -60,7 +60,7 @@ WriterAgent follows the same pattern as [`plugin/calc/pivot.py`](../../plugin/ca
 
 Listing output includes:
 
-- **`operator`**: stable string (e.g. `DUPLICATE`) via [`condition_operator_code_to_name()`](../../plugin/calc/conditional.py) in the same module as the tools.
+- **`operator`**: stable string (e.g. `DUPLICATE`) via `_CODE_TO_NAME` in [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py) (unknown codes become `str(code)`).
 - **`operator_code`**: present when `XSheetCondition2` succeeds (integer, e.g. `10`).
 ---
 
@@ -114,7 +114,7 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 
 - **PyUNO `queryInterface`:** Use **`uno.getTypeByName("com.sun.star....")`** — see `_query_interface` in [`conditional.py`](../../plugin/calc/conditional.py) and [`pivot.py`](../../plugin/calc/pivot.py).  
 - **First rule fails with no container:** Check **`_ensure_table_conditional_format`** and LO version; verify **`TableConditionalFormat`** service name.  
-- **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`list_conditional_formats`** against [`condition_operator_code_to_name()`](../../plugin/calc/conditional.py) in [`conditional.py`](../../plugin/calc/conditional.py).  
+- **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`list_conditional_formats`** against `_CODE_TO_NAME` in [`conditional.py`](../../plugin/calc/conditional.py) (unknown codes become `str(code)`).  
 - **Rules from UI missing in list:** User may have created **modern** CF — see §2.2; implement merged listing (§5.2).
 ---
 
@@ -122,7 +122,7 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 
 | File | Purpose |
 |------|---------|
-| [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py) | Tools + UNO helpers + `condition_operator_code_to_name()` |
+| [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py) | Tools + UNO helpers + `_CODE_TO_NAME` |
 | [`plugin/calc/base.py`](../../plugin/calc/base.py) | `ToolCalcConditionalBase`, `specialized_domain` |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Range resolution |
 | [`plugin/calc/specialized.py`](../../plugin/calc/specialized.py) | `delegate_to_specialized_calc_toolset` |

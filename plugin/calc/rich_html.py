@@ -25,7 +25,7 @@ from typing import Any
 
 from plugin.framework.errors import ToolExecutionError, best_effort, uno_probe
 from plugin.framework.scratch_writer import clear_writer_body
-from plugin.framework.uno_context import get_desktop
+from plugin.framework.uno_context import get_desktop, get_service_manager
 from plugin.calc.address_utils import parse_address
 from plugin.calc.bridge import CalcBridge
 import plugin.writer.format as format_support
@@ -86,19 +86,9 @@ def _controller_insert_transferable(controller: Any, transferable: Any) -> None:
     ins(transferable)
 
 
-def _service_manager(uno_ctx: Any) -> Any:
-    """ServiceManager from a UNO context. Best-effort; never raises."""
-    getter = getattr(uno_ctx, "getServiceManager", None)
-    if callable(getter):
-        smgr = getter()
-        if smgr is not None:
-            return smgr
-    return getattr(uno_ctx, "ServiceManager", None)
-
-
 def _system_clipboard(uno_ctx: Any) -> Any:
     """SystemClipboard or None. Must not import chatbot (LibrePy ships this module)."""
-    smgr = _service_manager(uno_ctx)
+    smgr = get_service_manager(uno_ctx)
     if smgr is None:
         return None
     return uno_probe(lambda: smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx), None)
@@ -192,8 +182,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         # process (no real view). Select the whole body with a text cursor and
         # XSelectionSupplier.select, then getTransferable().
         w_ctrl = temp_doc.getCurrentController()
-        body = temp_doc.getText()
-        sel = body.createTextCursor()
+        sel = text.createTextCursor()
         sel.gotoStart(False)
         sel.gotoEnd(True)
         w_ctrl.select(sel)
@@ -239,5 +228,3 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
             step = _step("close hidden Writer")
             best_effort(lambda: temp_doc.close(True), "temp Writer close failed")
             _keeper_loaded = False
-        elif temp_doc is not None:
-            log.debug("insert_cell_html_rich: keep hidden Writer reused=%s pasted=%s", reused, pasted)

@@ -19,19 +19,7 @@ from plugin.calc.conditional import (
     ListConditionalFormats,
     RemoveConditionalFormats,
     _entry_to_dict,
-    condition_operator_code_to_name,
 )
-
-
-def test_condition_operator_code_to_name():
-    assert condition_operator_code_to_name(0) == "NONE"
-    assert condition_operator_code_to_name(1) == "EQUAL"
-    assert condition_operator_code_to_name(7) == "BETWEEN"
-    assert condition_operator_code_to_name(8) == "NOT_BETWEEN"
-    assert condition_operator_code_to_name(9) == "FORMULA"
-    assert condition_operator_code_to_name(10) == "DUPLICATE"
-    assert condition_operator_code_to_name(11) == "NOT_DUPLICATE"
-    assert condition_operator_code_to_name(99) == "99"
 
 
 def test_add_conditional_format_validation_errors():
