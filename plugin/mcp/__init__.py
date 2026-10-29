@@ -43,11 +43,9 @@ _shared_http_server: Any = None
 _shared_tunnel: TunnelManager | None = None
 _http_peer_lock = threading.Lock()
 
-# Last failed start — module-level so peer McpModule instances (second bootstrap) see the same
-# reason when Toggle/Status run on a non-primary instance. Cleared on successful start.
-_last_start_error: BaseException | None = None
-_last_start_host: str = "localhost"
-_last_start_port: Any = None
+# Last failed start (host, port, exc), or None. Shared by every McpModule in
+# this process. Cleared on a successful start. A None port formats as "?".
+_last_start_failure: tuple[str, Any, BaseException] | None = None
 
 
 def is_mcp_server_running() -> bool:
@@ -68,6 +66,8 @@ MCP_ROUTE_TABLE: tuple[tuple[str, str, str, bool], ...] = (
     ("GET", "/debug", "handle_debug_info", False),
     ("POST", "/debug", "handle_debug_post", True),
 )
+
+_LIFECYCLE_SUFFIXES = frozenset({"mcp_enabled", "mcp_port", "tunnel_enabled", "tunnel_provider", "tunnel_provider_token", "cors_allowed_origins", "cors_allow_private_origins"})
 
 
 def _debug_token_path() -> str | None:
@@ -106,15 +106,6 @@ def _remove_debug_token_file() -> None:
             os.remove(token_path)
     except OSError:
         pass
-
-
-def format_mcp_start_failure(host: str, port: int | str, exc: BaseException) -> str:
-    """Short user-facing body for MCP/HTTP start failures (no full traceback).
-
-    Always includes host:port and the exception line. Port conflicts get the same
-    guidance as the bind log so the dialog is actionable without opening the debug log.
-    """
-    return format_bind_failure(host, port, exc, service_name="MCP")
 
 
 class McpModule(ModuleBase):
@@ -198,19 +189,11 @@ class McpModule(ModuleBase):
         # Ignore keys owned by other modules; empty key = bulk save (e.g. Settings OK).
         if key and not key.startswith(prefix):
             return
-        toggle_key = f"{prefix}mcp_enabled"
-        tunnel_key = f"{prefix}tunnel_enabled"
-        tunnel_provider_key = f"{prefix}tunnel_provider"
-        tunnel_provider_token_key = f"{prefix}tunnel_provider_token"
-        cors_list_key = f"{prefix}cors_allowed_origins"
-        cors_private_key = f"{prefix}cors_allow_private_origins"
-        port_key = f"{prefix}mcp_port"
-        # MCP lifecycle: toggle, port, tunnel, CORS policy keys, or bulk apply (Settings OK).
-        # mcp.mcp_port is a lifecycle key. A port-only Settings save emits
-        # key="mcp.mcp_port" (ConfigStore uses "" only when more than one key
-        # changes). Omitting it left HttpServer on the old port. Rebind when
-        # the port differs.
-        if key and key not in (toggle_key, port_key, tunnel_key, tunnel_provider_key, tunnel_provider_token_key, cors_list_key, cors_private_key):
+        suffix = key.removeprefix(prefix) if key else ""
+        # Lifecycle suffixes, or a bulk save (key=""). ConfigStore emits "" only
+        # when more than one key changes, so a port-only save is mcp.mcp_port
+        # and must rebind or the listener stays on the old port.
+        if key and suffix not in _LIFECYCLE_SUFFIXES:
             return
 
         reload_cors_policy_from_config(self._services)
@@ -227,26 +210,18 @@ class McpModule(ModuleBase):
         running = bool(bound and bound.is_running())
         cfg_port = cfg.get("mcp_port")
         running_port = getattr(bound, "port", None) if bound is not None else None
-        # Bulk saves (key="") already reach this handler, but a running listener
-        # used to be left in place. Rebind whenever the live port disagrees.
         port_changed = running and isinstance(cfg_port, int) and not isinstance(cfg_port, bool) and running_port != cfg_port
-        if enabled and port_changed:
-            log.info("MCP port changed from %s to %s; rebinding HTTP server", running_port, cfg_port)
-            self._stop_server()
+        if enabled and (port_changed or not running):
+            if port_changed:
+                log.info("MCP port changed from %s to %s; rebinding HTTP server", running_port, cfg_port)
+                self._stop_server()
             ok = self._start_server(self._services)
-            # Port-only saves are user-initiated (key is mcp.mcp_port, not "").
-            # Toggle uses mcp_enabled and shows its own dialog — skip that key.
-            if not ok and (not key or key == port_key):
+            # Bulk key "" always dialogs. A port rebind also dialogs for mcp_port.
+            # mcp_enabled is the toggle, which shows its own dialog.
+            if not ok and (not key or (port_changed and suffix == "mcp_port")):
                 self._show_start_failure_dialog(data.get("ctx"))
-            return
-
-        if enabled and not running:
-            ok = self._start_server(self._services)
-            # Settings OK emits bulk config:changed with an empty key. Show the failure there
-            # (user-initiated). Toggle uses mcp_enabled key then shows its own dialog — skip
-            # that key here to avoid a double msgbox. Bootstrap never goes through this path.
-            if not ok and not key:
-                self._show_start_failure_dialog(data.get("ctx"))
+            if port_changed:
+                return
         elif not enabled and bound:
             self._stop_server()
 
@@ -254,28 +229,24 @@ class McpModule(ModuleBase):
         self._sync_tunnel()
 
     def _clear_start_failure(self) -> None:
-        global _last_start_error, _last_start_host, _last_start_port
-        _last_start_error = None
-        _last_start_host = "localhost"
-        _last_start_port = None
+        global _last_start_failure
+        _last_start_failure = None
 
     def _record_start_failure(self, host: str, port: Any, exc: BaseException) -> None:
-        global _last_start_error, _last_start_host, _last_start_port
-        _last_start_error = exc
-        _last_start_host = host or "localhost"
-        _last_start_port = port
+        global _last_start_failure
+        _last_start_failure = (host or "localhost", port, exc)
 
     def _formatted_start_failure(self) -> str:
-        if _last_start_error is None:
+        if _last_start_failure is None:
             return ""
-        port = _last_start_port if _last_start_port is not None else "?"
-        return format_mcp_start_failure(_last_start_host, port, _last_start_error)
+        host, port, exc = _last_start_failure
+        shown = port if port is not None else "?"
+        return format_bind_failure(host, shown, exc, service_name="MCP")
 
     def _start_failure_reportable(self) -> bool:
-        # Port conflicts are local config, not product bugs — don't nudge a GitHub report.
-        if _last_start_error is None:
+        if _last_start_failure is None:
             return True
-        return not is_port_in_use_error(_last_start_error)
+        return not is_port_in_use_error(_last_start_failure[2])
 
     def _show_start_failure_dialog(self, ctx: Any | None = None) -> None:
         from plugin.chatbot.dialogs import msgbox_with_report
@@ -292,8 +263,6 @@ class McpModule(ModuleBase):
         msgbox_with_report(ctx, "WriterAgent", message, box_type=3, reportable=self._start_failure_reportable(), report_title="MCP server failed to start", report_extra=detail)
 
     def _start_server(self, services: Any) -> bool:
-        import os
-
         if os.environ.get("WRITERAGENT_TESTING"):
             return True
 
@@ -302,12 +271,10 @@ class McpModule(ModuleBase):
 
         reload_cors_policy_from_config(services)
 
-        started_ok = False
         with self._srv_lock:
             bound = self._bound_http_server()
             if bound is not None and bound.is_running():
                 self._clear_start_failure()
-                started_ok = True
             else:
                 cfg = services.config.proxy_for(self.name)
                 event_bus = getattr(services, "events", None)
@@ -325,12 +292,10 @@ class McpModule(ModuleBase):
                     if event_bus:
                         status = srv.get_status()
                         event_bus.emit("http:server_started", port=status["port"], host=status["host"], url=status["url"])
-                    if event_bus:
                         event_bus.emit("menu:update")
                     self._server = srv
                     _shared_http_server = srv
                     self._clear_start_failure()
-                    started_ok = True
                 except Exception as e:
                     # Stash for Toggle/Status/Settings UI — previously only log.exception left a trail
                     # and the dialog said "check the debug log" with no host/port or bind reason (#379).
@@ -343,10 +308,8 @@ class McpModule(ModuleBase):
                     return False
 
         # Outside _srv_lock — cloudflared spawn must not hold the HTTP start lock.
-        if started_ok:
-            self._sync_tunnel()
-            return True
-        return False
+        self._sync_tunnel()
+        return True
 
     def _stop_server(self) -> None:
         global _shared_http_server
@@ -497,10 +460,9 @@ class McpModule(ModuleBase):
             cfg = self._services.config.proxy_for(self.name)
             if not cfg.get("mcp_enabled"):
                 cfg.set("mcp_enabled", True)
-            elif not self._mcp_routes_registered:
-                self._register_mcp_routes(self._services)
-                self._start_server(self._services)
             else:
+                if not self._mcp_routes_registered:
+                    self._register_mcp_routes(self._services)
                 self._start_server(self._services)
             b2 = self._bound_http_server()
             if not (b2 and b2.is_running()):

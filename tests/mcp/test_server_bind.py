@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from plugin.mcp import format_mcp_start_failure
+from plugin.framework.http_server import format_bind_failure
 from plugin.mcp.server import (
     HttpServer,
     _PORT_IN_USE_GUIDANCE,
@@ -76,7 +76,7 @@ def test_is_port_in_use_error_by_errno():
 
 
 def test_format_mcp_start_failure_port_in_use():
-    msg = format_mcp_start_failure("localhost", 18765, OSError(98, "Address already in use"))
+    msg = format_bind_failure("localhost", 18765, OSError(98, "Address already in use"), service_name="MCP")
     assert "localhost:18765" in msg
     assert "OSError" in msg
     assert _PORT_IN_USE_GUIDANCE in msg
@@ -84,7 +84,7 @@ def test_format_mcp_start_failure_port_in_use():
 
 
 def test_format_mcp_start_failure_other_oserror():
-    msg = format_mcp_start_failure("127.0.0.1", 9000, OSError(13, "Permission denied"))
+    msg = format_bind_failure("127.0.0.1", 9000, OSError(13, "Permission denied"), service_name="MCP")
     assert "127.0.0.1:9000" in msg
     assert "Permission denied" in msg
     assert _PORT_IN_USE_GUIDANCE not in msg
@@ -130,12 +130,12 @@ def test_start_server_stashes_last_start_error(monkeypatch):
             pass
 
     monkeypatch.setattr(mcp_mod, "_shared_http_server", None)
-    monkeypatch.setattr(mcp_mod, "_last_start_error", None)
+    monkeypatch.setattr(mcp_mod, "_last_start_failure", None)
     monkeypatch.setattr("plugin.mcp.server.HttpServer", _FailingServer)
     monkeypatch.setattr("plugin.mcp.reload_cors_policy_from_config", lambda *_a, **_k: None)
 
     assert mod._start_server(services) is False
-    assert mcp_mod._last_start_error is boom
+    assert mcp_mod._last_start_failure is not None and mcp_mod._last_start_failure[2] is boom
     detail = mod._formatted_start_failure()
     assert "localhost:18765" in detail
     assert _PORT_IN_USE_GUIDANCE in detail
@@ -251,7 +251,7 @@ def _module_with_listener(monkeypatch, listener, cfg_values, *, fail_start: Base
     monkeypatch.setattr(mcp_mod, "_shared_http_server", listener)
     monkeypatch.setattr(mcp_mod, "_shared_tunnel", None)
     monkeypatch.setattr(mcp_mod, "_primary_http_module", mod)
-    monkeypatch.setattr(mcp_mod, "_last_start_error", None)
+    monkeypatch.setattr(mcp_mod, "_last_start_failure", None)
     monkeypatch.setattr("plugin.mcp.server.HttpServer", _factory)
     monkeypatch.setattr("plugin.mcp.reload_cors_policy_from_config", lambda *_a, **_k: None)
     return mod, cfg, created, dialogs
@@ -375,7 +375,7 @@ def test_mcp_port_rebind_failure_stops_old_listener_and_reports(monkeypatch):
     assert dialogs == ["settings-ctx"]
     import plugin.mcp as mcp_mod
 
-    assert mcp_mod._last_start_error is boom
+    assert mcp_mod._last_start_failure is not None and mcp_mod._last_start_failure[2] is boom
 
 
 def _open_listener():
