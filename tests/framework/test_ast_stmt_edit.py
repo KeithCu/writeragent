@@ -9,9 +9,7 @@ import pytest
 
 from plugin.framework.ast_stmt_edit import (
     is_name_call_expr,
-    iter_matching_expr_statements,
     iter_matching_statements,
-    remove_expr_statements,
     remove_statements,
 )
 
@@ -20,13 +18,9 @@ def _grammar_obs(node: ast.Expr) -> bool:
     return is_name_call_expr(node, frozenset({"grammar_obs", "_grammar_obs"}))
 
 
-def _xl(node: ast.Expr) -> bool:
-    return is_name_call_expr(node, frozenset({"xl"}))
-
-
 def test_remove_empty_if_keeps_pass() -> None:
     src = "if True:\n    grammar_obs('only')\n"
-    out, n = remove_expr_statements(src, _grammar_obs, pass_comment="stripped obs call")
+    out, n = remove_statements(src, _grammar_obs, pass_comment="stripped obs call")
     assert n == 1
     assert "pass" in out
     assert "grammar_obs(" not in out
@@ -35,7 +29,7 @@ def test_remove_empty_if_keeps_pass() -> None:
 
 def test_remove_with_siblings_deletes_without_pass() -> None:
     src = "if True:\n    grammar_obs('x')\n    x = 1\n"
-    out, n = remove_expr_statements(src, _grammar_obs)
+    out, n = remove_statements(src, _grammar_obs)
     assert n == 1
     assert "grammar_obs" not in out
     assert "x = 1" in out
@@ -45,7 +39,7 @@ def test_remove_with_siblings_deletes_without_pass() -> None:
 
 def test_one_line_suite_splices_pass_after_colon() -> None:
     src = "if cond: debug()\n"
-    out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"debug"})))
+    out, n = remove_statements(src, lambda node: is_name_call_expr(node, frozenset({"debug"})))
     assert n == 1
     assert out == "if cond: pass\n"
     ast.parse(out)
@@ -64,7 +58,7 @@ def test_one_line_suite_splices_pass_after_colon() -> None:
 )
 def test_same_line_sibling_is_kept(value, expected) -> None:
     src = value
-    out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
+    out, n = remove_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
     assert n == expected
     assert "print" not in out
     assert "keep()" in out
@@ -80,7 +74,7 @@ def test_multiline_call_fully_removed() -> None:
         "    )\n"
         "    after = 2\n"
     )
-    out, n = remove_expr_statements(src, _grammar_obs)
+    out, n = remove_statements(src, _grammar_obs)
     assert n == 1
     assert "grammar_obs" not in out
     assert "before = 1" in out
@@ -88,28 +82,11 @@ def test_multiline_call_fully_removed() -> None:
     ast.parse(out)
 
 
-def test_skip_last_module_expr_keeps_egress_xl() -> None:
-    # Sentinel form like excel placeholder normalize (bare %Pn% is not valid Python).
-    src = "xl(_P2_)\n"
-    out, n = remove_expr_statements(src, _xl, skip_last_module_expr=True)
-    assert n == 0
-    assert "xl(_P2_)" in out
-
-
-def test_skip_last_module_expr_strips_nested_xl() -> None:
-    src = "if cond:\n    xl(_P2_)\n"
-    out, n = remove_expr_statements(src, _xl, pass_comment="discarded statement", skip_last_module_expr=True)
-    assert n == 1
-    assert "pass" in out
-    assert "xl(" not in out
-    ast.parse(out)
-
-
 def test_iter_matches_remove_discovery() -> None:
     src = "def f():\n    grammar_obs('a')\n    return 1\n"
-    found = iter_matching_expr_statements(src, _grammar_obs)
+    found = iter_matching_statements(src, _grammar_obs)
     assert len(found) == 1
-    out, n = remove_expr_statements(src, _grammar_obs)
+    out, n = remove_statements(src, _grammar_obs)
     assert n == len(found)
     assert "grammar_obs" not in out
 
@@ -202,7 +179,7 @@ def test_node_span_valid_and_missing_positions() -> None:
 @pytest.mark.parametrize("sep", ["\x0c", "\u2028"])
 def test_remove_statements_uses_ast_line_numbers_with_unicode_breaks(sep: str) -> None:
     src = f's = "a{sep}b"\nprint(1)\nkeep = 2\n'
-    out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
+    out, n = remove_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
     assert n == 1
     ast.parse(out)
     assert "print(1)" not in out
@@ -212,7 +189,7 @@ def test_remove_statements_uses_ast_line_numbers_with_unicode_breaks(sep: str) -
 
 def test_remove_only_statement_in_except_handler_keeps_pass() -> None:
     src = "try:\n    x = 1\nexcept ValueError:\n    print(1)\n"
-    out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
+    out, n = remove_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
     assert n == 1
     ast.parse(out)
     assert "pass" in out

@@ -140,7 +140,6 @@
       "tool": "deal+hypothesis",
       "functions_contracted": [
         "is_name_call_expr",
-        "remove_expr_statements",
         "remove_statements"
       ],
       "ci_integration": true

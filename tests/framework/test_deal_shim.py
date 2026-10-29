@@ -44,7 +44,6 @@ from plugin.framework.deal_shim import (
     deal,
     deal_maxima,
     inverse_ensure,
-    inverse_ensure_for,
     str_bounded,
 )
 
@@ -189,11 +188,16 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
             DEAL_MAX_MSGID,
             DEAL_MAX_ORIGIN,
             DEAL_MAX_URL,
+            inverse_ensure,
         )
         assert DEAL_MAX_MSGID == 1024, DEAL_MAX_MSGID
         assert DEAL_MAX_ORIGIN == 32, DEAL_MAX_ORIGIN
         assert DEAL_MAX_URL == 32, DEAL_MAX_URL
         assert DEAL_MAX_HTML_CHUNK == 16, DEAL_MAX_HTML_CHUNK
+        def _f(x):
+            return x + 1
+        _wrapped = inverse_ensure(lambda x, result: False)(_f)
+        assert _wrapped is _f and _wrapped(3) == 4
         import deal
         from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
         from plugin.framework.i18n import _
@@ -294,20 +298,6 @@ def test_crosshair_env_rejects_pytest_collection_width() -> None:
         env={**os.environ, "WRITERAGENT_CROSSHAIR": "1"},
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
-
-
-
-def test_inverse_ensure_for_is_noop_under_crosshair() -> None:
-    def f(x: int) -> int:
-        return x + 1
-
-    wrapped = inverse_ensure_for(crosshair=True)(lambda x, result: False)(f)
-    assert wrapped is f
-    assert wrapped(3) == 4
-
-
-def test_inverse_ensure_for_is_deal_ensure_under_pytest() -> None:
-    assert inverse_ensure_for(crosshair=False) is deal.ensure
 
 
 def test_cover_all_and_check_all_main_set_crosshair_env(tmp_path, monkeypatch) -> None:

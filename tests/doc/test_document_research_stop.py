@@ -138,7 +138,7 @@ def test_grep_nearby_files_polls_stop_checker(
         stop_checker = MagicMock(return_value=False)
         ctx.stop_checker = stop_checker
 
-        mock_grep_calc.return_value = ([], 0, False)
+        mock_grep_calc.return_value = ([], False)
 
         grep_nearby_files(ctx, opened_model, {}, "pattern", stop_checker=stop_checker)
 

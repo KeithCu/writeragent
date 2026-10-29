@@ -30,11 +30,6 @@ def parse_prefixed_rule_identifier(rule_identifier: str, prefix: str) -> str | N
     return code or None
 
 
-def bare_code_for_persistence(rule_identifier: str, prefix: str) -> str:
-    """Bare rule code stored in document ``ignored_rules`` (fallback: full id)."""
-    return parse_prefixed_rule_identifier(rule_identifier, prefix) or rule_identifier
-
-
 def grammar_match(
     *,
     wrong: str,
@@ -122,10 +117,7 @@ def bcp47_to_uno_lang_country(bcp47: str) -> tuple[str, str]:
     parts = bcp47.split("-")
     if not parts[0]:
         return "", ""
-    lang = parts[0]
-    if len(parts) < 2:
-        return lang, ""
-    return lang, parts[1]
+    return parts[0], parts[1] if len(parts) > 1 else ""
 
 
 def _build_locale_maps() -> tuple[dict[tuple[str, str], str], dict[str, str]]:
@@ -134,9 +126,7 @@ def _build_locale_maps() -> tuple[dict[tuple[str, str], str], dict[str, str]]:
     for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
         lang, country = bcp47_to_uno_lang_country(tag)
         exact[(lang.lower(), country.upper())] = tag
-        key = lang.lower()
-        if key not in ("en", "zh", "pt", "nb", "nn", "no") and key not in canon:
-            canon[key] = tag
+        canon.setdefault(lang.lower(), tag)
     return exact, canon
 
 
@@ -147,10 +137,6 @@ _LANGUAGE_DIALECT_OVERRIDES: dict[tuple[str, str], str] = {
     ("en", "UK"): "en-GB",
     ("zh", "HK"): "zh-TW",
     ("zh", "MO"): "zh-TW",
-    ("no", "NO"): "nb-NO",
-    ("no", ""): "nb-NO",
-    ("nb", ""): "nb-NO",
-    ("nn", ""): "nn-NO",
 }
 
 _LANGUAGE_DEFAULT_FALLBACKS: dict[str, str] = {
@@ -185,8 +171,6 @@ def normalize_uno_locale_to_bcp47(a_locale: Any) -> str | None:
 
     Regional variants (e.g. ``de-AT``) map to the same canonical tag as ``de-DE`` for cache/LLM.
     """
-    if a_locale is None:
-        return None
     lang = getattr(a_locale, "Language", None) or ""
     country = getattr(a_locale, "Country", None) or ""
     return _normalize_lang_country(str(lang), str(country))

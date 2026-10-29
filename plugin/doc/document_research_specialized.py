@@ -149,21 +149,15 @@ class DelegateReadDocument(ToolBase):
 
         target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
 
-        def _open_on_main() -> tuple[Any, ...] | dict[str, Any]:
-            model, doc_type, err, opened_for_document_research = open_document_for_read(ctx.ctx, target)
-            if model is None or doc_type is None:
-                return self._tool_error(err or "Open failed", path=path)
-            return (model, doc_type, opened_for_document_research)
+        def _open_on_main() -> tuple[Any | None, str | None, str | None, bool]:
+            return open_document_for_read(ctx.ctx, target)
 
         try:
-            opened = run_on_main(_open_on_main)
+            model, doc_type, err, opened_for_document_research = run_on_main(_open_on_main)
         except SendCancelled:
             return user_stopped_payload()
-
-        if isinstance(opened, dict) and opened.get("status") == "error":
-            return opened
-
-        model, doc_type, opened_for_document_research = opened
+        if model is None or doc_type is None:
+            return self._tool_error(err or "Open failed", path=path)
         try:
             stop_checker = ctx.stop_checker if isinstance(ctx, ToolContext) else None
             if stop_checker is not None and stop_checker():

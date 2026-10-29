@@ -71,17 +71,10 @@ def normalize_domain_list(raw: Any) -> tuple[list[str] | None, str | None]:
     """
     if isinstance(raw, str):
         text = raw.strip()
-        if text.startswith("["):
-            try:
-                parsed = json.loads(text)
-            except json.JSONDecodeError:
-                parsed = None
-            if isinstance(parsed, list):
-                raw = parsed
-            else:
-                return None, _DOMAINS_ERROR
-        else:
-            return None, _DOMAINS_ERROR
+        try:
+            raw = json.loads(text) if text.startswith("[") else None
+        except json.JSONDecodeError:
+            raw = None
     if not isinstance(raw, (list, tuple)):
         return None, _DOMAINS_ERROR
     names: list[str] = []

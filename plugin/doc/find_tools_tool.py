@@ -99,9 +99,6 @@ def sidebar_only_tool_names(
     declares ``uno_services``, the name set is empty, and those tools leak.
     """
     try:
-        from plugin.framework.prompts import IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS, WRITER_SIDEBAR_ONLY_DOMAINS
-
-        sidebar_only = WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
         tools = registry.get_tools(
             doc_type=doc_type,
             uno_services_supported=uno_services_supported,
@@ -112,7 +109,7 @@ def sidebar_only_tool_names(
         return frozenset()
     out = set()
     for t in tools:
-        if getattr(t, "specialized_domain", None) in sidebar_only:
+        if getattr(t, "specialized_domain", None) in _SIDEBAR_ONLY_DOMAINS:
             name = getattr(t, "name", None)
             if isinstance(name, str):
                 out.add(name)
@@ -168,13 +165,13 @@ class FindTools(ToolBase):
         catalog = get_specialized_domain_catalog(agent_label=agent_label, ctx=getattr(ctx, "ctx", None),
                                                  for_discovery=True)
 
+        out: dict[str, Any] = {
+            "status": "ok",
+            "domain": domain,
+            "available_domains": catalog,
+            "tools": [],
+        }
         if not domain:
-            out: dict[str, Any] = {
-                "status": "ok",
-                "domain": None,
-                "available_domains": catalog,
-                "tools": [],
-            }
             if doc is None:
                 out["note"] = ("No document is open; the catalog lists all apps. "
                                "Open the matching document before calling an app-specific tool.")
@@ -182,13 +179,8 @@ class FindTools(ToolBase):
 
         # Catalog ids use underscores; only ppt-master has a hyphen.
         if domain in _SIDEBAR_ONLY_DOMAINS or domain.replace("_", "-") in _SIDEBAR_ONLY_DOMAINS:
-            return {
-                "status": "ok",
-                "domain": domain,
-                "available_domains": catalog,
-                "tools": [],
-                "note": "Sidebar-only flow; its tools are not exposed over MCP.",
-            }
+            out["note"] = "Sidebar-only flow; its tools are not exposed over MCP."
+            return out
         if domain not in {str(e.get("domain") or "") for e in catalog}:
             return self._tool_error(
                 f"Unknown or unavailable specialized domain '{domain}'.",
@@ -212,17 +204,11 @@ class FindTools(ToolBase):
             tools.append(s)
         tools.sort(key=lambda s: str(s.get("name") or ""))
 
-        result: dict[str, Any] = {
-            "status": "ok",
-            "domain": domain,
-            "available_domains": catalog,
-            "tools": tools,
-        }
+        out["tools"] = tools
         if doc is None:
-            result["note"] = ("No document is open, so results span all document types; "
-                              "open the matching document before calling an app-specific tool.")
-        label = agent_label
-        guidance = get_domain_guidance(domain, agent_label=label)
+            out["note"] = ("No document is open, so results span all document types; "
+                           "open the matching document before calling an app-specific tool.")
+        guidance = get_domain_guidance(domain, agent_label=agent_label)
         if guidance:
-            result["domain_guidance"] = {domain: guidance}
-        return result
+            out["domain_guidance"] = {domain: guidance}
+        return out

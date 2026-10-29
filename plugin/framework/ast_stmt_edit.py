@@ -45,8 +45,6 @@ def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
 def _discover_statements(
     source: str,
     should_remove: Callable[[ast.stmt], bool],
-    *,
-    skip_last_module_expr: bool = False,
 ) -> tuple[list[ast.stmt], dict[ast.AST, ast.AST]]:
     """Parse once; return ``(matching stmt nodes, child -> parent map)``.
 
@@ -55,18 +53,12 @@ def _discover_statements(
     """
     tree = ast.parse(source or "")
 
-    skip_node: ast.AST | None = None
-    if skip_last_module_expr and isinstance(tree, ast.Module) and tree.body:
-        last = tree.body[-1]
-        if isinstance(last, ast.Expr):
-            skip_node = last
-
     found: list[ast.stmt] = []
     parents: dict[ast.AST, ast.AST] = {}
 
     class FindVisitor(ast.NodeVisitor):
         def generic_visit(self, node: ast.AST) -> None:
-            if isinstance(node, ast.stmt) and node is not skip_node and should_remove(node):
+            if isinstance(node, ast.stmt) and should_remove(node):
                 found.append(node)
             for child in ast.iter_child_nodes(node):
                 parents[child] = node
@@ -76,25 +68,10 @@ def _discover_statements(
     return found, parents
 
 
-def iter_matching_statements(source: str, should_remove: Callable[[ast.stmt], bool], *, skip_last_module_expr: bool = False) -> list[ast.stmt]:
+def iter_matching_statements(source: str, should_remove: Callable[[ast.stmt], bool]) -> list[ast.stmt]:
     """Discover matching statements in *source*."""
-    found, _parents = _discover_statements(source, should_remove, skip_last_module_expr=skip_last_module_expr)
+    found, _parents = _discover_statements(source, should_remove)
     return found
-
-
-def iter_matching_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, skip_last_module_expr: bool = False) -> list[ast.Expr]:
-    """Discover matching expression statements in *source*.
-
-    When *skip_last_module_expr* is True, never yield ``module.body[-1]`` if it
-    is an ``ast.Expr`` (Excel/Jupyter last-expression egress — keep that ``xl``
-    so it can rewrite to ``data``).
-    """
-    found, _parents = _discover_statements(
-        source,
-        lambda node: isinstance(node, ast.Expr) and should_remove(node),
-        skip_last_module_expr=skip_last_module_expr,
-    )
-    return [s for s in found if isinstance(s, ast.Expr)]
 
 
 def _cut_same_line_span(raw: str, start: int, end: int) -> str:
@@ -139,7 +116,7 @@ def _get_container(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> list[as
 
 
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], int) and result[1] >= 0)
-def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *, pass_comment: str = "", skip_last_module_expr: bool = False) -> tuple[str, int]:
+def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *, pass_comment: str = "") -> tuple[str, int]:
     """Remove matching statement nodes from *source*.
 
     Uses ``_discover_statements`` — the same function
@@ -150,7 +127,7 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
     # Callable argument plus a parse loop hangs deep check.
     # crosshair: off
     src = source or ""
-    nodes_to_remove, parent_map = _discover_statements(src, should_remove, skip_last_module_expr=skip_last_module_expr)
+    nodes_to_remove, parent_map = _discover_statements(src, should_remove)
     if not nodes_to_remove:
         return src, 0
 
@@ -171,11 +148,9 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
 
     for node in nodes_to_remove:
         start_line = node.lineno
-        end_line = getattr(node, "end_lineno", None) or start_line
+        end_line = node.end_lineno or start_line
         first_idx = start_line - 1
         last_idx = end_line - 1
-        if first_idx < 0 or last_idx >= len(lines):
-            continue
         original_line = lines[first_idx]
         indent = original_line[: len(original_line) - len(original_line.lstrip())]
 
@@ -184,41 +159,34 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
         container = _get_container(node, parent_map)
         needs_pass = False
         if container and not isinstance(parent_map.get(node), ast.Module):
-            remaining = [s for s in container if s not in remove_set]
-            if not remaining:
-                first_removed = next(s for s in container if s in remove_set)
-                if node is first_removed:
-                    needs_pass = True
+            needs_pass = all(s in remove_set for s in container) and node is container[0]
 
         if needs_pass:
             comment = f"  # {pass_comment}" if pass_comment else ""
-            start_col = getattr(node, "col_offset", None)
             # ``if cond: debug()`` shares the header line. Replacing the
             # whole line with ``pass`` drops the suite header and is invalid
             # or changes the program. Splice ``pass`` after the colon.
-            if start_line == end_line and start_col is not None and start_col > len(indent):
-                prefix = lines[first_idx][:start_col].rstrip()
+            if start_line == end_line and node.col_offset > len(indent):
+                prefix = lines[first_idx][:node.col_offset].rstrip()
                 replacements[first_idx] = f"{prefix} pass{comment}\n"
             else:
                 replacements[first_idx] = f"{indent}pass{comment}\n"
             for idx in range(first_idx + 1, last_idx + 1):
                 to_delete.add(idx)
         else:
-            end_col = getattr(node, "end_col_offset", None)
-            start_col = getattr(node, "col_offset", None)
+            end_col = node.end_col_offset
             # ``print(1); keep()`` shares a line. Deleting the whole line drops keep().
             if (
                 start_line == end_line
-                and start_col is not None
                 and end_col is not None
                 and first_idx not in to_delete
                 and first_idx not in replacements
             ):
                 raw = lines[first_idx]
-                prefix = raw[:start_col]
+                prefix = raw[:node.col_offset]
                 suffix = raw[end_col:]
                 if prefix.strip() or suffix.strip():
-                    same_line_spans.setdefault(first_idx, []).append((start_col, end_col))
+                    same_line_spans.setdefault(first_idx, []).append((node.col_offset, end_col))
                     continue
             for idx in range(first_idx, last_idx + 1):
                 to_delete.add(idx)
@@ -238,31 +206,11 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
         else:
             to_delete.add(idx)
 
-    new_lines: list[str] = []
-    for i, line in enumerate(lines):
-        if i in to_delete and i not in replacements:
-            continue
-        if i in replacements:
-            new_lines.append(replacements[i])
-        else:
-            new_lines.append(line)
-
-    return "".join(new_lines), len(nodes_to_remove)
-
-
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], int) and result[1] >= 0)
-def remove_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, pass_comment: str = "", skip_last_module_expr: bool = False) -> tuple[str, int]:
-    """Remove matching expression-statement nodes from *source*.
-
-    Uses ``remove_statements`` filtering for ``ast.Expr`` nodes.
-    Returns ``(new_source, removed_count)``.
-    """
-    return remove_statements(
-        source,
-        lambda node: isinstance(node, ast.Expr) and should_remove(node),
-        pass_comment=pass_comment,
-        skip_last_module_expr=skip_last_module_expr,
-    )
+    return "".join(
+        replacements[i] if i in replacements else line
+        for i, line in enumerate(lines)
+        if i not in to_delete or i in replacements
+    ), len(nodes_to_remove)
 
 
 # ast_source_offset splits lines on \r\n, \r, or \n, matching

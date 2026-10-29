@@ -42,6 +42,7 @@ type compatibility during ``make test``.
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 from typing import Any, NamedTuple
 
 # Import-time flag. CrossHair runners set this; pytest / make test do not.
@@ -187,32 +188,12 @@ try:
 
     deal = _deal
 except ImportError:
-
-    class _DealStub:
-        """No-op stub for deal contract decorators when deal is not installed."""
-
-        pre: Any = staticmethod(_noop_contract)
-        post: Any = staticmethod(_noop_contract)
-        ensure: Any = staticmethod(_noop_contract)
-        raises: Any = staticmethod(_noop_contract)
-
-    deal = _DealStub()
-
-
-def _identity_contract(*args: Any, **kwargs: Any) -> Any:
-    """No-op decorator: skip nested inverse ensures under CrossHair."""
-    return lambda f: f
-
-
-def inverse_ensure_for(*, crosshair: bool) -> Any:
-    """Nested inverse ``@deal.ensure``: live under pytest, no-op under CrossHair.
-
-    Bound at import, not inside a ``@deal.pre`` lambda — CrossHair would explore
-    both branches of an in-lambda ``if``. Cheap ``@deal.post`` still runs.
-    """
-    if crosshair:
-        return _identity_contract
-    return deal.ensure
+    deal = SimpleNamespace(
+        pre=_noop_contract,
+        post=_noop_contract,
+        ensure=_noop_contract,
+        raises=_noop_contract,
+    )
 
 
 def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -> Any:  # pyright: ignore[reportUnusedFunction]  # imported by payload_codec, calc_range, editor_errors, editor_ipc
@@ -232,7 +213,9 @@ def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -
 
 
 # format_address → parse_address and column_to_index → index_to_column.
-inverse_ensure = inverse_ensure_for(crosshair=UNDER_CROSSHAIR)
+# Import-time only. No-op under CrossHair so nested inverse @deal.ensure is
+# not explored; cheap @deal.post still runs. Do not branch inside @deal.pre.
+inverse_ensure = _noop_contract if UNDER_CROSSHAIR else deal.ensure
 
 
 def asserts_enabled() -> bool:

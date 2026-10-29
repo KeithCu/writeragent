@@ -118,31 +118,21 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
     """Sender fields from ``ToolContext.doc`` (not authored in ``message``)."""
     from plugin.framework.uno_context import get_runtime_uid
 
-    uid = ""
-    url = ""
-    name = ""
-    resolved_name = False
     if doc is None:
-        return {"name": "Untitled", "uid": uid, "url": url}
+        return {"name": "Untitled", "uid": "", "url": ""}
     # Do not catch. get_runtime_uid and get_document_path are @main_thread_only;
     # an off-main RuntimeError must propagate and must not fall through to getTitle().
     # get_document_path already catches Exception in its body and returns None.
     uid = get_runtime_uid(doc) or ""
     url = str(doc.getURL() or "")
+    name = ""
     if url:
         from plugin.doc.text_helpers import get_document_path
 
         path = get_document_path(doc) or ""
-        base = os.path.basename(path) if path else ""
-        if base:
-            name = base
-            resolved_name = True
-    if not resolved_name:
-        title = doc.getTitle()
-        if title:
-            name = str(title)
+        name = os.path.basename(path) if path else ""
     if not name:
-        name = "Untitled"
+        name = str(doc.getTitle() or "") or "Untitled"
     return {"name": name, "uid": uid, "url": url}
 
 
@@ -210,6 +200,16 @@ def format_peer_catalog(peers: list[dict[str, str]]) -> str:
     return "Open peers: " + "; ".join(parts) + "."
 
 
+def _resolve_open_model(uno_ctx: Any, key: str) -> Any | None:
+    from plugin.framework.uno_context import resolve_document_by_url
+
+    try:
+        model, _unused_type = resolve_document_by_url(uno_ctx, key)
+    except Exception:
+        return None
+    return model
+
+
 def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
     """Resolvable other v1 peers (distinct uid, supported model, addressable).
 
@@ -218,7 +218,7 @@ def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
     """
     from plugin.doc.document_research import get_open_documents
     from plugin.framework.thread_guard import assert_main_thread
-    from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url, uno_same
+    from plugin.framework.uno_context import get_runtime_uid, uno_same
 
     assert_main_thread("peer_message.list_v1_peers")
     self_uid = ""
@@ -236,16 +236,9 @@ def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
         url = str(rec.get("url") or "")
         if not uid or uid == self_uid or uid in seen:
             continue
-        model = None
-        try:
-            model, _unused_type = resolve_document_by_url(uno_ctx, uid)
-        except Exception:
-            model = None
+        model = _resolve_open_model(uno_ctx, uid)
         if model is None and url:
-            try:
-                model, _unused_type = resolve_document_by_url(uno_ctx, url)
-            except Exception:
-                model = None
+            model = _resolve_open_model(uno_ctx, url)
         label = v1_peer_type_label(model)
         if label is None:
             continue
@@ -272,7 +265,7 @@ def resolve_peer_target(
 
     Returns ``(model, error_code, error_message)``. Success: ``(model, None, "")``.
     """
-    from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url, uno_same
+    from plugin.framework.uno_context import get_runtime_uid, uno_same
 
     target = (document_url or "").strip()
     if not target:
@@ -282,11 +275,7 @@ def resolve_peer_target(
     if self_doc is not None:
         self_uid = get_runtime_uid(self_doc) or ""
 
-    model = None
-    try:
-        model, _unused_type = resolve_document_by_url(uno_ctx, target)
-    except Exception:
-        model = None
+    model = _resolve_open_model(uno_ctx, target)
 
     if model is None:
         peers = list_v1_peers(uno_ctx, self_doc)
@@ -298,10 +287,7 @@ def resolve_peer_target(
                 f"document_url {target!r} matches more than one open peer; use a uid or file URL.",
             )
         if len(name_hits) == 1:
-            try:
-                model, _unused_type = resolve_document_by_url(uno_ctx, name_hits[0]["uid"])
-            except Exception:
-                model = None
+            model = _resolve_open_model(uno_ctx, name_hits[0]["uid"])
 
     if model is None:
         # What was wrong: list_v1_peers omits self, so the caller's own display
@@ -578,15 +564,6 @@ def peer_send_caller_allowed(ctx: Any) -> bool:
     return _document_research_domain(getattr(ctx, "active_domain", None))
 
 
-def peer_message_visible_on_specialized(
-    *,
-    active_domain: str | None,
-    peers: list[dict[str, str]],
-) -> bool:
-    """Advertise only on the document_research inner wire when a v1 peer exists."""
-    return bool(peers) and _document_research_domain(active_domain)
-
-
 def _list_v1_peers_or_empty(uno_ctx: Any, doc: Any, where: str) -> list[dict[str, str]]:
     try:
         return list_v1_peers(uno_ctx, doc)
@@ -637,7 +614,7 @@ def filter_peer_message_schemas(
     peers: list[dict[str, str]] = []
     if ctx is not None and doc is not None:
         peers = _list_v1_peers_or_empty(ctx, doc, "filter_peer_message_schemas")
-    if not peer_message_visible_on_specialized(active_domain=active_domain, peers=peers):
+    if not peers:
         return [s for s in schemas if _schema_function_name(s) not in PEER_TOOL_NAMES]
     catalog = format_peer_catalog(peers)
     out: list[dict[str, Any]] = []

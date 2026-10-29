@@ -121,6 +121,14 @@ def test_bcp47_tags_have_valid_uno_language() -> None:
         assert c == c.upper()
 
 
+def test_bcp47_to_uno_lang_country_keeps_empty_language_and_second_subtag() -> None:
+    assert bcp47_to_uno_lang_country("en") == ("en", "")
+    assert bcp47_to_uno_lang_country("en-US") == ("en", "US")
+    assert bcp47_to_uno_lang_country("zh-Hans-CN") == ("zh", "Hans")
+    assert bcp47_to_uno_lang_country("") == ("", "")
+    assert bcp47_to_uno_lang_country("-US") == ("", "")
+
+
 def test_looks_complete_sentence_matches_proofreader_gating() -> None:
     """Includes STerm chars beyond ASCII."""
     assert gl.looks_complete_sentence("Hello world.") is True

@@ -117,7 +117,7 @@ def _grep_text_in_writer(
     case_sensitive: bool = False,
     max_results: int,
     stop_checker: Callable[[], bool] | None = None,
-) -> tuple[list[dict[str, Any]], int, bool]:
+) -> tuple[list[dict[str, Any]], bool]:
     doc_svc = services.document
     para_ranges = doc_svc.get_paragraph_ranges(model)
     para_texts: list[str] = []
@@ -165,7 +165,7 @@ def _grep_text_in_writer(
     # now does too. partial is true when another hit exists past the returned matches,
     # or when Stop cut extraction or the scan.
     partial = truncated or bool(stop_checker and stop_checker())
-    return matches, len(matches), partial
+    return matches, partial
 
 
 def _grep_text_in_calc(
@@ -176,7 +176,7 @@ def _grep_text_in_calc(
     case_sensitive: bool = False,
     max_results: int,
     stop_checker: Callable[[], bool] | None = None,
-) -> tuple[list[dict[str, Any]], int, bool]:
+) -> tuple[list[dict[str, Any]], bool]:
     # search_spreadsheet_cells stops at max_results with no truncated flag,
     # and search_in_spreadsheet still needs the list. One extra hit
     # distinguishes a full cap from a short sheet. partial here is truncation only.
@@ -190,8 +190,7 @@ def _grep_text_in_calc(
         stop_checker=stop_checker,
     )
     partial = len(fetched) > max_results
-    matches = fetched[:max_results]
-    return matches, len(matches), partial
+    return fetched[:max_results], partial
 
 
 def _shape_text_matches_pattern(
@@ -218,9 +217,8 @@ def _grep_text_in_draw(
     regex: bool = False,
     case_sensitive: bool = False,
     max_results: int,
-    shape_cap: int = _DRAW_GREP_SHAPE_CAP,
     stop_checker: Callable[[], bool] | None = None,
-) -> tuple[list[dict[str, Any]], int, bool]:
+) -> tuple[list[dict[str, Any]], bool]:
     compiled = compile_search_pattern(pattern, regex=regex, case_sensitive=case_sensitive)
 
     matches: list[dict[str, Any]] = []
@@ -235,7 +233,7 @@ def _grep_text_in_draw(
         if stop_checker and stop_checker():
             partial = True
             break
-        if len(matches) >= scan_limit or shapes_visited >= shape_cap:
+        if len(matches) >= scan_limit or shapes_visited >= _DRAW_GREP_SHAPE_CAP:
             break
         page = pages.getByIndex(page_idx)
         # match_count must not exceed the matches returned. Searching
@@ -253,18 +251,17 @@ def _grep_text_in_draw(
             compiled=compiled,
             max_results=remaining,
             shapes_visited=shapes_visited,
-            shape_cap=shape_cap,
             stop_checker=stop_checker,
         )
         matches.extend(page_matches)
         partial = partial or page_partial
-        if shapes_visited >= shape_cap and len(matches) < max_results:
+        if shapes_visited >= _DRAW_GREP_SHAPE_CAP and len(matches) < max_results:
             partial = True
 
     # The shape walk has no truncated flag, so one extra hit distinguishes
     # a full cap from a deck that ended on the last returned match.
     returned = matches[:max_results]
-    return returned, len(returned), partial or len(matches) > max_results
+    return returned, partial or len(matches) > max_results
 
 
 def _grep_shapes_on_page(
@@ -277,7 +274,6 @@ def _grep_shapes_on_page(
     compiled: Any,
     max_results: int,
     shapes_visited: int,
-    shape_cap: int,
     path_prefix: str = "",
     stop_checker: Callable[[], bool] | None = None,
 ) -> tuple[list[dict[str, Any]], int, bool]:
@@ -290,8 +286,8 @@ def _grep_shapes_on_page(
         if stop_checker and stop_checker():
             partial = True
             break
-        if len(matches) >= max_results or shapes_visited >= shape_cap:
-            partial = partial or shapes_visited >= shape_cap
+        if len(matches) >= max_results or shapes_visited >= _DRAW_GREP_SHAPE_CAP:
+            partial = partial or shapes_visited >= _DRAW_GREP_SHAPE_CAP
             break
         shapes_visited += 1
         shape = xshapes.getByIndex(i)
@@ -313,7 +309,6 @@ def _grep_shapes_on_page(
                 compiled=compiled,
                 max_results=max_results - len(matches),
                 shapes_visited=shapes_visited,
-                shape_cap=shape_cap,
                 path_prefix=f"{shape_path}.",
                 stop_checker=stop_checker,
             )
@@ -322,57 +317,6 @@ def _grep_shapes_on_page(
                 partial = True
 
     return matches, shapes_visited, partial
-
-
-def _search_opened_document(
-    model: Any,
-    doc_type: str,
-    services: Any,
-    pattern: str,
-    *,
-    regex: bool,
-    case_sensitive: bool,
-    max_results_per_file: int,
-    stop_checker: Callable[[], bool] | None = None,
-) -> tuple[list[dict[str, Any]], int, bool, str | None]:
-    """Return (matches, match_count, partial, error_message)."""
-    partial = False
-    try:
-        if doc_type == "writer":
-            matches, count, partial = _grep_text_in_writer(
-                model,
-                services,
-                pattern,
-                regex=regex,
-                case_sensitive=case_sensitive,
-                max_results=max_results_per_file,
-                stop_checker=stop_checker,
-            )
-            return matches, count, partial, None
-        if doc_type == "calc":
-            matches, count, partial = _grep_text_in_calc(
-                model,
-                pattern,
-                regex=regex,
-                case_sensitive=case_sensitive,
-                max_results=max_results_per_file,
-                stop_checker=stop_checker,
-            )
-            return matches, count, partial, None
-        if doc_type == "draw":
-            matches, count, partial = _grep_text_in_draw(
-                model,
-                pattern,
-                regex=regex,
-                case_sensitive=case_sensitive,
-                max_results=max_results_per_file,
-                stop_checker=stop_checker,
-            )
-            return matches, count, partial, None
-        return [], 0, False, f"Unsupported doc_type {doc_type!r} for grep"
-    except Exception as e:
-        log.exception("grep search failed for doc_type=%s", doc_type)
-        return [], 0, False, str(e)
 
 
 def _search_one_file(
@@ -395,19 +339,42 @@ def _search_one_file(
     if model is None or doc_type is None:
         return [], None, False, open_err or "Open failed"
     try:
-        matches, _count, partial, search_err = _search_opened_document(
-            model,
-            doc_type,
-            services,
-            pattern,
-            regex=regex,
-            case_sensitive=case_sensitive,
-            max_results_per_file=max_results,
-            stop_checker=stop_checker,
-        )
+        if doc_type == "writer":
+            matches, partial = _grep_text_in_writer(
+                model,
+                services,
+                pattern,
+                regex=regex,
+                case_sensitive=case_sensitive,
+                max_results=max_results,
+                stop_checker=stop_checker,
+            )
+        elif doc_type == "calc":
+            matches, partial = _grep_text_in_calc(
+                model,
+                pattern,
+                regex=regex,
+                case_sensitive=case_sensitive,
+                max_results=max_results,
+                stop_checker=stop_checker,
+            )
+        elif doc_type == "draw":
+            matches, partial = _grep_text_in_draw(
+                model,
+                pattern,
+                regex=regex,
+                case_sensitive=case_sensitive,
+                max_results=max_results,
+                stop_checker=stop_checker,
+            )
+        else:
+            return [], doc_type, False, f"Unsupported doc_type {doc_type!r} for grep"
+        return matches, doc_type, partial, None
+    except Exception as e:
+        log.exception("grep search failed for doc_type=%s", doc_type)
+        return [], doc_type, False, str(e)
     finally:
         close_document_research_document(model, opened_for_document_research=opened)
-    return matches, doc_type, partial, search_err
 
 
 def grep_nearby_files(
@@ -458,16 +425,11 @@ def grep_nearby_files(
     errors: list[dict[str, str]] = []
     total_snippets = 0
     stopped_early = False
-    user_stopped = False
     files_scanned = 0  # Files we attempted to open; a failed open still counts.
 
     for idx, entry in enumerate(candidates):
         if stop_checker and stop_checker():
-            user_stopped = True
-            break
-        if total_snippets >= DEFAULT_GREP_MAX_TOTAL_RESULTS:
-            stopped_early = True
-            break
+            return user_stopped_payload()
 
         path = entry["path"]
         name = entry["name"]
@@ -503,8 +465,7 @@ def grep_nearby_files(
             continue
 
         if stop_checker and stop_checker():
-            user_stopped = True
-            break
+            return user_stopped_payload()
 
         if file_err or doc_type is None:
             errors.append({"path": path, "message": file_err or "Open failed"})
@@ -528,9 +489,6 @@ def grep_nearby_files(
         if total_snippets >= DEFAULT_GREP_MAX_TOTAL_RESULTS:
             stopped_early = True
             break
-
-    if user_stopped:
-        return user_stopped_payload()
 
     result: dict[str, Any] = {
         "status": "ok",

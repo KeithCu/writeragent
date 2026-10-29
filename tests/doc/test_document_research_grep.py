@@ -16,7 +16,7 @@ from plugin.doc.document_research_grep import (
     _grep_text_in_calc,
     _grep_text_in_draw,
     _grep_text_in_writer,
-    _search_opened_document,
+    _search_one_file,
     grep_nearby_files,
     resolve_grep_candidates,
 )
@@ -156,7 +156,7 @@ def test_resolve_grep_candidates_open_files_first():
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
-@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
@@ -167,9 +167,7 @@ def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open,
     mock_open.return_value = (MagicMock(), "calc", None, True)
     mock_search.return_value = (
         [{"sheet": "Sheet1", "cell": "A1", "value": "Q4 revenue"}],
-        1,
         False,
-        None,
     )
 
     result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="budget")
@@ -185,7 +183,7 @@ def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open,
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
-@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
@@ -199,9 +197,7 @@ def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search,
     mock_open.return_value = (MagicMock(), "calc", None, True)
     mock_search.return_value = (
         [{"sheet": "S", "cell": "A1", "value": "x"}],
-        1,
         False,
-        None,
     )
 
     with patch("plugin.doc.document_research_grep.DEFAULT_GREP_MAX_TOTAL_RESULTS", 1):
@@ -218,7 +214,7 @@ def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search,
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
-@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_stop_checker(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
@@ -230,7 +226,7 @@ def test_grep_nearby_files_stop_checker(mock_resolve, mock_search, mock_open, mo
         None,
     )
     mock_open.return_value = (MagicMock(), "calc", None, True)
-    mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], 1, False, None)
+    mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], False)
 
     stopped = {"n": 0}
 
@@ -299,10 +295,10 @@ def test_grep_text_in_draw_match_count_uses_remaining_page_budget():
     model = MagicMock()
     model.getDrawPages.return_value = pages
 
-    matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=3)
+    matches, partial = _grep_text_in_draw(model, "alpha", max_results=3)
 
     assert [row["text"] for row in matches] == ["alpha one", "alpha two", "alpha three"]
-    assert count == len(matches) == 3
+    assert len(matches) == 3
     assert partial is True
     # Remaining budget was 2 (scan_limit = 4, page0 returned 2, remaining = 2), so page1 probes 2 shapes
     assert page1.getByIndex.call_count == 2
@@ -323,9 +319,8 @@ def test_grep_text_in_draw_count_matches_sliced_return_when_page_overshoots():
     model = MagicMock()
     model.getDrawPages.return_value = pages
     with patch("plugin.doc.document_research_grep._grep_shapes_on_page", side_effect=overshoot):
-        matches, count, partial = _grep_text_in_draw(model, "x", max_results=2)
+        matches, partial = _grep_text_in_draw(model, "x", max_results=2)
     assert len(matches) == 2
-    assert count == 2
     assert partial is True
 
 
@@ -337,10 +332,10 @@ def test_grep_text_in_draw_extra_shape_read_no_match_partial_false():
     model = MagicMock()
     model.getDrawPages.return_value = pages
 
-    matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=1)
+    matches, partial = _grep_text_in_draw(model, "alpha", max_results=1)
 
     assert [row["text"] for row in matches] == ["alpha"]
-    assert count == len(matches) == 1
+    assert len(matches) == 1
     assert partial is False
     assert page0.getByIndex.call_count == 2
 
@@ -374,14 +369,14 @@ def test_grep_text_in_writer_includes_table_text():
 
     services.document.get_paragraph_ranges.return_value = [para1, table]
 
-    matches, count, partial = _grep_text_in_writer(
+    matches, partial = _grep_text_in_writer(
         model,
         services,
         pattern="keyword",
         max_results=5,
     )
 
-    assert count == 1
+    assert len(matches) == 1
     assert partial is False
 
 
@@ -401,7 +396,7 @@ def test_grep_text_in_writer_caps_match_count_and_sets_partial():
 
     services.document.get_paragraph_ranges.return_value = [para1, para2]
 
-    matches, count, partial = _grep_text_in_writer(
+    matches, partial = _grep_text_in_writer(
         model,
         services,
         pattern="keyword",
@@ -409,7 +404,6 @@ def test_grep_text_in_writer_caps_match_count_and_sets_partial():
     )
 
     assert len(matches) == 1
-    assert count == 1
     assert partial is True
 
 
@@ -436,7 +430,7 @@ def test_grep_text_in_writer_stop_checker_skips_later_paragraphs():
 
     stop_checker = MagicMock(return_value=True)
 
-    matches, count, partial = _grep_text_in_writer(
+    _, partial = _grep_text_in_writer(
         model,
         services,
         pattern="first",
@@ -463,23 +457,23 @@ def test_grep_text_in_writer_uses_visible_text():
     with patch("plugin.doc.document_research_grep.get_string_without_tracked_deletions") as mock_helper:
         mock_helper.return_value = "visible keyword"
 
-        matches, count, partial = _grep_text_in_writer(
+        matches, partial = _grep_text_in_writer(
             model,
             services,
             pattern="visible",
             max_results=5,
         )
-        assert count == 1
+        assert len(matches) == 1
         assert partial is False
         mock_helper.assert_called_with(para)
 
-        matches_del, count_del, _ = _grep_text_in_writer(
+        matches_del, _ = _grep_text_in_writer(
             model,
             services,
             pattern="deleted",
             max_results=5,
         )
-        assert count_del == 0
+        assert len(matches_del) == 0
 
     # Table cell test
     table = MagicMock()
@@ -493,23 +487,23 @@ def test_grep_text_in_writer_uses_visible_text():
     with patch("plugin.doc.document_research_grep.get_string_without_tracked_deletions") as mock_helper:
         mock_helper.return_value = "visible cell keyword"
 
-        matches, count, partial = _grep_text_in_writer(
+        matches, partial = _grep_text_in_writer(
             model,
             services,
             pattern="visible",
             max_results=5,
         )
-        assert count == 1
+        assert len(matches) == 1
         assert partial is False
         mock_helper.assert_called_with(cell)
 
-        matches_del, count_del, _ = _grep_text_in_writer(
+        matches_del, _ = _grep_text_in_writer(
             model,
             services,
             pattern="deleted",
             max_results=5,
         )
-        assert count_del == 0
+        assert len(matches_del) == 0
 
 
 def test_grep_text_in_calc_partial_when_more_hits_exist():
@@ -519,11 +513,10 @@ def test_grep_text_in_calc_partial_when_more_hits_exist():
     ]
     with patch("plugin.doc.document_research_grep.search_spreadsheet_cells") as mock_search:
         mock_search.return_value = hits
-        matches, count, partial = _grep_text_in_calc(MagicMock(), "val", max_results=1)
+        matches, partial = _grep_text_in_calc(MagicMock(), "val", max_results=1)
 
         assert mock_search.call_args.kwargs.get("max_results") == 2
         assert len(matches) == 1
-        assert count == 1
         assert partial is True
 
 
@@ -531,34 +524,37 @@ def test_grep_text_in_calc_not_partial_when_results_fit():
     hits = [{"sheet": "Sheet1", "cell": "A1", "value": "val1"}]
     with patch("plugin.doc.document_research_grep.search_spreadsheet_cells") as mock_search:
         mock_search.return_value = hits
-        matches, count, partial = _grep_text_in_calc(MagicMock(), "val", max_results=1)
+        matches, partial = _grep_text_in_calc(MagicMock(), "val", max_results=1)
 
         assert mock_search.call_args.kwargs.get("max_results") == 2
         assert len(matches) == 1
-        assert count == 1
         assert partial is False
 
 
-def test_search_opened_document_calc_forwards_partial():
+@patch("plugin.doc.document_research_grep.close_document_research_document")
+@patch("plugin.doc.document_research_grep.open_document_for_read")
+@patch("plugin.doc.document_research_grep.search_spreadsheet_cells")
+def test_search_opened_document_calc_forwards_partial(mock_search, mock_open, mock_close):
+    mock_open.return_value = (MagicMock(), "calc", None, True)
     hits = [
         {"sheet": "Sheet1", "cell": "A1", "value": "val1"},
         {"sheet": "Sheet1", "cell": "A2", "value": "val2"},
     ]
-    with patch("plugin.doc.document_research_grep.search_spreadsheet_cells") as mock_search:
-        mock_search.return_value = hits
-        matches, count, partial, err = _search_opened_document(
-            MagicMock(),
-            "calc",
-            MagicMock(),
-            "val",
-            regex=False,
-            case_sensitive=False,
-            max_results_per_file=1,
-        )
-        assert err is None
-        assert partial is True
-        assert count == 1
-        assert len(matches) == 1
+    mock_search.return_value = hits
+    matches, doc_type, partial, err = _search_one_file(
+        MagicMock(),
+        "/tmp/test.ods",
+        MagicMock(),
+        "val",
+        regex=False,
+        case_sensitive=False,
+        max_results=1,
+    )
+    assert err is None
+    assert partial is True
+    assert doc_type == "calc"
+    assert len(matches) == 1
+    mock_close.assert_called_once()
 
 
 @patch("plugin.doc.document_research_grep.open_document_for_read")
@@ -579,7 +575,7 @@ def test_grep_nearby_files_invalid_regex_does_not_open_files(mock_resolve, mock_
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
-@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
@@ -590,9 +586,7 @@ def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mo
     mock_open.return_value = (MagicMock(), "calc", None, True)
     mock_search.return_value = (
         [{"sheet": "Sheet1", "cell": "A1", "value": "Q4 revenue"}],
-        1,
         False,
-        None,
     )
 
     with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_execute:
@@ -629,7 +623,7 @@ def test_grep_nearby_files_stop_checker_aborts_during_directory_scan(mock_omt, m
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
-@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_stop_during_last_file_is_user_stopped(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
@@ -638,7 +632,7 @@ def test_grep_nearby_files_stop_during_last_file_is_user_stopped(mock_resolve, m
         None,
     )
     mock_open.return_value = (MagicMock(), "calc", None, True)
-    mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], 1, True, None)
+    mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], True)
 
     calls = {"n": 0}
 
@@ -662,7 +656,7 @@ def test_grep_nearby_files_stop_during_last_file_is_user_stopped(mock_resolve, m
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
-@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_marshal_timeout_records_error_and_continues(
     mock_resolve, mock_search, mock_open, mock_close
@@ -678,9 +672,7 @@ def test_grep_nearby_files_marshal_timeout_records_error_and_continues(
     mock_open.return_value = (MagicMock(), "calc", None, True)
     mock_search.return_value = (
         [{"sheet": "Sheet1", "cell": "A1", "value": "hit"}],
-        1,
         False,
-        None,
     )
 
     first = True
@@ -704,7 +696,7 @@ def test_grep_nearby_files_marshal_timeout_records_error_and_continues(
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
-@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_closes_when_search_raises(
     mock_resolve, mock_search, mock_open, mock_close
@@ -740,7 +732,7 @@ def test_grep_text_in_draw_skips_shape_whose_get_string_raises():
     model = MagicMock()
     model.getDrawPages.return_value = pages
 
-    matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=5)
+    matches, partial = _grep_text_in_draw(model, "alpha", max_results=5)
     assert [row["text"] for row in matches] == ["alpha"]
 
 
@@ -759,7 +751,7 @@ def test_grep_text_in_draw_group_shape_recurses():
     model = MagicMock()
     model.getDrawPages.return_value = pages
 
-    matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=5)
+    matches, partial = _grep_text_in_draw(model, "alpha", max_results=5)
     assert len(matches) == 1
     assert matches[0]["shape_index"] == "0.0"
     assert matches[0]["text"] == "alpha"
@@ -777,7 +769,7 @@ def test_grep_text_in_draw_partial_stays_true_across_pages():
         ([{"page_index": 1, "shape_index": "0", "text": "alpha"}], 2, False),
     ]
     with patch("plugin.doc.document_research_grep._grep_shapes_on_page", side_effect=side_effect):
-        matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=2)
+        matches, partial = _grep_text_in_draw(model, "alpha", max_results=2)
     assert partial is True
 
 
@@ -800,8 +792,7 @@ def test_grep_text_in_writer_skips_cell_that_raises():
     table.getCellByName.side_effect = get_cell
     services.document.get_paragraph_ranges.return_value = [table]
 
-    matches, count, partial = _grep_text_in_writer(model, services, "keyword", max_results=5)
-    assert count == 1
+    matches, partial = _grep_text_in_writer(model, services, "keyword", max_results=5)
     assert len(matches) == 1
     assert matches[0]["text"] == "keyword"
     assert partial is False
@@ -825,17 +816,16 @@ def test_grep_text_in_writer_table_cells_do_not_join_across_cells():
     table.getCellByName.side_effect = lambda name: {"A1": cellA1, "B1": cellB1}[name]
     services.document.get_paragraph_ranges.return_value = [table]
 
-    matches_across, count_across, _ = _grep_text_in_writer(
+    matches_across, _ = _grep_text_in_writer(
         model, services, "foo bar", max_results=5
     )
     assert matches_across == []
-    assert count_across == 0
+    assert len(matches_across) == 0
 
-    matches_single, count_single, _ = _grep_text_in_writer(
+    matches_single, _ = _grep_text_in_writer(
         model, services, "foo", max_results=5
     )
     assert len(matches_single) == 1
-    assert count_single == 1
 
 
 def test_grep_text_in_writer_caps_context_snippet():
@@ -849,7 +839,7 @@ def test_grep_text_in_writer_caps_context_snippet():
 
     services.document.get_paragraph_ranges.return_value = [para]
 
-    matches, count, partial = _grep_text_in_writer(model, services, "keyword", max_results=1)
+    matches, partial = _grep_text_in_writer(model, services, "keyword", max_results=1)
     assert matches[0]["text"] == "keyword"
     for context_entry in matches[0]["context"]:
         assert len(context_entry["text"]) == 201
@@ -865,5 +855,5 @@ def test_grep_text_in_draw_caps_shape_snippet():
     model = MagicMock()
     model.getDrawPages.return_value = pages
 
-    matches, count, partial = _grep_text_in_draw(model, "a", max_results=1)
+    matches, partial = _grep_text_in_draw(model, "a", max_results=1)
     assert matches[0]["text"] == "a" * 200 + "…"
