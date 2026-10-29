@@ -106,7 +106,18 @@ from compute_service.json_forward import parse_execute_request
 parts = parse_execute_request(b'{"code":"result = 1"}', "application/json")
 assert "compute_service.json_peel" in sys.modules
 
-from compute_service.formula_worker import execute_code
+import json
+from compute_service.formula_worker import _handle_request
+
+def execute_code(code, data=None, session_id=None, *, mode="isolated", init_script=None):
+    req = {"code": code, "mode": mode}
+    if data is not None:
+        req["data_json"] = json.dumps(data)
+    if session_id is not None:
+        req["session_id"] = session_id
+    if init_script is not None:
+        req["init_script"] = init_script
+    return json.loads(_handle_request(req)["result_json"])
 
 # Cell 1: result = 1
 r1 = execute_code("result = 1")
@@ -208,7 +219,18 @@ class DealBlocker:
 sys.meta_path.insert(0, DealBlocker())
 
 import compute_service.server
-from compute_service.formula_worker import execute_code
+import json
+from compute_service.formula_worker import _handle_request
+
+def execute_code(code, data=None, session_id=None, *, mode="isolated", init_script=None):
+    req = {"code": code, "mode": mode}
+    if data is not None:
+        req["data_json"] = json.dumps(data)
+    if session_id is not None:
+        req["session_id"] = session_id
+    if init_script is not None:
+        req["init_script"] = init_script
+    return json.loads(_handle_request(req)["result_json"])
 res = execute_code("result = 1")
 assert res.get("status") == "ok", res
 assert res.get("result") == 1, res
