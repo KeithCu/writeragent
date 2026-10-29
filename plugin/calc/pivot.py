@@ -96,15 +96,6 @@ def _get_dp_tables(sheet: Any) -> Any:
     return sup.getDataPilotTables()
 
 
-def _field_name_map(desc: Any) -> dict[str, tuple[int, Any]]:
-    out: dict[str, tuple[int, Any]] = {}
-    fields = desc.getDataPilotFields()
-    for i in range(fields.getCount()):
-        f = fields.getByIndex(i)
-        out[f.getName()] = (i, f)
-    return out
-
-
 def _set_field_orientations(
     desc: Any,
     row_fields: list[str],
@@ -129,7 +120,11 @@ def _set_field_orientations(
     for n in page_fields:
         layout[n] = PAGE
 
-    by_name = _field_name_map(desc)
+    fields = desc.getDataPilotFields()
+    by_name: dict[str, tuple[int, Any]] = {}
+    for i in range(fields.getCount()):
+        field = fields.getByIndex(i)
+        by_name[field.getName()] = (i, field)
     missing = [n for n in layout if n not in by_name]
     if missing:
         avail = sorted(by_name.keys())
@@ -161,20 +156,14 @@ def _set_field_orientations(
 
         filter_fields = []
         for pf_name, pf_val in page_filters.items():
-            if pf_name not in by_name:
-                continue
-            f_idx, _ = by_name[pf_name]
+            f_idx, _fld = by_name[pf_name]
             tff = uno.createUnoStruct("com.sun.star.sheet.TableFilterField")
             setattr(tff, "Field", f_idx)
             setattr(tff, "Operator", EQUAL)
-            if isinstance(pf_val, (int, float)) and not isinstance(pf_val, bool):
-                setattr(tff, "IsNumeric", True)
-                setattr(tff, "NumericValue", float(pf_val))
-                setattr(tff, "StringValue", str(pf_val))
-            else:
-                setattr(tff, "IsNumeric", False)
-                setattr(tff, "NumericValue", 0.0)
-                setattr(tff, "StringValue", str(pf_val))
+            is_num = isinstance(pf_val, (int, float)) and not isinstance(pf_val, bool)
+            setattr(tff, "IsNumeric", is_num)
+            setattr(tff, "NumericValue", float(pf_val) if is_num else 0.0)
+            setattr(tff, "StringValue", str(pf_val))
             filter_fields.append(tff)
 
         if filter_fields:
@@ -207,6 +196,21 @@ def _find_pivot(doc: Any, name: str, sheet_name: str | None = None) -> tuple[Any
             return dp_tables.getByName(name), sheet
 
     return f"Pivot table '{name}' not found."
+
+
+def _resolve_qualified_ref(
+    bridge: CalcBridge, ref: str, sheet_arg: Any, ref_label: str, sheet_label: str,
+) -> tuple[Any, str | None]:
+    prefix = split_sheet_prefix(ref)[0]
+    if prefix is not None and sheet_arg and prefix != sheet_arg:
+        return None, (
+            f"{ref_label} names sheet '{prefix}' but {sheet_label} says '{sheet_arg}' — pass one or the other."
+        )
+    resolved = ref if prefix is not None or not sheet_arg else f"'{sheet_arg}'.{ref}"
+    try:
+        return bridge.resolve_range_or_address(resolved), None
+    except Exception as exc:
+        return None, f"Cannot resolve {ref_label} '{ref}': {exc}"
 
 
 class CreatePivotTable(ToolCalcPivotBase):
@@ -254,16 +258,9 @@ class CreatePivotTable(ToolCalcPivotBase):
         dest_sheet_name = kwargs.get("destination_sheet")
 
         # Resolve source range
-        src_prefix, _ = split_sheet_prefix(range_str)
-        if src_prefix is not None and src_sheet_name and src_prefix != src_sheet_name:
-            return self._tool_error(
-                f"source_range names sheet '{src_prefix}' but source_sheet says '{src_sheet_name}' — pass one or the other."
-            )
-        resolved_src_ref = range_str if src_prefix is not None or not src_sheet_name else f"'{src_sheet_name}'.{range_str}"
-        try:
-            src_obj = bridge.resolve_range_or_address(resolved_src_ref)
-        except Exception as exc:
-            return self._tool_error(f"Cannot resolve source_range '{range_str}': {exc}")
+        src_obj, src_err = _resolve_qualified_ref(bridge, range_str, src_sheet_name, "source_range", "source_sheet")
+        if src_err is not None:
+            return self._tool_error(src_err)
 
         if not hasattr(src_obj, "getRangeAddress"):
             return self._tool_error("source_range must be a multi-cell range.")
@@ -284,16 +281,9 @@ class CreatePivotTable(ToolCalcPivotBase):
                 return self._tool_error(f"Header cell in column {c + 1} of source range is empty.")
 
         # Resolve destination cell
-        dest_prefix, _ = split_sheet_prefix(dest_cell)
-        if dest_prefix is not None and dest_sheet_name and dest_prefix != dest_sheet_name:
-            return self._tool_error(
-                f"destination_cell names sheet '{dest_prefix}' but destination_sheet says '{dest_sheet_name}' — pass one or the other."
-            )
-        resolved_dest_ref = dest_cell if dest_prefix is not None or not dest_sheet_name else f"'{dest_sheet_name}'.{dest_cell}"
-        try:
-            dest_obj = bridge.resolve_range_or_address(resolved_dest_ref)
-        except Exception as exc:
-            return self._tool_error(f"Cannot resolve destination_cell '{dest_cell}': {exc}")
+        dest_obj, dest_err = _resolve_qualified_ref(bridge, dest_cell, dest_sheet_name, "destination_cell", "destination_sheet")
+        if dest_err is not None:
+            return self._tool_error(dest_err)
 
         from com.sun.star.table import CellAddress
         if hasattr(dest_obj, "getCellAddress"):

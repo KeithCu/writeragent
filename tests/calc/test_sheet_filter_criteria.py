@@ -8,7 +8,6 @@
 import pytest
 
 from plugin.calc.sheet_filter_criteria import (
-    _FILTER_OPERATOR2,
     FILTER_OPERATOR2_LABELS,
     FilterCriterion,
     parse_sheet_filter_criterion,
@@ -25,28 +24,28 @@ def test_odd_operator_is_uno_error_not_precontract() -> None:
 
 def test_pin_all_18_filter_operator2_codes() -> None:
     expected = (
-        ("EMPTY", 0),
-        ("NOT_EMPTY", 1),
-        ("EQUAL", 2),
-        ("NOT_EQUAL", 3),
-        ("GREATER", 4),
-        ("GREATER_EQUAL", 5),
-        ("LESS", 6),
-        ("LESS_EQUAL", 7),
-        ("TOP_VALUES", 8),
-        ("TOP_PERCENT", 9),
-        ("BOTTOM_VALUES", 10),
-        ("BOTTOM_PERCENT", 11),
-        ("CONTAINS", 12),
-        ("DOES_NOT_CONTAIN", 13),
-        ("BEGINS_WITH", 14),
-        ("DOES_NOT_BEGIN_WITH", 15),
-        ("ENDS_WITH", 16),
-        ("DOES_NOT_END_WITH", 17),
+        "EMPTY",
+        "NOT_EMPTY",
+        "EQUAL",
+        "NOT_EQUAL",
+        "GREATER",
+        "GREATER_EQUAL",
+        "LESS",
+        "LESS_EQUAL",
+        "TOP_VALUES",
+        "TOP_PERCENT",
+        "BOTTOM_VALUES",
+        "BOTTOM_PERCENT",
+        "CONTAINS",
+        "DOES_NOT_CONTAIN",
+        "BEGINS_WITH",
+        "DOES_NOT_BEGIN_WITH",
+        "ENDS_WITH",
+        "DOES_NOT_END_WITH",
     )
-    assert _FILTER_OPERATOR2 == expected
+    assert FILTER_OPERATOR2_LABELS == expected
     assert len(FILTER_OPERATOR2_LABELS) == 18
-    for name, code in expected:
+    for code, name in enumerate(expected):
         assert resolve_filter_operator_code(name) == code
 
 
@@ -63,6 +62,19 @@ def test_criterion_named_tuple_and_valid_cases() -> None:
     res_num = parse_sheet_filter_criterion({"field": 1, "operator": "EQUAL", "value": 42}, False)
     assert res_num.is_numeric is True
     assert res_num.numeric_value == 42.0
+
+    # Connection handling (first row ignores connection, later rows default AND or parse OR)
+    assert parse_sheet_filter_criterion({"field": 0, "operator": "EQUAL", "value": "a", "connection": "OR"}, True).connection == 0
+    assert parse_sheet_filter_criterion({"field": 0, "operator": "EQUAL", "value": "a", "connection": "XOR"}, True).connection == 0
+    assert parse_sheet_filter_criterion({"field": 1, "operator": "EQUAL", "value": "b"}, False).connection == 0
+    assert parse_sheet_filter_criterion({"field": 1, "operator": "EQUAL", "value": "b", "connection": ""}, False).connection == 0
+    assert parse_sheet_filter_criterion({"field": 1, "operator": "EQUAL", "value": "b", "connection": "or"}, False).connection == 1
+
+    # Empty operator parsing
+    res_empty = parse_sheet_filter_criterion({"field": 0, "operator": "empty"}, True)
+    assert res_empty.operator == 0
+    assert res_empty.is_numeric is False
+    assert res_empty.string_value == ""
 
 
 def test_criterion_strict_parsing_rejections() -> None:
@@ -93,3 +105,11 @@ def test_criterion_strict_parsing_rejections() -> None:
     # Inf float value
     with pytest.raises(UnoObjectError, match="infinity"):
         parse_sheet_filter_criterion({"field": 0, "operator": "GREATER", "value": float("inf")}, True)
+
+    # Operator requires numeric value
+    with pytest.raises(UnoObjectError, match="TOP_VALUES"):
+        parse_sheet_filter_criterion({"field": 0, "operator": "top-values"}, True)
+
+    # Unknown operator
+    with pytest.raises(UnoObjectError, match=r"Unknown filter operator: 'no-such-op'"):
+        parse_sheet_filter_criterion({"field": 0, "operator": "no-such-op", "value": "a"}, True)

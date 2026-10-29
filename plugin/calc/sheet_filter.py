@@ -116,7 +116,7 @@ def _build_filter_fields2(uno_obj: Any, criteria: list[dict[str, Any]], range_wi
         st.Operator = c.operator
         st.Connection = _FILTER_CONNECTION_OR if c.connection == 1 else _FILTER_CONNECTION_AND
         st.IsNumeric = c.is_numeric
-        st.NumericValue = float(c.numeric_value)
+        st.NumericValue = c.numeric_value
         st.StringValue = c.string_value
         fields.append(st)
     return tuple(fields)
@@ -163,7 +163,6 @@ def _run_filter(
     ctx: ToolContext,
     kwargs: dict[str, Any],
     *,
-    empty: bool,
     criteria: list[dict[str, Any]] | None = None,
 ) -> tuple[str, int]:
     range_name = _first_range_name(kwargs)
@@ -178,23 +177,18 @@ def _run_filter(
     if xf is None:
         raise UnoObjectError("This range does not support filtering (XSheetFilterable missing).")
 
-    fd = xf.createFilterDescriptor(empty)
-    if has_header is not None:
-        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
-        if ps is None:
-            raise UnoObjectError("Cannot set ContainsHeader on this filter descriptor.")
-        ps.setPropertyValue("ContainsHeader", has_header)
+    fd = xf.createFilterDescriptor(True)
+    ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
+    if ps is None:
+        raise UnoObjectError("Cannot set ContainsHeader on this filter descriptor.")
+    ps.setPropertyValue("ContainsHeader", has_header)
 
     fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
     if fd2 is None:
         raise UnoObjectError("XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).")
 
-    if criteria:
-        fields = _build_filter_fields2(uno, criteria, range_width=range_width)
-        fd2.setFilterFields2(fields)
-    else:
-        fd2.setFilterFields2(())
-        fields = ()
+    fields = _build_filter_fields2(uno, criteria or [], range_width=range_width)
+    fd2.setFilterFields2(fields)
 
     xf.filter(fd)
     return range_name, len(fields)
@@ -244,7 +238,7 @@ class ApplySheetFilter(ToolCalcSheetBase):
         if not isinstance(criteria, list) or not criteria:
             raise UnoObjectError("criteria must be a non-empty list of filter conditions.")
 
-        range_name, count = _run_filter(ctx, kwargs, empty=True, criteria=criteria)
+        range_name, count = _run_filter(ctx, kwargs, criteria=criteria)
         log.info("Sheet filter applied on %s (%d conditions).", range_name.upper(), count)
         return {"status": "ok", "range": range_name, "criteria_count": count}
 
@@ -266,7 +260,7 @@ class ClearSheetFilter(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_name, _ = _run_filter(ctx, kwargs, empty=True, criteria=None)
+        range_name, _count = _run_filter(ctx, kwargs, criteria=None)
         log.info("Sheet filter cleared on %s.", range_name.upper())
         return {"status": "ok", "range": range_name, "cleared": True}
 
@@ -291,11 +285,9 @@ class GetSheetFilter(ToolCalcSheetBase):
         )
 
         fields_seq = fd2.getFilterFields2()
-        crit: list[dict[str, Any]] = []
-        if fields_seq is not None:
-            n = len(fields_seq)
-            for i in range(n):
-                crit.append(_field_to_dict(fields_seq[i], i))
+        crit: list[dict[str, Any]] = [] if fields_seq is None else [
+            _field_to_dict(fields_seq[i], i) for i in range(len(fields_seq))
+        ]
 
         ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
         ch = uno_read(lambda: bool(ps.getPropertyValue("ContainsHeader")), None) if ps is not None else None
