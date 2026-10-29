@@ -87,9 +87,6 @@ _deal_sandbox_code_ok = _profile(_deal_sandbox_code_ok_crosshair, _deal_sandbox_
 def _deal_sandbox_policy_ok(authorized_imports: object, blocked_imports: object = None) -> bool:
     return _deal_sandbox_imports_ok(authorized_imports) and _deal_sandbox_blocked_ok(blocked_imports)
 
-# ExceptHandler is handled inside evaluate_try rather than in evaluate_ast.
-_STRUCTURAL_NODES: frozenset[type[ast.AST]] = frozenset({ast.ExceptHandler})
-
 _DEFAULT_MAX_ENTRIES = 256
 _MAX_CACHED_SOURCE_CHARS = 65536
 
@@ -109,7 +106,8 @@ def validate_sandbox_ast(
     for node in ast.walk(module):
         if isinstance(node, (ast.stmt, ast.expr)):
             node_type = type(node)
-            if node_type not in _HANDLERS and node_type not in _STRUCTURAL_NODES:
+            # ExceptHandler is handled inside evaluate_try rather than in evaluate_ast.
+            if node_type not in _HANDLERS and node_type is not ast.ExceptHandler:
                 return f"{node.__class__.__name__} is not supported."
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.decorator_list:
             return "Decorators are not supported in the sandbox"
@@ -148,12 +146,11 @@ class HotEntry:
 
 _lock = threading.Lock()
 _cache: OrderedDict[str, HotEntry] = OrderedDict()
-_max_entries: int = _DEFAULT_MAX_ENTRIES
 
 
 @functools.cache
-def _memoized_fingerprint(imports_tuple: tuple[str, ...]) -> str:
-    return "\n".join(sorted(set(imports_tuple)))
+def _fingerprint(names: tuple[str, ...]) -> str:
+    return "\n".join(sorted(set(names)))
 
 
 @deal.pre(lambda authorized_imports: _deal_sandbox_imports_ok(authorized_imports))
@@ -164,20 +161,19 @@ def _imports_fingerprint(authorized_imports: Sequence[str]) -> str:
     # Names are joined with newline. A newline or NUL in a name would alias
     # two allowlists; test_allowlist_entries_fit_cache_key locks that out.
     # _cache_key then joins source and this fingerprint with NUL.
-    return _memoized_fingerprint(tuple(authorized_imports))
-
-
-@functools.cache
-def _memoized_blocked_fingerprint(blocked_tuple: tuple[str, ...]) -> str:
-    return "\n".join(sorted(set(blocked_tuple)))
+    return _fingerprint(tuple(authorized_imports))
 
 
 def _blocked_fingerprint(blocked_imports: Sequence[str] | None) -> str:
     blocked = active_blocked_imports() if blocked_imports is None else blocked_imports
-    return _memoized_blocked_fingerprint(tuple(blocked))
+    return _fingerprint(tuple(blocked))
 
 
-@deal.pre(lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_policy_ok(authorized_imports, blocked_imports) and _deal_sandbox_code_ok(code))
+def _args_ok(code: object, authorized_imports: object, blocked_imports: object = None) -> bool:
+    return _deal_sandbox_policy_ok(authorized_imports, blocked_imports) and _deal_sandbox_code_ok(code)
+
+
+@deal.pre(_args_ok)
 def _cache_key(
     code: str,
     authorized_imports: Sequence[str],
@@ -211,7 +207,7 @@ def _format_syntax_error(exc: SyntaxError) -> str:
     )
 
 
-@deal.pre(lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_policy_ok(authorized_imports, blocked_imports) and _deal_sandbox_code_ok(code))
+@deal.pre(_args_ok)
 def _build_entry(
     code: str,
     authorized_imports: Sequence[str],
@@ -250,7 +246,7 @@ def _build_entry(
         return HotEntry(module=None, error="Code parsing failed: expression is too deeply nested")
 
 
-@deal.pre(lambda code, authorized_imports, blocked_imports=None: _deal_sandbox_policy_ok(authorized_imports, blocked_imports) and _deal_sandbox_code_ok(code))
+@deal.pre(_args_ok)
 def get_hot_entry(
     code: str,
     authorized_imports: Sequence[str],
@@ -271,7 +267,7 @@ def get_hot_entry(
             _cache.move_to_end(key)
             return _cache[key]
         _cache[key] = entry
-        if len(_cache) > _max_entries:
+        if len(_cache) > _DEFAULT_MAX_ENTRIES:
             _cache.popitem(last=False)
     return entry
 

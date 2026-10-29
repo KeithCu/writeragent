@@ -450,10 +450,7 @@ def active_blocked_imports() -> frozenset[str]:
 
 def active_extra_imports() -> frozenset[str]:
     """Active extra modules from context if set, else empty frozenset."""
-    ctx_extra = SANDBOX_EXTRA_MODULES.get()
-    if ctx_extra is not None:
-        return ctx_extra
-    return frozenset()
+    return SANDBOX_EXTRA_MODULES.get() or frozenset[str]()
 
 
 def alias_has_authorized_child(fullname: str) -> bool:
@@ -495,19 +492,17 @@ class SandboxPolicy:
 def parse_extra_modules(text: str) -> tuple[str, ...]:
     if not text or not text.strip():
         return ()
-    raw_items = [part.strip() for part in text.split(",") if part.strip()]
     cleaned: list[str] = []
-    seen: set[str] = set()
-    for item in raw_items:
+    for item in (part.strip() for part in text.split(",")):
+        if not item:
+            continue
         if len(item) > 62:
             raise ValueError(f"Module name too long (max 62 characters): {item!r}")
         parts = item.split(".")
         if not all(p.isidentifier() for p in parts):
             raise ValueError(f"Invalid module identifier: {item!r}")
-        if item not in seen:
-            seen.add(item)
-            cleaned.append(item)
-    return tuple(cleaned)
+        cleaned.append(item)
+    return tuple(dict.fromkeys(cleaned))
 
 
 def build_sandbox_policy(
@@ -524,6 +519,9 @@ def build_sandbox_policy(
     )
 
 
+_PROCESS_MODULES: tuple[str, ...] = ("subprocess", "multiprocessing", "_multiprocessing", "pty")
+
+
 def policy_allowlist(policy: SandboxPolicy) -> list[str]:
     result: list[str] = []
     if policy.network:
@@ -536,15 +534,9 @@ def policy_allowlist(policy: SandboxPolicy) -> list[str]:
         # multiprocessing, _multiprocessing, and pty allows process spawning and
         # pseudo-terminal operations under the process flag while keeping them blocked
         # when policy.os is False.
-        result.extend(("subprocess", "multiprocessing", "_multiprocessing", "pty"))
+        result.extend(_PROCESS_MODULES)
     result.extend(policy.extra)
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for item in result:
-        if item not in seen:
-            seen.add(item)
-            deduped.append(item)
-    return deduped
+    return list(dict.fromkeys(result))
 
 
 def policy_blocked_imports(policy: SandboxPolicy) -> list[str]:
@@ -567,7 +559,7 @@ def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:
         # Bugfix: multiprocessing and pty callables were blocked by the callable gate
         # under policy.os because their module roots were missing from relaxed_roots.
         # Adding them allows multiprocessing.Process, Pool, and pty operations to execute.
-        roots.update({"os", "posix", "nt", "subprocess", "multiprocessing", "_multiprocessing", "pty"})
+        roots.update({"os", "posix", "nt", *_PROCESS_MODULES})
     for name in policy.extra:
         root = name.split(".", 1)[0]
         roots.add(root)
@@ -854,11 +846,6 @@ def wrap_command_for_sandbox(
             argv.append(f"--env={key}={value}")
     argv.extend(cmd)
     return argv
-
-
-def _reset_cache() -> None:  # pyright: ignore[reportUnusedFunction]  # test helper to clear sandbox path cache
-    """Reset the cached detection result (for tests only)."""
-    detect_sandbox.cache_clear()
 
 
 # --- Interpreter resolution ---
