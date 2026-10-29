@@ -1409,15 +1409,14 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
     import json
     from unittest.mock import MagicMock
     from plugin.mcp.mcp_ui import (
+        remember_tested_tunnel_url,
         sync_mcp_config_snippet,
         McpTunnelEnabledListener,
         McpPortTextListener,
-        _retired_provider_tunnel_urls,
         _tested_provider_tunnel_urls,
     )
 
     _tested_provider_tunnel_urls.clear()
-    _retired_provider_tunnel_urls.clear()
 
     mock_dlg = MagicMock()
     mock_snippet = MagicMock()
@@ -1448,7 +1447,8 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
     # 2. Checkbox toggled to checked with custom URL for cloudflare -> tunnel URL
     mock_checkbox.getState.return_value = 1
     mock_checkbox.State = 1
-    sync_mcp_config_snippet(mock_dlg, custom_tunnel_url="https://abc.trycloudflare.com/mcp", custom_provider="cloudflare")
+    remember_tested_tunnel_url("cloudflare", "https://abc.trycloudflare.com/mcp")
+    sync_mcp_config_snippet(mock_dlg)
     args, _ = mock_snippet.setText.call_args
     data = json.loads(args[0])
     assert data["mcpServers"]["libreoffice"]["url"] == "https://abc.trycloudflare.com/mcp"
