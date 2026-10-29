@@ -35,15 +35,11 @@ _AVAILABLE_PX = (16, 26, 32)
 
 class _State:
     px: int | None
-    scale: float | None
-    weak: bool
     logged_strong: bool
     filename_cache: dict[tuple[str, int], str]
 
     def __init__(self) -> None:
         self.px = None
-        self.scale = None
-        self.weak = False
         self.logged_strong = False
         self.filename_cache = {}
 
@@ -54,8 +50,6 @@ _state = _State()
 def reset_menu_icon_dpi_cache() -> None:
     """Test hook: clear the one-shot cache."""
     _state.px = None
-    _state.scale = None
-    _state.weak = False
     _state.logged_strong = False
     _state.filename_cache = {}
 
@@ -126,16 +120,8 @@ def _candidate_windows(ctx: Any = None) -> list[Any]:
                     log.debug("menu icon DPI: %s failed", name, exc_info=True)
     except Exception:
         log.debug("candidate windows failed", exc_info=True)
-    # Dedupe by id while preserving order.
-    out: list[Any] = []
-    seen: set[int] = set()
-    for w in wins:
-        wid = id(w)
-        if wid in seen:
-            continue
-        seen.add(wid)
-        out.append(w)
-    return out
+    # Dedupe by id while preserving order (first wins).
+    return list({id(w): w for w in wins}.values())
 
 
 def probe_vcl_dpi_scale(ctx: Any = None) -> float | None:
@@ -257,7 +243,7 @@ def _toolbar_scale(ctx: Any) -> float | None:
 
 def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
     """One-shot: probe, interpolate, cache. Probe-miss prefers HiDPI large assets."""
-    if _state.px is not None and not _state.weak:
+    if _state.px is not None:
         return _state.px
 
     probes = (
@@ -277,19 +263,13 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
 
     if scale is None or source is None:
         # Probe miss is common on Wayland/KDE at startup — assume HiDPI wants big assets.
-        _state.scale = 2.0
-        _state.px = _HIDPI_PX
-        _state.weak = True  # retry when a real window exists
-        log.debug("menu_icon_dpi source=default_hidpi_large scale=n/a px=%s (weak; will retry)", _state.px)
-        return _state.px
+        log.debug("menu_icon_dpi source=default_hidpi_large scale=n/a px=%s (weak; will retry)", _HIDPI_PX)
+        return _HIDPI_PX
 
     px = interpolate_menu_icon_px(float(scale))
-    _state.scale = float(scale)
-    _state.px = px
-    # Only vcl_dpi (PixelPerMeterX) is a strong reading. Font, toolbar config,
-    # and env used to set _cached_weak False, so a startup call before a real
-    # window existed never upgraded when a later window reported ~2x.
-    _state.weak = source != "vcl_dpi"
+    # Only PixelPerMeterX is cached. Font, toolbar, and env stay uncached and retry.
+    if source == "vcl_dpi":
+        _state.px = px
     if not _state.logged_strong:
         log.info("menu_icon_dpi source=%s scale=%.3f px=%s", source, scale, px)
         _state.logged_strong = True
@@ -369,19 +349,3 @@ def menu_icon_filename(prefix: str, px: int | None = None, ctx: Any = None) -> s
 def menu_icon_asset_rel(prefix: str, px: int | None = None, ctx: Any = None) -> str:
     """Return ``assets/{prefix}_{px}.png`` for button ``ImageURL`` paths."""
     return "assets/" + menu_icon_filename(prefix, px, ctx)
-
-
-__all__ = [
-    "reset_menu_icon_dpi_cache",
-    "probe_vcl_dpi_scale",
-    "probe_menu_font_scale",
-    "probe_toolbar_icon_config_px",
-    "interpolate_menu_icon_px",
-    "resolve_menu_icon_pixel_size",
-    "image_type_for_pixel_size",
-    "menu_icon_filename",
-    "menu_icon_asset_rel",
-    "menu_icon_asset_url",
-    "menu_icon_filesystem_paths",
-    "pick_shipped_icon",
-]

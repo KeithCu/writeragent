@@ -133,11 +133,11 @@ def test_non_vcl_probe_stays_weak_until_vcl_dpi(monkeypatch):
     monkeypatch.setattr(m, "probe_toolbar_icon_config_px", lambda ctx=None: None)
     monkeypatch.setattr(m, "probe_env_scale", lambda: None)
     assert m.resolve_menu_icon_pixel_size() == 16
-    assert m._state.weak is True
+    assert m._state.px is None
 
     monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 2.0)
     assert m.resolve_menu_icon_pixel_size() == 32
-    assert m._state.weak is False
+    assert m._state.px == 32
     # A strong vcl reading is not replaced by a later probe.
     monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 1.0)
     assert m.resolve_menu_icon_pixel_size() == 32
