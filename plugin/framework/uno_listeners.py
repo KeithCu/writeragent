@@ -146,54 +146,24 @@ if TYPE_CHECKING:
     class _XTerminateListenerParent:
         pass
 else:
-
-    class _DummyBase:
-        pass
-
-    class _DummyEventListener:
-        pass
-
-    class _DummyActionListener:
-        pass
-
-    class _DummyItemListener:
-        pass
-
-    class _DummyTextListener:
-        pass
-
-    class _DummyKeyListener:
-        pass
-
-    class _DummyWindowListener:
-        pass
-
-    class _DummyDocumentEventListener:
-        pass
-
-    class _DummyActivationListener:
-        pass
-
-    class _DummyContainerListener:
-        pass
-
-    class _DummyMouseListener:
-        pass
-
-    class _DummyFocusListener:
-        pass
-
-    class _DummyMouseClickHandler:
-        pass
-
-    class _DummyTopWindowListener:
-        pass
-
-    class _DummyModifyListener:
-        pass
-
-    class _DummyTerminateListener:
-        pass
+    # Each fallback is its own class. One shared stub is a duplicate base
+    # on BaseListener(_BaseParent, _XEventListenerParent).
+    _DummyBase = type("_DummyBase", (), {})
+    _DummyEventListener = type("_DummyEventListener", (), {})
+    _DummyActionListener = type("_DummyActionListener", (), {})
+    _DummyItemListener = type("_DummyItemListener", (), {})
+    _DummyTextListener = type("_DummyTextListener", (), {})
+    _DummyKeyListener = type("_DummyKeyListener", (), {})
+    _DummyWindowListener = type("_DummyWindowListener", (), {})
+    _DummyDocumentEventListener = type("_DummyDocumentEventListener", (), {})
+    _DummyActivationListener = type("_DummyActivationListener", (), {})
+    _DummyContainerListener = type("_DummyContainerListener", (), {})
+    _DummyMouseListener = type("_DummyMouseListener", (), {})
+    _DummyFocusListener = type("_DummyFocusListener", (), {})
+    _DummyMouseClickHandler = type("_DummyMouseClickHandler", (), {})
+    _DummyTopWindowListener = type("_DummyTopWindowListener", (), {})
+    _DummyModifyListener = type("_DummyModifyListener", (), {})
+    _DummyTerminateListener = type("_DummyTerminateListener", (), {})
 
     _BaseParent = _unohelper.Base if _HAVE_UNO else _DummyBase
     _XEventListenerParent = _XEventListener if _HAVE_UNO else _DummyEventListener

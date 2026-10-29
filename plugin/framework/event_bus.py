@@ -38,9 +38,6 @@ from typing import Any, Iterator, cast
 log = logging.getLogger("writeragent.events")
 
 
-from plugin.framework.deal_shim import deal
-
-
 def _reentry_token(event: str, data: dict[str, Any]) -> str:
     """Identity used to drop a nested emit. config:changed includes the key set."""
     if event == "config:changed":
@@ -222,7 +219,6 @@ class EventBus:
     # "... unexpected keyword argument 'self'") before any subscriber ran.
     # Making self and event positional-only ensures that payload keys named
     # 'event' or 'self' land safely in **data.
-    @deal.post(lambda result: result is None)
     def emit(self, event: str, /, **data: Any) -> None:
         """Emit *event*, calling all subscribers with **data as kwargs.
 
