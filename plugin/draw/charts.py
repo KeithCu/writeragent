@@ -25,11 +25,9 @@ from plugin.calc.charts import ManageCharts as CalcManageCharts
 from plugin.draw.base import ToolDrawChartBase
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 
-_ALL_CHART_DOCS = list(ALL_DOCUMENT_SERVICES)
-
 
 class ManageCharts(CalcManageCharts, ToolDrawChartBase):  # type: ignore[misc]
-    uno_services: list[str] | None = _ALL_CHART_DOCS  # type: ignore[assignment]
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
     # Same MRO issue as Writer charts: Calc's sheet readers must not become
     # this domain's core tools. Draw charts do not request sheet or Writer readers.
     required_core_tools: ClassVar[frozenset[str] | None] = None
