@@ -169,24 +169,18 @@ def resolve_layout_id(name_or_id: Any) -> int | None:
     ``plugin.draw.transitions.layout_id``, which reads ``AUTOLAYOUT_ID``.
     This helper stays on the transform vocabulary (``AUTOLAYOUT_*`` or a raw id).
     """
-    if isinstance(name_or_id, bool):
-        return None
-    if isinstance(name_or_id, int):
-        return name_or_id
-    if isinstance(name_or_id, float) and name_or_id.is_integer():
-        return int(name_or_id)
-    if not isinstance(name_or_id, str):
-        return None
-    key = name_or_id.strip()
-    if not key:
-        return None
-    upper = key.upper()
-    if upper in AUTOLAYOUT_BY_NAME:
-        return AUTOLAYOUT_BY_NAME[upper]
-    try:
-        return int(key)
-    except ValueError:
-        return None
+    if isinstance(name_or_id, str):
+        key = name_or_id.strip()
+        if not key:
+            return None
+        upper = key.upper()
+        if upper in AUTOLAYOUT_BY_NAME:
+            return AUTOLAYOUT_BY_NAME[upper]
+        try:
+            return int(key)
+        except ValueError:
+            return None
+    return coerce_int(name_or_id)
 
 
 def is_deferred_command_key(key: str) -> bool:
