@@ -41,29 +41,25 @@ def align_boxes(boxes: Sequence[Box], alignment: str) -> list[Box]:
     if len(boxes) < 2:
         raise ValueError("Need at least two shapes to align")
 
-    xs = [b[0] for b in boxes]
-    ys = [b[1] for b in boxes]
-    rights = [b[0] + b[2] for b in boxes]
-    bottoms = [b[1] + b[3] for b in boxes]
-    centers_x = [b[0] + b[2] // 2 for b in boxes]
-    centers_y = [b[1] + b[3] // 2 for b in boxes]
-
-    out: list[Box] = []
-    for x, y, w, h in boxes:
-        if alignment == "left":
-            x = min(xs)
-        elif alignment == "right":
-            x = max(rights) - w
-        elif alignment == "center_horizontal":
-            x = int(sum(centers_x) / len(centers_x)) - w // 2
-        elif alignment == "top":
-            y = min(ys)
-        elif alignment == "bottom":
-            y = max(bottoms) - h
-        elif alignment == "center_vertical":
-            y = int(sum(centers_y) / len(centers_y)) - h // 2
-        out.append((x, y, w, h))
-    return out
+    if alignment == "left":
+        edge = min(b[0] for b in boxes)
+        return [(edge, b[1], b[2], b[3]) for b in boxes]
+    if alignment == "right":
+        edge = max(b[0] + b[2] for b in boxes)
+        return [(edge - b[2], b[1], b[2], b[3]) for b in boxes]
+    if alignment == "center_horizontal":
+        centers = [b[0] + b[2] // 2 for b in boxes]
+        anchor = int(sum(centers) / len(centers))
+        return [(anchor - b[2] // 2, b[1], b[2], b[3]) for b in boxes]
+    if alignment == "top":
+        edge = min(b[1] for b in boxes)
+        return [(b[0], edge, b[2], b[3]) for b in boxes]
+    if alignment == "bottom":
+        edge = max(b[1] + b[3] for b in boxes)
+        return [(b[0], edge - b[3], b[2], b[3]) for b in boxes]
+    centers = [b[1] + b[3] // 2 for b in boxes]
+    anchor = int(sum(centers) / len(centers))
+    return [(b[0], anchor - b[3] // 2, b[2], b[3]) for b in boxes]
 
 
 def distribute_boxes(boxes: Sequence[Box], axis: str) -> list[Box]:
