@@ -74,7 +74,6 @@ RED_UNO_SINKS = {
     "get_draw_context_for_chat",
     "get_document_uno_services",
     "get_document_type",
-    "get_full_document_text",
     "get_document_length",
     "get_text_cursor_at_range",
     "get_text_cursor_at_range_reached",

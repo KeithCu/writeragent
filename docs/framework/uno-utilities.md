@@ -93,16 +93,15 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 
 Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented. `get_paragraph_ranges` keeps tables in the list so indices match the text enumeration (heading trees, bookmarks, and grep count every element). `find_paragraph_for_range` compares only `com.sun.star.text.Paragraph` elements — `SwXTextTable` is not an `XTextRange` — and a point in the gap between paragraphs (a table anchor) maps to that table's slot. `find_paragraph_for_range` returns `None` when the point cannot be placed (empty body, before the first or after the last paragraph, or a compare failure); only a real hit returns `0`.
 
-### 1.4 Chat `DocumentService` and full-text dispatch
+### 1.4 Chat `DocumentService`
 
 Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py) — WriterAgent only.
 
 | Symbol | Purpose |
 |--------|---------|
-| `get_full_document_text` | Dispatch: Writer → `text_helpers`; Calc → lazy `plugin.calc.analyzer`; Draw/Impress → `plugin.draw.bridge`. |
 | `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler. Writer sends one slice when the document fits in `max_context`; head and tail, with the middle omitted, only when it is longer (those windows do not overlap). Calc/Draw delegated. Draw/Impress cuts a longer summary to a prefix of max_context and appends [... document truncated ...]. Selection markers. |
 | `resolve_locator` | `paragraph:` is resolved here. Every other locator (`heading:`, `chapter_number:`, `bookmark:`, `heading_text:`, `section:`, `page:`, ...) goes to `TreeService.resolve_writer_locator`. A missing bookmark, or a bookmark whose anchor does not land on a paragraph, raises `ToolExecutionError` (it does not become paragraph 0). |
-| `DocumentService` | Chat/MCP facade: active doc, resolve-by-url, type flags, full text, length, chat context, page helpers, paragraph ranges. |
+| `DocumentService` | Chat/MCP facade: active doc, resolve-by-url, length, chat context, page helpers, paragraph ranges. |
 
 `DocumentService` methods that are **wrappers**, not new logic:
 
@@ -110,10 +109,8 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 |--------|----------------|
 | `get_active_document` | `uno_context.get_active_document` |
 | `resolve_document_by_url` | `uno_context.resolve_document_by_url(get_ctx(), url)` |
-| `is_writer` / `is_calc` / `is_draw` | `doc_type` |
 | `detect_doc_type` | local map (Impress → `"draw"`, unknown → `"writer"`) |
 | `get_document_length` | `text_helpers.get_document_length` |
-| `get_document_context_for_chat` | module function + `get_ctx()` |
 | `get_paragraph_ranges` / `find_paragraph_for_range` / `resolve_locator` | `paragraph_search` / module `resolve_locator` |
 
 `get_page_for_paragraph` / `get_page_count` are Writer view-cursor walks via `with_view_cursor_left_body_locked` (lockControllers + clone_text_range restore; safe for nested table cells/frames). `get_page_for_paragraph` raises `ToolExecutionError` on failure rather than returning fallback 1; `get_page_count` soft-fails to 0 for tree/outline callers. `doc_key` is `uid:<RuntimeUID>` then `url:<normalized>` (same shape as MCP `_resolve_mcp_doc_key`); empty both → `"unknown"` and do not cache.

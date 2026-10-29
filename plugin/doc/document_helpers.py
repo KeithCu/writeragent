@@ -88,57 +88,6 @@ except ImportError:
     pass
 
 
-def _dispatch_calc_draw_text(
-    model: Any,
-    doc_type: _doc_type.DocumentType,
-    max_chars: int,
-    chat: bool,
-    ctx: Any | None = None,
-) -> str | None:
-    if doc_type == _doc_type.DocumentType.CALC:
-        if chat:
-            from plugin.calc.analyzer import get_calc_context_for_chat
-
-            return get_calc_context_for_chat(model, max_chars, ctx)
-        from plugin.calc.analyzer import get_full_calc_text
-
-        return get_full_calc_text(model, max_chars)
-
-    if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
-        from plugin.draw.bridge import get_draw_context_for_chat
-
-        if chat:
-            return get_draw_context_for_chat(model, max_chars, ctx)
-        return get_draw_context_for_chat(model, max_chars)
-
-    return None
-
-
-@main_thread_only
-def get_full_document_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CHARS) -> str:
-    """Dispatch full-text / summary by document type.
-
-    Writer slices live in ``text_helpers``. Draw/Impress summaries live on
-    ``plugin.draw.bridge``. Calc is lazy so this module does not load
-    ``SheetAnalyzer`` at import time.
-    """
-    try:
-        check_disposed(model, "Document Model")
-        doc_type = _doc_type.get_document_type(model)
-
-        text = _dispatch_calc_draw_text(model, doc_type, max_chars, chat=False)
-        if text is not None:
-            return text
-
-        if doc_type == _doc_type.DocumentType.WRITER:
-            return _text_helpers.get_full_writer_text(model, max_chars)
-
-        return ""
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("get_full_document_text failed")
-        return ""
-
-
 def _writer_has_math_ole(model: Any) -> bool:
     """True when the Writer doc has at least one LibreOffice Math embedded object."""
     try:
@@ -222,9 +171,14 @@ def get_document_context_for_chat(
     try:
         doc_type = _doc_type.get_document_type(model)
 
-        text = _dispatch_calc_draw_text(model, doc_type, max_context, chat=True, ctx=ctx)
-        if text is not None:
-            return text
+        if doc_type == _doc_type.DocumentType.CALC:
+            from plugin.calc.analyzer import get_calc_context_for_chat
+
+            return get_calc_context_for_chat(model, max_context, ctx)
+        if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
+            from plugin.draw.bridge import get_draw_context_for_chat
+
+            return get_draw_context_for_chat(model, max_context, ctx)
 
         # Writer: plain-text start/end slices (hides tracked deletions). Math OLE is not
         # in getString(); we only hint to call get_document_content.
@@ -338,35 +292,19 @@ def _inject_selection_markers(
         prefix_text = _text_helpers._read_writer_text_slice(model, excerpt_start, offset - excerpt_start)
         return min(len(prefix_text), visible_len)
 
-    return _inject_markers_into_excerpt(
-        excerpt_text, 0, visible_len, _visible(sel_start), _visible(sel_end), prefix, suffix
-    )
-
-
-def _inject_markers_into_excerpt(
-    excerpt_text: str,
-    excerpt_start: int,
-    excerpt_end: int,
-    sel_start: int,
-    sel_end: int,
-    prefix: str,
-    suffix: str,
-) -> str:
-    """Inject [SELECTION_START] and [SELECTION_END] at character positions relative to excerpt.
-    excerpt_start/excerpt_end are the document character range this excerpt covers.
-    sel_start/sel_end are the selection/cursor range in document coordinates."""
-    if sel_start >= excerpt_end or sel_end <= excerpt_start:
-        # Selection does not overlap this excerpt (or both markers in same position outside)
+    s = _visible(sel_start)
+    e = _visible(sel_end)
+    if s >= visible_len or e <= 0:
         return prefix + excerpt_text + suffix
-    # Map to excerpt-relative indices
-    local_start = max(0, sel_start - excerpt_start)
-    local_end = min(len(excerpt_text), sel_end - excerpt_start)
-    # Build result with markers inserted (order: text before start, START, text between, END, text after)
-    before = excerpt_text[:local_start]
-    between = excerpt_text[local_start:local_end]
-    after = excerpt_text[local_end:]
-    out = prefix + before + "[SELECTION_START]" + between + "[SELECTION_END]" + after + suffix
-    return out
+    return (
+        prefix
+        + excerpt_text[:s]
+        + "[SELECTION_START]"
+        + excerpt_text[s:e]
+        + "[SELECTION_END]"
+        + excerpt_text[e:]
+        + suffix
+    )
 
 
 # Resolver-only TreeService used when plugin.main has not registered writer_tree
@@ -430,37 +368,6 @@ def _writer_tree_service() -> Any:
     return _FALLBACK_WRITER_TREE
 
 
-def _dispatch_writer_locator(model: Any, loc_type: str, loc_value: str) -> dict[str, Any]:
-    """Resolve a locator ``TreeService.resolve_writer_locator`` owns.
-
-    ``heading_text:``, ``section:``, ``page:``, and a bookmark name
-    that is missing or already deleted fall out of
-    ``resolve_locator`` as paragraph 0. A bookmark that still has a
-    name but whose anchor cannot be placed does the same when the
-    live ``bookmark:`` branch returns ``find_paragraph_for_range``'s
-    fallback 0. Navigation, ``get_page_objects``, and
-    ``clone_heading_block`` then change the first paragraph and
-    return success. ``TreeService.resolve_writer_locator`` already
-    rejects a missing name. Every ``bookmark:`` goes through that
-    resolver, which rejects an anchor that does not land on a
-    paragraph. ``ValueError`` (``page:abc`` fails ``int()`` before
-    the resolver's own error) becomes ``ToolExecutionError``
-    because the tool registry re-raises ``ValueError`` as a
-    programmer error. A result with no paragraph index is an
-    error, not paragraph 0.
-    """
-    tree = _writer_tree_service()
-    try:
-        resolved = tree.resolve_writer_locator(model, loc_type, loc_value)
-    except ToolExecutionError:
-        raise
-    except ValueError as exc:
-        raise ToolExecutionError("Cannot resolve %s:%s — %s" % (loc_type, loc_value, exc)) from exc
-    if not isinstance(resolved, dict) or not isinstance(resolved.get("para_index"), int):
-        raise ToolExecutionError("Cannot resolve %s:%s" % (loc_type, loc_value))
-    return resolved
-
-
 def resolve_locator(model: Any, locator: str) -> dict[str, Any]:
     """Resolve a locator string to a paragraph index.
 
@@ -484,7 +391,18 @@ def resolve_locator(model: Any, locator: str) -> dict[str, Any]:
     # find_paragraph_for_range's fallback 0 when the anchor could not be
     # placed, so a stale name still navigated to the first paragraph.
     # TreeService.resolve_writer_locator rejects that anchor.
-    return _dispatch_writer_locator(model, loc_type, loc_value)
+    tree = _writer_tree_service()
+    try:
+        resolved = tree.resolve_writer_locator(model, loc_type, loc_value)
+    except ToolExecutionError:
+        raise
+    # page:abc fails int() inside the resolver; the tool registry re-raises
+    # ValueError as a programmer error, so this arm converts it.
+    except ValueError as exc:
+        raise ToolExecutionError("Cannot resolve %s:%s — %s" % (loc_type, loc_value, exc)) from exc
+    if not isinstance(resolved, dict) or not isinstance(resolved.get("para_index"), int):
+        raise ToolExecutionError("Cannot resolve %s:%s" % (loc_type, loc_value))
+    return resolved
 
 
 def is_cacheable_doc_key(key: str) -> bool:
@@ -714,26 +632,8 @@ class DocumentService(ServiceBase):
                 continue
         return found
 
-    def is_writer(self, doc: Any) -> bool:
-        return _doc_type.is_writer(doc)
-
-    def is_calc(self, doc: Any) -> bool:
-        return _doc_type.is_calc(doc)
-
-    def is_draw(self, doc: Any) -> bool:
-        return _doc_type.is_draw(doc)
-
     def get_document_length(self, doc: Any) -> int:
         return _text_helpers.get_document_length(doc)
-
-    def get_document_context_for_chat(
-        self,
-        doc: Any,
-        max_context: int = CHAT_DOCUMENT_CONTEXT_MAX_CHARS,
-        include_end: bool = True,
-        include_selection: bool = True,
-    ) -> str:
-        return get_document_context_for_chat(doc, max_context, include_end, include_selection, get_ctx())
 
     def get_page_for_paragraph(self, model: Any, para_index: int) -> int:
         """Return page number for a paragraph by index.
