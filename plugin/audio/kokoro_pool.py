@@ -89,9 +89,6 @@ def _error_with_tail(code: str, msg: str, tail: str, *, with_message: bool = Fal
 class _KokoroWorker:
     """Subprocess worker executing Kokoro jobs over stdio Pickle 5 framing."""
 
-    python_executable: str
-    script_path: str
-    _env: dict[str, str] | None
     _ready_timeout_sec: float
     _managed: ManagedSubprocess
     _shutting_down: bool
@@ -105,9 +102,6 @@ class _KokoroWorker:
         env: dict[str, str] | None = None,
         ready_timeout_sec: float = _SPAWN_READY_TIMEOUT_SEC,
     ) -> None:
-        self.python_executable = python_executable
-        self.script_path = script_path
-        self._env = env
         self._ready_timeout_sec = ready_timeout_sec
         self._managed = ManagedSubprocess(
             [python_executable, script_path],
@@ -270,16 +264,14 @@ def _signal_kokoro_child(worker: Any) -> None:
 
 
 class KokoroProcessPool:
-    """Single warm worker plus an idle reaper. ``num_workers`` is always 1."""
+    """Single warm worker plus an idle reaper."""
 
     python_executable: str
     script_path: str
     idle_worker_ttl_sec: float | None
     job_timeout_sec: float
-    num_workers: int
     _lock: threading.Lock
     _job_lock: threading.Lock
-    _inflight: bool
     _shutdown: bool
     _last_active: float
     _reaper_stop: threading.Event
@@ -297,14 +289,12 @@ class KokoroProcessPool:
         self.script_path = script_path or _SCRIPT_PATH
         self.idle_worker_ttl_sec = idle_worker_ttl_sec
         self.job_timeout_sec = job_timeout_sec
-        self.num_workers = 1
         self._worker: _KokoroWorker | None = None
         self._lock = threading.Lock()
         self._job_lock = threading.Lock()
-        self._inflight = False
-        # Identifies the execute() call that set ``_inflight``. cancel() must
-        # not clear a newer call's flag, and the older call's finally must not
-        # clear the newer one.
+        # Identifies this execute() call. cancel() must not clear a newer
+        # call's token, and the older call's finally must not clear the newer
+        # one. In-flight means the token is not None.
         self._exec_token: object | None = None
         self._shutdown = False
         self._last_active = time.monotonic()
@@ -353,15 +343,13 @@ class KokoroProcessPool:
                 # How it happened: Stop after _kokoro_warm_to_file's playback check and
                 # before any frame made the next sentence look in-flight.
                 # Why this fixes it: a true cancel_check returns WORKER_CANCELLED
-                # without publishing the token or setting _inflight, leaving the warm
-                # idle worker in place.
+                # without publishing the token, leaving the warm idle worker in place.
                 return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
 
             token = object()
             with self._lock:
                 if self._shutdown:
                     return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
-                self._inflight = True
                 self._exec_token = token
                 self._last_active = time.monotonic()
                 existing = self._worker
@@ -462,7 +450,6 @@ class KokoroProcessPool:
                     # waits on _job_lock until this finally releases it, so it
                     # cannot write the same stdin.
                     if self._exec_token is token:
-                        self._inflight = False
                         self._exec_token = None
                         self._last_active = time.monotonic()
                     else:
@@ -497,14 +484,13 @@ class KokoroProcessPool:
         during the ready handshake still finds it.
         """
         with self._lock:
-            if not self._inflight:
+            if self._exec_token is None:
                 return
             if token is not None and self._exec_token is not token:
                 return
             worker = self._worker
             self._worker = None
             self._exec_token = None
-            self._inflight = False
         if worker is not None:
             log.info("Cancelling in-flight Kokoro synthesis")
             worker.request_shutdown()
@@ -523,7 +509,7 @@ class KokoroProcessPool:
         if ttl is None or self._shutdown:
             return
         with self._lock:
-            if self._inflight or self._worker is None or not self._worker.is_alive():
+            if self._exec_token is not None or self._worker is None or not self._worker.is_alive():
                 return
             worker = self._worker
             expired = time.monotonic() - self._last_active >= ttl
@@ -542,9 +528,7 @@ class KokoroProcessPool:
     def token_if_inflight(self) -> object | None:
         """Return the active job's token when a job is inflight, else None."""
         with self._lock:
-            if self._inflight:
-                return self._exec_token
-            return None
+            return self._exec_token
 
     def shutdown(self) -> None:
         self._reaper_stop.set()
@@ -552,7 +536,6 @@ class KokoroProcessPool:
             self._shutdown = True
             worker = self._worker
             self._worker = None
-            self._inflight = False
             # In-flight execute treats a dropped token as cancel, so shutdown
             # does not fall through to a one-shot Kokoro clip.
             self._exec_token = None

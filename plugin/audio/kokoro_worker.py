@@ -193,7 +193,6 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
             speed = float(raw_speed)
         except (TypeError, ValueError):
             speed = 1.0
-    lang = str(req.get("lang") or "en-us")
 
     try:
         kokoro = _get_kokoro(model_path, voices_path)

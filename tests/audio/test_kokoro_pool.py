@@ -124,7 +124,7 @@ def test_idle_reaper_leaves_a_warm_child_before_ttl():
         pool._evict_idle_worker()
         assert warm.kills == 0
         assert pool._worker is warm
-        pool._inflight = True
+        pool._exec_token = object()
         pool._last_active = 0.0
         pool._evict_idle_worker()
         assert warm.kills == 0
@@ -283,7 +283,6 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
     stuck = _Stuck()
     token = object()
     pool._worker = cast("Any", stuck)
-    pool._inflight = True
     pool._exec_token = token
     try:
         pool.cancel_inflight(token)
@@ -507,7 +506,6 @@ def test_cancel_inflight_returns_while_reap_blocks() -> None:
     slow = _SlowKill()
     token = object()
     pool._worker = cast("Any", slow)
-    pool._inflight = True
     pool._exec_token = token
     try:
         t0 = time.monotonic()
@@ -533,7 +531,6 @@ def test_raising_cancel_check_releases_inflight(tmp_path) -> None:
     try:
         with pytest.raises(RuntimeError, match="boom"):
             pool.execute({"text": "hi"}, cancel_check=_boom)
-        assert not pool._inflight
         assert pool._exec_token is None
         result = pool.execute({"text": "hi"})
         assert result["code"] == "WORKER_SPAWN_FAILED"
@@ -629,7 +626,6 @@ def test_cancel_check_true_keeps_warm_worker() -> None:
         assert stub.kills == 0
         assert stub.executes == 0
         assert pool._worker is stub
-        assert not pool._inflight
         assert pool._exec_token is None
 
         res2 = pool.execute({"text": "next"})
