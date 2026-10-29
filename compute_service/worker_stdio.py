@@ -69,26 +69,9 @@ def set_pdeathsig(sig: int | None = None) -> bool:
         sig = signal.SIGKILL
     try:
         import ctypes
-        import ctypes.util
 
-        # CDLL(None) is the libc this interpreter is already linked to
-        # (glibc or musl). find_library and libc.so.6 cover a process that
-        # does not export prctl. Debian has libc.so.6; Alpine does not.
-        names: list[str | None] = [None]
-        found = ctypes.util.find_library("c")
-        if isinstance(found, str) and found not in names:
-            names.append(found)
-        if "libc.so.6" not in names:
-            names.append("libc.so.6")
-        pr_set_pdeathsig = 1
-        for name in names:
-            try:
-                libc = ctypes.CDLL(name, use_errno=True)
-                res = libc.prctl(pr_set_pdeathsig, ctypes.c_ulong(sig), 0, 0, 0)
-                return res == 0
-            except (OSError, AttributeError):
-                continue
-        return False
+        res = ctypes.CDLL(None).prctl(1, ctypes.c_ulong(sig), 0, 0, 0)
+        return res == 0
     except Exception:
         return False
 
@@ -146,17 +129,8 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
     stdin_bin = sys.stdin.buffer
 
     # claim_ipc_channel duplicates fd 1 for the frame channel and points fd 1
-    # at stderr, so a stray print() cannot corrupt the pickle stream. The same
-    # helper is the venv child's stdout claim. When stdout is not a real fd 1
-    # (tests), it returns the existing buffer and does not redirect.
-    try:
-        is_real_fd1 = hasattr(sys.stdout, "fileno") and sys.stdout.fileno() == 1
-    except (io.UnsupportedOperation, AttributeError, OSError):
-        is_real_fd1 = False
-
+    # at stderr, so a stray print() cannot corrupt the pickle stream.
     stdout_bin = claim_ipc_channel()
-    if is_real_fd1:
-        sys.stdout = sys.stderr
 
     # Signal readiness to supervisor
     write_pickle_frame(stdout_bin, {"status": "ready", "pid": os.getpid()})
@@ -176,6 +150,11 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
     except (ValueError, AttributeError):
         pass
 
+    try:
+        import plugin.contrib.smolagents.local_python_executor as _lpe
+    except ImportError:
+        _lpe = None  # type: ignore[assignment]
+
     while True:
         try:
             req = read_pickle_frame(stdin_bin, max_payload_bytes=max_payload_bytes, unpacker=unpack_restricted_pickle_frame)
@@ -189,59 +168,43 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
         if req is None or _shutdown_requested:
             break
 
-        try:
-            import plugin.contrib.smolagents.local_python_executor as _lpe
-
-            _lpe.abandoned_timeout = False
-        except ImportError:
-            pass
-
         res: dict[str, Any]
         try:
-            if not isinstance(req, dict):
-                res = {"status": "error", "error": "Request must be a dict"}
-            else:
-                res = handler(req)
-                if not isinstance(res, dict):
-                    res = {"status": "error", "error": "Handler returned non-dict"}
+            res = handler(req)
         except BaseException as exc:
             if _shutdown_requested:
                 break
-            req_id = req.get("id") if isinstance(req, dict) else None
-            res = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": f"Unhandled error: {exc}"}
+            res = {"id": req.get("id"), "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": f"Unhandled error: {exc}"}
 
         # Bugfix: when abandoned_timeout was set, the frame used to be a normal
         # error dict, _finish_release saw is_alive(), and the next lease got
         # WORKER_PIPE_BROKEN or WORKER_CRASHED. The "exiting" key tells the host
         # to recycle the slot; os._exit(1) runs only after the frame is written.
         should_exit = False
-        try:
-            import plugin.contrib.smolagents.local_python_executor as _lpe
-
-            if getattr(_lpe, "abandoned_timeout", False):
-                _lpe.abandoned_timeout = False
-                should_exit = True
-        except ImportError:
-            pass
+        if _lpe is not None and getattr(_lpe, "abandoned_timeout", False):
+            _lpe.abandoned_timeout = False
+            should_exit = True
 
         if should_exit:
             res["exiting"] = True
 
         wrote = False
-        try:
-            write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
-            wrote = True
-        except IpcFrameError as exc:
-            req_id = req.get("id") if isinstance(req, dict) else None
-            err_frame = {"id": req_id, "status": "error", "code": "RESULT_TOO_LARGE", "error": f"Result exceeds maximum payload size: {exc}"}
-            if should_exit:
-                err_frame["exiting"] = True
+        out = res
+        while True:
             try:
-                write_pickle_frame(stdout_bin, err_frame, max_payload_bytes=max_payload_bytes)
+                write_pickle_frame(stdout_bin, out, max_payload_bytes=max_payload_bytes)
                 wrote = True
+                break
+            except IpcFrameError as exc:
+                if out is not res:
+                    break
+                out = {"id": req.get("id"), "status": "error", "code": "RESULT_TOO_LARGE", "error": f"Result exceeds maximum payload size: {exc}"}
+                if should_exit:
+                    out["exiting"] = True
             except Exception:
                 break
-        except Exception:
+
+        if not wrote:
             break
 
         if should_exit and wrote:

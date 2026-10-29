@@ -82,8 +82,6 @@ class PoolSingleton(Generic[_PoolT]):
     _pool: _PoolT | None
     _closed: bool
     _building: bool
-    _build_id: int
-    _epoch: int
 
     def __init__(self) -> None:
         # A plain Lock, not the Condition default RLock. Nothing here re-enters.
@@ -91,21 +89,9 @@ class PoolSingleton(Generic[_PoolT]):
         self._pool = None
         self._closed = False
         self._building = False
-        self._build_id = 0
-        self._epoch = 0
 
     def get(self, factory: Callable[[], _PoolT]) -> _PoolT:
-        """Return the pool. ``factory`` runs outside this lock.
-
-        What was wrong: ``factory`` ran while the lock was held, and it
-        spawns every child before returning. ``shutdown`` blocked on that
-        lock for the whole spawn. One caller builds; the others wait.
-        A shutdown that lands during the build discards that pool instead
-        of installing it. A non-permanent shutdown used to fail this caller
-        with "shut down" even though the next ``get`` built a replacement.
-        A shutdown that lands after publish and before this returns used to
-        hand back the pool ``shutdown`` was already tearing down.
-        """
+        """Return the pool. ``factory`` runs outside this lock."""
         while True:
             with self._cv:
                 while self._building:
@@ -116,59 +102,24 @@ class PoolSingleton(Generic[_PoolT]):
                     raise RuntimeError("Compute pool is shut down.")
                 if self._pool is not None:
                     return self._pool
-                self._build_id += 1
                 self._building = True
-                epoch = self._epoch
             created: _PoolT | None = None
-            stale = True
-            published: _PoolT | None = None
-            closed = False
             try:
                 created = factory()
                 with self._cv:
-                    # epoch moves on every shutdown, including a non-permanent
-                    # one, so this build cannot appear after shutdown returned.
-                    stale = self._closed or self._epoch != epoch or self._pool is not None
-                    if not stale:
+                    if self._closed:
+                        closed = True
+                    else:
+                        closed = False
                         self._pool = created
-                    published = self._pool
-                    closed = self._closed
-                if stale:
+                if closed:
                     created.shutdown()
+                    raise RuntimeError("Compute pool is shut down.")
+                return created
             finally:
                 with self._cv:
                     self._building = False
                     self._cv.notify_all()
-            if not stale and created is not None:
-                # Shutdown can null ``_pool`` in the gap after publish.
-                # ``_before_handout`` is where a test opens that gap.
-                self._before_handout(created)
-                with self._cv:
-                    # Permanent shutdown sets ``_closed``. A non-permanent
-                    # one only drops ``_pool``. Either way this object is
-                    # the one ``shutdown`` is reaping, so it is not returned.
-                    handed_out = self._pool is created and not self._closed
-                    permanent = self._closed
-                if handed_out:
-                    return created
-                if permanent:
-                    raise RuntimeError("Compute pool is shut down.")
-                continue
-            if published is not None and not closed:
-                return published
-            if closed:
-                raise RuntimeError("Compute pool is shut down.")
-            # Non-permanent shutdown discarded this build. A waiter may
-            # publish the replacement; otherwise this caller builds again.
-
-    def _before_handout(self, pool: _PoolT) -> None:
-        """Run after publish and before the closed re-check. Tests override this.
-
-        Production returns. The pool is already installed. ``shutdown`` can
-        drop it before ``get`` returns, and the re-check after this method
-        refuses to hand that pool out.
-        """
-        del pool
 
     def shutdown(self, *, permanent: bool = False) -> None:
         """Drop the pool. *permanent* makes a later ``get`` raise.
@@ -178,24 +129,15 @@ class PoolSingleton(Generic[_PoolT]):
         *permanent* on the way out so an abandoned handler cannot spawn
         children after shutdown.
 
-        The pool is reaped outside this lock. A build already inside
-        ``factory`` is not installed; this waits until that build has
-        discarded its children, and the wait is not held across the reap.
+        The pool is reaped outside this lock.
         """
         with self._cv:
             pool = self._pool
             self._pool = None
-            self._epoch += 1
             self._closed = permanent
-            inflight = self._build_id if self._building else None
             self._cv.notify_all()
         if pool is not None:
             pool.shutdown()
-        if inflight is None:
-            return
-        with self._cv:
-            while self._building and self._build_id == inflight:
-                self._cv.wait()
 
 
 class BaseProcessPool:
@@ -267,37 +209,14 @@ class BaseProcessPool:
             # can still start the thread for its own TTL (shared session expiry).
             period = self._reaper_period_sec()
             if period is not None:
-                self._start_idle_reaper(period)
+                interval = max(0.02, min(period / 6.0, 300.0))
+                self._start_reaper(name=f"{self.worker_name}-idle-reaper", interval=interval, fn=self._evict_idle_workers)
         except Exception:
             # A later worker, or the reaper start, failed after earlier
             # children were already up. Nothing outside __init__ holds those
             # Popen objects, so they have to be reaped here.
-            self._discard_partial_pool()
+            self.shutdown()
             raise
-
-    def _discard_partial_pool(self) -> None:
-        """Reap children already started when ``__init__`` fails.
-
-        ``shutdown`` returns immediately once ``_is_shutdown`` is set, so a
-        failed constructor cannot use it: the flag would skip the kill and
-        the live children would have no reference.
-        """
-        self._reaper_stop_event.set()
-        workers = list(self.workers)
-        self._is_shutdown = True
-        self.workers.clear()
-        self._idle.clear()
-        self._leased.clear()
-        for worker in workers:
-            try:
-                worker.request_shutdown()
-            except Exception:
-                log.exception("Failed to mark %s #%d shutting down during init abort", self.worker_name, worker.worker_id)
-        for worker in workers:
-            try:
-                worker.kill()
-            except Exception:
-                log.exception("Failed to reap %s #%d during init abort", self.worker_name, worker.worker_id)
 
     def _start_reaper(self, name: str, interval: float, fn: Callable[[], None]) -> None:
         def _loop() -> None:
@@ -333,10 +252,6 @@ class BaseProcessPool:
             return None
         return float(ttl)
 
-    def _start_idle_reaper(self, period: float) -> None:
-        interval = max(0.02, min(period / 6.0, 300.0))
-        self._start_reaper(name=f"{self.worker_name}-idle-reaper", interval=interval, fn=self._evict_idle_workers)
-
     def _evict_idle_workers(self) -> None:
         if self._is_shutdown:
             return
@@ -354,7 +269,7 @@ class BaseProcessPool:
                 if idle_ttl is not None and idle_ttl > 0 and now - last_active >= idle_ttl:
                     idle_hits.append(w)
             for w in idle_hits:
-                self._drop_evicted_unlocked(w)
+                self._idle.pop(w, None)
         for w in idle_hits:
             # A child that survives SIGKILL is abandoned inside kill().
             # The slot is then not alive, and the next lease can respawn it.
@@ -367,14 +282,6 @@ class BaseProcessPool:
                 self._cond.notify_all()
         if idle_hits and idle_ttl is not None:
             log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(idle_hits), self.worker_name, idle_ttl)
-
-    def _drop_evicted_unlocked(self, worker: BaseProcessWorker) -> None:
-        """Remove *worker* from idle. Caller holds ``self._cond``.
-
-        The last-active stamp is the idle value, so this pop drops it too.
-        The next idle writes a new stamp.
-        """
-        self._idle.pop(worker, None)
 
     def is_enabled(self) -> bool:
         return self.num_workers > 0 and not self._is_shutdown
@@ -418,21 +325,13 @@ class BaseProcessPool:
                 return worker
         return None
 
-    def lease_any(self, timeout_sec: float) -> BaseProcessWorker | None:
-        """Acquire a protocol-ready worker, or a dead slot the caller will respawn.
-
-        The dead slot is not idle. ``execute`` performs the handshake;
-        release idles the worker only after that handshake or after a
-        response frame is consumed.
-        """
+    def _lease(self, pick: Callable[[], BaseProcessWorker | None], timeout_sec: float) -> BaseProcessWorker | None:
         deadline = time.monotonic() + max(0.0, float(timeout_sec))
         while True:
             with self._cond:
                 if self._is_shutdown:
                     return None
-                claimed = self._pick_idle_worker()
-                if claimed is None:
-                    claimed = self._claim_cold_unlocked()
+                claimed = pick()
                 if claimed is not None:
                     self._leased.add(claimed)
                     return claimed
@@ -441,26 +340,34 @@ class BaseProcessPool:
                     return None
                 self._cond.wait(remaining)
 
+    def lease_any(self, timeout_sec: float) -> BaseProcessWorker | None:
+        """Acquire a protocol-ready worker, or a dead slot the caller will respawn.
+
+        The dead slot is not idle. ``execute`` performs the handshake;
+        release idles the worker only after that handshake or after a
+        response frame is consumed.
+        """
+        def _pick() -> BaseProcessWorker | None:
+            claimed = self._pick_idle_worker()
+            if claimed is None:
+                claimed = self._claim_cold_unlocked()
+            return claimed
+
+        return self._lease(_pick, timeout_sec)
+
     def lease_specific(self, worker: BaseProcessWorker, timeout_sec: float) -> BaseProcessWorker | None:
         """Acquire *worker* when it is idle, or once its process has exited."""
-        deadline = time.monotonic() + max(0.0, float(timeout_sec))
-        while True:
-            with self._cond:
-                if self._is_shutdown:
-                    return None
-                if worker in self._idle:
-                    self._idle.pop(worker, None)
-                    self._leased.add(worker)
-                    return worker
-                # Process exit: not idle, but the slot can be respawned by execute.
-                # A child kill() could not reap is no longer this slot's child.
-                if not worker.is_alive() and worker not in self._leased:
-                    self._leased.add(worker)
-                    return worker
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                self._cond.wait(remaining)
+        def _pick() -> BaseProcessWorker | None:
+            if worker in self._idle:
+                self._idle.pop(worker, None)
+                return worker
+            # Process exit: not idle, but the slot can be respawned by execute.
+            # A child kill() could not reap is no longer this slot's child.
+            if not worker.is_alive() and worker not in self._leased:
+                return worker
+            return None
+
+        return self._lease(_pick, timeout_sec)
 
     @contextlib.contextmanager
     def leased(self, worker: BaseProcessWorker | None = None, *, timeout_sec: float | None = None) -> Generator[BaseProcessWorker | None, None, None]:
@@ -481,6 +388,14 @@ class BaseProcessPool:
         """Predicate to determine if worker should be recycled on release."""
         return worker.tasks_executed >= self.max_tasks
 
+    def _reap(self, worker: BaseProcessWorker, why: str) -> bool:
+        try:
+            worker.kill()
+            return True
+        except Exception:
+            log.exception("Failed to reap %s #%d during %s", self.worker_name, worker.worker_id, why)
+            return False
+
     def release_worker(self, worker: BaseProcessWorker) -> None:
         """Return a live worker to idle. Kill a slot that has reached max_tasks.
 
@@ -488,7 +403,50 @@ class BaseProcessPool:
         and does not re-idle it. max_tasks does the same kill and leaves the
         slot dead. The next lease cold-claims it and execute respawns.
         """
-        self._finish_release(worker)
+        # An "exiting" frame means the child os._exit()s next. Never idle it,
+        # even when it holds sessions.
+        exiting = worker.pending_exit
+        recycle = exiting or self.should_recycle_worker(worker)
+        kill_for_shutdown = False
+        with self._cond:
+            if self._is_shutdown:
+                kill_for_shutdown = True
+            else:
+                if recycle and not exiting:
+                    # Re-check in this hold: a shared session reserved since the
+                    # first check cancels the recycle and clears the mark.
+                    recycle = self.should_recycle_worker(worker)
+                if not recycle:
+                    self._leased.discard(worker)
+                    # A child kill() could not reap is no longer alive: the slot
+                    # dropped it. Idling a dead slot would hand out a process
+                    # execute has to respawn anyway.
+                    if worker.is_alive():
+                        # The response frame was consumed and worker is alive: return to idle.
+                        self._idle[worker] = time.monotonic()
+                        self._idle.move_to_end(worker)
+                    self._cond.notify_all()
+
+        if kill_for_shutdown:
+            self._drop_lease(worker)
+            self._reap(worker, "shutdown")
+            return
+
+        if recycle:
+            if exiting:
+                log.info("Retiring %s #%d after abandoned timeout", self.worker_name, worker.worker_id)
+            else:
+                log.info("Retiring %s #%d after %d tasks", self.worker_name, worker.worker_id, worker.tasks_executed)
+            # What was wrong: kill() sat before _drop_lease with no handler.
+            # How: an exception from kill() skipped _drop_lease, so the slot
+            # stayed in _leased and no later lease could claim it.
+            # Why: the same try/except as init abort logs the reap failure,
+            # then _drop_lease still runs. The lease stays held across kill()
+            # so lease_any cannot cold-claim the process being retired.
+            if self._reap(worker, "recycle"):
+                worker.pending_exit = False
+                self._clear_recycling_mark(worker)
+            self._drop_lease(worker)
 
     def _drop_lease(self, worker: BaseProcessWorker) -> None:
         """Remove *worker* from the leased set and wake waiters.
@@ -506,73 +464,6 @@ class BaseProcessPool:
     def _clear_recycling_mark(self, worker: BaseProcessWorker) -> None:
         """Clear any recycling reservation mark. Subclasses may override."""
         return
-
-    def _finish_release(self, worker: BaseProcessWorker) -> None:
-        if self._is_shutdown:
-            self._drop_lease(worker)
-            # A kill() error must not escape release. The lease is already dropped.
-            try:
-                worker.kill()
-            except Exception:
-                log.exception("Failed to reap %s #%d during shutdown", self.worker_name, worker.worker_id)
-            return
-
-        # An "exiting" frame means the child os._exit()s next. Never idle it,
-        # even when it holds sessions.
-        exiting = worker.pending_exit
-        recycle = exiting or self.should_recycle_worker(worker)
-        kill_for_shutdown = False
-        with self._cond:
-            if self._is_shutdown:
-                kill_for_shutdown = True
-            else:
-                if recycle and not exiting:
-                    # Re-check in this hold: a shared session reserved since the
-                    # first check cancels the recycle and clears the mark.
-                    recycle = self.should_recycle_worker(worker)
-                if recycle:
-                    # Keep the lease until kill returns. Dropping it first lets
-                    # lease_any cold-claim a process this release is about to
-                    # SIGKILL. After kill the slot is dead and not idle.
-                    pass
-                else:
-                    self._leased.discard(worker)
-                    # A child kill() could not reap is no longer alive: the slot
-                    # dropped it. Idling a dead slot would hand out a process
-                    # execute has to respawn anyway.
-                    if worker.is_alive():
-                        # The response frame was consumed and worker is alive: return to idle.
-                        self._idle[worker] = time.monotonic()
-                        self._idle.move_to_end(worker)
-                    self._cond.notify_all()
-
-        if kill_for_shutdown:
-            self._drop_lease(worker)
-            # A kill() error must not escape release. The lease is already dropped.
-            try:
-                worker.kill()
-            except Exception:
-                log.exception("Failed to reap %s #%d during shutdown", self.worker_name, worker.worker_id)
-            return
-
-        if recycle:
-            if exiting:
-                log.info("Retiring %s #%d after abandoned timeout", self.worker_name, worker.worker_id)
-            else:
-                log.info("Retiring %s #%d after %d tasks", self.worker_name, worker.worker_id, worker.tasks_executed)
-            # What was wrong: kill() sat before _drop_lease with no handler.
-            # How: an exception from kill() skipped _drop_lease, so the slot
-            # stayed in _leased and no later lease could claim it.
-            # Why: the same try/except as init abort logs the reap failure,
-            # then _drop_lease still runs. The lease stays held across kill()
-            # so lease_any cannot cold-claim the process being retired.
-            try:
-                worker.kill()
-                worker.pending_exit = False
-                self._clear_recycling_mark(worker)
-            except Exception:
-                log.exception("Failed to reap %s #%d during recycle", self.worker_name, worker.worker_id)
-            self._drop_lease(worker)
 
     def _clear_pool_state_unlocked(self) -> None:
         """Drop subclass maps. Caller holds ``_cond`` and has set ``_is_shutdown``.
@@ -612,7 +503,4 @@ class BaseProcessPool:
         # Why: each reap is logged and the loop continues, so one child
         # cannot leave the others running.
         for w in workers_to_kill:
-            try:
-                w.kill()
-            except Exception:
-                log.exception("Failed to reap %s #%d during shutdown", self.worker_name, w.worker_id)
+            self._reap(w, "shutdown")

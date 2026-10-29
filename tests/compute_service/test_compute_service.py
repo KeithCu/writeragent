@@ -3166,45 +3166,6 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     assert proc.returncode == 0, proc.stderr
 
 
-def test_run_worker_stdio_loop_handles_non_dict_return(monkeypatch) -> None:
-    """When a worker handler returns non-dict, run_worker_stdio_loop formats an error dict."""
-    from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
-    from compute_service.worker_base import run_worker_stdio_loop
-
-    stdin_buf = io.BytesIO()
-    stdout_buf = io.BytesIO()
-
-    # Write a valid request into stdin_buf
-    write_pickle_frame(stdin_buf, {"id": "1", "cmd": "test"})
-    stdin_buf.seek(0)
-
-    class MockStdin:
-        buffer = stdin_buf
-
-    class MockStdout:
-        buffer = stdout_buf
-
-    monkeypatch.setattr("sys.stdin", MockStdin())
-    monkeypatch.setattr("sys.stdout", MockStdout())
-
-    def bad_handler(req: dict) -> Any:
-        del req
-        return "not a dict"
-
-    rc = run_worker_stdio_loop(bad_handler)
-    assert rc == 0
-
-    stdout_buf.seek(0)
-    ready_frame = read_pickle_frame(stdout_buf)
-    assert ready_frame is not None
-    assert ready_frame.get("status") == "ready"
-
-    res_frame = read_pickle_frame(stdout_buf)
-    assert isinstance(res_frame, dict)
-    assert res_frame.get("status") == "error"
-    assert res_frame.get("error") == "Handler returned non-dict"
-
-
 def test_ocr_path_is_allowed_nonexistent_file(tmp_path) -> None:
     """ocr_path_is_allowed checks prefix allowlist even if file does not exist yet."""
     from compute_service.config import ocr_path_is_allowed

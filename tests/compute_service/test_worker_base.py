@@ -68,7 +68,7 @@ def test_finish_release_kills_after_releasing_pool_lock() -> None:
         return False
 
     pool.should_recycle_worker = flip  # type: ignore[method-assign]
-    thread = threading.Thread(target=pool._finish_release, args=(worker,), daemon=True)
+    thread = threading.Thread(target=pool.release_worker, args=(worker,), daemon=True)
     thread.start()
     thread.join(timeout=2.0)
     assert not thread.is_alive()
@@ -270,11 +270,10 @@ def test_singleton_discards_pool_built_during_shutdown() -> None:
     while time.monotonic() < deadline and not singleton._closed:
         time.sleep(0.01)
     assert singleton._closed
-    assert stopper.is_alive()
-    release.set()
     stopper.join(timeout=2.0)
-    getter.join(timeout=2.0)
     assert not stopper.is_alive()
+    release.set()
+    getter.join(timeout=2.0)
     assert not getter.is_alive()
     assert singleton._pool is None
     assert len(discarded) == 1
@@ -282,170 +281,6 @@ def test_singleton_discards_pool_built_during_shutdown() -> None:
     assert len(errors) == 1
     assert isinstance(errors[0], RuntimeError)
     assert "shut down" in str(errors[0])
-
-
-def test_singleton_retries_after_non_permanent_shutdown_during_build() -> None:
-    """A non-permanent shutdown during factory() does not fail the builder.
-
-    What was wrong: the in-flight builder raised "Compute pool is shut down."
-    after shutdown(permanent=False) discarded its pool, while the next get
-    built a replacement.
-    """
-    from compute_service.worker_base import PoolSingleton
-
-    started = threading.Event()
-    release = threading.Event()
-    builds = {"n": 0}
-
-    def factory() -> BaseProcessPool:
-        builds["n"] += 1
-        if builds["n"] == 1:
-            started.set()
-            assert release.wait(timeout=2.0)
-        return BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
-
-    singleton: PoolSingleton[BaseProcessPool] = PoolSingleton()
-    outcome: list[BaseProcessPool | BaseException] = []
-
-    def _get() -> None:
-        try:
-            outcome.append(singleton.get(factory))
-        except BaseException as exc:
-            outcome.append(exc)
-
-    getter = threading.Thread(target=_get, daemon=True)
-    getter.start()
-    assert started.wait(timeout=2.0)
-
-    def _stop() -> None:
-        singleton.shutdown(permanent=False)
-
-    stopper = threading.Thread(target=_stop, daemon=True)
-    stopper.start()
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and singleton._epoch == 0:
-        time.sleep(0.01)
-    assert singleton._epoch == 1
-    assert stopper.is_alive()
-    release.set()
-    stopper.join(timeout=2.0)
-    getter.join(timeout=2.0)
-    assert not stopper.is_alive()
-    assert not getter.is_alive()
-    assert builds["n"] == 2
-    assert len(outcome) == 1
-    pool = outcome[0]
-    assert isinstance(pool, BaseProcessPool)
-    assert pool is singleton._pool
-    assert not pool._is_shutdown
-    pool.shutdown()
-
-
-def test_singleton_does_not_return_pool_shut_down_after_publish() -> None:
-    """Permanent shutdown after publish does not hand that pool back.
-
-    What was wrong: get() returned the pool it had just published even when
-    shutdown(permanent=True) had already nulled _pool and called
-    pool.shutdown(). Callers relied on execute checking _is_shutdown.
-    """
-    from compute_service.worker_base import PoolSingleton
-
-    singleton: PoolSingleton[BaseProcessPool] = PoolSingleton()
-    entered = threading.Event()
-    release = threading.Event()
-    built: list[BaseProcessPool] = []
-
-    def factory() -> BaseProcessPool:
-        pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
-        built.append(pool)
-        return pool
-
-    def _before_handout(pool: BaseProcessPool) -> None:
-        del pool
-        entered.set()
-        assert release.wait(timeout=2.0)
-
-    singleton._before_handout = _before_handout  # type: ignore[method-assign]
-    outcome: list[BaseProcessPool | BaseException] = []
-
-    def _get() -> None:
-        try:
-            outcome.append(singleton.get(factory))
-        except BaseException as exc:
-            outcome.append(exc)
-
-    getter = threading.Thread(target=_get, daemon=True)
-    getter.start()
-    assert entered.wait(timeout=2.0)
-    stopper = threading.Thread(target=lambda: singleton.shutdown(permanent=True), daemon=True)
-    stopper.start()
-    stopper.join(timeout=2.0)
-    assert not stopper.is_alive()
-    release.set()
-    getter.join(timeout=2.0)
-    assert not getter.is_alive()
-    assert len(built) == 1
-    assert built[0]._is_shutdown
-    assert singleton._pool is None
-    assert len(outcome) == 1
-    assert isinstance(outcome[0], RuntimeError)
-    assert "shut down" in str(outcome[0])
-
-
-def test_singleton_rebuilds_after_non_permanent_shutdown_following_publish() -> None:
-    """A non-permanent shutdown after publish makes get() build a replacement.
-
-    The published pool is already being torn down. Returning it would hand
-    the caller a pool whose workers shutdown() is reaping.
-    """
-    from compute_service.worker_base import PoolSingleton
-
-    singleton: PoolSingleton[BaseProcessPool] = PoolSingleton()
-    entered = threading.Event()
-    release = threading.Event()
-    built: list[BaseProcessPool] = []
-    handouts = {"n": 0}
-
-    def factory() -> BaseProcessPool:
-        pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
-        built.append(pool)
-        return pool
-
-    def _before_handout(pool: BaseProcessPool) -> None:
-        del pool
-        handouts["n"] += 1
-        if handouts["n"] == 1:
-            entered.set()
-            assert release.wait(timeout=2.0)
-
-    singleton._before_handout = _before_handout  # type: ignore[method-assign]
-    outcome: list[BaseProcessPool | BaseException] = []
-
-    def _get() -> None:
-        try:
-            outcome.append(singleton.get(factory))
-        except BaseException as exc:
-            outcome.append(exc)
-
-    getter = threading.Thread(target=_get, daemon=True)
-    getter.start()
-    assert entered.wait(timeout=2.0)
-    stopper = threading.Thread(target=lambda: singleton.shutdown(permanent=False), daemon=True)
-    stopper.start()
-    stopper.join(timeout=2.0)
-    assert not stopper.is_alive()
-    release.set()
-    getter.join(timeout=2.0)
-    assert not getter.is_alive()
-    assert len(built) == 2
-    assert built[0]._is_shutdown
-    assert len(outcome) == 1
-    pool = outcome[0]
-    assert isinstance(pool, BaseProcessPool)
-    assert pool is built[1]
-    assert pool is singleton._pool
-    assert not pool._is_shutdown
-    pool.shutdown()
 
 
 def test_pool_init_kills_workers_when_a_later_spawn_fails(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -2387,7 +2387,7 @@ def test_recycle_vs_new_shared_session_order_a() -> None:
         return res
 
     pool.should_recycle_worker = wrapped_should_recycle  # type: ignore[method-assign]
-    thread_r = threading.Thread(target=pool._finish_release, args=(dying,), daemon=True)
+    thread_r = threading.Thread(target=pool.release_worker, args=(dying,), daemon=True)
     thread_r.start()
 
     assert marked.wait(timeout=5.0)
