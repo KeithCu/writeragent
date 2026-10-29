@@ -761,7 +761,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
         if not written_scripts:
             zout.writestr("xl/pythonScripts.xml", scripts_bytes)
 
-    rewrite_zip(source_xlsx, out_path, _transform, temp_suffix=".tmpexcelpy")
+    rewrite_zip(source_xlsx, out_path, _transform)
 
 
 def write_dag_formulas_xlsx(
@@ -1012,4 +1012,4 @@ def write_dag_formulas_xlsx(
         for part_name, part_data in new_sheet_parts.items():
             zout.writestr(part_name, part_data)
 
-    rewrite_zip(source_xlsx, out_path, _transform, temp_suffix=".tmpdagpy")
+    rewrite_zip(source_xlsx, out_path, _transform)

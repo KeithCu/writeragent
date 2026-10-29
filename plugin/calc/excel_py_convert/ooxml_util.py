@@ -3,16 +3,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 from pathlib import Path
 import tempfile
 import threading
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 import zipfile
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
 
-if TYPE_CHECKING:
-    from plugin.calc.excel_py_convert.models import SheetInfo
+from plugin.calc.excel_py_convert.models import SheetInfo
 
 SSML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
@@ -76,11 +76,7 @@ def shared_strings(zf: zipfile.ZipFile) -> list[str]:
     for si in list(root):
         if local_name(si.tag) != "si":
             continue
-        parts: list[str] = []
-        for t in si.iter():
-            if local_name(t.tag) == "t" and t.text:
-                parts.append(t.text)
-        out.append("".join(parts))
+        out.append("".join(t.text or "" for t in si.iter() if local_name(t.tag) == "t" and t.text))
     return out
 
 
@@ -122,8 +118,7 @@ def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: d
     root tag.
     """
     with _XML_NS_LOCK:
-        for prefix, uri in STANDARD_OOXML_NAMESPACES.items():
-            ET.register_namespace(prefix, uri)
+        register_standard_namespaces()
         if original_namespaces:
             for prefix, uri in original_namespaces.items():
                 ET.register_namespace(prefix, uri)
@@ -194,26 +189,8 @@ def resolve_rel_target(rels_path: str, target: str) -> str:
     return "/".join(parts)
 
 
-def parse_rels(zf: zipfile.ZipFile, rels_path: str) -> dict[str, str]:
-    """Return relationship Id → package-relative Target."""
-    out: dict[str, str] = {}
-    try:
-        root = ET.fromstring(zf.read(rels_path))
-    except KeyError:
-        return out
-    for rel in root:
-        if local_name(rel.tag) != "Relationship":
-            continue
-        rid = rel.attrib.get("Id") or ""
-        target = rel.attrib.get("Target") or ""
-        if not rid or not target:
-            continue
-        out[rid] = resolve_rel_target(rels_path, target)
-    return out
-
-
-def parse_rels_with_types(zf: zipfile.ZipFile, rels_path: str) -> list[tuple[str, str, str]]:
-    """Return (Id, Type, Target) triples."""
+def parse_rels(zf: zipfile.ZipFile, rels_path: str) -> list[tuple[str, str, str]]:
+    """Return (Id, Type, package-relative Target) for each Relationship."""
     out: list[tuple[str, str, str]] = []
     try:
         root = ET.fromstring(zf.read(rels_path))
@@ -233,18 +210,12 @@ def parse_rels_with_types(zf: zipfile.ZipFile, rels_path: str) -> list[tuple[str
 
 def workbook_sheets(zf: zipfile.ZipFile) -> list[SheetInfo]:
     """Map workbook sheet order/titles to worksheet part paths and rel_ids."""
-    from plugin.calc.excel_py_convert.models import SheetInfo
-
     try:
         wb = ET.fromstring(zf.read("xl/workbook.xml"))
     except KeyError:
         return []
-    rels = parse_rels(zf, "xl/_rels/workbook.xml.rels")
-    sheets_el = None
-    for el in wb:
-        if local_name(el.tag) == "sheets":
-            sheets_el = el
-            break
+    rels = {rid: target for rid, _rtype, target in parse_rels(zf, "xl/_rels/workbook.xml.rels")}
+    sheets_el = find_child(wb, "sheets")
     if sheets_el is None:
         return []
     out: list[SheetInfo] = []
@@ -269,8 +240,6 @@ def rewrite_zip(
     src: str | Path,
     dst: str | Path,
     transform: Callable[[zipfile.ZipFile, zipfile.ZipFile], None],
-    *,
-    temp_suffix: str = ".tmprewrite",
 ) -> None:
     """Rewrite a ZIP file atomically from *src* to *dst*, cleaning up temporary files on exception."""
     src_path = Path(src)
@@ -284,9 +253,6 @@ def rewrite_zip(
             transform(zin, zout)
         tmp_path.replace(dst_path)
     finally:
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
 

@@ -22,10 +22,6 @@ from typing import Any, Literal
 # Cast/docs aliases only — CrossHair cannot proxy Literal in parameters or dataclass
 # fields on the type heap (use str there).
 HeaderMode = Literal["true", "false", "omit"]
-DepRole = Literal["data", "ordering"]
-
-# Canonical pointer for callers that need to cite the fidelity policy in logs/tests.
-EXCEL_DEP_TOKEN_FIDELITY = "excel_deps are for Excel round-trip fidelity only; Calc uses A1 data_args snapshots (Table[#All] / ANCHORARRAY need real Calc support later — see models.py module doc)"
 
 
 @dataclass
@@ -69,9 +65,6 @@ class ExcelWorkbookModel:
 
     def sheet_order_map(self) -> dict[str, int]:
         return {s.title: s.order for s in self.sheets}
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ExcelWorkbookModel:
@@ -123,7 +116,7 @@ class BindingInfo:
 
     a1: str
     header_mode: str = "omit"  # HeaderMode values; str for CrossHair
-    role: str = "data"  # DepRole values; str for CrossHair
+    role: str = "data"  # "data" | "ordering"; str for CrossHair
     original_indices: list[int] = field(default_factory=list)  # original %P positions (0-based)
 
     @classmethod

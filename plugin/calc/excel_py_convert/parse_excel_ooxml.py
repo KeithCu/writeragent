@@ -18,7 +18,7 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     find_all,
     find_child,
     local_name,
-    parse_rels_with_types,
+    parse_rels,
     sheet_rels_path,
     workbook_sheets,
 )
@@ -276,7 +276,7 @@ def _rel_type_is_table(rel_type: str) -> bool:
     return rel_type.rstrip("/").endswith("table")
 
 
-def _read_xml(zf: zipfile.ZipFile, part: str, issues: list[str] | None = None) -> ET.Element | None:
+def _read_xml(zf: zipfile.ZipFile, part: str, issues: list[str]) -> ET.Element | None:
     try:
         raw = zf.read(part)
     except KeyError:
@@ -284,12 +284,11 @@ def _read_xml(zf: zipfile.ZipFile, part: str, issues: list[str] | None = None) -
     try:
         return ET.fromstring(raw)
     except ET.ParseError as exc:
-        if issues is not None:
-            issues.append(f"{part}: {exc}")
+        issues.append(f"{part}: {exc}")
         return None
 
 
-def _parse_python_scripts(zf: zipfile.ZipFile, issues: list[str] | None = None) -> list[str]:
+def _parse_python_scripts(zf: zipfile.ZipFile, issues: list[str]) -> list[str]:
     """Parse ``xl/pythonScripts.xml``.
 
     Map each script to its index (the explicit attribute, or document
@@ -313,14 +312,12 @@ def _parse_python_scripts(zf: zipfile.ZipFile, issues: list[str] | None = None) 
             try:
                 idx = int(idx_s)
             except ValueError:
-                if issues is not None:
-                    issues.append(f"invalid script index {idx_s!r} in xl/pythonScripts.xml")
+                issues.append(f"invalid script index {idx_s!r} in xl/pythonScripts.xml")
                 continue
             if idx < 0 or idx > 100_000 or idx > len(script_els) + 10_000:
-                if issues is not None:
-                    issues.append(f"script index {idx} out of range in xl/pythonScripts.xml")
+                issues.append(f"script index {idx} out of range in xl/pythonScripts.xml")
                 continue
-        if idx in scripts_by_idx and issues is not None:
+        if idx in scripts_by_idx:
             issues.append(f"duplicate script index {idx} in xl/pythonScripts.xml")
         scripts_by_idx[idx] = text
 
@@ -345,7 +342,7 @@ def _qualify_sheet_ref(sheet_title: str, ref: str) -> str:
     return f"{q}!{ref}"
 
 
-def _parse_table_ref(zf: zipfile.ZipFile, table_part: str, sheet_title: str, issues: list[str] | None = None) -> tuple[str, str] | None:
+def _parse_table_ref(zf: zipfile.ZipFile, table_part: str, sheet_title: str, issues: list[str]) -> tuple[str, str] | None:
     root = _read_xml(zf, table_part, issues)
     if root is None:
         return None
@@ -375,7 +372,7 @@ def _collect_array_refs(ws_root: ET.Element, sheet_title: str) -> dict[str, str]
         if not arr:
             continue
         top_left = arr.split(":", 1)[0]
-        out[_qualify_sheet_ref(sheet_title, top_left)] = arr if "!" in arr else _qualify_sheet_ref(sheet_title, arr)
+        out[_qualify_sheet_ref(sheet_title, top_left)] = _qualify_sheet_ref(sheet_title, arr)
         # Bare keys for fixtures / same-sheet lookups (first wins).
         out.setdefault(top_left, arr)
         out.setdefault(cell_ref.replace("$", ""), arr)
@@ -428,7 +425,7 @@ def _make_excel_py_cell(
     )
 
 
-def _iter_py_cells(ws_root: ET.Element, sheet_title: str, issues: list[str] | None = None) -> list[ExcelPyCell]:
+def _iter_py_cells(ws_root: ET.Element, sheet_title: str, issues: list[str]) -> list[ExcelPyCell]:
     masters = _shared_formula_map(ws_root)
     cells: list[ExcelPyCell] = []
     failed_si: set[str] = set()
@@ -458,8 +455,7 @@ def _iter_py_cells(ws_root: ET.Element, sheet_title: str, issues: list[str] | No
                     if shifted is None:
                         if si is not None:
                             failed_si.add(si)
-                        if issues is not None:
-                            issues.append(f"shared formula si={si} at {sheet_title}!{a1}: unsupported dependency argument in {master_body!r}")
+                        issues.append(f"shared formula si={si} at {sheet_title}!{a1}: unsupported dependency argument in {master_body!r}")
                         continue
                     formula, deps = shifted
                     parsed = parse_xlws_py_formula(formula)
@@ -527,21 +523,18 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
                     anchors[k] = v
                 else:
                     anchors.setdefault(k, v)
-            for _rid, rtype, target in parse_rels_with_types(zf, sheet_rels_path(sh.part_name)):
+            for _rid, rtype, target in parse_rels(zf, sheet_rels_path(sh.part_name)):
                 if not _rel_type_is_table(rtype) and "tables/table" not in target:
                     continue
                 parsed = _parse_table_ref(zf, target, sh.title, issues)
                 if parsed:
                     name, qref = parsed
                     tables[name] = qref
-        for c in cells:
-            if not c.row or not c.col:
-                c.row, c.col = _col_row(c.cell)
         return ExcelWorkbookModel(scripts=scripts, cells=cells, sheets=sheets, tables=tables, anchor_snapshots=anchors, source_path=str(path), issues=issues)
 
 
 def load_excel_model(path: str | Path) -> ExcelWorkbookModel:
-    """Load from ``.xlsx`` or a JSON fixture matching ``ExcelWorkbookModel.to_dict()``."""
+    """Load from ``.xlsx`` or a JSON object ``ExcelWorkbookModel.from_dict`` accepts."""
     path = Path(path)
     if path.suffix.lower() == ".json":
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -549,10 +542,7 @@ def load_excel_model(path: str | Path) -> ExcelWorkbookModel:
         model.source_path = model.source_path or str(path)
         # Fixtures often use sheet1/sheet2 — synthesize sheet order if missing.
         if not model.sheets:
-            titles: list[str] = []
-            for c in model.cells:
-                if c.sheet not in titles:
-                    titles.append(c.sheet)
+            titles = list(dict.fromkeys(c.sheet for c in model.cells))
             model.sheets = [SheetInfo(title=t, order=i, part_name="") for i, t in enumerate(titles)]
         for c in model.cells:
             if not c.row or not c.col:

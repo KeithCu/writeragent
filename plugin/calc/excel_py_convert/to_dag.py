@@ -372,7 +372,7 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
     # crosshair: off
     """When merging deps that snap to the same A1, keep the Excel-native token if any.
 
-    See ``EXCEL_DEP_TOKEN_FIDELITY`` / models module doc — fidelity only, not Calc semantics.
+    See ``plugin.calc.excel_py_convert.models`` module doc; fidelity only, not Calc semantics.
     """
     cand = (candidate or "").strip()
     cur = (current or "").strip()

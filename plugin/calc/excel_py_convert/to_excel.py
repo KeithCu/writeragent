@@ -296,7 +296,7 @@ def excel_dep_ref(ref: str) -> str:
 def deps_for_xlws_export(cell: ConvertedCell) -> list[str]:
     """Deps to write on ``_xlws.PY``: prefer ``excel_deps`` tokens when aligned with ``data_args``.
 
-    Policy: ``plugin.calc.excel_py_convert.models`` module doc / ``EXCEL_DEP_TOKEN_FIDELITY``.
+    Policy: ``plugin.calc.excel_py_convert.models`` module doc.
     """
     data = [a for a in cell.data_args if a]
     excel = [a for a in cell.excel_deps if a]
