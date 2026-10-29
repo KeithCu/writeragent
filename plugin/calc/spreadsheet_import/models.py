@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from plugin.calc.spreadsheet_import.extract import normalize_py_formula
+
 CellType = Literal["empty", "constant", "formula", "py_formula", "prompt", "array_formula", "error"]
 
 FORMULA_LIKE_TYPES: frozenset[CellType] = frozenset({"formula", "py_formula", "array_formula", "error"})
@@ -26,9 +28,6 @@ class CellRecord:
     precedents: list[str] = field(default_factory=list)
     error_code: str | None = None
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 @dataclass
 class SheetModel:
@@ -40,24 +39,6 @@ class SheetModel:
     formula_order: list[str] = field(default_factory=list)
     circular_groups: list[list[str]] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class PyCellExtract:
-    """Parsed and normalized ``=PY()`` / ``=PYTHON()`` cell."""
-
-    address: str
-    original_formula: str
-    normalized_formula: str
-    code: str
-    data_args: list[str]
-    changed: bool
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 @dataclass
 class OutputCell:
@@ -68,18 +49,18 @@ class OutputCell:
     formula: str | None
     number_format: int | None
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
 
-
-def output_cell_from_record(cell: CellRecord, py_by_addr: dict[str, PyCellExtract]) -> OutputCell:
+def output_cell_from_record(cell: CellRecord) -> OutputCell:
     if cell.type == "empty":
         return OutputCell(address=cell.address, value=None, formula=None, number_format=None)
     if cell.type == "constant":
         return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=cell.number_format)
     if cell.type == "py_formula":
-        extract = py_by_addr.get(cell.address)
-        formula = extract.normalized_formula if extract is not None else cell.formula
+        formula = cell.formula
+        if formula:
+            normalized = normalize_py_formula(formula)
+            if normalized is not None:
+                formula = normalized
         return OutputCell(address=cell.address, value=None, formula=formula, number_format=None)
     if cell.formula:
         return OutputCell(address=cell.address, value=None, formula=cell.formula, number_format=None)
@@ -95,9 +76,6 @@ class TranslationResult:
     data_ranges: list[str] | None = None
     reason: str | None = None
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 @dataclass
 class TodoCell:
@@ -106,9 +84,6 @@ class TodoCell:
     address: str
     reason: str
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 @dataclass
 class ConversionReport:
@@ -116,7 +91,6 @@ class ConversionReport:
 
     converted: list[str] = field(default_factory=list)
     skipped: list[TodoCell] = field(default_factory=list)
-    normalized_py: list[str] = field(default_factory=list)
     pass_through: list[str] = field(default_factory=list)
 
     def formula_total(self) -> int:
@@ -136,7 +110,7 @@ class ConversionReport:
 
     def summary(self) -> str:
         total = self.formula_total()
-        pct = 100.0 * self.conversion_rate() if total else 0.0
+        pct = 100.0 * self.conversion_rate()
         return f"Converted {len(self.converted)} / {total} formula cells ({pct:.1f}%)"
 
 
@@ -157,9 +131,6 @@ class VerifyResult:
     failed: list[VerifyMismatch] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 @dataclass
 class OutputSheetModel:
@@ -168,7 +139,3 @@ class OutputSheetModel:
     sheet_name: str
     used_range: str
     cells: dict[str, OutputCell]
-    py_extracts: list[PyCellExtract] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)

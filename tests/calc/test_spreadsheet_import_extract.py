@@ -15,11 +15,10 @@ import pytest
 from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.spreadsheet_import.extract import (
     canonicalize_py_formula_for_parse,
-    extract_py_cells,
     normalize_py_formula,
     py_formula_semantics,
 )
-from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
+from plugin.calc.spreadsheet_import.models import CellRecord, output_cell_from_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -81,32 +80,18 @@ def test_normalize_non_python_returns_none():
 
 
 def test_extract_py_cells_from_model():
-    model = SheetModel(
-        sheet_name="S",
-        used_range="A1:B2",
-        cells={
-            "A1": CellRecord("A1", "constant", 1.0, None, None),
-            "B1": CellRecord("B1", "py_formula", 2.0, '=PYTHON("np.sum(data)",A1)', None),
-            "A2": CellRecord("A2", "formula", 3.0, "=SUM(A1)", None),
-        },
-    )
-    extracts = extract_py_cells(model)
-    assert len(extracts) == 1
-    assert extracts[0].address == "B1"
-    assert extracts[0].changed is True
-    assert extracts[0].code == "np.sum(data)"
-    assert extracts[0].data_args == ["A1"]
+    rec = CellRecord("B1", "py_formula", 2.0, '=PYTHON("np.sum(data)",A1)', None)
+    out = output_cell_from_record(rec)
+    assert out.formula is not None
+    assert out.formula.startswith("=PY(")
+    assert ";" in out.formula
+    assert py_formula_semantics(out.formula) == ("np.sum(data)", ["A1"])
 
 
 def test_extract_skips_unparseable_py_like():
-    model = SheetModel(
-        sheet_name="S",
-        used_range="A1",
-        cells={
-            "A1": CellRecord("A1", "py_formula", 0.0, "=PY(broken", None),
-        },
-    )
-    assert extract_py_cells(model) == []
+    rec = CellRecord("A1", "py_formula", 0.0, "=PY(broken", None)
+    out = output_cell_from_record(rec)
+    assert out.formula == "=PY(broken"
 
 
 @pytest.mark.skipif(_gen is None, reason="generate_serialization_spreadsheet.py not available")

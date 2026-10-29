@@ -60,8 +60,6 @@ def test_build_output_normalizes_py_formula():
     assert output.cells["B1"].formula is not None
     assert output.cells["B1"].formula.startswith("=PY(")
     assert ";" in output.cells["B1"].formula
-    assert len(output.py_extracts) == 1
-    assert output.py_extracts[0].changed is True
 
 
 def test_build_output_passes_through_prompt_and_array():

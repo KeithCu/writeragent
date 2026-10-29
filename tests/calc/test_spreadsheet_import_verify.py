@@ -13,12 +13,12 @@ from plugin.calc.spreadsheet_import.verify import _values_equal, verify_converte
 
 
 def test_values_equal_float_tolerance():
-    ok, _ = _values_equal(1.0, 1.0 + 1e-12, rtol=1e-9)
+    ok, _ = _values_equal(1.0, 1.0 + 1e-12)
     assert ok
 
 
 def test_values_equal_string():
-    ok, _ = _values_equal("hello", "hello", rtol=1e-9)
+    ok, _ = _values_equal("hello", "hello")
     assert ok
 
 

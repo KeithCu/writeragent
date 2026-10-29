@@ -107,7 +107,6 @@ def run_sheet_conversion(
     output, report = build_converted_output_model(model, vectorize=vectorize, sheet_bounds=sheet_bounds or None)
 
     # 3. Resolve Target Sheet
-    target_sheet = None
     if output_mode == "new_sheet":
         sheets = doc.getSheets()
         target_name = _unique_sheet_name(sheets, TARGET_SHEET_NAME)
