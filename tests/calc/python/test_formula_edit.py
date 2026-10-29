@@ -11,7 +11,6 @@ from plugin.calc.python.formula_edit import (
     build_data_suffix,
     build_new_python_formula,
     cell_looks_python_like,
-    escape_code_for_excel_formula,
     escape_code_for_formula,
     format_data_binding_display,
     format_data_binding_text,
@@ -25,7 +24,6 @@ from plugin.calc.python.formula_edit import (
     py_formula_has_unquoted_code_ref,
     rebuild_python_formula,
     rebuild_python_formula_with_data,
-    sanitize_inline_py_code,
 )
 import pytest
 
@@ -298,9 +296,7 @@ def test_format_data_binding_text_round_trip():
 def test_calc_escape_preserves_hand_written_code():
     """escape_code_for_formula quote-escapes only; hand-written code is not rewritten."""
     code = "x = float(1)"
-    assert "+0.0" in sanitize_inline_py_code(code)
     assert escape_code_for_formula(code) == code
-    assert escape_code_for_excel_formula(code) == code
     calc = rebuild_python_formula_with_data(code, [])
     xlsx = rebuild_python_formula_with_data(code, [], separator=",", excel_escape=True)
     assert "float(1)" in calc
@@ -344,13 +340,9 @@ def test_normalize_and_parse_bare_py_token():
 
 
 def test_sanitize_dtype_float_with_control_chars():
-    """``dtype=float`` + NUL/SOH grew past nested ``_rewrite_token_calls`` pre.
-
-    Machine-generated sanitize path rewrites; escape_code_for_formula only quote-doubles.
-    """
+    """escape_code_for_formula and rebuild preserve control characters."""
     nul = "dtype=float\x00"
     soh = ".dtype=float\x01"
-    assert sanitize_inline_py_code(nul) == "dtype=np.float64\x00"
     assert escape_code_for_formula(nul) == nul
     assert escape_code_for_formula(soh) == soh
     parts = parse_python_formula('=PY("x")')
@@ -417,7 +409,7 @@ def test_rebuild_preserves_prefix():
 
 
 def test_long_multi_range_suffix_parses_under_deal():
-    """_is_data_arg_separator must accept data suffixes longer than DEAL_MAX_TOKEN (64)."""
+    """Data suffix parsing must accept data suffixes longer than DEAL_MAX_TOKEN (64)."""
     ranges = [f"Sheet{i}!$A${i}:$B${i+1}" for i in range(10)]
     suffix = "; " + "; ".join(ranges) + ")"
     formula = f'=PY("x = 1"{suffix}'

@@ -19,10 +19,8 @@ from hypothesis import strategies as st
 
 import deal
 from plugin.calc.python.formula_edit import (
-    _find_matching_paren,
     _parse_quoted_string,
     _parse_unquoted_code_arg,
-    _rewrite_token_calls,
     escape_code_for_formula,
     format_data_binding_display,
     format_data_binding_text,
@@ -31,7 +29,6 @@ from plugin.calc.python.formula_edit import (
     parse_python_formula,
     rebuild_python_formula,
     rebuild_python_formula_with_data,
-    sanitize_inline_py_code,
     format_excel_data_range,
     format_py_data_range,
     build_data_suffix,
@@ -54,16 +51,13 @@ _CROSSHAIR_TARGETS = (
     "plugin.calc.spreadsheet_import.preprocess.normalize_lo_formula_for_parse",
 )
 _REWRITE_WRAPPERS_OFF = (
-    "sanitize_inline_py_code",
     "escape_code_for_formula",
     "rebuild_python_formula",
     "rebuild_python_formula_with_data",
-    "_rewrite_token_calls",
     "format_data_binding_display",
     "parse_data_binding_text",
     "extract_python_code_loose",
     "build_new_python_formula",
-    "escape_code_for_excel_formula",
     "build_data_suffix",
     "py_formula_has_unquoted_code_ref",
     "rebuild_python_formula_with_code_ref",
@@ -161,16 +155,6 @@ def test_parse_quoted_string_rejects_negative_start() -> None:
             _parse_quoted_string('"x"', DEAL_MAX_SOURCE + 1)
 
 
-def test_find_matching_paren_rejects_negative_open_idx() -> None:
-    """CrossHair found IndexError on open_idx=-1 with empty s; pre + body guard reject it.
-
-    With deal installed (dev venv), pre raises; under LibreOffice deal_shim the body
-    returns -1. Either way we must not IndexError.
-    """
-    expect_pre_or_body(lambda: _find_matching_paren("", -1), body_result=-1)
-    assert _find_matching_paren("(a)", 0) == 2
-
-
 def test_parse_rebuild_preserves_code_and_data_suffix() -> None:
     original = '=PYTHON("result = 1"; A1:B10)'
     parts = parse_python_formula(original)
@@ -214,8 +198,6 @@ def test_formula_edit_overflow_pre_fails_closed() -> None:
     rebuild_too_long = "x" * (DEAL_MAX_SOURCE + 256 + 1)
     with pytest.raises(deal.PreContractError):
         rebuild_python_formula_with_data(rebuild_too_long, [])
-    with pytest.raises(deal.PreContractError):
-        sanitize_inline_py_code(rebuild_too_long)
     with pytest.raises(deal.PreContractError):
         escape_code_for_formula(rebuild_too_long)
     with pytest.raises(deal.PreContractError):
@@ -266,8 +248,7 @@ def test_normalize_py_token_is_not_pattern_error() -> None:
 
 
 def test_sanitize_dtype_float_control_char_is_not_nested_pre() -> None:
-    """Cluster B: ``dtype=float`` + NUL/SOH grew past nested rewrite pre."""
-    assert sanitize_inline_py_code("dtype=float\x00") == "dtype=np.float64\x00"
+    """Cluster B: ``dtype=float`` + NUL/SOH."""
     assert escape_code_for_formula("dtype=float\x00") == "dtype=float\x00"
     rebuilt = rebuild_python_formula(PythonFormulaParts("=PY(", "x", ")"), ".dtype=float\x01")
     assert ".dtype=float\x01" in rebuilt
@@ -294,7 +275,6 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
     for name in (
         "extract_python_code_loose",
         "build_new_python_formula",
-        "escape_code_for_excel_formula",
         "build_data_suffix",
         "py_formula_has_unquoted_code_ref",
         "rebuild_python_formula_with_code_ref",
@@ -302,7 +282,6 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
         "_parts_result_ok",
         "_quoted_parse_result_ok",
         "py_call_open_end",
-        "_find_matching_paren",
         "format_data_binding_text",
     ):
         assert not any(f.endswith(f".{name}") for f in cover_fqns), name
@@ -310,12 +289,6 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
         Path("plugin/calc/spreadsheet_import/preprocess.py"), require_deal=True
     )
     assert any(f.endswith(".normalize_lo_formula_for_parse") for f in preprocess)
-
-
-def test_rewrite_token_calls() -> None:
-    """Verify regex token rewrite behavior."""
-    assert _rewrite_token_calls("float(1)", "float", lambda inner: f"({inner})+0.0") == "(1)+0.0"
-    assert _rewrite_token_calls("int(2)", "int", lambda inner: f"(({inner})//1)") == "((2)//1)"
 
 
 

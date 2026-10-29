@@ -59,7 +59,6 @@ from plugin.calc.excel_py_convert.xlsx_write import (
     write_excel_python_xlsx,
 )
 from plugin.calc.python.formula_edit import (
-    escape_code_for_excel_formula,
     escape_code_for_formula,
     rebuild_python_formula_with_data,
 )
@@ -776,7 +775,6 @@ def test_dag_meta_payload_roundtrip():
 def test_excel_escape_skips_calc_sanitizer():
     code = "x = float(1)"
     assert escape_code_for_formula(code) == code
-    assert escape_code_for_excel_formula(code) == code
     calc = rebuild_python_formula_with_data(code, [])
     xlsx = rebuild_python_formula_with_data(code, [], separator=",", excel_escape=True)
     assert "float(1)" in calc

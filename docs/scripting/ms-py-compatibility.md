@@ -415,7 +415,7 @@ What actually fails today:
 
 Microsoft-length Python in the formula string makes **`MAXSTRLEN` and curly quotes** more painful, not “float inside ASCII quotes.”
 
-WriterAgent keeps a **defensive** `sanitize_inline_py_code` when *emitting* Calc formulas ([`formula_edit.py`](../../plugin/calc/python/formula_edit.py)); Excel export uses quote-escape only. That sanitizer is not a substitute for core fixes.
+Emitted Calc formulas are quote-escaped only ([`escape_code_for_formula`](../../plugin/calc/python/formula_edit.py), `"` → `""`). There is no `float(`/`int(`/`str(` rewrite. Same quote-escape for Excel export. That is not a core lexer fix.
 
 **Upstream (deferred):** see [Future LibreOffice formula-string work](../enabling_numpy_in_libreoffice.md#future-libreoffice-formula-string-work) for the concrete Calc compiler plan (`MAXSTRLEN` / curly quotes / tests). Do **not** treat this as WriterAgent scope right now.
 

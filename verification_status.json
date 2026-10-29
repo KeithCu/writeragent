@@ -480,9 +480,6 @@
           "_parse_unquoted_code_arg",
           "normalize_formula_string",
           "parse_python_formula",
-          "_find_matching_paren",
-          "_rewrite_token_calls",
-          "sanitize_inline_py_code",
           "escape_code_for_formula",
           "rebuild_python_formula",
           "format_py_data_range",
@@ -493,7 +490,7 @@
         "crosshair_target": "plugin.calc.python.formula_edit.parse_python_formula",
         "crosshair_last_run": "2026-08-25",
         "crosshair_result": "no_counterexamples",
-        "notes": "Promoted 2026-08-27. PatternError on normalize/parse('PY') fixed by alias startswith scan; nested PreconditionFailed on dtype=float+NUL/SOH fixed by calling rewrite body; data-binding/range helpers ascii_bounded; _rewrite_token_calls still off (Callable+regex loop)",
+        "notes": "Promoted 2026-08-27. PatternError on normalize/parse('PY') fixed by alias startswith scan; data-binding/range helpers ascii_bounded",
         "ci_integration": true
       }
     },
