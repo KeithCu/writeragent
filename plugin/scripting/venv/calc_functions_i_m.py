@@ -5,6 +5,7 @@
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
+Type errors are left to the worker exception path, which returns #VALUE!.
 """
 
 from __future__ import annotations
@@ -128,9 +129,8 @@ def ifna(f: Callable[[], Any], alt: Any) -> Any:
 
 def is_na_value(value: Any) -> bool:
     """True for float or numpy NaN, or a stripped #N/A token."""
-    if isinstance(value, float):
-        if math.isnan(value):
-            return True
+    if isinstance(value, float) and math.isnan(value):
+        return True
     if isinstance(value, str) and value.strip().upper() == "#N/A":
         return True
     try:
@@ -166,12 +166,6 @@ def _parse_complex(val: Any) -> tuple[builtins.complex, str]:
     return builtins.complex(py_text), suffix
 
 
-def _to_complex(val: Any) -> builtins.complex:
-    """Convert Calc complex string (e.g. '1+2i') to Python complex."""
-    number, _suffix = _parse_complex(val)
-    return number
-
-
 def _im_suffix(first: str, second: str = "") -> str:
     """First imaginary unit wins. A real number has an empty suffix.
 
@@ -182,12 +176,15 @@ def _im_suffix(first: str, second: str = "") -> str:
     return first or second or "i"
 
 
+_IM_ERRORS = (ValueError, TypeError, OverflowError, ZeroDivisionError)
+
+
 def _im_unary(fn: Callable[[complex], complex]) -> Callable[[Any], str]:
     def wrapper(inumber: Any) -> str:
         try:
             number, suffix = _parse_complex(inumber)
             return _from_complex(fn(number), _im_suffix(suffix))
-        except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+        except _IM_ERRORS:
             return "#VALUE!"
 
     return wrapper
@@ -199,7 +196,7 @@ def _im_binary(fn: Callable[[complex, complex], complex]) -> Callable[[Any, Any]
             left, left_suffix = _parse_complex(inumber1)
             right, right_suffix = _parse_complex(inumber2)
             return _from_complex(fn(left, right), _im_suffix(left_suffix, right_suffix))
-        except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+        except _IM_ERRORS:
             return "#VALUE!"
 
     return wrapper
@@ -207,12 +204,11 @@ def _im_binary(fn: Callable[[complex, complex], complex]) -> Callable[[Any, Any]
 
 def _im_float(fn: Callable[[complex], float]) -> Callable[[Any], float]:
     def wrapper(inumber: Any) -> float:
-        # type errors are left to the worker exception path, which returns #VALUE!
         # getImabs / getImargument return finiteOrThrow(result). A
         # non-finite magnitude is NaN here. inf would not trip IFERROR:
         # _is_calc_error(inf) is false. String IM functions still catch
         # inside _im_unary and return "#VALUE!".
-        result = float(fn(_to_complex(inumber)))
+        result = float(fn(_parse_complex(inumber)[0]))
         if not math.isfinite(result):
             return float("nan")
         return result
@@ -300,7 +296,7 @@ def impower(inumber: Any, number: Any) -> str:
         number_c, suffix = _parse_complex(inumber)
         power = float(number)
         return _from_complex(number_c**power, _im_suffix(suffix))
-    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+    except _IM_ERRORS:
         return "#VALUE!"
 
 
@@ -330,7 +326,7 @@ def _im_fold(args: tuple[Any, ...], op: Callable[[complex, complex], complex]) -
         if acc is None:
             acc = complex(0)
         return _from_complex(acc, _im_suffix(suffix))
-    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+    except _IM_ERRORS:
         return "#VALUE!"
 
 
@@ -406,7 +402,6 @@ def intercept(data_y: Any, data_x: Any) -> float:
 
 
 def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, basis: Any = 0) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
     s = float(settlement)
     m = float(maturity)
     inv = float(investment)
@@ -428,7 +423,6 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
 
 
 def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
     r = float(rate)
     # Excel/Calc truncate the period. A fractional per is a different
     # numpy-financial payment, not the truncated one.
@@ -456,7 +450,6 @@ def irr(values: Any, guess: Any = 0.1) -> float:
     # (smallest magnitude). Excel IRR(values, guess) is Newton's method from
     # that guess: guess 0.1 and 0.5 on [-5, 10.5, 1, -8, 1] are different
     # roots (~0.089 and ~0.71). Keep this solver.
-    # type errors are left to the worker exception path, which returns #VALUE!
     vals = np.asarray(values, dtype=float).ravel()
     estimated = float(guess)
     # ScIRR (interpr2.cxx) starts at 0.1 when the guess is -1. (1+x)**i
@@ -569,7 +562,6 @@ def isoweeknum(serial: Any) -> float:
 
 
 def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
     r = float(rate)
     p = float(per)
     n = float(nper)
@@ -658,38 +650,39 @@ def large(r: Any, k: Any) -> float:
 
 def _regression_inputs(
     args: tuple[Any, ...], kwargs: dict[str, Any]
-) -> tuple[np.ndarray, np.ndarray, bool] | str:
+) -> tuple[np.ndarray, np.ndarray, bool]:
     """Shared known_y / known_x / const parse for LINEST and LOGEST.
 
-    Returns ``"#VALUE!"`` when the ranges are illegal. Omitted known_x
-    (the one-argument call) is ``1..n``. A present blank (``None``) is not
-    that omission: ``ScLinest`` uses ``1..n`` only for ``IsMissing``.
-    The fourth argument, ``stats``, is ignored. ``CalculateRGPRKP`` builds
-    a 5-row statistics matrix this helper does not port.
+    Illegal ranges raise ValueError, and linest / logest catch that and
+    return "#VALUE!". Omitted known_x (the one-argument call) is ``1..n``.
+    A present blank (``None``) is not that omission: ``ScLinest`` uses
+    ``1..n`` only for ``IsMissing``. The fourth argument, ``stats``, is
+    ignored. ``CalculateRGPRKP`` builds a 5-row statistics matrix this
+    helper does not port.
     """
     raw_y = np.asarray(args[0], dtype=object).ravel()
     if any(isinstance(v, str) for v in raw_y):
-        return "#VALUE!"
+        raise ValueError
     data_y = np.asarray(args[0], dtype=float).ravel()
     if data_y.size == 0 or np.any(np.isnan(data_y)):
-        return "#VALUE!"
+        raise ValueError
     if len(args) <= 1:
         data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
     elif args[1] is None:
-        return "#VALUE!"
+        raise ValueError
     else:
         raw_x = np.asarray(args[1], dtype=object).ravel()
         if any(isinstance(v, str) for v in raw_x):
-            return "#VALUE!"
+            raise ValueError
         data_x = np.asarray(args[1], dtype=float)
         if np.any(np.isnan(data_x)):
-            return "#VALUE!"
+            raise ValueError
         if data_x.ndim == 1:
             data_x = data_x[:, np.newaxis]
         elif data_x.ndim == 2 and data_x.shape[0] != len(data_y) and data_x.shape[1] == len(data_y):
             data_x = data_x.T
     if data_x.shape[0] != len(data_y):
-        return "#VALUE!"
+        raise ValueError
     if "const" in kwargs:
         raw_const = kwargs["const"]
     elif len(args) > 2:
@@ -716,12 +709,7 @@ def linest(*args: Any, **kwargs: Any) -> Any:
     # Excel order is [mk, …, m1, b]. const=False forces b = 0. A row-oriented
     # known_x is transposed so it lines up with known_y.
     try:
-        parsed = _regression_inputs(args, kwargs)
-        # Equality does not narrow tuple | str for mypy or basedpyright.
-        # The helper's only string is "#VALUE!".
-        if isinstance(parsed, str):
-            return "#VALUE!"
-        data_y, data_x, const = parsed
+        data_y, data_x, const = _regression_inputs(args, kwargs)
         return _fit_line(data_y, data_x, const)
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
@@ -731,10 +719,7 @@ def logest(*args: Any, **kwargs: Any) -> Any:
     # Excel order reverses the slopes. const=False forces b = 1. A row-oriented
     # known_x is transposed so it lines up with known_y.
     try:
-        parsed = _regression_inputs(args, kwargs)
-        if isinstance(parsed, str):
-            return "#VALUE!"
-        data_y, data_x, const = parsed
+        data_y, data_x, const = _regression_inputs(args, kwargs)
         if np.any(data_y <= 0):
             return "#VALUE!"
         fitted = _fit_line(np.log(data_y), data_x, const)
@@ -748,7 +733,6 @@ def logest(*args: Any, **kwargs: Any) -> Any:
 
 
 def loginv(p: Any, mean: Any, stdev: Any) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
     prob = float(p)
     m = float(mean)
     s = float(stdev)
@@ -766,7 +750,6 @@ def loginv(p: Any, mean: Any, stdev: Any) -> float:
 
 
 def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
     x_val = float(x)
     m = float(mean)
     s = float(stdev)
@@ -844,25 +827,38 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
             return "#VALUE!"
         result = result_arr.ravel()
     query_num = _lookup_number(lookup_val)
-    query_text = lookup_val.casefold() if isinstance(lookup_val, str) and lookup_val != "" else None
+    if query_num is not None:
+        def _matches(value: Any) -> bool:
+            cell = _lookup_number(value)
+            return cell is not None and cell <= query_num
+    else:
+        query_text = lookup_val.casefold() if isinstance(lookup_val, str) and lookup_val != "" else None
+
+        def _matches(value: Any) -> bool:
+            return (
+                query_text is not None
+                and isinstance(value, str)
+                and value != ""
+                and value.casefold() <= query_text
+            )
     best_idx = None
     for i, value in enumerate(vec):
-        if query_num is not None:
-            cell = _lookup_number(value)
-            if cell is not None and cell <= query_num:
-                best_idx = i
-        elif query_text is not None and isinstance(value, str) and value != "":
-            if value.casefold() <= query_text:
-                best_idx = i
+        if _matches(value):
+            best_idx = i
     if best_idx is None or best_idx >= len(result):
         return "#N/A"
     return result[best_idx]
 
-def maxa(*args: Any) -> float:
+
+def _a_extreme(args: tuple[Any, ...], reduce: Callable[[np.ndarray], Any]) -> float:
     vals = _collect_a_values(*args)
     if not vals.size:
         return 0.0
-    return float(np.max(vals))
+    return float(reduce(vals))
+
+
+def maxa(*args: Any) -> float:
+    return _a_extreme(args, np.max)
 
 
 def _trim_matrix(matrix: np.ndarray) -> np.ndarray:
@@ -895,7 +891,6 @@ def mdeterm(matrix: Any) -> float:
 def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
     from .calc_functions_d_h import duration
 
-    # type errors are left to the worker exception path, which returns #VALUE!
     s = float(settlement)
     m = float(maturity)
     c = float(coupon)
@@ -909,10 +904,7 @@ def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: 
 
 
 def mina(*args: Any) -> float:
-    vals = _collect_a_values(*args)
-    if not vals.size:
-        return 0.0
-    return float(np.min(vals))
+    return _a_extreme(args, np.min)
 
 
 def minverse(matrix: Any) -> Any:
@@ -926,7 +918,6 @@ def minverse(matrix: Any) -> Any:
 
 
 def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
     vals = [float(x) for x in np.asarray(values).ravel()]
     fr = float(finance_rate)
     rr = float(reinvest_rate)
@@ -965,7 +956,6 @@ def mode(*args: Any) -> Any:
 
 
 def mround(number: Any, multiple: Any) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
     n = float(number)
     m = float(multiple)
     # math.floor/ceil raise OverflowError on ±inf and ValueError on NaN.
@@ -1005,7 +995,6 @@ def mtrans(matrix: Any) -> Any:
 
 
 def multinomial(*args: Any) -> float:
-    # type errors are left to the worker exception path, which returns #VALUE!
     vals: list[int] = []
     for arg in args:
         for value in np.asarray(arg).ravel():
