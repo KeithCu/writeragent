@@ -1179,13 +1179,6 @@ def _get_validated_config_dict() -> dict[str, Any]:
             # Why this change fixes it: Failures are logged at most once per
             # (path, mtime, size) until changed or cleared, and OSError returns
             # the last good cached dict if present, matching ConfigError.
-            # What was wrong (unreadable pin): A cold failed load left data is None,
-            # so every get_config re-read, scanned .bak*, ran json_repair, and
-            # log.warning'd; only log.exception was tied to error_logged.
-            # How it happened: The 2-second fast path requires data is not None.
-            # Why this change fixes it: This id skips that work until st_mtime_ns or
-            # size changes, and data stays None so the session is not cached as an
-            # empty install.
             # Keep the last good snapshot. Caching {} made the session look
             # like a fresh install (empty API keys) until the file was fixed.
             if isinstance(_cache.data, dict):
