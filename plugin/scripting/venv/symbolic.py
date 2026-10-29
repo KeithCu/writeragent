@@ -41,6 +41,7 @@ _SYMPY_NAMES = (
     "sec csc cot floor ceiling Min Max gamma erf Mod sign re im "
     "Piecewise conjugate"
 ).split()
+_KNOWN_CALL_NAMES = frozenset(_SYMPY_NAMES) | {"ln", "e"}
 
 
 def _undefined_call_names(text: str) -> list[str]:
@@ -48,7 +49,7 @@ def _undefined_call_names(text: str) -> list[str]:
     seen: set[str] = set()
     for match in _CALL_NAME.finditer(text):
         name = match.group(1)
-        if name in _SYMPY_NAMES or name in ("ln", "e"):
+        if name in _KNOWN_CALL_NAMES:
             continue
         if name not in seen:
             seen.add(name)
@@ -75,14 +76,14 @@ def _require_sympy() -> Any | None:
         return None
 
 
-def _param_text(value: Any, default: str = "") -> str:
-    """Stringify a parameter. ``None`` uses *default*.
+def _param_text(value: Any) -> str:
+    """Stringify a parameter. ``None`` becomes an empty string.
 
     ``value or ""`` treated JSON ``0`` and ``False`` as missing, so
     ``expression: 0`` became "empty expression" instead of the number zero.
     """
     if value is None:
-        return default
+        return ""
     return str(value)
 
 
@@ -195,12 +196,8 @@ def _parse_expression(sp: Any, expr: Any, *, variable: Any | None = None) -> Any
 
 
 def _parse_variable(sp: Any, name: Any) -> Any:
-    var = _param_text(name, default="x").strip() or "x"
+    var = _param_text(name).strip() or "x"
     return sp.Symbol(var)
-
-
-def _to_latex(sp: Any, value: Any) -> str:
-    return str(sp.latex(value))
 
 
 def _public_signature(func: Callable[..., Any]) -> inspect.Signature:
@@ -249,7 +246,7 @@ def symbolic_simplify(sp: Any, *, expression: Any) -> dict[str, Any]:
     """Simplify a symbolic expression."""
     expr = _parse_expression(sp, expression)
     simplified = sp.simplify(expr)
-    latex = _to_latex(sp, simplified)
+    latex = str(sp.latex(simplified))
     return _ok_result("symbolic_simplify", latex=latex, text=str(simplified), writer_cleanup_hints=[])
 
 
@@ -262,7 +259,7 @@ def differentiate(sp: Any, *, expression: Any, variable: Any = "x") -> dict[str,
     sym = _parse_variable(sp, variable)
     expr = _parse_expression(sp, expression, variable=sym)
     result = sp.diff(expr, sym)
-    latex = _to_latex(sp, result)
+    latex = str(sp.latex(result))
     # Echo str(sym), the stripped name. The raw parameter can still contain spaces.
     return _ok_result("differentiate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
 
@@ -286,7 +283,7 @@ def integrate(
         # both present is definite.
         raise _SymbolicError("MISSING_PARAM", "Both lower and upper bounds must be provided for definite integration.")
 
-    if has_lower and has_upper:
+    if has_lower:
         a = _parse_expression(sp, str(lower), variable=sym)
         b = _parse_expression(sp, str(upper), variable=sym)
         result = sp.integrate(expr, (sym, a, b))
@@ -298,7 +295,7 @@ def integrate(
     if result.has(sp.Integral):
         raise _SymbolicError("NO_CLOSED_FORM", f"No closed form: {result}")
 
-    latex = _to_latex(sp, result)
+    latex = str(sp.latex(result))
     return _ok_result("integrate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
 
 
@@ -345,22 +342,18 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
         solution_set = sp.solveset(target, sym, domain=sp.S.Complexes)
         if solution_set == sp.S.EmptySet:
             raise _SymbolicError("NO_SOLUTION", "No solution.")
-        return _ok_result(
-            "solve_equation",
-            latex=str(sp.latex(solution_set)),
-            text=str(solution_set),
-            solutions=[str(solution_set)],
-            variable=str(sym),
-            writer_cleanup_hints=[],
-        )
-    latex_parts = [_to_latex(sp, sol) for sol in solutions]
-    latex = ", ".join(latex_parts) if latex_parts else ""
-    text_sol = ", ".join(str(s) for s in solutions)
+        latex = str(sp.latex(solution_set))
+        text_sol = str(solution_set)
+        solution_strs = [text_sol]
+    else:
+        latex = ", ".join(str(sp.latex(sol)) for sol in solutions)
+        text_sol = ", ".join(str(s) for s in solutions)
+        solution_strs = [str(s) for s in solutions]
     return _ok_result(
         "solve_equation",
         latex=latex,
         text=text_sol,
-        solutions=[str(s) for s in solutions],
+        solutions=solution_strs,
         variable=str(sym),
         writer_cleanup_hints=[],
     )
@@ -382,7 +375,7 @@ def latex_to_math_object(sp: Any, *, latex: Any) -> dict[str, Any]:
         raise _SymbolicError("PARSE_ERROR", f"latex longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
     if not any(cue in trimmed for cue in _LATEX_CUES):
         expr = _parse_expression(sp, trimmed)
-        trimmed = _to_latex(sp, expr)
+        trimmed = str(sp.latex(expr))
     return _ok_result("latex_to_math_object", latex=trimmed, text=trimmed, writer_cleanup_hints=[])
 
 
@@ -401,16 +394,11 @@ def _dispatch_helper(name: str, params: dict[str, Any]) -> dict[str, Any]:
     sig = inspect.signature(func)
     kwargs: dict[str, Any] = {}
     for pname, param in sig.parameters.items():
-        if pname not in params:
-            if param.default is inspect.Parameter.empty and param.kind is inspect.Parameter.KEYWORD_ONLY:
-                kwargs[pname] = ""
-            continue
-        value = params[pname]
-        if value is None and param.default is not inspect.Parameter.empty:
-            continue
+        value = params.get(pname)
         if value is None:
-            kwargs[pname] = ""
-            continue
+            if param.default is not inspect.Parameter.empty:
+                continue
+            value = ""
         kwargs[pname] = value
     if name == "latex_to_math_object" and _is_blank_param(kwargs.get("latex")):
         # Callers used to send the formula as `expression`. A blank latex

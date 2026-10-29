@@ -85,14 +85,11 @@ def run_trusted_symbolic(
         raise ToolExecutionError("helper is required", code="SYMBOLIC_ERROR")
     if name not in HELPER_NAMES:
         raise ToolExecutionError(f"Unknown helper {name!r}", code="SYMBOLIC_ERROR")
-    if doc_type:
-        is_valid = doc_type in ("calc", "writer")
-    else:
+    if not doc_type:
         from plugin.framework.queue_executor import run_on_main
 
-        is_valid = run_on_main(supports_calc_or_writer_manual, doc)
-
-    if not is_valid:
+        doc_type = "calc" if run_on_main(supports_calc_or_writer_manual, doc) else ""
+    if doc_type not in ("calc", "writer"):
         raise ToolExecutionError("Symbolic helpers require a Writer or Calc document.", code="SYMBOLIC_ERROR")
 
     spec: dict[str, Any] = {"helper": name}
@@ -172,19 +169,14 @@ def insert_symbolic_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any
     insert_writer_math_formula(doc, view_cursor, conv.starmath, display_block=display_block)
 
 
-def insert_symbolic_result_into_calc(doc: Any, ctx: Any, result: dict[str, Any]) -> int:
-    """Write symbolic result rows on the active Calc sheet."""
-    from plugin.calc.tabular_egress import insert_tabular_result_into_calc
-
-    return insert_tabular_result_into_calc(doc, ctx, format_symbolic_for_calc(result))
-
-
 def insert_symbolic_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any], *, display_block: bool = False) -> int:
     """Insert a symbolic helper result into Writer or Calc."""
     if is_writer(doc):
         insert_symbolic_result_into_writer(ctx, doc, result, display_block=display_block)
         return 1
     if is_calc(doc):
-        return insert_symbolic_result_into_calc(doc, ctx, result)
+        from plugin.calc.tabular_egress import insert_tabular_result_into_calc
+
+        return insert_tabular_result_into_calc(doc, ctx, format_symbolic_for_calc(result))
     raise ToolExecutionError(_("Unsupported document type for symbolic insertion."), code="SYMBOLIC_ERROR")
 
