@@ -49,7 +49,6 @@ from plugin.calc.excel_py_convert.to_dag import (
 from plugin.calc.excel_py_convert.to_excel import (
     assign_script_bank,
     convert_dag_formula_to_excel,
-    expand_placeholders_to_literals,
     rewrite_dag_code_to_excel,
     xlws_py_formula,
 )
@@ -792,7 +791,6 @@ def test_roundtrip_via_formula_string():
     )
     cell = convert_dag_formula_to_excel(formula, cell="H1")
     assert "xl(" in cell.converted_code
-    assert "A3:F23" in expand_placeholders_to_literals(cell.converted_code, cell.data_args)
     assert cell.excel_formula.startswith("=_xlfn._xlws.PY(")
     assert cell.script_index == 0
 
@@ -1175,7 +1173,7 @@ def test_assign_script_bank_dedupes():
     c = ConvertedCell(
         sheet="S", cell="C1", direction="excel", original_code="", converted_code="y = data", data_args=["C1"], converted=True
     )
-    scripts, _ = assign_script_bank([a, b, c])
+    scripts = assign_script_bank([a, b, c])
     assert scripts == ["x = data", "y = data"]
     assert a.script_index == b.script_index == 0
     assert c.script_index == 1
