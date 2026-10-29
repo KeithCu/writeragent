@@ -8,7 +8,6 @@ from plugin.framework.tool import ToolBase
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import run_stream_drain_loop
 from unittest.mock import MagicMock
-from plugin.framework.errors import WriterError
 from plugin.draw.shapes import DrawShapes, DrawError
 from plugin.framework.errors import safe_python_literal_eval
 import inspect
@@ -79,19 +78,13 @@ class TestErrorHandling:
     def test_librepy_exceptions_hierarchy_and_codes(self):
         from plugin.framework.errors import (
             CalcError,
-            DataShapeError,
-            ExcelConversionError,
             FormulaError,
-            FormulaSyntaxError,
-            PayloadCodecError,
             SandboxSecurityError,
             ScriptingError,
             SpillCollisionError,
             VenvError,
-            VenvExecutionError,
             VenvNotFoundError,
             VenvTimeoutError,
-            WorkerIPCError,
         )
 
         # Test base hierarchy and default error codes
@@ -100,16 +93,10 @@ class TestErrorHandling:
             (VenvError("venv fail"), "VENV_ERROR", ScriptingError),
             (VenvNotFoundError("venv missing"), "VENV_NOT_FOUND", VenvError),
             (VenvTimeoutError("timed out"), "VENV_TIMEOUT", ScriptingError),
-            (VenvExecutionError("crash"), "VENV_EXEC_ERROR", ScriptingError),
-            (WorkerIPCError("pipe broken"), "WORKER_IPC_ERROR", ScriptingError),
             (CalcError("calc error"), "CALC_ERROR", WriterAgentException),
             (FormulaError("bad formula"), "FORMULA_ERROR", CalcError),
-            (FormulaSyntaxError("syntax"), "FORMULA_SYNTAX_ERROR", FormulaError),
             (SpillCollisionError("blocked"), "SPILL_COLLISION", FormulaError),
-            (ExcelConversionError("conversion fail"), "EXCEL_CONVERSION_ERROR", CalcError),
             (SandboxSecurityError("blocked import"), "SANDBOX_SECURITY_ERROR", ScriptingError),
-            (PayloadCodecError("codec fail"), "PAYLOAD_CODEC_ERROR", ScriptingError),
-            (DataShapeError("too large"), "DATA_SHAPE_ERROR", PayloadCodecError),
         ]
 
         for exc, expected_code, parent_cls in cases:
@@ -265,8 +252,6 @@ class TestErrorHandling:
             ConfigValidationError,
             DocumentDisposedError,
             NetworkError,
-            ResourceNotFoundError,
-            ToolContextError,
             ToolExecutionError,
             ToolPermissionError,
             UnoObjectError,
@@ -283,8 +268,6 @@ class TestErrorHandling:
             (WorkerPoolError("worker err"), "WORKER_ERROR"),
             (ToolExecutionError("tool err"), "TOOL_EXECUTION_ERROR"),
             (ToolPermissionError("perm err"), "PERMISSION_DENIED"),
-            (ToolContextError("ctx err"), "CONTEXT_ERROR"),
-            (WriterError("writer err"), "WRITER_ERROR"),
             (AgentParsingError("parse err"), "PARSE_ERROR"),
             (DrawError("draw err"), "DRAW_ERROR"),
             (BusyError("busy err"), "SERVER_BUSY"),
@@ -293,7 +276,6 @@ class TestErrorHandling:
         for exc, expected_code in subclasses:
             assert (exc.code) == (expected_code)
             assert (exc.details) == ({})
-            assert (exc.context) == ({})
             payload = format_error_payload(exc)
             assert (payload["code"]) == (expected_code)
             assert ("details") not in (payload)
@@ -302,32 +284,15 @@ class TestErrorHandling:
         custom_exc = ConfigError("bad config", code="CUSTOM_CFG", details={"key": "api_key"})
         assert (custom_exc.code) == ("CUSTOM_CFG")
         assert (custom_exc.details) == ({"key": "api_key"})
-        assert (custom_exc.context) == ({"key": "api_key"})
         payload = format_error_payload(custom_exc)
         assert (payload["code"]) == ("CUSTOM_CFG")
         assert (payload["details"]) == ({"key": "api_key"})
-
-        # Test legacy context= parameter backward compatibility
-        legacy_exc = NetworkError("timeout", context={"url": "http://localhost"})
-        assert (legacy_exc.code) == ("NETWORK_ERROR")
-        assert (legacy_exc.details) == ({"url": "http://localhost"})
-        assert (legacy_exc.context) == ({"url": "http://localhost"})
-        payload = format_error_payload(legacy_exc)
-        assert (payload["details"]) == ({"url": "http://localhost"})
 
         # Test DocumentDisposedError with custom field object_type
         disp_exc = DocumentDisposedError("Object disposed", object_type="TextRange", details={"line": 42})
         assert (disp_exc.code) == ("DOCUMENT_DISPOSED")
         assert (disp_exc.object_type) == ("TextRange")
         assert (disp_exc.details) == ({"line": 42})
-
-        # Test ResourceNotFoundError with custom fields resource_type and identifier
-        res_exc = ResourceNotFoundError("Template", "default.ott", details={"path": "/tmp"})
-        assert (res_exc.code) == ("RESOURCE_NOT_FOUND")
-        assert (res_exc.resource_type) == ("Template")
-        assert (res_exc.identifier) == ("default.ott")
-        assert (res_exc.details) == ({"path": "/tmp"})
-        assert ("Template not found: default.ott") in (str(res_exc))
 
 
 class TestSafeJsonLoads:

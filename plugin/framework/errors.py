@@ -67,14 +67,6 @@ _FILESYSTEM_CLASSES: tuple[type[BaseException], ...] = (
 )
 
 
-def _has_disposal_name(exc: BaseException) -> bool:
-    return "DisposedException" in type(exc).__name__
-
-
-def _has_runtime_teardown_name(exc: BaseException) -> bool:
-    return "RuntimeException" in type(exc).__name__
-
-
 def is_disposed_exception(exc: BaseException) -> bool:
     """Return True if exc represents a UNO object disposal or runtime teardown exception.
 
@@ -92,9 +84,10 @@ def is_disposed_exception(exc: BaseException) -> bool:
     """
     if isinstance(exc, DocumentDisposedError):
         return True
-    if UNO_DISPOSED_EXCEPTIONS and isinstance(exc, UNO_DISPOSED_EXCEPTIONS):
+    if isinstance(exc, UNO_DISPOSED_EXCEPTIONS):
         return True
-    return _has_disposal_name(exc) or _has_runtime_teardown_name(exc)
+    name = type(exc).__name__
+    return "DisposedException" in name or "RuntimeException" in name
 
 
 _T = TypeVar("_T")
@@ -251,22 +244,13 @@ class BlockingWaitStopped(Exception):
 
 
 class WriterAgentException(Exception):
-    """Base exception for all WriterAgent errors.
-
-    Backwards compatibility: some older code paths use `context=` while
-    newer code uses `details=` for the JSON error payload.
-    """
+    """Base exception for all WriterAgent errors."""
 
     code: str = "INTERNAL_ERROR"
     message: str
     details: dict[str, Any]
-    context: dict[str, Any]
 
-    def __init__(self, message: Any, *, code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:
-        # Accept both `details` and legacy `context` (alias).
-        if details is None and context is not None:
-            details = context
-
+    def __init__(self, message: Any, *, code: str | None = None, details: dict[str, Any] | None = None) -> None:
         # Runtime / interpolated strings are not in the gettext catalog; _() is a no-op
         # unless the exact source string was extracted. Long messages skip _().
         text = "mock" if UNDER_CROSSHAIR else _translate_exception_message(message)
@@ -275,8 +259,6 @@ class WriterAgentException(Exception):
         if code is not None:
             self.code = code
         self.details = details or {}
-        # Keep legacy attribute name too (some callers reference `.context`).
-        self.context = self.details
 
 
 class ConfigError(WriterAgentException):
@@ -321,18 +303,6 @@ class VenvTimeoutError(ScriptingError):
     code: str = "VENV_TIMEOUT"
 
 
-class VenvExecutionError(ScriptingError):
-    """Python code execution in venv raised an unhandled exception or returned non-zero."""
-
-    code: str = "VENV_EXEC_ERROR"
-
-
-class WorkerIPCError(ScriptingError):
-    """Host ↔ venv worker IPC frame encoding, decoding, or pipe communication failure."""
-
-    code: str = "WORKER_IPC_ERROR"
-
-
 class CalcError(WriterAgentException):
     """Calc spreadsheet manipulation and calculation failures."""
 
@@ -345,40 +315,16 @@ class FormulaError(CalcError):
     code: str = "FORMULA_ERROR"
 
 
-class FormulaSyntaxError(FormulaError):
-    """Formula contains invalid Python or Calc syntax."""
-
-    code: str = "FORMULA_SYNTAX_ERROR"
-
-
 class SpillCollisionError(FormulaError):
     """Dynamic array formula cannot spill because destination cells are not empty."""
 
     code: str = "SPILL_COLLISION"
 
 
-class ExcelConversionError(CalcError):
-    """Failures during Excel ↔ DAG-style =PY conversion."""
-
-    code: str = "EXCEL_CONVERSION_ERROR"
-
-
 class SandboxSecurityError(ScriptingError):
     """Script attempted an operation or import forbidden by the sandbox policy."""
 
     code: str = "SANDBOX_SECURITY_ERROR"
-
-
-class PayloadCodecError(ScriptingError):
-    """Data encoding, decoding, or pickle serialization failure."""
-
-    code: str = "PAYLOAD_CODEC_ERROR"
-
-
-class DataShapeError(PayloadCodecError):
-    """Data dimensions, row/column bounds, or cell count limits exceeded."""
-
-    code: str = "DATA_SHAPE_ERROR"
 
 
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
@@ -619,23 +565,9 @@ class DocumentDisposedError(WriterAgentException):
     code: str = "DOCUMENT_DISPOSED"
     object_type: str
 
-    def __init__(self, message: Any, object_type: str = "Object", code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:
-        super().__init__(message, code=code or self.code, details=details, context=context)
+    def __init__(self, message: Any, object_type: str = "Object", code: str | None = None, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code=code or self.code, details=details)
         self.object_type = object_type
-
-
-class ResourceNotFoundError(WriterAgentException):
-    """Configuration files, documents, or resources not found."""
-
-    code: str = "RESOURCE_NOT_FOUND"
-    resource_type: str
-    identifier: str
-
-    def __init__(self, resource_type: str, identifier: str, code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:
-        message = _("{resource_type} not found: {identifier}").format(resource_type=resource_type, identifier=identifier)
-        super().__init__(message, code=code or self.code, details=details, context=context)
-        self.resource_type = resource_type
-        self.identifier = identifier
 
 
 class WorkerPoolError(WriterAgentException):
@@ -656,25 +588,13 @@ class ToolPermissionError(WriterAgentException):
     code: str = "PERMISSION_DENIED"
 
 
-class ToolContextError(WriterAgentException):
-    """Tool Context lifecycle or service availability errors."""
-
-    code: str = "CONTEXT_ERROR"
-
-
-class WriterError(WriterAgentException):
-    """Writer-specific errors."""
-
-    code: str = "WRITER_ERROR"
-
-
 class AgentParsingError(WriterAgentException):
     """LLM output / JSON parsing failures."""
 
     code: str = "PARSE_ERROR"
 
 
-def check_not_none(model: Any, context_name: str = "Object") -> None:
+def check_disposed(model: Any, context_name: str = "Object") -> None:
     """Raise UnoObjectError if *model* is None.
 
     Null guard only. Live disposal is ``DisposedException``,
@@ -685,10 +605,6 @@ def check_not_none(model: Any, context_name: str = "Object") -> None:
         raise UnoObjectError(f"{context_name} is null", code="UNO_NULL_OBJECT")
 
 
-# Historical name; Semgrep and call sites still use it.
-check_disposed = check_not_none
-
-
 def is_real_disposal(exc: BaseException) -> bool:
     """True only for DisposedException / DocumentDisposedError.
 
@@ -696,7 +612,7 @@ def is_real_disposal(exc: BaseException) -> bool:
     to DocumentDisposedError made is_tool_document_disposed skip the live-doc
     check and report "Document was closed".
     """
-    return isinstance(exc, DocumentDisposedError) or _has_disposal_name(exc)
+    return isinstance(exc, DocumentDisposedError) or "DisposedException" in type(exc).__name__
 
 
 def is_document_disposed(doc: Any) -> bool:
@@ -731,7 +647,7 @@ def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
     return True
 
 
-def _uno_disposal_message(exc: BaseException) -> str:
+def _uno_disposal_message(exc: BaseException) -> str:  # pyright: ignore[reportUnusedFunction]  # imported by uno_context.py and scratch_writer.py
     """Resolve exception text, falling back to standard UNO disposal sentence."""
     msg = resolve_exception_message(exc)
     if msg == type(exc).__name__:
@@ -844,33 +760,22 @@ __all__ = [
     "CalcError",
     "ConfigError",
     "ConfigValidationError",
-    "DataShapeError",
     "DocumentDisposedError",
-    "ExcelConversionError",
     "FormulaError",
-    "FormulaSyntaxError",
     "NetworkError",
-    "PayloadCodecError",
-    "ResourceNotFoundError",
     "SandboxSecurityError",
     "ScriptingError",
     "SpillCollisionError",
-    "ToolContextError",
     "ToolExecutionError",
     "ToolPermissionError",
     "UnoObjectError",
     "VenvError",
-    "VenvExecutionError",
     "VenvNotFoundError",
     "VenvTimeoutError",
-    "WorkerIPCError",
     "WorkerPoolError",
     "WriterAgentException",
-    "WriterError",
-    "UNO_DISPOSED_EXCEPTIONS",
     "best_effort",
     "check_disposed",
-    "check_not_none",
     "format_error_for_display",
     "format_error_message",  # The single i18n-friendly mapper (centralized here in 2026 janitor effort)
     "format_error_payload",
@@ -889,5 +794,4 @@ __all__ = [
     "suppress_disposed",
     "uno_probe",
     "uno_read",
-    "_uno_disposal_message",
 ]
