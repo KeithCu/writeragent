@@ -105,6 +105,16 @@ def _coerce_array_flag(array: Any) -> bool | None:
     return bool(array)
 
 
+def _requests_array_formula(formula_or_values: Any, array: Any) -> bool:
+    # Bugfix: string array flags like "false" were passed uncoerced to returns_array(forced=...),
+    # which evaluated bool("false") as True and wrongly forced array formulas.
+    # Coerce to bool | None here so "false" becomes False and "true" becomes True.
+    forced_array = _coerce_array_flag(array)
+    if forced_array is True and isinstance(formula_or_values, str) and not formula_or_values.startswith("="):
+        raise CalcError("array=true needs a formula starting with '='.")
+    return isinstance(formula_or_values, str) and returns_array(formula_or_values, forced=forced_array)
+
+
 # ── Helper ─────────────────────────────────────────────────────────────
 
 
@@ -244,8 +254,6 @@ def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) 
                         return [val.strip() for val in rows[0]]
                     else:
                         # 2D array representing multiline CSV
-                        # We return it as a list of lists, but write_formula_range needs to flatten it
-                        # Wait, if we return a 2D array, write_formula_range can process it and adjust its target range.
                         return [[val.strip() for val in row] for row in rows]
             except Exception as e:
                 if is_disposed_exception(e):
@@ -375,8 +383,6 @@ class CellManipulator:
         obj.setPropertyValue("LeftBorder", line)
         obj.setPropertyValue("RightBorder", line)
 
-    # ── Write operations ───────────────────────────────────────────────
-
     # ── Style operations ───────────────────────────────────────────────
 
     def set_cell_style(
@@ -440,16 +446,7 @@ class CellManipulator:
             log.debug("CharLocale unavailable; using en-US fallback", exc_info=True)
         return uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
 
-    @staticmethod
-    def _apply_number_format_key(target: Any, format_key: int) -> None:
-        """Set NumberFormat from an integer registry key (detected keys, not format strings)."""
-        target.setPropertyValue("NumberFormat", int(format_key))
-
-    def _set_number_format(self, address_or_target: Any, format_str: str) -> None:
-        if isinstance(address_or_target, str):
-            target = self.bridge.resolve_range_or_address(address_or_target) if ":" in address_or_target else self.bridge.get_cell_by_address(address_or_target)
-        else:
-            target = address_or_target
+    def _set_number_format(self, target: Any, format_str: str) -> None:
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
         locale = self._resolve_document_locale(doc)
@@ -601,13 +598,11 @@ class CellManipulator:
         data_text: bool = False,
     ) -> _CellWrite:
         """Classify one write input into data/formula/meta for the ISO write path."""
-        if literal_text:
-            if value is None or value == "":
-                return _CellWrite("", "", "empty", None, None, False)
-            return _CellWrite(value if isinstance(value, str) else str(value), "", "forced_text", None, None, False)
-
-        if value is None:
+        if value is None or value == "":
             return _CellWrite("", "", "empty", None, None, False)
+
+        if literal_text:
+            return _CellWrite(value if isinstance(value, str) else str(value), "", "forced_text", None, None, False)
 
         # Bugfix: bool is a subclass of int, and str(True) is the text "True".
         # JSON arrays round-trip true/false to real bools. Classifying bool as
@@ -620,9 +615,6 @@ class CellManipulator:
 
         if not isinstance(value, str):
             return _CellWrite(str(value), "", "text", None, None, True)
-
-        if value == "":
-            return _CellWrite("", "", "empty", None, None, False)
 
         if data_text and value.startswith(("=", "'")):
             return _CellWrite(value, "", "forced_text", None, None, False)
@@ -713,7 +705,7 @@ class CellManipulator:
                     break
         return column_templates
 
-    def _apply_temporal_format_runs(self, sheet: Any, start: tuple[int, int], decisions: Any) -> int:
+    def _apply_temporal_format_runs(self, sheet: Any, start: tuple[int, int], decisions: Any) -> None:
         """Apply detected NumberFormat keys as coalesced 2D rectangles (S8/S25).
 
         Resolves empty-cell bridging per row, finds horizontal apply runs, then
@@ -722,12 +714,9 @@ class CellManipulator:
         """
         start_col, start_row = start
         rects = coalesce_temporal_apply_rects(decisions)
-        applied = 0
         for r0, r1, c0, c1, key in rects:
             target = sheet.getCellRangeByPosition(start_col + c0, start_row + r0, start_col + c1, start_row + r1)
-            self._apply_number_format_key(target, key)
-            applied += (r1 - r0 + 1) * (c1 - c0 + 1)
-        return applied
+            target.setPropertyValue("NumberFormat", int(key))
 
     def prepare_array_formula_if_needed(self, range_str: str, formula_or_values: Any, array: Any = None, premeasured_array_size: tuple[int, int] | None = None) -> tuple[int, int] | None:
         '''Run the array formula measure and occupancy check without committing.
@@ -737,14 +726,7 @@ class CellManipulator:
         XUndoManager is locked. This merges the probe's temporary actions cleanly without leaving
         a phantom Ctrl+Z step.
         '''
-        # Bugfix: string array flags like "false" were passed uncoerced to returns_array(forced=...),
-        # which evaluated bool("false") as True and wrongly forced array formulas.
-        # Coerce to bool | None here so "false" becomes False and "true" becomes True.
-        forced_array = _coerce_array_flag(array)
-        if forced_array is True:
-            if isinstance(formula_or_values, str) and not formula_or_values.startswith("="):
-                raise CalcError("array=true needs a formula starting with '='.")
-        if not (isinstance(formula_or_values, str) and returns_array(formula_or_values, forced=forced_array)):
+        if not _requests_array_formula(formula_or_values, array):
             return None
 
         cell_range = self.bridge.resolve_range_or_address(range_str)
@@ -787,7 +769,6 @@ class CellManipulator:
 
             if not was_modified:
                 _quiet_probe_cleanup(lambda: doc.setModified(False), "setModified")
-        return None
 
     def write_formula_range(
         self,
@@ -825,6 +806,10 @@ class CellManipulator:
             Summary string, or a dict with ``array_range`` / ``rows`` /
             ``cols`` when an array formula was written.
         """
+        def _check_write_cap(n_cells: int) -> None:
+            if n_cells > MAX_WRITE_CELLS:
+                raise CalcError(f"The range has {n_cells} cells, over the {MAX_WRITE_CELLS}-cell write limit. Write a smaller range.")
+
         expand_overwrite_warning: str | None = None
         try:
             # Handle empty values as a clear_range operation
@@ -842,8 +827,7 @@ class CellManipulator:
             num_cols = addr.EndColumn - addr.StartColumn + 1
             total_cells = num_rows * num_cols
 
-            if total_cells > MAX_WRITE_CELLS:
-                raise CalcError(f"The range has {total_cells} cells, over the {MAX_WRITE_CELLS}-cell write limit. Write a smaller range.")
+            _check_write_cap(total_cells)
 
             # True when this invocation writes exactly one cell (corners match).
             # Passed into string parsing so we do not run the CSV "single row → many fields" path.
@@ -860,14 +844,7 @@ class CellManipulator:
             # Detect top-level array functions and enter setArrayFormula
             # instead of fill-down. =SUM(FILTER()) stays scalar.
             if not literal_text and not data_text and isinstance(formula_or_values, str):
-                # Bugfix: string array flags like "false" were passed uncoerced to returns_array(forced=...),
-                # which evaluated bool("false") as True and wrongly forced array formulas.
-                # Coerce to bool | None here so "false" becomes False and "true" becomes True.
-                forced_array = _coerce_array_flag(array)
-                if forced_array is True:
-                    if not formula_or_values.startswith("="):
-                        raise CalcError("array=true needs a formula starting with '='.")
-                if returns_array(formula_or_values, forced=forced_array):
+                if _requests_array_formula(formula_or_values, array):
                     sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
                     return self._write_array_formula(sheet, formula_or_values, start, end, premeasured_array_size=premeasured_array_size)
 
@@ -885,8 +862,7 @@ class CellManipulator:
                         num_cols = end[0] - start[0] + 1
                         total_cells = num_rows * num_cols
 
-                        if total_cells > MAX_WRITE_CELLS:
-                            raise CalcError(f"The range has {total_cells} cells, over the {MAX_WRITE_CELLS}-cell write limit. Write a smaller range.")
+                        _check_write_cap(total_cells)
 
                         sheet = cell_range.getSpreadsheet()
 
@@ -1123,10 +1099,10 @@ class CellManipulator:
                         format_warning = f"; date/time format pass failed for {range_str}"
 
             parts = []
-            for singular, count_key in (("date", "date"), ("time", "time"), ("datetime", "datetime"), ("duration", "duration"), ("number", "number"), ("text", "text"), ("formula", "formula")):
-                n = counts.get(count_key, 0)
+            for name in ("date", "time", "datetime", "duration", "number", "text", "formula"):
+                n = counts.get(name, 0)
                 if n:
-                    parts.append(f"{n} {singular}" + ("s" if n != 1 and singular != "text" else ""))
+                    parts.append(f"{n} {name}" + ("s" if n != 1 and name != "text" else ""))
             detail = f" ({', '.join(parts)})" if parts else ""
             n_vals = len(values)
             values_word = "value" if n_vals == 1 else "values"
@@ -1341,40 +1317,7 @@ class CellManipulator:
             log.exception("Range copy failed from %s onto %s", source_str, dest_str)
             raise CalcError(msg) from e
 
-    # ── Chart ──────────────────────────────────────────────────────────
-
     # ── Structure operations ───────────────────────────────────────────
-
-    def delete_rows(self, row_num: int, count: int = 1) -> str:
-        """Delete rows starting at *row_num* (1-based)."""
-        try:
-            sheet = self.bridge.get_active_sheet()
-            rows = sheet.getRows()
-            rows.removeByIndex(row_num - 1, count)
-            log.info("%d row(s) deleted starting from row %d.", count, row_num)
-            return f"{count} row(s) deleted starting from row {row_num}."
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Row deletion failed")
-            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
-            raise
-
-    def delete_columns(self, col_letter: str, count: int = 1) -> str:
-        """Delete columns starting at *col_letter*."""
-        try:
-            sheet = self.bridge.get_active_sheet()
-            columns = sheet.getColumns()
-            col_index = column_to_index(col_letter.upper())
-            columns.removeByIndex(col_index, count)
-            log.info("%d column(s) deleted starting from column %s.", count, col_letter.upper())
-            return f"{count} column(s) deleted starting from column {col_letter.upper()}."
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Column deletion failed")
-            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
-            raise
 
     def delete_structure(self, structure_type: str, start: Any, count: int = 1) -> str:
         """Delete rows or columns.
@@ -1384,9 +1327,25 @@ class CellManipulator:
             start: For rows, row number (1-based); for columns, column letter.
             count: Number to delete.
         """
-        if structure_type == "rows":
-            return self.delete_rows(start, count)
-        elif structure_type == "columns":
-            return self.delete_columns(start, count)
+        if structure_type == "rows" or structure_type == "columns":
+            try:
+                sheet = self.bridge.get_active_sheet()
+                if structure_type == "rows":
+                    sheet.getRows().removeByIndex(start - 1, count)
+                    log.info("%d row(s) deleted starting from row %d.", count, start)
+                    return f"{count} row(s) deleted starting from row {start}."
+                col = start.upper()
+                sheet.getColumns().removeByIndex(column_to_index(col), count)
+                log.info("%d column(s) deleted starting from column %s.", count, col)
+                return f"{count} column(s) deleted starting from column {col}."
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+                # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
+                if structure_type == "rows":
+                    log.exception("Row deletion failed")
+                else:
+                    log.exception("Column deletion failed")
+                raise
         else:
             raise CalcError(f"Invalid structure_type: {structure_type}. Must be 'rows' or 'columns'.")
