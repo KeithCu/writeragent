@@ -63,19 +63,13 @@ def read_member(zf: zipfile.ZipFile, name: str, limit: int = MAX_MEMBER_BYTES) -
     actual_name = _find_member(zf, name)
     if actual_name is None:
         return None
-    try:
-        info = zf.getinfo(actual_name)
-    except KeyError:
-        return None
+    info = zf.getinfo(actual_name)
     if info.file_size > limit:
         return None
     buf = bytearray()
     try:
         with zf.open(info, "r") as src:
-            while len(buf) <= limit:
-                piece = src.read(READ_CHUNK)
-                if not piece:
-                    break
+            while piece := src.read(READ_CHUNK):
                 if len(buf) + len(piece) > limit:
                     return None
                 buf.extend(piece)
@@ -92,7 +86,6 @@ def extract_member(
     name: str,
     dest_dir: str,
     prefix: str = "",
-    limit: int = MAX_MEMBER_BYTES,
 ) -> str | None:
     """Extract a ZIP member under the member limit into dest_dir. An existing name gets a _N suffix. Returns the written path or None."""
     actual_name = _find_member(zf, name)
@@ -102,7 +95,7 @@ def extract_member(
     base = os.path.basename(actual_name.replace("\\", "/"))
     if not base or base in (".", ".."):
         return None
-    data = read_member(zf, actual_name, limit)
+    data = read_member(zf, actual_name)
     if data is None:
         return None
     out = os.path.join(dest_dir, prefix + base)
