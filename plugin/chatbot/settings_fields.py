@@ -193,10 +193,14 @@ def populate_settings_control(ctrl: Any, field: dict[str, Any]) -> None:
             return
         except Exception:
             log.debug("setValue failed for %s", field.get("name"), exc_info=True)
+    label = str(field.get("value", ""))
     if hasattr(ctrl, "setText"):
-        ctrl.setText(str(field.get("value", "")))
+        ctrl.setText(label)
         return
-    set_control_text(ctrl, str(field.get("value", "")))
+    if hasattr(ctrl, "selectItem"):
+        ctrl.selectItem(label, True)
+        return
+    set_control_text(ctrl, label)
 
 
 
@@ -269,6 +273,9 @@ def read_settings_control(ctrl: Any, field: dict[str, Any] | None = None) -> Any
             return ctrl.getValue()
         except Exception:
             log.debug("getValue failed for %s", (field or {}).get("name"), exc_info=True)
+    if not hasattr(ctrl, "getText") and hasattr(ctrl, "getSelectedItem"):
+        selected = ctrl.getSelectedItem()
+        return "" if selected is None else str(selected)
     if hasattr(ctrl, "getText"):
         return ctrl.getText()
     return get_control_text(ctrl)

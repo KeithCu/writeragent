@@ -174,6 +174,19 @@ class BaseProviderShim:
     def __init__(self, client: Any) -> None:
         self.client = client
 
+    def _endpoint_reasoning_effort(self) -> str:
+        config = getattr(self.client, "config", None)
+        if not isinstance(config, dict):
+            return ""
+        raw = config.get("reasoning_effort")
+        if not isinstance(raw, str):
+            return ""
+        return raw.strip()
+
+    def _openrouter_chat(self) -> bool:
+        config = getattr(self.client, "config", None)
+        return bool(config.get("is_openrouter")) if isinstance(config, dict) else False
+
     def _url(self, suffix: str) -> str:
         """``endpoint + api_path + suffix``. Ollama and Google build their own URLs."""
         return self.client._endpoint() + self.client._api_path() + suffix
@@ -203,12 +216,33 @@ class BaseProviderShim:
         if response_format:
             data["response_format"] = response_format
 
-        if self.client.config.get("is_openrouter"):
+        openrouter = self._openrouter_chat()
+        if openrouter:
             extra = self.client.config.get("openrouter_chat_extra")
             if isinstance(extra, dict) and extra:
                 merge_openrouter_chat_extra(data, extra)
+        effort = self._endpoint_reasoning_effort()
+        if effort:
+            if openrouter:
+                reasoning = data.get("reasoning")
+                if isinstance(reasoning, dict):
+                    reasoning["effort"] = effort
+                else:
+                    data["reasoning"] = {"effort": effort}
+            else:
+                data["reasoning_effort"] = effort
         if isinstance(chat_extra, dict) and chat_extra:
-            merge_openrouter_chat_extra(data, chat_extra)
+            # Grammar's chat_extra is the OpenRouter object {"reasoning": {"effort": "minimal"}}.
+            # Merging it unchanged put that object on every OpenAI-compatible host.
+            payload_extra = chat_extra
+            if not openrouter and "reasoning" in chat_extra:
+                payload_extra = dict(chat_extra)
+                reasoning = payload_extra.pop("reasoning")
+                if isinstance(reasoning, dict):
+                    raw_effort = reasoning.get("effort")
+                    if isinstance(raw_effort, str) and raw_effort.strip():
+                        payload_extra["reasoning_effort"] = raw_effort.strip()
+            merge_openrouter_chat_extra(data, payload_extra)
         return data
 
     def build_chat_request(

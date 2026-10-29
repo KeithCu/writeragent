@@ -392,16 +392,21 @@ class AnthropicShim(BaseProviderShim):
             converted_tools = [tool_def for tool_def in (_anthropic_tool_def(t) for t in tools) if tool_def]
             if converted_tools:
                 data["tools"] = converted_tools
-        # Grammar sends OpenRouter-shaped chat_extra={"reasoning":{"effort":"minimal"}}.
-        # Pasting that object onto /v1/messages would 400; map known effort values
-        # onto Anthropic output_config and ignore other extra keys.
+        # Grammar sends {"reasoning": {"effort": "minimal"}}. /v1/messages rejects that
+        # object. chat_extra wins over the endpoint setting. Only "minimal" is rewritten.
+        effort = None
         if isinstance(chat_extra, dict):
             reasoning = chat_extra.get("reasoning")
-            effort = reasoning.get("effort") if isinstance(reasoning, dict) else None
-            if effort == "minimal":
-                effort = "low"
-            if effort in ("low", "medium", "high", "max"):
-                data["output_config"] = {"effort": effort}
+            if isinstance(reasoning, dict):
+                raw_effort = reasoning.get("effort")
+                if isinstance(raw_effort, str) and raw_effort.strip():
+                    effort = raw_effort.strip()
+        if not effort:
+            effort = self._endpoint_reasoning_effort() or None
+        if effort == "minimal":
+            effort = "low"
+        if effort:
+            data["output_config"] = {"effort": effort}
 
         return self._post(url, data)
 

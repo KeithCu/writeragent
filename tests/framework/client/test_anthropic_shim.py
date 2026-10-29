@@ -283,3 +283,78 @@ def test_stream_usage_is_normalized_without_summing():
     assert end["usage"]["completion_tokens"] == 15
     assert "prompt_tokens" not in end["usage"]
 
+
+def test_anthropic_passes_xhigh_and_unknown() -> None:
+    class DummyClientNoConfig:
+        def _endpoint(self) -> str:
+            return "http://test"
+
+        def _headers(self) -> dict[str, str]:
+            return {}
+
+    shim = AnthropicShim(DummyClientNoConfig())
+    _m, _p, body1, _h = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-3-7-sonnet-20250219", None,
+        chat_extra={"reasoning": {"effort": "xhigh"}}
+    )
+    assert json.loads(body1).get("output_config") == {"effort": "xhigh"}
+
+    _m, _p, body2, _h = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-3-7-sonnet-20250219", None,
+        chat_extra={"reasoning": {"effort": "turbo"}}
+    )
+    assert json.loads(body2).get("output_config") == {"effort": "turbo"}
+
+
+def test_anthropic_setting_when_chat_extra_absent() -> None:
+    class DummyClientWithConfig:
+        config = {"reasoning_effort": "high"}
+
+        def _endpoint(self) -> str:
+            return "http://test"
+
+        def _headers(self) -> dict[str, str]:
+            return {}
+
+    shim = AnthropicShim(DummyClientWithConfig())
+    _m, _p, body, _h = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-3-7-sonnet-20250219", None
+    )
+    assert json.loads(body).get("output_config") == {"effort": "high"}
+
+
+def test_anthropic_grammar_beats_setting() -> None:
+    class DummyClientWithConfig:
+        config = {"reasoning_effort": "high"}
+
+        def _endpoint(self) -> str:
+            return "http://test"
+
+        def _headers(self) -> dict[str, str]:
+            return {}
+
+    shim = AnthropicShim(DummyClientWithConfig())
+    _m, _p, body, _h = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-3-7-sonnet-20250219", None,
+        chat_extra={"reasoning": {"effort": "minimal"}}
+    )
+    assert json.loads(body).get("output_config") == {"effort": "low"}
+
+
+def test_anthropic_unset_omits_output_config() -> None:
+    class DummyClientUnset:
+        config = {}
+
+        def _endpoint(self) -> str:
+            return "http://test"
+
+        def _headers(self) -> dict[str, str]:
+            return {}
+
+    shim = AnthropicShim(DummyClientUnset())
+    _m, _p, body, _h = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-3-7-sonnet-20250219", None
+    )
+    assert "output_config" not in json.loads(body)
+
+

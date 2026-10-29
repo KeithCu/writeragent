@@ -48,14 +48,14 @@ loaded earlier and drop the first writer's keys. ``set_config`` /
 ``set_configs`` / ``remove_config`` / ``update_config_mapping`` and
 **GET-path** repairs (broken JSON, out-of-range numbers, old
 ``calc_prompt_max_tokens``) go through that store. A ``set_configs`` value
-for ``api_keys_by_endpoint`` is a slot patch: those URL keys are merged
-into the map just read under the lock, so a one-slot Settings OK does not
-replace the map with a copy taken earlier. One ``config:changed``
-is emitted **after** the lock is released, with ``key``, ``value``, and
-``old_value``, so listeners may call ``get_config`` / ``set_config``
-without deadlocking. Callers that map a settings key onto a stored key
-(for example ``ai.endpoint`` → ``endpoint``) pass ``event_key`` so
-listeners still see the key that was set. A batch that changes one key
+for ``api_keys_by_endpoint`` or ``reasoning_effort`` is a slot patch: those
+URL keys are merged into the map just read under the lock, so a one-slot
+Settings OK does not replace the map with a copy taken earlier. One
+``config:changed`` is emitted **after** the lock is released, with ``key``,
+``value``, and ``old_value``, so listeners may call ``get_config`` /
+``set_config`` without deadlocking. Callers that map a settings key onto a
+stored key (for example ``ai.endpoint`` → ``endpoint``) pass ``event_key``
+so listeners still see the key that was set. A batch that changes one key
 emits that key. A batch that changes more than one emits ``key=""`` —
 the bulk save Settings OK listeners already treat as "every module".
 
@@ -855,6 +855,8 @@ class ConfigStore:
                 # Slot patch, not a whole-map replace. See _merge_api_key_slots.
                 if key == "api_keys_by_endpoint" and isinstance(stored, dict):
                     return _merge_api_key_slots(current, stored)
+                if key == "reasoning_effort" and isinstance(stored, dict):
+                    return _merge_reasoning_effort_slots(current, stored)
                 return stored
 
             return _replace
@@ -1204,6 +1206,18 @@ def _merge_api_key_slots(current: Any, patch: dict[str, Any]) -> dict[str, Any]:
     return base
 
 
+def _merge_reasoning_effort_slots(current: Any, patch: dict[str, Any]) -> dict[str, Any]:
+    base = dict(current) if isinstance(current, dict) else {}
+    for slot, raw in patch.items():
+        text = "" if raw is None else str(raw).strip()
+        key = str(slot)
+        if not text:
+            base.pop(key, None)
+        else:
+            base[key] = text
+    return base
+
+
 def update_config_mapping(key: str, mutate: Callable[[dict[str, Any]], None], *, event_key: str | None = None) -> None:
     """Read-modify-write one dict config value through ``ConfigStore.update``.
 
@@ -1239,6 +1253,28 @@ def set_api_key_for_endpoint(endpoint: Any, key: Any, *, event_key: str | None =
     update_config_mapping("api_keys_by_endpoint", _put, event_key=event_key)
 
 
+def get_reasoning_effort_for_endpoint(endpoint: Any) -> str:
+    data = get_config("reasoning_effort")
+    if not isinstance(data, dict):
+        return ""
+    raw = data.get(normalize_endpoint_url(endpoint or ""))
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip()
+
+
+def set_reasoning_effort_for_endpoint(endpoint: Any, effort: Any, *, event_key: str | None = None) -> None:
+    def _put(data: dict[str, Any]) -> None:
+        normalized = normalize_endpoint_url(endpoint or "")
+        text = "" if effort is None else str(effort).strip()
+        if not text:
+            data.pop(normalized, None)
+        else:
+            data[normalized] = text
+
+    update_config_mapping("reasoning_effort", _put, event_key=event_key)
+
+
 # --- Bundled API config ---
 
 
@@ -1257,6 +1293,7 @@ def get_api_config() -> dict[str, Any]:
     is_openwebui = is_openwebui_endpoint(endpoint, explicit_is_openwebui=_config_schema.as_bool(get_config("is_openwebui")))
     is_openrouter = is_openrouter_endpoint(endpoint, explicit_is_openrouter=_config_schema.as_bool(get_config("is_openrouter")))
     api_key = get_api_key_for_endpoint(endpoint)
+    effort = get_reasoning_effort_for_endpoint(endpoint)
 
     api_config: dict[str, Any] = {
         "endpoint": endpoint,
@@ -1268,6 +1305,8 @@ def get_api_config() -> dict[str, Any]:
         "request_timeout": get_config_int("request_timeout"),
         "chat_max_tool_rounds": get_config_int("chatbot.max_tool_rounds"),
     }
+    if effort:
+        api_config["reasoning_effort"] = effort
 
     temp = get_config_float("temperature")
     if temp >= 0:

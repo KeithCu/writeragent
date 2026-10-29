@@ -333,6 +333,8 @@ class WriterAgentConfig:
     request_timeout: int = dataclasses.field(default=120, metadata={"kind": "int", "min_exclusive": 0, "fallback": 120, "parse_fallback": 120, "code": "INVALID_REQUEST_TIMEOUT", "message": "Request timeout must be > 0"})
     stt_model: str = ""
     api_keys_by_endpoint: Dict[str, str] = dataclasses.field(default_factory=dict)
+    # Normalized endpoint URL -> effort string. Missing or blank sends no effort field.
+    reasoning_effort: Dict[str, str] = dataclasses.field(default_factory=dict)
     image_base_size: int = DEFAULT_IMAGE_BASE_SIZE
     image_default_aspect: str = "Square"
     image_steps: int = -1
@@ -473,6 +475,10 @@ class WriterAgentConfig:
         if not isinstance(self.openrouter_chat_extra, dict):
             log.warning("Invalid openrouter_chat_extra (not a dict), resetting to {}")
             self.openrouter_chat_extra = {}
+
+        if not isinstance(self.reasoning_effort, dict):
+            log.warning("Invalid reasoning_effort (not a dict), resetting to {}")
+            self.reasoning_effort = {}
 
         # Legacy ``model`` key: migrate once into text_model, then clear so
         # to_dict does not keep writing the dead field.

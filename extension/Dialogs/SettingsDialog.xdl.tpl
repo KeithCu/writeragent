@@ -36,6 +36,8 @@
   <dlg:textfield dlg:id="temperature" dlg:page="1" dlg:left="68" dlg:top="88" dlg:width="50" dlg:height="14" dlg:tabstop="true" dlg:value="-1"/>
   <dlg:text dlg:id="label_chat_max_tokens" dlg:page="1" dlg:left="165" dlg:top="90" dlg:width="60" dlg:height="10" dlg:value="Max Tokens:" dlg:align="left"/>
   <dlg:textfield dlg:id="chat_max_tokens" dlg:page="1" dlg:left="230" dlg:top="88" dlg:width="60" dlg:height="14" dlg:tabstop="true" dlg:value="16384"/>
+  <dlg:text dlg:id="label_reasoning_effort" dlg:page="1" dlg:left="300" dlg:top="90" dlg:width="43" dlg:height="10" dlg:value="Reasoning:" dlg:align="left"/>
+  <dlg:menulist dlg:id="reasoning_effort" dlg:page="1" dlg:left="345" dlg:top="88" dlg:width="85" dlg:height="14" dlg:tabstop="true" dlg:dropdown="true" dlg:linecount="6"/>
 
   <!-- Additional Instructions -->
   <dlg:text dlg:id="label_additional_instructions" dlg:page="1" dlg:left="8" dlg:top="106" dlg:width="150" dlg:height="10" dlg:value="Additional Instructions:" dlg:align="left"/>
