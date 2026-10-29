@@ -114,11 +114,6 @@ def _config_str_or_empty(key: str) -> str:
         return ""
 
 
-def get_stt_provider() -> str:
-    """``audio.stt_provider``, or ``endpoint`` when the key is absent."""
-    return normalize_stt_provider(_config_str_or_empty("audio.stt_provider"))
-
-
 def get_stt_local_model() -> str:
     """``audio.stt_local_model``, default ``base``."""
     return normalize_stt_local_model(_config_str_or_empty("audio.stt_local_model"))
@@ -126,7 +121,7 @@ def get_stt_local_model() -> str:
 
 def uses_local_stt() -> bool:
     """True when Record should transcribe in the venv instead of over HTTP."""
-    return get_stt_provider() == STT_PROVIDER_LOCAL
+    return normalize_stt_provider(_config_str_or_empty("audio.stt_provider")) == STT_PROVIDER_LOCAL
 
 
 def _hf_hub_cache_dir() -> str:
@@ -425,25 +420,18 @@ def _transcribe_local(
     _emit(on_status, _local_whisper_status(model_name))
     cmd = [py_exe, _WHISPER_SCRIPT, "--wav", wav_path, f"--model={model_name}"]
     completed = _run_cmd(cmd, _TRANSCRIBE_TIMEOUT_SEC, on_spawn=on_spawn)
+    tail = completed.stderr.strip()[-500:]
 
-    returncode = completed.returncode
-    stdout = completed.stdout or ""
-    stderr = completed.stderr or ""
-    timed_out = completed.timed_out
-    spawn_failed = completed.spawn_failed
-
-    tail = stderr.strip()[-500:]
-
-    if spawn_failed:
+    if completed.spawn_failed:
         raise ConfigError(_("Local Whisper could not start ({0}).").format(tail))
-    if timed_out:
+    if completed.timed_out:
         raise ConfigError(_local_timeout_message(_local_whisper_weights_cached(model_name)))
 
     try:
-        return parse_whisper_stdout(stdout)
+        return parse_whisper_stdout(completed.stdout)
     except ConfigError as exc:
-        if returncode not in (0, None) or tail:
-            log.warning("Local Whisper exited %s: %s", returncode, tail)
+        if completed.returncode not in (0, None) or tail:
+            log.warning("Local Whisper exited %s: %s", completed.returncode, tail)
         msg = str(exc)
         if "faster-whisper is not installed" in msg:
             raise ConfigError(
@@ -454,8 +442,8 @@ def _transcribe_local(
             ) from exc
         if "did not return a transcript" in msg:
             detail = tail or "no error output"
-            err_msg = f"Local Whisper exited {returncode}: {detail}."
-            if returncode is not None and returncode < 0:
+            err_msg = f"Local Whisper exited {completed.returncode}: {detail}."
+            if completed.returncode is not None and completed.returncode < 0:
                 err_msg += " The process was killed; try a smaller Local Model in Settings → Speech."
             raise ConfigError(err_msg) from exc
         raise
