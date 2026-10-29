@@ -18,38 +18,21 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 
-# Named FadeEffect values for agent convenience.
-_FADE_EFFECTS = {
-    "none": "NONE",
-    "fade_from_left": "FADE_FROM_LEFT",
-    "fade_from_top": "FADE_FROM_TOP",
-    "fade_from_right": "FADE_FROM_RIGHT",
-    "fade_from_bottom": "FADE_FROM_BOTTOM",
-    "fade_to_center": "FADE_TO_CENTER",
-    "fade_from_center": "FADE_FROM_CENTER",
-    "move_from_left": "MOVE_FROM_LEFT",
-    "move_from_top": "MOVE_FROM_TOP",
-    "move_from_right": "MOVE_FROM_RIGHT",
-    "move_from_bottom": "MOVE_FROM_BOTTOM",
-    "roll_from_left": "ROLL_FROM_LEFT",
-    "roll_from_top": "ROLL_FROM_TOP",
-    "roll_from_right": "ROLL_FROM_RIGHT",
-    "roll_from_bottom": "ROLL_FROM_BOTTOM",
-    "uncover_to_left": "UNCOVER_TO_LEFT",
-    "uncover_to_top": "UNCOVER_TO_TOP",
-    "uncover_to_right": "UNCOVER_TO_RIGHT",
-    "uncover_to_bottom": "UNCOVER_TO_BOTTOM",
-    "open_vertical": "OPEN_VERTICAL",
-    "open_horizontal": "OPEN_HORIZONTAL",
-    "close_vertical": "CLOSE_VERTICAL",
-    "close_horizontal": "CLOSE_HORIZONTAL",
-    "dissolve": "DISSOLVE",
-    "random": "RANDOM",
-}
+# Named FadeEffect values for agent convenience. The UNO member is key.upper().
+_FADE_EFFECTS = frozenset({
+    "none",
+    "fade_from_left", "fade_from_top", "fade_from_right", "fade_from_bottom",
+    "fade_to_center", "fade_from_center",
+    "move_from_left", "move_from_top", "move_from_right", "move_from_bottom",
+    "roll_from_left", "roll_from_top", "roll_from_right", "roll_from_bottom",
+    "uncover_to_left", "uncover_to_top", "uncover_to_right", "uncover_to_bottom",
+    "open_vertical", "open_horizontal", "close_vertical", "close_horizontal",
+    "dissolve", "random",
+})
 
 _ADVANCE_MODES: dict[int, str] = {0: "on_click", 1: "auto", 2: "semi_auto"}
 _ADVANCE_CHANGES: dict[str, int] = {name: change for change, name in _ADVANCE_MODES.items()}
-_SPEED_ENUM: dict[str, str] = {"slow": "SLOW", "medium": "MEDIUM", "fast": "FAST"}
+_SPEED_ENUM: tuple[str, ...] = ("slow", "medium", "fast")
 
 
 def _pres_enum(type_name: str, member: str) -> Any:
@@ -131,12 +114,7 @@ def layout_id(name: str) -> int | None:
     ``none`` aliases ``blank`` (``AUTOLAYOUT_NONE``, 20) so add_slide can
     keep an empty page. Ids come from ``AUTOLAYOUT_ID``, not PpSlideLayout.
     """
-    if not isinstance(name, str):
-        return None
-    key = _canonical_layout_name(name)
-    if not key:
-        return None
-    return _LAYOUTS.get(key)
+    return _LAYOUTS.get(_canonical_layout_name(name))
 
 
 def apply_slide_layout(page: Any, name: str) -> str:
@@ -228,64 +206,57 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page, page_idx = _slide_for_tool(ctx, kwargs)
+        # Values are plain data until the write loop. _pres_enum stays inside
+        # the try so ImportError is still "Could not update slide transition".
+        ops: list[tuple[str, str, Any]] = []
 
-        effect_key: str | None = None
         effect = kwargs.get("effect")
         if effect is not None:
             effect_key = str(effect).strip().lower()
             if effect_key not in _FADE_EFFECTS:
                 return self._tool_error("Unknown effect: %s" % effect, available=sorted(_FADE_EFFECTS))
+            ops.append(("effect", "Effect", effect_key.upper()))
 
         # Speed and TransitionDuration are one LibreOffice double.
         # unopage.cxx WID_PAGE_SPEED writes setTransitionDuration (slow 3s,
         # medium 2s, fast 1s) and the getter derives speed from that double.
         # Setting both used to leave the duration and report the overwritten speed.
-        speed_key: str | None = None
-        td_value: float | None = None
         td = kwargs.get("transition_duration")
         speed = kwargs.get("speed")
         if td is not None:
             try:
-                td_value = float(td)
+                ops.append(("transition_duration", "TransitionDuration", float(td)))
             except (TypeError, ValueError):
                 return self._tool_error("Invalid transition_duration: %r" % (td,))
         elif speed is not None:
             speed_key = str(speed).lower()
             if speed_key not in _SPEED_ENUM:
                 return self._tool_error("Unknown speed: %s" % speed, available=sorted(_SPEED_ENUM))
+            ops.append(("speed", "Speed", speed_key.upper()))
 
-        duration_value: int | None = None
         duration = kwargs.get("duration")
         if duration is not None:
             try:
-                duration_value = int(duration)
+                ops.append(("duration", "Duration", int(duration)))
             except (TypeError, ValueError):
                 return self._tool_error("Invalid duration: %r" % (duration,))
 
-        change: int | None = None
         advance = kwargs.get("advance")
         if advance is not None:
             change = _ADVANCE_CHANGES.get(advance)
             if change is None:
                 return self._tool_error("Unknown advance: %s" % advance, available=sorted(_ADVANCE_CHANGES))
+            ops.append(("advance", "Change", change))
 
-        updated = []
+        updated: list[str] = []
         try:
-            if effect_key is not None:
-                page.setPropertyValue("Effect", _pres_enum("FadeEffect", _FADE_EFFECTS[effect_key]))
-                updated.append("effect")
-            if td_value is not None:
-                page.setPropertyValue("TransitionDuration", td_value)
-                updated.append("transition_duration")
-            elif speed_key is not None:
-                page.setPropertyValue("Speed", _pres_enum("AnimationSpeed", _SPEED_ENUM[speed_key]))
-                updated.append("speed")
-            if duration_value is not None:
-                page.setPropertyValue("Duration", duration_value)
-                updated.append("duration")
-            if change is not None:
-                page.setPropertyValue("Change", change)
-                updated.append("advance")
+            for label, prop, val in ops:
+                if prop == "Effect":
+                    val = _pres_enum("FadeEffect", val)
+                elif prop == "Speed":
+                    val = _pres_enum("AnimationSpeed", val)
+                page.setPropertyValue(prop, val)
+                updated.append(label)
         except Exception as exc:
             if is_real_disposal(exc):
                 raise
