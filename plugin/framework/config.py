@@ -48,14 +48,14 @@ loaded earlier and drop the first writer's keys. ``set_config`` /
 ``set_configs`` / ``remove_config`` / ``update_config_mapping`` and
 **GET-path** repairs (broken JSON, out-of-range numbers, old
 ``calc_prompt_max_tokens``) go through that store. A ``set_configs`` value
-for ``api_keys_by_endpoint`` or ``reasoning_effort`` is a slot patch: those
-URL keys are merged into the map just read under the lock, so a one-slot
-Settings OK does not replace the map with a copy taken earlier. One
-``config:changed`` is emitted **after** the lock is released, with ``key``,
-``value``, and ``old_value``, so listeners may call ``get_config`` /
-``set_config`` without deadlocking. Callers that map a settings key onto a
-stored key (for example ``ai.endpoint`` → ``endpoint``) pass ``event_key``
-so listeners still see the key that was set. A batch that changes one key
+for ``api_keys_by_endpoint`` or ``reasoning_effort`` is a slot patch: those URL keys are merged
+into the map just read under the lock, so a one-slot Settings OK does not
+replace the map with a copy taken earlier. One ``config:changed``
+is emitted **after** the lock is released, with ``key``, ``value``, and
+``old_value``, so listeners may call ``get_config`` / ``set_config``
+without deadlocking. Callers that map a settings key onto a stored key
+(for example ``ai.endpoint`` → ``endpoint``) pass ``event_key`` so
+listeners still see the key that was set. A batch that changes one key
 emits that key. A batch that changes more than one emits ``key=""`` —
 the bulk save Settings OK listeners already treat as "every module".
 
