@@ -17,7 +17,6 @@ from plugin.calc.duckdb_tools import (
     _export_model_to_cached_ods,
     _maybe_write_ods_cache,
     _read_sibling_office_file_as_grid,
-    _sheet_qualified_a1,
     _source_is_open_workbook,
     parse_table_source_spec,
     resolve_table_source_a1,
@@ -252,9 +251,14 @@ def test_query_folder_sql_handles_office_files_and_sheet_hint(
 
     assert res["status"] == "ok"
     mock_read_office.assert_called_once()
-    _args, kwargs = mock_read_office.call_args
+    _args, _kwargs = mock_read_office.call_args
     assert _args[1].endswith("budget.xlsx")
-    assert kwargs.get("sheet_hint") == "Actuals"
+    assert _args[2]["kind"] == "sheet"
+    assert _args[2]["sheet"] == "Actuals"
+    assert _args[2]["file"] == "budget.xlsx"
+    assert _args[2]["headers"] is True
+    assert _args[2]["named_range"] is None
+    assert _args[2]["range"] is None
 
     call_args = mock_run.call_args
     pre = call_args.kwargs.get("preloaded")
@@ -378,7 +382,7 @@ def test_read_sibling_used_range_skips_giant_padding(mock_open, mock_read, _mock
     mock_open.return_value = (_fake_model(), "calc", None, True)
     mock_read.side_effect = _grid_for_requested_range
 
-    grid = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    grid = _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Actuals"}))
 
     requested = mock_read.call_args[0][0]
     assert "AK2000" not in requested
@@ -400,7 +404,7 @@ def test_read_sibling_ods_used_range(mock_open, mock_read, _mock_close, tmp_path
     mock_open.return_value = (_fake_model(), "calc", None, True)
     mock_read.side_effect = _grid_for_requested_range
 
-    grid = _read_sibling_office_file_as_grid(object(), str(ods))
+    grid = _read_sibling_office_file_as_grid(object(), str(ods), parse_table_source_spec({"file": ods.name}))
 
     requested = mock_read.call_args[0][0]
     assert "AK2000" not in requested
@@ -416,7 +420,7 @@ def test_read_sibling_missing_sheet_hint_errors(mock_open, mock_read, _mock_clos
     mock_open.return_value = (_fake_model(), "calc", None, True)
 
     try:
-        _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Nope")
+        _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Nope"}))
     except ToolExecutionError as exc:
         assert "budget.xlsx" in str(exc)
         assert "Nope" in str(exc)
@@ -433,7 +437,7 @@ def test_read_sibling_open_failure_errors(mock_open, _mock_close, tmp_path):
     mock_open.return_value = (None, None, "Failed to open /tmp/budget.xlsx", False)
 
     try:
-        _read_sibling_office_file_as_grid(object(), str(xlsx))
+        _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": xlsx.name}))
     except ToolExecutionError as exc:
         assert "budget.xlsx" in str(exc)
         assert "Failed to open" in str(exc)
@@ -451,7 +455,7 @@ def test_read_sibling_empty_used_range_errors(mock_open, mock_read, _mock_close,
     mock_read.return_value = [[{"value": None}]]
 
     try:
-        _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+        _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Actuals"}))
     except ToolExecutionError as exc:
         msg = str(exc)
         assert "budget.xlsx" in msg
@@ -553,6 +557,7 @@ def test_parse_table_source_spec_rejects_mixed_or_empty():
         parse_table_source_spec({"sheet": "Sales", "range": "A1:B2"})
     except ToolExecutionError as exc:
         assert "exactly one" in str(exc)
+        assert "got sheet, range" in str(exc)
     else:
         raise AssertionError("mixed sheet+range must fail")
 
@@ -809,9 +814,14 @@ def test_execute_tables_file_sheet_identity(
         tables={"sales": {"file": "budget.xlsx", "sheet": "Actuals"}},
     )
     assert res["status"] == "ok"
-    _args, kwargs = mock_read_office.call_args
+    _args, _kwargs = mock_read_office.call_args
     assert _args[1].endswith("budget.xlsx")
-    assert kwargs.get("sheet_hint") == "Actuals"
+    assert _args[2]["kind"] == "sheet"
+    assert _args[2]["sheet"] == "Actuals"
+    assert _args[2]["file"] == "budget.xlsx"
+    assert _args[2]["headers"] is True
+    assert _args[2]["named_range"] is None
+    assert _args[2]["range"] is None
     pre = mock_run.call_args.kwargs.get("preloaded") or {}
     assert "sales" in pre
     assert pre["sales"]["grid"][0] == ["Region", "Sales"]
@@ -841,7 +851,7 @@ def test_xlsx_cache_miss_then_hit_mtime_invalidates(
     mock_open.side_effect = _open
     mock_read.side_effect = _grid_for_requested_range
 
-    grid1 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    grid1 = _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Actuals"}))
     assert grid1[0] == ["Region", "Sales"]
     assert opened[0] == os.path.normpath(str(xlsx))
     entry = cache_entry(str(xlsx))
@@ -850,13 +860,13 @@ def test_xlsx_cache_miss_then_hit_mtime_invalidates(
     assert cached_ods.is_file()
     assert meta_path.is_file()
 
-    grid2 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    grid2 = _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Actuals"}))
     assert grid2[0] == ["Region", "Sales"]
     assert opened[1] == os.path.normpath(str(cached_ods))
 
     st = os.stat(xlsx)
     os.utime(xlsx, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
-    grid3 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    grid3 = _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Actuals"}))
     assert grid3[0] == ["Region", "Sales"]
     assert opened[2] == os.path.normpath(str(xlsx))
 
@@ -871,7 +881,7 @@ def test_ods_source_skips_cache(mock_open, mock_read, _mock_close, mock_export, 
     mock_open.return_value = (_fake_model(), "calc", None, True)
     mock_read.side_effect = _grid_for_requested_range
 
-    _read_sibling_office_file_as_grid(object(), str(ods))
+    _read_sibling_office_file_as_grid(object(), str(ods), parse_table_source_spec({"file": ods.name}))
 
     mock_open.assert_called_once()
     assert os.path.normpath(mock_open.call_args[0][1]) == os.path.normpath(str(ods))
@@ -892,7 +902,7 @@ def test_xlsx_skips_cache_when_disabled(
     mock_open.return_value = (_fake_model(), "calc", None, True)
     mock_read.side_effect = _grid_for_requested_range
 
-    _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Actuals"}))
 
     assert os.path.normpath(mock_open.call_args[0][1]) == os.path.normpath(str(xlsx))
     mock_export.assert_not_called()
@@ -910,7 +920,7 @@ def test_live_workbook_skips_cache(mock_open, mock_read, _mock_close, mock_expor
     mock_open.return_value = (_fake_model(), "calc", None, False)
     mock_read.side_effect = _grid_for_requested_range
 
-    _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Actuals"}))
 
     assert os.path.normpath(mock_open.call_args[0][1]) == os.path.normpath(str(xlsx))
     mock_export.assert_not_called()
@@ -1051,7 +1061,7 @@ def test_sibling_reader_reraises_disposed(mock_open, mock_read, _mock_close, tmp
     mock_open.return_value = (_fake_model(), "calc", None, True)
     mock_read.side_effect = _DisposedException("gone")
     try:
-        _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+        _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Actuals"}))
     except _DisposedException:
         return
     except ToolExecutionError as exc:
@@ -1105,9 +1115,6 @@ def test_apostrophe_sheet_name_round_trips_qualified_a1():
     qualified = resolve_table_source_a1(model, parsed)
     assert qualified == "'O''Brien'.C5:D6"
     assert split_sheet_prefix(qualified) == ("O'Brien", "C5:D6")
-    assert _sheet_qualified_a1("Actuals", "A1:B2") == "Actuals.A1:B2"
-    assert _sheet_qualified_a1("Q1 Sales", "A1") == "'Q1 Sales'.A1"
-    assert _sheet_qualified_a1("Q1.Sales", "A1") == "'Q1.Sales'.A1"
 
 
 @patch("plugin.calc.inspector.CellInspector.read_range")
@@ -1208,7 +1215,7 @@ def test_ods_cache_skips_write_when_source_changes_during_import(tmp_path: Path)
         os.utime(xlsx, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
 
     with patch("plugin.calc.duckdb_tools._export_model_to_cached_ods", side_effect=_fake_export):
-        _maybe_write_ods_cache(object(), str(xlsx), opened_flag=True, cache_hit=False, entry=entry)
+        _maybe_write_ods_cache(object(), str(xlsx), opened_flag=True, entry=entry)
 
     assert not entry.ods.exists()
     assert not entry.meta.exists()

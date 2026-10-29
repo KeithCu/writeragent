@@ -30,7 +30,6 @@ log = logging.getLogger(__name__)
 ODS_CACHE_DIRNAME = "writeragent_ods_cache"
 CACHE_FORMAT_VERSION = 1
 EXCEL_EXTENSIONS = (".xlsx", ".xls")
-CACHEABLE_EXTENSIONS = frozenset(EXCEL_EXTENSIONS)
 # Schema key lives on the calc module (module.yaml). Plan name was duckdb.ods_cache_enabled.
 ODS_CACHE_ENABLED_KEY = "calc.ods_cache_enabled"
 
@@ -42,7 +41,7 @@ def normalize_source_path(source_path: str) -> str:
 
 def is_cacheable_office_source(source_path: str) -> bool:
     """True for sibling Excel files. Native ``.ods`` is never cached."""
-    return os.path.splitext(source_path)[1].lower() in CACHEABLE_EXTENSIONS
+    return os.path.splitext(source_path)[1].lower() in EXCEL_EXTENSIONS
 
 
 def source_stat(source_path: str) -> tuple[str, int, int]:
