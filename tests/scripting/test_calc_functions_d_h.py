@@ -398,6 +398,7 @@ def test_fixed_and_dollar_half_up_and_negative():
     assert calc.dollar(1234.567, 2) == "$1,234.57"
     assert calc.dollar(-2.5, 0) == "-$3"
     assert calc.dollar(2.5, 0) == "$3"
+    assert calc.dollar(-0.001, 2) == "$0.00"
 
 
 def test_euroconvert_half_up_and_tables():
