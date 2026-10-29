@@ -13,16 +13,13 @@ LibrePy can import it without ``llm_client``.
 from __future__ import annotations
 
 from typing import Any
-from urllib.request import Request
-
-from plugin.framework.constants import USER_AGENT
 
 from .http_security import origin_and_path
 from .http_transport import HttpResult, LlmHttpTransport
 
 
 def sync_request(
-    url: str | Request,
+    url: str,
     data: bytes | None = None,
     headers: dict[str, str] | None = None,
     parse_json: bool = True,
@@ -52,31 +49,10 @@ def sync_request(
     ``NetworkError``, including when it is in the URL before the request
     is sent.
     """
-    if headers is None:
-        headers = {}
-    else:
-        headers = dict(headers)
-
-    full_url: str
-    if isinstance(url, Request):
-        full_url = url.full_url
-        if data is None and isinstance(url.data, (bytes, bytearray)):
-            data = bytes(url.data)
-        if method is None:
-            method = url.get_method()
-        for key, value in url.header_items():
-            if not any(existing.lower() == key.lower() for existing in headers):
-                headers[key] = value
-    else:
-        full_url = url
-
     if method is None:
         method = "POST" if data is not None else "GET"
 
-    if not any(key.lower() == "user-agent" for key in headers):
-        headers["User-Agent"] = USER_AGENT
-
-    origin, path = origin_and_path(full_url)
+    origin, path = origin_and_path(url)
     transport = LlmHttpTransport(lambda: origin, lambda: timeout)
     try:
         result = transport.exchange(

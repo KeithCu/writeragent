@@ -281,7 +281,7 @@ def test_persistent_connections(client):
 
         client._close_connection()
         conn1.close.assert_called_once()
-        assert client._transport.persistent_conn is None
+        assert client._transport._persistent_conn is None
 
         # Re-opening opens a new one
         conn3 = client._transport.get_connection()
