@@ -192,16 +192,16 @@ def _streaming_replay(text: str, meta: Mapping[str, Any]) -> dict[str, Any]:
     return {"reasoning": truncated}
 
 
-def extract_reasoning_replay_from_response(message_snapshot: Mapping[str, Any] | None = None, streaming_text: str | None = None, streaming_meta: Mapping[str, Any] | None = None, sync_message: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def extract_reasoning_replay_from_response(streaming_text: str | None = None, streaming_meta: Mapping[str, Any] | None = None, sync_message: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Build one consolidated reasoning block for the next API request. See docs/framework/streaming-and-threading.md §3.4."""
     # crosshair: off
     if not PRESERVE_REASONING_IN_SESSION:
         return {}
     if streaming_text is not None:
         return _streaming_replay(streaming_text, streaming_meta or {})
-    msg = sync_message if isinstance(sync_message, dict) else message_snapshot
-    if not isinstance(msg, dict):
+    if not isinstance(sync_message, dict):
         return {}
+    msg = sync_message
     details = msg.get("reasoning_details")
     if isinstance(details, list) and details:
         return {"reasoning_details": _merge_reasoning_details(details)}
@@ -381,15 +381,12 @@ class ThinkTagStreamSplitter:
 
                 if close_idx != -1 and (open_idx == -1 or close_idx < open_idx):
                     if self._seen_open:
-                        segment = text[: close_idx + close_len]
-                        if segment:
-                            results.append((False, segment))
+                        results.append((False, text[: close_idx + close_len]))
                         text = text[close_idx + close_len :]
                         continue
                     # Close-only tag while not in thinking: prefix is thinking, suffix is content.
                     if close_idx > 0:
                         results.append((True, text[:close_idx]))
-                    self.in_thinking = False
                     text = text[close_idx + close_len :]
                     continue
 
@@ -417,13 +414,7 @@ class ThinkTagStreamSplitter:
                         self._buf = text
                         partial_match = True
                         break
-                    elif self._seen_open and close_tag.startswith(suffix) and suffix != "<":
-                        if len(text) > p_len:
-                            results.append((False, text[:-p_len]))
-                        self._buf = suffix
-                        partial_match = True
-                        break
-                    elif open_tag.startswith(suffix):
+                    elif (self._seen_open and close_tag.startswith(suffix) and suffix != "<") or open_tag.startswith(suffix):
                         if len(text) > p_len:
                             results.append((False, text[:-p_len]))
                         self._buf = suffix

@@ -339,7 +339,7 @@ def test_hypothesis_streaming_text_ignores_snapshot(text: str, snap_reason: str)
     meta = new_streaming_thinking_meta()
     meta["source"] = "reasoning"
     replay = extract_reasoning_replay_from_response(
-        message_snapshot={"reasoning": snap_reason},
+        sync_message={"reasoning": snap_reason},
         streaming_text=text,
         streaming_meta=meta,
     )
