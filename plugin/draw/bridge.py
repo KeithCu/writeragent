@@ -26,10 +26,9 @@ if TYPE_CHECKING:
 
 from plugin.doc import text_helpers as _text_helpers
 from plugin.framework.constants import truncate_chat_context
-from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, check_disposed, is_disposed_exception, is_real_disposal, safe_call, uno_probe
+from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, check_disposed, is_disposed_exception, is_real_disposal, safe_call, uno_probe, uno_read
 from plugin.framework.thread_guard import main_thread_only
-
-from plugin.framework.errors import uno_read
+from plugin.framework.uno_context import uno_same
 
 log = logging.getLogger(__name__)
 
@@ -256,11 +255,8 @@ class DrawBridge:
             self.set_current_page_index(landed)
         return new_page, landed
 
-    def _insert_page_at(self, index: int, switch: bool, count: int | None = None) -> tuple[Any, int]:
+    def _insert_page_at(self, index: int, switch: bool, count: int) -> tuple[Any, int]:
         """Insert a blank page at ``index`` and optionally show it."""
-        pages = self.get_pages()
-        if count is None:
-            count = int(pages.getCount())
         if index < 0:
             index = 0
         elif index > count:
@@ -321,16 +317,7 @@ class DrawBridge:
         would look like the user was on slide 0 and the front-insert restore
         would move the view.
         """
-        get_controller = getattr(self.doc, "getCurrentController", None)
-        if not callable(get_controller):
-            return None
-        controller = uno_probe(get_controller, None)
-        if controller is None:
-            return None
-        get_page = getattr(controller, "getCurrentPage", None)
-        if not callable(get_page):
-            return None
-        return uno_probe(get_page, None)
+        return uno_probe(lambda: self.doc.getCurrentController().getCurrentPage(), None)
 
     def _show_inserted_page(self, landed: int, switch: bool, previous: Any, exchanged: bool) -> None:
         if switch:
@@ -338,7 +325,6 @@ class DrawBridge:
             return
         if not exchanged or previous is None or landed != 0:
             return
-        from plugin.framework.uno_context import uno_same
 
         pages = self.get_pages()
         if pages.getCount() > 1 and uno_same(previous, pages.getByIndex(0)):
@@ -490,20 +476,18 @@ class DrawBridge:
         first_shapes = self._snapshot_shapes(first)
         second_shapes = self._snapshot_shapes(second)
         temp = None
-        moved_first = False
-        moved_second = False
-        moved_onto_second = False
+        done: list[tuple[list[Any], Any, Any]] = []
         rollback_failed = False
         try:
             temp = pages.insertNewByIndex(pages.getCount() - 1)
             if temp is None:
                 raise RuntimeError("move_slide could not hold shapes during reorder")
             self._move_shapes(first_shapes, first, temp)
-            moved_first = True
+            done.append((first_shapes, first, temp))
             self._move_shapes(second_shapes, second, first)
-            moved_second = True
+            done.append((second_shapes, second, first))
             self._move_shapes(first_shapes, temp, second)
-            moved_onto_second = True
+            done.append((first_shapes, temp, second))
             self._swap_page_meta(first, second)
         except Exception as exc:
             # Bugfix: rollback used to return False for a disposal, and this except
@@ -514,10 +498,7 @@ class DrawBridge:
             # rollback_failed stays set when rollback does not return True, including when
             # rollback raises, so finally does not delete the temp page that still holds shapes.
             try:
-                rolled_back = self._rollback_exchange(
-                    first, second, temp, first_shapes, second_shapes,
-                    moved_first, moved_second, moved_onto_second,
-                )
+                rolled_back = self._rollback_exchange(done)
             except Exception as rollback_exc:
                 rollback_failed = True
                 if is_disposed_exception(rollback_exc):
@@ -541,21 +522,14 @@ class DrawBridge:
             if temp is not None and not rollback_failed:
                 self._remove_page_quietly(pages, temp)
 
-    def _rollback_exchange(self, first: Any, second: Any, temp: Any, first_shapes: list[Any], second_shapes: list[Any], moved_first: bool, moved_second: bool, moved_onto_second: bool) -> bool:
-        """Put shapes back on *first* and *second*. Metadata undo is inside the swap.
-        Returns True if rollback succeeded, False if it failed."""
-        if temp is None:
-            return True
+    def _rollback_exchange(self, done: list[tuple[list[Any], Any, Any]]) -> bool:
+        """Undo completed shape moves. Metadata undo stays inside the swap.
+
+        Returns True when rollback succeeded, False when it failed.
+        """
         try:
-            if moved_onto_second:
-                self._move_shapes(first_shapes, second, temp)
-                self._move_shapes(second_shapes, first, second)
-                self._move_shapes(first_shapes, temp, first)
-            elif moved_second:
-                self._move_shapes(second_shapes, first, second)
-                self._move_shapes(first_shapes, temp, first)
-            elif moved_first:
-                self._move_shapes(first_shapes, temp, first)
+            for shapes, src, dest in reversed(done):
+                self._move_shapes(shapes, dest, src)
             return True
         except Exception as exc:
             # Bugfix: this except returned False for every failure, including
@@ -726,8 +700,6 @@ class DrawBridge:
             self._drop_shapes_added_by_prop(page, before)
 
     def _drop_shapes_added_by_prop(self, page: Any, before: list[Any]) -> None:
-        from plugin.framework.uno_context import uno_same
-
         guard = 0
         # A failed count reads as 0, so the loop below never starts.
         count = uno_probe(lambda: int(page.getCount()), 0)
@@ -894,8 +866,6 @@ class DrawBridge:
                     except Exception:
                         log.debug("page.getNumber failed; using shape identity", exc_info=True)
 
-                from plugin.framework.uno_context import uno_same
-
                 for i in range(count):
                     if uno_same(pages.getByIndex(i), page):
                         return i
@@ -912,13 +882,16 @@ class DrawBridge:
         return 0
 
 
+def _page_index(ctx: ToolContext, page: Any, bridge: Any) -> Any:
+    actual = page if page is not None else ctx.active_page_index
+    if actual is None:
+        actual = bridge.get_active_page_index()
+    return actual
+
+
 def resolve_page_and_bridge(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any, Any]:
     bridge = DrawBridge(ctx.doc)
-    idx = kwargs.get("page")
-    actual_idx = idx if idx is not None else ctx.active_page_index
-    if actual_idx is None:
-        actual_idx = bridge.get_active_page_index()
-    return bridge, actual_idx
+    return bridge, _page_index(ctx, kwargs.get("page"), bridge)
 
 
 def resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any], bridge: Any | None = None) -> tuple[Any | None, Any, str | None]:
@@ -926,10 +899,7 @@ def resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any], bridge: Any | N
         target_bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
     else:
         target_bridge = bridge
-        idx = kwargs.get("page")
-        actual_idx = idx if idx is not None else ctx.active_page_index
-        if actual_idx is None:
-            actual_idx = target_bridge.get_active_page_index()
+        actual_idx = _page_index(ctx, kwargs.get("page"), target_bridge)
     try:
         page = target_bridge.get_pages().getByIndex(actual_idx)
     except Exception as exc:
@@ -949,9 +919,7 @@ def mutation_page(ctx: ToolContext, page_index: Any) -> Any:
     connect or delete on another. ``get_slide_for_tool`` re-raises dispose.
     """
     bridge = DrawBridge(ctx.doc)
-    actual = page_index if page_index is not None else ctx.active_page_index
-    if actual is None:
-        actual = bridge.get_active_page_index()
+    actual = _page_index(ctx, page_index, bridge)
     return DrawBridge.get_slide_for_tool(ctx.doc, actual)
 
 
@@ -1021,8 +989,6 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         # object. get_active_page_index already walks with uno_same (is,
         # then ==, then uno.isSame). Use that same identity ladder so the
         # chat index matches the controller's current page.
-        from plugin.framework.uno_context import uno_same
-
         active_page_idx = -1
         for i in range(safe_call(pages.getCount, "Get page count")):
             candidate = safe_call(pages.getByIndex, "Get page by index", i)
