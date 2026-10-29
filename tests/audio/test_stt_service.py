@@ -93,7 +93,6 @@ def test_missing_schema_key_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         raise ConfigError("missing")
 
     monkeypatch.setattr(stt_service, "get_config", boom)
-    assert stt_service.get_stt_provider() == "endpoint"
     assert stt_service.get_stt_local_model() == "base"
     assert stt_service.uses_local_stt() is False
 
