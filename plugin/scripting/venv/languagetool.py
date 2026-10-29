@@ -49,13 +49,6 @@ def _match_wrong_text(m: Any) -> str:
     return context[start : start + length]
 
 
-def _drop_cached_tool(key: str, tool: Any) -> None:
-    """Forget a failed client so the next call builds a fresh one."""
-    with _LT_CACHE_LOCK:
-        if _LT_CACHE.get(key) is tool:
-            _LT_CACHE.pop(key, None)
-
-
 def _cached_languagetool(bcp47_clean: str) -> Any:
     """Return the cached client, constructing at most one per locale."""
     try:
@@ -92,26 +85,27 @@ def run_languagetool_check(text: str, bcp47: str) -> dict[str, Any]:
 
     try:
         matches = tool.check(text)
-        errors = []
-        for m in matches:
-            # Replicate standard schema expected by WriterAgent grammar underlines
-            errors.append(
-                grammar_match(
-                    wrong=_match_wrong_text(m),
-                    correct=m.replacements[0] if m.replacements else "",
-                    n_error_start=m.offset,
-                    n_error_length=m.error_length,
-                    short_comment=m.message,
-                    full_comment=m.sentence,
-                    rule_identifier=make_rule_identifier(LANGUAGETOOL_RULE_PREFIX, m.rule_id),
-                    suggestions=m.replacements[:5],
-                    reason=m.message,
-                    type="LanguageTool",
-                )
+        errors = [
+            grammar_match(
+                wrong=_match_wrong_text(m),
+                correct=m.replacements[0] if m.replacements else "",
+                n_error_start=m.offset,
+                n_error_length=m.error_length,
+                short_comment=m.message,
+                full_comment=m.sentence,
+                rule_identifier=make_rule_identifier(LANGUAGETOOL_RULE_PREFIX, m.rule_id),
+                suggestions=m.replacements[:5],
+                reason=m.message,
+                type="LanguageTool",
             )
-        return {"errors": errors}
+            for m in matches
+        ]
     except Exception as e:
         # A cached client whose JVM exited used to be reused for every later
         # sentence; forget it so the next check starts a fresh one.
-        _drop_cached_tool(bcp47_clean, tool)
+        # Identity check: another thread may already have stored a replacement.
+        with _LT_CACHE_LOCK:
+            if _LT_CACHE.get(bcp47_clean) is tool:
+                _LT_CACHE.pop(bcp47_clean, None)
         raise RuntimeError(f"LanguageTool check failed for {bcp47_clean}: {e}") from e
+    return {"errors": errors}

@@ -62,6 +62,25 @@ def _atomic_write(path: Path, content: str) -> None:
             os.unlink(tmp.name)
 
 
+def _run_vale(cmd: list[str], timeout: int, timeout_label: str, fail_label: str, input_text: str | None = None, ok_codes: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess[str]:
+    try:
+        proc = subprocess.run(
+            _wrap_vale_command(cmd),
+            input=input_text,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=timeout,
+            **_subprocess_creationflags(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"{timeout_label} timed out after {timeout}s") from exc
+    if proc.returncode not in ok_codes:
+        stderr_msg = (proc.stderr or "").strip()
+        raise RuntimeError(f"{fail_label} (code {proc.returncode}): {stderr_msg}")
+    return proc
+
+
 def _ensure_vale_config(vale_bin: str, ini_path: Path, styles_path: Path, styles_list: list[str]) -> None:
     styles_str = ", ".join(styles_list)
     content = f"""StylesPath = {styles_path.as_posix()}
@@ -86,21 +105,7 @@ Microsoft.Headings = NO
         if marker_text == digest:
             return
 
-    try:
-        proc = subprocess.run(
-            _wrap_vale_command([vale_bin, "--config", str(ini_path), "--no-global", "sync"]),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=_SYNC_TIMEOUT_SEC,
-            **_subprocess_creationflags(),
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"Vale style sync timed out after {_SYNC_TIMEOUT_SEC}s") from exc
-
-    if proc.returncode != 0:
-        stderr_msg = (proc.stderr or "").strip()
-        raise RuntimeError(f"Vale style sync failed (code {proc.returncode}): {stderr_msg}")
+    _run_vale([vale_bin, "--config", str(ini_path), "--no-global", "sync"], _SYNC_TIMEOUT_SEC, "Vale style sync", "Vale style sync failed")
 
     _atomic_write(marker_path, digest)
 
@@ -112,66 +117,50 @@ def _map_alert(text: str, alert: Any) -> dict[str, Any] | None:
     Line is 1-based (internal/core/location.go). Document-scope alerts or
     malformed alerts return None.
     """
-    if not isinstance(alert, dict):
-        log.debug("Skipping non-dict Vale alert: %r", alert)
-        return None
-
-    match = alert.get("Match")
-    if not isinstance(match, str) or not match:
-        log.debug("Skipping document-scope or missing Match alert: %r", alert)
-        return None
-
-    span = alert.get("Span")
-    if not (
-        isinstance(span, list)
-        and len(span) >= 2
-        and type(span[0]) is int
-        and type(span[1]) is int
-        and span[0] >= 1
-        and span[1] >= span[0]
-    ):
-        log.debug("Skipping alert with invalid Span: %r", alert)
-        return None
-
-    line = alert.get("Line")
-    if line is None:
-        log.debug("Skipping alert with missing Line: %r", alert)
-        return None
     try:
+        if not isinstance(alert, dict):
+            raise TypeError
+        match = alert.get("Match")
+        if not isinstance(match, str) or not match:
+            raise TypeError
+        span = alert.get("Span")
+        if not (
+            isinstance(span, list)
+            and len(span) >= 2
+            and type(span[0]) is int
+            and type(span[1]) is int
+            and span[0] >= 1
+            and span[1] >= span[0]
+        ):
+            raise TypeError
+        line = alert.get("Line")
+        if line is None:
+            raise TypeError
         line_no = int(line)
+        if line_no < 1:
+            raise ValueError
+        parts = text.split("\n")
+        if line_no > len(parts):
+            raise ValueError
+        # 1-based Line. Each kept piece contributes its characters plus the '\n'. Line 1 sums an empty slice.
+        line_start = sum(len(part) + 1 for part in parts[: line_no - 1])
+        start = line_start + span[0] - 1
+        length = max(1, span[1] - span[0] + 1)
+        if start >= len(text) or start + length > len(text):
+            raise ValueError
     except (TypeError, ValueError):
-        log.debug("Skipping alert with invalid Line: %r", alert)
-        return None
-
-    if line_no < 1:
-        log.debug("Skipping alert with line_no < 1: %r", alert)
-        return None
-
-    line_start = 0
-    for line_idx in range(line_no - 1):
-        nl_pos = text.find("\n", line_start)
-        if nl_pos == -1:
-            log.debug("Skipping alert beyond line count: %r (at step %d)", alert, line_idx)
-            return None
-        line_start = nl_pos + 1
-
-    start = line_start + span[0] - 1
-    length = max(1, span[1] - span[0] + 1)
-    if start >= len(text) or start + length > len(text):
-        log.debug("Skipping alert with out-of-bounds span: start=%d, length=%d, text_len=%d", start, length, len(text))
+        log.debug("Skipping Vale alert: %r", alert)
         return None
 
     severity = str(alert.get("Severity") or "suggestion")
     rule = str(alert.get("Check") or "Style")
     msg = str(alert.get("Message") or "")
 
-    raw_action = alert.get("Action")
-    action = raw_action if isinstance(raw_action, dict) else {}
-    action_name = action.get("Name", "")
-    raw_params = action.get("Params")
-    action_params = raw_params if isinstance(raw_params, list) else []
-
-    suggestions = [str(p) for p in action_params[:5]] if action_name == "replace" else []
+    action = alert.get("Action")
+    action = action if isinstance(action, dict) else {}
+    params = action.get("Params")
+    params = params if isinstance(params, list) else []
+    suggestions = [str(p) for p in params[:5]] if action.get("Name") == "replace" else []
     correct = suggestions[0] if suggestions else ""
 
     description = alert.get("Description")
@@ -210,23 +199,8 @@ def run_vale_check(text: str, user_config_dir: str, styles: str) -> dict[str, An
         "--ext=.txt",
         "--no-global",
     ]
-    try:
-        proc = subprocess.run(
-            _wrap_vale_command(cmd),
-            input=text,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=_CHECK_TIMEOUT_SEC,
-            **_subprocess_creationflags(),
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"Vale linter timed out after {_CHECK_TIMEOUT_SEC}s") from exc
-
     # Vale returns status code 1 if it flags style alerts, which is normal.
-    if proc.returncode not in (0, 1):
-        stderr_msg = (proc.stderr or "").strip()
-        raise RuntimeError(f"Vale linter process failed (code {proc.returncode}): {stderr_msg}")
+    proc = _run_vale(cmd, _CHECK_TIMEOUT_SEC, "Vale linter", "Vale linter process failed", input_text=text, ok_codes=(0, 1))
 
     # 3. Parse JSON output
     try:
@@ -243,10 +217,6 @@ def run_vale_check(text: str, user_config_dir: str, styles: str) -> dict[str, An
     if not isinstance(file_errors, list):
         file_errors = []
 
-    errors = []
-    for err in file_errors:
-        mapped = _map_alert(text, err)
-        if mapped is not None:
-            errors.append(mapped)
+    errors = [mapped for err in file_errors if (mapped := _map_alert(text, err)) is not None]
 
     return {"errors": errors}
