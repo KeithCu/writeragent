@@ -497,6 +497,22 @@ def test_stub_recorder_child_hang_ready(fake_listener: _FakeListener) -> None:
         clear_stub_recorder_control()
 
 
+def test_real_take_drops_stale_stub_flags(fake_listener: _FakeListener) -> None:
+    # S6: G flags outlived the control file, so Stop took the stub path
+    # for a real child and never reaped it.
+    from plugin.chatbot.sidebar_test_hooks import (
+        clear_stub_recorder_control,
+        try_stub_initialize,
+        try_stub_stop,
+    )
+
+    stub_recorder_child(listener=fake_listener)
+    clear_stub_recorder_control()
+    rec = fake_listener.audio_recorder
+    assert try_stub_initialize(rec) is False
+    assert try_stub_stop(rec) is False
+
+
 def test_handle_debug_sidebar_inflate_history(fake_listener: _FakeListener, monkeypatch) -> None:
     from plugin.chatbot.sidebar_test_hooks import debug_sidebar_snapshot_path
 

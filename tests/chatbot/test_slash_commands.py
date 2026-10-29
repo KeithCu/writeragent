@@ -127,6 +127,8 @@ def test_run_mock_echoes_and_records_lru(mock_commands):
     host.clear_ask.assert_called_once()
     host.append_output.assert_called_once()
     assert "slash: /mock-alpha" in host.append_output.call_args[0][0]
+    # Real append_output(text) takes no role keyword (panel.py, _UrpSlashHost).
+    assert host.append_output.call_args.kwargs == {}
 
 
 def test_run_help_prints_static_list():

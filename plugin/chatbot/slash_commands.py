@@ -155,7 +155,11 @@ def record_slash_lru(name: str) -> None:
 
 
 def _append_sidebar_line(host: Any, text: str) -> None:
-    append = getattr(host, "append_output", None) or getattr(host, "_append_response", None)
+    append_output = getattr(host, "append_output", None)
+    if callable(append_output):
+        append_output(text)
+        return
+    append = getattr(host, "_append_response", None)
     if callable(append):
         append(text, role="assistant")
         return
