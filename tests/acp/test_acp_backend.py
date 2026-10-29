@@ -192,7 +192,7 @@ class TestDefaultExtraArgs:
         ):
             backend = ClaudeBackend()
         assert (backend._extra_args) == ([])
-        assert (backend.get_default_extra_args()) == ([])
+        assert backend.default_extra_args == ()
 
     @pytest.mark.parametrize("backend_cls,binary", [(HermesBackend, "hermes"), (OpenCodeBackend, "opencode")])
     @pytest.mark.parametrize("suffix", [".exe", ".cmd", ".bat", ".EXE"])
@@ -244,9 +244,6 @@ class TestDefaultExtraArgs:
         assert isinstance(OpenCodeBackend.default_extra_args, tuple)
         assert isinstance(GrokBackend.default_extra_args, tuple)
         assert isinstance(ACPBackend.default_extra_args, tuple)
-        copied = HermesBackend.get_default_extra_args(HermesBackend.__new__(HermesBackend))
-        copied.append("mutated")
-        assert (HermesBackend.default_extra_args) == (("acp",))
 
 
 class TestBinaryDiscovery:
@@ -2227,12 +2224,12 @@ class TestSessionCwd:
 
 
 class TestReplyAndCancelDoNotSwallow:
-    def test_reply_propagates_send_response_error(self):
+    def test_reject_propagates_send_response_error(self):
         backend = _bare_backend()
         conn = MagicMock()
         conn.send_response.side_effect = TypeError("not json")
         with pytest.raises(TypeError, match="not json"):
-            backend._reply(conn, 1, result={"ok": True})
+            backend._dispatch_notification(conn, "fs/read_text_file", {}, 1, queue.Queue())
 
     def test_stop_propagates_cancel_send_error(self):
         backend = _bare_backend()
