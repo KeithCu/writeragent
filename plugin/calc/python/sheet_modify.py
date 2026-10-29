@@ -10,7 +10,7 @@ not register a sibling ``CalcGeometricModifyListener``. This module is the
 single ``addModifyListener`` per sheet: it shares the 0.1s timer, UI-thread
 drain, ``_undo_lock``, and re-entrancy flag. After the debounce, spill cleanup
 and geometric repair run as separate jobs — geometric then does its own
-``list_python_cells_on_sheet``.
+``discover_python_cells_on_sheet``.
 
 See ``docs/calc/geometric-recalc-order.md`` §3.6 / Phase 3.
 
@@ -306,7 +306,7 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
     """UI-thread jobs after the shared debounce. Spill and geometric stay separate.
 
     Spill: ``CalcSpillModifyListener.modified`` (``SPILL_REGISTRY`` walk only).
-    Geometric: own ``list_python_cells_on_sheet`` via ``reconcile_geometric_sheet``.
+    Geometric: own ``discover_python_cells_on_sheet`` via ``reconcile_geometric_sheet``.
     """
     from plugin.calc.python.geometric_recalc import is_geometric_repairing
     from plugin.framework.thread_guard import on_main_thread

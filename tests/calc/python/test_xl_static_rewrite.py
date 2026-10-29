@@ -9,20 +9,26 @@ import pytest
 
 from plugin.calc.python.editor import _apply_cell_save, _maybe_apply_xl_static_rewrite
 from plugin.calc.python.formula_edit import parse_python_formula
-from plugin.calc.python.xl_static_rewrite import (
-    apply_xl_static_rewrite,
-    is_static_a1_literal,
-)
+from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
 from plugin.tests.testing_utils import CalcCellStub, CalcDocStub
 
 
-def test_is_static_a1_literal_accepts_common_forms():
-    assert is_static_a1_literal("A1")
-    assert is_static_a1_literal("A1:A10")
-    assert is_static_a1_literal("$A$1:$B$10")
-    assert is_static_a1_literal("Sheet1.A1:B2")
-    assert is_static_a1_literal("'My Sheet'.A1")
-    assert is_static_a1_literal("Sheet1!A1:A2")
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "$A$1:$B$10",
+        "Sheet1.A1:B2",
+        "'My Sheet'.A1",
+        "Sheet1!A1:A2",
+    ],
+)
+def test_apply_xl_static_rewrite_accepts_address_forms(ref: str):
+    code = f"x = xl({ref!r})"
+    result = apply_xl_static_rewrite(code)
+    assert result.changed is True
+    assert result.issues == []
+    assert result.code == "x = data"
+    assert result.data_args == [ref]
 
 
 def test_apply_xl_static_rewrite_null_byte_is_issue_not_crash():
@@ -33,22 +39,23 @@ def test_apply_xl_static_rewrite_null_byte_is_issue_not_crash():
     assert "not parseable" in res.issues[0] or "syntax" in res.issues[0].lower()
 
 
-def test_is_static_a1_literal_rejects_non_addresses():
-    assert not is_static_a1_literal("%P2%")
-    assert not is_static_a1_literal("Table1")
-    assert not is_static_a1_literal("")
-    assert not is_static_a1_literal("not a range")
-
-
-def test_is_static_a1_literal_rejects_invalid_and_out_of_bounds():
-    assert not is_static_a1_literal("A0")
-    assert not is_static_a1_literal("XFE1")
-    assert not is_static_a1_literal("A1048577")
-    assert not is_static_a1_literal("ABCD1")
-
-
-def test_is_static_a1_literal_accepts_calc_absolute_sheet():
-    assert is_static_a1_literal("$Sheet1.$A$1")
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "",
+        "not a range",
+        "A0",
+        "XFE1",
+        "A1048577",
+        "ABCD1",
+    ],
+)
+def test_apply_xl_static_rewrite_rejects_non_addresses(ref: str):
+    code = f"x = xl({ref!r})"
+    result = apply_xl_static_rewrite(code)
+    assert result.changed is False
+    assert result.code == code
+    assert result.issues == [f"xl({ref!r}) is not a static A1/range address"]
 
 
 def test_rewrite_single_range_headers_true():

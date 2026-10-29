@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 from plugin.calc.address_utils import MAX_COL, format_range, parse_range_string, split_sheet_prefix
-from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
+from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, str_bounded, deal
 
 # A1 endpoint shape gate only (1-3 letters, optional $). Bounds and the rest of the
@@ -78,30 +78,6 @@ def _canonical_address_key(ref: str) -> tuple[str | None, str] | None:
     return (sheet.casefold() if sheet else None, body)
 
 
-@deal.post(lambda result: isinstance(result, bool))
-def is_static_a1_literal(ref: str) -> bool:
-    """True when *ref* looks like a formula-static cell/range address."""
-    # Address parsing is skipped under CrossHair (same class as parse_address).
-    # crosshair: off
-    s = (ref or "").strip()
-    if not s or _P_TOKEN_RE.match(s):
-        return False
-    return _canonical_address_key(s) is not None
-
-
-def _data_expr(index: int, header_mode: str, *, n_bindings: int) -> str:
-    """Emit polymorphic ``data`` / ``data[i]`` for the binding count at save time."""
-    if n_bindings <= 1:
-        base = "data"
-    else:
-        base = f"data[{index}]"
-    if header_mode == "true":
-        return f"{base}.to_pandas()"
-    if header_mode == "false":
-        return f"{base}.to_pandas(header_row=None)"
-    return base
-
-
 def _binds_name(tree: ast.AST, name: str) -> bool:
     """True when the script binds or imports *name* (sugar assumes the injected global)."""
     for node in ast.walk(tree):
@@ -132,8 +108,7 @@ def _bare_data_load_spans(src: str, tree: ast.AST, line_starts: list[int]) -> li
             continue
         if id(node) in skip_names:
             continue
-        start = ast_source_offset(src, node.lineno, node.col_offset, line_starts=line_starts)
-        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset, line_starts=line_starts)
+        start, end = node_span(node, src, line_starts)
         if start < 0 or end < 0 or end <= start:
             continue
         hits.append((start, end))
@@ -155,8 +130,7 @@ def iter_xl_calls(
             continue
         if getattr(node, "lineno", None) is None:
             continue
-        start = ast_source_offset(src, node.lineno, node.col_offset, line_starts=line_starts)
-        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset, line_starts=line_starts)
+        start, end = node_span(node, src, line_starts)
         if start < 0 or end < 0 or end <= start:
             issues.append("xl() call without reliable source positions")
             continue
@@ -261,7 +235,8 @@ def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = No
     replacements: list[tuple[int, int, str]] = []
     for call in calls:
         idx = key_to_index[call.key]
-        repl = _data_expr(idx, call.header_mode, n_bindings=n_bindings)
+        base = "data" if n_bindings <= 1 else f"data[{idx}]"
+        repl = base + {"true": ".to_pandas()", "false": ".to_pandas(header_row=None)"}.get(call.header_mode, "")
         replacements.append((call.start, call.end, repl))
 
     # Growing 1→N on this save: prior sugar left bare ``data``. Only the injected

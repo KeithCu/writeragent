@@ -7,10 +7,7 @@
 from __future__ import annotations
 
 from plugin.calc.python.cell_discovery import canonicalize_py_formula_for_parse, is_py_formula_text
-from plugin.calc.python.collabora_formula import (
-    is_collabora_py_formula,
-    rewrite_collabora_addin_prefix,
-)
+from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
 from plugin.calc.python.formula_edit import parse_python_formula
 from plugin.framework.errors import DocumentDisposedError
 import pytest
@@ -53,13 +50,6 @@ def test_rewrite_leaves_writeragent_and_short_py_alone():
     assert rewrite_collabora_addin_prefix("=SUM(A1:A2)") == "=SUM(A1:A2)"
 
 
-def test_is_collabora_py_formula():
-    assert is_collabora_py_formula(_GETPY)
-    assert is_collabora_py_formula(_GETPYTHON)
-    assert not is_collabora_py_formula('=PY("result = 1")')
-    assert not is_collabora_py_formula('=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("x")')
-
-
 def test_rewrite_preserves_quotes_and_brackets():
     curly = '=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("s = “hi”")'
     assert rewrite_collabora_addin_prefix(curly) == '=PY("s = “hi”")'
@@ -69,14 +59,6 @@ def test_rewrite_preserves_quotes_and_brackets():
 
     wrapped = '  {=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("x")}'
     assert rewrite_collabora_addin_prefix(wrapped) == '  {=PY("x")}'
-
-
-def test_is_collabora_py_formula_leading_whitespace_and_bracket():
-    assert is_collabora_py_formula('  {=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("x")}')
-    assert is_collabora_py_formula(' =ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPYTHON("x")')
-    assert not is_collabora_py_formula('  {=PY("x")}')
-    assert not is_collabora_py_formula('=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("x")')
-    assert not is_collabora_py_formula("=SUM(A1:A2)")
 
 
 def test_canonicalize_and_parse_collabora_getpy():
