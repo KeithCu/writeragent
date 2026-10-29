@@ -99,12 +99,8 @@ _FIELDS = (
 _MISSING: Any = object()
 
 
-def _doc_is_presentation(doc: Any) -> bool:
-    return uno_probe(lambda: bool(doc.supportsService("com.sun.star.presentation.PresentationDocument")), False)
-
-
 def _impress_master_hf_use_shapes(doc: Any, is_master_page: bool) -> bool:
-    return _doc_is_presentation(doc) and is_master_page
+    return uno_probe(lambda: bool(doc.supportsService("com.sun.star.presentation.PresentationDocument")), False) and is_master_page
 
 
 def _iter_shapes_on_page(page: Any) -> Iterator[Any]:
@@ -118,50 +114,37 @@ def _iter_shapes_on_page(page: Any) -> Iterator[Any]:
             yield shape
 
 
+def _hf_shape_hit(shape: Any, svc: str, base: str, *, strict: bool) -> bool:
+    if strict:
+        st = getattr(shape, "ShapeType", None)
+        if st is None and hasattr(shape, "getShapeType"):
+            st = shape.getShapeType()
+        if st and (st == svc or str(st).endswith("." + base)):
+            return True
+        return bool(hasattr(shape, "supportsService") and shape.supportsService(svc))
+    if not hasattr(shape, "getSupportedServiceNames"):
+        return False
+    suffix = "." + base
+    for name in shape.getSupportedServiceNames():
+        nm = str(name)
+        if nm == svc or nm.endswith(suffix):
+            return True
+    return False
+
+
 def _collect_hf_shapes(page: Any) -> dict[str, Any]:
-    services = [_SVC_HEADER, _SVC_FOOTER, _SVC_DATETIME, _SVC_SLIDENO]
+    services = (_SVC_HEADER, _SVC_FOOTER, _SVC_DATETIME, _SVC_SLIDENO)
     found: dict[str, Any] = {s: None for s in services}
     shapes = list(_iter_shapes_on_page(page))
-
-    # Walk 1: strict match
-    for shape in shapes:
-        for svc in services:
-            if found[svc] is not None:
-                continue
-            base = svc.rsplit(".", 1)[-1]
-            try:
-                st = getattr(shape, "ShapeType", None)
-                if st is None and hasattr(shape, "getShapeType"):
-                    st = shape.getShapeType()
-                if st and (st == svc or str(st).endswith("." + base)):
-                    found[svc] = shape
+    bases = {svc: svc.rsplit(".", 1)[-1] for svc in services}
+    for strict in (True, False):
+        for shape in shapes:
+            for svc in services:
+                if found[svc] is not None:
                     continue
-                if hasattr(shape, "supportsService") and shape.supportsService(svc):
+                hit = uno_probe(lambda: _hf_shape_hit(shape, svc, bases[svc], strict=strict), False)
+                if hit:
                     found[svc] = shape
-            except Exception as e:
-                if is_disposed_exception(e):
-                    raise
-                continue
-
-    # Walk 2: loose match for services still empty
-    for shape in shapes:
-        for svc in services:
-            if found[svc] is not None:
-                continue
-            base = svc.rsplit(".", 1)[-1]
-            try:
-                if not hasattr(shape, "getSupportedServiceNames"):
-                    continue
-                for name in shape.getSupportedServiceNames():
-                    nm = str(name)
-                    if nm == svc or nm.endswith("." + base):
-                        found[svc] = shape
-                        break
-            except Exception as e:
-                if is_disposed_exception(e):
-                    raise
-                continue
-
     return found
 
 
@@ -235,12 +218,7 @@ def _read_impress_master_hf_shapes(page: Any, out: Dict[str, Any]) -> None:
         elif kind == "fixed":
             dt_shape = shapes.get(_SVC_DATETIME)
             out[uno_prop] = _get_bool(dt_shape, "IsFixed", fallback_attr=True)
-    try:
-        out["DateTimeFormat"] = page.getPropertyValue("DateTimeFormat")
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
-        out["DateTimeFormat"] = 0
+    out["DateTimeFormat"] = uno_probe(lambda: page.getPropertyValue("DateTimeFormat"), 0)
 
 
 def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> tuple[int, list[str]]:
