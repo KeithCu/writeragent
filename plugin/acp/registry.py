@@ -46,7 +46,6 @@ class HermesBackend(ACPBackend):
         "openrouter": "OPENROUTER_API_KEY",
         "openai": "OPENAI_API_KEY",
     }
-    binary_prefixes: tuple[str, ...] = ()
 
 
 @final
@@ -56,9 +55,7 @@ class ClaudeBackend(ACPBackend):
     backend_id = "claude"
     display_name = "Claude Code"
     binary_name = "claude-code-acp-rs"
-    default_extra_args: tuple[str, ...] = ()
     api_key_env_by_provider = {"anthropic": "ANTHROPIC_API_KEY"}
-    binary_prefixes: tuple[str, ...] = ()
 
 
 @final
@@ -68,9 +65,7 @@ class VibeBackend(ACPBackend):
     backend_id = "vibe"
     display_name = "Mistral Vibe"
     binary_name = "vibe-acp"
-    default_extra_args: tuple[str, ...] = ()
     api_key_env_by_provider = {"mistral": "MISTRAL_API_KEY"}
-    binary_prefixes: tuple[str, ...] = ()
 
 
 @final
@@ -94,7 +89,6 @@ class OpenCodeBackend(ACPBackend):
     binary_name = "opencode"
     default_extra_args = ("acp",)
     api_key_env_by_provider: Mapping[str, str] = {}
-    binary_prefixes: tuple[str, ...] = ()
 
 
 _ACP_BACKENDS: tuple[type[ACPBackend], ...] = (
@@ -117,25 +111,14 @@ def normalize_backend_id(backend_id: Any) -> str:
     Empty becomes builtin. A non-empty id that is not in the registry is
     still builtin, and is logged.
     """
-    if not backend_id:
-        return "builtin"
-
-    b_id = str(backend_id).strip().lower()
-    if not b_id:
-        return "builtin"
-
+    b_id = str(backend_id or "").strip().lower()
     if b_id in AGENT_BACKEND_REGISTRY:
         return b_id
-
-    # A typo or a stale id used to become the built-in agent with no log,
-    # so the sidebar ran the wrong backend and the user was not told.
-    log.warning("Unknown agent backend id %r; using builtin", b_id)
+    if b_id:
+        log.warning("Unknown agent backend id %r; using builtin", b_id)
     return "builtin"
 
 
 def get_backend(backend_id: Any) -> AgentBackend:
     """Return an adapter instance for the given backend id."""
-    backend_id = normalize_backend_id(backend_id)
-    # normalize_backend_id guarantees cls is never None.
-    cls = AGENT_BACKEND_REGISTRY[backend_id]
-    return cls()
+    return AGENT_BACKEND_REGISTRY[normalize_backend_id(backend_id)]()

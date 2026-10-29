@@ -48,6 +48,8 @@ _ACP_PROTOCOL_VERSION = 1
 # choice so Approve does not permanently allow later tool calls.
 _ALLOW_KINDS = ("allow_once", "allow_always")
 _REJECT_KINDS = ("reject_once", "reject_always")
+_SESSION_UPDATES = ("notifications/session", "session/update")
+_AGENT_UPDATES = ("notifications/agent", "agent/update")
 # shutil.which on Windows returns the PATHEXT hit (hermes.exe, hermes.cmd,
 # hermes.bat). Those stems are the same CLI as the POSIX basename.
 _WINDOWS_CLI_SUFFIXES = frozenset({".exe", ".cmd", ".bat"})
@@ -70,6 +72,17 @@ def _split_cli_args(args_str: str, *, posix: bool) -> list[str]:
     i = 0
     n = len(args_str)
 
+    def flush() -> None:
+        nonlocal has_token
+        if not has_token:
+            return
+        tok = "".join(token_chars)
+        if tok == "''":
+            tok = ""
+        tokens.append(tok)
+        token_chars.clear()
+        has_token = False
+
     while i < n:
         c = args_str[i]
         if c == "\\" and i + 1 < n and args_str[i + 1] == '"':
@@ -81,13 +94,7 @@ def _split_cli_args(args_str: str, *, posix: bool) -> list[str]:
             has_token = True
             i += 1
         elif c.isspace() and not in_quotes:
-            if has_token:
-                tok = "".join(token_chars)
-                if tok == "''":
-                    tok = ""
-                tokens.append(tok)
-                token_chars.clear()
-                has_token = False
+            flush()
             i += 1
         else:
             token_chars.append(c)
@@ -97,11 +104,7 @@ def _split_cli_args(args_str: str, *, posix: bool) -> list[str]:
     if in_quotes:
         raise ValueError("No closing quotation")
 
-    if has_token:
-        tok = "".join(token_chars)
-        if tok == "''":
-            tok = ""
-        tokens.append(tok)
+    flush()
 
     return tokens
 
@@ -290,12 +293,17 @@ def _permission_result(options: list[Any], approved: bool) -> dict[str, Any]:
     return {"outcome": {"outcome": "selected", "optionId": option_id}}
 
 
-def _queue_text_blocks(content: Any, queue: Any, kind: StreamQueueKind) -> None:
+def _content_blocks(content: Any) -> list[Any] | None:
     if isinstance(content, dict):
-        blocks: list[Any] = [content]
-    elif isinstance(content, list):
-        blocks = content
-    else:
+        return [content]
+    if isinstance(content, list):
+        return content
+    return None
+
+
+def _queue_text_blocks(content: Any, queue: Any, kind: StreamQueueKind) -> None:
+    blocks = _content_blocks(content)
+    if blocks is None:
         return
     for block in blocks:
         if not isinstance(block, dict) or block.get("type") != "text":
@@ -329,6 +337,14 @@ def _tool_stream_kind(update: dict[str, Any]) -> StreamQueueKind:
     if "content" in update or "rawOutput" in update:
         return StreamQueueKind.TOOL_RESULT
     return StreamQueueKind.TOOL_CALL
+
+
+def _agent_backend_settings() -> tuple[str, str]:
+    from plugin.framework.config import get_config
+
+    path = str(get_config("agent_backend.path") or "").strip()
+    args_str = str(get_config("agent_backend.args") or "").strip()
+    return path, args_str
 
 
 class ACPBackend(AgentBackend):
@@ -405,36 +421,29 @@ class ACPBackend(AgentBackend):
             self._binary_cache_val = found
         return found
 
+    def _launch_extra_args(self, binary: str | None, args_str: str) -> list[str]:
+        try:
+            extra = _split_cli_args(args_str, posix=(os.name != "nt")) if args_str else []
+        except ValueError as e:
+            raise ValueError(f"unbalanced quote: {e}") from e
+        if not extra and binary and self._binary_matches(binary):
+            defaults = list(self.default_extra_args)
+            if defaults:
+                return defaults
+        return extra
+
     def _load_config(self) -> None:
         """Load configuration from WriterAgent settings."""
-        from plugin.framework.config import get_config
-
-        path = str(get_config("agent_backend.path") or "").strip()
-        args_str = str(get_config("agent_backend.args") or "").strip()
+        path, args_str = _agent_backend_settings()
         self._binary_path = self._resolve_binary(path, args_str)
 
         # str.split() breaks a quoted path into several argv entries.
         # posix=False on Windows so backslashes in paths stay literal.
         try:
-            self._extra_args = _split_cli_args(args_str, posix=(os.name != "nt")) if args_str else []
-        except ValueError as e:
+            self._extra_args = self._launch_extra_args(self._binary_path, args_str)
+        except ValueError:
             self._extra_args = []
-            raise ValueError(f"unbalanced quote: {e}") from e
-        self._apply_default_extra_args()
-
-    def get_default_extra_args(self) -> List[str]:
-        """CLI args used when settings args are empty and the binary matches this backend."""
-        return list(self.default_extra_args)
-
-    def _apply_default_extra_args(self) -> None:
-        """Fill ``_extra_args`` from ``get_default_extra_args()`` when settings left them empty."""
-        if self._extra_args:
-            return
-        defaults = self.get_default_extra_args()
-        if not defaults or not self._binary_path:
-            return
-        if self._binary_matches(self._binary_path):
-            self._extra_args = list(defaults)
+            raise
 
     def _binary_matches(self, path: str) -> bool:
         """True when ``path`` is this backend's CLI, including Windows launcher suffixes."""
@@ -484,21 +493,9 @@ class ACPBackend(AgentBackend):
 
     def is_available(self, ctx: Any) -> bool:
         """Check if binary is installed."""
-        from plugin.framework.config import get_config
-
-        path = str(get_config("agent_backend.path") or "").strip()
-        args_str = str(get_config("agent_backend.args") or "").strip()
+        path, args_str = _agent_backend_settings()
         binary = self._resolve_binary(path, args_str)
-
-        try:
-            extra = _split_cli_args(args_str, posix=(os.name != "nt")) if args_str else []
-        except ValueError as e:
-            raise ValueError(f"unbalanced quote: {e}") from e
-
-        if not extra and binary and self._binary_matches(binary):
-            defaults = self.get_default_extra_args()
-            if defaults:
-                extra = list(defaults)
+        extra = self._launch_extra_args(binary, args_str)
 
         if self._send_lock.acquire(blocking=False):
             try:
@@ -527,6 +524,14 @@ class ACPBackend(AgentBackend):
             return True
         return False
 
+    def _slot_lost_locked(self, conn: ACPConnection | None = None) -> bool:
+        """Caller holds ``_state_lock``. Latch Stop when this conn is no longer the slot."""
+        if self._closed or (conn is not None and self._conn is not conn):
+            self._stop_requested = True
+            self._stop_turn = self._turn
+            return True
+        return False
+
     def _ensure_connection(self, stop_checker: Any = None) -> None:
         """Start the ACP subprocess, or keep the one this sidebar already has.
 
@@ -535,9 +540,7 @@ class ACPBackend(AgentBackend):
         for the handshake. A dead child is dropped here, not left on the slot.
         """
         with self._state_lock:
-            if self._closed:
-                self._stop_requested = True
-                self._stop_turn = self._turn
+            if self._slot_lost_locked():
                 return
         existing = self._conn
         if existing is not None and existing.is_healthy and self._ready:
@@ -564,12 +567,7 @@ class ACPBackend(AgentBackend):
             conn.start()
 
             with self._state_lock:
-                if self._closed or self._conn is not conn:
-                    self._stop_requested = True
-                    self._stop_turn = self._turn
-                    lost_slot = True
-                else:
-                    lost_slot = False
+                lost_slot = self._slot_lost_locked(conn)
             if lost_slot:
                 conn.stop()
                 return
@@ -604,13 +602,9 @@ class ACPBackend(AgentBackend):
                     _ACP_PROTOCOL_VERSION,
                 )
             with self._state_lock:
-                if self._closed or self._conn is not conn:
-                    self._stop_requested = True
-                    self._stop_turn = self._turn
-                    lost_slot = True
-                else:
+                lost_slot = self._slot_lost_locked(conn)
+                if not lost_slot:
                     self._ready = True
-                    lost_slot = False
             if lost_slot:
                 conn.stop()
                 return
@@ -621,9 +615,7 @@ class ACPBackend(AgentBackend):
             return
         except Exception as exc:
             with self._state_lock:
-                if self._closed or self._conn is not conn:
-                    self._stop_requested = True
-                    self._stop_turn = self._turn
+                if self._slot_lost_locked(conn):
                     return
             log.exception("ACP initialize failed")
             # A crash during the handshake used to say only "process
@@ -647,9 +639,7 @@ class ACPBackend(AgentBackend):
         effective_mcp = mcp_url if mcp_url and as_bool(get_config("mcp.mcp_enabled")) else None
 
         with self._state_lock:
-            if self._closed:
-                self._stop_requested = True
-                self._stop_turn = self._turn
+            if self._slot_lost_locked():
                 return
             # The session keeps the mcpServers from session/new, so a new MCP URL is a new session.
             if self._session_id and self._session_url == url_key and self._session_mcp_url == effective_mcp:
@@ -674,9 +664,7 @@ class ACPBackend(AgentBackend):
             if not isinstance(session_id, str) or not session_id.strip():
                 raise RuntimeError(f"{self.display_name} ACP session/new returned no sessionId.")
             with self._state_lock:
-                if self._closed or self._conn is not conn:
-                    self._stop_requested = True
-                    self._stop_turn = self._turn
+                if self._slot_lost_locked(conn):
                     return
                 self._session_id = session_id
                 self._session_url = url_key
@@ -689,9 +677,7 @@ class ACPBackend(AgentBackend):
             raise
         except Exception:
             with self._state_lock:
-                if self._closed or self._conn is not conn:
-                    self._stop_requested = True
-                    self._stop_turn = self._turn
+                if self._slot_lost_locked(conn):
                     return
             log.exception("ACP session creation failed")
             # The process can retry session/new. Drop it only when it has died.
@@ -746,26 +732,23 @@ class ACPBackend(AgentBackend):
             return
         session_update = update.get("sessionUpdate")
         if isinstance(session_update, str) and session_update:
-            self._handle_session_update(update, session_update, queue)
+            if session_update == "agent_message_chunk":
+                _queue_text_blocks(update.get("content"), queue, StreamQueueKind.CHUNK)
+            elif session_update == "agent_thought_chunk":
+                # Thought text lives in ``content`` with ``type: text``. The legacy
+                # path queued that as CHUNK, and the agent drain appends every
+                # non-thinking chunk into the saved assistant row. THINKING is
+                # displayed when thinking is on and is left out of that row.
+                _queue_text_blocks(update.get("content"), queue, StreamQueueKind.THINKING)
+            elif session_update in ("tool_call", "tool_call_update"):
+                # These updates have no ``content`` list of ``type: tool_call``
+                # blocks. The old handler returned before queueing anything, so
+                # the transcript never showed the tool.
+                queue.put((_tool_stream_kind(update), _tool_activity_payload(update)))
+            # user_message_chunk is already the user turn. plan / usage / mode
+            # updates are not the assistant answer, so they are not queued.
             return
         self._handle_legacy_content(update, queue)
-
-    def _handle_session_update(self, update: dict[str, Any], session_update: str, queue: Any) -> None:
-        if session_update == "agent_message_chunk":
-            _queue_text_blocks(update.get("content"), queue, StreamQueueKind.CHUNK)
-        elif session_update == "agent_thought_chunk":
-            # Thought text lives in ``content`` with ``type: text``. The legacy
-            # path queued that as CHUNK, and the agent drain appends every
-            # non-thinking chunk into the saved assistant row. THINKING is
-            # displayed when thinking is on and is left out of that row.
-            _queue_text_blocks(update.get("content"), queue, StreamQueueKind.THINKING)
-        elif session_update in ("tool_call", "tool_call_update"):
-            # These updates have no ``content`` list of ``type: tool_call``
-            # blocks. The old handler returned before queueing anything, so
-            # the transcript never showed the tool.
-            queue.put((_tool_stream_kind(update), _tool_activity_payload(update)))
-        # user_message_chunk is already the user turn. plan / usage / mode
-        # updates are not the assistant answer, so they are not queued.
 
     def _handle_legacy_content(self, update: dict[str, Any], queue: Any) -> None:
         """Private ``content`` blocks: text / tool_call / tool_result.
@@ -776,11 +759,8 @@ class ACPBackend(AgentBackend):
         if "content" not in update:
             return
         content = update["content"]
-        if isinstance(content, list):
-            items = content
-        elif isinstance(content, dict):
-            items = [content]
-        else:
+        items = _content_blocks(content)
+        if items is None:
             log.debug("ACP update content is neither list nor dict: %s", type(content))
             return
         for item in items:
@@ -806,35 +786,15 @@ class ACPBackend(AgentBackend):
         if method == "session/request_permission":
             self._queue_permission_request(conn, params, msg_id, queue)
             return
-        # Update requests are acked with {} even when stopped; queue events only when not stopped.
-        if method in ("notifications/session", "session/update"):
+        if method in _SESSION_UPDATES or method in _AGENT_UPDATES:
             if not self._stop_requested:
-                self._handle_acp_update(params.get("update", {}), queue)
+                default: Any = {} if method in _SESSION_UPDATES else params
+                self._handle_acp_update(params.get("update", default), queue)
             if msg_id is not None:
-                self._ack_request(conn, msg_id)
-            return
-        if method in ("notifications/agent", "agent/update"):
-            if not self._stop_requested:
-                self._handle_acp_update(params.get("update", params), queue)
-            if msg_id is not None:
-                self._ack_request(conn, msg_id)
+                conn.send_response(msg_id, result={})
             return
         if msg_id is not None:
-            self._reject_unknown_request(conn, msg_id, method)
-
-    def _reply(self, conn: ACPConnection, msg_id: Any, *, result: Any = None, error: Any = None) -> None:
-        """Send one JSON-RPC response on the passed connection."""
-        # Send on the passed connection instead of re-reading self._conn to avoid slot-swap races.
-        if error is not None:
-            conn.send_response(msg_id, error=error)
-        else:
-            conn.send_response(msg_id, result=result if result is not None else {})
-
-    def _reject_unknown_request(self, conn: ACPConnection, msg_id: Any, method: str) -> None:
-        self._reply(conn, msg_id, error={"code": -32601, "message": f"Method not found: {method}"})
-
-    def _ack_request(self, conn: ACPConnection, msg_id: Any) -> None:
-        self._reply(conn, msg_id, result={})
+            conn.send_response(msg_id, error={"code": -32601, "message": f"Method not found: {method}"})
 
     def _queue_permission_request(self, conn: ACPConnection, params: dict[str, Any], msg_id: Any, queue: Any) -> None:
         tool_call = params.get("toolCall")
@@ -851,7 +811,7 @@ class ACPBackend(AgentBackend):
             hash(msg_id)
         except TypeError:
             log.warning("ACP permission request id is unhashable; cancelling without storing it")
-            self._reply(conn, msg_id, result=_cancelled_permission())
+            conn.send_response(msg_id, result=_cancelled_permission())
             return
         # Keep the options so Approve/Reject can echo optionId. The HITL
         # dialog only returns a bool; the id has to live with the request.
@@ -863,7 +823,7 @@ class ACPBackend(AgentBackend):
             if not reply_cancelled:
                 self._pending_permissions[msg_id] = (conn, stored)
         if reply_cancelled:
-            self._reply(conn, msg_id, result=_cancelled_permission())
+            conn.send_response(msg_id, result=_cancelled_permission())
             return
         description = _permission_description(params)
         tool_name = _permission_tool_name(tool_call)
@@ -901,7 +861,7 @@ class ACPBackend(AgentBackend):
         with self._state_lock:
             pending_permissions = self._pop_pending_permission_ids()
         for request_id, conn in pending_permissions:
-            self._reply(conn, request_id, result=_cancelled_permission())
+            conn.send_response(request_id, result=_cancelled_permission())
 
     def _finish_stopped(self, queue: Any) -> None:
         queue.put((StreamQueueKind.STOPPED, None))
@@ -997,7 +957,7 @@ class ACPBackend(AgentBackend):
             self._clear_slot_locked(conn)
         log.info("ACP cancel was not answered within %ss; killing the CLI", _CANCEL_GRACE_SEC)
         for request_id, req_conn in pending_permissions:
-            self._reply(req_conn, request_id, result=_cancelled_permission())
+            req_conn.send_response(request_id, result=_cancelled_permission())
         if conn is None:
             return
         conn.set_notification_callback(None)
@@ -1182,7 +1142,7 @@ class ACPBackend(AgentBackend):
             log.warning("Cannot submit approval, ACP connection is dead")
             return
 
-        self._reply(conn, request_id, result=_permission_result(options, approved))
+        conn.send_response(request_id, result=_permission_result(options, approved))
 
     def shutdown(self) -> None:
         """Kill the CLI and drop the session.
