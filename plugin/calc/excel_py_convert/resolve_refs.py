@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW
 from plugin.calc.excel_py_convert.parse_excel_ooxml import letters_to_col_index
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
 
 _ANCHOR_RE = re.compile(r"^(?:_xlfn\.)?ANCHORARRAY\((.+)\)$", re.IGNORECASE)
 _TABLE_ALL_RE = re.compile(r"^([A-Za-z_][\w.]*)\[#All\]$", re.IGNORECASE)
@@ -114,64 +114,6 @@ def _anchor_snapshot(
     return _unresolved(raw, note=f"{label} snapshot unavailable")
 
 
-@deal.pre(lambda raw: str_bounded(raw, DEAL_MAX_SOURCE))
-def _has_anchorarray_shape(raw: str) -> bool:
-    """True when *raw* can match ``_ANCHOR_RE`` (``ANCHORARRAY(...)`` / ``_xlfn.``).
-
-    CrossHair's relib re-parses ``Pattern.pattern`` on symbolic ``re.match`` and
-    ``PatternError``s on character-class fragments (``deps=['_']`` → unterminated
-    character set). ``_`` is a prefix of ``_xlfn.`` but not a real anchor — skip
-    the regex unless the call surface is present. Same class as ``formula_edit``
-    PY|PYTHON ``startswith``.
-    """
-    if not raw.endswith(")"):
-        return False
-    return "ANCHORARRAY(" in raw.upper()
-
-
-@deal.pre(lambda raw: str_bounded(raw, DEAL_MAX_SOURCE))
-def _has_table_all_shape(raw: str) -> bool:
-    """True when *raw* can match ``_TABLE_ALL_RE`` (``Name[#All]``).
-
-    The escaped ``[#All]`` suffix in ``_TABLE_ALL_RE`` is the fragment CrossHair
-    relib treats as an open ``[`` class. Junk like ``_`` / ``[`` must not reach
-    ``re.match``.
-    """
-    return raw.upper().endswith("[#ALL]")
-
-
-@deal.pre(lambda raw: str_bounded(raw, DEAL_MAX_SOURCE))
-def _has_spill_shape(raw: str) -> bool:
-    """True when *raw* can match ``_SPILL_RE`` (``A6#``, not ``[#All]``)."""
-    spill = raw.replace("$", "")
-    return len(spill) >= 2 and spill.endswith("#") and not spill.upper().endswith("[#ALL]")
-
-
-@deal.pre(lambda raw: str_bounded(raw, DEAL_MAX_SOURCE))
-def _has_range_shape(raw: str) -> bool:
-    """True when *raw* can match ``_RANGE_RE`` (A1 / ``A:C`` / ``1:10`` / ``Sheet!…``).
-
-    Lone ``_``, ``[``, ``:``, ``!`` are not ranges; do not feed them to a regex
-    that contains ``[^']`` / ``[A-Za-z_]`` (relib character-set PatternError).
-    Keep this a conservative *superset* of CPython ``_RANGE_RE`` matches so
-    valid product deps still hit the regex.
-    """
-    if "!" in raw:
-        sheet, _sep, rest = raw.partition("!")
-        return bool(sheet) and bool(rest)
-    if ":" in raw:
-        left, _sep, right = raw.partition(":")
-        return bool(left) and bool(right)
-    stripped = raw.replace("$", "")
-    i = 0
-    n = len(stripped)
-    while i < n and stripped[i].isalpha():
-        i += 1
-    if i == 0 or i == n:
-        return False
-    return stripped[i:].isdigit()
-
-
 @deal.pre(lambda dep, model, sheet_hint="": str_bounded(dep, DEAL_MAX_SOURCE) and str_bounded(sheet_hint, DEAL_MAX_SOURCE))
 def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") -> ResolvedDep:
     """Map one PY trailing arg to an A1 address for DAG ``data`` args."""
@@ -181,45 +123,35 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
     if not raw:
         return _unresolved(raw, note="empty dep")
 
-    # Gate each regex on a cheap surface shape so CrossHair / junk deps never
-    # re.match a character-class pattern (PatternError).
-    if _has_anchorarray_shape(raw):
-        m_anchor = _ANCHOR_RE.match(raw)
-        if m_anchor:
-            anchor = m_anchor.group(1).strip()
-            return _anchor_snapshot(raw, anchor, model, sheet_hint, label=f"ANCHORARRAY({anchor})")
+    m_anchor = _ANCHOR_RE.match(raw)
+    if m_anchor:
+        anchor = m_anchor.group(1).strip()
+        return _anchor_snapshot(raw, anchor, model, sheet_hint, label=f"ANCHORARRAY({anchor})")
 
-    if _has_spill_shape(raw):
-        spill_src = raw
-        m_spill = _SPILL_RE.match(spill_src)
-        if m_spill:
-            anchor = m_spill.group(1)
-            return _anchor_snapshot(raw, anchor, model, sheet_hint, label=raw)
+    # $# / $$# match _SPILL_RE, but the old shape gate treated a
+    # $-only prefix as unrecognized. Keep that note.
+    m_spill = _SPILL_RE.match(raw)
+    if m_spill and len(raw.replace("$", "")) >= 2:
+        anchor = m_spill.group(1)
+        return _anchor_snapshot(raw, anchor, model, sheet_hint, label=raw)
 
-    if _has_table_all_shape(raw):
-        m_table = _TABLE_ALL_RE.match(raw)
-        if m_table:
-            name = m_table.group(1)
-            ref = model.tables.get(name)
-            if not ref:
-                folded = name.lower()
-                ref = next((value for table_name, value in model.tables.items() if table_name.lower() == folded), None)
-            if ref:
-                return ResolvedDep(original=raw, a1=ref.replace("$", ""), kind="table_snapshot", note=f"{name}[#All] → {ref}")
-            return _unresolved(raw, note=f"unknown table {name!r}")
+    m_table = _TABLE_ALL_RE.match(raw)
+    if m_table:
+        name = m_table.group(1)
+        ref = model.tables.get(name)
+        if not ref:
+            folded = name.lower()
+            ref = next((value for table_name, value in model.tables.items() if table_name.lower() == folded), None)
+        if ref:
+            return ResolvedDep(original=raw, a1=ref.replace("$", ""), kind="table_snapshot", note=f"{name}[#All] → {ref}")
+        return _unresolved(raw, note=f"unknown table {name!r}")
 
     sheet_part, sep, addr = raw.rpartition("!")
     cleaned = f"{sheet_part}{sep}{addr.replace('$', '')}" if sep else raw.replace("$", "")
-    if _has_range_shape(cleaned):
-        m = _RANGE_RE.match(cleaned)
-        if m:
-            if _a1_in_bounds(m.group(2)):
-                return ResolvedDep(original=raw, a1=cleaned, kind="range")
-            return _unresolved(raw, note=f"out-of-bounds A1 ref {raw!r}")
+    m = _RANGE_RE.match(cleaned)
+    if m:
+        if _a1_in_bounds(m.group(2)):
+            return ResolvedDep(original=raw, a1=cleaned, kind="range")
+        return _unresolved(raw, note=f"out-of-bounds A1 ref {raw!r}")
 
     return _unresolved(raw, note=f"unrecognized dep {raw!r}")
-
-
-@deal.pre(lambda deps, model, sheet_hint="": isinstance(deps, list) and len(deps) <= DEAL_MAX_CMD_ARGS and all(str_bounded(d, DEAL_MAX_SOURCE) for d in deps) and str_bounded(sheet_hint, DEAL_MAX_SOURCE))
-def resolve_deps(deps: list[str], model: ExcelWorkbookModel, *, sheet_hint: str = "") -> list[ResolvedDep]:
-    return [resolve_dep(d, model, sheet_hint=sheet_hint) for d in deps]

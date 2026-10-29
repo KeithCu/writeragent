@@ -42,9 +42,10 @@ from plugin.calc.excel_py_convert.to_dag import (
     _OBJECT_SUPPRESS,
     _prefer_excel_dep_token,
     _skip_string,
+    analyze_xl_calls,
+    apply_rewrite,
     convert_cell_to_dag,
     convert_model_to_dag,
-    rewrite_excel_code,
 )
 from plugin.calc.excel_py_convert.to_excel import (
     assign_script_bank,
@@ -62,6 +63,14 @@ from plugin.calc.python.formula_edit import (
     escape_code_for_formula,
     rebuild_python_formula_with_data,
 )
+
+
+def _excel_rewrite(code: str, *, num_deps: int) -> tuple[str, object]:
+    src = code or ""
+    analysis = analyze_xl_calls(src, num_deps=num_deps)
+    if analysis.fatal:
+        return src, analysis
+    return apply_rewrite(src, analysis.calls, index_map={}), analysis
 
 
 def _cell(
@@ -211,27 +220,25 @@ def test_parse_xlws_py_formula():
 
 
 def test_rewrite_headers_single():
-    res = rewrite_excel_code("df = xl(%P2%, headers=True)", num_deps=1)
-    assert 'xl("%P2%",headers=True)' in res.code
-    assert "to_pandas" not in res.code
-    assert res.used == ["0"]
-    assert res.header_modes[0] == "true"
-    assert not any("dynamic" in i for i in res.issues)
+    code, analysis = _excel_rewrite("df = xl(%P2%, headers=True)", num_deps=1)
+    assert 'xl("%P2%",headers=True)' in code
+    assert "to_pandas" not in code
+    assert analysis.header_modes[0] == "true"
+    assert not any("dynamic" in i for i in analysis.issues)
 
 
 def test_rewrite_headers_false_preserved_in_mode():
-    res = rewrite_excel_code("x = xl(%P2%, headers=False)", num_deps=1)
-    assert 'xl("%P2%",headers=False)' in res.code
-    assert res.header_modes[0] == "false"
+    code, analysis = _excel_rewrite("x = xl(%P2%, headers=False)", num_deps=1)
+    assert 'xl("%P2%",headers=False)' in code
+    assert analysis.header_modes[0] == "false"
 
 
 def test_rewrite_multi_and_scalar():
-    res = rewrite_excel_code(
+    code, _ = _excel_rewrite(
         "filterDF.groupby(xl(%P2%))[[xl(%P3%)]].agg(xl(%P4%))",
         num_deps=3,
     )
-    assert 'xl("%P2%")' in res.code and 'xl("%P3%")' in res.code and 'xl("%P4%")' in res.code
-    assert res.used == ["0", "1", "2"]
+    assert 'xl("%P2%")' in code and 'xl("%P3%")' in code and 'xl("%P4%")' in code
 
 
 @pytest.mark.parametrize(
@@ -242,9 +249,9 @@ def test_rewrite_multi_and_scalar():
     ],
 )
 def test_rewrite_rejects_dynamic(value):
-    res = rewrite_excel_code(value, num_deps=0)
-    assert any("dynamic" in i for i in res.issues)
-    assert "xl(" in res.code
+    code, analysis = _excel_rewrite(value, num_deps=0)
+    assert any("dynamic" in i for i in analysis.issues)
+    assert "xl(" in code
 
 
 @pytest.mark.parametrize(
@@ -258,94 +265,87 @@ def test_rewrite_rejects_dynamic(value):
 )
 def test_rewrite_ignores_xl_in_strings_and_comments(value, value_2, value_3, value_4):
     src = value
-    res = rewrite_excel_code(src, num_deps=1)
-    assert value_2 in res.code
-    assert value_3 in res.code
-    assert value_4 in res.code
-    assert res.used == ["0"]
-    assert not any("dynamic" in i for i in res.issues)
+    code, analysis = _excel_rewrite(src, num_deps=1)
+    assert value_2 in code
+    assert value_3 in code
+    assert value_4 in code
+    assert not any("dynamic" in i for i in analysis.issues)
+
 
 def test_rewrite_quoted_placeholder_constant():
     """Quoted ``xl("%P2%")`` is valid Python; AST Constant path must still bind."""
-    res = rewrite_excel_code('df = xl("%P2%", headers=True)', num_deps=1)
-    assert 'xl("%P2%",headers=True)' in res.code
-    assert res.used == ["0"]
-    assert res.header_modes[0] == "true"
-    assert not any("dynamic" in i for i in res.issues)
+    code, analysis = _excel_rewrite('df = xl("%P2%", headers=True)', num_deps=1)
+    assert 'xl("%P2%",headers=True)' in code
+    assert analysis.header_modes[0] == "true"
+    assert not any("dynamic" in i for i in analysis.issues)
 
 
 def test_rewrite_non_ascii_prefix_offsets():
     """UTF-8 multi-byte prefix must not shift the ``xl(...)`` rewrite window."""
     src = "café = 1\ndf = xl(%P2%, headers=True)\n"
-    res = rewrite_excel_code(src, num_deps=1)
-    assert "café = 1" in res.code
-    assert 'df = xl("%P2%",headers=True)' in res.code
-    assert res.used == ["0"]
-    assert not any("dynamic" in i for i in res.issues)
+    code, analysis = _excel_rewrite(src, num_deps=1)
+    assert "café = 1" in code
+    assert 'df = xl("%P2%",headers=True)' in code
+    assert not any("dynamic" in i for i in analysis.issues)
 
 
 def test_rewrite_ignores_attribute_xl_calls():
     """``obj.xl(...)`` is not the Excel data-bridge builtin — leave it alone."""
     src = "x = obj.xl(existing)\ny = xl(%P2%)\n"
-    res = rewrite_excel_code(src, num_deps=1)
-    assert "obj.xl(existing)" in res.code
-    assert 'y = xl("%P2%")' in res.code
-    assert res.used == ["0"]
-    assert not any("dynamic" in i for i in res.issues)
+    code, analysis = _excel_rewrite(src, num_deps=1)
+    assert "obj.xl(existing)" in code
+    assert 'y = xl("%P2%")' in code
+    assert not any("dynamic" in i for i in analysis.issues)
 
 
 def test_rewrite_attribute_xl_with_placeholder_is_fatal():
     """``obj.xl(%P2%)`` has placeholder outside xl(); fatal and returns source unchanged."""
     src = "x = obj.xl(%P2%)"
-    res = rewrite_excel_code(src, num_deps=1)
-    assert res.fatal is True
-    assert res.code == src
-    assert any("outside xl()" in i for i in res.issues)
+    code, analysis = _excel_rewrite(src, num_deps=1)
+    assert analysis.fatal is True
+    assert code == src
+    assert any("outside xl()" in i for i in analysis.issues)
 
 
 def test_rewrite_keeps_xl_statement_under_if():
     """Statement ``xl`` under ``if`` stays as a quoted binding (no strip/pass)."""
     src = "if config_param == 3:\n    xl(%P2%)\n"
-    res = rewrite_excel_code(src, num_deps=1)
-    assert 'xl("%P2%")' in res.code
-    assert "pass" not in res.code
-    assert res.used == ["0"]
-    assert not any("dynamic" in i for i in res.issues)
-    ast.parse(res.code)
+    code, analysis = _excel_rewrite(src, num_deps=1)
+    assert 'xl("%P2%")' in code
+    assert "pass" not in code
+    assert not any("dynamic" in i for i in analysis.issues)
+    ast.parse(code)
 
 
 def test_rewrite_literal_xl_statement_fail_closed():
     """Literal statement ``xl("A1")`` under ``if`` is dynamic — not silently stripped."""
     src = 'if config_param == 3:\n    xl("A1")\n'
-    res = rewrite_excel_code(src, num_deps=0)
-    assert 'xl("A1")' in res.code
-    assert any("dynamic" in i for i in res.issues)
-    assert res.used == []
+    code, analysis = _excel_rewrite(src, num_deps=0)
+    assert 'xl("A1")' in code
+    assert any("dynamic" in i for i in analysis.issues)
 
 
 def test_rewrite_keeps_xl_statement_with_siblings():
     src = "if True:\n    xl(%P2%)\n    x = 1\n"
-    res = rewrite_excel_code(src, num_deps=1)
-    assert 'xl("%P2%")' in res.code
-    assert "x = 1" in res.code
-    assert res.used == ["0"]
-    ast.parse(res.code)
+    code, _ = _excel_rewrite(src, num_deps=1)
+    assert 'xl("%P2%")' in code
+    assert "x = 1" in code
+    ast.parse(code)
 
 
 def test_rewrite_top_level_xl_still_egress_binding():
     """Sole / last top-level ``xl(%P2%)`` remains Jupyter last-expression → ``xl("%P2%")``."""
-    res = rewrite_excel_code("xl(%P2%)", num_deps=1)
-    assert res.code.strip() == 'xl("%P2%")'
-    assert res.used == ["0"]
-    assert not any("dynamic" in i for i in res.issues)
+    code, analysis = _excel_rewrite("xl(%P2%)", num_deps=1)
+    assert code.strip() == 'xl("%P2%")'
+    assert not any("dynamic" in i for i in analysis.issues)
+
 
 def test_rewrite_multiline_xl_statement_quoted():
     src = "if True:\n    xl(\n        %P2%,\n        headers=True,\n    )\n"
-    res = rewrite_excel_code(src, num_deps=1)
-    assert 'xl("%P2%",headers=True)' in res.code
-    assert "pass" not in res.code
-    assert res.used == ["0"]
-    ast.parse(res.code)
+    code, _ = _excel_rewrite(src, num_deps=1)
+    assert 'xl("%P2%",headers=True)' in code
+    assert "pass" not in code
+    ast.parse(code)
 
 
 def test_convert_xl_statement_cell_keeps_binding():
@@ -374,10 +374,9 @@ def test_convert_literal_xl_statement_fail_closed():
 
 def test_rewrite_syntax_error_with_placeholder_fail_closed():
     """Malformed scripts fail closed even when they contain ``%Pn%`` (no regex guess)."""
-    res = rewrite_excel_code("df = xl(%P2%, headers=True\n", num_deps=1)
-    assert any("syntax error" in i for i in res.issues)
-    assert "xl(%P2%" in res.code  # unchanged
-    assert res.used == []
+    code, analysis = _excel_rewrite("df = xl(%P2%, headers=True\n", num_deps=1)
+    assert any("syntax error" in i for i in analysis.issues)
+    assert "xl(%P2%" in code  # unchanged
 
 
 def test_convert_syntax_error_fail_closed():
@@ -555,9 +554,9 @@ def test_roundtrip_dag_excel_headers():
     assert "xl(%P2%,headers=True)" in excel_code
     assert deps == ["A3:F23"]
     assert not issues
-    again = rewrite_excel_code(excel_code, num_deps=1)
-    assert 'xl("%P2%",headers=True)' in again.code
-    assert again.header_modes[0] == "true"
+    again_code, again_analysis = _excel_rewrite(excel_code, num_deps=1)
+    assert 'xl("%P2%",headers=True)' in again_code
+    assert again_analysis.header_modes[0] == "true"
 
 
 def test_roundtrip_multi_dep_data_and_ranges():
@@ -574,10 +573,9 @@ def test_roundtrip_multi_dep_data_and_ranges():
     assert "xl(%P4%,headers=True)" in excel_code
     assert "ranges[" not in excel_code
     assert not any("ambiguous" in i for i in issues)
-    again = rewrite_excel_code(excel_code, num_deps=3)
-    assert 'xl("%P2%")' in again.code and 'xl("%P3%")' in again.code and 'xl("%P4%",headers=True)' in again.code
-    assert again.used == ["0", "1", "2"]
-    assert again.header_modes[2] == "true"
+    again_code, again_analysis = _excel_rewrite(excel_code, num_deps=3)
+    assert 'xl("%P2%")' in again_code and 'xl("%P3%")' in again_code and 'xl("%P4%",headers=True)' in again_code
+    assert again_analysis.header_modes[2] == "true"
 
 
 def test_export_passthrough_quoted_xl_bindings():
@@ -1960,28 +1958,28 @@ def test_ast_source_offset_with_form_feed_and_u2028():
     """Bug 5: ast_source_offset must split lines only on \\r\\n, \\r, \\n, not \\x0c or \\u2028."""
     # Test 1: \x0c inside string literal
     src_ff = 's = "hello\x0cworld"\ny = xl(%P2%)\n'
-    res_ff = rewrite_excel_code(src_ff, num_deps=1)
-    assert not res_ff.fatal
-    assert 'y = xl("%P2%")' in res_ff.code
-    assert 's = "hello\x0cworld"' in res_ff.code
+    code_ff, analysis_ff = _excel_rewrite(src_ff, num_deps=1)
+    assert not analysis_ff.fatal
+    assert 'y = xl("%P2%")' in code_ff
+    assert 's = "hello\x0cworld"' in code_ff
 
     # Test 2: \u2028 inside string literal
     src_u2028 = 's = "hello\u2028world"\ny = xl(%P2%)\n'
-    res_u2028 = rewrite_excel_code(src_u2028, num_deps=1)
-    assert not res_u2028.fatal
-    assert 'y = xl("%P2%")' in res_u2028.code
-    assert 's = "hello\u2028world"' in res_u2028.code
+    code_u2028, analysis_u2028 = _excel_rewrite(src_u2028, num_deps=1)
+    assert not analysis_u2028.fatal
+    assert 'y = xl("%P2%")' in code_u2028
+    assert 's = "hello\u2028world"' in code_u2028
 
     # Test 3: \x0c and \u2028 inside comments
     src_comm_ff = '# note \x0c here\ny = xl(%P2%)\n'
-    res_comm_ff = rewrite_excel_code(src_comm_ff, num_deps=1)
-    assert not res_comm_ff.fatal
-    assert 'y = xl("%P2%")' in res_comm_ff.code
+    code_comm_ff, analysis_comm_ff = _excel_rewrite(src_comm_ff, num_deps=1)
+    assert not analysis_comm_ff.fatal
+    assert 'y = xl("%P2%")' in code_comm_ff
 
     src_comm_u2028 = '# note \u2028 here\ny = xl(%P2%)\n'
-    res_comm_u2028 = rewrite_excel_code(src_comm_u2028, num_deps=1)
-    assert not res_comm_u2028.fatal
-    assert 'y = xl("%P2%")' in res_comm_u2028.code
+    code_comm_u2028, analysis_comm_u2028 = _excel_rewrite(src_comm_u2028, num_deps=1)
+    assert not analysis_comm_u2028.fatal
+    assert 'y = xl("%P2%")' in code_comm_u2028
 
 
 def test_convert_cell_best_effort_message_accurately_reports_skip():
@@ -2114,9 +2112,9 @@ def test_skip_string_escaped_quote_in_triple_quotes():
     src = '"""a\\"b"""'
     assert _skip_string(src, 0) == len(src)
     code = 's = """a\\"b"""\nx = xl(%P2%)\n'
-    res = rewrite_excel_code(code, num_deps=1)
-    assert not res.fatal
-    assert 'x = xl("%P2%")' in res.code
+    rewritten, analysis = _excel_rewrite(code, num_deps=1)
+    assert not analysis.fatal
+    assert 'x = xl("%P2%")' in rewritten
 
 
 def test_shift_xlws_py_dep_variants():

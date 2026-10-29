@@ -25,7 +25,6 @@ from plugin.calc.excel_py_convert.to_dag import (
     _xl_binding_expr,
     convert_cell_to_dag,
     convert_model_to_dag,
-    rewrite_excel_code,
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_PLACEHOLDER_INDEX, DEAL_MAX_SOURCE, DEAL_MAX_XL_EXPR
@@ -102,10 +101,6 @@ def test_dag_wrapper_overflow_pre_fails_closed() -> None:
     with pytest.raises(deal.PreContractError):
         _find_xl_calls(too_long)
     with pytest.raises(deal.PreContractError):
-        rewrite_excel_code(too_long, num_deps=0)
-    with pytest.raises(deal.PreContractError):
-        rewrite_excel_code("x", num_deps=DEAL_MAX_CMD_ARGS + 1)
-    with pytest.raises(deal.PreContractError):
         _skip_string("ab", -1)
     with pytest.raises(deal.PreContractError):
         _skip_string("ab", 2)
@@ -138,23 +133,17 @@ def test_find_xl_calls_accepts_tab_then_quote() -> None:
 
 
 def test_deal_convert_scripts_ok_matches_excel_src_ok() -> None:
-    """Wrapper scripts pre must share rewrite_excel_code's _deal_excel_src_ok.
+    """Wrapper scripts pre must share _find_xl_calls' _deal_excel_src_ok.
 
-    Pytest keeps str_bounded (NUL allowed); CrossHair alphabet rejects NUL
-    on convert_model_to_dag(scripts=['\\x00']).
+    Pytest keeps str_bounded (NUL allowed).
     """
-    assert _deal_excel_src_ok("\x00")  # pytest: str_bounded; CrossHair pre rejects
+    assert _deal_excel_src_ok("\x00")
     assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["\x00"], cells=[]))
     assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["x"], cells=[]))
 
 
 def test_deal_convert_cell_ok_dep_alphabet_pytest() -> None:
-    """Pytest deps stay ascii_bounded so ``_xlfn.ANCHORARRAY`` / ``Table[#All]`` work.
-
-    CrossHair rejects len-1 junk and non-A1 tokens (avoiding relib
-    PatternError on ``_`` and nested note PreconditionFailed on ``M``).
-    Different from #599: NUL *scripts* vs ``_deal_excel_src_ok``.
-    """
+    """Pytest deps stay ascii_bounded so ``_xlfn.ANCHORARRAY`` / ``Table[#All]`` work."""
     def cell(deps: list[str]) -> ExcelPyCell:
         return ExcelPyCell(sheet="S", cell="A1", script_index=0, return_type=0, deps=deps)
 
@@ -207,9 +196,7 @@ def test_convert_model_to_dag_single_letter_dep_no_nested_note_pre_fail() -> Non
     """Single letter non-A1 dep does not fail nested precondition in _normalize_bindings.
 
     ``resolve_dep('M')`` is unresolved with note ``unrecognized dep 'M'`` (len >1).
-    Under CrossHair ``_normalize_bindings`` requires ``_DEAL_NOTE_LEN=1``, so the
-    outer convert pre must reject len-1 non-A1 deps. Pytest still allows ``M``;
-    convert must not raise ``PreconditionFailed``.
+    Pytest allows ``M``; convert must not raise ``PreconditionFailed``.
     """
     model = ExcelWorkbookModel(
         scripts=[""],
