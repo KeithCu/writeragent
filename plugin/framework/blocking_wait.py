@@ -30,7 +30,6 @@ import gc
 import logging
 import queue
 import threading
-from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
 from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
@@ -41,12 +40,6 @@ log = logging.getLogger(__name__)
 _gc_suspend_lock = threading.Lock()
 _gc_suspend_depth = 0
 _gc_suspend_was_enabled = False
-
-
-@dataclass(slots=True)
-class _WorkerResult:
-    value: Any = None
-    error: BaseException | None = None
 
 
 @contextlib.contextmanager
@@ -107,14 +100,14 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     to a synchronous call, which blocked recalc with no worker isolation.
     """
     # crosshair: off
-    q: queue.Queue[_WorkerResult] = queue.Queue()
+    q: queue.Queue[tuple[Any, BaseException | None]] = queue.Queue()
 
     def worker() -> None:
         try:
             result = func(*args, **kwargs)
-            q.put(_WorkerResult(value=result))
+            q.put((result, None))
         except BaseException as e:
-            q.put(_WorkerResult(error=e))
+            q.put((None, e))
 
     toolkit = None
     if pump_idle:
@@ -137,7 +130,7 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
         return _wait_for_worker(q, pump)
 
 
-def _wait_for_worker(q: queue.Queue[_WorkerResult], pump: Callable[[], Any]) -> Any:
+def _wait_for_worker(q: queue.Queue[tuple[Any, BaseException | None]], pump: Callable[[], Any]) -> Any:
     # crosshair: off
 
     # Do not take drain_owner_scope here: this helper may run under an active stream
@@ -152,11 +145,11 @@ def _wait_for_worker(q: queue.Queue[_WorkerResult], pump: Callable[[], Any]) -> 
         # must propagate: catching it here and calling get again with
         # timeout=None blocks forever, because that worker has already exited.
         try:
-            result = q.get(timeout=0.1)
+            value, error = q.get(timeout=0.1)
         except queue.Empty:
             pump()
             continue
-        if result.error is not None:
-            raise result.error
-        return result.value
+        if error is not None:
+            raise error
+        return value
 
