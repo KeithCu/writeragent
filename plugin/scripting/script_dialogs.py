@@ -22,6 +22,7 @@ from plugin.chatbot.dialogs import (
 )
 from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import BaseActionListener
+from plugin.scripting.editor_ui_strings import _attach_unavailable_label
 
 log = logging.getLogger(__name__)
 
@@ -74,11 +75,7 @@ def show_new_script_dialog(
             if chk is not None:
                 initial_attach = default_attach and can_attach
                 if not can_attach:
-                    reason = (
-                        _("Attach to this document (no document is open)")
-                        if doc is None
-                        else _("Attach to this document (this document is read-only)")
-                    )
+                    reason = _attach_unavailable_label(no_document=doc is None)
                     set_control_text(chk, reason)
                     chk.getModel().HelpText = reason
                 set_checkbox_state(chk, 1 if initial_attach else 0)
@@ -105,9 +102,7 @@ def show_new_script_dialog(
                     if message is not None:
                         peer = None
                         try:
-                            get_peer = getattr(dlg, "getPeer", None)
-                            if callable(get_peer):
-                                peer = get_peer()
+                            peer = dlg.getPeer()
                         except Exception:
                             log.debug(
                                 "show_new_script_dialog: dialog peer unavailable",
@@ -125,8 +120,6 @@ def show_new_script_dialog(
 
             class _CancelListener(BaseActionListener):
                 def on_action_performed(self, rEvent: Any) -> None:
-                    nonlocal outcome
-                    outcome = None
                     dlg.endDialog(0)
 
             btn_ok = dlg.getControl("BtnOK")

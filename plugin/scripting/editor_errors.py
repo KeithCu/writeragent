@@ -18,30 +18,16 @@ from plugin.framework.deal_shim import (
 )
 
 
-def _deal_text_ok_pytest(value: object) -> bool:
-    return isinstance(value, str)
+_deal_text_ok = _profile(
+    lambda value: str_bounded(value, DEAL_MAX_SOURCE),
+    lambda value: isinstance(value, str),
+)
 
 
-def _deal_text_ok_crosshair(value: object) -> bool:
-    return str_bounded(value, DEAL_MAX_SOURCE)
-
-
-_deal_text_ok = _profile(_deal_text_ok_crosshair, _deal_text_ok_pytest)
-
-
-def _deal_optional_exc_ok_pytest(exc: object) -> bool:
-    return exc is None or isinstance(exc, BaseException)
-
-
-def _deal_optional_exc_ok_crosshair(exc: object) -> bool:
-    return exc is None
-
-
-_deal_optional_exc_ok = _profile(_deal_optional_exc_ok_crosshair, _deal_optional_exc_ok_pytest)
-
-
-def _deal_failure_ok(detail: object = None, exc: object = None) -> bool:
-    return (detail is None or _deal_text_ok(detail)) and _deal_optional_exc_ok(exc)
+_deal_optional_exc_ok = _profile(
+    lambda exc: exc is None,
+    lambda exc: exc is None or isinstance(exc, BaseException),
+)
 
 
 @deal.pre(lambda exc: isinstance(exc, BaseException))
@@ -57,7 +43,7 @@ def exception_traceback(exc: BaseException) -> str:
     return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
 
-@deal.pre(lambda detail=None, exc=None: _deal_failure_ok(detail, exc))
+@deal.pre(lambda detail=None, exc=None: (detail is None or _deal_text_ok(detail)) and _deal_optional_exc_ok(exc))
 @deal.post(lambda result: isinstance(result, str))
 def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Combine subprocess stderr, probe output, and/or an exception traceback."""
@@ -71,7 +57,7 @@ def failure_detail(*, detail: str | None = None, exc: BaseException | None = Non
     return "\n\n".join(chunks)
 
 
-@deal.pre(lambda summary, detail=None, exc=None: _deal_text_ok(summary) and _deal_failure_ok(detail, exc))
+@deal.pre(lambda summary, detail=None, exc=None: _deal_text_ok(summary) and (detail is None or _deal_text_ok(detail)) and _deal_optional_exc_ok(exc))
 @deal.post(lambda result: isinstance(result, str))
 def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Build a msgbox body: *summary* plus optional detail/traceback blocks."""
@@ -103,22 +89,11 @@ def editor_error_markers(message: str, traceback_text: str = "", code: str = "")
             if sandbox_matches:
                 line = int(sandbox_matches[-1].group(1))
 
-    if line is None or line < 1:
+    if line is None or line < 1 or (code and line > code.count("\n") + 1):
         return []
 
-    if code:
-        total_lines = code.count("\n") + 1
-        if line > total_lines:
-            return []
-
     target_text = message if message.strip() else traceback_text
-    first_line = ""
-    for raw_line in target_text.splitlines():
-        stripped = raw_line.strip()
-        if stripped:
-            first_line = stripped
-            break
+    first_line = next((raw.strip() for raw in target_text.splitlines() if raw.strip()), "")
     first_line = re.sub(r"\s*\(took\s+[^)]*\)$", "", first_line).strip()
-
     return [{"line": line, "message": first_line, "severity": "error"}]
 
