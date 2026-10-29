@@ -90,9 +90,12 @@ class ListCellComments(ToolCalcCommentBase):
         doc = ctx.doc
         sheet = resolve_sheet(doc, kwargs.get("sheet"))
         annotations = sheet.getAnnotations()
-        raw_comments = []
-        for i in range(annotations.getCount()):
-            ann = annotations.getByIndex(i)
+        ordered = sorted(
+            (annotations.getByIndex(i) for i in range(annotations.getCount())),
+            key=lambda ann: (ann.getPosition().Row, ann.getPosition().Column),
+        )
+        comments = []
+        for ann in ordered:
             pos = ann.getPosition()
             # Read text/date through the cell's own CellAnnotation (as the
             # write path does), not the XSheetAnnotations collection item,
@@ -100,23 +103,17 @@ class ListCellComments(ToolCalcCommentBase):
             # Fall back to getAnnotationShape() for lazy .xlsx captions.
             cell_ann, text = _annotation_text(sheet, pos.Column, pos.Row)
             date_str = _annotation_date(cell_ann.getDate())
-            raw_comments.append(
-                (
-                    pos.Row,
-                    pos.Column,
-                    {
-                        "cell": format_address(pos.Column, pos.Row),
-                        "author": ann.getAuthor(),
-                        # .xlsx has no date field on a comment element, so an
-                        # empty date there is the format, not a failure.
-                        "date": date_str,
-                        "text": text,
-                        "is_visible": ann.getIsVisible(),
-                    },
-                )
+            comments.append(
+                {
+                    "cell": format_address(pos.Column, pos.Row),
+                    "author": ann.getAuthor(),
+                    # .xlsx has no date field on a comment element, so an
+                    # empty date there is the format, not a failure.
+                    "date": date_str,
+                    "text": text,
+                    "is_visible": ann.getIsVisible(),
+                }
             )
-        raw_comments.sort(key=lambda item: (item[0], item[1]))
-        comments = [item[2] for item in raw_comments]
         return {"status": "ok", "comments": comments, "count": len(comments), "sheet": sheet.getName()}
 
 
@@ -151,8 +148,6 @@ class AddCellComment(ToolCalcCommentBase):
             cell_ann.setString(text)
         else:
             sheet.getAnnotations().insertNew(cell.getCellAddress(), text)
-
-        return {"status": "ok", "cell": cell_ref, "text": text, "sheet": sheet.getName()}
 
         return {"status": "ok", "cell": cell_ref, "text": text, "sheet": sheet.getName()}
 

@@ -58,11 +58,6 @@ _NAME_TO_CODE: dict[str, int] = {name: code for name, code in _OPERATORS}
 _SCHEMA_OPERATORS: list[str] = [name for name, _ in _OPERATORS if name != "NONE"]
 
 
-def condition_operator_code_to_name(code: int) -> str:
-    """Map UNO condition operator *code* (long) to a stable string label."""
-    return _CODE_TO_NAME.get(code, str(int(code)))
-
-
 def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
     """Convert a conditional entry to a readable dict."""
     result: dict[str, Any] = {"index": idx}
@@ -71,7 +66,7 @@ def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
     xc2 = _query_interface(entry, "com.sun.star.sheet.XSheetCondition2")
     if xc2 is not None:
         op_code = int(xc2.getConditionOperator())
-        op_name = condition_operator_code_to_name(op_code)
+        op_name = _CODE_TO_NAME.get(op_code, str(op_code))
     if op_name is None:
         op = entry.getOperator()
         op_name = str(op.value) if hasattr(op, "value") else str(op)
@@ -136,13 +131,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
                 resolved_range_name = format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
 
             formats = cell_range.getPropertyValue("ConditionalFormat")
-            if formats is None or formats.getCount() == 0:
-                rules: list[dict[str, Any]] = []
-            else:
-                rules = []
-                for i in range(formats.getCount()):
-                    entry = formats.getByIndex(i)
-                    rules.append(_entry_to_dict(entry, i))
+            rules = [_entry_to_dict(formats.getByIndex(i), i) for i in range(formats.getCount())] if formats is not None else []
 
             return {"status": "ok", "range": resolved_range_name, "rules": rules, "count": len(rules)}
         except IllegalArgumentException as e:
