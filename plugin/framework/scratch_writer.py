@@ -21,13 +21,6 @@ from plugin.framework.uno_context import create_property_value, get_desktop
 log = logging.getLogger("writeragent.scratch_writer")
 
 
-def _guard_returned_uno(obj: Any) -> Any:
-    """Wrap a UNO boundary return. Imports ``guard_uno`` at call time for test patching."""
-    from plugin.framework.thread_guard import guard_uno
-
-    return guard_uno(obj)
-
-
 def _close_scratch_doc(doc: Any) -> None:
     """Close a hidden scratch document we are about to abandon, so it does not leak."""
     try:
@@ -70,7 +63,6 @@ def clear_writer_body(doc: Any) -> bool:
         page = doc.getDrawPage()
         # Bounded, never `while getCount()`: if a remove silently fails the count never
         # drops, and an unbounded loop here would freeze the main thread.
-        # The cap is the count at entry, not a live getCount() check.
         removal_budget = int(page.getCount())
         for i in range(removal_budget - 1, -1, -1):
             try:
@@ -95,19 +87,16 @@ def clear_writer_body(doc: Any) -> bool:
     if removed:
         log.debug("clear_writer_body: dropped default-template content from a scratch Writer")
 
-    for check in (
-        lambda: doc.getTextTables().getCount() == 0,
-        lambda: doc.getTextFrames().getCount() == 0,
-        lambda: doc.getDrawPage().getCount() == 0,
-        lambda: not (doc.getText().getString() or "").strip(),
-    ):
-        try:
-            if not check():
-                return False
-        except Exception as e:
-            reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
-            return False
-    return True
+    try:
+        return (
+            doc.getTextTables().getCount() == 0
+            and doc.getTextFrames().getCount() == 0
+            and doc.getDrawPage().getCount() == 0
+            and not (doc.getText().getString() or "").strip()
+        )
+    except Exception as e:
+        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
+        return False
 
 
 def new_blank_writer(ctx: Any = None, *, target: str = "_blank") -> Any:
@@ -137,5 +126,7 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank") -> Any:
         _close_scratch_doc(doc)
         return None
     # Other document lookups wrap the model so a later off-thread use is
-    # caught by the dev thread guard. This factory used to return it raw.
-    return _guard_returned_uno(doc)
+    # caught by the dev thread guard.
+    from plugin.framework.thread_guard import guard_uno
+
+    return guard_uno(doc)
