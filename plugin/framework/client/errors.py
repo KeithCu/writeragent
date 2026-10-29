@@ -18,7 +18,7 @@ from typing import Any
 import urllib.parse
 
 from plugin.framework.i18n import _
-from plugin.framework.errors import NetworkError, http_status_message
+from plugin.framework.errors import NetworkError, http_status_message, safe_json_loads
 from plugin.framework.client.http_security import redact_secrets
 
 log = logging.getLogger(__name__)
@@ -85,32 +85,21 @@ def _format_http_error_response(status: int, reason: str, err_body: str, context
     """
     if status == 500 and err_body and is_local_model_server_crash(err_body):
         return local_model_overflow_message(context_window)
-    # Chat uses http.client, so format_error_message's urllib HTTPError
-    # 401/403/404 sentences never run. An empty body uses those sentences;
-    # a present body still appends the provider detail.
-    if not err_body or not err_body.strip():
-        mapped = http_status_message(status)
-        if mapped is not None:
-            return mapped
-        return _("HTTP Error {0} from AI Provider: {1}").format(status, reason)
-    base = http_status_message(status) if status == 429 else None
-    if base is None:
-        base = _("HTTP Error {0} from AI Provider: {1}").format(status, reason)
-    from plugin.framework.errors import safe_json_loads
-
+    body = err_body.strip() if err_body else ""
+    mapped = http_status_message(status) if (status == 429 or not body) else None
+    base = mapped if mapped is not None else _("HTTP Error {0} from AI Provider: {1}").format(status, reason)
+    if not body:
+        return base
     data = safe_json_loads(err_body)
-    if data is not None and isinstance(data, dict):
+    if isinstance(data, dict):
         err = data.get("error")
         if isinstance(err, dict):
             detail = err.get("message") or err.get("msg") or err.get("error") or ""
         else:
             detail = str(err) if err else ""
         if detail:
-            # Together and some providers return error.message as a dict, not a string.
-            if not isinstance(detail, str):
-                detail = str(detail)
-            return base + ". " + detail
-    snippet = err_body.strip().replace("\n", " ")[:400]
+            return base + ". " + str(detail)
+    snippet = body.replace("\n", " ")[:400]
     return base + ".\nProvider Response:\n" + snippet
 
 
@@ -157,19 +146,11 @@ def is_audio_unsupported_error(e: Any) -> bool:
 
 
 def _error_http_status(err: Any) -> int | None:
-    details: Any = None
     if isinstance(err, dict):
         details = err.get("details")
     else:
         details = getattr(err, "details", None)
-    status: Any = None
-    if isinstance(details, dict):
-        status = details.get("status")
-    elif details is not None:
-        try:
-            status = details["status"]
-        except Exception:
-            status = getattr(details, "status", None)
+    status = details.get("status") if isinstance(details, dict) else None
     if isinstance(status, int) and not isinstance(status, bool):
         return status
     return None
