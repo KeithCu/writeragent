@@ -53,7 +53,7 @@ class _DownloadVecPackListener(BaseActionListener):
             # that nested loop already dispatches AsyncCallback for the
             # progress lines, so the bind does not wait on a thread blocked
             # outside the message loop.
-            ok = run_vec_pack_download(on_display, on_status, bind_host=False)
+            ok = run_vec_pack_download(on_display, on_status)
             if ok:
                 execute_on_main_thread(bind_downloaded_vec_on_main)
             return ok, ""

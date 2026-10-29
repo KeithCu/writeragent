@@ -142,7 +142,7 @@ def test_download_vec_pack_listener_runs_vec_only_download() -> None:
 
     def fake_download(_on_display, _on_status, **kwargs):
         order.append("download")
-        assert kwargs.get("bind_host") is False
+        assert kwargs == {}
         return True
 
     def fake_execute(fn, *args, **kwargs):
@@ -185,7 +185,7 @@ def test_download_vec_pack_listener_skips_bind_when_download_fails() -> None:
 
     def fake_download(_on_display, _on_status, **kwargs):
         order.append("download")
-        assert kwargs.get("bind_host") is False
+        assert kwargs == {}
         return False
 
     listener = _DownloadVecPackListener(MagicMock(), MagicMock())

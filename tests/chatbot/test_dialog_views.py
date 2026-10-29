@@ -796,9 +796,8 @@ def test_download_audio_listener_appends_and_keeps_title() -> None:
 
     order: list[str] = []
 
-    def fake_download(_on_display, _on_status, *, bind_host=True):
+    def fake_download(_on_display, _on_status):
         order.append("download")
-        assert bind_host is False
         return True
 
     def fake_hop(fn):
@@ -843,8 +842,7 @@ def test_download_audio_listener_skips_bind_when_download_returns_false() -> Non
 
     from plugin.chatbot.dialog_views import DownloadAudioListener
 
-    def fake_download(_on_display, _on_status, *, bind_host=True):
-        assert bind_host is False
+    def fake_download(_on_display, _on_status):
         return False
 
     def boom(*args, **kwargs):
