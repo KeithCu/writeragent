@@ -27,40 +27,37 @@ from plugin.scripting.venv.trusted_dispatch import (
 log = logging.getLogger(__name__)
 
 _INDICATOR_NAMES = ("macd", "rsi", "bbands")
-_SUPPORTED_INDICATORS = frozenset(_INDICATOR_NAMES)
-_DEFAULT_INDICATORS = list(_INDICATOR_NAMES)
 _DATE_COLUMN_NAMES = frozenset({"date", "datetime", "timestamp"})
-
-
-def _ticker_tokens(token: str) -> list[str]:
-    """Split one cell on commas. ``AAPL, MSFT`` is two symbols; ``BRK.B`` is one."""
-    return [part.strip() for part in token.split(",") if part.strip()]
 
 
 def _flatten_tickers(raw_tickers: Any) -> list[str]:
     """Normalize raw ticker inputs into a clean list of non-empty strings."""
     if isinstance(raw_tickers, str):
-        return _ticker_tokens(raw_tickers)
+        return [part.strip() for part in raw_tickers.split(",") if part.strip()]
+
+    skip_scalar = False
+    rows: list[Any] | tuple[Any, ...]
     if hasattr(raw_tickers, "values") and isinstance(raw_tickers.values, list):
-        return [
-            piece
-            for row in raw_tickers.values
-            if isinstance(row, (list, tuple))
-            for cell in row
-            if not _is_missing_value(cell)
-            for piece in _ticker_tokens(str(cell))
-        ]
-    if isinstance(raw_tickers, (list, tuple)):
-        clean_list: list[str] = []
-        for item in raw_tickers:
-            if isinstance(item, (list, tuple)):
-                for sub in item:
-                    if not _is_missing_value(sub):
-                        clean_list.extend(_ticker_tokens(str(sub)))
-            elif not _is_missing_value(item):
-                clean_list.extend(_ticker_tokens(str(item)))
-        return clean_list
-    return []
+        rows = raw_tickers.values
+        skip_scalar = True
+    elif isinstance(raw_tickers, (list, tuple)):
+        rows = raw_tickers
+    else:
+        return []
+
+    clean: list[str] = []
+    for row in rows:
+        if isinstance(row, (list, tuple)):
+            cells = row
+        elif skip_scalar:
+            continue
+        else:
+            cells = (row,)
+        for cell in cells:
+            if _is_missing_value(cell):
+                continue
+            clean.extend(part.strip() for part in str(cell).split(",") if part.strip())
+    return clean
 
 
 def _date_column(df: Any) -> Any:
@@ -113,8 +110,7 @@ def _stringify_datetimes(df: Any) -> None:
     Why this change: every datetime64 and datetimetz column becomes text,
     including an unnamed yfinance index that ``reset_index`` calls ``index``.
     """
-    cols = list(df.select_dtypes(include=["datetime64", "datetimetz"]).columns)
-    for col in cols:
+    for col in df.select_dtypes(include=["datetime64", "datetimetz"]).columns:
         df[col] = df[col].astype(str)
 
 
@@ -128,7 +124,7 @@ def _column_label(col: Any) -> str:
     """
     if isinstance(col, tuple):
         parts = [str(part).strip() for part in col if str(part).strip()]
-        return " / ".join(parts) if parts else ""
+        return " / ".join(parts)
     return str(col)
 
 
@@ -167,7 +163,7 @@ def _returns_frame_from_df(df: Any) -> tuple[Any, Any]:
     return numeric_df, dates
 
 
-def fetch_historical_data(params: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
     try:
         import yfinance as yf  # type: ignore
     except ImportError:
@@ -230,7 +226,6 @@ def fetch_historical_data(params: dict[str, Any], context: dict[str, Any]) -> di
 def technical_analysis(
     params: dict[str, Any],
     data: Any,
-    context: dict[str, Any],
     *,
     headers: bool = True,
     header_row: int = 0,
@@ -241,12 +236,12 @@ def technical_analysis(
     except ImportError:
         return _missing_package_error("technical_analysis", "pandas-ta")
 
-    raw_indicators = params.get("indicators", _DEFAULT_INDICATORS)
+    raw_indicators = params.get("indicators", _INDICATOR_NAMES)
     # A string is one indicator name, not a sequence of characters.
     # An unknown name is INVALID_PARAMS. An int used to be replaced with
     # the default list and return ok.
     if raw_indicators is None:
-        indicators = list(_DEFAULT_INDICATORS)
+        indicators = list(_INDICATOR_NAMES)
     elif isinstance(raw_indicators, str):
         indicators = [raw_indicators]
     elif isinstance(raw_indicators, (list, tuple)):
@@ -258,7 +253,7 @@ def technical_analysis(
             helper="technical_analysis",
         )
 
-    unknown = [str(ind) for ind in indicators if str(ind).strip().lower() not in _SUPPORTED_INDICATORS]
+    unknown = [str(ind) for ind in indicators if str(ind).strip().lower() not in _INDICATOR_NAMES]
     if unknown:
         return _error_result(
             "INVALID_PARAMS",
@@ -273,25 +268,20 @@ def technical_analysis(
 
         # headers=False leaves integer column labels. str() before lower().
         close_col = next((c for c in df.columns if str(c).strip().lower() == "close"), None)
-        if close_col:
-            import pandas as pd
-
-            df[close_col] = pd.to_numeric(df[close_col], errors="coerce")
-            df = _order_by_date(df)
-            for ind in indicators:
-                ind_lower = str(ind).strip().lower()
-                if ind_lower == "macd":
-                    df.ta.macd(close=close_col, append=True)
-                elif ind_lower == "rsi":
-                    df.ta.rsi(close=close_col, append=True)
-                elif ind_lower == "bbands":
-                    df.ta.bbands(close=close_col, append=True)
-        else:
+        if not close_col:
             return _error_result(
                 "MISSING_COLUMN",
                 "Could not find 'Close' column for technical analysis.",
                 helper="technical_analysis",
             )
+
+        import pandas as pd
+
+        df[close_col] = pd.to_numeric(df[close_col], errors="coerce")
+        df = _order_by_date(df)
+        for ind in indicators:
+            ind_lower = str(ind).strip().lower()
+            getattr(df.ta, ind_lower)(close=close_col, append=True)
 
         _stringify_datetimes(df)
 
@@ -310,7 +300,6 @@ def technical_analysis(
 def portfolio_tearsheet(
     params: dict[str, Any],
     data: Any,
-    context: dict[str, Any],
     *,
     headers: bool = True,
     header_row: int = 0,
@@ -330,7 +319,7 @@ def portfolio_tearsheet(
             return _error_result("INVALID_DATA", "Input data is empty.", helper="portfolio_tearsheet")
 
         numeric_df, dates = _returns_frame_from_df(df)
-        if numeric_df.empty or numeric_df.shape[1] == 0:
+        if numeric_df.empty:
             return _error_result("INVALID_DATA", "No numeric data columns found for portfolio tearsheet.", helper="portfolio_tearsheet")
 
         col_param = params.get("column")
@@ -359,22 +348,18 @@ def portfolio_tearsheet(
         # Drop NaT rows. A synthetic daily index is reported in the warning.
         synthetic_dates = False
         duplicate_dates = False
-        if dates is not None:
-            valid_mask = dates.notna()
-            if valid_mask.any():
-                returns = returns.loc[valid_mask]
-                dates = dates.loc[valid_mask]
-                returns.index = dates
-                # Drawdown follows date order. A newest-first sheet used to
-                # keep that order, so the path was reversed. Duplicate dates
-                # are averaged, same as the forecast time-series prep.
-                returns = returns.sort_index(kind="mergesort")
-                if not returns.index.is_unique:
-                    duplicate_dates = True
-                    returns = returns.groupby(level=0).mean()
-            else:
-                synthetic_dates = True
-                returns.index = pd.date_range("2024-01-01", periods=len(returns), freq="D")
+        valid_mask = None if dates is None else dates.notna()
+        if valid_mask is not None and valid_mask.any():
+            returns = returns.loc[valid_mask]
+            dates = dates.loc[valid_mask]
+            returns.index = dates
+            # Drawdown follows date order. A newest-first sheet used to
+            # keep that order, so the path was reversed. Duplicate dates
+            # are averaged, same as the forecast time-series prep.
+            returns = returns.sort_index(kind="mergesort")
+            if not returns.index.is_unique:
+                duplicate_dates = True
+                returns = returns.groupby(level=0).mean()
         else:
             synthetic_dates = True
             returns.index = pd.date_range("2024-01-01", periods=len(returns), freq="D")
@@ -392,15 +377,16 @@ def portfolio_tearsheet(
         else:
             metrics_dict = metrics.to_dict()
 
-        extra: dict[str, Any] = {}
+        warnings: list[str] = []
         if synthetic_dates:
-            extra["warning"] = "Calculated using synthetic daily calendar starting 2024-01-01 (no valid date column found)."
+            warnings.append(
+                "Calculated using synthetic daily calendar starting 2024-01-01 (no valid date column found)."
+            )
         if duplicate_dates:
-            note = "Averaged duplicate dates."
-            if "warning" in extra:
-                extra["warning"] = f"{extra['warning']} {note}"
-            else:
-                extra["warning"] = note
+            warnings.append("Averaged duplicate dates.")
+        extra: dict[str, Any] = {}
+        if warnings:
+            extra["warning"] = " ".join(warnings)
 
         return _ok_result(
             "portfolio_tearsheet",
@@ -415,7 +401,6 @@ def portfolio_tearsheet(
 def efficient_frontier(
     params: dict[str, Any],
     data: Any,
-    context: dict[str, Any],
     *,
     headers: bool = True,
     header_row: int = 0,
@@ -434,7 +419,7 @@ def efficient_frontier(
 
         # Case-insensitive date column, shared with portfolio_tearsheet
         # (Date, datetime, timestamp, and the same names in other cases).
-        numeric_df, _dates = _returns_frame_from_df(df)
+        numeric_df = _returns_frame_from_df(df)[0]
         # What was wrong: a hole in one asset still came back status ok.
         # How it happened: CovarianceShrinkage.ledoit_wolf does np.nan_to_num
         # (pypfopt/risk_models.py), so NaN becomes 0 and ±inf becomes ~1e308.
@@ -465,35 +450,41 @@ def efficient_frontier(
         raw_rfr = params.get("risk_free_rate", 0.02)
         try:
             rfr = float(raw_rfr)
+            if not math.isfinite(rfr):
+                raise ValueError
         except (TypeError, ValueError):
-            return _error_result("INVALID_PARAMS", "risk_free_rate must be a finite number.", helper="efficient_frontier")
-        if not math.isfinite(rfr):
-            return _error_result("INVALID_PARAMS", "risk_free_rate must be a finite number.", helper="efficient_frontier")
+            return _error_result(
+                "INVALID_PARAMS",
+                "risk_free_rate must be a finite number.",
+                helper="efficient_frontier",
+            )
 
         raw_bounds = params.get("weight_bounds")
-        bounds: tuple[float | None, float | None] | None
-        if raw_bounds is None:
-            bounds = None
-        elif isinstance(raw_bounds, (list, tuple)) and len(raw_bounds) == 2:
-            try:
-                bounds = (
-                    None if raw_bounds[0] is None else float(raw_bounds[0]),
-                    None if raw_bounds[1] is None else float(raw_bounds[1]),
+        bounds: tuple[float | None, float | None] | None = None
+        if raw_bounds is not None:
+            if not (isinstance(raw_bounds, (list, tuple)) and len(raw_bounds) == 2):
+                return _error_result(
+                    "INVALID_PARAMS",
+                    "weight_bounds must be a pair of finite numbers.",
+                    helper="efficient_frontier",
                 )
+            try:
+                lo = None if raw_bounds[0] is None else float(raw_bounds[0])
+                hi = None if raw_bounds[1] is None else float(raw_bounds[1])
+                if any(bound is not None and not math.isfinite(bound) for bound in (lo, hi)):
+                    raise ValueError
+                bounds = (lo, hi)
             except (TypeError, ValueError):
-                return _error_result("INVALID_PARAMS", "weight_bounds must be a pair of finite numbers.", helper="efficient_frontier")
-            if any(bound is not None and not math.isfinite(bound) for bound in bounds):
-                return _error_result("INVALID_PARAMS", "weight_bounds must be a pair of finite numbers.", helper="efficient_frontier")
-        else:
-            return _error_result("INVALID_PARAMS", "weight_bounds must be a pair of finite numbers.", helper="efficient_frontier")
+                return _error_result(
+                    "INVALID_PARAMS",
+                    "weight_bounds must be a pair of finite numbers.",
+                    helper="efficient_frontier",
+                )
 
         mu = mean_historical_return(numeric_df, returns_data=True)
         S = CovarianceShrinkage(numeric_df, returns_data=True).ledoit_wolf()
 
-        if bounds is None:
-            ef = EfficientFrontier(mu, S)
-        else:
-            ef = EfficientFrontier(mu, S, weight_bounds=bounds)
+        ef = EfficientFrontier(mu, S, **({} if bounds is None else {"weight_bounds": bounds}))
 
         ef.max_sharpe(risk_free_rate=rfr)
         cleaned_weights = ef.clean_weights()
@@ -525,13 +516,13 @@ def run_quant(
     # Every data helper needs headers and header_row. Dropping them makes
     # tearsheet and frontier treat a header row as a price.
     if helper == "fetch_historical_data":
-        result = fetch_historical_data(params, ctx)
+        result = fetch_historical_data(params)
     elif helper == "technical_analysis":
-        result = technical_analysis(params, data, ctx, headers=headers, header_row=header_row)
+        result = technical_analysis(params, data, headers=headers, header_row=header_row)
     elif helper == "portfolio_tearsheet":
-        result = portfolio_tearsheet(params, data, ctx, headers=headers, header_row=header_row)
+        result = portfolio_tearsheet(params, data, headers=headers, header_row=header_row)
     elif helper == "efficient_frontier":
-        result = efficient_frontier(params, data, ctx, headers=headers, header_row=header_row)
+        result = efficient_frontier(params, data, headers=headers, header_row=header_row)
     else:
         return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
 
