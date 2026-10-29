@@ -16,9 +16,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
+import datetime as _dt
 from enum import IntFlag
 import os
 from typing import Any
+
+from plugin.framework.deal_shim import deal
 
 APP_REFERER = "https://github.com/KeithCu/writeragent"
 APP_TITLE = "WriterAgent"
@@ -105,20 +108,16 @@ class ModelCapability(IntFlag):
 
 # document_research cross-file index (Settings: embeddings.folder_search_mode none | hybrid).
 
-_FOLDER_SEARCH_MODE_KEY = "embeddings.folder_search_mode"
-
 
 def folder_search_enabled() -> bool:
     """True when cross-file corpus index (FTS + embeddings) is enabled."""
     from plugin.framework.config import get_config
 
-    val = str(get_config(_FOLDER_SEARCH_MODE_KEY) or "none").strip().lower()
+    val = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
     return val in ("hybrid", "llama_index", "zvec", "lancedb")
 
 
 # LlamaIndex cross-encoder rerank (Settings: embeddings.folder_rerank_enabled / folder_rerank_model).
-FOLDER_RERANK_ENABLED_KEY = "embeddings.folder_rerank_enabled"
-FOLDER_RERANK_MODEL_KEY = "embeddings.folder_rerank_model"
 # English-only MS MARCO reranker — fast; pair with multilingual embeddings for non-English retrieve.
 FOLDER_RERANK_MODEL_ENGLISH_SMALL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 # Multilingual cross-encoder — slower, ~2.3 GB; use when folder queries are not English-only.
@@ -131,14 +130,14 @@ def folder_rerank_enabled() -> bool:
     """True when LlamaIndex cross-encoder rerank is enabled in Settings."""
     from plugin.framework.config import get_config_bool
 
-    return get_config_bool(FOLDER_RERANK_ENABLED_KEY)
+    return get_config_bool("embeddings.folder_rerank_enabled")
 
 
 def resolve_folder_rerank_model() -> str:
     """Resolve Settings rerank model id; unknown values fall back to English MiniLM."""
     from plugin.framework.config import get_config
 
-    model = str(get_config(FOLDER_RERANK_MODEL_KEY) or DEFAULT_FOLDER_RERANK_MODEL).strip()
+    model = str(get_config("embeddings.folder_rerank_model") or DEFAULT_FOLDER_RERANK_MODEL).strip()
     if model in FOLDER_RERANK_MODEL_CHOICES:
         return model
     return DEFAULT_FOLDER_RERANK_MODEL
@@ -172,32 +171,9 @@ AUTO_IMPORTS: dict[str, str] = {
 # -------------------------------------------------
 # Timezone utilities (pure Python, cross‑platform)
 # -------------------------------------------------
-import datetime as _dt
-from typing import Optional
-
-
-from plugin.framework.deal_shim import deal
-
-
-@deal.post(lambda result: result is None or isinstance(result, _dt.tzinfo))
-def get_local_timezone() -> Optional[_dt.tzinfo]:
-    """Return the local timezone as a tzinfo object.
-
-    Uses the standard library only: obtains the current UTC time,
-    converts it to the local timezone and extracts the tzinfo.
-    This works on any platform where the system timezone is set.
-    """
-    # Obtain an aware UTC datetime, then convert to local time.
-    return _dt.datetime.now(_dt.timezone.utc).astimezone().tzinfo
 
 
 @deal.post(lambda result: isinstance(result, _dt.datetime) and result.tzinfo is not None)
 def now_aware() -> _dt.datetime:
-    """Return the current local time as a timezone‑aware datetime.
-
-    The returned datetime has ``tzinfo`` set to the local timezone
-    obtained via :func:`get_local_timezone`. This avoids the common
-    pitfall of naive ``datetime.now()`` values that lack timezone
-    information.
-    """
-    return _dt.datetime.now(get_local_timezone())
+    """Return the current local time as a timezone-aware datetime."""
+    return _dt.datetime.now().astimezone()

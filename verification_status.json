@@ -160,7 +160,6 @@
       "priority": "high",
       "tool": "deal+hypothesis",
       "functions_contracted": [
-        "get_local_timezone",
         "now_aware"
       ],
       "ci_integration": true
