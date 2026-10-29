@@ -46,32 +46,20 @@ _CALC_SHEET_REF_RE = re.compile(r"^((?:'[^']*(?:''[^']*)*')|[^'!.]+)\.(\$?[A-Za-
 DagFormulaItem = tuple[str, str, str] | tuple[str, str, str, dict[str, Any]]
 
 
-def _p_token(index: int) -> str:
-    return f"%P{index + 2}%"
-
-
 def _xl_expr(index: int, header_mode: HeaderMode) -> str:
     # Match Microsoft samples: no space after the comma in ``headers=…``.
-    tok = _p_token(index)
-    if header_mode == "true":
-        return f"xl({tok},headers=True)"
-    if header_mode == "false":
-        return f"xl({tok},headers=False)"
-    return f"xl({tok})"
+    suffix = {"true": ",headers=True", "false": ",headers=False"}.get(header_mode, "")
+    return f"xl(%P{index + 2}%{suffix})"
 
 
-def _data_header_modes(bindings: Sequence[BindingInfo], n: int) -> list[HeaderMode]:
+def _data_header_modes(bindings: Sequence[BindingInfo]) -> list[HeaderMode]:
     modes: list[HeaderMode] = []
     if bindings:
         for b in bindings:
             if b.role == "ordering":
                 continue
             modes.append(_as_header_mode(b.header_mode))
-    while len(modes) < n:
-        modes.append("omit")
     return modes
-def _omit_modes(n: int) -> list[HeaderMode]:
-    return ["omit" for _unused in range(max(n, 0))]
 
 
 def _collect_legacy_spans(
@@ -228,7 +216,6 @@ def rewrite_dag_code_to_excel(
     data_args: list[str],
     *,
     header_modes: list[HeaderMode] | None = None,
-    strip_object_suppress: bool = True,
 ) -> tuple[str, list[str], list[str], bool]:
     """Rewrite DAG code to Excel package ``xl(%Pn%)`` / ``xl(%Pn%, headers=…)``.
 
@@ -237,11 +224,11 @@ def rewrite_dag_code_to_excel(
     """
     issues: list[str] = []
     deps = list(data_args)
-    modes: list[HeaderMode] = list(header_modes) if header_modes is not None else _omit_modes(len(deps))
+    modes: list[HeaderMode] = list(header_modes or [])
     while len(modes) < len(deps):
         modes.append("omit")
     text = code or ""
-    if strip_object_suppress and text.endswith(_OBJECT_SUPPRESS):
+    if text.endswith(_OBJECT_SUPPRESS):
         text = text[:-len(_OBJECT_SUPPRESS)]
 
     if not text.strip():
@@ -325,10 +312,10 @@ def xlws_py_formula(script_index: int, return_type: int, data_args: Sequence[str
     return "_xlfn._xlws.PY(" + ",".join(parts) + ")"
 
 
-def assign_script_bank(cells: Sequence[ConvertedCell]) -> tuple[list[str], list[ConvertedCell]]:
+def assign_script_bank(cells: Sequence[ConvertedCell]) -> list[str]:
     """Content-dedup ``converted_code`` → ``scripts`` and set ``script_index`` on each cell.
 
-    Returns ``(scripts, cells)`` — *cells* are the same objects, mutated in place.
+    *cells* are mutated in place.
     """
     scripts: list[str] = []
     index_by_code: dict[str, int] = {}
@@ -343,20 +330,7 @@ def assign_script_bank(cells: Sequence[ConvertedCell]) -> tuple[list[str], list[
             index_by_code[code] = idx
         cell.script_index = idx
         cell.excel_formula = "=" + xlws_py_formula(idx, cell.return_type, deps_for_xlws_export(cell))
-    return scripts, list(cells)
-
-
-def expand_placeholders_to_literals(code: str, deps: list[str]) -> str:
-    """Replace ``%Pk%`` with quoted A1 deps for FORMULATEXT-style output."""
-
-    def repl(m: re.Match[str]) -> str:
-        p_num = int(m.group(1))
-        idx = p_num - 2
-        if 0 <= idx < len(deps):
-            return f'"{deps[idx]}"'
-        return m.group(0)
-
-    return re.sub(r"%P(\d+)%", repl, code)
+    return scripts
 
 
 def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: str = "A1", return_type: int = 0, meta: dict[str, Any] | None = None) -> ConvertedCell:
@@ -388,7 +362,7 @@ def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: s
             if isinstance(b, dict):
                 bindings.append(BindingInfo.from_dict(b))
 
-    modes = _data_header_modes(bindings, len(data_args))
+    modes = _data_header_modes(bindings)
 
     excel_code, deps, issues, fatal = rewrite_dag_code_to_excel(parts.code, data_args, header_modes=modes)
     if ordering_args:
@@ -396,12 +370,7 @@ def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: s
     array_ref = str(meta.get("array_ref") or "")
     excel_deps_meta = [str(a) for a in (meta.get("excel_deps") or []) if a]
     # Keep export tokens aligned with rewritten data_args length.
-    if excel_deps_meta and len(excel_deps_meta) == len(deps):
-        excel_deps_out = excel_deps_meta
-    elif excel_deps_meta and len(excel_deps_meta) == len(data_args) and deps == data_args:
-        excel_deps_out = excel_deps_meta
-    else:
-        excel_deps_out = list(excel_deps_meta) if len(excel_deps_meta) == len(deps) else []
+    excel_deps_out = excel_deps_meta if len(excel_deps_meta) == len(deps) else []
     out = ConvertedCell(
         sheet=sheet,
         cell=cell,
@@ -453,7 +422,7 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
                 ConvertedCell(sheet=cell.sheet, cell=cell.cell, direction="excel", original_code=cell.converted_code or cell.original_code, converted_code="", issues=list(cell.issues) + ["skipped: not converted on DAG pass"], converted=False, return_type=cell.return_type, array_ref=cell.array_ref)
             )
             continue
-        modes = _data_header_modes(cell.bindings, len(cell.data_args))
+        modes = _data_header_modes(cell.bindings)
         excel_code, deps, issues, fatal = rewrite_dag_code_to_excel(cell.converted_code, list(cell.data_args), header_modes=modes)
         if cell.ordering_args:
             issues.append("ignored ordering-only deps on reverse export")

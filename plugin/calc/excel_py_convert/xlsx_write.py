@@ -93,12 +93,8 @@ def _unshare_groups_touching(ws_root: ET.Element, sheet_title: str, write_addrs:
         all_in_write = all(m_a1.replace("$", "").upper() in write_addrs for m_a1, _, _ in members)
         if all_in_write:
             for _m_a1, _m_c, m_f in members:
-                if "si" in m_f.attrib:
-                    del m_f.attrib["si"]
-                if "t" in m_f.attrib:
-                    del m_f.attrib["t"]
-                if "ref" in m_f.attrib:
-                    del m_f.attrib["ref"]
+                for k in ("si", "t", "ref"):
+                    m_f.attrib.pop(k, None)
         else:
             master_info = shared_masters.get(si)
             if master_info is None:
@@ -107,12 +103,8 @@ def _unshare_groups_touching(ws_root: ET.Element, sheet_title: str, write_addrs:
             m_row, m_col = _col_row(master_a1)
             for m_a1, _m_c, m_f in members:
                 if m_a1.replace("$", "").upper() in write_addrs:
-                    if "si" in m_f.attrib:
-                        del m_f.attrib["si"]
-                    if "t" in m_f.attrib:
-                        del m_f.attrib["t"]
-                    if "ref" in m_f.attrib:
-                        del m_f.attrib["ref"]
+                    for k in ("si", "t", "ref"):
+                        m_f.attrib.pop(k, None)
                 else:
                     c_row, c_col = _col_row(m_a1)
                     delta_r = c_row - m_row
@@ -128,12 +120,8 @@ def _unshare_groups_touching(ws_root: ET.Element, sheet_title: str, write_addrs:
                         if "#REF!" in shifted_text and "#REF!" not in master_clean:
                             raise ValueError(f"Cannot unshare formula for {sheet_title}!{m_a1} in si={si}: out-of-bounds shift produced #REF!")
                         m_f.text = shifted_text
-                    if "si" in m_f.attrib:
-                        del m_f.attrib["si"]
-                    if "t" in m_f.attrib:
-                        del m_f.attrib["t"]
-                    if "ref" in m_f.attrib:
-                        del m_f.attrib["ref"]
+                    for k in ("si", "t", "ref"):
+                        m_f.attrib.pop(k, None)
 
 
 def _patch_content_types(
@@ -620,7 +608,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
     out_path = Path(out_path)
     if report.direction != "excel":
         raise ValueError("write_excel_python_xlsx requires report.direction == 'excel'")
-    scripts, _cells = assign_script_bank(report.cells)
+    scripts = assign_script_bank(report.cells)
     if not scripts or not any(c.converted and c.script_index >= 0 for c in report.cells):
         raise ValueError("write_excel_python_xlsx: no converted Excel PY cells to write")
 
