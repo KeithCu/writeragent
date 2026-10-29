@@ -322,6 +322,17 @@ def get_service_manager(ctx: Any) -> Any | None:
     return smgr
 
 
+def _create_service(ctx: Any | None, service_name: str) -> Any:
+    if ctx is None:
+        ctx = get_ctx()
+    if ctx is None:
+        return None
+    smgr = get_service_manager(ctx)
+    if smgr is None:
+        return None
+    return _guard_returned_uno(smgr.createInstanceWithContext(service_name, ctx))
+
+
 @main_thread_only
 def get_desktop(ctx: Any | None = None) -> Any:
     """Return the UNO Desktop instance, or None when creating it would SEGV.
@@ -333,16 +344,7 @@ def get_desktop(ctx: Any | None = None) -> Any:
     if desktop_create_is_unsafe():
         log.debug("get_desktop skipped: no-VCL helper process (issue #768)")
         return None
-    if ctx is None:
-        ctx = get_ctx()
-    if ctx is None:
-        return None
-    ctx_any = cast("Any", ctx)
-    smgr = get_service_manager(ctx_any)
-    if smgr is None:
-        return None
-    desktop = cast("Any", smgr).createInstanceWithContext("com.sun.star.frame.Desktop", ctx_any)
-    return _guard_returned_uno(desktop)
+    return _create_service(ctx, "com.sun.star.frame.Desktop")
 
 
 @main_thread_only
@@ -415,16 +417,7 @@ def get_extension_path(ctx: Any | None = None, extension_id: str | None = None) 
 @main_thread_only
 def get_toolkit(ctx: Any | None = None) -> Any:
     """Return the ``com.sun.star.awt.Toolkit`` service, or None when ctx or ServiceManager is missing."""
-    if ctx is None:
-        ctx = get_ctx()
-    if ctx is None:
-        return None
-    ctx_any = cast("Any", ctx)
-    smgr = get_service_manager(ctx_any)
-    if smgr is None:
-        return None
-    tk = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)
-    return _guard_returned_uno(tk)
+    return _create_service(ctx, "com.sun.star.awt.Toolkit")
 
 
 def _doc_identity_url(url: Any) -> str:

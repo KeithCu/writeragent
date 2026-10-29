@@ -264,26 +264,17 @@ def ensure_plugin_on_path(module_file: str, levels_up: int = 3, also_add_lib: bo
     # framework importable. Do not reorder these inserts.
     if ext_root not in sys.path:
         sys.path.insert(0, ext_root)
-
-    if also_add_plugin_dir:
-        plugin_dir = os.path.join(ext_root, "plugin")
-        if os.path.isdir(plugin_dir) and plugin_dir not in sys.path:
-            sys.path.insert(0, plugin_dir)
-
-    if also_add_lib:
-        lib_dir = os.path.join(ext_root, "plugin", "lib")
-        if os.path.isdir(lib_dir) and lib_dir not in sys.path:
-            sys.path.insert(0, lib_dir)
-
-    if also_add_contrib:
-        contrib_dir = os.path.join(ext_root, "plugin", "contrib")
-        if os.path.isdir(contrib_dir) and contrib_dir not in sys.path:
-            sys.path.insert(0, contrib_dir)
-
-    if also_add_vendor:
-        vendor_dir = os.path.join(ext_root, "vendor")
-        if os.path.isdir(vendor_dir) and vendor_dir not in sys.path:
-            sys.path.insert(0, vendor_dir)
+    for enabled, parts in (
+        (also_add_plugin_dir, ("plugin",)),
+        (also_add_lib, ("plugin", "lib")),
+        (also_add_contrib, ("plugin", "contrib")),
+        (also_add_vendor, ("vendor",)),
+    ):
+        if not enabled:
+            continue
+        entry = os.path.join(ext_root, *parts)
+        if os.path.isdir(entry) and entry not in sys.path:
+            sys.path.insert(0, entry)
 
     ensure_utf8_stdio()
     return ext_root
