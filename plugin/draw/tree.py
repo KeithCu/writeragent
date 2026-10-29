@@ -42,7 +42,7 @@ from plugin.framework.tool import ToolBase, ToolContext
 log = logging.getLogger(__name__)
 
 # Placeholder-only text: underscores, leaders, box drawings, whitespace.
-_NEAR_EMPTY_RE = re.compile(r"^[\s._\-–—•·□■☐☑☒╳]+$")
+_NEAR_EMPTY_RE = re.compile(r"[\s._\-–—•·□■☐☑☒╳]*")
 
 # Shapes that can hold paper-form text. Lines/connectors/graphics/tables/OLE
 # are not fill targets even when getString exists.
@@ -58,11 +58,7 @@ def short_shape_type(shape_type: str) -> str:
 
 def is_near_empty_text(text: str | None) -> bool:
     """True when *text* is empty or only placeholder marks (____, …, boxes)."""
-    raw = "" if text is None else str(text)
-    stripped = raw.strip()
-    if not stripped:
-        return True
-    return bool(_NEAR_EMPTY_RE.fullmatch(stripped))
+    return _NEAR_EMPTY_RE.fullmatch((text or "").strip()) is not None
 
 
 def is_control_shape_type(shape_type: str) -> bool:
@@ -109,34 +105,21 @@ def control_snapshot(model: Any) -> dict[str, Any]:
     label = _safe_attr(model, "Label")
     if label:
         info["label"] = label
-    if hasattr(model, "Text"):
+    for attr, key in (("Text", "text"), ("State", "state"), ("StringItemList", "items"), ("SelectedItems", "selected")):
+        if not hasattr(model, attr):
+            continue
         try:
-            info["text"] = model.Text
+            raw = getattr(model, attr)
+            if key == "state":
+                info[key] = int(raw)
+            elif key in ("items", "selected"):
+                info[key] = list(raw)
+            else:
+                info[key] = raw
         except Exception as exc:
             if is_real_disposal(exc):
                 raise
-            log.debug("control snapshot Text read failed", exc_info=True)
-    if hasattr(model, "State"):
-        try:
-            info["state"] = int(model.State)
-        except Exception as exc:
-            if is_real_disposal(exc):
-                raise
-            log.debug("control snapshot State read failed", exc_info=True)
-    if hasattr(model, "StringItemList"):
-        try:
-            info["items"] = list(model.StringItemList)
-        except Exception as exc:
-            if is_real_disposal(exc):
-                raise
-            log.debug("control snapshot StringItemList read failed", exc_info=True)
-    if hasattr(model, "SelectedItems"):
-        try:
-            info["selected"] = list(model.SelectedItems)
-        except Exception as exc:
-            if is_real_disposal(exc):
-                raise
-            log.debug("control snapshot SelectedItems read failed", exc_info=True)
+            log.debug("control snapshot %s read failed", attr, exc_info=True)
     return info
 
 
@@ -256,16 +239,13 @@ def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) 
 
 
 def attach_label_hints(nodes: list[dict[str, Any]]) -> None:
-    """Set ``label_hint`` on fillable siblings; recurse into groups."""
+    """Set ``label_hint`` on fillable siblings. One level; ``build_shape_tree`` calls this per group."""
     labeled = [n for n in nodes if (n.get("text") or "").strip() and not n.get("fillable")]
     for node in nodes:
         if node.get("fillable"):
             hint = nearest_label_hint(node, labeled)
             if hint:
                 node["label_hint"] = hint
-        children = node.get("children")
-        if children:
-            attach_label_hints(children)
 
 
 def shape_path(base: str | None, i: int) -> str:
@@ -273,16 +253,20 @@ def shape_path(base: str | None, i: int) -> str:
     return str(i) if base is None else f"{base}.{i}"
 
 
-def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tuple[str, Any, Any]]:
-    """Preorder (address, shape, parent). parent is the XShapes to remove from (page or GroupShape).
-    Recurse only when "GroupShape" is in the shape type. Disposal from getCount / getByIndex / getShapeType propagates."""
+def _iter_children(xshapes: Any) -> Iterator[tuple[int, Any]]:
+    """Direct ``(slot, shape)`` pairs. ``slot`` is the XShapes index, not a compacted count.
+
+    Non-disposal ``getCount`` ends the walk. Non-disposal ``getByIndex`` skips that slot.
+    Re-raise the original exception when ``is_disposed_exception`` matches, bare
+    RuntimeException included. ``uno_read`` swallows RuntimeException and wraps
+    disposal as DocumentDisposedError, so it is the wrong helper here.
+    """
     try:
         count = xshapes.getCount()
     except Exception as exc:
         if is_disposed_exception(exc):
             raise
         return
-
     for i in range(count):
         try:
             shape = xshapes.getByIndex(i)
@@ -290,7 +274,14 @@ def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tupl
             if is_disposed_exception(exc):
                 raise
             continue
+        yield i, shape
 
+
+def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tuple[str, Any, Any]]:
+    """Preorder (address, shape, parent). parent is the XShapes to remove from (page or GroupShape).
+    Recurse only when "GroupShape" is in the shape type. Disposal from getCount / getByIndex
+    (_iter_children) and getShapeType propagates as the original exception."""
+    for i, shape in _iter_children(xshapes):
         addr = shape_path(base, i)
         yield addr, shape, xshapes
 
@@ -403,28 +394,8 @@ def find_shape_on_page(
 
 def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[str, Any]]:
     """Recursively build a semantic tree from an XShapes collection."""
-    tree = _collect_shape_nodes(xshapes, base_index)
-    attach_label_hints(tree)
-    return tree
-
-
-def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[dict[str, Any]]:
     tree: list[dict[str, Any]] = []
-    try:
-        count = xshapes.getCount()
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return tree
-
-    for i in range(count):
-        try:
-            shape = xshapes.getByIndex(i)
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            continue
-
+    for i, shape in _iter_children(xshapes):
         current_index = shape_path(base_index, i)
 
         shape_type = uno_read(lambda: shape.getShapeType(), "UnknownShape")
@@ -468,12 +439,10 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
             node["geometry"] = geom
 
         if "ConnectorShape" in shape_type:
-            start_shape: Any = uno_read(lambda: shape.getPropertyValue("StartShape"), None)
-            if start_shape:
-                node["connected_start"] = {"name": _shape_name(start_shape), "text": _shape_text(start_shape).strip()}
-            end_shape: Any = uno_read(lambda: shape.getPropertyValue("EndShape"), None)
-            if end_shape:
-                node["connected_end"] = {"name": _shape_name(end_shape), "text": _shape_text(end_shape).strip()}
+            for prop, key in (("StartShape", "connected_start"), ("EndShape", "connected_end")):
+                linked: Any = uno_read(lambda: shape.getPropertyValue(prop), None)
+                if linked:
+                    node[key] = {"name": _shape_name(linked), "text": _shape_text(linked).strip()}
 
         style: dict[str, Any] = {}
         for prop in ["FillColor", "LineColor", "ZOrder", "RotateAngle", "LineWidth"]:
@@ -494,10 +463,11 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
             node["style"] = style
 
         if "GroupShape" in shape_type:
-            node["children"] = _collect_shape_nodes(shape, current_index)
+            node["children"] = build_shape_tree(shape, current_index)
 
         tree.append(node)
 
+    attach_label_hints(tree)
     return tree
 
 
