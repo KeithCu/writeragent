@@ -173,18 +173,6 @@ def _convert_parts(content: Any, *, allow_images: bool) -> list[dict[str, Any]]:
     return blocks
 
 
-def _remember_dropped_id(dropped_tool_ids: set[str], tc: dict[str, Any]) -> None:
-    """Record a skipped call so its tool result is not sent as an orphan.
-
-    Only a non-empty string id can match a later ``tool_call_id``. ``None``
-    and ``""`` used to sit in this set, and ``in`` then ate every tool message
-    that also lacked an id.
-    """
-    tc_id = tc.get("id")
-    if isinstance(tc_id, str) and tc_id:
-        dropped_tool_ids.add(tc_id)
-
-
 def _append_tool_result(converted: list[dict[str, Any]], block: dict[str, Any]) -> None:
     """Attach ``block`` to the open user tool_result message, or start one.
 
@@ -240,18 +228,18 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
         tool_calls = m.get("tool_calls")
         if tool_calls:
             anth_content = _convert_parts(content, allow_images=False)
-            if not isinstance(tool_calls, list):
-                if anth_content:
-                    converted.append({"role": "assistant", "content": anth_content})
-                continue
-            for tc in tool_calls:
-                if not isinstance(tc, dict):
-                    continue
-                tool_block = _convert_tool_call(tc)
-                if tool_block is None:
-                    _remember_dropped_id(dropped_tool_ids, tc)
-                    continue
-                anth_content.append(tool_block)
+            if isinstance(tool_calls, list):
+                for tc in tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    tool_block = _convert_tool_call(tc)
+                    if tool_block is None:
+                        # Only a non-empty string id can match a later tool_call_id.
+                        tc_id = tc.get("id")
+                        if isinstance(tc_id, str) and tc_id:
+                            dropped_tool_ids.add(tc_id)
+                        continue
+                    anth_content.append(tool_block)
             if anth_content:
                 converted.append({"role": "assistant", "content": anth_content})
             continue
@@ -262,14 +250,13 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
             log.warning("Anthropic shim skipping unsupported role %r", role)
             continue
 
+        normalized: list[dict[str, Any]] | str
         if isinstance(content, list):
-            anth_content = _convert_parts(content, allow_images=True)
-            if anth_content or role != "assistant":
-                converted.append({"role": role, "content": anth_content})
+            normalized = _convert_parts(content, allow_images=True)
         else:
-            text = str(content or "")
-            if text or role != "assistant":
-                converted.append({"role": role, "content": text})
+            normalized = str(content or "")
+        if normalized or role != "assistant":
+            converted.append({"role": role, "content": normalized})
 
     return "\n\n".join(system_parts), converted
 
@@ -288,21 +275,6 @@ def _normalize_usage(raw: Any) -> dict[str, Any]:
     if "completion_tokens" not in usage and "output_tokens" in usage:
         usage["completion_tokens"] = usage["output_tokens"]
     return usage
-
-
-def _stash_usage(stream_state: dict[str, Any] | None, usage: dict[str, Any]) -> None:
-    """Merge one usage snapshot onto the stream. Later keys replace earlier ones.
-
-    ``message_delta.usage`` is a cumulative total, not a delta to add.
-    ``message_start`` reports ``output_tokens: 1`` and the final event reports
-    ``15``; adding those yields 16.
-    """
-    if stream_state is None or not usage:
-        return
-    prev = stream_state.get("_anthropic_usage")
-    merged = dict(prev) if isinstance(prev, dict) else {}
-    merged.update(usage)
-    stream_state["_anthropic_usage"] = merged
 
 
 # OpenAI-style finish_reason values the tool loop already understands.
@@ -447,7 +419,6 @@ class AnthropicShim(BaseProviderShim):
             # stream loop never saw them, so prompt_tokens stayed missing.
             message = chunk.get("message")
             usage = _normalize_usage(message.get("usage") if isinstance(message, dict) else None)
-            _stash_usage(stream_state, usage)
             if usage:
                 delta = {"usage": usage}
         elif msg_type == "content_block_start":
@@ -501,7 +472,6 @@ class AnthropicShim(BaseProviderShim):
             # Top-level usage is the cumulative output count. Normalize it here
             # so the stream loop does not forward raw output_tokens only.
             usage = _normalize_usage(chunk.get("usage"))
-            _stash_usage(stream_state, usage)
             if usage:
                 delta = {"usage": usage}
         elif msg_type == "message_stop":

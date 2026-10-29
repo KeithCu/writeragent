@@ -7,12 +7,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
+from .anthropic_shim import AnthropicShim
 from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_image_data_url, coerce_raw_b64
+from .google_shim import GoogleShim
+from .grok_shim import GrokShim
 
 # api.openai.com o-series and gpt-5 reject max_tokens. Dated snapshots
 # (o3-mini-2025-01-31, gpt-5-2025-08-07) and ft:gpt-5-... share the family prefix.
@@ -261,34 +261,16 @@ class TogetherShim(BaseProviderShim):
         return self._post(url, data)
 
 
-def _load_anthropic() -> type[BaseProviderShim]:
-    from .anthropic_shim import AnthropicShim
-
-    return AnthropicShim
-
-
-def _load_grok() -> type[BaseProviderShim]:
-    from .grok_shim import GrokShim
-
-    return GrokShim
-
-
-def _load_google() -> type[BaseProviderShim]:
-    from .google_shim import GoogleShim
-
-    return GoogleShim
-
-
 # ``grok`` duplicated ``xai``. Detection returns ``xai``; nothing reads ``grok``.
 # ``openai`` is explicit so unknown hosts stay on the generic base body.
-_SHIM_REGISTRY: dict[str, Callable[[], type[BaseProviderShim]]] = {
-    "anthropic": _load_anthropic,
-    "google": _load_google,
-    "openai": lambda: OpenAIShim,
-    "xai": _load_grok,
-    "ollama": lambda: OllamaShim,
-    "openrouter": lambda: OpenRouterShim,
-    "together": lambda: TogetherShim,
+_SHIM_REGISTRY: dict[str, type[BaseProviderShim]] = {
+    "anthropic": AnthropicShim,
+    "google": GoogleShim,
+    "openai": OpenAIShim,
+    "xai": GrokShim,
+    "ollama": OllamaShim,
+    "openrouter": OpenRouterShim,
+    "together": TogetherShim,
 }
 
 
@@ -299,5 +281,4 @@ def get_provider_shim_class(provider: str) -> type[BaseProviderShim]:
     NVIDIA NIM, Z.ai, custom) use ``BaseProviderShim``. ``openai`` is
     ``OpenAIShim``. Google, xAI, and Together subclass the base directly.
     """
-    loader = _SHIM_REGISTRY.get(provider)
-    return loader() if loader else BaseProviderShim
+    return _SHIM_REGISTRY.get(provider, BaseProviderShim)
