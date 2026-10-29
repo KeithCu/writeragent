@@ -77,6 +77,12 @@ def _calc_cell_ui_strings() -> dict[str, str]:
     return ui
 
 
+def _attach_unavailable_label(*, no_document: bool) -> str:
+    if no_document:
+        return _("Attach to this document (no document is open)")
+    return _("Attach to this document (this document is read-only)")
+
+
 def _run_script_ui_strings() -> dict[str, str]:
     ui = _shared_ui_strings()
     ui.update(_data_strings())
@@ -86,12 +92,8 @@ def _run_script_ui_strings() -> dict[str, str]:
             "new_script_title": _("New Python Script"),
             "script_name_label": _("Script name:"),
             "attach_to_document_label": _("Attach to this document"),
-            "attach_unavailable_no_document": _(
-                "Attach to this document (no document is open)"
-            ),
-            "attach_unavailable_readonly": _(
-                "Attach to this document (this document is read-only)"
-            ),
+            "attach_unavailable_no_document": _attach_unavailable_label(no_document=True),
+            "attach_unavailable_readonly": _attach_unavailable_label(no_document=False),
             "attach_unavailable_stale": _(
                 "Attach to this document (this document changed)"
             ),
@@ -131,7 +133,6 @@ def _latex_ui_strings() -> dict[str, str]:
         {
             "plain_text_label": _("Insert as display block (centered paragraph)"),
             "save_label": _("Insert"),
-            "close_label": _("Close"),
             "saved_default": _("Formula inserted."),
         }
     )
@@ -140,13 +141,7 @@ def _latex_ui_strings() -> dict[str, str]:
 
 def _init_script_ui_strings() -> dict[str, str]:
     ui = _shared_ui_strings()
-    ui.update(
-        {
-            "save_label": _("Save"),
-            "close_label": _("Close"),
-            "saved_default": _("Initialization script saved."),
-        }
-    )
+    ui["saved_default"] = _("Initialization script saved.")
     return ui
 
 
@@ -157,13 +152,11 @@ def build_monaco_ui_strings(*, mode: str) -> dict[str, str]:
     Any other mode, including ``calc_cell``, uses the calc_cell catalog.
     A bad mode still gets labels.
     """
-    if mode == "run_script":
-        return _run_script_ui_strings()
-    if mode == "latex":
-        return _latex_ui_strings()
-    if mode == "init_script":
-        return _init_script_ui_strings()
-    return _calc_cell_ui_strings()
+    return {
+        "run_script": _run_script_ui_strings,
+        "latex": _latex_ui_strings,
+        "init_script": _init_script_ui_strings,
+    }.get(mode, _calc_cell_ui_strings)()
 
 
 def enrich_monaco_load_message(msg: dict[str, Any]) -> dict[str, Any]:
