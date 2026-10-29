@@ -33,18 +33,7 @@ if TYPE_CHECKING:
 
 from plugin.framework.errors import WriterAgentException
 
-__all__ = [
-    "BusyError",
-    "_doc_gates",
-    "_doc_gates_guard",
-    "_document_mutation_gate",
-    "_get_document_mutation_gate",
-    "_tool_needs_document_mutation_gate",
-]
-
 log = logging.getLogger("writeragent.mcp.protocol")
-
-_GATE_TIMEOUT_MESSAGE = "Timed out waiting for another edit to this document. Retry in a moment."
 
 _doc_gates: WeakValueDictionary[str, threading.Lock] = WeakValueDictionary()
 _doc_gates_guard = threading.Lock()
@@ -61,7 +50,7 @@ def _get_document_mutation_gate(doc_key: str) -> threading.Lock:
         return gate
 
 
-def _tool_needs_document_mutation_gate(tool: Any, arguments: Any = None) -> bool:
+def _tool_needs_document_mutation_gate(tool: Any, arguments: Any = None) -> bool:  # pyright: ignore[reportUnusedFunction]
     if tool is None:
         return True  # unknown tool -> be safe
     # A broken requires_document_lock must not silently switch to
@@ -71,7 +60,7 @@ def _tool_needs_document_mutation_gate(tool: Any, arguments: Any = None) -> bool
 
 
 @contextmanager
-def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.0) -> Generator[None, None, None]:
+def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.0) -> Generator[None, None, None]:  # pyright: ignore[reportUnusedFunction]
     if not enabled:
         yield
         return
@@ -80,7 +69,7 @@ def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.
     acquired = gate.acquire(timeout=timeout)
     if not acquired:
         log.warning("MCP _document_mutation_gate timed out after %.2fs waiting for %s", time.monotonic() - started, doc_key)
-        raise BusyError(_GATE_TIMEOUT_MESSAGE)
+        raise BusyError("Timed out waiting for another edit to this document. Retry in a moment.")
     try:
         yield
     finally:
