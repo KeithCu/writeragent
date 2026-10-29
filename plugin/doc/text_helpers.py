@@ -242,8 +242,7 @@ def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
         controller = safe_call(model.getCurrentController, "Get current controller")
         rng = selected_text_range(controller)
         if not rng:
-            vc = safe_call(controller.getViewCursor, "Get view cursor") if controller else None
-            rng = vc
+            rng = safe_call(controller.getViewCursor, "Get view cursor") if controller else None
         if not rng or not hasattr(rng, "getStart") or not hasattr(rng, "getEnd"):
             return None
         text = safe_call(rng.getText, "Get range text")
@@ -268,13 +267,11 @@ def get_selection_range(model: Any, doc_len: int | None = None) -> tuple[int, in
         if doc_len is None:
             doc_len = _writer_char_count(model)
         start_offset = _char_offset_of_position(model, sel_start_pos, doc_len)
-        equal = False
-        if sel_start_pos == sel_end_pos or uno_same(sel_start_pos, sel_end_pos):
-            equal = True
-        elif hasattr(_text, "compareRegionStarts"):
-            cmp = safe_call(_text.compareRegionStarts, "compareRegionStarts", sel_start_pos, sel_end_pos)
-            if cmp == 0:
-                equal = True
+        equal = sel_start_pos == sel_end_pos or uno_same(sel_start_pos, sel_end_pos)
+        if not equal and hasattr(_text, "compareRegionStarts"):
+            equal = safe_call(
+                _text.compareRegionStarts, "compareRegionStarts", sel_start_pos, sel_end_pos,
+            ) == 0
         if equal:
             end_offset = start_offset
         else:
@@ -600,7 +597,6 @@ def get_selection_text(model: Any) -> str | None:
         controller = safe_call(model.getCurrentController, "Get current controller")
         if not controller:
             return None
-        check_disposed(controller, "Controller")
 
         doc_type = _doc_type.get_document_type(model)
 
@@ -609,16 +605,13 @@ def get_selection_text(model: Any) -> str | None:
             if not rng:
                 vc = safe_call(controller.getViewCursor, "Get view cursor")
                 if vc:
-                    check_disposed(vc, "View Cursor")
                     return safe_call(vc.getString, "Get view cursor string")
             else:
-                check_disposed(rng, "Selection Range")
                 return safe_call(rng.getString, "Get selection string")
         elif doc_type == _doc_type.DocumentType.CALC:
             selection = safe_call(controller.getSelection, "Get selection")
-            if selection:
-                if hasattr(selection, "getString"):
-                    return safe_call(selection.getString, "Get selection string")
+            if selection and hasattr(selection, "getString"):
+                return safe_call(selection.getString, "Get selection string")
         elif doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
             selection = safe_call(controller.getSelection, "Get selection")
             if selection and hasattr(selection, "getCount"):
