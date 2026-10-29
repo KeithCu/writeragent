@@ -17,20 +17,11 @@ module reads the template ZIP at list time:
    ``_MAX_XML_SAMPLES`` hits are kept (and after ``_MAX_XML_SVG_MEMBERS``
    SVGs). Empty ``look`` rather than inventing.
 
-Stdlib PNG decode (not Pillow): the extension runs in LibreOffice's Python,
-which typically has no PIL. A thumbnail whose width×height exceeds the pixel
-cap is rejected before one RGB tuple is allocated per pixel (a few-KB
-4096×4096 1-bit PNG is under the raw-byte cap but tens of millions of
-tuples). ZIP member reads do not trust the declared uncompressed size:
-``ZipFile.read`` with no length inflates up to ``ZipExtFile.MAX_N`` (~1 GiB)
-before slicing to that size. Member reads are handled by ``otp_zip`` in
-small chunks up to ``MAX_MEMBER_BYTES``. The
-XML/SVG fallback also refuses to open every ``Pictures/*.svg`` or keep
-every hex hit: a missing thumbnail must not turn listing into an
-unbounded scan. 1/2/4-bit grayscale samples are scaled to 0–255 so an
-all-white thumbnail stays a light background. Alpha samples below
-_MIN_ALPHA are treated as transparent. We never load master pages
-or open the document via Desktop.
+Stdlib PNG decode (not Pillow): LibreOffice's Python typically has no PIL.
+Member bytes come from ``otp_zip``; declared uncompressed size is not a
+bound. Pixel, inflate, and XML/SVG caps, 1/2/4-bit scaling, and the alpha
+cutoff are the constants below. We never load master pages or open the
+document via Desktop.
 """
 
 from __future__ import annotations
@@ -152,27 +143,15 @@ def _thumbnail_samples(zf: zipfile.ZipFile) -> list[tuple[int, int, int]]:
     raw = _read_member(zf, "thumbnails/thumbnail.png")
     if not raw:
         return []
-    pixels = decode_png_rgb(raw)
-    if not pixels:
-        return []
-    return pixels
+    return decode_png_rgb(raw) or []
 
 
 def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
-    """Fallback when the thumbnail is missing: hex colors only, no invention.
+    """Hex colors from ``styles.xml`` and at most ``_MAX_XML_SVG_MEMBERS`` SVGs.
 
-    Opening every ``Pictures/*.svg`` (each already capped at
-    ``MAX_MEMBER_BYTES``) and appending every ``#RRGGBB`` makes
-    ``_mood_and_accents`` walk that whole list. ``list_designs`` /
-    ``apply_design`` call this on the main thread, including
-    user-writable template dirs. Eight cap-sized SVG members are
-    about 180MB and 12s; more members scale into gigabytes. The
-    forged-size read cap limits one member, not how many members
-    are opened or how many hex hits are kept. Read ``styles.xml``
-    once and at most ``_MAX_XML_SVG_MEMBERS`` SVGs, and keep at
-    most ``_MAX_XML_SAMPLES`` colors — the same budget as a
-    downsampled thumbnail. Once that many hits are in hand,
-    remaining members are not opened.
+    ``list_designs`` / ``apply_design`` run this on the main thread, including
+    user-writable template dirs. A per-member byte cap does not limit how many
+    SVGs are opened; stop once ``_MAX_XML_SAMPLES`` hits are kept.
     """
     samples: list[tuple[int, int, int]] = []
     svgs: list[str] = []
@@ -193,17 +172,13 @@ def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int,
 
 def _hex_colors(blob: bytes, limit: int) -> list[tuple[int, int, int]]:
     out: list[tuple[int, int, int]] = []
-    if limit <= 0:
-        return out
     for match in _HEX_RE.finditer(blob):
         hex6 = match.group(1)
         alpha = match.group(2)
         if alpha is not None and int(alpha, 16) < 0x20:
             continue
-        r = int(hex6[0:2], 16)
-        g = int(hex6[2:4], 16)
-        b = int(hex6[4:6], 16)
-        out.append((r, g, b))
+        n = int(hex6, 16)
+        out.append((n >> 16, (n >> 8) & 0xFF, n & 0xFF))
         if len(out) >= limit:
             break
     return out
@@ -219,12 +194,8 @@ def _mood_and_accents(samples: list[tuple[int, int, int]], min_count: int = _MIN
         name = _accent_hue_name(r, g, b)
         if name:
             counts[name] = counts.get(name, 0) + 1
-    if not counts:
-        return mood, []
     ranked = [pair for pair in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])) if pair[1] >= min_count]
-    if not ranked:
-        return mood, []
-    accents = [ranked[0][0]]
+    accents = [ranked[0][0]] if ranked else []
     if len(ranked) > 1 and ranked[1][1] >= max(min_count, int(ranked[0][1] * _SECOND_ACCENT_RATIO)):
         accents.append(ranked[1][0])
     return mood, accents
@@ -249,39 +220,23 @@ def _accent_hue_name(r: int, g: int, b: int) -> str:
 
 
 def _inflate_capped(data: bytes, limit: int) -> bytes | None:
-    """Inflate *data* or return None if output would pass *limit* bytes.
+    """Inflate *data*, or None if it is truncated or would pass *limit* bytes.
 
-    ``zlib.decompress`` builds the whole output before the caller
-    compares it to the IHDR size. A thumbnail whose declared size
-    is small can still be a deflate bomb, and ``list_designs`` /
-    ``apply_design`` would allocate that bomb before rejecting it.
-    ``decompressobj.decompress(..., max_length)`` returns at most
-    ``limit + 1`` bytes, so the oversize stream is dropped before a
-    multi-megabyte buffer exists.
+    ``zlib.decompress`` would build the whole output first. A thumbnail
+    whose declared size is small can still be a deflate bomb, and
+    ``list_designs`` / ``apply_design`` would allocate it on the main
+    thread. ``max_length`` stops at ``limit + 1`` bytes.
     """
     if limit < 0:
         return None
-    dec = zlib.decompressobj()
-    out = bytearray()
-    pending: bytes | None = data
     try:
-        while True:
-            room = limit - len(out)
-            if room < 0:
-                return None
-            chunk = dec.decompress(b"" if pending is None else pending, room + 1)
-            pending = dec.unconsumed_tail or None
-            if len(chunk) > room:
-                return None
-            out.extend(chunk)
-            if dec.eof:
-                return bytes(out)
-            if pending is None and not chunk:
-                return None
-            if pending is None:
-                pending = b""
+        dec = zlib.decompressobj()
+        out = dec.decompress(data, limit + 1)
     except zlib.error:
         return None
+    if len(out) > limit or not dec.eof:
+        return None
+    return out
 
 
 def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
@@ -323,14 +278,6 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
             break
     if width < 1 or height < 1 or width > 4096 or height > 4096:
         return None
-    # After the raw-byte cap, building one RGB tuple per pixel still
-    # blows up. A valid 4096×4096 1-bit thumbnail is a few KB and
-    # under _MAX_RAW_PNG, then ~16.7M tuples (~1GB) before
-    # sampling. list_designs / apply_design feed
-    # Thumbnails/thumbnail.png from discovered .otp files, including
-    # the user-writable template dir. Reject on width*height before
-    # inflate and before the pixel list. Mood falls back to
-    # styles.xml / SVG hex colors.
     if width * height > _MAX_DECODED_PIXELS:
         return None
     if interlace != 0:
@@ -358,17 +305,11 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
     step = max(1, total_pixels // _MAX_SAMPLED_PIXELS)
     pixels: list[tuple[int, int, int]] = []
     prior = bytes(row_bytes - 1)
-    pos = 0
-    rows_left = height
     pixel_idx = 0
-    while rows_left:
-        rows_left -= 1
-        filt = raw[pos]
-        pos += 1
-        row = bytearray(raw[pos : pos + row_bytes - 1])
-        pos += row_bytes - 1
-        if len(row) != row_bytes - 1:
-            return None
+    for y in range(height):
+        base = y * row_bytes
+        filt = raw[base]
+        row = bytearray(raw[base + 1 : base + row_bytes])
         if not _recon_scanline(filt, row, prior, bpp):
             return None
         prior = bytes(row)
@@ -425,70 +366,51 @@ def _paeth(a: int, b: int, c: int) -> int:
 
 
 def _unpack_row(row: bytes | bytearray, width: int, bit_depth: int, color_type: int, palette: list[tuple[int, int, int]], trans: bytes) -> list[tuple[int, int, int]] | None:
-    samples = _unpack_samples(row, width, bit_depth, color_type)
-    if samples is None:
-        return None
-    out: list[tuple[int, int, int]] = []
-    if color_type == 0:
-        # Bit depths 1/2/4 store samples in 0..maxv. Copying them as if
-        # they were already 0..255 leaves an all-white 1-bit thumbnail
-        # at sample 1, so luminance stays ~1 and _mood_and_accents
-        # reports "dark background" for a white template. PNG scales a
-        # grayscale sample with g * 255 / maxv (integer division). 8-bit
-        # maxv is 255, so those samples are unchanged.
-        maxv = (1 << bit_depth) - 1
-        for i in range(width):
-            g = samples[i] * 255 // maxv
-            out.append((g, g, g))
+    if color_type == 2:
+        return [(row[i], row[i + 1], row[i + 2]) for i in range(0, width * 3, 3)]
+    if color_type == 6:
+        out: list[tuple[int, int, int]] = []
+        for i in range(0, width * 4, 4):
+            if row[i + 3] < _MIN_ALPHA:
+                continue
+            out.append((row[i], row[i + 1], row[i + 2]))
         return out
     if color_type == 4:
+        out = []
         for i in range(width):
-            g = samples[i * 2]
-            a = samples[i * 2 + 1]
-            if a < _MIN_ALPHA:
+            if row[i * 2 + 1] < _MIN_ALPHA:
                 continue
+            g = row[i * 2]
             out.append((g, g, g))
         return out
-    if color_type == 2:
-        for i in range(width):
-            j = i * 3
-            out.append((samples[j], samples[j + 1], samples[j + 2]))
-        return out
-    if color_type == 6:
-        for i in range(width):
-            j = i * 4
-            a = samples[j + 3]
-            if a < _MIN_ALPHA:
-                continue
-            out.append((samples[j], samples[j + 1], samples[j + 2]))
-        return out
-    # Indexed. tRNS below _MIN_ALPHA means transparent — skip so white canvas
-    # behind a drop-shadow does not dilute a dark slide.
+    # Gray (0) and indexed (3): one sample per pixel. 1/2/4-bit is MSB first.
+    samples: list[int]
+    if bit_depth == 8:
+        samples = list(row[:width])
+    else:
+        samples = []
+        maxv = (1 << bit_depth) - 1
+        per_byte = 8 // bit_depth
+        for byte in row:
+            for shift in range(per_byte - 1, -1, -1):
+                samples.append((byte >> (shift * bit_depth)) & maxv)
+                if len(samples) >= width:
+                    break
+            if len(samples) >= width:
+                break
+    if color_type == 0:
+        # 1/2/4-bit samples are 0..maxv. Copying them as 0..255 leaves an
+        # all-white 1-bit thumbnail at sample 1, so the mood comes out dark.
+        # PNG scales with g * 255 // maxv. 8-bit maxv is 255, so those
+        # samples are unchanged.
+        scale = (1 << bit_depth) - 1
+        return [(g * 255 // scale, g * 255 // scale, g * 255 // scale) for g in samples]
+    out = []
     pal_len = len(palette)
-    for i in range(width):
-        idx = samples[i]
+    for idx in samples:
         if idx >= pal_len:
             return None
         if idx < len(trans) and trans[idx] < _MIN_ALPHA:
             continue
         out.append(palette[idx])
     return out
-
-
-def _unpack_samples(row: bytes | bytearray, width: int, bit_depth: int, color_type: int) -> list[int] | None:
-    spp = _SAMPLES_PER_PIXEL[color_type]
-    need = width * spp
-    if bit_depth == 8:
-        if len(row) < need:
-            return None
-        return list(row[:need])
-    # Packed 1/2/4-bit (palette or gray). MSB first per PNG.
-    vals: list[int] = []
-    maxv = (1 << bit_depth) - 1
-    per_byte = 8 // bit_depth
-    for byte in row:
-        for shift in range(per_byte - 1, -1, -1):
-            vals.append((byte >> (shift * bit_depth)) & maxv)
-            if len(vals) >= need:
-                return vals
-    return None
