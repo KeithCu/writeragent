@@ -30,7 +30,7 @@ from plugin.calc.datetime_wire import (
     iso_duration_from_serial,
     is_elapsed_format_string,
 )
-from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE, cell_type_name, cell_value_and_type
+from plugin.calc.calc_utils import cell_value_and_type
 from plugin.framework.errors import CalcError, is_disposed_exception
 from plugin.scripting.config_limits import configured_python_max_data_cells, python_max_data_cells_min
 
@@ -235,43 +235,6 @@ class CellInspector:
             # ToolExecutionError is a WriterAgentException, so =PY re-raises it and skips CALC_READ_ERROR (the message includes the cell address).
             raise
 
-    def get_cell_details(self, address: str) -> dict[str, Any]:
-        """Return all detailed cell information.
-
-        Args:
-            address: Cell address (e.g. "A1").
-
-        Returns:
-            dict with keys: address, value, formula, formula_local, type,
-            background_color, number_format, font_color, font_size, bold,
-            italic, h_align, v_align, wrap_text.
-        """
-        try:
-            cell, bare_address, value, type_name = self._resolve_single_cell(address)
-
-            return {
-                "address": bare_address.upper(),
-                "value": value,
-                "formula": cell.getFormula(),
-                "formula_local": self._safe_prop(cell, "FormulaLocal"),
-                "type": type_name,
-                "background_color": self._safe_prop(cell, "CellBackColor"),
-                "number_format": self._safe_prop(cell, "NumberFormat"),
-                "font_color": self._safe_prop(cell, "CharColor"),
-                "font_size": self._safe_prop(cell, "CharHeight"),
-                "bold": self._safe_prop(cell, "CharWeight"),
-                "italic": self._safe_prop(cell, "CharPosture"),
-                "h_align": self._safe_prop(cell, "HoriJustify"),
-                "v_align": self._safe_prop(cell, "VertJustify"),
-                "wrap_text": self._safe_prop(cell, "IsTextWrapped"),
-            }
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Cell detailed reading failed for %s", address)
-            # ToolExecutionError is a WriterAgentException, so =PY re-raises it and skips CALC_READ_ERROR (the message includes the cell address).
-            raise
-
     def read_range(self, range_name: str, *, include_format_info: bool = False) -> list[list[dict[str, Any]]]:
         """Read values and formulas in a cell range.
 
@@ -333,20 +296,20 @@ class CellInspector:
                     formula = None
 
                     if raw_formula and raw_formula.startswith("="):
-                        cell_type = FORMULA
+                        cell_type = "formula"
                         formula = raw_formula
                         # Keep value as raw_val which already contains the evaluated formula result
                     elif isinstance(raw_val, float):
-                        cell_type = VALUE
+                        cell_type = "value"
                     elif isinstance(raw_val, str) and raw_val:
-                        cell_type = TEXT
+                        cell_type = "text"
                     else:
-                        cell_type = EMPTY
+                        cell_type = "empty"
                         value = None
 
                     cell_address = f"{col_letters[col_idx]}{row + 1}"
 
-                    cell_info = {"address": cell_address, "value": value, "formula": formula, "type": cell_type_name(cell_type)}
+                    cell_info = {"address": cell_address, "value": value, "formula": formula, "type": cell_type}
                     if null_date is not None and isinstance(value, (int, float)):
                         span = self._temporal_span(format_rows, row, col)
                         if span is not None:

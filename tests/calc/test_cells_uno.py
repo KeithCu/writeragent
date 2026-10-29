@@ -14,22 +14,13 @@ from plugin.tests.testing_utils import execute_calc_tool as _execute_calc_tool, 
 
 @native_test
 @with_native_doc("calc")
-def test_set_cell_style_and_details(ctx, doc):
+def test_set_cell_style_bold_and_background(ctx, doc):
     active_sheet = doc.getCurrentController().getActiveSheet()
     _execute_calc_tool(doc, ctx, "set_style", {"range": "A1", "bold": True, "bg_color": "yellow"})
     cell = active_sheet.getCellByPosition(0, 0)
     from com.sun.star.awt.FontWeight import BOLD
     assert cell.getPropertyValue("CharWeight") == BOLD, "Bold not set"
     assert cell.getPropertyValue("CellBackColor") == 0xFFFF00, "Background color not set"
-
-    from plugin.calc.bridge import CalcBridge
-    from plugin.calc.inspector import CellInspector
-    b = CalcBridge(doc)
-    insp = CellInspector(b)
-    details = insp.get_cell_details("A1")
-
-    assert details.get("background_color") == 0xFFFF00, f"Details readback bg color failed: {details}"
-    assert details.get("bold") == BOLD, f"Details readback bold failed: {details}"
 
 
 @native_test
