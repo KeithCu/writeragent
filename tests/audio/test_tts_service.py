@@ -232,8 +232,7 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
             return _Proc()
 
         ensure = MagicMock(return_value=True)
-        with patch("plugin.audio.tts_service.get_config_str", return_value=str(tmp_path)), \
-             patch("plugin.audio.tts_service._venv_python", return_value=str(py)), \
+        with patch("plugin.audio.tts_service._venv_python", return_value=str(py)), \
              patch("plugin.audio.tts_service._resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
              patch("plugin.audio.tts_service.ensure_kokoro_misaki", ensure), \
              patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
@@ -264,8 +263,7 @@ def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tm
     model.write_bytes(b"m")
     voices.write_bytes(b"v")
 
-    with patch("plugin.audio.tts_service.get_config_str", return_value=str(tmp_path)), \
-         patch("plugin.audio.tts_service._venv_python", return_value=str(tmp_path / "python")), \
+    with patch("plugin.audio.tts_service._venv_python", return_value=str(tmp_path / "python")), \
          patch("plugin.audio.tts_service._resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
          patch("plugin.audio.tts_service.ensure_kokoro_misaki", return_value=None), \
          patch("plugin.framework.managed_subprocess.subprocess.Popen") as popen, \
@@ -292,7 +290,6 @@ def test_sentence_pipeline_installs_misaki_once_per_reply(tmp_path):
     generation = tts._begin_utterance()
     try:
         with patch.object(tts, "ensure_kokoro_misaki", ensure), \
-             patch.object(tts, "get_config_str", return_value="/venv"), \
              patch.object(tts, "_venv_python", return_value="/venv/bin/python"), \
              patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), \
              patch.object(tts, "_play_audio_file"), \
@@ -321,7 +318,6 @@ def test_sentence_pipeline_stop_during_misaki_install_skips_os_speech():
     generation = tts._begin_utterance()
     try:
         with patch.object(tts, "ensure_kokoro_misaki", return_value=None), \
-             patch.object(tts, "get_config_str", return_value="/venv"), \
              patch.object(tts, "_venv_python", return_value="/venv/bin/python"), \
              patch.object(tts, "_synthesize_sentence_clip") as synth, \
              patch.object(tts, "_speak_system") as system:
