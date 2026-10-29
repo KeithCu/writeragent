@@ -146,9 +146,9 @@ def quote_sheet_name(name: str) -> str:
     return name
 
 
-def qualify_a1(sheet_name: str, a1: str, *, sep: str = ".") -> str:
+def qualify_a1(sheet_name: str, a1: str) -> str:
     """Qualify an A1 address or range with a properly quoted sheet name."""
-    return f"{quote_sheet_name(sheet_name)}{sep}{a1}"
+    return f"{quote_sheet_name(sheet_name)}.{a1}"
 
 
 def _parse_a1(text: str, label: str) -> tuple[int, int]:
@@ -175,6 +175,16 @@ def split_sheet_and_name(ref: str, sheet_name: str | None) -> tuple[str, str | N
     return address, (prefix or sheet_name)
 
 
+def _reject_sheet_prefix(ref: str, kind: str) -> str:
+    # crosshair: off — _SHEET_PREFIX hangs under deep check (same as the callers).
+    # Reject prefixes here so callers that need the sheet go through
+    # split_sheet_prefix / CalcBridge.resolve instead of silently dropping it.
+    sheet, rest = split_sheet_prefix(ref)
+    if sheet is not None:
+        raise ValueError(f"{kind} '{sheet}.{rest}' names a sheet, but this operation resolves the sheet separately. Pass the sheet via sheet_name, or drop the prefix.")
+    return rest
+
+
 @deal.pre(lambda address: ascii_bounded(address, DEAL_MAX_CELL_REF, min_len=1))
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and result[0] >= 0 and result[1] >= 0)
 @deal.raises(ValueError)
@@ -193,12 +203,7 @@ def parse_address(address: str) -> tuple[int, int]:
     """
     # Sheet-prefix + A1 regex hang under deep check.
     # crosshair: off
-    # Reject prefixes here so callers that need the sheet go through
-    # split_sheet_prefix / CalcBridge.resolve instead of silently dropping it.
-    sheet, address = split_sheet_prefix(address)
-    if sheet is not None:
-        raise ValueError(f"Cell address '{sheet}.{address}' names a sheet, but this operation resolves the sheet separately. Pass the sheet via sheet_name, or drop the prefix.")
-    return _parse_a1(address, "cell address")
+    return _parse_a1(_reject_sheet_prefix(address, "Cell address"), "cell address")
 
 
 @deal.pre(lambda range_str: ascii_bounded(range_str, DEAL_MAX_CELL_REF, min_len=1))
@@ -221,10 +226,7 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     """
     # Sheet-prefix + A1 regex hang under deep check.
     # crosshair: off
-    sheet, range_str = split_sheet_prefix(range_str)
-    if sheet is not None:
-        raise ValueError(f"Range '{sheet}.{range_str}' names a sheet, but this operation resolves the sheet separately. Pass the sheet via sheet_name, or drop the prefix.")
-
+    range_str = _reject_sheet_prefix(range_str, "Range")
     cleaned = range_str.strip().upper()
     start_str, has_sep, end_str = cleaned.partition(":")
     if not has_sep:
