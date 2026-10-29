@@ -9,11 +9,20 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
 
-from plugin.chatbot.agent_manual import writer_topic_list_text
-from plugin.doc.document_research import list_nearby_files
+from plugin.chatbot.agent_manual import (
+    get_section,
+    list_topics,
+    manual_index,
+    normalize_topic,
+    writer_topic_list_text,
+)
+from plugin.doc.doc_type import doc_type_of
+from plugin.doc.document_research import get_open_documents, list_nearby_files
 from plugin.framework.errors import user_stopped_payload
+from plugin.framework.queue_executor import run_on_main
+from plugin.framework.send_cancellation import SendCancelled
 from plugin.framework.tool import ToolBase, ToolContext
 
 
@@ -48,23 +57,15 @@ class ListNearbyFiles(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-
-        filt = kwargs.get("filter")
-        file_kind_raw = kwargs.get("file_kind")
-        file_kind: Literal["documents", "images"] = "images" if file_kind_raw == "images" else "documents"
-
         # Execute off main thread because listing directory scans can take time.
         # list_nearby_files handles marshaling UNO requests to the main thread internally.
-        try:
-            return list_nearby_files(
-                ctx.ctx,
-                ctx.doc,
-                filter=filt,
-                file_kind=file_kind,
-                stop_checker=ctx.stop_checker,
-            )
-        except InterruptedError:
-            return user_stopped_payload()
+        return list_nearby_files(
+            ctx.ctx,
+            ctx.doc,
+            filter=kwargs.get("filter"),
+            file_kind=kwargs.get("file_kind") or "documents",
+            stop_checker=ctx.stop_checker,
+        )
 
 
 class ListOpenDocuments(ToolBase):
@@ -90,10 +91,6 @@ class ListOpenDocuments(ToolBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.queue_executor import run_on_main
-        from plugin.framework.send_cancellation import SendCancelled
-        from plugin.doc.document_research import get_open_documents
-
         def _run() -> dict[str, Any]:
             from plugin.mcp.mcp_protocol import _format_mcp_clock_context
 
@@ -132,9 +129,6 @@ class GetGuidance(ToolBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.chatbot.agent_manual import get_section, list_topics, manual_index, normalize_topic
-        from plugin.doc.doc_type import doc_type_of
-
         # Guidance must match the document being worked on (a Calc session must never read Writer
         # advice). Resolve the target document the same way every other tool does; with no document
         # open, serve the neutral index / the always-available generic topics.
