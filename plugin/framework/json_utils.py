@@ -32,15 +32,6 @@ log = logging.getLogger(__name__)
 _JSON_PARSE_ERRORS = (ValueError, TypeError, RecursionError)
 
 
-def _is_pre_contract_error(exc: BaseException) -> bool:
-    """True for ``deal.PreContractError``.
-
-    That class subclasses ``AssertionError``, not ``ValueError``, so a repair
-    ``except`` that lists only JSON errors does not catch it. Match by name so
-    this stays valid when deal is not installed.
-    """
-    return type(exc).__name__ == "PreContractError"
-
 _LATEX_CLASH_WORDS = [
     # \a (Bell)
     "alpha",
@@ -160,7 +151,6 @@ _LATEX_CLASH_WORDS = [
 # keeps the control character and drops the backslash.
 # A letter lookahead still rejects `\alphax`.
 _escape_map = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f"}
-_JSON_ESCAPE_STARTS = frozenset(_escape_map)
 _LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")(?![A-Za-z])")
 
 
@@ -168,7 +158,7 @@ def _double_latex_clash(match: re.Match[str]) -> str:
     """Double one backslash before a clash word, except dotted abbreviations."""
     word = match.group(1)
     tail = match.string[match.end() : match.end() + 2]
-    if len(word) == 2 and word[:1] in _JSON_ESCAPE_STARTS and tail[:1] == "." and tail[1:2].isalpha():
+    if len(word) == 2 and word[:1] in _escape_map and tail[:1] == "." and tail[1:2].isalpha():
         return match.group(0)
     return "\\\\" + word
 
@@ -227,34 +217,6 @@ def _replace_control_token(text: str, corrupted: str, repaired: str) -> str:
         start = end
 
 
-def _debug_json_stage(stage: str) -> None:
-    """Log which fallback accepted the text.
-
-    Step 1 can fail and a later step still return a value. The stage name
-    is enough to see which step won. Logging the source would dump secrets
-    and document text.
-    """
-    log.debug("safe_json_loads stage=%s", stage)
-
-
-def _json_repair_call(text: str, *, return_objects: bool) -> Any:
-    # crosshair: off
-    if not isinstance(text, str):
-        return text
-    stripped = text.strip()
-    if not stripped:
-        return stripped
-    try:
-        import json_repair
-    except ImportError:
-        if return_objects:
-            raise
-        log.warning("json_repair is not installed; leaving JSON unrepaired")
-        return stripped
-    repaired = json_repair.repair_json(stripped, return_objects=return_objects)
-    return repaired if return_objects else str(repaired)
-
-
 def repair_json(text: str) -> str:
     """Attempt to repair common JSON syntax errors from LLMs using json-repair.
 
@@ -269,33 +231,17 @@ def repair_json(text: str) -> str:
         The repaired JSON string.
     """
     # crosshair: off
-    return str(_json_repair_call(text, return_objects=False))
-
-
-def _repair_json_object_bounded(text: str) -> Any:
-    """Deal-bounded body of ``repair_json_object``. Callers catch ``PreContractError``."""
-    # crosshair: off
-    return _json_repair_call(text, return_objects=True)
-
-
-def repair_json_object(text: str) -> Any:
-    """Repair malformed JSON and return a parsed object (json-repair return_objects=True).
-
-    The pytest pre is total, so a long body is repaired. ``PreContractError``
-    subclasses ``AssertionError``, not ``ValueError``. If a contract error
-    still escapes ``_repair_json_object_bounded``, return the original text
-    instead of letting it skip JSON ``except`` clauses.
-    """
-    # crosshair: off
+    if not isinstance(text, str):
+        return str(text)
+    stripped = text.strip()
+    if not stripped:
+        return stripped
     try:
-        return _repair_json_object_bounded(text)
-    except Exception as exc:
-        # except Exception, not a deal class: mypy rejects a dynamically loaded
-        # PreContractError in an except clause. Only that contract error is
-        # swallowed; other repair failures still propagate.
-        if not _is_pre_contract_error(exc):
-            raise
-        return text
+        import json_repair
+    except ImportError:
+        log.warning("json_repair is not installed; leaving JSON unrepaired")
+        return stripped
+    return str(json_repair.repair_json(stripped, return_objects=False))
 
 
 @deal.ensure(lambda text, default=None, strict=False, result=None: isinstance(text, (str, bytes, bytearray)) or result is default)
@@ -326,7 +272,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
 
     # Ensure we are working with a string for repair logic
     raw_text = text.decode("utf-8", errors="replace") if isinstance(text, (bytes, bytearray)) else text
-    if not isinstance(raw_text, str) or not raw_text.strip():
+    if not raw_text.strip():
         return default
 
     # In strict mode, only RFC 8259 standard JSON parsing is allowed.
@@ -335,8 +281,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     # instead of returning default.
     if strict:
         try:
-            parsed = json.loads(raw_text)
-            return parsed
+            return json.loads(raw_text)
         except _JSON_PARSE_ERRORS:
             return default
 
@@ -348,15 +293,15 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
 
     # 1. Standard attempt
     try:
-        parsed = json.loads(stripped)
-        return parsed
+        return json.loads(stripped)
     except _JSON_PARSE_ERRORS:
         pass
 
     # 2. strict=False attempt (handles bare control characters in non-strict LLM mode)
     try:
         parsed = json.loads(stripped, strict=False)
-        _debug_json_stage("non-strict")
+        # Stage name only. Logging the source would dump secrets and document text.
+        log.debug("safe_json_loads stage=%s", "non-strict")
         return parsed
     except _JSON_PARSE_ERRORS:
         pass
@@ -371,7 +316,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         parsed = ast.literal_eval(stripped)
         # literal_eval also returns tuples, sets, and bytes. Callers expect JSON.
         if parsed is None or type(parsed) in (bool, int, float, str, list, dict):
-            _debug_json_stage("literal_eval")
+            log.debug("safe_json_loads stage=%s", "literal_eval")
             return parsed
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         pass
@@ -381,7 +326,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         repaired = repair_json(stripped)
         if repaired != stripped:
             parsed = json.loads(repaired, strict=False)
-            _debug_json_stage("json_repair")
+            log.debug("safe_json_loads stage=%s", "json_repair")
             return parsed
     except Exception:
         # repair_json's pytest pre is total. This try is only the repair

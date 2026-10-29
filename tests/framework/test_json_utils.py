@@ -59,21 +59,6 @@ def test_safe_json_loads_long_valid_json() -> None:
     assert safe_json_loads(payload) == {"a": "x" * 9000}
 
 
-def test_repair_json_object_long_malformed_does_not_raise() -> None:
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-    from plugin.framework.json_utils import repair_json_object
-
-    filler = "x" * (DEAL_MAX_SOURCE + 1)
-    payload = '{"a": ' + filler
-    assert repair_json_object(payload) == {"a": filler}
-
-
-def test_repair_json_object_trailing_comma() -> None:
-    from plugin.framework.json_utils import repair_json_object
-
-    assert repair_json_object('{"a": 1,}') == {"a": 1}
-
-
 def test_safe_json_loads_keeps_json_escapes_that_look_like_latex() -> None:
     """A dotted abbreviation is a newline, not the short LaTeX command.
 
