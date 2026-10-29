@@ -56,11 +56,14 @@ def _as_path_tuple(value: Any) -> tuple[str, ...]:
     raise ConfigError(f"ocr_allow_paths must be a list or {os.pathsep}-separated string")
 
 
-def _allow_prefixes(allow_prefixes: tuple[str, ...] | list[str]) -> list[str]:
-    return [str(p).strip() for p in allow_prefixes if str(p).strip()]
+_FILE_PATH_DENIED: dict[str, Any] = {
+    "status": "error",
+    "code": "FILE_PATH_DENIED",
+    "error": "file_path is not under ocr.allow_paths (default deny).",
+}
 
 
-def _resolved_under_prefixes(resolved: str, prefixes: list[str]) -> bool:
+def _resolved_under_prefixes(resolved: str, prefixes: tuple[str, ...] | list[str]) -> bool:
     """True when *resolved* is *prefixes* or a file underneath one of them.
 
     HTTP path checks and the opened-fd check both use this so a prefix rule
@@ -86,8 +89,7 @@ def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[s
     opens, and it checks the file descriptor again: a symlink can be
     retargeted after this returns.
     """
-    prefixes = _allow_prefixes(allow_prefixes)
-    if not prefixes:
+    if not allow_prefixes:
         return False
     try:
         resolved = os.path.realpath(os.path.expanduser(file_path.strip()))
@@ -95,7 +97,7 @@ def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[s
         return False
     # Allowlist check still applies for missing files so we do not leak existence
     # via a different error before prefix match. Prefix-only:
-    return _resolved_under_prefixes(resolved, prefixes)
+    return _resolved_under_prefixes(resolved, allow_prefixes)
 
 
 def _post_open_realpath(fd: int, file_path: str) -> str:
@@ -126,9 +128,8 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
     """
     if not isinstance(file_path, str) or not file_path.strip():
         return None, {"status": "error", "code": "INVALID_FILE_PATH", "error": "file_path must be a non-empty string path"}
-    prefixes = _allow_prefixes(allow_prefixes)
-    if not ocr_path_is_allowed(file_path, prefixes):
-        return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
+    if not ocr_path_is_allowed(file_path, allow_prefixes):
+        return None, dict(_FILE_PATH_DENIED)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(os.path.expanduser(file_path.strip()), flags)
@@ -143,11 +144,11 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
         try:
             opened = _post_open_realpath(fd, file_path)
         except (OSError, ValueError):
-            return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
-        if not _resolved_under_prefixes(opened, prefixes):
+            return None, dict(_FILE_PATH_DENIED)
+        if not _resolved_under_prefixes(opened, allow_prefixes):
             # The name was allowlisted, then replaced with a symlink that
             # leaves the prefix. The earlier check cannot see the opened path.
-            return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
+            return None, dict(_FILE_PATH_DENIED)
         chunks: list[bytes] = []
         remaining = max_bytes + 1
         while remaining > 0:
@@ -176,8 +177,6 @@ class ComputeSettings:
     max_body_bytes: int = MAX_BODY_BYTES
     default_timeout_sec: int = 30
     max_timeout_sec: int = 600
-    # Listener threads. Not a setting: one per formula worker and vision worker.
-    threads: int = field(init=False, default=0)
     workers: int = 2
     worker_max_tasks: int = 500
     idle_worker_ttl_sec: float = 3600.0
@@ -191,20 +190,14 @@ class ComputeSettings:
     default_principal: str = "default"
 
     def __post_init__(self) -> None:
-        if self.workers is None:
-            object.__setattr__(self, "workers", 2)
-        if self.ocr_workers is None:
-            object.__setattr__(self, "ocr_workers", 0)
-        # Base worker capacity across formula and vision subprocesses.
-        # The HTTP server sizes its thread pool above this count (at least W + 2)
-        # and gates each pool with its own semaphore. A full formula pool does
-        # not take a vision permit (or the reverse). A permit waits until the
-        # request deadline; 503 is that timeout, not a miss of a few milliseconds.
-        object.__setattr__(self, "threads", self.workers + self.ocr_workers)
         object.__setattr__(self, "ocr_allow_paths", _as_path_tuple(self.ocr_allow_paths))
         object.__setattr__(self, "idle_worker_ttl_sec", float(self.idle_worker_ttl_sec))
         object.__setattr__(self, "log_level", normalize_log_level(self.log_level))
         self.validate()
+
+    @property
+    def threads(self) -> int:
+        return self.workers + self.ocr_workers
 
     @property
     def auth_required(self) -> bool:
@@ -225,8 +218,6 @@ class ComputeSettings:
             raise ConfigError("timeout bounds must be >= 1")
         if self.default_timeout_sec > self.max_timeout_sec:
             raise ConfigError("default_timeout_sec cannot exceed max_timeout_sec")
-        if self.threads < 1:
-            raise ConfigError("threads must be >= 1")
         # Formula execution is core to the compute service and requires at least
         # one worker process. Vision/OCR is optional and can be disabled (ocr_workers=0).
         if self.workers < 1:
@@ -470,17 +461,9 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def load_settings(
+    overrides: Mapping[str, Any] | None = None,
     *,
     config_path: str | Path | None = None,
-    host: str | None = None,
-    port: int | None = None,
-    workers: int | None = None,
-    worker_max_tasks: int | None = None,
-    ocr_workers: int | None = None,
-    ocr_timeout_sec: int | None = None,
-    ocr_max_tasks: int | None = None,
-    api_key_file: str | Path | None = None,
-    log_level: str | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> ComputeSettings:
     """Resolve settings from defaults → JSON → env → explicit CLI overrides."""
@@ -511,25 +494,14 @@ def load_settings(
     env_key_file = (env.get("PYTHON_COMPUTE_API_KEY_FILE") or "").strip()
     json_key_file = str(values.pop("api_key_file", "") or "").strip()
 
-    # Explicit CLI overrides last.
-    if host is not None:
-        values["host"] = host
-    if port is not None:
-        values["port"] = port
-
-    if workers is not None:
-        values["workers"] = workers
-
-    if worker_max_tasks is not None:
-        values["worker_max_tasks"] = worker_max_tasks
-    if ocr_workers is not None:
-        values["ocr_workers"] = ocr_workers
-    if ocr_timeout_sec is not None:
-        values["ocr_timeout_sec"] = ocr_timeout_sec
-    if ocr_max_tasks is not None:
-        values["ocr_max_tasks"] = ocr_max_tasks
-    if log_level is not None:
-        values["log_level"] = log_level
+    # Explicit overrides last.
+    api_key_file = None
+    if overrides:
+        overrides_map = dict(overrides)
+        api_key_file = overrides_map.pop("api_key_file", None)
+        for key, val in overrides_map.items():
+            if val is not None:
+                values[key] = val
 
     # Secret resolution: CLI key-file > env key > env key-file > JSON key-file.
     chosen_key_file = api_key_file or env_key_file or json_key_file or None
@@ -557,10 +529,7 @@ def load_settings(
         else:
             values["host"] = str(values["host"])
 
-    if "log_level" in values:
-        if not values["log_level"]:
-            values.pop("log_level")
-        else:
-            values["log_level"] = normalize_log_level(str(values["log_level"]))
+    if "log_level" in values and not values["log_level"]:
+        values.pop("log_level")
 
     return ComputeSettings(**values)

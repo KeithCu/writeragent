@@ -960,14 +960,14 @@ class TestComputeSettings:
     def test_key_file_strips_trailing_newline(self, tmp_path) -> None:
         key_path = tmp_path / "key"
         key_path.write_text("abc123\n", encoding="utf-8")
-        s = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        s = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == "abc123"
 
     def test_cli_key_file_beats_env_key(self, tmp_path) -> None:
         key_path = tmp_path / "key"
         key_path.write_text("from-file", encoding="utf-8")
         s = load_settings(
-            api_key_file=key_path,
+            {"api_key_file": key_path},
             environ={"PYTHON_COMPUTE_API_KEY": "from-env", "PYTHON_COMPUTE_HOST": "127.0.0.1"},
         )
         assert s.api_key == "from-file"
@@ -1009,7 +1009,7 @@ class TestComputeSettings:
     def test_cli_host_overrides_config(self, tmp_path) -> None:
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({"listen": {"host": "0.0.0.0", "port": 8000}}), encoding="utf-8")
-        s = load_settings(config_path=cfg, host="127.0.0.1", environ={})
+        s = load_settings({"host": "127.0.0.1"}, config_path=cfg, environ={})
         assert s.host == "127.0.0.1"
         assert not s.auth_required
 
@@ -1048,7 +1048,7 @@ class TestComputeSettings:
         s = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.workers == 5
         assert s.threads == 5
-        s2 = load_settings(workers=1, environ={"PYTHON_COMPUTE_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        s2 = load_settings({"workers": 1}, environ={"PYTHON_COMPUTE_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s2.workers == 1
         assert s2.threads == 1
         both = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "4", "PYTHON_COMPUTE_OCR_WORKERS": "2", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
@@ -1138,7 +1138,7 @@ class TestComputeSettings:
         from compute_service.config import ConfigError
 
         with pytest.raises(ConfigError):
-            load_settings(workers=0, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+            load_settings({"workers": 0}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     @pytest.mark.parametrize(
         "value, value_2, value_3, match",
@@ -1163,7 +1163,7 @@ class TestComputeSettings:
         assert s.api_key == key
         key_path = tmp_path / "key_spaces"
         key_path.write_bytes(b" secret ")
-        from_file = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        from_file = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert from_file.api_key == s.api_key
 
     def test_key_file_preserves_leading_and_trailing_spaces(self, tmp_path) -> None:
@@ -1172,14 +1172,14 @@ class TestComputeSettings:
         key_path = tmp_path / "key_spaces"
         # Leading space, no trailing newline
         key_path.write_bytes(b" abc123 ")
-        s = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        s = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == " abc123 "
 
     def test_key_file_strips_only_one_trailing_newline(self, tmp_path) -> None:
         """Verify that only the single trailing newline is removed, not all whitespace."""
         key_path = tmp_path / "key_nl"
         key_path.write_bytes(b"mykey\n")
-        s = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        s = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == "mykey"
 
     def test_json_bool_and_fractional_int_fields_rejected(self, tmp_path) -> None:
@@ -1265,7 +1265,7 @@ class TestComputeSettings:
         key_path = tmp_path / "key.bin"
         key_path.write_bytes(b"\xff\xfe")
         with pytest.raises(ConfigError, match="api_key_file") as exc_info:
-            load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+            load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert isinstance(exc_info.value.__cause__, UnicodeDecodeError)
 
         cfg = tmp_path / "cfg.bin"
@@ -1291,7 +1291,7 @@ class TestComputeSettings:
         key_path.chmod(0)
         try:
             with pytest.raises(ConfigError, match="Cannot read api_key_file") as exc_info:
-                load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+                load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
             message = str(exc_info.value)
         finally:
             key_path.chmod(0o600)
@@ -1301,12 +1301,10 @@ class TestComputeSettings:
         assert isinstance(exc_info.value.__cause__, PermissionError)
 
     def test_compute_settings_none_worker_counts(self) -> None:
-        """Verify ComputeSettings handles None for workers and ocr_workers gracefully."""
+        """Direct ComputeSettings with None worker counts fails with TypeError."""
         kwargs: dict[str, Any] = {"workers": None, "ocr_workers": None}
-        s = ComputeSettings(**kwargs)
-        assert s.workers == 2
-        assert s.ocr_workers == 0
-        assert s.threads == 2
+        with pytest.raises(TypeError):
+            ComputeSettings(**kwargs)
 
     def test_dual_stack_port_zero_bind(self) -> None:
         """Verify WSGIDualStackServer binds cleanly when port=0 and assigns matching port."""
@@ -1929,7 +1927,7 @@ class TestSessionResetHttp:
         key = "sécret-ключ"
         key_path = tmp_path / "key"
         key_path.write_text(key + "\n", encoding="utf-8")
-        settings = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        settings = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert settings.api_key == key
 
         principal, err = authenticate_request({"HTTP_AUTHORIZATION": f"Bearer {key}"}, settings)

@@ -1201,10 +1201,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
+    overrides = {
+        "host": args.host,
+        "port": args.port,
+        "workers": args.workers,
+        "worker_max_tasks": args.worker_max_tasks,
+        "ocr_workers": args.ocr_workers,
+        "ocr_timeout_sec": args.ocr_timeout_sec,
+        "ocr_max_tasks": args.ocr_max_tasks,
+        "api_key_file": args.api_key_file,
+        "log_level": args.log_level,
+    }
     try:
-        settings = load_settings(
-            config_path=args.config_path, host=args.host, port=args.port, workers=args.workers, worker_max_tasks=args.worker_max_tasks, ocr_workers=args.ocr_workers, ocr_timeout_sec=args.ocr_timeout_sec, ocr_max_tasks=args.ocr_max_tasks, api_key_file=args.api_key_file, log_level=args.log_level
-        )
+        settings = load_settings(overrides=overrides, config_path=args.config_path)
     except ConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
