@@ -74,8 +74,8 @@ def test_find_paragraph_for_range_binary_search_hit():
 
 
 def test_search_paragraph_texts_still_exported():
-    matches, total = search_paragraph_texts("foo", ["foo bar", "baz"])
-    assert total == 1
+    matches, truncated = search_paragraph_texts("foo", ["foo bar", "baz"])
+    assert truncated is False
     assert matches[0]["paragraph_index"] == 0
 
 
@@ -240,21 +240,21 @@ def test_two_finds_with_shared_entries_calls_supports_service_once():
 
 
 def test_search_paragraph_texts_literal_case_insensitive():
-    matches, total = search_paragraph_texts("FOO", ["Foo bar", "nope"])
-    assert total == 1
+    matches, truncated = search_paragraph_texts("FOO", ["Foo bar", "nope"])
+    assert truncated is False
     assert matches[0]["text"] == "Foo"
 
 
 def test_search_paragraph_texts_case_sensitive():
-    matches, total = search_paragraph_texts("foo", ["Foo foo"], case_sensitive=True)
-    assert total == 1
+    matches, truncated = search_paragraph_texts("foo", ["Foo foo"], case_sensitive=True)
+    assert truncated is False
     assert len(matches) == 1
     assert matches[0]["text"] == "foo"
 
 
 def test_search_paragraph_texts_regex():
-    matches, total = search_paragraph_texts(r"f.o", ["foo bar"], regex=True)
-    assert total == 1
+    matches, truncated = search_paragraph_texts(r"f.o", ["foo bar"], regex=True)
+    assert truncated is False
     assert matches[0]["text"] == "foo"
 
 
@@ -264,26 +264,27 @@ def test_search_paragraph_texts_invalid_regex():
 
 
 def test_search_paragraph_texts_literal_unicode_offsets():
-    matches, total = search_paragraph_texts("foo", ["İfoo"])
-    assert total == 1
+    matches, truncated = search_paragraph_texts("foo", ["İfoo"])
+    assert truncated is False
     assert matches[0]["text"] == "foo"
 
 
 def test_search_paragraph_texts_multiple_matches_per_paragraph():
-    matches, total = search_paragraph_texts("foo", ["foo foo"])
-    assert total == 2
+    matches, truncated = search_paragraph_texts("foo", ["foo foo"])
+    assert truncated is False
     assert len(matches) == 2
 
 
 def test_search_paragraph_texts_stops_at_max_results_plus_one():
-    matches, total = search_paragraph_texts("foo", ["foo foo foo", "foo"], max_results=2)
+    matches, truncated = search_paragraph_texts("foo", ["foo foo foo", "foo"], max_results=2)
     assert len(matches) == 2
-    assert total == 3
+    assert truncated is True
 
 
 def test_search_paragraph_texts_exact_fit_is_not_truncated():
-    matches, total = search_paragraph_texts("foo", ["foo", "foo"], max_results=2)
-    assert total == len(matches) == 2
+    matches, truncated = search_paragraph_texts("foo", ["foo", "foo"], max_results=2)
+    assert truncated is False
+    assert len(matches) == 2
 
 
 def test_search_paragraph_texts_does_not_scan_past_cap():
@@ -293,21 +294,21 @@ def test_search_paragraph_texts_does_not_scan_past_cap():
         scans.append(1)
         return False
 
-    matches, total = search_paragraph_texts(
+    matches, truncated = search_paragraph_texts(
         "foo",
         ["foo foo foo", "foo"],
         max_results=2,
         stop_checker=check_stop,
     )
     assert len(matches) == 2
-    assert total == 3
+    assert truncated is True
     assert len(scans) == 1
 
 
 def test_search_paragraph_texts_stop_checker_returns_nothing():
-    matches, total = search_paragraph_texts("foo", ["foo"], stop_checker=lambda: True)
+    matches, truncated = search_paragraph_texts("foo", ["foo"], stop_checker=lambda: True)
     assert matches == []
-    assert total == 0
+    assert truncated is False
 
 
 def test_search_paragraph_texts_context_at_edges():

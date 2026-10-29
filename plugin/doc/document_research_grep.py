@@ -146,7 +146,7 @@ def _grep_text_in_writer(
     # return USER_STOPPED. The outer file loop still decides USER_STOPPED:
     # the check after each file's search covers the last file, so Stop during
     # that search is not status: ok.
-    matches, total = search_paragraph_texts(
+    matches, truncated = search_paragraph_texts(
         pattern,
         para_texts,
         regex=regex,
@@ -162,10 +162,9 @@ def _grep_text_in_writer(
     # Bugfix: match_count was the uncapped total from search_paragraph_texts
     # while matches was sliced to max_results, and partial was forced false.
     # Calc and Draw already set match_count to the returned length. Writer
-    # now does too. partial is true when that total is larger than the slice,
-    # or when Stop cut extraction or the scan. search_paragraph_texts counts
-    # up to max_results + 1 hits so this does not guess from len == max_results.
-    partial = total > len(matches) or bool(stop_checker and stop_checker())
+    # now does too. partial is true when another hit exists past the returned matches,
+    # or when Stop cut extraction or the scan.
+    partial = truncated or bool(stop_checker and stop_checker())
     return matches, len(matches), partial
 
 
