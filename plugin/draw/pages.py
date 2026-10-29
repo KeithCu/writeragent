@@ -231,13 +231,10 @@ class ListPages(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
+        from plugin.draw.bridge import resolve_page_and_bridge
 
-        bridge = DrawBridge(ctx.doc)
+        bridge, active_idx = resolve_page_and_bridge(ctx, {})
         pages = bridge.get_pages()
-        active_idx = ctx.active_page_index
-        if active_idx is None:
-            active_idx = bridge.get_active_page_index()
         labels: list[str] = []
         count = pages.getCount()
         for i in range(count):
@@ -259,15 +256,10 @@ class ReadSlideText(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge, find_notes_shape
-        from plugin.framework.errors import is_disposed_exception
+        from plugin.draw.bridge import DrawBridge, find_notes_shape, resolve_page_and_bridge
+        from plugin.framework.errors import is_disposed_exception, uno_probe
 
-        bridge = DrawBridge(ctx.doc)
-        idx = kwargs.get("page")
-        actual_idx = idx if idx is not None else ctx.active_page_index
-        if actual_idx is None:
-            actual_idx = bridge.get_active_page_index()
-
+        _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
         page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
 
         texts = []
@@ -282,14 +274,10 @@ class ReadSlideText(ToolBase):
                 if is_disposed_exception(exc):
                     raise
 
+        notes_shape = find_notes_shape(uno_probe(lambda: page.getNotesPage(), None))
         notes_text = ""
-        try:
-            notes_shape = find_notes_shape(page.getNotesPage())
-            if notes_shape is not None:
-                notes_text = notes_shape.getString() or ""
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
+        if notes_shape is not None:
+            notes_text = uno_probe(lambda: notes_shape.getString() or "", "")
 
         return {"status": "ok", "page": actual_idx, "texts": texts, "notes": notes_text}
 
@@ -323,12 +311,9 @@ class GetPresentationInfo(ToolBase):
             m = mp.getByIndex(i)
             masters.append(m.Name if hasattr(m, "Name") else "Master_%d" % i)
 
-        from plugin.draw.bridge import DrawBridge
+        from plugin.draw.bridge import resolve_page_and_bridge
 
-        bridge = DrawBridge(doc)
-        active_idx = ctx.active_page_index
-        if active_idx is None:
-            active_idx = bridge.get_active_page_index()
+        _bridge, active_idx = resolve_page_and_bridge(ctx, {})
         is_impress = _is_impress_doc(doc)
 
         return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress, "active_page_index": active_idx}
