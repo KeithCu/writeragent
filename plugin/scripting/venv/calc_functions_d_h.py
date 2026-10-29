@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
+from decimal import Decimal
 import math
 from typing import Any, Callable
 
@@ -157,12 +158,12 @@ def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
     # start.month, start.day)`` outside the try, so a Feb 29 start in a
     # non-leap end year raised ValueError.
     try:
+        months = (ed.year - sd.year) * 12 + ed.month - sd.month
+        if sd.day > ed.day:
+            months -= 1
         if u == "D":
             return float((ed - sd).days)
         if u == "M":
-            months = (ed.year - sd.year) * 12 + ed.month - sd.month
-            if sd.day > ed.day:
-                months -= 1
             return float(months)
         if u == "Y":
             return float(ed.year - sd.year - ((ed.month, ed.day) < (sd.month, sd.day)))
@@ -176,9 +177,6 @@ def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
                 anchor = _roll_ymd(ed.year, ed.month - 1, sd.day)
             return float((ed - anchor).days)
         if u == "YM":
-            months = (ed.year - sd.year) * 12 + ed.month - sd.month
-            if sd.day > ed.day:
-                months -= 1
             return float(months % 12)
         if u == "YD":
             if (ed.month, ed.day) >= (sd.month, sd.day):
@@ -336,9 +334,7 @@ def days(end_date: Any, start_date: Any) -> float:
     # DAYS truncates both serials to integers before subtracting. A fractional
     # serial is still that calendar day.
     # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
-    ed = int(float(end_date))
-    sd = int(float(start_date))
-    return float(ed - sd)
+    return float(int(float(end_date)) - int(float(start_date)))
 
 
 def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
@@ -347,7 +343,7 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
     if sd is None or ed is None:
         return float("nan")
     try:
-        european = False if (method is None or method == "") else _as_nonzero(method)
+        european = _as_nonzero(method)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
     return _days360(sd, ed, european=european)
@@ -491,11 +487,8 @@ def dmin(db: Any, field: Any, criteria: Any) -> float:
     return _dagg(db, field, criteria, np.min, min_n=1, empty=0.0)
 
 
-def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
-    """Format ``val`` after rounding half-up to ``decimals`` places."""
-    # Half away from zero (2.5 -> 3, -2.5 -> -3). Python round() is half-to-even.
+def _format_quantized(q: Decimal, decimals: int, *, commas: bool) -> str:
     places = max(0, decimals)
-    q = _round_half_up(val, decimals)
     # Decimal('-0.00') formats as "-0.00". A rounded zero has no sign.
     # FIXED(-0.001, 2) was "-0.00". DOLLAR already hides it via q < 0.
     if q == 0:
@@ -503,6 +496,12 @@ def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
     if places == 0:
         return f"{int(q):,}" if commas else str(int(q))
     return f"{q:,.{places}f}" if commas else f"{q:.{places}f}"
+
+
+def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
+    """Format ``val`` after rounding half-up to ``decimals`` places."""
+    # Half away from zero (2.5 -> 3, -2.5 -> -3). Python round() is half-to-even.
+    return _format_quantized(_round_half_up(val, decimals), decimals, commas=commas)
 
 
 def dollar(number: Any, decimals: Any = 2) -> str | float:
@@ -513,12 +512,8 @@ def dollar(number: Any, decimals: Any = 2) -> str | float:
     if not math.isfinite(val):
         return float("nan")
     q = _round_half_up(val, dec)
-    places = max(0, dec)
-    if places == 0:
-        s = f"{abs(int(q)):,}"
-    else:
-        s = f"{abs(q):,.{places}f}"
-    return f"-${s}" if q < 0 else f"${s}"
+    magnitude = _format_quantized(abs(q), dec, commas=True)
+    return f"-${magnitude}" if q < 0 else f"${magnitude}"
 
 
 def _fractional_dollar_digits(fraction: int) -> int:
@@ -544,7 +539,7 @@ def _dollar_fraction_terms(
     # type errors are left to the worker exception path, which returns #VALUE!
     except OverflowError:
         return None
-    if f <= 0 or not math.isfinite(amt) or not math.isfinite(frac):
+    if f <= 0:
         return None
     sign = -1.0 if amt < 0 else 1.0
     amt = abs(amt)
@@ -642,30 +637,28 @@ def dvarp(db: Any, field: Any, criteria: Any) -> float:
     return _dagg(db, field, criteria, lambda vals: np.var(vals, ddof=0), min_n=1)
 
 
-def _shift_months(sd: dt.date, months: Any) -> tuple[int, int]:
-    """Move ``sd`` by whole months."""
+def _month_shift_serial(start_date: Any, months: Any, *, end_of_month: bool) -> float:
+    sd = _serial_to_date(start_date)
+    if sd is None:
+        return float("nan")
     # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
     month_delta = int(float(months))
     y, m = sd.year, sd.month
     m += month_delta
     y += (m - 1) // 12
     m = (m - 1) % 12 + 1
-    return y, m
-
-
-def edate(start_date: Any, months: Any) -> float:
-    # Month length comes from calendar.monthrange, including February in a leap year.
-    sd = _serial_to_date(start_date)
-    if sd is None:
-        return float("nan")
-    y, m = _shift_months(sd, months)
     try:
         dim = calendar.monthrange(y, m)[1]
-        d = min(sd.day, dim)
+        d = dim if end_of_month else min(sd.day, dim)
         res_date = dt.date(y, m, d)
         return float(_date_to_serial(res_date))
     except (ValueError, OverflowError):
         return float("nan")
+
+
+def edate(start_date: Any, months: Any) -> float:
+    # Month length comes from calendar.monthrange, including February in a leap year.
+    return _month_shift_serial(start_date, months, end_of_month=False)
 
 
 def effect(nominal_rate: Any, npery: Any) -> float:
@@ -691,16 +684,7 @@ def encodeurl(text: Any) -> str:
 
 def eomonth(start_date: Any, months: Any) -> float:
     # Last day of the month via _serial_to_date and calendar.monthrange.
-    sd = _serial_to_date(start_date)
-    if sd is None:
-        return float("nan")
-    y, m = _shift_months(sd, months)
-    try:
-        dim = calendar.monthrange(y, m)[1]
-        res_date = dt.date(y, m, dim)
-        return float(_date_to_serial(res_date))
-    except (ValueError, OverflowError):
-        return float("nan")
+    return _month_shift_serial(start_date, months, end_of_month=True)
 
 
 def erf(lower: Any, upper: Any | None = None) -> float:
@@ -749,7 +733,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
         res = eur_val * _EURO_RATES[to_curr]
 
     try:
-        is_full = False if (full_precision is None or full_precision == "") else _as_nonzero(full_precision)
+        is_full = _as_nonzero(full_precision)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
@@ -912,7 +896,7 @@ def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float
     val = float(number)
     dec = int(float(decimals))
     try:
-        nc = False if (no_commas is None or no_commas == "") else _as_nonzero(no_commas)
+        nc = _as_nonzero(no_commas)
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
     # Non-finite input is #NUM!. _round_half_up(inf) raises ValueError (#VALUE!).
