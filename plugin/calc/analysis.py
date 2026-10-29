@@ -218,7 +218,7 @@ class SolverTool(ToolBaseDummy):
                     selected_engine_label = svc
                     break
 
-            # 3. Enumerate implementations (deprioritize DEPS/NLPSolver — see _priority)
+            # 3. Enumerate implementations (loop skips DEPS/NLPSolver; _priority sorts CoinMP/Lpsolve ahead of other selectable engines)
             if not solver:
                 enum_access = smgr.createInstanceWithContext("com.sun.star.container.XContentEnumerationAccess", ctx.ctx)
                 if enum_access:
@@ -234,8 +234,6 @@ class SolverTool(ToolBaseDummy):
                             name = ""
                             if hasattr(factory, "getImplementationName"):
                                 name = factory.getImplementationName()
-                            if _impl_name_is_java_nlp_headless_unsafe(name):
-                                return 99
                             if "CoinMP" in name or "Lpsolve" in name:
                                 return 0
                             return 1

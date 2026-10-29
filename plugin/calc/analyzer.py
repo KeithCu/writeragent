@@ -180,6 +180,14 @@ class SheetAnalyzer:
             raise ToolExecutionError(str(e)) from e
 
 
+def _internal_tab_header(active_name: str, sheet_name: str) -> str:
+    return (
+        f"Active Tab: {active_name} (internal; not summarized)\n"
+        f"Inspected Sheet: {sheet_name}\n"
+        f'Pass sheet="{sheet_name}" to sheet and range tools to read or write it.\n'
+    )
+
+
 @main_thread_only
 def get_calc_context_for_chat(
     model: Any,
@@ -199,16 +207,15 @@ def get_calc_context_for_chat(
         ctx_str = f"Spreadsheet Document: {model.getURL() or 'Untitled'}\n"
         ctx_str += f"Sheets: {vs.names}\n"
 
-        if vs.target is None or vs.summary is None:
+        if vs.target is None:
             return truncate_chat_context(ctx_str + "No user-visible sheets.\n", max_context)
 
+        assert vs.summary is not None
         summary = vs.summary
         if vs.active_is_visible:
             ctx_str += f"Active Sheet: {summary['sheet_name']}\n"
         else:
-            ctx_str += f"Active Tab: {vs.active_name} (internal; not summarized)\n"
-            ctx_str += f"Inspected Sheet: {summary['sheet_name']}\n"
-            ctx_str += f'Pass sheet="{summary["sheet_name"]}" to sheet and range tools to read or write it.\n'
+            ctx_str += _internal_tab_header(vs.active_name, summary["sheet_name"])
         ctx_str += f"Used Range: {summary['used_range']} ({summary['row_count']} rows x {summary['col_count']} columns)\n"
         ctx_str += f"Columns: {_format_columns(summary['headers'])}\n"
 
@@ -263,15 +270,14 @@ def get_full_calc_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CH
     """
     check_disposed(model, "Document Model")
     vs = _resolve_visible_sheet(model)
-    if vs.target is None or vs.summary is None:
+    if vs.target is None:
         return truncate_chat_context("No user-visible sheets.\n", max_chars)
+    assert vs.summary is not None
     summary = vs.summary
     if vs.active_is_visible:
         text = f"Sheet: {summary['sheet_name']}\n"
     else:
-        text = f"Active Tab: {vs.active_name} (internal; not summarized)\n"
-        text += f"Inspected Sheet: {summary['sheet_name']}\n"
-        text += f'Pass sheet="{summary["sheet_name"]}" to sheet and range tools to read or write it.\n'
+        text = _internal_tab_header(vs.active_name, summary["sheet_name"])
     text += f"Used Range: {summary['used_range']}\n"
     text += f"Columns: {_format_columns(summary['headers'])}\n"
     return truncate_chat_context(text, max_chars)

@@ -73,16 +73,20 @@ ERROR_TYPES = {
     32767: {"code": "#N/A", "name": "#N/A", "description": "The value is not available. A lookup or reference did not find a match."},
 }
 
-# Bugfix: unifies the two disparate Calc error token lists (ERROR_PATTERNS here
-# and _CALC_ERROR_STRINGS in graph.py). Previously graph.py missed Err:NNN codes
-# and ERROR_PATTERNS missed #ERROR!. Case-insensitive lookup maps to canonical spelling.
-ERROR_PATTERNS = frozenset({
+# Bugfix: one case-insensitive display-token list. It includes #ERROR! and the
+# Err:NNN forms. "Err:502".upper() is "ERR:502", so the canonical spelling is
+# the dict value, not the key.
+_ERROR_PATTERN_BY_UPPER = {token.upper(): token for token in (
     "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "#ERROR!",
     "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532",
-})
-# "Err:502".upper() is "ERR:502", so membership on the uppercased text cannot
-# use the canonical spelling as the key.
-_ERROR_PATTERN_BY_UPPER = {token.upper(): token for token in ERROR_PATTERNS}
+)}
+
+_STATIC_ERROR_SUGGESTIONS: dict[Any, str] = {
+    524: "#REF! error: Invalid cell reference. The reference may be broken due to a deleted cell, row, or column. Check the formula and update the references.",
+    522: "Circular reference: the formula refers to itself directly or indirectly. Break the circular chain or enable iterative calculation.",
+    525: "Unrecognised name error. Make sure the function name in the formula is spelled correctly and that any defined names exist.",
+    32767: "#N/A: a lookup or reference did not find a match. Check the search value or add a default with IFERROR.",
+}
 
 
 def is_calc_error_display(value: object) -> str | None:
@@ -90,13 +94,6 @@ def is_calc_error_display(value: object) -> str | None:
     if isinstance(value, str):
         return _ERROR_PATTERN_BY_UPPER.get(value.strip().upper())
     return None
-
-
-def get_calc_error_name(error_code: int) -> str:
-    """Return a human-readable name for a Calc error code."""
-    if error_code in ERROR_TYPES:
-        return ERROR_TYPES[error_code]["name"]
-    return f"Unknown error ({error_code})"
 
 
 class ErrorDetector:
@@ -131,9 +128,7 @@ class ErrorDetector:
         if error_code == 0:
             return {}
         if error_code in ERROR_TYPES:
-            info = ERROR_TYPES[error_code].copy()
-            info["error_code"] = error_code
-            return info
+            return {**ERROR_TYPES[error_code], "error_code": error_code}
         return {"error_code": error_code, "code": f"Err:{error_code}", "name": "Unknown error", "description": f"Unknown error code: {error_code}"}
 
     def detect_errors(self, range_str: str | None = None) -> list[dict[str, Any]]:
@@ -168,18 +163,14 @@ class ErrorDetector:
         cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
         formula_cells = cell_range.queryFormulaCells(RESULT_ERROR)
 
-        if formula_cells:
-            # getCells() returns a collection of cells. We can iterate over them.
-            cells_collection = formula_cells.getCells()
-            if cells_collection:
-                enum = cells_collection.createEnumeration()
-                while enum.hasMoreElements():
-                    cell = enum.nextElement()
-                    error_info = self.get_error_type(cell)
-                    if error_info:
-                        addr = cell.getCellAddress()
-                        address = qualify_a1(str(sheet.getName()), format_address(addr.Column, addr.Row))
-                        errors.append({"address": address, "formula": cell.getFormula(), "error": error_info})
+        enum = formula_cells.getCells().createEnumeration()
+        while enum.hasMoreElements():
+            cell = enum.nextElement()
+            error_info = self.get_error_type(cell)
+            if error_info:
+                addr = cell.getCellAddress()
+                address = qualify_a1(str(sheet.getName()), format_address(addr.Column, addr.Row))
+                errors.append({"address": address, "formula": cell.getFormula(), "error": error_info})
 
         log.debug("%d errors detected (range: %s).", len(errors), range_str or "full sheet")
         return errors
@@ -251,8 +242,7 @@ class ErrorDetector:
 
         for item in errors[:_MAX_EXPLAINED_ERRORS]:
             address = item.get("address")
-            if not address:
-                continue
+            assert isinstance(address, str)
             try:
                 detailed.append(self.explain_error(address))
             except Exception as e:
@@ -272,6 +262,9 @@ class ErrorDetector:
     def _generate_suggestion(error_info: dict[str, Any], precedents: list[dict[str, Any]]) -> str:
         """Generate a fix suggestion based on error type and precedent cells."""
         error_code = error_info.get("error_code")
+        static = _STATIC_ERROR_SUGGESTIONS.get(error_code)
+        if static is not None:
+            return static
 
         if error_code == 532:
             zero_cells = [p["address"] for p in precedents if p.get("value") == 0 or p.get("value") is None]
@@ -279,22 +272,10 @@ class ErrorDetector:
                 return f"Division by zero error. The following cells are zero or empty: {', '.join(zero_cells)}. Try adding a zero check with the IF function: =IF(divisor<>0; dividend/divisor; 0)"
             return "Division by zero error. Make sure the divisor value is not zero or add a check with the IF function."
 
-        if error_code == 524:
-            return "#REF! error: Invalid cell reference. The reference may be broken due to a deleted cell, row, or column. Check the formula and update the references."
-
-        if error_code == 522:
-            return "Circular reference: the formula refers to itself directly or indirectly. Break the circular chain or enable iterative calculation."
-
-        if error_code == 525:
-            return "Unrecognised name error. Make sure the function name in the formula is spelled correctly and that any defined names exist."
-
         if error_code == 519:
             text_cells = [p["address"] for p in precedents if p.get("type") == "text"]
             if text_cells:
                 return f"Value type error. The following cells contain text instead of numbers: {', '.join(text_cells)}. You can use the VALUE() function for text-to-number conversion."
             return "Value type error. A value of an unexpected type was used in the formula. Check the types of cell values."
-
-        if error_code == 32767:
-            return "#N/A: a lookup or reference did not find a match. Check the search value or add a default with IFERROR."
 
         return error_info.get("description", "Unknown error. Check the formula.")
