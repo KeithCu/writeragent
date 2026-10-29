@@ -138,7 +138,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
 
             # Catalog stores identity (sheet / named_range / frozen A1), not
             # expanded used-range. Bounds are resolved at read time below.
-            for tbl_name, spec in (tables or {}).items():
+            for tbl_name, spec in tables.items():
                 if not tbl_name:
                     continue
                 try:
@@ -165,7 +165,6 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                 except ToolExecutionError as exc:
                     return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
                 bn = str(file_spec.get("file") or "")
-                sheet_hint = file_spec.get("sheet")
 
                 ext = os.path.splitext(bn)[1].lower()
                 if not scoped:
@@ -183,7 +182,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                     # (None, None) skip used to append the basename to direct_files
                     # so SQL ran without the table and looked like a missing FROM.
                     try:
-                        office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, sheet_hint=sheet_hint)
+                        office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, file_spec)
                     except ToolExecutionError as exc:
                         return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
                     preloaded[table_name] = {"grid": office_grid, "headers": headers}
@@ -195,7 +194,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
 
             # Enforce the same data size limit used for analysis / =PY()
             max_cells = configured_python_max_data_cells()
-            for name, entry in list(preloaded.items()):
+            for name, entry in preloaded.items():
                 g = entry["grid"]
                 if g:
                     size_err = check_python_data_size(g, max_cells=max_cells)
@@ -278,13 +277,7 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
     elif file_spec:
         file_spec = os.path.basename(file_spec)
 
-    present: list[str] = []
-    if sheet:
-        present.append("sheet")
-    if named_range:
-        present.append("named_range")
-    if range_a1:
-        present.append("range")
+    present: list[str] = [k for k, v in (("sheet", sheet), ("named_range", named_range), ("range", range_a1)) if v]
 
     if len(present) > 1:
         raise ToolExecutionError(f"Table spec must use exactly one of sheet, named_range, or range (got {', '.join(present)})", code="DUCKDB_SQL_ERROR")
@@ -330,7 +323,7 @@ def _lookup_database_range_object(doc: Any, name: str) -> Any | None:
 def _range_address_to_qualified_a1(doc: Any, addr: Any) -> str:
     sheet_idx = int(getattr(addr, "Sheet", 0))
     sheet_name = str(doc.getSheets().getByIndex(sheet_idx).getName())
-    return _sheet_qualified_a1(sheet_name, format_range_address(addr, collapse_single=True))
+    return qualify_a1(sheet_name, format_range_address(addr, collapse_single=True))
 
 
 def used_range_qualified_a1(sheet: Any) -> str:
@@ -338,7 +331,7 @@ def used_range_qualified_a1(sheet: Any) -> str:
     from plugin.calc.spreadsheet_import.ingest import _used_range_address
 
     addr = _used_range_address(sheet)
-    return _sheet_qualified_a1(str(sheet.getName()), format_range_address(addr, collapse_single=True))
+    return qualify_a1(str(sheet.getName()), format_range_address(addr, collapse_single=True))
 
 
 def _named_object_to_qualified_a1(doc: Any, obj: Any, *, label: str) -> str:
@@ -420,20 +413,13 @@ def read_table_source_grid(ctx: Any, active_doc: Any, scoped_dir: str | None, pa
     full_path = os.path.join(scoped_dir, str(file_bn)) if scoped_dir else str(file_bn)
     if not os.path.isfile(full_path):
         raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} not found under the document folder", code="DUCKDB_SQL_ERROR")
-    grid = _read_sibling_office_file_as_grid(ctx, full_path, sheet_hint=parsed.get("sheet"), named_range=parsed.get("named_range"), range_a1=parsed.get("range"))
-    return grid
-
-
-def _sheet_qualified_a1(sheet_name: str, range_str: str) -> str:
-    """Qualify an A1 range so CellInspector hits *sheet_name* without setActiveSheet."""
-    return qualify_a1(sheet_name, range_str)
+    return _read_sibling_office_file_as_grid(ctx, full_path, parsed)
 
 
 def _sibling_office_error(full_path: str, message: str, *, sheet: str | None = None, code: str = "DUCKDB_SQL_ERROR") -> ToolExecutionError:
     bn = os.path.basename(full_path)
-    if sheet:
-        return ToolExecutionError(f"Sibling spreadsheet {bn!r} sheet {sheet!r}: {message}", code=code)
-    return ToolExecutionError(f"Sibling spreadsheet {bn!r}: {message}", code=code)
+    where = f" sheet {sheet!r}" if sheet else ""
+    return ToolExecutionError(f"Sibling spreadsheet {bn!r}{where}: {message}", code=code)
 
 
 def _source_is_open_workbook(ctx: Any, full_path: str) -> bool:
@@ -497,7 +483,7 @@ def _resolve_sibling_open_path(ctx: Any, full_path: str) -> tuple[str, bool, Ods
     return full_path, False, cache_entry(full_path)
 
 
-def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cache_hit: bool, entry: OdsCacheEntry | None) -> None:
+def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, entry: OdsCacheEntry | None) -> None:
     """On a conversion miss, Save As the imported XLSX/XLS into the folder cache.
 
     ``opened_flag`` is the live-workbook guard: False means we reused a
@@ -507,7 +493,7 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cac
     """
     from plugin.calc.ods_cache import cache_entry, write_sidecar_meta
 
-    if cache_hit or not opened_flag or entry is None:
+    if not opened_flag or entry is None:
         return
     try:
         _export_model_to_cached_ods(model, entry.ods)
@@ -525,27 +511,20 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cac
         log.exception("Failed to write ODS cache for %s", full_path)
 
 
-def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str | None = None, *, named_range: str | None = None, range_a1: str | None = None) -> list[list[Any]]:
+def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str, Any]) -> list[list[Any]]:
     """Open a sibling .xlsx/.ods hidden+readonly and read a table identity.
 
     Default / ``#SheetName`` is that sheet's used range (same
     ``createCursor`` + ``gotoStart/EndOfUsedArea`` path as ``SheetAnalyzer``).
-    ``named_range`` and ``range_a1`` are the same identities as the ``tables``
-    catalog. Returns ``grid``. Raises ``ToolExecutionError`` on
-    open, missing sheet/name, or empty/unusable used-range — never ``(None, None)``.
+    ``parsed`` is a ``parse_table_source_spec`` dict. Returns ``grid``.
+    Raises ``ToolExecutionError`` on open, missing sheet/name, or
+    empty/unusable used-range — never ``(None, None)``.
 
     Sibling ``.xlsx``/``.xls`` reuse ``writeragent_ods_cache/`` when the
     source mtime/size still match. Native ``.ods`` and the live workbook
     skip the cache. Table name stays the *source* stem so a cache-hit open
     does not register a hash filename.
     """
-    if named_range:
-        parsed: dict[str, Any] = {"kind": "named_range", "sheet": None, "named_range": named_range, "range": None, "file": os.path.basename(full_path), "headers": True}
-    elif range_a1:
-        parsed = {"kind": "range", "sheet": None, "named_range": None, "range": range_a1, "file": os.path.basename(full_path), "headers": True}
-    else:
-        parsed = {"kind": "sheet", "sheet": (sheet_hint or "").strip() or None, "named_range": None, "range": None, "file": os.path.basename(full_path), "headers": True}
-
     open_path, cache_hit, entry = _resolve_sibling_open_path(ctx, full_path)
     model = None
     opened_flag = False
@@ -559,7 +538,6 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
                 close_document_research_document(model, opened_for_document_research=opened_flag)
             model = None
             opened_flag = False
-            cache_hit = False
             from plugin.calc.ods_cache import cache_entry
 
             entry = cache_entry(full_path)
@@ -578,7 +556,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
             identity = parsed.get("named_range") or parsed.get("sheet") or os.path.basename(full_path)
             raise _sibling_office_error(full_path, "used range is empty; nothing to register for SQL", sheet=str(identity) if identity else None)
 
-        _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, cache_hit=cache_hit, entry=entry)
+        _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, entry=entry)
 
         return grid
     except ToolExecutionError:

@@ -66,7 +66,7 @@ def test_sibling_ods_used_range_is_tight(ctx, doc):
         TestingFactory.close_doc(sibling)
         sibling = None
 
-        grid = _read_sibling_office_file_as_grid(ctx, ods_path, sheet_hint="Actuals")
+        grid = _read_sibling_office_file_as_grid(ctx, ods_path, parse_table_source_spec({"file": "budget.ods#Actuals"}))
         assert len(grid) == 2, f"used-range padded rows: {len(grid)}"
         assert len(grid[0]) == 2, f"used-range padded cols: {len(grid[0])}"
         assert grid[0][0] == "Region"
@@ -91,7 +91,7 @@ def test_sibling_xlsx_used_range_is_tight(ctx, doc):
         TestingFactory.close_doc(sibling)
         sibling = None
 
-        grid = _read_sibling_office_file_as_grid(ctx, xlsx_path, sheet_hint="Actuals")
+        grid = _read_sibling_office_file_as_grid(ctx, xlsx_path, parse_table_source_spec({"file": "budget.xlsx#Actuals"}))
         assert len(grid) == 2, f"used-range padded rows: {len(grid)}"
         assert len(grid[0]) == 2, f"used-range padded cols: {len(grid[0])}"
         assert grid[0] == ["Region", "Sales"] or grid[0][0] == "Region"
@@ -115,7 +115,7 @@ def test_sibling_bad_sheet_hint_errors(ctx, doc):
         sibling = None
 
         try:
-            _read_sibling_office_file_as_grid(ctx, ods_path, sheet_hint="MissingSheet")
+            _read_sibling_office_file_as_grid(ctx, ods_path, parse_table_source_spec({"file": "budget.ods#MissingSheet"}))
         except ToolExecutionError as exc:
             msg = str(exc)
             assert "budget.ods" in msg
@@ -140,7 +140,7 @@ def test_sibling_empty_sheet_errors(ctx, doc):
         sibling = None
 
         try:
-            _read_sibling_office_file_as_grid(ctx, ods_path)
+            _read_sibling_office_file_as_grid(ctx, ods_path, parse_table_source_spec({"file": "empty.ods"}))
         except ToolExecutionError as exc:
             msg = str(exc).lower()
             assert "empty.ods" in str(exc)
@@ -307,7 +307,7 @@ def test_sibling_xlsx_writes_ods_cache_and_reuses_it(ctx, doc):
         TestingFactory.close_doc(sibling)
         sibling = None
 
-        grid1 = _read_sibling_office_file_as_grid(ctx, xlsx_path, sheet_hint="Actuals")
+        grid1 = _read_sibling_office_file_as_grid(ctx, xlsx_path, parse_table_source_spec({"file": "budget.xlsx#Actuals"}))
         assert grid1[0][0] == "Region"
         assert len(grid1) == 2
 
@@ -320,12 +320,12 @@ def test_sibling_xlsx_writes_ods_cache_and_reuses_it(ctx, doc):
         assert os.path.isdir(os.path.join(temp_dir, ODS_CACHE_DIRNAME))
 
         grid_from_cache = _read_sibling_office_file_as_grid(
-            ctx, str(cached), sheet_hint="Actuals"
+            ctx, str(cached), parse_table_source_spec({"file": f"{os.path.basename(str(cached))}#Actuals"})
         )
         assert len(grid_from_cache) == 2
         assert grid_from_cache[0][0] == "Region"
 
-        grid2 = _read_sibling_office_file_as_grid(ctx, xlsx_path, sheet_hint="Actuals")
+        grid2 = _read_sibling_office_file_as_grid(ctx, xlsx_path, parse_table_source_spec({"file": "budget.xlsx#Actuals"}))
         assert grid2[0][0] == "Region"
         assert len(grid2) == 2
     finally:
@@ -346,7 +346,7 @@ def test_sibling_ods_does_not_write_ods_cache(ctx, doc):
         TestingFactory.close_doc(sibling)
         sibling = None
 
-        _read_sibling_office_file_as_grid(ctx, ods_path, sheet_hint="Actuals")
+        _read_sibling_office_file_as_grid(ctx, ods_path, parse_table_source_spec({"file": "budget.ods#Actuals"}))
         cache_dir = os.path.join(temp_dir, ODS_CACHE_DIRNAME)
         assert not os.path.isdir(cache_dir), "native .ods must not create writeragent_ods_cache/"
     finally:
