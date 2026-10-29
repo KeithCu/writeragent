@@ -217,18 +217,7 @@ class OptionalFlushFileHandler(logging.FileHandler):
 
     # FileHandler assigns stream in __init__ with no annotation basedpyright can see.
     stream: Any
-    _writeragent_debug_handler: bool
-
-    def __init__(
-        self,
-        filename: str | os.PathLike[str],
-        mode: str = "a",
-        encoding: str | None = None,
-        delay: bool = False,
-        errors: str | None = None,
-    ) -> None:
-        super().__init__(filename, mode=mode, encoding=encoding, delay=delay, errors=errors)
-        self._writeragent_debug_handler = True
+    _writeragent_debug_handler: bool = True
 
     def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
@@ -326,13 +315,10 @@ class OptionalFlushFileHandler(logging.FileHandler):
 
 
 def _debug_file_handler_from_sys() -> OptionalFlushFileHandler | None:
-    # Marker first, then isinstance(..., OptionalFlushFileHandler), else None.
-    # isinstance against this module's class is false for the handler created by the other copy.
+    # Class attribute, so a handler built by a second import of this module still matches.
     handler = getattr(sys, "_writeragent_debug_file_handler", None)
     if getattr(handler, "_writeragent_debug_handler", False):
         return cast("OptionalFlushFileHandler", handler)
-    if isinstance(handler, OptionalFlushFileHandler):
-        return handler
     return None
 
 
@@ -561,34 +547,27 @@ def log_exception(ex: BaseException, context: str = "WriterAgent") -> None:
         pass
 
 
-def _redacted_display_args(args: Any) -> Any:
-    """Same secret walk as the debug log, before the display truncates reprs."""
-    if isinstance(args, dict):
-        return redact_sensitive_payload_for_log(args)
-    return args
+def _format_display_args(args: Any) -> str:
+    if not isinstance(args, dict):
+        return ""
+    redacted = redact_sensitive_payload_for_log(args)
+    parts: list[str] = []
+    for k, v in redacted.items():
+        val_str = repr(v)
+        if len(val_str) > 100:
+            if isinstance(v, str):
+                val_str = repr(v[:100] + "...")
+            else:
+                val_str = val_str[:100] + "..."
+        parts.append(f"{k}={val_str}")
+    return ", ".join(parts)
 
 
 def format_tool_call_for_display(tool: Any, args: Any, method: Any = None) -> str:
     """Format an MCP tool call or generic method call for UI display, summarizing long arguments."""
     try:
         if tool:
-            args_dict = _redacted_display_args(args or {})
-            arg_vals = []
-            if isinstance(args_dict, dict):
-                for k, v in args_dict.items():
-                    if isinstance(k, str) and k.casefold() in _SECRET_LOG_KEYS and isinstance(v, str):
-                        val_str = repr(LOG_REDACT_SECRET_PLACEHOLDER)
-                        arg_vals.append(f"{k}={val_str}")
-                        continue
-                    val_str = repr(v)
-                    if len(val_str) > 100:
-                        if isinstance(v, str):
-                            val_str = repr(v[:100] + "...")
-                        else:
-                            val_str = val_str[:100] + "..."
-                    arg_vals.append(f"{k}={val_str}")
-            args_str = ", ".join(arg_vals)
-            return f"{tool}({args_str})"
+            return f"{tool}({_format_display_args(args or {})})"
         else:
             return method or "GET"
     except Exception as e:
@@ -621,23 +600,7 @@ def format_tool_result_for_display(tool: Any, result: Any, args: Any = None) -> 
             else:
                 val_repr = val_repr[:150] + "..."
 
-        args_str = ""
-        if args:
-            args_dict = _redacted_display_args(args) if isinstance(args, dict) else {}
-            arg_vals = []
-            for k, v in args_dict.items():
-                if isinstance(k, str) and k.casefold() in _SECRET_LOG_KEYS and isinstance(v, str):
-                    arg_vals.append(f"{k}={repr(LOG_REDACT_SECRET_PLACEHOLDER)}")
-                    continue
-                v_str = repr(v)
-                if len(v_str) > 100:
-                    if isinstance(v, str):
-                        v_str = repr(v[:100] + "...")
-                    else:
-                        v_str = v_str[:100] + "..."
-                arg_vals.append(f"{k}={v_str}")
-            args_str = ", ".join(arg_vals)
-
+        args_str = _format_display_args(args) if args and isinstance(args, dict) else ""
         if args_str:
             return f"{tool}({args_str}) -> {val_repr}"
         return f"{tool}() -> {val_repr}"
@@ -681,6 +644,17 @@ def note_activity() -> None:
         shared["activity"]["last_activity"] = time.monotonic()
 
 
+def _post_main(fn: Any, *args: Any, fail_msg: str) -> bool:
+    try:
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(fn, *args)
+    except Exception:
+        log.debug(fail_msg, exc_info=True)
+        return False
+    return True
+
+
 def update_activity_state(phase: str, round_num: Any = None, tool_name: str | None = None, status_control: Any = None) -> None:
     """Update shared activity state (call from main thread at phase boundaries).
 
@@ -710,12 +684,7 @@ def update_activity_state(phase: str, round_num: Any = None, tool_name: str | No
             act["status_control"] = None
 
     if not phase and ctrl_to_clear is not None:
-        try:
-            from plugin.framework.queue_executor import post_to_main_thread
-
-            post_to_main_thread(_clear_hung_status, ctrl_to_clear)
-        except Exception:
-            log.debug("watchdog: failed to post Hung-status clear", exc_info=True)
+        _post_main(_clear_hung_status, ctrl_to_clear, fail_msg="watchdog: failed to post Hung-status clear")
 
 
 def _clear_hung_status(status_control: Any) -> None:
@@ -778,13 +747,8 @@ def _watchdog_check(status_control: Any) -> None:
     if elapsed < _watchdog_threshold_sec:
         shared["stacks_dumped"] = False
         if shared["hung_shown"] and active_status_control is not None:
-            try:
-                from plugin.framework.queue_executor import post_to_main_thread
-
-                post_to_main_thread(_clear_hung_status, active_status_control)
+            if _post_main(_clear_hung_status, active_status_control, fail_msg="watchdog: failed to clear Hung status"):
                 shared["hung_shown"] = False
-            except Exception:
-                log.debug("watchdog: failed to clear Hung status", exc_info=True)
         return
     msg = "WATCHDOG: no activity for %ds; phase=%s round=%s tool=%s" % (int(elapsed), phase, round_num, tool_name if tool_name else "")
     log.debug(f"[Chat] {msg}")
@@ -798,13 +762,8 @@ def _watchdog_check(status_control: Any) -> None:
         hung_text = "%s %s round %s" % (_HUNG_STATUS_PREFIX, phase, round_num)
         if tool_name:
             hung_text += " %s" % tool_name
-        try:
-            from plugin.framework.queue_executor import post_to_main_thread
-
-            post_to_main_thread(active_status_control.setText, hung_text)
+        if _post_main(active_status_control.setText, hung_text, fail_msg="watchdog: failed to post Hung status to main thread"):
             shared["hung_shown"] = True
-        except Exception:
-            log.debug("watchdog: failed to post Hung status to main thread", exc_info=True)
 
 
 def _watchdog_loop(status_control: Any) -> None:
