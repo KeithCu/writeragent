@@ -58,7 +58,7 @@ class NamedRangeHit(NamedTuple):
     named_range: Any
 
 
-def _named_range_hit(container: Any, name: str, scope: str, sheet: Any | None) -> NamedRangeHit | None:
+def named_range_hit(container: Any, name: str, scope: str, sheet: Any | None) -> NamedRangeHit | None:
     """Return the hit when *container* has a NamedRanges entry called *name*."""
     nrs = getattr(container, "NamedRanges", None)
     if nrs is None or not hasattr(nrs, "hasByName") or not nrs.hasByName(name):
@@ -89,36 +89,37 @@ def find_named_range(doc: Any, name: str) -> NamedRangeHit | None:
     # 1. Sheet prefix
     if prefix and sheets is not None and hasattr(sheets, "hasByName") and sheets.hasByName(prefix):
         target_sheet = sheets.getByName(prefix)
-        return _named_range_hit(target_sheet, bare_name, prefix, target_sheet)
+        return named_range_hit(target_sheet, bare_name, prefix, target_sheet)
 
     # 2. Active sheet
     active_sheet = uno_read(lambda: CalcBridge(doc).get_active_sheet(), None)
+    active_name = (
+        active_sheet.getName()
+        if (active_sheet is not None and hasattr(active_sheet, "getName"))
+        else None
+    )
     if active_sheet is not None:
-        scope = active_sheet.getName() if hasattr(active_sheet, "getName") else ""
-        hit = _named_range_hit(active_sheet, clean_name, scope, active_sheet)
+        scope = "" if active_name is None else active_name
+        hit = named_range_hit(active_sheet, clean_name, scope, active_sheet)
         if hit is not None:
             return hit
 
     # 3. Workbook global
-    hit = _named_range_hit(doc, clean_name, "global", None)
+    hit = named_range_hit(doc, clean_name, "global", None)
     if hit is not None:
         return hit
 
     # 4. Other agent-visible sheets in index order
     if sheets is not None and hasattr(sheets, "getCount"):
-        active_name = (
-            active_sheet.getName()
-            if (active_sheet is not None and hasattr(active_sheet, "getName"))
-            else None
-        )
         for idx in range(sheets.getCount()):
             sheet = sheets.getByIndex(idx)
             s_name = sheet.getName() if hasattr(sheet, "getName") else ""
-            if sheet is active_sheet or (active_name is not None and s_name == active_name):
+            # Each pyuno call returns a new proxy, so identity never matches the active sheet.
+            if active_name is not None and s_name == active_name:
                 continue
             if not is_agent_visible_sheet(s_name):
                 continue
-            hit = _named_range_hit(sheet, clean_name, s_name, sheet)
+            hit = named_range_hit(sheet, clean_name, s_name, sheet)
             if hit is not None:
                 return hit
 
@@ -180,15 +181,11 @@ class CalcBridge:
         sheet = self.get_sheet(name) if name else self.get_active_sheet()
         return sheet, address
 
-    def get_cell(self, sheet: Any, col: int, row: int) -> Any:
-        """Return the cell object at *col*, *row* on *sheet*."""
-        return sheet.getCellByPosition(col, row)
-
     def get_cell_by_address(self, address: str) -> Any:
         """Return the cell object for *address* (optionally sheet-qualified)."""
         sheet, address = self.resolve(address)
         col, row = parse_address(address)
-        return self.get_cell(sheet, col, row)
+        return sheet.getCellByPosition(col, row)
 
     def get_cell_range(self, sheet: Any, range_str: str) -> Any:
         """Return a cell range object from a range string like ``A1:D10``.
@@ -229,7 +226,7 @@ class CalcBridge:
 
         try:
             col, row = parse_address(address)
-            return self.get_cell(sheet, col, row)
+            return sheet.getCellByPosition(col, row)
         except ValueError:
             return sheet.getCellRangeByName(address)
 

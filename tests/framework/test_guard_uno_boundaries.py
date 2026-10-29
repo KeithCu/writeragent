@@ -252,7 +252,6 @@ class TestGuardUnoBoundaries:
         frame.getController.return_value = ctrl
         desktop = MagicMock()
         desktop.getCurrentFrame.return_value = frame
-        cell = MagicMock()
 
         with (
             patch("plugin.calc.python.editor.get_desktop", return_value=desktop),
@@ -260,7 +259,6 @@ class TestGuardUnoBoundaries:
             patch("plugin.calc.python.editor._cell_formula_strings", return_value=["=PY(\"1\")"]),
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
         ):
-            mock_bridge.return_value.get_cell.return_value = cell
             from plugin.calc.python.editor import _get_active_calc_cell
 
             out = _get_active_calc_cell(MagicMock())
@@ -268,9 +266,7 @@ class TestGuardUnoBoundaries:
         assert out is not None
         assert (out[0]) is (model)
         mock_guard.assert_called_once_with(model)
-        mock_bridge.return_value.get_cell.assert_called_once_with(sheet, 0, 0)
-        mock_bridge.return_value.get_active_sheet.assert_not_called()
-        mock_bridge.assert_called_once()
-        assert (mock_bridge.call_args[0][0]) is (model)
+        sheet.getCellByPosition.assert_called_once_with(0, 0)
+        mock_bridge.assert_not_called()
 
 
