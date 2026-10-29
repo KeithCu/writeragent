@@ -143,7 +143,7 @@ class _ReusableBurstTimer:
             if owner is None:
                 return
             try:
-                owner._timer_flush()
+                owner.flush()
             except Exception:
                 log.exception("BatchingStreamQueue timer flush failed")
             finally:
@@ -198,7 +198,7 @@ class BatchingStreamQueue:
     _raw: queue.Queue[Any]
     _interval: float
     _lock: threading.Lock
-    _timer: _ReusableBurstTimer | None = None
+    _timer: _ReusableBurstTimer
     _dropped: bool
 
     def __init__(self, raw_q: queue.Queue[Any], batch_interval: float) -> None:
@@ -208,39 +208,29 @@ class BatchingStreamQueue:
         # every THINKING buffer showed the reply before [Thinking].
         self._runs: list[tuple[StreamQueueKind, list[str]]] = []
         self._lock = threading.Lock()
-        self._timer = None
         self._dropped = False
+        self._timer = _ReusableBurstTimer(self, self._interval)
 
     def __del__(self) -> None:
         # The timer thread holds only a weakref, and only while flushing.
         # Stop it when this batcher is released so a chat send does not leave
         # a waiting thread behind.
-        timer = self._timer
-        if timer is None:
-            return
         try:
-            timer.stop()
+            self._timer.stop()
         except Exception:
             return
 
     def _cancel_timer(self) -> None:
         # Clear the deadline only. Dropping the timer object used to force
         # the next burst to construct a new threading.Timer.
-        if self._timer is not None:
-            self._timer.cancel()
+        self._timer.cancel()
 
     def _schedule_timer(self) -> None:
         # One deadline per burst. The first CHUNK and the first THINKING each
         # called this, and cancel-then-restart moved the 250 ms mark when the
         # other kind arrived. Leave an armed deadline alone. Caller holds _lock.
         # The thread itself is created once and reused.
-        if self._timer is None:
-            self._timer = _ReusableBurstTimer(self, self._interval)
         self._timer.arm()
-
-    def _timer_flush(self) -> None:
-        # Timer callback — runs in its own (daemon) thread
-        self.flush()
 
     def _append_display_locked(self, kind: StreamQueueKind, data: str) -> None:
         """Append one display fragment. Caller holds lock. Arms the burst timer once."""
@@ -345,9 +335,3 @@ class BatchingStreamQueue:
     def raw(self) -> queue.Queue[Any]:
         """The underlying raw queue (for the rare legacy direct use or for the drain loop itself)."""
         return self._raw
-
-    def __repr__(self) -> str:
-        with self._lock:
-            pending_content = sum(len(parts) for kind, parts in self._runs if kind == StreamQueueKind.CHUNK)
-            pending_thinking = sum(len(parts) for kind, parts in self._runs if kind == StreamQueueKind.THINKING)
-            return f"BatchingStreamQueue(interval={self._interval}, pending_content={pending_content}, pending_thinking={pending_thinking})"
