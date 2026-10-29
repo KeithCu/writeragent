@@ -51,13 +51,11 @@ def secrets_from_headers(headers: dict[str, str] | None) -> list[str]:
         if not value:
             continue
         low = str(key).lower()
-        if low in ("x-api-key", "api-key", "x-goog-api-key"):
-            token = str(value).strip()
-        elif low == "authorization":
+        if low not in _SECRET_HEADER_NAMES:
+            continue
+        if low == "authorization":
             parts = str(value).split(None, 1)
             token = parts[1].strip() if len(parts) == 2 else str(value).strip()
-        elif low not in _SECRET_HEADER_NAMES:
-            continue
         else:
             token = str(value).strip()
         if token and token not in secrets:
@@ -146,11 +144,7 @@ def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
     try:
         return parsed.port
     except ValueError as exc:
-        host = ""
-        try:
-            host = parsed.hostname or ""
-        except ValueError:
-            host = ""
+        host = parsed.hostname or ""
         scheme = parsed.scheme or "http"
         path = parsed.path or "/"
         raise NetworkError("Invalid URL port", code="INVALID_URL", details={"url": f"{scheme}://{host}{path}"}) from exc
@@ -175,7 +169,7 @@ def _apply_redirect(  # pyright: ignore[reportUnusedFunction]
     current_url: str,
     status: int,
     location: str,
-) -> tuple[str, Any, dict[str, str], str, str] | None:
+) -> tuple[str, Any, dict[str, str], str, str, bool] | None:
     """Next hop for one redirect, or None when it must not be followed.
 
     301/302/303 turn a non-GET/HEAD into GET and drop the body. 307/308 keep
@@ -202,14 +196,9 @@ def _apply_redirect(  # pyright: ignore[reportUnusedFunction]
     scheme = (parsed.scheme or "").lower()
     if scheme not in ("http", "https"):
         return None
-    host = _bracket_ipv6_host(parsed.hostname or "")
-    if not host:
+    if not _bracket_ipv6_host(parsed.hostname or ""):
         return None
-    port = _explicit_port(parsed)
-    origin = f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
-    path = parsed.path or "/"
-    if parsed.query:
-        path = f"{path}?{parsed.query}"
+    origin, path = origin_and_path(joined)
     new_method = method
     new_body = body
     new_headers = dict(headers)
@@ -217,9 +206,10 @@ def _apply_redirect(  # pyright: ignore[reportUnusedFunction]
         new_method = "GET"
         new_body = None
         new_headers = {key: value for key, value in new_headers.items() if key.lower() not in ("content-length", "content-type")}
-    if _origin_key(current_url) != _origin_key(origin):
+    cross_origin = _origin_key(current_url) != _origin_key(origin)
+    if cross_origin:
         new_headers = {key: value for key, value in new_headers.items() if key.lower() not in _SECRET_HEADER_NAMES}
-    return new_method, new_body, new_headers, origin, path
+    return new_method, new_body, new_headers, origin, path, cross_origin
 
 
 def public_target(url_or_path: str) -> str:

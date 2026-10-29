@@ -164,24 +164,16 @@ def _resolve_provider_id(endpoint: str, provider_hint: str | None = None) -> str
 @deal.post(lambda result: isinstance(result, bool))
 def provider_requires_api_key(provider_id: str | None) -> bool:
     """True when a known provider expects an API key (Bearer / x-api-key), not local/anonymous."""
-    if not provider_id or provider_id == "custom":
-        return False
-    provider_cfg = PROVIDERS.get(provider_id)
-    if not provider_cfg:
-        return False
-    return provider_cfg.header_style != "none"
+    cfg = PROVIDERS.get(provider_id or "")
+    return bool(cfg and provider_id != "custom" and cfg.header_style != "none")
 
 
 @deal.pre(lambda provider_id: _deal_provider_id_ok(provider_id))
 @deal.post(lambda result: isinstance(result, bool))
 def provider_requires_slug_model_id(provider_id: str | None) -> bool:
     """True when combobox / LRU entries must use org/model slugs (OpenRouter, Together)."""
-    if not provider_id:
-        return False
-    provider_cfg = PROVIDERS.get(provider_id)
-    if not provider_cfg:
-        return False
-    return provider_cfg.model_id_style == "slug"
+    cfg = PROVIDERS.get(provider_id or "")
+    return bool(cfg and cfg.model_id_style == "slug")
 
 
 def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
@@ -219,12 +211,7 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
 
     # Use the consolidated detection helpers (2026 provider heuristic cleanup).
     # Single provider detection: determine hint once, avoiding redundant calls.
-    provider_hint: str | None
-    if is_openrouter_endpoint(endpoint, explicit_is_openrouter=api_config.get("is_openrouter")):
-        provider_hint = "openrouter"
-    else:
-        provider_hint = get_provider_from_endpoint(endpoint)
-
+    provider_hint = "openrouter" if is_openrouter_endpoint(endpoint, explicit_is_openrouter=api_config.get("is_openrouter")) else None
     provider_id = _resolve_provider_id(endpoint, provider_hint)
     provider_cfg = PROVIDERS.get(provider_id, PROVIDERS["custom"])
 

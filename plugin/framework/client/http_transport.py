@@ -33,6 +33,7 @@ import threading
 import time
 from typing import Any, Callable, Literal
 
+from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC, USER_AGENT
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.framework.url_utils import get_url_hostname
 
@@ -128,12 +129,7 @@ def _response_content_type(response: Any) -> str:
 
 
 def _response_bytes(response: Any) -> bytes:
-    raw = response.read()
-    if isinstance(raw, bytes):
-        return raw
-    if isinstance(raw, str):
-        return raw.encode("utf-8")
-    return b""
+    return response.read()
 
 
 class LlmHttpTransport:
@@ -165,14 +161,6 @@ class LlmHttpTransport:
         # Cleared before exchange returns so the next chat send uses the
         # configured endpoint again.
         self._redirect_origin: str | None = None
-
-    @property
-    def persistent_conn(self) -> http.client.HTTPConnection | http.client.HTTPSConnection | None:
-        return self._persistent_conn
-
-    @property
-    def conn_key(self) -> tuple[str, str, int, str] | None:
-        return self._conn_key
 
     def _endpoint_parts(self) -> tuple[str, str, int]:
         endpoint = self._redirect_origin if self._redirect_origin else self._endpoint_getter()
@@ -226,15 +214,11 @@ class LlmHttpTransport:
         # (default 120). A dead host must not block DNS/TCP for the full stream
         # stall. send() raises the socket to the Settings read timeout after
         # connect returns.
-        from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
-
-        connect_timeout = LLM_CONNECT_TIMEOUT_SEC
-
         if scheme == "https":
             ssl_context = get_verified_ssl_context() if ssl_mode == "verified" else get_unverified_ssl_context()
-            self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=connect_timeout)
+            self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=LLM_CONNECT_TIMEOUT_SEC)
         else:
-            self._persistent_conn = http.client.HTTPConnection(host, port, timeout=connect_timeout)
+            self._persistent_conn = http.client.HTTPConnection(host, port, timeout=LLM_CONNECT_TIMEOUT_SEC)
 
         # http.client defaults auto_open=1, so Stop's conn.close() between the
         # last stop check and conn.request() would silently reconnect and send.
@@ -270,6 +254,18 @@ class LlmHttpTransport:
         except Exception:
             log.debug("stopped connection close failed", exc_info=True)
 
+    def _raise_if_stopped(
+        self,
+        stop_checker: Callable[[], bool] | None,
+        conn: http.client.HTTPConnection | http.client.HTTPSConnection | None = None,
+    ) -> None:
+        if stop_checker is not None and stop_checker():
+            if conn is not None:
+                self._drop_stopped_connection(conn)
+            else:
+                self.close()
+            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+
     def send(
         self,
         method: str,
@@ -277,7 +273,6 @@ class LlmHttpTransport:
         body: Any,
         headers: dict[str, str],
         *,
-        connection_getter: Callable[[], http.client.HTTPConnection | http.client.HTTPSConnection] | None = None,
         stop_checker: Callable[[], bool] | None = None,
         status_callback: Callable[[str], None] | None = None,
         _stale_resend: bool = True,
@@ -288,14 +283,12 @@ class LlmHttpTransport:
         key = ensure_free_model_pacing(parts[0], model, port=parts[1], openrouter=parts[2])
         if not wait_host_gap(key, stop_checker, status_callback):
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-        conn = connection_getter() if connection_getter is not None else self.get_connection()
+        conn = self.get_connection()
         conn.auto_open = 0
         # The timeout used to be stored only when the socket was opened.
         # ``LlmClient._timeout`` reads ``request_timeout`` on every call, so a
         # later change never reached a keep-alive connection. Connect still
         # uses the short connect budget; read uses Settings request_timeout.
-        from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
-
         read_timeout = self._timeout_getter()
         sock = getattr(conn, "sock", None)
         # Captured before connect(). A socket http.client already holds is a
@@ -306,25 +299,17 @@ class LlmHttpTransport:
             # A reused keep-alive socket is already set; request() must not
             # be asked to connect again or it replaces that socket.
             # Stop already latched: do not start DNS.
-            if stop_checker is not None and stop_checker():
-                self._drop_stopped_connection(conn)
-                raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-            self._connect_abortable(conn, stop_checker, connect_timeout=LLM_CONNECT_TIMEOUT_SEC)
+            self._raise_if_stopped(stop_checker, conn)
+            self._connect_abortable(conn, stop_checker)
             sock = getattr(conn, "sock", None)
         conn.timeout = read_timeout
         if sock is not None:
             sock.settimeout(read_timeout)
-        if stop_checker is not None and stop_checker():
-            self._drop_stopped_connection(conn)
-            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+        self._raise_if_stopped(stop_checker, conn)
         self._pacer.wait_before_send()
-        if stop_checker is not None and stop_checker():
-            self._drop_stopped_connection(conn)
-            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+        self._raise_if_stopped(stop_checker, conn)
         if not any(k.lower() == "user-agent" for k in headers):
             headers = dict(headers)
-            from plugin.framework.constants import USER_AGENT
-
             headers["User-Agent"] = USER_AGENT
         try:
             conn.request(method, path, body=body, headers=headers)
@@ -344,7 +329,7 @@ class LlmHttpTransport:
                 raise
             log.debug("Keep-alive socket failed before a response; reconnecting once")
             self._drop_stopped_connection(conn)
-            return self.send(method, path, body, headers, connection_getter=connection_getter, stop_checker=stop_checker, status_callback=status_callback, _stale_resend=False)
+            return self.send(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, _stale_resend=False)
 
     def enable_local_ssl_fallback(self, err: Exception) -> bool:
         enabled = self._cert_fallback.enable_if_applicable(self.current_host(), err)
@@ -352,7 +337,7 @@ class LlmHttpTransport:
             self.close()
         return enabled
 
-    def _connect_abortable(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection, stop_checker: Callable[[], bool] | None, *, connect_timeout: float) -> None:
+    def _connect_abortable(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection, stop_checker: Callable[[], bool] | None) -> None:
         """Connect without waiting out the read budget, and without ignoring Stop.
 
         ``http.client.connect`` blocks inside ``getaddrinfo`` before it assigns
@@ -367,7 +352,7 @@ class LlmHttpTransport:
 
         outcome: dict[str, Any] = {}
         cancelled = threading.Event()
-        conn.timeout = connect_timeout
+        conn.timeout = LLM_CONNECT_TIMEOUT_SEC
 
         def _do_connect() -> None:
             try:
@@ -382,7 +367,7 @@ class LlmHttpTransport:
         # dedicated: the caller joins this worker. A pooled job joined from
         # a pool thread deadlocks the two-worker background pool.
         handle = run_in_background(_do_connect, name="http-connect", dedicated=True)
-        deadline = time.monotonic() + float(connect_timeout)
+        deadline = time.monotonic() + float(LLM_CONNECT_TIMEOUT_SEC)
         while not outcome.get("done"):
             if stop_checker is not None and stop_checker():
                 cancelled.set()
@@ -489,13 +474,6 @@ class LlmHttpTransport:
         wire_secrets = http_security.collect_secrets(secrets, http_security.secrets_from_headers(wire_headers), http_security.secrets_from_target(path))
         self._redirect_origin = None
 
-        def _send(send_method: str, send_path: str, send_body: Any, send_headers: dict[str, str], *, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None) -> http.client.HTTPResponse:
-            # A custom sender is bound to the caller's connection. After a
-            # cross-origin redirect, send() on this transport uses the new host.
-            if sender is not None and self._redirect_origin is None:
-                return sender(send_method, send_path, send_body, send_headers, stop_checker=stop_checker, status_callback=status_callback)
-            return self.send(send_method, send_path, send_body, send_headers, stop_checker=stop_checker, status_callback=status_callback)
-
         sends_left = RETRY_MAX_ATTEMPTS
         attempt = 0
         redirects_followed = 0
@@ -506,10 +484,13 @@ class LlmHttpTransport:
                 # True once this iteration has already spent one attempt on a non-200.
                 attempt_charged = False
                 try:
-                    if stop_checker is not None and stop_checker():
-                        self.close()
-                        raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-                    response = _send(method, path, body, wire_headers, stop_checker=stop_checker, status_callback=status_callback)
+                    self._raise_if_stopped(stop_checker)
+                    # A custom sender is bound to the caller's connection. After a
+                    # cross-origin redirect, send() on this transport uses the new host.
+                    if sender is not None and self._redirect_origin is None:
+                        response = sender(method, path, body, wire_headers, stop_checker=stop_checker, status_callback=status_callback)
+                    else:
+                        response = self.send(method, path, body, wire_headers, stop_checker=stop_checker, status_callback=status_callback)
                     status = int(getattr(response, "status", 0) or 0)
                     if status in http_security._REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
                         # A CDN 301/302/307 is not a failure. Image URLs, TTS audio,
@@ -520,8 +501,8 @@ class LlmHttpTransport:
                         hop = http_security._apply_redirect(method, body, wire_headers, current_url, status, _response_header(response, "Location"))
                         if hop is not None:
                             _response_bytes(response)
-                            new_method, new_body, new_headers, new_origin, new_path = hop
-                            if http_security._origin_key(new_origin) != http_security._origin_key(current_url):
+                            new_method, new_body, new_headers, new_origin, new_path, cross_origin = hop
+                            if cross_origin:
                                 self._redirect_origin = new_origin
                                 self.close()
                             log.debug("Following HTTP %s to %s", status, http_security.public_target(new_origin + new_path))
@@ -645,12 +626,7 @@ class LlmHttpTransport:
                     pass
 
         # 1s socket timeout during chunked read allows checking stop_checker
-        sock = getattr(response, "sock", None)
-        if sock is None:
-            fp = getattr(response, "fp", None)
-            if fp is not None:
-                raw_io = getattr(fp, "raw", None)
-                sock = getattr(raw_io, "_sock", None) if raw_io is not None else getattr(fp, "_sock", None)
+        sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
         if sock is not None and hasattr(sock, "settimeout"):
             try:
                 sock.settimeout(1.0)
@@ -662,15 +638,11 @@ class LlmHttpTransport:
         read_timeout = self._timeout_getter()
         deadline = time.monotonic() + read_timeout
         while True:
-            if stop_checker is not None and stop_checker():
-                self.close()
-                raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+            self._raise_if_stopped(stop_checker)
             try:
                 chunk = response.read(65536)
             except (TimeoutError, socket.timeout):
-                if stop_checker is not None and stop_checker():
-                    self.close()
-                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                self._raise_if_stopped(stop_checker)
                 if time.monotonic() > deadline:
                     raise TimeoutError("HTTP read timed out")
                 continue

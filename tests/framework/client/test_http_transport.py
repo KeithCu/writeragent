@@ -204,13 +204,13 @@ def test_transport_connection_retry_stop_during_wait():
 def test_transport_send_uses_free_pacing_key_for_openrouter_free():
     transport = LlmHttpTransport(lambda: "https://openrouter.ai/api/v1", lambda: 60)
     mock_conn = MagicMock()
+    transport.get_connection = lambda: mock_conn
     with patch("plugin.framework.client.http_transport.wait_host_gap", return_value=True) as wait:
         transport.send(
             "POST",
             "/api/v1/chat/completions",
             b'{"model": "openrouter/free"}',
             headers={"Content-Type": "application/json"},
-            connection_getter=lambda: mock_conn,
         )
     wait.assert_called_once()
     assert wait.call_args[0][0] == "openrouter.ai:443:free"
@@ -221,13 +221,13 @@ def test_transport_send_stop_already_set_does_not_open_or_send():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     mock_conn = MagicMock()
     mock_conn.sock = None
+    transport.get_connection = lambda: mock_conn
     with pytest.raises(NetworkError) as err:
         transport.send(
             "POST",
             "/v1/chat/completions",
             b"{}",
             headers={"Content-Type": "application/json"},
-            connection_getter=lambda: mock_conn,
             stop_checker=lambda: True,
         )
     assert err.value.code == "STOPPED"
@@ -260,6 +260,7 @@ def test_transport_stop_during_connect_does_not_wait_or_send():
 
     threading.Thread(target=_stop_later, daemon=True).start()
     t0 = time.monotonic()
+    transport.get_connection = lambda: mock_conn
     try:
         with pytest.raises(NetworkError) as err:
             transport.send(
@@ -267,7 +268,6 @@ def test_transport_stop_during_connect_does_not_wait_or_send():
                 "/v1/chat/completions",
                 b"{}",
                 headers={"Content-Type": "application/json"},
-                connection_getter=lambda: mock_conn,
                 stop_checker=lambda: stop["on"],
             )
         assert err.value.code == "STOPPED"
@@ -282,10 +282,11 @@ def test_transport_connect_timeout_does_not_wait_for_read_budget(monkeypatch):
     import threading
     import time
 
-    monkeypatch.setattr("plugin.framework.constants.LLM_CONNECT_TIMEOUT_SEC", 0.2)
+    monkeypatch.setattr("plugin.framework.client.http_transport.LLM_CONNECT_TIMEOUT_SEC", 0.2)
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
     mock_conn = MagicMock()
     mock_conn.sock = None
+    transport.get_connection = lambda: mock_conn
     release = threading.Event()
 
     def _connect() -> None:
@@ -301,7 +302,6 @@ def test_transport_connect_timeout_does_not_wait_for_read_budget(monkeypatch):
                 "/v1/chat/completions",
                 b"{}",
                 headers={"User-Agent": "test"},
-                connection_getter=lambda: mock_conn,
             )
         elapsed = time.monotonic() - t0
         assert elapsed < 2
@@ -314,13 +314,13 @@ def test_transport_send_stop_on_open_socket_does_not_reconnect():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     mock_conn = MagicMock()
     mock_conn.sock = MagicMock()
+    transport.get_connection = lambda: mock_conn
     with pytest.raises(NetworkError) as err:
         transport.send(
             "POST",
             "/v1/chat/completions",
             b"{}",
             headers={"User-Agent": "test"},
-            connection_getter=lambda: mock_conn,
             stop_checker=lambda: True,
         )
     assert err.value.code == "STOPPED"
@@ -341,6 +341,7 @@ def test_transport_send_applies_later_timeout_on_reused_socket():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: timeouts["n"])
     mock_conn = MagicMock()
     mock_conn.sock = MagicMock()
+    transport.get_connection = lambda: mock_conn
 
     def _send() -> None:
         transport.send(
@@ -348,7 +349,6 @@ def test_transport_send_applies_later_timeout_on_reused_socket():
             "/v1/chat/completions",
             b"{}",
             headers={"User-Agent": "test"},
-            connection_getter=lambda: mock_conn,
         )
 
     _send()
@@ -377,12 +377,12 @@ def test_transport_send_connects_with_short_timeout_then_raises_read_timeout():
         mock_conn.sock = sock_after
 
     mock_conn.connect.side_effect = _connect
+    transport.get_connection = lambda: mock_conn
     transport.send(
         "POST",
         "/v1/chat/completions",
         b"{}",
         headers={"User-Agent": "test"},
-        connection_getter=lambda: mock_conn,
     )
     assert timeouts_seen == [LLM_CONNECT_TIMEOUT_SEC]
     assert mock_conn.timeout == 120
@@ -394,6 +394,7 @@ def test_transport_send_injects_user_agent():
 
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     mock_conn = MagicMock()
+    transport.get_connection = lambda: mock_conn
 
     # When sending with no User-Agent
     transport.send(
@@ -401,7 +402,6 @@ def test_transport_send_injects_user_agent():
         "/v1/chat/completions",
         b"{}",
         headers={"Content-Type": "application/json"},
-        connection_getter=lambda: mock_conn,
     )
 
     mock_conn.request.assert_called_once()
@@ -719,6 +719,7 @@ def test_reused_socket_failure_before_response_resends_once(exc):
         return conn
 
     statuses: list[str] = []
+    transport.get_connection = getter
     try:
         with patch("plugin.framework.client.http_transport.remember_host_gap") as remember:
             response = transport.send(
@@ -726,7 +727,6 @@ def test_reused_socket_failure_before_response_resends_once(exc):
                 "/v1/chat/completions",
                 b'{"model":"gpt-4o"}',
                 {"Content-Type": "application/json"},
-                connection_getter=getter,
                 status_callback=statuses.append,
             )
         assert response is ok
@@ -759,6 +759,7 @@ def test_reused_socket_remote_disconnected_on_getresponse_resends_once():
         return conns.pop(0)
 
     statuses: list[str] = []
+    transport.get_connection = getter
     try:
         with patch("plugin.framework.client.http_transport.remember_host_gap") as remember:
             response = transport.send(
@@ -766,7 +767,6 @@ def test_reused_socket_remote_disconnected_on_getresponse_resends_once():
                 "/v1/chat/completions",
                 b'{"model":"gpt-4o"}',
                 {"User-Agent": "test"},
-                connection_getter=getter,
                 status_callback=statuses.append,
             )
         assert response is ok
@@ -799,6 +799,7 @@ def test_stale_resend_does_not_loop():
         return conn
 
     statuses: list[str] = []
+    transport.get_connection = getter
     try:
         with patch("plugin.framework.client.http_transport.remember_host_gap") as remember:
             with pytest.raises(http.client.RemoteDisconnected):
@@ -807,7 +808,6 @@ def test_stale_resend_does_not_loop():
                     "/v1/chat/completions",
                     b'{"model":"gpt-4o"}',
                     {"Content-Type": "application/json"},
-                    connection_getter=getter,
                     status_callback=statuses.append,
                 )
         assert len(conns) == 2
@@ -825,13 +825,13 @@ def test_fresh_socket_reset_is_not_a_free_resend():
     conn = MagicMock()
     conn.sock = None
     conn.request.side_effect = ConnectionResetError("reset")
+    transport.get_connection = lambda: conn
     with pytest.raises(ConnectionResetError):
         transport.send(
             "POST",
             "/v1/chat/completions",
             b"{}",
             {"User-Agent": "test"},
-            connection_getter=lambda: conn,
         )
     assert conn.request.call_count == 1
 
@@ -844,6 +844,7 @@ def test_reused_socket_timeout_is_not_a_free_resend():
     conn = MagicMock()
     conn.sock = sock
     conn.request.side_effect = TimeoutError("timed out")
+    transport.get_connection = lambda: conn
     try:
         with pytest.raises(TimeoutError):
             transport.send(
@@ -851,7 +852,6 @@ def test_reused_socket_timeout_is_not_a_free_resend():
                 "/v1/chat/completions",
                 b"{}",
                 {"User-Agent": "test"},
-                connection_getter=lambda: conn,
             )
         assert conn.request.call_count == 1
     finally:
@@ -872,6 +872,7 @@ def test_reused_socket_broken_pipe_raises_immediately_when_stop_requested():
         raise BrokenPipeError("broken pipe")
 
     conn.request.side_effect = raise_broken_pipe
+    transport.get_connection = lambda: conn
     try:
         with pytest.raises(BrokenPipeError):
             transport.send(
@@ -879,7 +880,6 @@ def test_reused_socket_broken_pipe_raises_immediately_when_stop_requested():
                 "/v1/chat/completions",
                 b"{}",
                 {"User-Agent": "test"},
-                connection_getter=lambda: conn,
                 stop_checker=lambda: stopped[0],
             )
         assert conn.request.call_count == 1
@@ -933,15 +933,16 @@ def test_transport_auto_open_zero_prevents_silent_reconnect_on_closed_connection
 
 
 def test_transport_send_sets_auto_open_zero():
-    """send() ensures conn.auto_open is set to 0 even if supplied via a custom connection_getter."""
+    """send() ensures conn.auto_open is set to 0 even if supplied via a custom get_connection."""
     transport = LlmHttpTransport(lambda: "http://127.0.0.1:9", lambda: 30)
     transport._pacer.min_interval_sec = 0
     conn = MagicMock()
     conn.auto_open = 1
     conn.sock = None
+    transport.get_connection = lambda: conn
     with patch.object(transport, "_connect_abortable"):
         conn.sock = MagicMock()
-        transport.send("POST", "/v1/test", b"{}", {}, connection_getter=lambda: conn)
+        transport.send("POST", "/v1/test", b"{}", {})
     assert conn.auto_open == 0
 
 
@@ -961,7 +962,7 @@ def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect()
     # Cross-origin redirect
     result = _apply_redirect("POST", b"{}", headers, "https://source.com/api", 302, "https://target.com/api")
     assert result is not None
-    _, _, new_headers, origin, _ = result
+    _, _, new_headers, origin, _, _ = result
     assert origin == "https://target.com"
     lower_keys = {k.lower() for k in new_headers}
     assert "cookie" not in lower_keys
@@ -972,7 +973,7 @@ def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect()
     # Same-origin redirect preserves Cookie and Proxy-Authorization
     same_result = _apply_redirect("GET", None, headers, "https://source.com/api", 302, "/new-path")
     assert same_result is not None
-    _, _, same_headers, same_origin, _ = same_result
+    _, _, same_headers, same_origin, _, _ = same_result
     assert same_origin == "https://source.com"
     assert "Cookie" in same_headers
     assert "Proxy-Authorization" in same_headers
