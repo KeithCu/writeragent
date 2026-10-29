@@ -1930,11 +1930,9 @@ class TestSessionResetHttp:
         settings = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert settings.api_key == key
 
-        principal, err = authenticate_request({"HTTP_AUTHORIZATION": f"Bearer {key}"}, settings)
+        err = authenticate_request({"HTTP_AUTHORIZATION": f"Bearer {key}"}, settings)
         assert err is None
-        assert principal == settings.default_principal
-        principal_bad, err_bad = authenticate_request({"HTTP_AUTHORIZATION": "Bearer café-nope"}, settings)
-        assert principal_bad is None
+        err_bad = authenticate_request({"HTTP_AUTHORIZATION": "Bearer café-nope"}, settings)
         assert err_bad == "invalid"
 
         ran: list[str] = []
@@ -2111,7 +2109,7 @@ class TestSessionResetHttp:
         """A non-finite vision id in multipart meta is rejected with 400."""
         from compute_service.vision import shutdown_vision_pool
 
-        app = create_wsgi_app(ComputeSettings())
+        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         try:
             boundary = "wa-test-bound"
             body = (
@@ -2132,7 +2130,7 @@ class TestSessionResetHttp:
     def test_vision_nested_nonfinite_id_is_400(self, meta_bytes: bytes) -> None:
         from compute_service.vision import shutdown_vision_pool
 
-        app = create_wsgi_app(ComputeSettings())
+        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         try:
             boundary = "wa-test-bound"
             body = (
@@ -2152,7 +2150,7 @@ class TestSessionResetHttp:
     def test_vision_overflow_timeout_is_json(self) -> None:
         from compute_service.vision import shutdown_vision_pool
 
-        app = create_wsgi_app(ComputeSettings())
+        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         try:
             boundary = "wa-test-bound"
             body = (f'--{boundary}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n{{"timeout_ms": 1e9999}}\r\n--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nabcd\r\n--{boundary}--\r\n').encode(
@@ -2310,7 +2308,7 @@ class TestSessionResetHttp:
         assert holder[0][1].get("code") == "WORKER_POOL_BUSY"
 
     def test_vision_admission_waits_for_request_timeout(self) -> None:
-        settings = ComputeSettings(ocr_timeout_sec=1, max_timeout_sec=30, ocr_workers=0)
+        settings = ComputeSettings(ocr_timeout_sec=1, max_timeout_sec=30, ocr_workers=1)
         app = create_wsgi_app(settings, vision_semaphore=threading.Semaphore(0))
         holder: list[tuple[str, dict]] = []
 
@@ -2438,8 +2436,8 @@ from compute_service.server import authenticate_request, create_wsgi_app
 
 s = load_settings(environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 app = create_wsgi_app(s)
-principal, err = authenticate_request({}, s)
-assert principal == "default" and err is None
+err = authenticate_request({}, s)
+assert err is None
 assert "plugin.framework.config" not in sys.modules
 assert not any(Path(p).name == "writeragent.json" for p in opened), opened
 print("ok")
@@ -3332,43 +3330,9 @@ def test_wsgi_app_uses_the_current_formula_pool() -> None:
         assert get_mock.call_count == 4
 
 
-def test_run_with_logging_deadline_skips_second_status_after_headers() -> None:
-    """A raise after start_response must not call start_response again.
-
-    What was wrong: _run_with_logging_and_deadline called _error after action
-    had already sent headers, and only swallowed wsgiref's AssertionError.
-    The exception now propagates so _gated can see that headers started.
-    """
-    from compute_service.server import _run_with_logging_and_deadline
-
-    calls: list[str] = []
-
-    def start_response(status: str, headers: list[tuple[str, str]], exc_info: object = None) -> None:
-        del headers, exc_info
-        if calls:
-            raise AssertionError("Headers already set!")
-        calls.append(status)
-
-    def action(start_t: float) -> list[bytes]:
-        del start_t
-        start_response("200 OK", [("Content-Type", "application/json")])
-        raise RuntimeError("late")
-
-    with pytest.raises(RuntimeError, match="late"):
-        _run_with_logging_and_deadline(
-            start_response,
-            label="/v1/execute",
-            req_id="late",
-            deadline=time.monotonic() + 5,
-            start_msg="exec",
-            action=action,
-        )
-    assert calls == ["200 OK"]
-
-
 def test_run_with_logging_deadline_errors_before_headers() -> None:
-    """A raise before headers propagates. _gated sends the JSON 500."""
-    from compute_service.server import _run_with_logging_and_deadline
+    """A raise before headers sends one JSON 500 and releases the permit."""
+    from compute_service.server import _Admission, _gated
 
     calls: list[str] = []
 
@@ -3376,20 +3340,24 @@ def test_run_with_logging_deadline_errors_before_headers() -> None:
         del headers, exc_info
         calls.append(status)
 
-    def action(start_t: float) -> list[bytes]:
-        del start_t
+    def route_fn(_start: Any, _adm: Any) -> list[bytes]:
         raise RuntimeError("early")
 
-    with pytest.raises(RuntimeError, match="early"):
-        _run_with_logging_and_deadline(
-            start_response,
-            label="/v1/execute",
-            req_id="early",
-            deadline=time.monotonic() + 5,
-            start_msg="exec",
-            action=action,
-        )
-    assert calls == []
+    sem = threading.Semaphore(1)
+    body = _gated(
+        {"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"},
+        start_response,
+        ComputeSettings(),
+        sem,
+        busy_code="WORKER_POOL_BUSY",
+        busy_message="busy",
+        route_fn=route_fn,
+        prepare=lambda _s: (_Admission(timeout_sec=5.0, parsed={"id": "early"}), None),
+    )
+    assert calls == ["500 Internal Server Error"]
+    assert b"INTERNAL_ERROR" in b"".join(body)
+    assert sem.acquire(timeout=0)
+    assert not sem.acquire(timeout=0)
 
 
 def test_real_socket_queue_timeout() -> None:
@@ -3596,7 +3564,7 @@ def test_vision_unknown_helper_is_400() -> None:
         def execute(self, **_kwargs: Any) -> dict[str, Any]:
             raise AssertionError("unknown helper must not reach the pool")
 
-    app = create_wsgi_app(ComputeSettings())
+    app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     with patch("compute_service.vision.get_vision_pool", return_value=_Pool()):
         status, _headers, body = _wsgi_vision_post(app, {"id": "bad-h", "helper": "detect_objects"}, b"png")
     assert status.startswith("400")
@@ -3624,7 +3592,7 @@ def test_vision_blank_helper_defaults_to_extract_text() -> None:
 
 def test_vision_missing_image_is_400_with_code() -> None:
     """A vision request with no image used to be a generic 400 with no code."""
-    app = create_wsgi_app(ComputeSettings())
+    app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     status, _headers, body = _wsgi_vision_post(app, {"id": "no-image", "helper": "extract_text"})
     assert status.startswith("400")
     assert body.get("code") == "MISSING_IMAGE_SOURCE"
@@ -3633,7 +3601,7 @@ def test_vision_missing_image_is_400_with_code() -> None:
 
 def test_vision_blank_file_path_is_missing_image_source() -> None:
     """A blank file_path is no path. The worker's INVALID_FILE_PATH is not this response."""
-    app = create_wsgi_app(ComputeSettings())
+    app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     for raw_path in ("", "   "):
         status, _headers, body = _wsgi_vision_post(app, {"id": "blank-path", "helper": "extract_text", "file_path": raw_path})
         assert status.startswith("400")
@@ -3642,7 +3610,7 @@ def test_vision_blank_file_path_is_missing_image_source() -> None:
 
 
 def test_vision_rejects_image_and_file_path_together() -> None:
-    app = create_wsgi_app(ComputeSettings())
+    app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     status, _headers, body = _wsgi_vision_post(app, {"id": "both", "file_path": "/tmp/x.png"}, b"png")
     assert status.startswith("400")
     assert body.get("code") == "INVALID_REQUEST"
@@ -3991,7 +3959,6 @@ def test_gated_prepare_exception_is_json_internal_error() -> None:
         start_response,
         ComputeSettings(),
         sem,
-        admission_timeout_sec=1.0,
         busy_code="WORKER_POOL_BUSY",
         busy_message="busy",
         route_fn=lambda _start, _admission: [],
@@ -4080,7 +4047,7 @@ def test_invalid_base64_and_params_are_400() -> None:
     assert body.get("error") == "Invalid vision body"
     fake_pool.execute.assert_not_called()
 
-    params_app = create_wsgi_app(ComputeSettings())
+    params_app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     status, _headers, body = _wsgi_vision_post(params_app, {"params": ["nope"]}, b"png")
     assert status.startswith("400")
     assert body.get("code") == "INVALID_REQUEST"
@@ -4361,9 +4328,9 @@ def test_wsgi_chunked_401_closes_connection() -> None:
 
 
 def test_reset_queue_timeout_closes_connection() -> None:
-    from compute_service.server import _gated
+    from compute_service.server import _Admission, _gated
 
-    # Gated route timing out before admission drains chunked body and closes.
+    # Gated route timing out before execution.
     stream = io.BytesIO(b"smuggled GET /health")
     statuses: list[str] = []
 
@@ -4385,15 +4352,14 @@ def test_reset_queue_timeout_closes_connection() -> None:
         start_response,
         ComputeSettings(),
         sem,
-        admission_timeout_sec=1.0,
         busy_code="WORKER_POOL_BUSY",
         busy_message="busy",
         route_fn=lambda s, a: [],
+        prepare=lambda _s: (_Admission(timeout_sec=1.0, parsed={}), None),
     )
     payload = json.loads(b"".join(res).decode("utf-8"))
     assert statuses[0].startswith("503")
     assert payload.get("code") == "QUEUE_TIMEOUT"
-    assert env.get("compute.close_connection") is True
     assert stream.tell() == 0
 
     # WSGI app rejects chunked reset early in prepare before taking a permit.

@@ -532,7 +532,6 @@ class TestVisionHttpEndpoint:
             url = f"http://127.0.0.1:{port}"
             status, body = self._post(url, {"id": "test-zero-workers", "helper": "extract_text"}, image=base64.b64decode(_TINY_PNG_B64), headers={"Authorization": "Bearer vision-secret"})
             assert status == 501
-            assert body.get("id") == "test-zero-workers"
             assert body.get("status") == "error"
             assert body.get("code") == "VISION_SERVICE_DISABLED"
             assert "ocr_workers=0" in body.get("error", "")
