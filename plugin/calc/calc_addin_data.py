@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.scripting.calc_range import ensure_rectangular_2d, pack_calc_range_envelope
-from plugin.scripting.payload_codec import ForceBinary, host_pack_data, wire_cell_count
+from plugin.scripting.payload_codec import ForceBinary, host_pack_data, PAYLOAD_MULTI_DATA, wire_cell_count
 
 
 from plugin.framework.deal_shim import deal
@@ -84,7 +84,7 @@ def _is_legacy_single_column_range(items: list[Any]) -> bool:
         if not isinstance(item, (list, tuple)) or len(item) != 1:
             return False
         inner = item[0]
-        if isinstance(inner, (list, tuple)) and not isinstance(inner, (str, bytes)):
+        if isinstance(inner, (list, tuple)):
             return False
     return True
 
@@ -125,11 +125,6 @@ def calc_addin_args_from_split(args: list[Any], true_strings: set[str] | None = 
     return converted
 
 
-def calc_addin_args_to_python(raw: Any, true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> list[list[Any]] | list[list[list[Any]]] | None:
-    """Convert varargs ``data`` into sandbox grids: one 2D grid or list of 2D grids."""
-    return calc_addin_args_from_split(split_python_addin_data_args(raw), true_strings, false_strings)
-
-
 @deal.post(lambda result: result is None or isinstance(result, list))
 def calc_addin_data_to_python(value: Any, true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> list[list[Any]] | None:
     """Convert a Calc ``=PYTHON()`` second argument into a rectangular 2D grid.
@@ -168,12 +163,10 @@ def pack_calc_multi_data_for_wire(py_data: list[list[list[Any]]], *, force: Forc
     """Pack multiple Calc ranges as ``multi_data`` of ``calc_range`` envelopes."""
     if not py_data:
         return None
-    from plugin.scripting.payload_codec import PAYLOAD_MULTI_DATA
-
-    items = []
-    for i, grid in enumerate(py_data):
-        addr = addresses[i] if addresses and i < len(addresses) else None
-        items.append(pack_calc_data_for_wire(grid, force=force, address=addr))
+    addrs = list(addresses) if addresses else []
+    if len(addrs) < len(py_data):
+        addrs.extend([None] * (len(py_data) - len(addrs)))
+    items = [pack_calc_data_for_wire(grid, force=force, address=addr) for grid, addr in zip(py_data, addrs)]
     return {"__wa_payload__": PAYLOAD_MULTI_DATA, "items": items}
 
 
@@ -188,17 +181,9 @@ def pack_calc_data_for_wire(py_data: list[list[Any]] | list[Any] | None, *, forc
     return pack_calc_range_envelope(py_data, address=address, pack_inner=lambda g: host_pack_data(g, force=force))
 
 
-def count_cells(data: Any) -> int:
-    """Return number of scalar cells in *data* for size guarding.
-
-    Same count as ``wire_cell_count`` (lists, envelopes, and ``None``).
-    """
-    return wire_cell_count(data)
-
-
 def check_python_multi_data_size(data: list[Any], *, max_cells: int) -> str | None:
     """Return an error message if combined multi-range *data* exceeds *max_cells*."""
-    n = sum(count_cells(item) for item in data)
+    n = sum(wire_cell_count(item) for item in data)
     if n > max_cells:
         return f"Data ranges have {n} cells combined; maximum is {max_cells}."
     return None
@@ -206,7 +191,7 @@ def check_python_multi_data_size(data: list[Any], *, max_cells: int) -> str | No
 
 def check_python_data_size(data: Any, *, max_cells: int) -> str | None:
     """Return an error message if *data* exceeds *max_cells*, else ``None``."""
-    n = count_cells(data)
+    n = wire_cell_count(data)
     if n > max_cells:
         return f"Data range has {n} cells; maximum is {max_cells}."
     return None
@@ -227,23 +212,17 @@ def _normalize_data_range_addresses(data_range: Any) -> list[str]:
         return []
     from plugin.calc.python.formula_edit import parse_data_binding_text
 
-    if isinstance(data_range, (list, tuple)):
-        out: list[str] = []
-        for item in data_range:
-            if not isinstance(item, str) or not item.strip():
-                continue
-            parts = parse_data_binding_text(item)
-            out.extend(parts if parts else [item.strip()])
-        return out
-    text = str(data_range).strip()
-    if not text:
-        return []
-
-    parts = parse_data_binding_text(text)
-    return parts if parts else [text]
+    items = data_range if isinstance(data_range, (list, tuple)) else [str(data_range)]
+    out: list[str] = []
+    for item in items:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        parts = parse_data_binding_text(item)
+        out.extend(parts if parts else [item.strip()])
+    return out
 
 
-def _resolve_python_data(doc: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:
+def _resolve_python_data(doc: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:  # pyright: ignore[reportUnusedFunction]
     """Return (py_data, error_message). Calc only; ``data_range`` wins over ``data`` when both set.
 
     ``data_range`` may be one A1 string, a comma/semicolon-separated string, or a list of addresses.
@@ -289,13 +268,3 @@ def _resolve_python_data(doc: Any, *, data_range: Any = None, data: Any = None) 
                 return None, size_err
             return pack_calc_data_for_wire(py_data), None
     return None, None
-
-
-def resolve_python_data_on_main_thread(doc: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:
-    """Marshal Calc range reads to the LO main thread (``is_async`` tools run on workers)."""
-    from plugin.framework.thread_guard import on_main_thread
-    from plugin.framework.queue_executor import execute_on_main_thread
-
-    if on_main_thread():
-        return _resolve_python_data(doc, data_range=data_range, data=data)
-    return execute_on_main_thread(_resolve_python_data, doc, data_range=data_range, data=data)

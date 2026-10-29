@@ -28,9 +28,7 @@ _REASONING_EXCERPT_MAX = 200
 
 def _assistant_text(result: Mapping[str, Any]) -> str:
     content = result.get("content")
-    if content is None:
-        return ""
-    return str(content)
+    return "" if content is None else str(content)
 
 
 def _format_empty_prompt_diagnostic(result: Mapping[str, Any], *, model: str) -> str:

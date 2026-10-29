@@ -38,9 +38,7 @@ _PROMPT_SPEC = CalcFunctionSpec(
     display_name="PROMPT",
     programmatic_name="prompt",
     description="Generates text using an LLM.",
-    arg_names=("message", "system_prompt", "model", "max_tokens"),
     arg_descriptions=("The prompt to send to the LLM.", "The system prompt to use.", "The model to use.", "The maximum number of tokens to generate."),
-    optional_from=1,
 )
 
 try:
@@ -60,7 +58,7 @@ class PromptFunction(CalcAddInBase, _XPromptFunctionBase):  # pyright: ignore[re
 
     def __init__(self, ctx: Any) -> None:
         log.debug("=== PromptFunction.__init__ ===")
-        super().__init__(ctx, _PROMPT_SPEC)
+        super().__init__(ctx, (_PROMPT_SPEC,))
         self._llm_client: LlmClient | None = None
 
     def prompt(self, message: str, systemPrompt: Any, model: Any, maxTokens: Any) -> str:

@@ -13,11 +13,10 @@ import pytest
 from plugin.calc.calc_addin_data import (
     _normalize_data_range_addresses,
     _resolve_python_data,
-    calc_addin_args_to_python,
+    calc_addin_args_from_split,
     calc_addin_data_to_python,
     check_python_data_size,
     check_python_multi_data_size,
-    count_cells,
     finalize_python_data,
     pack_calc_data_for_wire,
     pack_calc_multi_data_for_wire,
@@ -32,7 +31,6 @@ from plugin.scripting.payload_codec import child_unpack_data, is_multi_data, is_
 
 def test_none_returns_none():
     assert calc_addin_data_to_python(None) is None
-    assert count_cells(None) == 0
 
 
 def test_scalar_is_1x1_grid():
@@ -66,17 +64,9 @@ def test_column_vector_stays_nx1():
     assert calc_addin_data_to_python(raw) == [[1.0], [5.0], [7.0], [4.0]]
 
 
-def test_count_cells_2d():
-    assert count_cells([[1, 2], [3]]) == 3
-
-
-def test_count_cells_flat():
-    assert count_cells([1, 2, 3]) == 3
-
-
 def test_check_python_data_size_rejects_large():
     big = [[0] * 1000 for _ in range(300)]
-    assert count_cells(big) == 300_000
+    assert wire_cell_count(big) == 300_000
     err = check_python_data_size(big, max_cells=_schema_int("python_max_data_cells", "default", required=True))
     assert err is not None
     assert "300000" in err or "300,000" in err.replace(",", "")
@@ -135,7 +125,6 @@ def test_pack_calc_data_for_wire_uses_split_grid_at_threshold():
     wire = pack_calc_data_for_wire(NUMERIC_AT_THRESHOLD, force="auto")
     assert is_calc_range_payload(wire)
     assert is_split_grid(wire["data"])
-    assert count_cells(wire) == BINARY_MIN_CELLS
     assert wire_cell_count(wire) == BINARY_MIN_CELLS
 
 
@@ -224,20 +213,11 @@ def test_split_python_addin_data_args_multi_grid():
     assert split_python_addin_data_args((col_a, col_b)) == [col_a, col_b]
 
 
-def test_calc_addin_args_to_python_multi_range():
+def test_calc_addin_args_from_split_multi_range():
     col_a = ((1.0,), (2.0,), (3.0,))
     col_b = ((4.0,), (5.0,))
-    result = calc_addin_args_to_python((col_a, col_b))
-    assert result == [[[1.0], [2.0], [3.0]], [[4.0], [5.0]]]
-
-
-def test_calc_addin_args_from_split_matches_to_python():
-    col_a = ((1.0,), (2.0,))
-    col_b = ((3.0,), (4.0,))
     args = split_python_addin_data_args((col_a, col_b))
-    from plugin.calc.calc_addin_data import calc_addin_args_from_split
-
-    assert calc_addin_args_from_split(args) == calc_addin_args_to_python((col_a, col_b))
+    assert calc_addin_args_from_split(args) == [[[1.0], [2.0], [3.0]], [[4.0], [5.0]]]
 
 
 def test_check_python_multi_data_size_combined():

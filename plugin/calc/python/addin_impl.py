@@ -11,7 +11,6 @@ files only bootstrap ``sys.path`` and register this class. Implementation name s
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 from typing import Any
 
@@ -36,14 +35,13 @@ _PYTHON_SPEC = CalcFunctionSpec(
     display_name="PYTHON",
     programmatic_name="python",
     description="Executes Python code in the configured venv and returns the result.",
-    arg_names=("code", "data"),
     arg_descriptions=_PYTHON_ARGS,
-    optional_from=1,
 )
-_PY_SPEC = dataclasses.replace(
-    _PYTHON_SPEC,
+_PY_SPEC = CalcFunctionSpec(
     display_name="PY",
     programmatic_name="py",
+    description="Executes Python code in the configured venv and returns the result.",
+    arg_descriptions=_PYTHON_ARGS,
 )
 PYTHON_FUNCTION_SPECS = (_PY_SPEC, _PYTHON_SPEC)
 # Returned when LibreOffice passes no calling document. Never guess one.

@@ -21,7 +21,7 @@ from typing import Any, ClassVar, Iterator, cast
 
 from plugin.framework.uno_listeners import BaseModifyListener
 
-from plugin.calc.calc_addin_data import calc_addin_args_from_split, check_python_data_size, check_python_multi_data_size, count_cells, pack_calc_data_for_wire, pack_calc_multi_data_for_wire, split_python_addin_data_args
+from plugin.calc.calc_addin_data import calc_addin_args_from_split, check_python_data_size, check_python_multi_data_size, pack_calc_data_for_wire, pack_calc_multi_data_for_wire, split_python_addin_data_args
 from plugin.calc.calc_utils import EMPTY
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
@@ -40,7 +40,7 @@ from plugin.framework.i18n import _
 from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
 
 from plugin.scripting.config_limits import configured_python_max_data_cells
-from plugin.scripting.payload_codec import find_image_payloads, is_split_grid
+from plugin.scripting.payload_codec import find_image_payloads, is_split_grid, wire_cell_count
 from plugin.scripting.calc_range import result_to_calc_grid
 from plugin.scripting.session_manager import workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
@@ -82,7 +82,7 @@ def is_scalar_index_arg(py_data: list[Any] | list[list[Any]] | None) -> bool:
     """True when arg 1 is one number (matrix index), not a data range."""
     if py_data is None:
         return False
-    if count_cells(py_data) != 1:
+    if wire_cell_count(py_data) != 1:
         return False
     val = _unwrap_single_cell(py_data)
     return isinstance(val, (int, float)) and not isinstance(val, bool) and not math.isnan(val)
@@ -1819,7 +1819,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
         if py_data is not None:
             if is_multi and not _code_uses_indexed_multi_data(code):
                 last_arg = args[-1]
-                if not isinstance(last_arg, (list, tuple)) or count_cells(py_data[-1]) == 1:
+                if not isinstance(last_arg, (list, tuple)) or wire_cell_count(py_data[-1]) == 1:
                     idx_val = py_data[-1]
                     while isinstance(idx_val, list) and idx_val:
                         idx_val = idx_val[0]
