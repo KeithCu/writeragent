@@ -11,7 +11,6 @@ from plugin.calc.python.cell_discovery import (
     canonicalize_py_formula_for_parse,
     discover_python_cells_on_sheet,
     is_py_formula_text,
-    list_python_cells_on_sheet,
     python_code_from_formula,
 )
 from plugin.calc.python.formula_edit import normalize_formula_string
@@ -64,7 +63,7 @@ def test_short_py_formula():
     assert python_code_from_formula("=SUM(A1:A2)") is None
 
 
-def test_list_python_cells_on_sheet_filters_non_py():
+def test_discover_python_cells_on_sheet_filters_non_py():
     doc = CalcDocStub(
         data=(
             ('=PY("result = 1")',),
@@ -73,13 +72,13 @@ def test_list_python_cells_on_sheet_filters_non_py():
     )
     sheet = doc.getSheets().getByName("Sheet1")
 
-    found = list_python_cells_on_sheet(sheet)
+    found = discover_python_cells_on_sheet(sheet).cells
     assert len(found) == 1
     assert found[0].address == "Sheet1.A1"
     assert found[0].code == "result = 1"
 
 
-def test_list_python_cells_on_sheet_bulk_get_formulas():
+def test_discover_python_cells_on_sheet_bulk_get_formulas():
     doc = CalcDocStub(
         data=(
             ('=PY("result = 1")', "=SUM(A1:A2)"),
@@ -88,7 +87,7 @@ def test_list_python_cells_on_sheet_bulk_get_formulas():
     )
     sheet = doc.getSheets().getByName("Sheet1")
 
-    found = list_python_cells_on_sheet(sheet)
+    found = discover_python_cells_on_sheet(sheet).cells
     assert len(found) == 2
     assert found[0].address == "Sheet1.A1"
     assert found[0].code == "result = 1"
@@ -103,7 +102,6 @@ def test_discover_exact_100_is_not_truncated():
     discovery = discover_python_cells_on_sheet(sheet)
     assert len(discovery.cells) == _MAX_PYTHON_CELLS_FOUND
     assert discovery.truncated is False
-    assert list_python_cells_on_sheet(sheet) == discovery.cells
 
 
 def test_discover_101st_sets_truncated():
@@ -128,7 +126,7 @@ def test_cell_address_quotes_sheet_name(sheet_name, expected):
     from plugin.calc.navigation import normalize_cell_address
 
     sheet = CalcSheetStub(sheet_name, data=(('=PY("x")',),))
-    found = list_python_cells_on_sheet(sheet)
+    found = discover_python_cells_on_sheet(sheet).cells
     assert [c.address for c in found] == [expected]
     # Navigation accepts the quoted form; it drops quotes a plain space does not need.
     assert normalize_cell_address(expected) is not None

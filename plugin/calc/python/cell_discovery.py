@@ -75,20 +75,6 @@ def is_py_formula_text(formula: str) -> bool:
     return python_code_from_formula(formula) is not None
 
 
-def _cell_address(sheet_name: str, row: int, column: int) -> str:
-    # Unquoted sheet names (e.g. Data.2024 or names with spaces) broke downstream
-    # address parsing and navigation; qualify_a1 quotes the sheet prefix when needed.
-    return qualify_a1(sheet_name, format_address(column, row))
-
-
-def list_python_cells_on_sheet(sheet: Any) -> list[PythonCellInfo]:
-    """Return Python formula cells on *sheet*, sorted by row then column.
-
-    Cap / completeness live on :func:`discover_python_cells_on_sheet` (``truncated``).
-    """
-    return discover_python_cells_on_sheet(sheet).cells
-
-
 def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
     """Discover PY cells and report whether the 100 / 50k caps truncated the list.
 
@@ -124,7 +110,9 @@ def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
             # 101st PY cell: the returned list of 100 is incomplete.
             truncated = True
             return False
-        found.append(PythonCellInfo(sheet=name, row=row, column=col, address=_cell_address(name, row, col), code=code, formula=str(formula)))
+        # Unquoted sheet names (e.g. Data.2024 or names with spaces) broke downstream
+        # address parsing and navigation; qualify_a1 quotes the sheet prefix when needed.
+        found.append(PythonCellInfo(sheet=name, row=row, column=col, address=qualify_a1(name, format_address(col, row)), code=code, formula=str(formula)))
         return True
 
     for i in range(count):
@@ -152,12 +140,12 @@ def list_python_cells_in_doc(doc: Any, *, active_sheet_only: bool = True) -> lis
         if controller is not None:
             sheet = controller.getActiveSheet()
             if sheet is not None:
-                return list_python_cells_on_sheet(sheet)
+                return discover_python_cells_on_sheet(sheet).cells
         return []
 
     out: list[PythonCellInfo] = []
     sheets = doc.getSheets()
     for i in range(sheets.getCount()):
         sheet = sheets.getByIndex(i)
-        out.extend(list_python_cells_on_sheet(sheet))
+        out.extend(discover_python_cells_on_sheet(sheet).cells)
     return out

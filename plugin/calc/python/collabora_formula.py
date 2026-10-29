@@ -54,8 +54,6 @@ _COLLABORA_ADDIN_PREFIX = re.compile(
     re.IGNORECASE,
 )
 
-_SHORT_NAME_BY_METHOD = {"GETPYTHON": "PYTHON", "GETPY": "PY"}
-
 
 def rewrite_collabora_addin_prefix(formula: str) -> str:
     """If *formula* is a Collabora pythoncompute OriginalName, return ``=PY(`` / ``=PYTHON(``.
@@ -69,14 +67,7 @@ def rewrite_collabora_addin_prefix(formula: str) -> str:
     match = _COLLABORA_ADDIN_PREFIX.match(formula)
     if match is None:
         return formula
-    return match.group(1) + _SHORT_NAME_BY_METHOD[match.group(2).upper()] + "(" + formula[match.end() :]
-
-
-def is_collabora_py_formula(formula: str) -> bool:
-    """True when *formula* uses Collabora's stored OriginalName (before rewrite)."""
-    if not formula:
-        return False
-    return _COLLABORA_ADDIN_PREFIX.match(formula) is not None
+    return match.group(1) + ("PYTHON" if match.group(2).upper() == "GETPYTHON" else "PY") + "(" + formula[match.end() :]
 
 
 def _rewrite_sheet_formulas(sheet: Any) -> int:
