@@ -148,7 +148,7 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         from plugin.calc.calc_addin_data import _resolve_python_data
         from plugin.framework.queue_executor import run_on_main
 
-        def _read_history(*_args: Any, **_kwargs: Any) -> tuple[Any, str | None]:
+        def _read_history() -> tuple[Any, str | None]:
             # Sheet read is UNO. Viz IPC (run_trusted_viz) stays on the caller.
             return _resolve_python_data(doc, data_range=data_range, data=None)
 

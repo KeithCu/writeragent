@@ -226,7 +226,7 @@ def test_auto_plot_reads_sheet_on_main_and_passes_doc():
     }
     inside = {"flag": False}
 
-    def exec_main(fn, *args, **kwargs):
+    def exec_main(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
         inside["flag"] = True
         try:
             return fn(*args, **kwargs)
