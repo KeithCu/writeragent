@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import enum
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, index_to_column
-from plugin.calc.array_formula import skip_double_quoted, skip_single_quoted
+from plugin.calc.array_formula import skip_quoted
 from plugin.calc.python.formula_edit import py_call_open_end
 
 
@@ -27,13 +27,6 @@ class _RefKind(enum.Enum):
     RANGE = "range"
     WHOLE_COL = "whole_col"
     WHOLE_ROW = "whole_row"
-
-
-class _SpanKind(enum.Enum):
-    SINGLE_CELL = "single_cell"
-    SAME_ROW = "same_row"
-    MULTI_ROW = "multi_row"
-    AMBIGUOUS = "ambiguous"
 
 
 @dataclass(frozen=True)
@@ -67,20 +60,6 @@ class _Ref:
     kind: _RefKind
     start: _Part
     end: _Part | None
-
-    def row_span_kind(self) -> _SpanKind:
-        """``SINGLE_CELL``, ``SAME_ROW``, ``MULTI_ROW``, or ``AMBIGUOUS``."""
-        if self.kind == _RefKind.WHOLE_COL:
-            return _SpanKind.MULTI_ROW
-        left = self.start.row
-        right = self.end.row if self.end is not None else left
-        if left is None or right is None:
-            return _SpanKind.AMBIGUOUS
-        if left != right:
-            return _SpanKind.MULTI_ROW
-        if self.end is None or (self.start.col is not None and self.end.col is not None and self.start.col == self.end.col):
-            return _SpanKind.SINGLE_CELL
-        return _SpanKind.SAME_ROW
 
 
 def expand_single_formula(formula: str, num_rows: int, num_cols: int) -> list[str]:
@@ -148,7 +127,7 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
     n = len(formula)
     while i < n:
         if formula[i] == '"':
-            j = skip_double_quoted(formula, i)
+            j = skip_quoted(formula, i)
             out.append(formula[i:j])
             i = j
             continue
@@ -162,7 +141,7 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
             i = end
             continue
         if formula[i] == "'":
-            j = skip_single_quoted(formula, i)
+            j = skip_quoted(formula, i)
             out.append(formula[i:j])
             i = j
             continue
@@ -196,10 +175,6 @@ def _is_letter(ch: str) -> bool:
 
 def _is_digit(ch: str) -> bool:
     return "0" <= ch <= "9"
-
-
-def _is_ident_char(ch: str) -> bool:
-    return _is_letter(ch) or _is_digit(ch) or ch == "_"
 
 
 def _skip_ws(s: str, i: int) -> int:
@@ -244,13 +219,6 @@ def _read_row(s: str, i: int) -> tuple[int, int] | None:
     return i, row_num - 1
 
 
-def _looks_like_a1_start(s: str, i: int) -> bool:
-    if i >= len(s):
-        return False
-    ch = s[i]
-    return ch == "$" or _is_letter(ch) or _is_digit(ch)
-
-
 def _try_sheet_prefix(s: str, i: int) -> tuple[str, int] | None:
     """``Sheet.`` / ``'My Sheet'!`` including the separator, or None."""
     n = len(s)
@@ -268,7 +236,7 @@ def _try_sheet_prefix(s: str, i: int) -> tuple[str, int] | None:
             return None
         j += 1
         j = _skip_ws(s, j)
-        if not _looks_like_a1_start(s, j):
+        if j >= n or not (s[j] == "$" or _is_letter(s[j]) or _is_digit(s[j])):
             return None
         return s[i:j], j
 
@@ -285,7 +253,7 @@ def _try_sheet_prefix(s: str, i: int) -> tuple[str, int] | None:
         return None
     k += 1
     k = _skip_ws(s, k)
-    if not _looks_like_a1_start(s, k):
+    if k >= n or not (s[k] == "$" or _is_letter(s[k]) or _is_digit(s[k])):
         return None
     return s[i:k], k
 
@@ -315,7 +283,7 @@ def _next_is_open_paren(s: str, i: int) -> bool:
 
 def _try_match_ref(s: str, i: int) -> tuple[int, _Ref] | None:
     """Match a cell / range / whole-col / whole-row (optional sheet) at *i*."""
-    if i > 0 and _is_ident_char(s[i - 1]):
+    if i > 0 and (_is_letter(s[i - 1]) or _is_digit(s[i - 1]) or s[i - 1] == "_"):
         return None
     sheet1 = ""
     j = i

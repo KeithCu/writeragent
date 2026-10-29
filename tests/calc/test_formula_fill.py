@@ -10,7 +10,6 @@ import pytest
 
 from plugin.calc.formula_fill import (
     _RefKind,
-    _SpanKind,
     adjust_a1_formula,
     expand_single_formula,
 )
@@ -148,11 +147,9 @@ def test_single_cell_expand_is_identity():
 
 
 def test_enums():
-    # Item 63: _RefKind and _SpanKind enums
+    # Item 63: _RefKind enum
     assert _RefKind.CELL.value == "cell"
     assert _RefKind.RANGE.value == "range"
-    assert _SpanKind.SINGLE_CELL.value == "single_cell"
-    assert _SpanKind.MULTI_ROW.value == "multi_row"
 
 
 

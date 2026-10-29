@@ -7,11 +7,11 @@
 # crosshair: off
 from __future__ import annotations
 
+from itertools import islice
 from typing import Any
 
 from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_prefix
-from plugin.calc.calc_utils import cell_value_and_type, query_interface
-from plugin.calc.calc_utils import resolve_sheet_and_cell as _resolve_sheet_and_cell
+from plugin.calc.calc_utils import cell_value_and_type, query_interface, resolve_sheet_and_cell as _resolve_sheet_and_cell
 from plugin.framework.errors import best_effort, safe_json_loads
 
 _FORMULA_DEP_CHAIN_CMD = ".uno:FormulaDepChain"
@@ -75,29 +75,34 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any = Non
         return {"source": "formula_query_unavailable", "precedents": []}
 
     precedents: list[dict[str, Any]] = []
-    # Set once the cap is hit so callers can tell a partial list from a
-    # complete one. Whole-column refs used to expand with no limit.
-    truncated = False
     ranges = best_effort(lambda: fq.queryPrecedents(False), "queryPrecedents failed")
-    if ranges is None:
-        return {"source": "formula_query", "precedents": precedents, "truncated": False, "total_cells": 0}
-    addresses = ranges.getRangeAddresses()
-    total_cells = sum((addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) for addr in addresses)
+    addresses = ranges.getRangeAddresses() if ranges is not None else ()
+    total_cells = sum(
+        (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1)
+        for addr in addresses
+    )
     for addr in addresses:
-        # Sheet 0 is a real sheet. Only a missing index means "this sheet".
+        # Sheet lookup stays before the cap check. A following address whose
+        # sheet index throws still throws once the previous addresses filled
+        # the cap exactly, which is what the old inner break did.
         prec_sheet = _sheet_for_precedent(doc, sheet, getattr(addr, "Sheet", None))
         prec_name = _sheet_name(prec_sheet)
-        for r in range(addr.StartRow, addr.EndRow + 1):
-            for c in range(addr.StartColumn, addr.EndColumn + 1):
-                if len(precedents) >= _MAX_PRECEDENT_CELLS:
-                    truncated = True
-                    break
-                precedents.append(_cell_snapshot(prec_sheet, c, r, sheet_name=prec_name))
-            if truncated:
-                break
-        if truncated:
+        room = _MAX_PRECEDENT_CELLS - len(precedents)
+        if room <= 0:
             break
-    return {"source": "formula_query", "precedents": precedents, "truncated": truncated, "total_cells": total_cells}
+        cells = (
+            (r, c)
+            for r in range(addr.StartRow, addr.EndRow + 1)
+            for c in range(addr.StartColumn, addr.EndColumn + 1)
+        )
+        for r, c in islice(cells, room):
+            precedents.append(_cell_snapshot(prec_sheet, c, r, sheet_name=prec_name))
+    return {
+        "source": "formula_query",
+        "precedents": precedents,
+        "truncated": total_cells > _MAX_PRECEDENT_CELLS,
+        "total_cells": total_cells,
+    }
 
 
 def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] | None:
@@ -125,7 +130,7 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
         if raw:
             parsed = safe_json_loads(raw, default=None, strict=True) if isinstance(raw, str) else raw
             if isinstance(parsed, dict):
-                chain = parsed.get("commandValues") if "commandValues" in parsed else parsed
+                chain = parsed.get("commandValues", parsed)
                 if chain:
                     chain = dict(chain)
                     chain["source"] = "uno_formula_dep_chain"
@@ -133,9 +138,8 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
     if not chain:
         chain = _precedents_via_formula_query(sheet, col, row, doc)
 
-    if chain is not None:
-        local = format_address(col, row)
-        sheet_name = _sheet_name(sheet)
-        cell = qualify_a1(sheet_name, local) if split_sheet_prefix(address)[0] is not None and sheet_name else local
-        chain.setdefault("cell", cell)
+    local = format_address(col, row)
+    sheet_name = _sheet_name(sheet)
+    cell = qualify_a1(sheet_name, local) if split_sheet_prefix(address)[0] is not None and sheet_name else local
+    chain.setdefault("cell", cell)
     return chain
