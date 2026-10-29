@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+from collections import Counter
 import logging
+import math
 from typing import Any
 
 from plugin.scripting.calc_functions_common import (
@@ -39,8 +41,10 @@ _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
 }
 
 
+_BOUNDS_ERROR = "bounds must be one [low, high] pair or a list of one pair per variable"
+
+
 def _is_bound_scalar(x: Any) -> bool:
-    import math
     import numpy as np
 
     if x is None:
@@ -55,19 +59,27 @@ def _is_bound_scalar(x: Any) -> bool:
 def _linprog_bounds(bounds: Any, n_vars: int) -> Any:
     if bounds is None:
         return None
-    if isinstance(bounds, (list, tuple)):
-        if len(bounds) == 2 and _is_bound_scalar(bounds[0]) and _is_bound_scalar(bounds[1]):
-            return (bounds[0], bounds[1])
-        if len(bounds) == n_vars:
-            res: list[tuple[Any, Any]] = []
-            for item in bounds:
-                if not isinstance(item, (list, tuple)) or len(item) != 2:
-                    raise ValueError("bounds must be one [low, high] pair or a list of one pair per variable")
-                if not _is_bound_scalar(item[0]) or not _is_bound_scalar(item[1]):
-                    raise ValueError("bounds must be one [low, high] pair or a list of one pair per variable")
-                res.append((item[0], item[1]))
-            return res
-    raise ValueError("bounds must be one [low, high] pair or a list of one pair per variable")
+    # A length-2 sequence of scalars is one pair for every variable, including when n_vars == 2.
+    if (
+        isinstance(bounds, (list, tuple))
+        and len(bounds) == 2
+        and _is_bound_scalar(bounds[0])
+        and _is_bound_scalar(bounds[1])
+    ):
+        return (bounds[0], bounds[1])
+    if (
+        isinstance(bounds, (list, tuple))
+        and len(bounds) == n_vars
+        and all(
+            isinstance(item, (list, tuple))
+            and len(item) == 2
+            and _is_bound_scalar(item[0])
+            and _is_bound_scalar(item[1])
+            for item in bounds
+        )
+    ):
+        return [(item[0], item[1]) for item in bounds]
+    raise ValueError(_BOUNDS_ERROR)
 
 
 def _constraint_bounds(b: Any, n_constraints: int) -> Any:
@@ -92,6 +104,13 @@ def _constraint_bounds(b: Any, n_constraints: int) -> Any:
     return None
 
 
+def _with_flags(result: dict[str, Any], flags: list[str]) -> dict[str, Any]:
+    # An empty list must not create a flags key. Callers treat a missing key as none.
+    if flags:
+        result["flags"] = flags
+    return result
+
+
 def linear_programming(
     data: Any,
     *,
@@ -112,8 +131,6 @@ def linear_programming(
     column may repeat that same bound on every row.
     ``bounds`` may be one pair for every variable or one pair per original row;
     pairs for rows dropped as non-numeric are ignored.
-
-    Future: Consider pulp for more complex formulations.
     """
     helper = "linear_programming"
     import numpy as np
@@ -132,26 +149,19 @@ def linear_programming(
 
     try:
         a_cols_list = coerce_str_list(a_cols, name="a_cols")
-    except ValueError as exc:
-        return _error_result("INVALID_PARAM", str(exc), helper=helper)
+        if not a_cols_list:
+            return _error_result("INVALID_PARAM", "a_cols is required", helper=helper)
 
-    if not a_cols_list:
-        return _error_result("INVALID_PARAM", "a_cols is required", helper=helper)
+        all_lp_cols = [c_col, b_col, *a_cols_list]
+        duplicates = [col_name for col_name, count in Counter(all_lp_cols).items() if count > 1]
+        if duplicates:
+            names = ", ".join(duplicates)
+            return _error_result(
+                "INVALID_PARAM",
+                f"c_col, b_col, and a_cols must name distinct columns; repeated: {names}",
+                helper=helper,
+            )
 
-    all_lp_cols = [c_col, b_col, *a_cols_list]
-    counts: dict[str, int] = {}
-    for col_name in all_lp_cols:
-        counts[col_name] = counts.get(col_name, 0) + 1
-    duplicates = [col_name for col_name, count in counts.items() if count > 1]
-    if duplicates:
-        names = ", ".join(duplicates)
-        return _error_result(
-            "INVALID_PARAM",
-            f"c_col, b_col, and a_cols must name distinct columns; repeated: {names}",
-            helper=helper,
-        )
-
-    try:
         maximize_val = coerce_bool(maximize, name="maximize", default=False)
     except ValueError as exc:
         return _error_result("INVALID_PARAM", str(exc), helper=helper)
@@ -262,7 +272,6 @@ def optimize_portfolio(
     is a flags entry.
     """
     helper = "optimize_portfolio"
-    import math
     import numpy as np
     import pandas as pd
     try:
@@ -271,15 +280,7 @@ def optimize_portfolio(
         return _missing_package_error(helper, "scipy")
     try:
         returns_col_list = coerce_str_list(returns_col, name="returns_col")
-    except ValueError as exc:
-        return _error_result("INVALID_PARAM", str(exc), helper=helper)
-
-    try:
         target_return_val = coerce_optional_float(target_return, name="target_return")
-    except ValueError as exc:
-        return _error_result("INVALID_PARAM", str(exc), helper=helper)
-
-    try:
         rf_val = coerce_optional_float(risk_free_rate, name="risk_free_rate")
         if rf_val is None:
             rf_val = 0.0
@@ -296,10 +297,10 @@ def optimize_portfolio(
         return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
 
     if not numeric_cols or len(numeric_cols) < 2:
-        err = _error_result("INSUFFICIENT_DATA", "Need at least two numeric columns (assets).", helper=helper)
-        if flags:
-            err["flags"] = flags
-        return err
+        return _with_flags(
+            _error_result("INSUFFICIENT_DATA", "Need at least two numeric columns (assets).", helper=helper),
+            flags,
+        )
 
     returns_raw = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     n_before_drop = len(returns_raw)
@@ -392,20 +393,15 @@ def optimize_portfolio(
     table = _table_from_df(weights_df, name="portfolio_weights", max_rows=ANALYSIS_DATA_TABLE_ROWS)
 
     metrics = {
-        "expected_return": float(expected_return),
-        "expected_volatility": float(expected_volatility),
-        "sharpe_ratio": float(sharpe_ratio)
+        "expected_return": expected_return,
+        "expected_volatility": expected_volatility,
+        "sharpe_ratio": sharpe_ratio,
     }
 
-    res_payload: dict[str, Any] = {
-        "metrics": metrics,
-        "tables": [table],
-        "metadata": coerced.metadata,
-    }
-    if flags:
-        res_payload["flags"] = flags
-
-    return _ok_result(helper, **res_payload)
+    return _with_flags(
+        _ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata),
+        flags,
+    )
 
 
 def solve_scheduling_problem(
@@ -443,10 +439,10 @@ def solve_scheduling_problem(
         return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
 
     if not numeric_cols:
-        err = _error_result("INSUFFICIENT_DATA", "Need numeric columns for cost matrix.", helper=helper)
-        if flags:
-            err["flags"] = flags
-        return err
+        return _with_flags(
+            _error_result("INSUFFICIENT_DATA", "Need numeric columns for cost matrix.", helper=helper),
+            flags,
+        )
 
     df_cost = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     df_clean = df_cost.dropna()
@@ -486,21 +482,16 @@ def solve_scheduling_problem(
     table = _table_from_df(assignment_df, name="optimal_assignment", max_rows=ANALYSIS_DATA_TABLE_ROWS)
 
     metrics = {
-        "total_cost": float(total_cost),
+        "total_cost": total_cost,
         "assignments": len(row_ind),
         "unassigned_rows": unassigned_rows,
         "unassigned_columns": unassigned_columns,
     }
 
-    res_payload: dict[str, Any] = {
-        "metrics": metrics,
-        "tables": [table],
-        "metadata": coerced.metadata,
-    }
-    if flags:
-        res_payload["flags"] = flags
-
-    return _ok_result(helper, **res_payload)
+    return _with_flags(
+        _ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata),
+        flags,
+    )
 
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
