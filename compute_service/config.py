@@ -186,8 +186,6 @@ class ComputeSettings:
     max_code_chars: int = 262144
     ocr_allow_paths: tuple[str, ...] = ()
     log_level: str = "INFO"
-    # Future: map authenticated principals to named profiles. Today always "default".
-    default_principal: str = "default"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "ocr_allow_paths", _as_path_tuple(self.ocr_allow_paths))
