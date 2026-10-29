@@ -313,16 +313,21 @@ def _memory_view_definition(raw: Any, name: str) -> str | None:
     return str(val) if val is not None else None
 
 
+def _unregister(raw: Any, name: str) -> None:
+    # unregister raises when the name was never register()'d.
+    # Swallow so a missing relation does not skip the catalog DROP or the stem drop.
+    try:
+        raw.unregister(name)
+    except Exception:
+        pass
+
+
 def _drop_catalog_name(raw: Any, name: str) -> None:
     try:
         entries = _main_catalog_entries(raw, name)
     except Exception as exc:
         log.warning("Failed to query catalog for %r: %s", name, exc)
-        if hasattr(raw, "unregister"):
-            try:
-                raw.unregister(name)
-            except Exception:
-                pass
+        _unregister(raw, name)
         return
 
     quoted = _quote_duckdb_ident(name)
@@ -336,11 +341,7 @@ def _drop_catalog_name(raw: Any, name: str) -> None:
     if has_base_table:
         raw.execute(f"DROP TABLE IF EXISTS {quoted}")
 
-    if hasattr(raw, "unregister"):
-        try:
-            raw.unregister(name)
-        except Exception:
-            pass
+    _unregister(raw, name)
 
 
 def invalidate_session_tables(
@@ -415,11 +416,7 @@ def _acquire_duckdb(session_id: str | None) -> tuple[Any, bool]:
 def _register_relation(con: Any, name: str, rel: Any) -> None:
     """Replace a prior registration so a recalc snapshot overwrites a stale table."""
     raw = _raw_duckdb(con)
-    try:
-        if hasattr(raw, "unregister"):
-            raw.unregister(name)
-    except Exception:
-        pass
+    _unregister(raw, name)
     raw.register(name, rel)
 
 
@@ -537,20 +534,19 @@ class GuardedDuckDBConnection:
         self.__con.execute("SET lock_configuration=true")
         self.__confined = True
 
-    def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+    def _prepare(self, sql: str) -> None:
         _raise_if_write_or_escape(sql)
         if self.__persist:
             self.confine_persist_folder(None)
         else:
             self._confine_ephemeral()
+
+    def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+        self._prepare(sql)
         return self.__con.execute(sql, *args, **kwargs)
 
     def sql(self, sql: str, *args: Any, **kwargs: Any) -> Any:
-        _raise_if_write_or_escape(sql)
-        if self.__persist:
-            self.confine_persist_folder(None)
-        else:
-            self._confine_ephemeral()
+        self._prepare(sql)
         return self.__con.sql(sql, *args, **kwargs)
 
     def close(self) -> None:
@@ -660,17 +656,16 @@ def _ok_sql_result(
     files_used: list[str] | None = None,
 ) -> dict[str, Any]:
     """Shape a SQL DataFrame like analysis helpers: tables + flags + metrics."""
-    total = int(len(df))
-    truncated = total > MAX_TABLE_ROWS
     table = _table_from_df(df, name="sql_result", max_rows=MAX_TABLE_ROWS)
     # table_from_df already sets truncated / total_rows; keep columns/rows at
     # top level so existing chat/tool callers keep working.
-    cols = list(table["columns"])
-    rows = list(table["rows"])
+    total = table["total_rows"]
+    truncated = table["truncated"]
+    rows = table["rows"]
     warning = _truncation_warning(total) if truncated else None
     flags = [warning] if warning else []
     payload: dict[str, Any] = {
-        "columns": cols,
+        "columns": table["columns"],
         "rows": rows,
         "truncated": truncated,
         "total_rows": total,
@@ -754,14 +749,9 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
 
 def _register_flat_files(
     con: Any,
-    flat_files: dict[str, str] | None,
-    scoped_dir: str | None = None,
+    flat_files: dict[str, str],
+    scoped_dir: str,
 ) -> list[str]:
-    if not flat_files:
-        return []
-    # Files require scoped_dir. Every path goes through resolve_flat_file_path.
-    if not scoped_dir:
-        raise SqlError("MISSING_SCOPED_DIR", "scoped_dir is required for flat files")
     raw = _raw_duckdb(con)
     created_stems: set[str] = set()
     bound_stems: list[str] = []
@@ -787,10 +777,7 @@ def _register_flat_files(
             raw.execute(f"DROP TABLE IF EXISTS {quoted_name}")
             raw.execute(f"CREATE TABLE {quoted_name} AS SELECT * FROM _wa_tmp_import")
         finally:
-            try:
-                raw.unregister("_wa_tmp_import")
-            except Exception:
-                pass
+            _unregister(raw, "_wa_tmp_import")
 
         stem = os.path.splitext(name)[0]
         if not stem or stem == name:
@@ -921,15 +908,7 @@ def _execute(
     if resolved_flat:
         used.extend(resolved_flat.keys())
     used.extend(stem_aliases)
-
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for item in used:
-        if item in seen:
-            continue
-        seen.add(item)
-        deduped.append(item)
-    return df, deduped
+    return df, list(dict.fromkeys(used))
 
 
 def _handle_sql_error(exc: Exception, helper: str) -> dict[str, Any]:
