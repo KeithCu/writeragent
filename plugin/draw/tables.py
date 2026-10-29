@@ -42,15 +42,6 @@ def _table_model(shape: Any) -> Any | None:
         return None
 
 
-def _remove_half_built(page_obj: Any, shape_obj: Any) -> None:
-    try:
-        page_obj.remove(shape_obj)
-    except Exception as remove_exc:
-        if is_real_disposal(remove_exc):
-            raise
-        log.debug("Failed to remove half-built table shape: %s", remove_exc)
-
-
 def _cell_string(cell: Any) -> str:
     try:
         val = cell.getString()
@@ -167,9 +158,7 @@ def resolve_draw_table(doc: Any, *, name: str = "", page: Any = None, index: Any
 def list_draw_tables(doc: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for t in iter_table_shapes(doc):
-        rows = int(t["rows"] or 0)
-        cols = int(t["cols"] or 0)
-        out.append({"name": t["name"], "rows": t["rows"], "cols": t["cols"], "cell_count": rows * cols, "page": t["page"], "index": t["index"]})
+        out.append({"name": t["name"], "rows": t["rows"], "cols": t["cols"], "cell_count": t["rows"] * t["cols"], "page": t["page"], "index": t["index"]})
     return out
 
 
@@ -226,9 +215,8 @@ def set_draw_cell(entry: dict[str, Any], cell_raw: str, text: str) -> tuple[str,
 
 def manage_draw_structure(entry: dict[str, Any], action: str, axis_arg: str, idx: int) -> tuple[int, int]:
     model = _model_or_raise(entry)
-    axis = "rows" if axis_arg == "row" else "columns"
-    band = model.getRows() if axis == "rows" else model.getColumns()
-    edit_table_band(band, action, idx, axis)
+    band = model.getRows() if axis_arg == "row" else model.getColumns()
+    edit_table_band(band, action, idx, axis_arg)
     return table_dims(model)
 
 
@@ -300,7 +288,12 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
             # error used to leave that half-built table on the page.
             # Remove it, then report the original error. A closed document
             # is re-raised and is not rewritten as a tool error.
-            _remove_half_built(page, shape)
+            try:
+                page.remove(shape)
+            except Exception as remove_exc:
+                if is_real_disposal(remove_exc):
+                    raise
+                log.debug("Failed to remove half-built table shape: %s", remove_exc)
         return {"status": "error", "message": f"Failed to {stage}: {exc}", "code": "TOOL_EXECUTION_ERROR"}
 
     return {
