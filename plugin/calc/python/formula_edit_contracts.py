@@ -20,8 +20,8 @@ from plugin.framework.deal_shim import (
 # Sheet/A1 range tokens. Space and ``"`` are product (``My Sheet.A1``, quoted sheets).
 _RANGE_ADDR_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.!:'$_ \"")
 
-_DEAL_UNQUOTED_CODE = ascii_bounded if UNDER_CROSSHAIR else str_bounded
-_DEAL_SHEET_TOKEN = ascii_bounded if UNDER_CROSSHAIR else str_bounded
+# Under pytest this is str_bounded (Unicode); under CrossHair it is ascii_bounded.
+_DEAL_ASCII_STR = ascii_bounded if UNDER_CROSSHAIR else str_bounded
 
 
 def _deal_range_addr_ok(s: object) -> bool:
@@ -50,9 +50,9 @@ def _parts_result_ok(result: Any) -> bool:
     """Postcondition check for PythonFormulaParts parser."""
     if result is None:
         return True
-    prefix = getattr(result, "prefix", None)
-    code = getattr(result, "code", None)
-    data_suffix = getattr(result, "data_suffix", None)
+    prefix = result.prefix
+    code = result.code
+    data_suffix = result.data_suffix
     return (
         isinstance(prefix, str)
         and prefix.endswith("(")

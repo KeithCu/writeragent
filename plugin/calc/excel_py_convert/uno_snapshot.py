@@ -10,7 +10,7 @@ from plugin.calc.address_utils import index_to_column
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.excel_py_convert.to_excel import convert_dag_cells_to_excel
 from plugin.calc.python.cell_discovery import canonicalize_py_formula_for_parse, is_py_formula_text
-from plugin.calc.python.formula_edit import CALC_PYTHON_FN, escape_code_for_excel_formula, parse_python_formula
+from plugin.calc.python.formula_edit import CALC_PYTHON_FN, escape_code_for_formula, parse_python_formula
 from plugin.framework.errors import uno_probe
 
 if TYPE_CHECKING:
@@ -163,7 +163,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
                             continue
                         resolved = resolve_bank_cell_reference(parts.code, _uno_lookup)
                         if resolved is not None and resolved.strip():
-                            formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_excel_formula(resolved)}"{parts.data_suffix}'
+                            formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_formula(resolved)}"{parts.data_suffix}'
                         else:
                             formula_out = canonical
                         cell_meta: dict[str, Any] = {}

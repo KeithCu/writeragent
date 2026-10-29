@@ -17,7 +17,7 @@ from plugin.calc.excel_py_convert.ooxml_util import (
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.python.formula_edit import (
     CALC_PYTHON_FN,
-    escape_code_for_excel_formula,
+    escape_code_for_formula,
     format_data_binding_display,
     parse_data_binding_text,
     parse_python_formula,
@@ -156,7 +156,7 @@ def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
                     else None
                 )
                 if resolved is not None:
-                    # Excel escape only — do not run Calc formula sanitizer on banked source.
-                    formula = f'={CALC_PYTHON_FN}("{escape_code_for_excel_formula(resolved)}"{parts.data_suffix}'
+                    # Quote-escape only (" -> "").
+                    formula = f'={CALC_PYTHON_FN}("{escape_code_for_formula(resolved)}"{parts.data_suffix}'
                 out.append((sh.title, a1, formula))
     return out

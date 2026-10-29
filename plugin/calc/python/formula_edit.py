@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from plugin.calc.python.formula_edit_contracts import (
-    _DEAL_SHEET_TOKEN,
-    _DEAL_UNQUOTED_CODE,
+    _DEAL_ASCII_STR,
     _deal_data_args_ok,
     _deal_range_addr_ok,
     _parts_result_ok,
@@ -52,6 +51,7 @@ _CALC_PYTHON_FN_ALIASES_BY_LEN = tuple(
         reverse=True,
     )
 )
+_MAX_PY_ALIAS_LEN = max(len(alias) for alias in _CALC_PYTHON_FN_ALIASES_BY_LEN)
 # Curly/smart quotes Calc sometimes stores in localized formulas.
 _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"})
 
@@ -67,8 +67,7 @@ def _match_py_alias(raw: str, *, require_equals: bool, aliases: tuple[str, ...])
         i += 1
         while i < n and raw[i].isspace():
             i += 1
-    max_alias_len = max(len(a) for a in aliases) if aliases else 0
-    head = raw[i : i + max_alias_len].upper()
+    head = raw[i : i + _MAX_PY_ALIAS_LEN].upper()
     matched = 0
     for alias in aliases:
         if head.startswith(alias):
@@ -143,7 +142,7 @@ def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
     return None
 
 
-@deal.pre(lambda inner_body: _DEAL_UNQUOTED_CODE(inner_body, DEAL_MAX_SOURCE))
+@deal.pre(lambda inner_body: _DEAL_ASCII_STR(inner_body, DEAL_MAX_SOURCE))
 @deal.post(lambda result: result is None or (isinstance(result, str) and not result.startswith('"')))
 def _parse_unquoted_code_arg(inner_body: str) -> str | None:
     """Parse ``=PY(sp.prime(100))`` when Calc omits string quotes around code."""
@@ -170,15 +169,6 @@ def _parse_unquoted_code_arg(inner_body: str) -> str | None:
             return s[:i].strip()
         i += 1
     return s
-
-
-# Bound by DEAL_MAX_SOURCE. DEAL_MAX_TOKEN (64) makes the precondition
-# reject a formula whose data suffix is a long multi-range list
-# (; A1; B1; C1; D1...).
-@deal.pre(lambda rest: str_bounded(rest, DEAL_MAX_SOURCE))
-def _is_data_arg_separator(rest: str) -> bool:
-    """True when *rest* begins a PY/PYTHON data-argument suffix (``;`` or ``,``)."""
-    return bool(rest) and rest[0] in (";", ",")
 
 
 def extract_python_code_loose(formula: str) -> str | None:
@@ -264,8 +254,10 @@ def _split_data_binding_tokens(raw: str) -> list[str]:
     return [t.strip() for t in tokens]
 
 
+# The suffix is bounded by DEAL_MAX_SOURCE on the formula, not DEAL_MAX_TOKEN
+# (64), because a multi-range list is longer than 64.
 def _data_suffix_from_rest(rest: str) -> str | None:
-    if _is_data_arg_separator(rest):
+    if rest[:1] in (";", ","):
         return rest + ")"
     if rest == "":
         return ")"
@@ -311,93 +303,20 @@ def parse_python_formula(formula: str) -> PythonFormulaParts | None:
     return PythonFormulaParts(prefix=raw[:inner_start], code=code, data_suffix=data_suffix)
 
 
-# Defensive rewrites for machine-generated Python code (plugin/calc/spreadsheet_import/translate.py).
-#
-# Diagnosis: ASCII-quoted strings are opaque in ScCompiler::NextSymbol (ssGetString).
-# =PY("float(1)") does not #NAME? from scanning inside quotes. Hand-written user code
-# in Monaco editor must not be sanitized (float("3.5"), int(-3.7), ax.text(...), etc.
-# must be preserved verbatim). Quote-escaping only doubles quotes.
-# sanitize_inline_py_code is retained only for machine-generated code from spreadsheet_import.
+# Emit-test oracle for float(, int(, str(, and calc.text( (tokens that
+# #NAME? if the ASCII quotes around the code are lost). ASCII-quoted Calc
+# strings are opaque (ScCompiler::NextSymbol / ssGetString). The oracle
+# does not rewrite code.
 _LEXER_COLLISION_FLOAT_RE = re.compile(r"\bfloat\s*\(")
 _LEXER_COLLISION_INT_RE = re.compile(r"\bint\s*\(")
 _LEXER_COLLISION_STR_RE = re.compile(r"\bstr\s*\(")
 _LEXER_COLLISION_XL_TEXT_RE = re.compile(r"\bcalc\.text\s*\(")
 
 
-@deal.pre(lambda s, open_idx: str_bounded(s, DEAL_MAX_SOURCE) and isinstance(open_idx, int) and 0 <= open_idx < len(s))
-@deal.post(lambda result: isinstance(result, int) and result >= -1)
-@deal.ensure(lambda s, open_idx, result: result == -1 or (0 <= open_idx <= result < len(s) and s[result] == ")"))
-def _find_matching_paren(s: str, open_idx: int) -> int:
-    # crosshair: off
-    """Return index of ``)`` matching ``(`` at *open_idx*, or -1."""
-    # Reject out-of-range open_idx: negatives index from the end (CrossHair '', -1).
-    if open_idx < 0 or open_idx >= len(s):
-        return -1
-    depth = 0
-    i = open_idx
-    while i < len(s):
-        ch = s[i]
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0:
-                return i
-        i += 1
-    return -1
-
-
-# Deep check hangs synthesizing rewrite_inner (Callable) + regex loop.
-# Public wrappers that call this body (sanitize / escape / rebuild) are also
-# CrossHair-off: cheap isinstance(result, str) post still wandered hours at
-# DEAL_MAX_SOURCE=16 (parse_address-class). ``@deal`` stays for pytest.
-# Callers pass hardcoded float/int/str; ``re.escape`` so a metacharacter token cannot
-# PatternError. Body is separate so sanitize can call it after ``dtype=float`` grows
-# past DEAL_MAX_SOURCE (CrossHair 16) without a nested PreconditionFailed.
-def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], str]) -> str:
-    """Replace ``token(inner)`` calls. *token* is escaped before compile."""
-    # crosshair: off
-    pattern = re.compile(rf"\b{re.escape(token)}\s*\(")
-    out: list[str] = []
-    pos = 0
-    while True:
-        m = pattern.search(code, pos)
-        if not m:
-            out.append(code[pos:])
-            break
-        out.append(code[pos : m.start()])
-        open_paren = m.end() - 1
-        close_paren = _find_matching_paren(code, open_paren)
-        if close_paren < 0:
-            out.append(code[m.start() :])
-            break
-        inner = code[open_paren + 1 : close_paren]
-        out.append(rewrite_inner(inner))
-        pos = close_paren + 1
-    return "".join(out)
-
-
-@deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
-@deal.post(lambda result: isinstance(result, str))
-def sanitize_inline_py_code(code: str) -> str:
-    """Defensive rewrite of tokens for machine-generated Python from spreadsheet import."""
-    # crosshair: off
-    if not code:
-        return code
-    sanitized = code.replace("dtype=float", "dtype=np.float64")
-    # Rewrite only calc.text(. ax.text(...) and plt.text(...) are
-    # matplotlib methods, and a bare .text( pattern turns them into .fmt(.
-    sanitized = _LEXER_COLLISION_XL_TEXT_RE.sub("calc.fmt(", sanitized)
-    sanitized = _rewrite_token_calls(sanitized, "float", lambda inner: f"({inner})+0.0")
-    sanitized = _rewrite_token_calls(sanitized, "int", lambda inner: f"(({inner})//1)")
-    sanitized = _rewrite_token_calls(sanitized, "str", lambda inner: f"calc.py_str({inner})")
-    return sanitized
-
-
 @deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
-    """Return token names still present that ``sanitize_inline_py_code`` would rewrite."""
+    """Return token names with lexer collisions if quotes around the code are lost."""
     # crosshair: off
     hits: list[str] = []
     if _LEXER_COLLISION_FLOAT_RE.search(code):
@@ -412,9 +331,8 @@ def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
 
 
 # Only double quotes inside the formula string. An ASCII-quoted Calc
-# string is opaque to the formula lexer. sanitize_inline_py_code rewrites
-# hand-written code on a Monaco save (float("3.5") becomes ("3.5")+0.0,
-# ax.text becomes .fmt, int(-3.7) becomes -4).
+# string is opaque to the formula lexer; quote-doubling preserves
+# hand-written code verbatim without unwanted rewrites.
 @deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda code, result: result == (code or "").replace('"', '""'))
@@ -426,12 +344,6 @@ def escape_code_for_formula(code: str) -> str:
     """
     # crosshair: off
     return (code or "").replace('"', '""')
-
-
-def escape_code_for_excel_formula(code: str) -> str:
-    """Quote-escape Python for Excel ``=PY("…")`` / OOXML — no Calc sanitizer rewrites."""
-    # crosshair: off
-    return escape_code_for_formula(code)
 
 
 def assemble_python_formula(prefix: str, token: str, suffix: str, *, quoted: bool) -> str:
@@ -492,7 +404,7 @@ def parse_data_binding_text(text: str) -> list[str]:
 def format_data_binding_text(data_args: list[str]) -> str:
     # crosshair: off
     """Format data args for the editor textbox (comma-separated)."""
-    cleaned = [a.strip() for a in data_args if a.strip()]
+    cleaned = [stripped for arg in data_args if (stripped := arg.strip())]
     return ", ".join(cleaned)
 
 
@@ -501,7 +413,7 @@ def _is_ascii_letter(c: str) -> bool:
     return "A" <= c <= "Z" or "a" <= c <= "z"
 
 
-@deal.pre(lambda s: _DEAL_SHEET_TOKEN(s, DEAL_MAX_TOKEN))
+@deal.pre(lambda s: _DEAL_ASCII_STR(s, DEAL_MAX_TOKEN))
 def _is_a1_cell_prefix(s: str) -> bool:
     """Optional ``$`` + 1–3 letters + optional ``$`` + a digit.
 
@@ -527,7 +439,7 @@ def _is_a1_cell_prefix(s: str) -> bool:
     return i < n and "0" <= s[i] <= "9"
 
 
-@deal.pre(lambda s: _DEAL_SHEET_TOKEN(s, DEAL_MAX_TOKEN))
+@deal.pre(lambda s: _DEAL_ASCII_STR(s, DEAL_MAX_TOKEN))
 def _is_sheet_identifier(s: str) -> bool:
     """``[A-Za-z_][A-Za-z0-9_]*`` without regex."""
     if not s:
@@ -657,7 +569,7 @@ def rebuild_python_formula_with_data(code: str, data_args: list[str], *, parts: 
     """
     # Non-excel path calls escape → quote doubling.
     # crosshair: off
-    escaped = escape_code_for_excel_formula(code) if excel_escape else escape_code_for_formula(code)
+    escaped = escape_code_for_formula(code)
     prefix = parts.prefix if parts is not None and parts.prefix else f"={CALC_PYTHON_FN}("
     suffix = build_data_suffix(data_args, separator=separator, excel_ranges=excel_escape or separator == ",")
     return assemble_python_formula(prefix, escaped, suffix, quoted=True)

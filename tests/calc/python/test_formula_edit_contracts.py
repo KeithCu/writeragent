@@ -44,4 +44,3 @@ def test_parts_result_ok() -> None:
     assert _parts_result_ok(PythonFormulaParts("=PY", "x", ")")) is False
     assert _parts_result_ok(PythonFormulaParts("", "x", ")")) is False
     assert _parts_result_ok(PythonFormulaParts("=PY(", "x", "")) is False
-    assert _parts_result_ok(object()) is False

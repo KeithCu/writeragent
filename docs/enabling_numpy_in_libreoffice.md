@@ -664,7 +664,7 @@ ASCII `"…"` string literals are **opaque**. Identifiers like `float` and neste
 | **Err:510** | Cell text starts with `=` (e.g. section label `=== normal ===`) | Use plain labels like `[normal]`, not leading `=` |
 | **#NAME?** | XLSX import lowercases the add-in name; lookup failed on display-only name | Prefer `=PY(...)` (uppercase). The add-in also accepts `python` / `PYTHON`. |
 
-Do not wrap returns in `float()` / `int()` / `str()` for Calc’s sake — [`to_calc_compatible`](../plugin/calc/python/function.py) already coerces NumPy scalars and Python `int` to Calc `double`. `#NAME?` on `float` means the call is **outside** quotes (or quotes were lost / became curly). WriterAgent’s [`sanitize_inline_py_code`](../plugin/calc/python/formula_edit.py) still rewrites `float(`/`int(`/`str(` when *emitting* Calc formulas as a defensive measure; that is not proof the lexer scans inside ASCII strings.
+Do not wrap returns in `float()` / `int()` / `str()` for Calc’s sake — [`to_calc_compatible`](../plugin/calc/python/function.py) already coerces NumPy scalars and Python `int` to Calc `double`. `#NAME?` on `float` means the call is **outside** quotes (or quotes were lost / became curly). That is not proof the lexer scans inside ASCII strings.
 
 ```text
 =PY(float(1))                 → #NAME?   (unquoted float = unknown function)

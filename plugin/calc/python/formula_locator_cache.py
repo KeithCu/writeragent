@@ -11,6 +11,7 @@ import contextvars
 import re
 from typing import Any, Iterator
 
+from plugin.calc.python.formula_edit import parse_python_formula, py_formula_has_unquoted_code_ref
 from plugin.framework.errors import uno_probe
 
 CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
@@ -98,8 +99,6 @@ def is_matching_py_formula(formula: str, code_str: str, *, sheet: Any | None = N
     if extracted is not None:
         return _code_strings_match(extracted, code_str)
     if sheet is not None:
-        from plugin.calc.python.formula_edit import parse_python_formula, py_formula_has_unquoted_code_ref
-
         if py_formula_has_unquoted_code_ref(formula):
             parts = parse_python_formula(formula)
             if parts is not None and parts.code:
@@ -170,38 +169,6 @@ def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | Non
     return uno_probe(_probe, None)
 
 
-def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
-    """Matching formula cells in *cell_range*. A multi-cell array formula of the same code is one origin."""
-    raw_hits: list[tuple[Any, int, int]] = []
-
-    for r, c, formula_str in iter_range_formula_texts(sheet, cell_range):
-        if not formula_str:
-            continue
-        upper = formula_str.upper()
-        if "PY" not in upper:
-            continue
-        if is_matching_py_formula(formula_str, code_str, sheet=sheet, doc=doc):
-            cell = sheet.getCellByPosition(c, r)
-            raw_hits.append((cell, r, c))
-
-    if len(raw_hits) <= 1:
-        return raw_hits
-
-    hits: list[tuple[Any, int, int]] = []
-    seen_array_origins: set[tuple[int, int]] = set()
-    for cell, r, c in raw_hits:
-        origin = _array_block_origin(sheet, c, r)
-        if origin is not None:
-            if origin not in seen_array_origins:
-                seen_array_origins.add(origin)
-                origin_r, origin_c = origin
-                origin_cell = cell if (origin_r == r and origin_c == c) else sheet.getCellByPosition(origin_c, origin_r)
-                hits.append((origin_cell, origin_r, origin_c))
-        else:
-            hits.append((cell, r, c))
-    return hits
-
-
 def search_sheet_for_formula(sheet: Any, code_str: str, doc: Any | None = None) -> tuple[Any, int, int] | None:
     """Query formula cells on sheet. Returns a match only when exactly one origin matches.
 
@@ -224,7 +191,30 @@ def _collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None
     count = formula_cells.getCount() if hasattr(formula_cells, "getCount") else 0
     for i in range(count):
         cell_range = formula_cells.getByIndex(i)
-        found.extend(_matching_cells_in_range(sheet, cell_range, code_str, doc=doc))
+        raw_hits: list[tuple[Any, int, int]] = []
+        for r, c, formula_str in iter_range_formula_texts(sheet, cell_range):
+            upper = formula_str.upper()
+            if "PY" not in upper:
+                continue
+            if is_matching_py_formula(formula_str, code_str, sheet=sheet, doc=doc):
+                cell = sheet.getCellByPosition(c, r)
+                raw_hits.append((cell, r, c))
+
+        if len(raw_hits) <= 1:
+            found.extend(raw_hits)
+            continue
+
+        seen_array_origins: set[tuple[int, int]] = set()
+        for cell, r, c in raw_hits:
+            origin = _array_block_origin(sheet, c, r)
+            if origin is not None:
+                if origin not in seen_array_origins:
+                    seen_array_origins.add(origin)
+                    origin_r, origin_c = origin
+                    origin_cell = cell if (origin_r == r and origin_c == c) else sheet.getCellByPosition(origin_c, origin_r)
+                    found.append((origin_cell, origin_r, origin_c))
+            else:
+                found.append((cell, r, c))
     return found
 
 

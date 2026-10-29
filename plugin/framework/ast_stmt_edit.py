@@ -147,7 +147,7 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
     Dry-run callers use ``iter``; edit callers use this. One matching path.
     Returns ``(new_source, removed_count)``.
     """
-    # Callable + ast.parse hangs deep check (same class as _rewrite_token_calls).
+    # Callable argument plus a parse loop hangs deep check.
     # crosshair: off
     src = source or ""
     nodes_to_remove, parent_map = _discover_statements(src, should_remove, skip_last_module_expr=skip_last_module_expr)

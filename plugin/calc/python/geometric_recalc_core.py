@@ -21,7 +21,7 @@ from plugin.calc.address_utils import format_address, parse_address, parse_range
 from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import (
     assemble_python_formula,
-    escape_code_for_excel_formula,
+    escape_code_for_formula,
     format_data_binding_display,
     format_py_data_range,
     parse_data_binding_text,
@@ -202,7 +202,7 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
     suffix = _geometric_data_suffix(old_args, data_args)
     if py_formula_has_unquoted_code_ref(formula):
         return assemble_python_formula(parts.prefix, parts.code, suffix, quoted=False)
-    return assemble_python_formula(parts.prefix, escape_code_for_excel_formula(parts.code), suffix, quoted=True)
+    return assemble_python_formula(parts.prefix, escape_code_for_formula(parts.code), suffix, quoted=True)
 
 
 def geometric_cap_hit_user_message(sheet_name: str) -> str:
