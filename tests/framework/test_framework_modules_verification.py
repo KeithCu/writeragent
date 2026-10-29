@@ -35,14 +35,12 @@ from plugin.framework.constants import (
 @given(model_id=st.text(max_size=DEAL_MAX_TOKEN))
 @settings(max_examples=100)
 def test_openrouter_model_id_contracts(model_id: str) -> None:
-    base, suff = _split_suffix(model_id)
+    base = _split_suffix(model_id)
     assert isinstance(base, str)
-    assert suff is None or isinstance(suff, str)
-    
+
     cid = resolve_openrouter_catalog_id(model_id)
     assert isinstance(cid, str)
-    
-    # Reflexive equivalence
+
     assert openrouter_model_ids_equivalent(model_id, model_id) is True
 
 
