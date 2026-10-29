@@ -50,15 +50,15 @@ EXPECTED_NEW_KOKORO_IDS = [
 
 def test_real_asset_parses():
     raw = _load_catalog(CATALOG_PATH)
-    catalog = _parse_catalog(raw)
+    parsed = _parse_catalog(raw)
 
-    assert len(catalog.piper) == 44
-    assert len(catalog.kokoro) == 54
-    assert catalog.piper_fallback == "en_US-lessac-medium"
-    assert catalog.kokoro_fallback == "af_sky"
-    assert catalog.kokoro_aliases["nova"] == "af_sky"
+    assert len(parsed["piper_models"]) == 44
+    assert len(parsed["kokoro_items"]) == 54
+    assert parsed["fallbacks"]["piper"] == "en_US-lessac-medium"
+    assert parsed["fallbacks"]["kokoro"] == "af_sky"
+    assert parsed["kokoro_aliases"]["nova"] == "af_sky"
 
-    kokoro_ids = [r.id for r in catalog.kokoro]
+    kokoro_ids = [r["value"] for r in parsed["kokoro_items"]]
     for expected_id in EXPECTED_NEW_KOKORO_IDS:
         assert expected_id in kokoro_ids
 

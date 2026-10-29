@@ -15,46 +15,12 @@ so a broken asset fails loudly instead of half-loading.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
 from typing import Any
 
 # onnx relative path, config relative path, lang code, display label.
 PiperModel = tuple[str, str, str, str]
-
-
-@dataclass(frozen=True)
-class VoiceRow:
-    id: str
-    label: str
-    lang: str = "en"
-    short_name: str = ""
-
-
-@dataclass(frozen=True)
-class PiperRow:
-    id: str
-    onnx: str
-    config: str
-    lang: str
-    label: str
-    short_name: str = ""
-
-
-@dataclass(frozen=True)
-class Catalog:
-    piper: tuple[PiperRow, ...]
-    kokoro: tuple[VoiceRow, ...]
-    openai: tuple[VoiceRow, ...]
-    system: tuple[VoiceRow, ...]
-    kokoro_locale_defaults: dict[str, str]
-    piper_locale_defaults: dict[str, str]
-    kokoro_aliases: dict[str, str]
-    piper_fallback: str
-    kokoro_fallback: str
-    openai_fallback: str
-    system_fallback: str
 
 
 CATALOG_PATH = os.path.join(os.path.dirname(__file__), "data", "voice_catalog.json")
@@ -75,29 +41,25 @@ def _load_catalog(path: str = CATALOG_PATH) -> Any:
         return json.load(handle)
 
 
-def _parse_catalog(raw: Any) -> Catalog:
+def _parse_catalog(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValueError("voice_catalog.json: asset must be a JSON object")
 
-    parsed_piper: list[PiperRow] = []
-    parsed_kokoro: list[VoiceRow] = []
-    parsed_openai: list[VoiceRow] = []
-    parsed_system: list[VoiceRow] = []
-
-    family_rows: dict[str, list[Any]] = {
-        "piper": parsed_piper,
-        "kokoro": parsed_kokoro,
-        "openai": parsed_openai,
-        "system": parsed_system,
+    piper_models: dict[str, PiperModel] = {}
+    voice_catalogs: dict[str, list[dict[str, str]]] = {
+        "piper": [],
+        "kokoro": [],
+        "openai": [],
+        "system": [],
     }
-
-    family_ids: dict[str, set[str]] = {
+    kokoro_items: list[dict[str, str]] = []
+    short_names: dict[str, str] = {}
+    seen: dict[str, set[str]] = {
         "piper": set(),
         "kokoro": set(),
         "openai": set(),
         "system": set(),
     }
-
     fallbacks: dict[str, str] = {}
     kokoro_locale_defaults: dict[str, str] = {}
     piper_locale_defaults: dict[str, str] = {}
@@ -111,8 +73,7 @@ def _parse_catalog(raw: Any) -> Catalog:
         if not isinstance(voices, list):
             raise ValueError(f"voice_catalog.json: {family}.voices must be a list")
 
-        seen_ids = family_ids[family]
-        rows = family_rows[family]
+        seen_ids = seen[family]
 
         for idx, entry in enumerate(voices):
             if not isinstance(entry, dict):
@@ -136,27 +97,16 @@ def _parse_catalog(raw: Any) -> Catalog:
             short_name = short_raw if isinstance(short_raw, str) else ""
 
             if family == "piper":
-                rows.append(
-                    PiperRow(
-                        id=voice_id,
-                        onnx=entry["onnx"],
-                        config=entry["config"],
-                        lang=entry["lang"],
-                        label=entry["label"],
-                        short_name=short_name,
-                    )
-                )
+                piper_models[voice_id] = (entry["onnx"], entry["config"], entry["lang"], entry["label"])
+                voice_catalogs["piper"].append({"value": voice_id, "label": entry["label"]})
             else:
                 lang_raw = entry.get("lang")
                 lang = lang_raw if isinstance(lang_raw, str) and lang_raw else "en"
-                rows.append(
-                    VoiceRow(
-                        id=voice_id,
-                        label=entry["label"],
-                        lang=lang,
-                        short_name=short_name,
-                    )
-                )
+                voice_catalogs[family].append({"value": voice_id, "label": entry["label"]})
+                if family == "kokoro":
+                    kokoro_items.append({"value": voice_id, "label": entry["label"], "lang": lang})
+            if short_name and family in ("piper", "kokoro"):
+                short_names[voice_id] = short_name
 
         raw_fallback = block.get("fallback_voice")
         fallback_val = _FALLBACK_DEFAULTS[family] if raw_fallback is None else raw_fallback
@@ -185,55 +135,41 @@ def _parse_catalog(raw: Any) -> Catalog:
 
     kokoro_aliases: dict[str, str] = {}
     for alias_key, target_id in aliases.items():
-        if not isinstance(alias_key, str) or not alias_key or not isinstance(target_id, str) or target_id not in family_ids["kokoro"]:
+        if not isinstance(alias_key, str) or not alias_key or not isinstance(target_id, str) or target_id not in seen["kokoro"]:
             raise ValueError(
                 f"voice_catalog.json: kokoro.openai_aliases.{alias_key} -> '{target_id}' is not a kokoro voice"
             )
         kokoro_aliases[alias_key] = target_id
 
-    return Catalog(
-        piper=tuple(parsed_piper),
-        kokoro=tuple(parsed_kokoro),
-        openai=tuple(parsed_openai),
-        system=tuple(parsed_system),
-        kokoro_locale_defaults=kokoro_locale_defaults,
-        piper_locale_defaults=piper_locale_defaults,
-        kokoro_aliases=kokoro_aliases,
-        piper_fallback=fallbacks["piper"],
-        kokoro_fallback=fallbacks["kokoro"],
-        openai_fallback=fallbacks["openai"],
-        system_fallback=fallbacks["system"],
-    )
+    return {
+        "piper_models": piper_models,
+        "voice_catalogs": voice_catalogs,
+        "kokoro_items": kokoro_items,
+        "short_names": short_names,
+        "kokoro_locale_defaults": kokoro_locale_defaults,
+        "piper_locale_defaults": piper_locale_defaults,
+        "kokoro_aliases": kokoro_aliases,
+        "fallbacks": fallbacks,
+    }
 
 
-_CATALOG = _parse_catalog(_load_catalog())
-PIPER_VOICE_MODELS: dict[str, PiperModel] = {
-    r.id: (r.onnx, r.config, r.lang, r.label) for r in _CATALOG.piper
-}
-KOKORO_CATALOG_ITEMS: list[dict[str, str]] = [
-    {"value": r.id, "label": r.label, "lang": r.lang} for r in _CATALOG.kokoro
-]
-LOCALE_TO_KOKORO_DEFAULT = dict(_CATALOG.kokoro_locale_defaults)
-LOCALE_TO_PIPER_DEFAULT = dict(_CATALOG.piper_locale_defaults)
-PIPER_FALLBACK_VOICE = _CATALOG.piper_fallback
-KOKORO_FALLBACK_VOICE = _CATALOG.kokoro_fallback
-KOKORO_OPENAI_ALIASES = dict(_CATALOG.kokoro_aliases)
-VOICE_CATALOGS = {
-    "kokoro": [{"value": r.id, "label": r.label} for r in _CATALOG.kokoro],
-    "piper": [{"value": r.id, "label": r.label} for r in _CATALOG.piper],
-    "openai": [{"value": r.id, "label": r.label} for r in _CATALOG.openai],
-    "system": [{"value": r.id, "label": r.label} for r in _CATALOG.system],
-}
+_parsed = _parse_catalog(_load_catalog())
+PIPER_VOICE_MODELS: dict[str, PiperModel] = _parsed["piper_models"]
+KOKORO_CATALOG_ITEMS: list[dict[str, str]] = _parsed["kokoro_items"]
+LOCALE_TO_KOKORO_DEFAULT = _parsed["kokoro_locale_defaults"]
+LOCALE_TO_PIPER_DEFAULT = _parsed["piper_locale_defaults"]
+PIPER_FALLBACK_VOICE = _parsed["fallbacks"]["piper"]
+KOKORO_FALLBACK_VOICE = _parsed["fallbacks"]["kokoro"]
+KOKORO_OPENAI_ALIASES = _parsed["kokoro_aliases"]
+VOICE_CATALOGS = _parsed["voice_catalogs"]
 DEFAULT_VOICE_FOR_FAMILY = {
     "kokoro": KOKORO_FALLBACK_VOICE,
     "piper": PIPER_FALLBACK_VOICE,
-    "openai": _CATALOG.openai_fallback,
-    "system": _CATALOG.system_fallback,
+    "openai": _parsed["fallbacks"]["openai"],
+    "system": _parsed["fallbacks"]["system"],
 }
-
-_SHORT_NAMES: dict[str, str] = {
-    r.id: r.short_name for r in _CATALOG.piper + _CATALOG.kokoro if r.short_name
-}
+_SHORT_NAMES: dict[str, str] = _parsed["short_names"]
+del _parsed
 
 
 def voice_short_name(voice_id: str) -> str:
