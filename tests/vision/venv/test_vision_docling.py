@@ -151,10 +151,11 @@ def test_extract_structure_maps_table_cell_spans():
 
 
 def test_want_full_page_ocr_skips_pdfs():
-    assert docling_mod._want_full_page_ocr({}, input_format="image") is True
-    assert docling_mod._want_full_page_ocr({}, input_format="pdf") is False
-    assert docling_mod._want_full_page_ocr({"ocr_mode": "full_page"}, input_format="pdf") is True
-    assert docling_mod._want_full_page_ocr({"force_full_page_ocr": True}, input_format="pdf") is False
+    P = docling_mod.DoclingPipelineParams.from_params
+    assert P({}, input_format="image").full_page_ocr is True
+    assert P({}, input_format="pdf").full_page_ocr is False
+    assert P({"ocr_mode": "full_page"}, input_format="pdf").full_page_ocr is True
+    assert P({"force_full_page_ocr": True}, input_format="pdf").full_page_ocr is False
 
 
 def test_extract_text_docling_missing():
@@ -202,16 +203,18 @@ def test_apply_pipeline_params_maps_flat_keys():
         with patch("importlib.import_module", return_value=mock_pipeline_mod):
             docling_mod._apply_pipeline_params(
                 pipeline,
-                {
-                    "images_scale": 2.0,
-                    "document_timeout": 120,
-                    "device": "cpu",
-                    "num_threads": 8,
-                    "table_mode": "fast",
-                    "do_cell_matching": False,
-                    "create_orphan_clusters": False,
-                    "layout_model": "heron",
-                },
+                docling_mod.DoclingPipelineParams.from_params(
+                    {
+                        "images_scale": 2.0,
+                        "document_timeout": 120,
+                        "device": "cpu",
+                        "num_threads": 8,
+                        "table_mode": "fast",
+                        "do_cell_matching": False,
+                        "create_orphan_clusters": False,
+                        "layout_model": "heron",
+                    }
+                ),
             )
 
     assert pipeline.images_scale == 2.0
@@ -228,7 +231,7 @@ def test_resolve_ocr_options_surya():
     mock_surya = MagicMock()
     mock_surya.SuryaOcrOptions.return_value = "surya-opts"
     with patch("importlib.import_module", side_effect=lambda name: mock_surya if name == "docling_surya" else MagicMock()):
-        opts = docling_mod._resolve_ocr_options({"ocr_backend": "surya", "lang": "en"})
+        opts = docling_mod._resolve_ocr_options(docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "surya", "lang": "en"}))
     assert opts == "surya-opts"
     mock_surya.SuryaOcrOptions.assert_called_once_with(lang=["en"])
 
@@ -251,7 +254,7 @@ def test_build_pipeline_options_surya():
         return MagicMock()
 
     with patch("importlib.import_module", side_effect=side_effect):
-        pipeline_opts = docling_mod._build_pipeline_options({"ocr_backend": "surya"})
+        pipeline_opts = docling_mod._build_pipeline_options(docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "surya"}))
 
     assert pipeline_opts == pdf_opts_instance
     pdf_opts_cls.assert_called_once_with(
@@ -271,7 +274,7 @@ def test_build_pipeline_options_real_docling_layout_has_get_engine_config():
     """
     _require_installed_od_docling()
     opts = docling_mod._build_pipeline_options(
-        {"ocr_backend": "rapidocr", "layout_model": "heron"},
+        docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "rapidocr", "layout_model": "heron"}),
     )
     spec = opts.layout_options.model_spec
     assert hasattr(spec, "get_engine_config")
@@ -397,7 +400,9 @@ def test_apply_pipeline_params_refuses_layout_config_without_get_engine_config()
     pipeline.accelerator_options = MagicMock()
     with patch.object(docling_mod, "_resolve_od_layout_model_spec", return_value=BadSpec()):
         with pytest.raises(docling_mod.LayoutModelError, match="get_engine_config"):
-            docling_mod._apply_pipeline_params(pipeline, {"layout_model": "heron"})
+            docling_mod._apply_pipeline_params(
+                pipeline, docling_mod.DoclingPipelineParams.from_params({"layout_model": "heron"})
+            )
 
 
 def test_apply_pipeline_params_does_not_swallow_layout_resolution_error():
@@ -411,27 +416,15 @@ def test_apply_pipeline_params_does_not_swallow_layout_resolution_error():
     pipeline.accelerator_options = MagicMock()
     with patch.object(docling_mod, "_resolve_od_layout_model_spec", side_effect=RuntimeError("spec unavailable")):
         with pytest.raises(RuntimeError, match="spec unavailable"):
-            docling_mod._apply_pipeline_params(pipeline, {})
-
-
-def test_converter_cache_keeps_only_the_latest():
-    docling_mod._converter_cache.clear()
-    docling_mod._converter_cache[("old",)] = object()
-    docling_mod._converter_cache.set(("new",), object())
-    assert list(docling_mod._converter_cache) == [("new",)]
-
-
-def _cache_key_for(params: dict) -> tuple:
-    return docling_mod._cache_key(params, input_format="image")
+            docling_mod._apply_pipeline_params(
+                pipeline, docling_mod.DoclingPipelineParams.from_params({})
+            )
 
 
 def test_text_score_zero_is_its_own_cache_key():
-    missing = _cache_key_for({})
-    default = _cache_key_for({"text_score": 0.5})
-    zero = _cache_key_for({"text_score": 0.0})
-    zero_int = _cache_key_for({"text_score": 0})
-    zero_str = _cache_key_for({"text_score": "0.0"})
-    blank = _cache_key_for({"text_score": ""})
+    P = docling_mod.DoclingPipelineParams.from_params
+    missing, default, blank = P({}), P({"text_score": 0.5}), P({"text_score": ""})
+    zero, zero_int, zero_str = P({"text_score": 0.0}), P({"text_score": 0}), P({"text_score": "0.0"})
     assert missing == default == blank
     assert zero == zero_int == zero_str
     assert zero != default
@@ -474,14 +467,16 @@ def test_converter_cache_does_not_reuse_default_for_text_score_zero():
     with patch.object(
         docling_mod, "_build_pipeline_options", side_effect=fake_build
     ), patch.object(docling_mod.importlib, "import_module", side_effect=fake_import):
-        first = docling_mod._get_docling_converter({"text_score": 0.5})
-        again = docling_mod._get_docling_converter({"text_score": 0.5})
-        second = docling_mod._get_docling_converter({"text_score": 0.0})
+        first = docling_mod._get_docling_converter(docling_mod.DoclingPipelineParams.from_params({"text_score": 0.5}))
+        again = docling_mod._get_docling_converter(docling_mod.DoclingPipelineParams.from_params({"text_score": 0.5}))
+        second = docling_mod._get_docling_converter(docling_mod.DoclingPipelineParams.from_params({"text_score": 0.0}))
 
     assert first is again
     assert first is not second
     assert built == [0.5, 0.0]
     assert created[1].kwargs["format_options"]["IMAGE"]["pipeline_options"].captured_text_score == 0.0
+    assert len(docling_mod._converter_cache) == 1
+    assert list(docling_mod._converter_cache) == [docling_mod.DoclingPipelineParams.from_params({"text_score": 0.0})]
 
 
 
@@ -560,7 +555,7 @@ def test_export_docling_to_html_default():
         "plugin.vision.venv.vision_docling.prepare_html_for_lo_import",
         side_effect=lambda html: html,
     ):
-        out = export_docling_to_html(doc, {})
+        out = export_docling_to_html(doc)
     assert "strong" in out
     doc.export_to_html.assert_called_once_with(
         image_mode=fake.ImageRefMode.PLACEHOLDER,
@@ -572,7 +567,7 @@ def test_export_docling_to_html_default():
 def test_export_docling_to_html_logs_warning_when_no_export_method(caplog):
     obj = object()
     with caplog.at_level(logging.WARNING):
-        out = export_docling_to_html(obj, {})
+        out = export_docling_to_html(obj)
     assert out == ""
     assert "lacks export_to_html" in caplog.text
 
@@ -600,13 +595,13 @@ def test_from_params_parses_string_booleans():
         p.do_cell_matching,
         p.create_orphan_clusters,
         p.do_formula_enrichment,
-        p.force_full_page_ocr,
+        p.full_page_ocr,
         p.do_code_enrichment,
     ) == (False, False, False, False, True)
 
     default_p = docling_mod.DoclingPipelineParams.from_params({})
     assert default_p.do_cell_matching is True
-    assert default_p.force_full_page_ocr is True
+    assert default_p.full_page_ocr is True
     assert default_p.do_formula_enrichment is False
     assert default_p.do_code_enrichment is False
 
