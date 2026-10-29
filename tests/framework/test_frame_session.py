@@ -354,7 +354,6 @@ def test_frame_disposing_releases_listeners_before_sidebar_teardown():
     assert session._query_listener is None
     assert session._leave == []
     assert session._click_handler is None
-    assert session._trackers == []
     assert session._closed is True
     frame.removeEventListener.assert_not_called()
 
@@ -393,7 +392,6 @@ def test_frame_disposing_clears_listeners_when_controls_are_already_dead():
     assert session._leave == []
     assert session._click_handler is None
     assert session._click_controller is None
-    assert session._trackers == []
     assert session.panel is None
     assert session.focus_pin is None
     # The dead controls still hold the listeners; we must not try again.
@@ -432,7 +430,6 @@ def test_leave_query_rolls_back_when_focus_attach_throws():
     mouse = leave.addMouseListener.call_args[0][0]
     leave.removeMouseListener.assert_called_once_with(mouse)
     assert session._leave == []
-    assert mouse not in session._trackers
 
 
 def test_frame_disposing_drops_only_that_session():
@@ -485,7 +482,6 @@ def test_thread_violation_from_add_focus_listener_is_not_a_silent_install():
     with pytest.raises(RuntimeError, match="UNO thread violation"):
         _install(session, query)
     assert session._query_listener is None
-    assert session._trackers == []
 
 
 def test_thread_violation_on_leave_query_rolls_back_then_raises():
@@ -499,7 +495,6 @@ def test_thread_violation_on_leave_query_rolls_back_then_raises():
     mouse = leave.addMouseListener.call_args[0][0]
     leave.removeMouseListener.assert_called_once_with(mouse)
     assert session._leave == []
-    assert mouse not in session._trackers
 
 
 def test_thread_violation_from_add_mouse_listener_is_not_a_silent_install():

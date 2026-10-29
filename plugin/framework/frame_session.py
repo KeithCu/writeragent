@@ -146,7 +146,6 @@ class FrameSession:
         self._leave: list[tuple[Any, Any, Any]] = []
         self._click_controller: Any = None
         self._click_handler: Any = None
-        self._trackers: list[Any] = []
         self._frame_listener: Any = None
         self._closed = False
         self._close_hooks: list[Callable[[], None]] = []
@@ -316,7 +315,17 @@ class FrameSession:
             if control is not None and control is not query:
                 self._attach_leave_query(control)
         self._attach_click_handler()
-        log.debug("frame session listeners n=%d", len(self._trackers))
+        attached = 0
+        if self._query_listener is not None:
+            attached += 1
+        for _control, mouse, focus in self._leave:
+            if mouse is not None:
+                attached += 1
+            if focus is not None:
+                attached += 1
+        if self._click_handler is not None:
+            attached += 1
+        log.debug("frame session listeners n=%d", attached)
 
     def forget_listener(self, listener: Any) -> None:
         """Drop *listener* from this session. Do not call ``remove*``.
@@ -338,34 +347,22 @@ class FrameSession:
         if self._click_handler is listener:
             self._click_handler = None
             self._click_controller = None
-        self._drop_tracker(listener)
 
     def release_listeners(self) -> None:
         """Remove this session's listeners from controls that are still alive."""
-        first_exc = None
-
-        def _safe_remove(control: Any, method: str, listener: Any) -> None:
-            nonlocal first_exc
-            try:
-                self._remove(control, method, listener)
-            except Exception as exc:
-                if first_exc is None:
-                    first_exc = exc
-
+        first_exc: BaseException | None = None
         if self._query_listener is not None:
-            _safe_remove(self._query_control, "removeFocusListener", self._query_listener)
+            first_exc = self._remove_keeping_first(first_exc, self._query_control, "removeFocusListener", self._query_listener)
         for control, mouse, focus in list(self._leave):
-            _safe_remove(control, "removeMouseListener", mouse)
-            _safe_remove(control, "removeFocusListener", focus)
+            first_exc = self._remove_keeping_first(first_exc, control, "removeMouseListener", mouse)
+            first_exc = self._remove_keeping_first(first_exc, control, "removeFocusListener", focus)
         if self._click_handler is not None:
-            _safe_remove(self._click_controller, "removeMouseClickHandler", self._click_handler)
+            first_exc = self._remove_keeping_first(first_exc, self._click_controller, "removeMouseClickHandler", self._click_handler)
         self._query_listener = None
         self._query_control = None
         self._leave.clear()
         self._click_handler = None
         self._click_controller = None
-        self._trackers.clear()
-
         if first_exc is not None:
             raise first_exc
 
@@ -456,11 +453,15 @@ class FrameSession:
             log.debug("frame controller: %s", exc)
             return None
 
-    def _drop_tracker(self, listener: Any) -> None:
+    def _remove_keeping_first(self, first_exc: BaseException | None, control: Any, method: str, listener: Any) -> BaseException | None:
+        # Remember the first error and keep removing. Raising here would skip
+        # the other listeners; the caller raises after it clears its lists.
         try:
-            self._trackers.remove(listener)
-        except ValueError:
-            pass
+            self._remove(control, method, listener)
+        except Exception as exc:
+            if first_exc is None:
+                return exc
+        return first_exc
 
     def _remove(self, control: Any, method: str, listener: Any) -> None:
         if control is None or listener is None:
@@ -505,7 +506,6 @@ class FrameSession:
         try:
             listener = _QueryFocus()
             query.addFocusListener(listener)
-            self._trackers.append(listener)
             self._query_control = query
             self._query_listener = listener
         except Exception as exc:
@@ -561,11 +561,9 @@ class FrameSession:
             if hasattr(control, "addMouseListener"):
                 mouse_track = _LeaveMouse()
                 control.addMouseListener(mouse_track)
-                self._trackers.append(mouse_track)
             if hasattr(control, "addFocusListener"):
                 focus_track = _LeaveFocus()
                 control.addFocusListener(focus_track)
-                self._trackers.append(focus_track)
             if mouse_track is not None or focus_track is not None:
                 self._leave.append((control, mouse_track, focus_track))
         except Exception as exc:
@@ -577,22 +575,9 @@ class FrameSession:
             log.debug("leave-query listeners", exc_info=True)
 
     def _rollback_leave(self, control: Any, mouse_track: Any, focus_track: Any) -> None:
-        first_exc = None
-
-        def _safe_remove(ctrl: Any, method: str, listener: Any) -> None:
-            nonlocal first_exc
-            try:
-                self._remove(ctrl, method, listener)
-            except Exception as exc:
-                if first_exc is None:
-                    first_exc = exc
-
-        _safe_remove(control, "removeFocusListener", focus_track)
-        _safe_remove(control, "removeMouseListener", mouse_track)
-        self._drop_tracker(focus_track)
-        self._drop_tracker(mouse_track)
+        first_exc = self._remove_keeping_first(None, control, "removeFocusListener", focus_track)
+        first_exc = self._remove_keeping_first(first_exc, control, "removeMouseListener", mouse_track)
         self._leave = [row for row in self._leave if not (row[0] is control and row[1] is mouse_track and row[2] is focus_track)]
-
         if first_exc is not None:
             raise first_exc
 
@@ -639,7 +624,6 @@ class FrameSession:
             controller.addMouseClickHandler(handler)
             self._click_controller = controller
             self._click_handler = handler
-            self._trackers.append(handler)
         except Exception as exc:
             self._remove(controller, "removeMouseClickHandler", handler)
             self.forget_listener(handler)
