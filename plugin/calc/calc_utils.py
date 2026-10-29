@@ -86,21 +86,10 @@ def get_cell_geometry(sheet: Any, cell: Any) -> tuple[Any, Any]:
     when cells are merged, which is wrong for overlay placement.  This helper detects
     the merge and asks for the full merged area's geometry instead.
     """
-    geometry_target = get_cell_geometry_target(sheet, cell)
-    return geometry_target.Position, geometry_target.Size
-
-
-def get_cell_geometry_target(sheet: Any, cell: Any) -> Any:
-    """Return the UNO object whose Position/Size should drive placement.
-
-    For merged cells this is a collapsed cursor/range over the full merged area;
-    otherwise this is the original cell.
-    """
     if getattr(cell, "IsMerged", False):
-        cursor = sheet.createCursorByRange(cell)
-        cursor.collapseToMergedArea()
-        return cursor
-    return cell
+        cell = sheet.createCursorByRange(cell)
+        cell.collapseToMergedArea()
+    return cell.Position, cell.Size
 
 
 # Used when FormulaResult.VALUE cannot be read (unit tests, or a mock enum).
@@ -180,8 +169,7 @@ def formula_cell_result(cell: Any) -> Any:
         kind = getattr(cell, "FormulaResultType", None)
     if _formula_result_is_value(kind) and as_float is not None:
         return as_float
-    text = cell.getString()
-    return text
+    return cell.getString()
 
 
 def cell_value_and_type(cell: Any, *, empty_as_none: bool = True, formula_error_as_string: bool = True) -> tuple[Any, str]:

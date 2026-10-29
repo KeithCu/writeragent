@@ -59,17 +59,14 @@ class DetectErrors(ToolCalcErrorBase):
         for idx, entry in enumerate(ranges):
             if not isinstance(entry, str) or not entry.strip():
                 return self._tool_error(f"Invalid range entry {idx}: {entry!r}", code="INVALID_RANGE")
-
-        ranges = [entry.strip() for entry in ranges]
+            ranges[idx] = entry.strip()
 
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
         error_detector = ErrorDetector(bridge, inspector, ctx=ctx.ctx)
 
-        if not ranges:
-            return {"status": "ok", "result": error_detector.detect_and_explain(range_str=None)}
-        if len(ranges) == 1:
-            return {"status": "ok", "result": error_detector.detect_and_explain(range_str=ranges[0])}
+        if len(ranges) <= 1:
+            return {"status": "ok", "result": error_detector.detect_and_explain(range_str=ranges[0] if ranges else None)}
 
         results = [error_detector.detect_and_explain(range_str=r) for r in ranges]
         combined_errors: list[dict[str, Any]] = []

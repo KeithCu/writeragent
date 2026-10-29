@@ -19,7 +19,6 @@ from plugin.calc.calc_utils import (
     cell_type_name,
     cell_value_and_type,
     get_cell_geometry,
-    get_cell_geometry_target,
     query_interface,
     resolve_sheet,
     resolve_sheet_and_cell,
@@ -53,18 +52,6 @@ class TestGetCellGeometry:
         assert pos == (0, 0)
         assert size == (300, 100)
 
-    def test_merged_cell_geometry_target_is_collapsed_cursor(self):
-        cell = SimpleNamespace(IsMerged=True, Position=(0, 0), Size=(100, 50))
-        cursor = MagicMock()
-        sheet = MagicMock()
-        sheet.createCursorByRange.return_value = cursor
-
-        target = get_cell_geometry_target(sheet, cell)
-
-        assert target is cursor
-        sheet.createCursorByRange.assert_called_once_with(cell)
-        cursor.collapseToMergedArea.assert_called_once()
-
     def test_merged_cell_propagates_exception(self):
         cell = SimpleNamespace(IsMerged=True, Position=(5, 10), Size=(80, 40))
         sheet = MagicMock()
@@ -79,14 +66,6 @@ class TestGetCellGeometry:
         pos, size = get_cell_geometry(sheet, cell)
         assert pos == (1, 2)
         assert size == (10, 20)
-
-    def test_geometry_target_propagates_cursor_failure(self):
-        cell = SimpleNamespace(IsMerged=True, Position=(5, 6), Size=(70, 30))
-        sheet = MagicMock()
-        sheet.createCursorByRange.side_effect = RuntimeError("UNO error")
-
-        with pytest.raises(RuntimeError):
-            get_cell_geometry_target(sheet, cell)
 
 
 class TestSheetAndCellResolution:
