@@ -44,16 +44,6 @@ class HttpRouteRegistry:
 
     Hold :meth:`batch` across a multi-route register or unregister so a
     concurrent read sees the set from before the batch or after it.
-
-    Usage::
-
-        routes = HttpRouteRegistry()
-
-        # Simple handler — receives (body, headers, query), returns (status, dict)
-        routes.add("GET", "/health", health_handler)
-
-        # Raw handler — receives the BaseHTTPRequestHandler, writes directly
-        routes.add("POST", "/mcp", mcp_handler, raw=True)
     """
 
     _lock: threading.RLock
