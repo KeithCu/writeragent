@@ -248,7 +248,7 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 | User already passed the previous cell as **data** | Do not record as ours; do not strip ([§9.5](#95-marker-is-the-udprop--in-memory-map)) |
 | User passed a **different** single-cell last arg (real data) | Append, do not replace, unless the map says that last arg is **our** stale predecessor |
 | Two independent PY clusters on one sheet | One row-major chain; slightly over-dirties the later cluster |
-| Circular refs from user reverse-refs | **Landed one-hop:** `formula_mentions_cell` (data arg, covering range, or unquoted code-in-cell). Skip attach; remove an ours field. We never attach a later cell. Transitive walk is not in the prototype. |
+| Circular refs from user reverse-refs | cycle check is `_reaches` over `_neighbors` (data args and an unquoted code-in-cell); skip attach; remove an ours field when that field is the attached predecessor; the desired predecessor is the previous row-major cell, so a later cell is never attached. |
 | 100-cell discovery cap | Skip the **whole** sheet; never chain a partial list |
 | Shared + Isolated confusion | Checkbox always visible; helper: “Used with Shared kernel”; Isolated is a no-op |
 | Collabora Online | Proposed design in [§13](#12-collabora--libreoffice-core-living-sketch-not-final) (engine DAG + **inhibit** emit-gate + `g_aParamCache` identity, **not** trailing `;A1`, **not** `g_aWaiters`). Not implemented. |

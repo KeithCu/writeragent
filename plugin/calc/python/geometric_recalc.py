@@ -20,7 +20,7 @@ import threading
 import uuid
 from typing import Any, Mapping, final
 
-from plugin.calc.address_utils import parse_address, split_sheet_prefix
+from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.python.cell_discovery import canonicalize_py_formula_for_parse, discover_python_cells_on_sheet
 from plugin.calc.python.formula_edit import parse_python_formula, py_formula_has_unquoted_code_ref
 from plugin.calc.python.geometric_recalc_core import (
@@ -32,12 +32,12 @@ from plugin.calc.python.geometric_recalc_core import (
     GeometricPatch,
     GeometricRecord,
     SheetRepairResult,
+    _parse_local,
     compute_eval_index,
     compute_sheet_repair,
     geometric_cap_hit_user_message,
     local_a1,
     resolved_code_for_formula,
-    should_strip_eval_args,
 )
 from plugin.framework.errors import best_effort, is_disposed_exception, uno_probe
 from plugin.framework.i18n import _
@@ -52,11 +52,11 @@ class GeometricRuntime:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.records: dict[tuple[str, str, str], GeometricRecord] = {}
-        self.strip_safe: frozenset[EvalIndexKey] = frozenset()
-        self.repairing: bool = False
-        self.last_flag: bool | None = None
-        self.config_subscribed: bool = False
         self.cap_hit_notified: set[tuple[str, str]] = set()
+        self.strip_safe: frozenset[EvalIndexKey]
+        self.repairing: bool
+        self.last_flag: bool | None
+        self.reset()
 
     def reset(self) -> None:
         with self.lock:
@@ -64,7 +64,6 @@ class GeometricRuntime:
             self.strip_safe = frozenset()
             self.repairing = False
             self.last_flag = None
-            self.config_subscribed = False
             self.cap_hit_notified.clear()
 
 
@@ -236,23 +235,18 @@ def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any], *, doc:
 
     Must run after ``split_python_addin_data_args`` and before
     ``calc_addin_args_from_split`` / the matrix-index heuristic.
+    No caller doc, or not on the UI thread: return ``args`` unchanged and
+    do not read a workbook key (that read is UNO).
     """
     if not args:
         return args
     from plugin.framework.thread_guard import on_main_thread
 
-    workbook_key: str | None = None
-    unambiguous = False
-    if doc is not None and on_main_thread():
-        workbook_key = geometric_workbook_key(doc)
-        unambiguous = True
-    if not should_strip_eval_args(
-        workbook_key=workbook_key,
-        resolved_code=resolved_code,
-        n_args=len(args),
-        strip_safe=current_geometric_strip_safe(),
-        unambiguous=unambiguous,
-    ):
+    if doc is None or not on_main_thread():
+        return args
+    workbook_key = geometric_workbook_key(doc)
+    key = EvalIndexKey(workbook_key, resolved_code, len(args))
+    if key not in current_geometric_strip_safe():
         return args
     return args[:-1]
 
@@ -260,7 +254,6 @@ def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any], *, doc:
 def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
     """Cell contents of an unquoted ``=PY($A$1)`` code ref (resolved source)."""
     sheet_name, rest = split_sheet_prefix(ref)
-    local = rest.replace("$", "").strip()
     if sheet_name:
         if doc is None:
             return ""
@@ -273,11 +266,12 @@ def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
             return ""
     else:
         sheet = default_sheet
-    if sheet is None or not local:
+    if sheet is None:
+        return ""
+    cell = _cell_on_sheet(sheet, rest)
+    if cell is None:
         return ""
     try:
-        col, row = parse_address(local)
-        cell = sheet.getCellByPosition(col, row)
         return str(cell.getString() or "")
     except Exception as exc:
         if is_disposed_exception(exc):
@@ -296,6 +290,10 @@ def _resolved_code_for_discovered(doc: Any, sheet: Any, formula: str) -> str:
     return resolved_code_for_formula(canon)
 
 
+def _sheet_name(sheet: Any) -> str:
+    return uno_probe(lambda: str(sheet.getName() or "") or "Sheet", "Sheet")
+
+
 def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell], str, bool]:
     """Discover one sheet as Phase 1 cells. Address is local A1 (per-sheet map).
 
@@ -303,7 +301,7 @@ def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell],
     ``len >= 100``.
     """
     discovery = discover_python_cells_on_sheet(sheet)
-    name = uno_probe(lambda: str(sheet.getName() or "") or "Sheet", "Sheet")
+    name = _sheet_name(sheet)
     cells = [
         GeometricCell(
             address=local_a1(info.address),
@@ -340,13 +338,10 @@ def _sheet_of_cell(cell: Any, doc: Any) -> Any | None:
 
 
 def _cell_on_sheet(sheet: Any, address: str) -> Any | None:
-    local = local_a1(address)
-    if not local:
+    parsed = _parse_local(address)
+    if parsed is None:
         return None
-    try:
-        col, row = parse_address(local)
-    except (TypeError, ValueError):
-        return None
+    col, row = parsed
     return uno_probe(lambda: sheet.getCellByPosition(col, row), None)
 
 
@@ -386,11 +381,10 @@ def _rebuild_strip_safe_from_doc(
 ) -> None:
     """Workbook-wide unanimous-ours. Cap-hit sheets are omitted (cannot prove)."""
     all_cells: list[GeometricCell] = []
-    all_formulas: dict[str, str] = {}
     all_records: dict[str, GeometricRecord] = {}
     known = known_sheets or {}
     for sheet in _iter_sheets(doc):
-        sheet_name = uno_probe(lambda: str(sheet.getName() or "") or "Sheet", "Sheet")
+        sheet_name = _sheet_name(sheet)
         if sheet_name in known:
             cells = known[sheet_name]
         else:
@@ -402,10 +396,9 @@ def _rebuild_strip_safe_from_doc(
         for cell in cells:
             scoped = f"{sheet_name}:{local_a1(cell.address)}"
             all_cells.append(GeometricCell(scoped, cell.formula, cell.resolved_code))
-            all_formulas[scoped] = cell.formula
         for addr, rec in records_for_sheet(workbook_key, sheet_name).items():
             all_records[f"{sheet_name}:{addr}"] = rec
-    replace_geometric_strip_safe(workbook_key, compute_eval_index(all_cells, all_formulas, all_records, workbook_key))
+    replace_geometric_strip_safe(workbook_key, compute_eval_index(all_cells, all_records, workbook_key))
 
 
 def _repair_one_sheet(
@@ -445,17 +438,13 @@ def _repair_one_sheet(
                 else:
                     final_records.pop(key, None)
 
-        actual_formulas = {cell.address: cell.formula for cell in cells}
-        for patch in result.patches:
-            if local_a1(patch.address) in applied_addrs:
-                actual_formulas[patch.address] = patch.new_formula
-        result = replace(result, records=final_records)
+        applied_formulas = {
+            patch.address: patch.new_formula
+            for patch in result.patches
+            if local_a1(patch.address) in applied_addrs
+        }
         actual_cells = [
-            GeometricCell(
-                address=cell.address,
-                formula=actual_formulas.get(cell.address, cell.formula),
-                resolved_code=cell.resolved_code,
-            )
+            replace(cell, formula=applied_formulas.get(cell.address, cell.formula))
             for cell in cells
         ]
 
@@ -466,15 +455,12 @@ def _repair_one_sheet(
 def reconcile(
     ctx: Any,
     doc: Any,
-    sheets: Any = None,
+    sheet: Any = None,
     *,
     already_loaded: bool = False,
 ) -> None:
     """Flag-on / doc-open / save-path attach: repair sheets in one locked undo unit."""
     if doc is None or _RUNTIME.repairing:
-        return
-    target_sheets = [sheets] if sheets is not None and not isinstance(sheets, (list, tuple)) else sheets
-    if target_sheets is not None and not target_sheets:
         return
     workbook_key = geometric_workbook_key(doc) if already_loaded else load_geometric_registry_for_doc(doc)
     _RUNTIME.repairing = True
@@ -484,7 +470,7 @@ def reconcile(
         from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
 
         with _undo_lock(doc):
-            sheet_list = _iter_sheets(doc) if target_sheets is None else list(target_sheets)
+            sheet_list = _iter_sheets(doc) if sheet is None else [sheet]
             for sheet in sheet_list:
                 ensure_sheet_modify_listener(ctx, doc, sheet)
                 res, live_cells = _repair_one_sheet(ctx, doc, sheet, workbook_key)
@@ -499,12 +485,12 @@ def reconcile(
 
 def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = False) -> None:
     """Flag-on / document-open: attach every sheet, one locked undo unit."""
-    reconcile(ctx, doc, sheets=None, already_loaded=already_loaded)
+    reconcile(ctx, doc, sheet=None, already_loaded=already_loaded)
 
 
 def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any, *, already_loaded: bool = False) -> None:
     """Save-path attach for one sheet. Neighbors on this sheet may retarget."""
-    reconcile(ctx, doc, sheets=sheet, already_loaded=already_loaded)
+    reconcile(ctx, doc, sheet=sheet, already_loaded=already_loaded)
 
 
 def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
@@ -577,10 +563,11 @@ def _on_geometric_config_changed(**kwargs: Any) -> None:
 def install_geometric_recalc() -> None:
     """Subscribe to Settings so flag-on can attach. Idempotent."""
     with _RUNTIME.lock:
-        if _RUNTIME.config_subscribed:
+        # None means the listener is not installed (reset() clears it);
+        # a bool, including False, means it is already installed.
+        if _RUNTIME.last_flag is not None:
             return
         _RUNTIME.last_flag = geometric_flag_enabled()
-        _RUNTIME.config_subscribed = True
     from plugin.framework.event_bus import get_event_bus
 
     get_event_bus().subscribe("config:changed", _on_geometric_config_changed)
