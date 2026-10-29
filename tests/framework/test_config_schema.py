@@ -20,16 +20,13 @@ from plugin.framework.config_schema import (
     clamp_schema_value,
     coerce_config_value,
     get_config_schema,
-    get_manifest_modules,
     is_default_value,
     is_known_config_key,
     parse_float_robust,
     parse_int_robust,
-    prune_default_values,
     set_endpoint_normalizer,
     set_manifest_modules,
     _get_schema_default,
-    _normalize_configured_endpoint,
 )
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "plugin" / "framework" / "config_schema.py"
@@ -209,17 +206,6 @@ def test_coerce_and_clamp_use_manifest_schema(restore_manifest) -> None:
     assert not is_default_value("demo.count", 8)
 
 
-def test_prune_default_values_drops_unknown_and_defaults() -> None:
-    pruned = prune_default_values(
-        {
-            "endpoint": "http://localhost:11434",
-            "request_timeout": 60,
-            "not_a_real_config_key": "x",
-        }
-    )
-    assert pruned == {"request_timeout": 60}
-
-
 def test_writeragent_config_from_dict_and_defaults() -> None:
     cfg = WriterAgentConfig.from_dict(
         {
@@ -307,7 +293,7 @@ def test_validate_coerce_out_of_range_clamps_instead_of_raising():
 def test_set_and_get_manifest_modules(restore_manifest) -> None:
     modules = [{"name": "only", "config": {"flag": {"type": "boolean", "default": False}}}]
     set_manifest_modules(modules)
-    assert get_manifest_modules() is restore_manifest.MODULES
+    assert restore_manifest.MODULES is modules
     assert restore_manifest.CONFIG_DEFAULTS["only.flag"] is False
     assert coerce_config_value("only.flag", "yes") is True
 
@@ -342,13 +328,13 @@ def test_set_endpoint_normalizer() -> None:
 
     previous = schema._endpoint_normalizer
     try:
-        assert _normalize_configured_endpoint("localhost", False) == "localhost"
+        assert schema._endpoint_normalizer("localhost", False) == "localhost"
 
         def mock_normalizer(endpoint_str: str, is_openwebui: bool) -> str:
             return f"mock_{endpoint_str}_{is_openwebui}"
 
         set_endpoint_normalizer(mock_normalizer)
-        assert _normalize_configured_endpoint("localhost", False) == "mock_localhost_False"
+        assert schema._endpoint_normalizer("localhost", False) == "mock_localhost_False"
     finally:
         set_endpoint_normalizer(previous)
 

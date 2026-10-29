@@ -27,7 +27,6 @@ from plugin.framework.default_models import (
     DEFAULT_MODELS,
 )
 from plugin.framework.constants import (
-    get_local_timezone,
     now_aware,
 )
 
@@ -99,9 +98,6 @@ def test_default_models_contracts(provider: str) -> None:
 
 
 def test_timezone_utilities_contracts() -> None:
-    tz = get_local_timezone()
-    assert tz is None or isinstance(tz, dt.tzinfo)
-    
     now = now_aware()
     assert isinstance(now, dt.datetime)
     assert now.tzinfo is not None

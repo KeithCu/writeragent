@@ -1218,25 +1218,6 @@ class TestConfigSyncFileIO:
         assert (is_default_value('log_level', get_config('log_level')))
         assert not (is_default_value('log_level', 'INFO'))
 
-    def test_prune_default_values_batch(self):
-        from plugin.framework.config_schema import prune_default_values
-
-        data = {
-            'endpoint': 'http://localhost:11434',
-            'chat_max_tokens': 16384,
-            'temperature': -1.0,
-            'request_timeout': 60,  # non-default
-            'text_model': 'custom-model',  # non-default
-            'custom_unrecognized_key': 'custom_val',  # unknown keys dropped
-            'chat_sidebar_mode': 'chat',
-            'writer.track_changes_reviewable': False,
-        }
-        pruned = prune_default_values(data)
-        assert (pruned) == ({
-            'request_timeout': 60,
-            'text_model': 'custom-model',
-        })
-
     def test_future_default_change_applies_when_omitted(self):
         # File only contains user customization for text_model
         set_config('text_model', 'my-model')

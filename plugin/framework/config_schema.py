@@ -41,18 +41,15 @@ import logging
 import os
 import textwrap
 import typing
-from typing import Any, Callable, Dict, Iterator
+from typing import Any, Callable, Dict, Iterator, Mapping
 
+from plugin.framework.constants import get_plugin_dir
 from plugin.framework.deal_shim import UNDER_CROSSHAIR, deal
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
 from plugin.framework.url_utils import normalize_endpoint_url
 
 log = logging.getLogger(__name__)
-
-# Same path as ``constants.get_plugin_dir`` (plugin/), used only for the
-# log_level DEBUG-vs-WARN default when a source checkout has plugin/tests.
-_PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Import MODULES only. Generated ``_manifest.py`` always has MODULES (and
 # VERSION); CONFIG_DEFAULTS / CONFIG_SCHEMAS / DOTTED_FALLBACKS may be absent.
@@ -98,11 +95,6 @@ def set_manifest_modules(modules: list[dict[str, Any]]) -> None:
     DOTTED_FALLBACKS = fallbacks
 
 
-def get_manifest_modules() -> list[dict[str, Any]]:
-    """Return active manifest modules list."""
-    return MODULES
-
-
 # Bind derived tables from MODULES at import so callers do not need
 # ``set_manifest_modules`` (almost nobody called it).
 set_manifest_modules(_imported_modules)  # type: ignore[arg-type]
@@ -131,7 +123,6 @@ def as_bool(value: Any) -> bool:
     return False
 
 
-@deal.post(lambda result: isinstance(result, int))
 def _signed_digits(token: str) -> bool:
     body = token[1:] if token[:1] in "+-" else token
     return bool(body) and body.isdigit()
@@ -171,12 +162,6 @@ def parse_int_robust(val: Any) -> int:
         raise ValueError("Cannot parse None as int")
 
     if UNDER_CROSSHAIR:
-        if isinstance(val, int):
-            return val
-        if isinstance(val, float):
-            if not math.isfinite(val):
-                raise ValueError(f"Cannot parse non-finite float as int: {val!r}")
-            return int(val)
         raise ValueError("Cannot parse symbolic type as int under CrossHair")
 
     s = str(val).strip()
@@ -239,8 +224,6 @@ def parse_float_robust(val: Any) -> float:
         raise ValueError("Cannot parse None as float")
 
     if UNDER_CROSSHAIR:
-        if isinstance(val, (int, float)):
-            return _float_or_value_error(val)
         raise ValueError("Cannot parse symbolic type as float under CrossHair")
 
     s = str(val).strip()
@@ -266,12 +249,7 @@ def parse_float_robust(val: Any) -> float:
 
 
 def _is_lru_list_config_key(key: str) -> bool:
-    if key in _LRU_LIST_CONFIG_KEY_PREFIXES:
-        return True
-    for prefix in _LRU_LIST_CONFIG_KEY_PREFIXES:
-        if key.startswith(prefix + "@"):
-            return True
-    return False
+    return key.split("@", 1)[0] in _LRU_LIST_CONFIG_KEY_PREFIXES
 
 
 _DEFAULT_PYTHON_SCRIPTS = {
@@ -330,11 +308,6 @@ def set_endpoint_normalizer(fn: Callable[[str, bool], str]) -> None:
     """
     global _endpoint_normalizer
     _endpoint_normalizer = fn
-
-
-def _normalize_configured_endpoint(endpoint_str: str, is_openwebui: bool) -> str:
-    """Normalize a stored endpoint URL."""
-    return _endpoint_normalizer(endpoint_str, is_openwebui)
 
 
 # 1024 maps to vendor "1K". Models dislike 512 / 0.5K — OpenRouter chat
@@ -398,9 +371,6 @@ class WriterAgentConfig:
 
     # Text analytics (sentiment etc.) — see plugin/scripting/text_analytics.py.
     # Only the transformers engine is implemented; this key overrides the Hugging Face model id (read by plugin/scripting/client.py).
-    # What was wrong: text_analytics_sentiment_engine was an unused config field.
-    # How it happened: it was added for speculative future engines, but only transformers is implemented.
-    # Why this change: removed the dead field; text_analytics_sentiment_model remains the single JSON override.
     text_analytics_sentiment_model: str = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
 
     # Persists the last entries for inserting LaTeX math
@@ -457,14 +427,7 @@ class WriterAgentConfig:
                     value = parse_float_robust(value)
                 except (ValueError, OverflowError):
                     value = meta["parse_fallback"]
-            out_of_range = False
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                if "min" in meta and value < meta["min"]:
-                    out_of_range = True
-                if "min_exclusive" in meta and value <= meta["min_exclusive"]:
-                    out_of_range = True
-                if "max" in meta and value > meta["max"]:
-                    out_of_range = True
+            out_of_range = _numeric_outside_schema_bounds(meta, value)
             if out_of_range:
                 if coerce_out_of_range:
                     log.warning("%s %s out of range; using %s", f.name, value, meta["fallback"])
@@ -493,7 +456,7 @@ class WriterAgentConfig:
         if endpoint_str:
             # WriterAgent overlays selector-label parsing in config.py; LibrePy
             # keeps this url_utils fallback (no chatbot import in this module).
-            self.endpoint = _normalize_configured_endpoint(endpoint_str, self.is_openwebui)
+            self.endpoint = _endpoint_normalizer(endpoint_str, self.is_openwebui)
         else:
             self.endpoint = ""
 
@@ -600,15 +563,14 @@ def _dataclass_field_type(field: "dataclasses.Field[Any]") -> str | None:
     # from __future__ import annotations stores field.type as a string.
     # get_type_hints resolves it so ``is int`` still matches on 3.9 and 3.13.
     resolved = typing.get_type_hints(WriterAgentConfig).get(field.name, field.type)
-    field_type_obj = resolved
-    origin = typing.get_origin(field_type_obj) or field_type_obj
-    if field_type_obj is int:
+    origin = typing.get_origin(resolved) or resolved
+    if resolved is int:
         return "int"
-    if field_type_obj is float:
+    if resolved is float:
         return "float"
-    if field_type_obj is bool:
+    if resolved is bool:
         return "boolean"
-    if field_type_obj is str:
+    if resolved is str:
         return "string"
     if origin is list or isinstance(_dataclass_field_default(field), list):
         return "list"
@@ -618,12 +580,10 @@ def _dataclass_field_type(field: "dataclasses.Field[Any]") -> str | None:
 
 
 def _module_schema_for_key(key: str) -> dict[str, Any] | None:
-    if key in CONFIG_SCHEMAS:
-        return dict(CONFIG_SCHEMAS[key])
-    for dotted in _dotted_fallback_keys(key):
-        if dotted in CONFIG_SCHEMAS:
-            return dict(CONFIG_SCHEMAS[dotted])
-    return None
+    schema = CONFIG_SCHEMAS.get(key)
+    if schema is None:
+        return None
+    return dict(schema)
 
 
 def _dataclass_schema_for_key(key: str) -> dict[str, Any] | None:
@@ -660,21 +620,6 @@ def get_config_schema(key: str) -> dict[str, Any] | None:
     return schema
 
 
-def _schema_default_from_schema(schema: dict[str, Any] | None) -> Any:
-    if schema and "default" in schema:
-        return schema["default"]
-    return _MISSING_VALUE
-
-
-def _fallback_value_for_invalid(key: str, schema: dict[str, Any] | None, fallback_value: Any) -> Any:
-    if fallback_value is not _MISSING_VALUE:
-        return coerce_config_value(key, fallback_value)
-    default_val = _schema_default_from_schema(schema)
-    if default_val is not _MISSING_VALUE:
-        return default_val
-    return _MISSING_VALUE
-
-
 def _canonicalize_schema_option_value(schema: dict[str, Any] | None, value: Any) -> Any:
     opts = schema.get("options") if schema else None
     if not isinstance(opts, list):
@@ -692,7 +637,7 @@ def _canonicalize_schema_option_value(schema: dict[str, Any] | None, value: Any)
     return value
 
 
-def _numeric_outside_schema_bounds(schema: dict[str, Any], value: Any) -> bool:
+def _numeric_outside_schema_bounds(schema: Mapping[str, Any], value: Any) -> bool:
     """True when a number violates schema min, max, or min_exclusive.
 
     ``clamp_schema_value`` only rewrites inclusive min/max. ``min_exclusive``
@@ -761,21 +706,22 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
 
     def _invalid(reason: str) -> Any:
         if strict:
-            raise ConfigValidationError(f"Invalid configuration value for {key}: {reason}", code="CONFIG_INVALID_VALUE", details={"key": key, "value": value})
-        fallback = _fallback_value_for_invalid(key, schema, fallback_value)
-        return fallback
+            raise ConfigValidationError(
+                f"Invalid configuration value for {key}: {reason}",
+                code="CONFIG_INVALID_VALUE",
+                details={"key": key, "value": value},
+            )
+        if fallback_value is not _MISSING_VALUE:
+            return coerce_config_value(key, fallback_value)
+        return schema.get("default", _MISSING_VALUE)
 
-    if schema_type == "int":
+    if schema_type in ("int", "float"):
+        parser = parse_int_robust if schema_type == "int" else parse_float_robust
+        reason = "not an integer" if schema_type == "int" else "not a number"
         try:
-            value = parse_int_robust(value)
+            value = parser(value)
         except (ValueError, OverflowError):
-            fallback = _invalid("not an integer")
-            return fallback if fallback is not _MISSING_VALUE else value
-    elif schema_type == "float":
-        try:
-            value = parse_float_robust(value)
-        except (ValueError, OverflowError):
-            fallback = _invalid("not a number")
+            fallback = _invalid(reason)
             return fallback if fallback is not _MISSING_VALUE else value
     elif schema_type == "boolean":
         if strict and not _strict_bool_ok(value):
@@ -821,13 +767,10 @@ def _get_schema_default(key: str) -> Any:
     """Return default for key from manifest schema. Supports flat and dotted keys."""
     if key in CONFIG_DEFAULTS:
         return CONFIG_DEFAULTS[key]
-    for dotted in _dotted_fallback_keys(key):
-        if dotted in CONFIG_DEFAULTS:
-            return CONFIG_DEFAULTS[dotted]
     return None
 
 
-def _dotted_fallback_keys(key: str) -> Iterator[str]:
+def _dotted_fallback_keys(key: str) -> Iterator[str]:  # pyright: ignore[reportUnusedFunction]  # called by config.py
     """Yield dotted key variants for key using manifest modules (e.g. extend_selection_max_tokens -> chatbot.extend_selection_max_tokens)."""
     if "." in key:
         return
@@ -842,7 +785,7 @@ def _dotted_fallback_keys(key: str) -> Iterator[str]:
 def _resolve_default(key: str) -> Any:
     """Resolve default for key: schema first, then dataclass. Safe fallbacks for None."""
     if key == "log_level":
-        tests_dir = os.path.join(_PLUGIN_DIR, "tests")
+        tests_dir = os.path.join(get_plugin_dir(), "tests")
         return "DEBUG" if os.path.isdir(tests_dir) else "WARN"
 
     val = _get_schema_default(key)
@@ -869,7 +812,7 @@ def _is_equal_to_default(key: str, value: Any, default_val: Any) -> bool:
     if isinstance(default_val, bool):
         return as_bool(value) is default_val
 
-    if isinstance(default_val, (int, float)) and not isinstance(default_val, bool):
+    if isinstance(default_val, (int, float)):
         if isinstance(value, bool):
             return False
         try:
@@ -904,10 +847,3 @@ def is_default_value(key: str, value: Any) -> bool:
     except ConfigError:
         return False
     return _is_equal_to_default(key, value, default_val)
-
-
-def prune_default_values(data: dict[str, Any]) -> dict[str, Any]:
-    """Drop unknown keys and values that match schema/dataclass defaults."""
-    if not isinstance(data, dict):
-        return {}
-    return {k: v for k, v in data.items() if is_known_config_key(k) and not is_default_value(k, v)}
