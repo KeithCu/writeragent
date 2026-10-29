@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 import time
 from pathlib import Path
@@ -14,8 +15,6 @@ import pytest
 
 from plugin.calc.spreadsheet_import.ingest import (
     classify_cell,
-    extract_cell_refs,
-    filter_refs_to_scope,
     ingest_from_arrays,
 )
 _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "spreadsheet_import_corpus" / "simple_budget_snapshot.json"
@@ -83,14 +82,33 @@ def test_classify_error_display():
     assert error is None
 
 
-def test_extract_cell_refs():
-    refs = extract_cell_refs("=SUM($A$1:B2)+C3")
-    assert refs == ["A1", "B2", "C3"]
+def test_ingest_precedents_extraction_and_scope():
+    model = ingest_from_arrays(
+        sheet_name="S",
+        start_col=0,
+        start_row=0,
+        data_array=[[1.0, 2.0, 3.0, 0.0]],
+        formula_array=[["", "", "", "=SUM($A$1:B1)+C1"]],
+    )
+    assert model.cells["D1"].precedents == ["A1", "B1", "C1"]
 
+    model2 = ingest_from_arrays(
+        sheet_name="S",
+        start_col=0,
+        start_row=0,
+        data_array=[[1.0, 2.0, 0.0]],
+        formula_array=[["", "", "=A1+B1+Z9+A1"]],
+    )
+    assert model2.cells["C1"].precedents == ["A1", "B1"]
 
-def test_filter_refs_to_scope():
-    scope = frozenset({"A1", "B1"})
-    assert filter_refs_to_scope(["A1", "B1", "Z9", "A1"], scope) == ["A1", "B1"]
+    model3 = ingest_from_arrays(
+        sheet_name="S",
+        start_col=0,
+        start_row=0,
+        data_array=[[0.0]],
+        formula_array=[["=A1+1"]],
+    )
+    assert model3.cells["A1"].precedents == []
 
 
 def test_ingest_golden_budget_grid():
@@ -135,7 +153,7 @@ def test_ingest_precedents_exclude_out_of_scope():
     assert model.cells["A1"].precedents == []
 
 
-def test_sheet_model_to_dict_keys():
+def test_sheet_model_asdict_keys():
     model = ingest_from_arrays(
         sheet_name="S",
         start_col=0,
@@ -143,7 +161,7 @@ def test_sheet_model_to_dict_keys():
         data_array=[[1.0]],
         formula_array=[[""]],
     )
-    payload = model.to_dict()
+    payload = asdict(model)
     assert set(payload) == {"sheet_name", "used_range", "cells", "formula_order", "circular_groups"}
     assert payload["cells"]["A1"]["type"] == "constant"
 

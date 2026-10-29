@@ -34,7 +34,7 @@ def test_preserve_live_py_formulas_round_trip(ctx, doc):
     from plugin.calc.address_utils import format_address
     from plugin.calc.spreadsheet_import.extract import py_formula_semantics
     from plugin.calc.spreadsheet_import.ingest import ingest_sheet
-    from plugin.calc.spreadsheet_import.preserve import preserve_sheet_to_new_sheet
+    from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, build_output_model, enrich_number_formats
 
     sheet = doc.getSheets().getByIndex(0)
     sheet.getCellByPosition(0, 0).setValue(10.0)
@@ -45,8 +45,12 @@ def test_preserve_live_py_formulas_round_trip(ctx, doc):
     source_model = ingest_sheet(sheet)
     assert source_model.cells["B2"].type == "py_formula"
 
-    output = preserve_sheet_to_new_sheet(doc, sheet, target_name="PythonImport")
-    target = doc.getSheets().getByName("PythonImport")
+    enrich_number_formats(sheet, source_model)
+    output = build_output_model(source_model)
+    sheets = doc.getSheets()
+    sheets.insertNewByName("PythonImport", sheets.getCount())
+    target = sheets.getByName("PythonImport")
+    apply_output_to_sheet(target, output)
 
     assert output.cells["A1"].value == 10.0
     assert output.cells["A2"].value == 20.0
@@ -56,5 +60,4 @@ def test_preserve_live_py_formulas_round_trip(ctx, doc):
     src_formula = sheet.getCellByPosition(col, row).getFormula()
     tgt_formula = target.getCellByPosition(col, row).getFormula()
     assert py_formula_semantics(src_formula) == py_formula_semantics(tgt_formula)
-    assert output.py_extracts and output.py_extracts[0].changed
     assert format_address(col, row) == "B2"

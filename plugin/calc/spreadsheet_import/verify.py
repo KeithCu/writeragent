@@ -14,7 +14,7 @@ from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.spreadsheet_import.models import ConversionReport, OutputSheetModel, SheetModel, VerifyMismatch, VerifyResult
 
 
-def _values_equal(expected: Any, actual: Any, *, rtol: float) -> tuple[bool, str]:
+def _values_equal(expected: Any, actual: Any) -> tuple[bool, str]:
     if expected is None and actual is None:
         return True, ""
     if is_calc_error_display(expected) or is_calc_error_display(actual):
@@ -30,7 +30,7 @@ def _values_equal(expected: Any, actual: Any, *, rtol: float) -> tuple[bool, str
         act_f = float(actual)
         if math.isnan(exp_f) and math.isnan(act_f):
             return True, ""
-        if abs(exp_f - act_f) <= rtol:
+        if abs(exp_f - act_f) <= 1e-9:
             return True, ""
         return False, f"float {exp_f} vs {act_f}"
     except (TypeError, ValueError):
@@ -43,7 +43,6 @@ def verify_converted_cells(
     report: ConversionReport,
     *,
     actual_values: dict[str, Any],
-    rtol: float = 1e-9,
 ) -> VerifyResult:
     """Compare converted cell values against the source ingest oracle."""
     result = VerifyResult()
@@ -67,7 +66,7 @@ def verify_converted_cells(
             continue
         expected = source.cells[addr].value
         actual = actual_values[addr]
-        ok, msg = _values_equal(expected, actual, rtol=rtol)
+        ok, msg = _values_equal(expected, actual)
         if ok:
             result.passed.append(addr)
         else:
