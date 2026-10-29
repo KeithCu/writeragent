@@ -334,50 +334,38 @@ def _calculate_text_selection_span(text: str, int_spec: list[int]) -> tuple[int,
         return sum(len(paras[i]) + 1 for i in range(p_idx))
 
     n = len(int_spec)
+    if n == 0:
+        return "SelectText: empty specification"
     if n == 1:
-        p = int_spec[0]
-        if p >= num_paras:
-            return "SelectText: paragraph index %d out of range (have %d)" % (p, num_paras)
-        start = _para_start(p)
-        end = start + len(paras[p])
-        return start, end, "range"
+        p, c, ep = int_spec[0], 0, int_spec[0]
     elif n == 2:
-        p, c = int_spec[0], int_spec[1]
-        if p >= num_paras:
-            return "SelectText: paragraph index %d out of range (have %d)" % (p, num_paras)
-        if c > len(paras[p]):
-            return "SelectText: char index %d past paragraph %d length %d" % (c, p, len(paras[p]))
-        start = _para_start(p) + c
-        return start, start, "caret"
+        p, c, ep = int_spec[0], int_spec[1], int_spec[0]
     elif n == 3:
         p, c, ep = int_spec[0], int_spec[1], int_spec[2]
-        if p >= num_paras:
-            return "SelectText: paragraph index %d out of range (have %d)" % (p, num_paras)
-        if ep >= num_paras:
-            return "SelectText: end paragraph index %d out of range (have %d)" % (ep, num_paras)
-        if ep < p:
-            return "SelectText: negative or invalid span [%d, %d, %d]" % (p, c, ep)
-        if c > len(paras[p]):
-            return "SelectText: char index %d past paragraph %d length %d" % (c, p, len(paras[p]))
-        start = _para_start(p) + c
+    else:
+        p, c, ep = int_spec[0], int_spec[1], int_spec[2]
+
+    if p >= num_paras:
+        return "SelectText: paragraph index %d out of range (have %d)" % (p, num_paras)
+    if n >= 3 and ep >= num_paras:
+        return "SelectText: end paragraph index %d out of range (have %d)" % (ep, num_paras)
+    if n == 3 and ep < p:
+        return "SelectText: negative or invalid span [%d, %d, %d]" % (p, c, ep)
+    if n >= 4 and (ep < p or (ep == p and int_spec[3] < c)):
+        return "SelectText: negative span [%d, %d] to [%d, %d]" % (p, c, ep, int_spec[3])
+    if c > len(paras[p]):
+        return "SelectText: char index %d past paragraph %d length %d" % (c, p, len(paras[p]))
+    if n >= 4 and int_spec[3] > len(paras[ep]):
+        return "SelectText: char index %d past paragraph %d length %d" % (int_spec[3], ep, len(paras[ep]))
+
+    start = _para_start(p) + c
+    if n == 2:
+        return start, start, "caret"
+    if n >= 4:
+        end = _para_start(ep) + int_spec[3]
+    else:
         end = _para_start(ep) + len(paras[ep])
-        return start, end, "range"
-    elif n >= 4:
-        p, start_c, ep, end_c = int_spec[0], int_spec[1], int_spec[2], int_spec[3]
-        if p >= num_paras:
-            return "SelectText: paragraph index %d out of range (have %d)" % (p, num_paras)
-        if ep >= num_paras:
-            return "SelectText: end paragraph index %d out of range (have %d)" % (ep, num_paras)
-        if ep < p or (ep == p and end_c < start_c):
-            return "SelectText: negative span [%d, %d] to [%d, %d]" % (p, start_c, ep, end_c)
-        if start_c > len(paras[p]):
-            return "SelectText: char index %d past paragraph %d length %d" % (start_c, p, len(paras[p]))
-        if end_c > len(paras[ep]):
-            return "SelectText: char index %d past paragraph %d length %d" % (end_c, ep, len(paras[ep]))
-        start = _para_start(p) + start_c
-        end = _para_start(ep) + end_c
-        return start, end, "range"
-    return "SelectText: empty specification"
+    return start, end, "range"
 
 
 
@@ -489,94 +477,72 @@ class SlideCommandEngine:
         return self.pages.getByIndex(self.current_slide)
 
     def _apply_command(self, cmd: dict[str, Any]) -> str | None:
-        for key, value in cmd.items():
-            if is_deferred_command_key(key):
-                return self._fail("%s is not supported in WriterAgent V1; use image_generate or atomic draw tools." % key)
-            if key == "JumpToSlide":
-                idx = _parse_slide_index(value, self.current_slide, self._page_count())
-                if idx is not None:
-                    self.current_slide = idx
-                    self.applied.append("JumpToSlide:%d" % idx)
-                else:
-                    return self._fail("Invalid JumpToSlide: %r" % value)
-            elif key == "JumpToSlideByName":
-                if not isinstance(value, str):
-                    return self._fail("%s requires a string" % key)
-                found = self._jump_to_name(value)
-                if found is None:
-                    return self._fail("JumpToSlideByName: slide not found: %r" % value)
-            elif key == "InsertMasterSlide":
-                master_idx = coerce_int(value)
-                if master_idx is None:
-                    return self._fail("Invalid InsertMasterSlide index: %r" % value)
-                err = self._insert_master(master_index=master_idx)
-                if err is not None:
-                    return err
-            elif key == "InsertMasterSlideByName":
-                if not isinstance(value, str):
-                    return self._fail("%s requires a string" % key)
-                err = self._insert_master(master_name=value)
-                if err is not None:
-                    return err
-            elif key == "DeleteSlide":
-                err = self._delete_slide(value)
-                if err is not None:
-                    return err
-            elif key == "DuplicateSlide":
-                err = self._duplicate_slide(value)
-                if err is not None:
-                    return err
-            elif key == "MoveSlide":
-                to_idx = coerce_int(value)
-                if to_idx is None:
-                    return self._fail("Invalid MoveSlide index: %r" % value)
-                err = self._move_slide(self.current_slide, to_idx)
-                if err is not None:
-                    return err
-            elif key == "RenameSlide":
-                if not isinstance(value, str):
-                    return self._fail("%s requires a string" % key)
-                if self.bridge.rename_slide(self.current_slide, value):
-                    self.applied.append("RenameSlide:%s" % value)
-                else:
-                    return self._fail("RenameSlide failed")
-            elif key in ("ChangeLayout", "ChangeLayoutByName"):
-                err = self._set_layout(resolve_layout_id(value), key)
-                if err is not None:
-                    return err
-            elif key == "UnoCommand":
-                err = self._dispatch_uno_string(value)
-                if err is not None:
-                    return err
-                self.applied.append("UnoCommand:%s" % value)
-            else:
-                m = SET_TEXT_RE.match(key)
-                if m:
-                    err = self._set_text_index(int(m.group(1)), str(value))
-                    if err is not None:
-                        return err
-                    continue
-                m = EDIT_TEXT_RE.match(key)
-                if m:
-                    if isinstance(value, list):
-                        err = self._edit_text_object(int(m.group(1)), value)
-                        if err is not None:
-                            return err
-                    else:
-                        return self._fail("%s requires an array of sub-commands" % key)
-                    continue
-                m = MOVE_SLIDE_RE.match(key)
-                if m:
-                    from_idx = int(m.group(1))
-                    to_idx = coerce_int(value)
-                    if to_idx is None:
-                        return self._fail("Invalid MoveSlide index: %r" % value)
-                    err = self._move_slide(from_idx, to_idx)
-                    if err is not None:
-                        return err
-                    continue
-                return self._fail("Unknown or unsupported command key: %s" % key)
-        return None
+        (key, value), = cmd.items()
+        if is_deferred_command_key(key):
+            return self._fail("%s is not supported in WriterAgent V1; use image_generate or atomic draw tools." % key)
+        if key == "JumpToSlide":
+            idx = _parse_slide_index(value, self.current_slide, self._page_count())
+            if idx is None:
+                return self._fail("Invalid JumpToSlide: %r" % value)
+            self.current_slide = idx
+            self.applied.append("JumpToSlide:%d" % idx)
+            return None
+        if key == "JumpToSlideByName":
+            if not isinstance(value, str):
+                return self._fail("%s requires a string" % key)
+            found = self._jump_to_name(value)
+            if found is None:
+                return self._fail("JumpToSlideByName: slide not found: %r" % value)
+            return None
+        if key == "InsertMasterSlide":
+            master_idx = coerce_int(value)
+            if master_idx is None:
+                return self._fail("Invalid InsertMasterSlide index: %r" % value)
+            return self._insert_master(master_index=master_idx)
+        if key == "InsertMasterSlideByName":
+            if not isinstance(value, str):
+                return self._fail("%s requires a string" % key)
+            return self._insert_master(master_name=value)
+        if key == "DeleteSlide":
+            return self._delete_slide(value)
+        if key == "DuplicateSlide":
+            return self._duplicate_slide(value)
+        if key == "MoveSlide":
+            to_idx = coerce_int(value)
+            if to_idx is None:
+                return self._fail("Invalid MoveSlide index: %r" % value)
+            return self._move_slide(self.current_slide, to_idx)
+        if key == "RenameSlide":
+            if not isinstance(value, str):
+                return self._fail("%s requires a string" % key)
+            if not self.bridge.rename_slide(self.current_slide, value):
+                return self._fail("RenameSlide failed")
+            self.applied.append("RenameSlide:%s" % value)
+            return None
+        if key in ("ChangeLayout", "ChangeLayoutByName"):
+            return self._set_layout(resolve_layout_id(value), key)
+        if key == "UnoCommand":
+            err = self._dispatch_uno_string(value)
+            if err is not None:
+                return err
+            self.applied.append("UnoCommand:%s" % value)
+            return None
+        m = SET_TEXT_RE.match(key)
+        if m:
+            return self._set_text_index(int(m.group(1)), str(value))
+        m = EDIT_TEXT_RE.match(key)
+        if m:
+            if not isinstance(value, list):
+                return self._fail("%s requires an array of sub-commands" % key)
+            return self._edit_text_object(int(m.group(1)), value)
+        m = MOVE_SLIDE_RE.match(key)
+        if m:
+            from_idx = int(m.group(1))
+            to_idx = coerce_int(value)
+            if to_idx is None:
+                return self._fail("Invalid MoveSlide index: %r" % value)
+            return self._move_slide(from_idx, to_idx)
+        return self._fail("Unknown or unsupported command key: %s" % key)
 
     def _jump_to_name(self, name: str) -> int | None:
         for i in range(self._page_count()):
@@ -776,30 +742,6 @@ class SlideCommandEngine:
             if coerced is None:
                 return cursor, None, self._fail("Invalid non-int element in SelectText: %r" % item)
             int_spec.append(coerced)
-
-        n = len(int_spec)
-        if n == 0:
-            cursor.gotoStart(False)
-            cursor.gotoEnd(True)
-            return cursor, "all", None
-        if n == 1:
-            para = int_spec[0]
-            if para < 0:
-                return cursor, None, self._fail("SelectText: negative paragraph index %d" % para)
-        elif n == 2:
-            para, char = int_spec[0], int_spec[1]
-            if para < 0 or char < 0:
-                return cursor, None, self._fail("SelectText: negative index [%d, %d]" % (para, char))
-        elif n == 3:
-            para, char, end_para = int_spec[0], int_spec[1], int_spec[2]
-            if para < 0 or char < 0 or end_para < 0 or end_para < para:
-                return cursor, None, self._fail("SelectText: negative or invalid span [%d, %d, %d]" % (para, char, end_para))
-        elif n >= 4:
-            para, start, end_para, end_char = int_spec[0], int_spec[1], int_spec[2], int_spec[3]
-            if para < 0 or start < 0 or end_para < 0 or end_char < 0:
-                return cursor, None, self._fail("SelectText: negative coordinates [%d, %d, %d, %d]" % (para, start, end_para, end_char))
-            if end_para < para or (end_para == para and end_char < start):
-                return cursor, None, self._fail("SelectText: negative span [%d, %d] to [%d, %d]" % (para, start, end_para, end_char))
 
         raw_text = _cursor_string(xtext)
         if raw_text is None:
