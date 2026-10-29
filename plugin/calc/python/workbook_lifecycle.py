@@ -142,19 +142,6 @@ def lifecycle_key_if_known(doc: Any | None) -> str:
     return ""
 
 
-def _runtime_uid(doc: Any) -> str:
-    """Read RuntimeUID from doc, or empty string on failure."""
-    # Bugfix: What was wrong: Property-only read missed builds that expose getRuntimeUID()
-    # or the attribute, and if uid: return str(uid) accepted non-strings.
-    # How it happened: Direct call to getPropertyValue("RuntimeUID") without the full ladder or type validation.
-    # Why this change fixes it: Use the shared _read_runtime_uid ladder, which tries method, attribute,
-    # then property, and only accepts plain str or int without a thread check.
-    from plugin.framework.uno_context import _read_runtime_uid
-
-    return _read_runtime_uid(doc)
-
-
-
 def _lifecycle_key(doc: Any) -> str:
     """Per-open identity: RuntimeUID, else the first session id remembered for this object.
 
@@ -169,7 +156,10 @@ def _lifecycle_key(doc: Any) -> str:
     stored for this object. A new session id is computed only the first time.
     A RuntimeUID read still replaces that fallback.
     """
-    uid = _runtime_uid(doc)
+    # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute and accepted non-strings. _read_runtime_uid walks method, attribute, then property, and keeps only str or int, with no thread check.
+    from plugin.framework.uno_context import _read_runtime_uid
+
+    uid = _read_runtime_uid(doc)
     if uid:
         _remember_doc_lifecycle_key(doc, uid)
         return uid
@@ -191,6 +181,10 @@ def off_main_spill_lifecycle_key(doc: Any | None) -> str:
         if key:
             return key
     return lifecycle_key_if_known(doc)
+
+
+def _is_reentry(res: Any) -> bool:
+    return isinstance(res, dict) and res.get("status") == "error" and res.get("code") == "WORKER_REENTRY"
 
 
 class _CalcPythonUnloadListener(BaseDocumentEventListener):
@@ -279,13 +273,13 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 return
             try:
                 last_res = reset_python_session(self._ctx, sid)
-                if isinstance(last_res, dict) and last_res.get("status") == "error" and last_res.get("code") == "WORKER_REENTRY":
+                if _is_reentry(last_res):
                     continue
                 break
             except Exception:
                 log.debug("python_workbook_lifecycle: retry reset raised", exc_info=True)
                 break
-        if isinstance(last_res, dict) and last_res.get("status") == "error" and last_res.get("code") == "WORKER_REENTRY":
+        if _is_reentry(last_res):
             log.warning("python_workbook_lifecycle: session %s still WORKER_REENTRY after retry timeout", sid)
 
     def _reset_sessions(self, session_ids: tuple[str, ...]) -> None:
@@ -300,7 +294,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
 
             def _do_reset(s: str = sid) -> None:
                 res = reset_python_session(self._ctx, s)
-                if isinstance(res, dict) and res.get("status") == "error" and res.get("code") == "WORKER_REENTRY":
+                if _is_reentry(res):
                     from plugin.framework.worker_pool import run_in_background
 
                     # A sleeping background job uses dedicated=True (AGENTS.md).
@@ -315,7 +309,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
 
             best_effort(_do_reset, "python_workbook_lifecycle: reset on unload")
 
-    def _release_calc_state(self, session_ids: tuple[str, ...], doc_urls: tuple[str, ...], lifecycle_key: str, *, reset_sessions: bool) -> None:
+    def _release_calc_state(self, session_ids: tuple[str, ...], doc_urls: tuple[str, ...], lifecycle_key: str) -> None:
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
         if self._calc_cleanup:
             from plugin.calc.python.function import clear_in_memory_spill_state
@@ -338,8 +332,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                     clear_in_memory_geometric_state(workbook_key=sid)
 
             best_effort(_clear_geo, "python_workbook_lifecycle: geometric state clear")
-        if reset_sessions:
-            self._reset_sessions(session_ids)
+        self._reset_sessions(session_ids)
 
     def _teardown(self) -> None:
         # Take the lock. _teardown_done, the session id, and the extra
@@ -357,22 +350,17 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         # Drop the id cache in the same unload that cancels spill timers.
         # ``_forget_doc_lifecycle_key`` takes ``_LOCK``; do that after the snapshot.
         _forget_doc_lifecycle_key(lifecycle_key)
-        self._release_calc_state(session_ids, doc_urls, lifecycle_key, reset_sessions=True)
+        self._release_calc_state(session_ids, doc_urls, lifecycle_key)
 
 
-def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any) -> None:
-    """Register a one-time listener so closing *doc* clears worker init/cell sessions."""
-    if not _HAVE_UNO_DOC_EVENTS or doc is None:
-        return
-    key = _lifecycle_key(doc)
-    session_id = calc_workbook_base_session_id(doc)
-    doc_url = doc.getURL() or ""
+def _register(doc: Any, key: str, factory: Any, on_existing: Any) -> None:
+    """Both ensure_* paths share this lock, rollback, and warning."""
     with _LOCK:
         existing = _LISTENERS.get(key)
         if existing is not None:
-            existing.note_calc_identity(session_id, doc_url)
+            on_existing(existing)
             return
-        listener = _CalcPythonUnloadListener(ctx, session_id, key, doc_url=doc_url)
+        listener = factory()
         _LISTENERS[key] = listener
     try:
         if hasattr(doc, "addDocumentEventListener"):
@@ -383,9 +371,22 @@ def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any) -> None:
         log.warning("python_workbook_lifecycle: addDocumentEventListener failed", exc_info=True)
 
 
+def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any) -> None:
+    """Register a one-time listener so closing *doc* clears worker init/cell sessions."""
+    if not _HAVE_UNO_DOC_EVENTS or doc is None:
+        return
+    key = _lifecycle_key(doc)
+    session_id = calc_workbook_base_session_id(doc)
+    doc_url = doc.getURL() or ""
+    _register(doc, key, lambda: _CalcPythonUnloadListener(ctx, session_id, key, doc_url=doc_url), lambda existing: existing.note_calc_identity(session_id, doc_url))
+
+
 def _script_lifecycle_key(doc: Any, session_id: str) -> str:
     """Stable listener key that does not record a Calc session for Writer/Draw."""
-    uid = _runtime_uid(doc)
+    # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute and accepted non-strings. _read_runtime_uid walks method, attribute, then property, and keeps only str or int, with no thread check.
+    from plugin.framework.uno_context import _read_runtime_uid
+
+    uid = _read_runtime_uid(doc)
     return f"py:{uid or session_id}"
 
 
@@ -401,17 +402,4 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
         ensure_calc_workbook_unload_resets_python(ctx, doc)
         return
     key = _script_lifecycle_key(doc, session_id)
-    with _LOCK:
-        existing = _LISTENERS.get(key)
-        if existing is not None:
-            existing.note_session(session_id)
-            return
-        listener = _CalcPythonUnloadListener(ctx, session_id, key, calc_cleanup=False)
-        _LISTENERS[key] = listener
-    try:
-        if hasattr(doc, "addDocumentEventListener"):
-            doc.addDocumentEventListener(listener)
-    except Exception:
-        with _LOCK:
-            _LISTENERS.pop(key, None)
-        log.warning("python_workbook_lifecycle: addDocumentEventListener failed", exc_info=True)
+    _register(doc, key, lambda: _CalcPythonUnloadListener(ctx, session_id, key, calc_cleanup=False), lambda existing: existing.note_session(session_id))

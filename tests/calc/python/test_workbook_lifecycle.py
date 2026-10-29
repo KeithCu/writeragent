@@ -265,12 +265,14 @@ def test_release_calc_state_dedupes_doc_urls():
     """_release_calc_state dedupes URLs and skips empty strings."""
     ctx = MagicMock()
     listener = _CalcPythonUnloadListener(ctx, "calc:wb-dedupe", "key-dedupe")
-    with patch("plugin.calc.python.function.clear_in_memory_spill_state") as mock_spill:
+    with patch("plugin.calc.python.function.clear_in_memory_spill_state") as mock_spill, patch(
+        "plugin.calc.python.workbook_lifecycle.reset_python_session",
+        return_value={"status": "ok"},
+    ):
         listener._release_calc_state(
             ("calc:wb-dedupe",),
             ("file:///a.ods", "", "file:///a.ods", ""),
             "key-dedupe",
-            reset_sessions=False,
         )
         mock_spill.assert_called_once_with(doc_url="file:///a.ods", lifecycle_key="key-dedupe")
 

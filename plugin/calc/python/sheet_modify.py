@@ -69,10 +69,6 @@ def is_sheet_modify_dispatching() -> bool:
     return _DISPATCH_DEPTH > 0
 
 
-def _sheet_key(doc_identity: str, sheet_name: str) -> tuple[str, str]:
-    return (doc_identity, sheet_name)
-
-
 def _doc_identity(doc: Any) -> str:
     """Stable per-document id. URL collides for unsaved books and moves on Save-As."""
     if doc is None:
@@ -97,14 +93,9 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
     for _hop in range(4):
         if current is None:
             return None
-        supports = getattr(current, "supportsService", None)
-        if callable(supports):
-
-            def _is_calc(check: Any = supports) -> Any:
-                return check("com.sun.star.sheet.SpreadsheetDocument")
-
-            if uno_probe(_is_calc, False) is True:
-                return current
+        supports: Any = getattr(current, "supportsService", None)
+        if callable(supports) and uno_probe(lambda: supports("com.sun.star.sheet.SpreadsheetDocument"), False) is True:
+            return current
         parent = getattr(current, "getParent", None)
         if not callable(parent):
             return None
@@ -127,12 +118,6 @@ def _sheet_name_of(sheet: Any) -> str:
     if sheet is None:
         return ""
     return str(best_effort(lambda: sheet.getName(), "sheet_modify: getName failed", "") or "")
-
-
-def _lookup_sheet(doc: Any, sheet_name: str) -> Any | None:
-    if doc is None:
-        return None
-    return uno_probe(lambda: doc.getSheets().getByName(sheet_name), None)
 
 
 def _cancel_pending(key: tuple[str, str]) -> None:
@@ -183,7 +168,7 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
 
         lifecycle_key = str(uno_probe(lambda: _lifecycle_key(doc), "") or "")
     identity = lifecycle_key or url
-    key = _sheet_key(identity, name)
+    key = (identity, name)
     _cancel_pending(key)
 
     timer_holder: list[Any] = []
@@ -216,7 +201,7 @@ def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
     identity = _doc_identity(doc) or url
-    _cancel_pending(_sheet_key(identity, name))
+    _cancel_pending((identity, name))
     run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name)
 
 
@@ -237,8 +222,8 @@ def migrate_sheet_rename(
     # Bugfix: What was wrong: migrate_sheet_rename migrated keys across unrelated workbooks when doc_key or identity was empty.
     # How it happened: The filter expression used (not doc_key or k[0] in ...) and (not identity or ...), treating an empty identity as a wildcard matching all keys.
     # Why this change fixes it: We collect non-empty IDs; if no valid IDs exist for the document, we log a warning and skip that map without rekeying other workbooks' entries.
-    identity = _doc_identity(doc) if doc is not None else ""
-    url = _doc_url_of(doc) if doc is not None else ""
+    identity = _doc_identity(doc)
+    url = _doc_url_of(doc)
 
     if dispatcher is not None:
         dispatcher.sheet_name = new_sheet_name
@@ -281,11 +266,8 @@ def migrate_sheet_rename(
             for skey in list(SHEET_MODIFY_LISTENERS.keys()):
                 if skey[1] == old_sheet_name and skey[0] in other_ids:
                     disp = SHEET_MODIFY_LISTENERS.pop(skey)
-                    if hasattr(disp, "sheet_name"):
-                        disp.sheet_name = new_sheet_name
+                    disp.sheet_name = new_sheet_name
                     SHEET_MODIFY_LISTENERS[(skey[0], new_sheet_name)] = disp
-                    if dispatcher is None and isinstance(disp, SheetModifyDispatcher):
-                        dispatcher = disp
     except Exception:
         log.exception("migrate_sheet_rename: failed to migrate SHEET_MODIFY_LISTENERS")
 
@@ -338,7 +320,7 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
 
         doc = _get_calc_doc(ctx)
     if sheet is None and doc is not None:
-        sheet = _lookup_sheet(doc, sheet_name)
+        sheet = uno_probe(lambda: doc.getSheets().getByName(sheet_name), None)
     if sheet is None:
         return
     url = doc_url or _doc_url_of(doc)
@@ -414,7 +396,7 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
     url = _doc_url_of(doc)
     name = _sheet_name_of(sheet)
     identity = _doc_identity(doc) or url
-    key = _sheet_key(identity, name)
+    key = (identity, name)
     from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
 
     existing = SHEET_MODIFY_LISTENERS.get(key)
