@@ -36,13 +36,6 @@ _interceptor: Any = None
 _doc_listener: Any = None
 
 
-def _edit_python_cell_url() -> str:
-    """CommandURL for this OXT. LibrePy bootstrap is OnStartApp, so resolve at intercept time."""
-    from plugin.framework.uno_context import resolve_package_extension_id
-
-    return f"{resolve_package_extension_id()}:scripting.edit_python_cell"
-
-
 def _is_calc_controller(controller: Any) -> bool:
     if controller is None:
         return False
@@ -84,14 +77,6 @@ def _controller_alive(controller: Any) -> bool:
         return False
 
 
-def _prune_disposed_controllers() -> None:
-    """Prune disposed controllers from _registered_controllers (must hold _lock)."""
-    _registered_controllers[:] = [
-        ctrl for ctrl in _registered_controllers
-        if _controller_alive(ctrl)
-    ]
-
-
 def _get_interceptor() -> Any:
     global _interceptor
     if _interceptor is not None:
@@ -125,7 +110,10 @@ def _get_interceptor() -> Any:
                 from plugin.framework.i18n import _
 
                 entry.setPropertyValue("Text", _("Edit Python in Cell..."))
-                entry.setPropertyValue("CommandURL", _edit_python_cell_url())
+                # CommandURL for this OXT. LibrePy bootstrap is OnStartApp, so resolve at intercept time.
+                from plugin.framework.uno_context import resolve_package_extension_id
+
+                entry.setPropertyValue("CommandURL", f"{resolve_package_extension_id()}:scripting.edit_python_cell")
 
                 count = container.getCount()
                 container.insertByIndex(count, separator)
@@ -141,8 +129,6 @@ def _get_interceptor() -> Any:
 
 def _register_controller(controller: Any) -> None:
     """Register the interceptor on one Calc view controller (idempotent per controller)."""
-    if controller is None:
-        return
     if not _is_calc_controller(controller):
         return
     try:
@@ -158,7 +144,10 @@ def _register_controller(controller: Any) -> None:
             # OInterfaceContainerHelper::addInterface appends without deduping,
             # adding duplicate separators and menu items (see plugin/writer/change_context_menu.py).
             # We use uno_same to compare UNO identity and prune disposed controllers.
-            _prune_disposed_controllers()
+            _registered_controllers[:] = [
+                ctrl for ctrl in _registered_controllers
+                if _controller_alive(ctrl)
+            ]
             if any(uno_same(controller, existing) for existing in _registered_controllers):
                 return
             interception.registerContextMenuInterceptor(_get_interceptor())

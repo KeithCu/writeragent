@@ -217,10 +217,6 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
     return model, cell, formula
 
 
-def _recalculate_after_save(doc: Any) -> None:
-    best_effort(doc.calculateAll, "calculateAll after editor save")
-
-
 def _existing_data_args_for_xl_rewrite(data_binding_text: str | None, parsed_parts: PythonFormulaParts | None) -> list[str]:
     """Resolve current data args from the Monaco Data field or the parsed formula."""
     if data_binding_text is not None:
@@ -262,22 +258,11 @@ def _apply_formula_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts
     if isinstance(new_formula, dict):
         return new_formula
     cell.setFormula(new_formula)
-    from plugin.calc.python.geometric_recalc import after_py_cell_save
-
-    after_py_cell_save(doc, cell)
-    _recalculate_after_save(doc)
     return {"type": "saved", "ok": True, "save_as_plain": False}
 
 
 def _apply_plain_text_save(doc: Any, cell: Any, *, new_code: str) -> dict[str, Any]:
     cell.setString(new_code)
-    # Bugfix: Plain text saves previously skipped after_py_cell_save, leaving
-    # stale geometric registry records for downgraded =PY() cells. Reconciling
-    # here prunes them.
-    from plugin.calc.python.geometric_recalc import after_py_cell_save
-
-    after_py_cell_save(doc, cell)
-    _recalculate_after_save(doc)
     return {"type": "saved", "ok": True, "save_as_plain": True, "status_ok_text": _("Saved without =PY().")}
 
 
@@ -288,9 +273,7 @@ def _apply_followed_ref_save(doc: Any, formula_cell: Any, *, code_cell: Any, cod
     code_cell.setString(new_code)
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
-        old_args: list[str] = []
-        if parsed_parts is not None:
-            old_args = parse_data_binding_text(format_data_binding_display(parsed_parts.data_suffix))
+        old_args = _existing_data_args_for_xl_rewrite(None, parsed_parts)
         # Leave the formula cell alone when only the code changed. Native follow
         # save always sends Data: '' — rewriting =PY($A$1) used to emit =PY($A$1))
         # (Err:508) and is unnecessary when the ranges did not change.
@@ -303,10 +286,6 @@ def _apply_followed_ref_save(doc: Any, formula_cell: Any, *, code_cell: Any, cod
             # this branch did not.
             prefix = parsed_parts.prefix if parsed_parts is not None and parsed_parts.prefix else f"={CALC_PYTHON_FN}("
             formula_cell.setFormula(f"{prefix}{code_ref.strip()}{build_data_suffix(data_args)}")
-    from plugin.calc.python.geometric_recalc import after_py_cell_save
-
-    after_py_cell_save(doc, formula_cell)
-    _recalculate_after_save(doc)
     return {"type": "saved", "ok": True, "save_as_plain": False, "status_ok_text": _("Saved code in {0}.").format(code_ref)}
 
 
@@ -325,10 +304,20 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | 
 
     with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
         if code_cell is not None and code_ref and not _same_calc_cell(code_cell, cell):
-            return _apply_followed_ref_save(doc, cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
-        if save_as_plain:
-            return _apply_plain_text_save(doc, cell, new_code=new_code)
-        return _apply_formula_save(doc, cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
+            result = _apply_followed_ref_save(doc, cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
+        elif save_as_plain:
+            result = _apply_plain_text_save(doc, cell, new_code=new_code)
+        else:
+            result = _apply_formula_save(doc, cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
+        if result.get("type") == "saved":
+            # Bugfix: Plain text saves previously skipped after_py_cell_save, leaving
+            # stale geometric registry records for downgraded =PY() cells. Reconciling
+            # here prunes them.
+            from plugin.calc.python.geometric_recalc import after_py_cell_save
+
+            after_py_cell_save(doc, cell)
+            best_effort(doc.calculateAll, "calculateAll after editor save")
+        return result
 
 
 def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str, parsed_parts: PythonFormulaParts | None, exe: str, code_cell: Any | None = None, code_ref: str | None = None) -> None:

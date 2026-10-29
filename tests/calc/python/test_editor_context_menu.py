@@ -15,7 +15,6 @@ import pytest
 
 from plugin.calc.python import editor_context_menu as mod
 from plugin.calc.python.editor_context_menu import (
-    _edit_python_cell_url,
     _looks_like_cell_context_menu,
     _register_frame,
 )
@@ -307,11 +306,85 @@ def test_register_frame_uses_uno_type_by_name():
         controller.queryInterface.assert_called_with(mock_type)
 
 
+def _intercept_and_get_command_url() -> str:
+    ui_mod = types.ModuleType("com.sun.star.ui")
+    ui_mod.__path__ = []
+
+    class _StubXContextMenuInterceptor:
+        pass
+
+    class _StubSeparatorType:
+        LINE = 0
+
+    ui_mod.XContextMenuInterceptor = _StubXContextMenuInterceptor
+    ui_mod.ActionTriggerSeparatorType = _StubSeparatorType
+
+    action_mod = types.ModuleType("com.sun.star.ui.ContextMenuInterceptorAction")
+    action_mod.IGNORED = object()
+    action_mod.CONTINUE_MODIFIED = object()
+
+    saved_ui = sys.modules.get("com.sun.star.ui")
+    saved_action = sys.modules.get("com.sun.star.ui.ContextMenuInterceptorAction")
+    saved_interceptor = mod._interceptor
+
+    sys.modules["com.sun.star.ui"] = ui_mod
+    sys.modules["com.sun.star.ui.ContextMenuInterceptorAction"] = action_mod
+    mod._interceptor = None
+
+    try:
+        interceptor = mod._get_interceptor()
+
+        cut_item = MagicMock()
+        cut_item.getPropertyValue.return_value = ".uno:Cut"
+
+        created_instances: list[MagicMock] = []
+
+        def _create_instance(service_name: str) -> MagicMock:
+            instance = MagicMock(name=service_name)
+            created_instances.append(instance)
+            return instance
+
+        factory = MagicMock()
+        factory.createInstance.side_effect = _create_instance
+
+        container = MagicMock()
+        container.getCount.return_value = 2
+        insert_cell_item = MagicMock()
+        insert_cell_item.getPropertyValue.return_value = ".uno:InsertCell"
+        container.getByIndex.side_effect = lambda idx: cut_item if idx == 0 else insert_cell_item
+        container.queryInterface.return_value = factory
+
+        class PlainSourceWindow:
+            pass
+
+        class Event:
+            def __init__(self, source_window: Any, trig_container: Any) -> None:
+                self.SourceWindow = source_window
+                self.ActionTriggerContainer = trig_container
+
+        interceptor.notifyContextMenuExecute(Event(PlainSourceWindow(), container))
+
+        entry_mock = created_instances[1]
+        cmd_call = [c for c in entry_mock.setPropertyValue.call_args_list if c[0][0] == "CommandURL"]
+        assert cmd_call, "CommandURL property was not set on entry"
+        return str(cmd_call[0][0][1])
+    finally:
+        mod._interceptor = saved_interceptor
+        if saved_ui is not None:
+            sys.modules["com.sun.star.ui"] = saved_ui
+        else:
+            sys.modules.pop("com.sun.star.ui", None)
+        if saved_action is not None:
+            sys.modules["com.sun.star.ui.ContextMenuInterceptorAction"] = saved_action
+        else:
+            sys.modules.pop("com.sun.star.ui.ContextMenuInterceptorAction", None)
+
+
 def test_edit_python_cell_url_follows_librepy_extension_id():
     reset_package_extension_id_for_tests()
     set_package_extension_id(EXTENSION_ID_LIBREPY)
     try:
-        assert _edit_python_cell_url() == f"{EXTENSION_ID_LIBREPY}:scripting.edit_python_cell"
+        assert _intercept_and_get_command_url() == f"{EXTENSION_ID_LIBREPY}:scripting.edit_python_cell"
     finally:
         reset_package_extension_id_for_tests()
 
@@ -320,7 +393,7 @@ def test_edit_python_cell_url_follows_writeragent_extension_id():
     reset_package_extension_id_for_tests()
     set_package_extension_id(EXTENSION_ID_WRITERAGENT)
     try:
-        assert _edit_python_cell_url() == f"{EXTENSION_ID_WRITERAGENT}:scripting.edit_python_cell"
+        assert _intercept_and_get_command_url() == f"{EXTENSION_ID_WRITERAGENT}:scripting.edit_python_cell"
     finally:
         reset_package_extension_id_for_tests()
 
