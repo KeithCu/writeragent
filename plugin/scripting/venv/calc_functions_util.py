@@ -19,12 +19,6 @@ import numpy as np
 
 from .coerce import _LO_ERROR_TOKENS, is_missing_value
 
-ERR_VALUE = "#VALUE!"
-ERR_NA = "#N/A"
-ERR_DIV0 = "#DIV/0!"
-ERR_NUM = "#NUM!"
-ERR_REF = "#REF!"
-
 _SERIAL_OFFSET: int = 693594
 
 _WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
@@ -167,10 +161,7 @@ def _round_half_up(val: float, decimals: int) -> Decimal:
     # return NaN instead of escaping the formula.
     d = Decimal(str(val))
     try:
-        if decimals >= 0:
-            exp = Decimal("1") if decimals == 0 else Decimal("1e" + str(-decimals))
-        else:
-            exp = Decimal("1e" + str(-decimals))
+        exp = Decimal("1e" + str(-decimals))
         with localcontext() as ctx:
             ctx.prec = max(28, abs(d.adjusted()) + abs(decimals) + 2)
             return d.quantize(exp, rounding=ROUND_HALF_UP)
@@ -199,17 +190,13 @@ def _as_bool_flag(val: Any) -> bool:
     ``"FALSE"`` are those booleans. ``"0"`` is false. ``bool("0")`` and
     ``bool("FALSE")`` used to be true, so the fit kept an intercept.
     """
-    if isinstance(val, (bool, np.bool_)):
-        return bool(val)
-    if val is None or val == "":
-        return False
     if isinstance(val, str):
         token = val.strip().upper()
         if token == "TRUE":
             return True
         if token == "FALSE":
             return False
-    return bool(float(val))
+    return _as_nonzero(val)
 
 
 def _as_nonzero(val: Any) -> bool:
@@ -313,21 +300,6 @@ def _scipy_stats() -> Any | None:
         return None
 
 
-def _to_float_a(val: Any) -> float:
-    """Helper for *A functions (AVERAGEA, STDEVA, etc.)."""
-    if is_missing_value(val):
-        return 0.0
-    if isinstance(val, (bool, np.bool_)):
-        return 1.0 if val else 0.0
-    try:
-        return float(val)
-    # A Python int bigger than the float range raises OverflowError, which
-    # the (ValueError, TypeError) handler missed, so AVERAGEA-style callers
-    # crashed instead of treating the cell as 0 the way other non-numbers do.
-    except (ValueError, TypeError, OverflowError):
-        return 0.0
-
-
 def _collect_a_values(*args: Any) -> np.ndarray:
     """Collect flat float array for *A functions (AVERAGEA, MAXA, etc.)."""
     # *A functions skip blanks. Text and blanks evaluate to 0, while errors propagate as NaN.
@@ -339,7 +311,13 @@ def _collect_a_values(*args: Any) -> np.ndarray:
             if _is_calc_error(v):
                 vals.append(float("nan"))
                 continue
-            vals.append(_to_float_a(v))
+            # A Python int bigger than the float range raises OverflowError, which
+            # a (ValueError, TypeError) handler missed, so AVERAGEA crashed instead
+            # of treating the cell as 0 the way other non-numbers do.
+            try:
+                vals.append(float(v))
+            except (ValueError, TypeError, OverflowError):
+                vals.append(0.0)
     return np.asarray(vals, dtype=float)
 
 
@@ -368,8 +346,9 @@ def _npf_result(kind: str, *args: Any) -> float:
     return result
 
 
-def _wildcard_to_regex(pattern: str) -> str:
-    """Convert Excel wildcard pattern (*, ?, ~*, ~?, ~~) to a regex pattern string."""
+def _wildcard_fullmatch(pattern: str, text: str) -> bool:
+    """Excel-style *, ? and ~ wildcard match against the whole text (case-insensitive)."""
+    # pattern is re.escape'd; re.error cannot occur
     out: list[str] = []
     i = 0
     n = len(pattern)
@@ -387,13 +366,7 @@ def _wildcard_to_regex(pattern: str) -> str:
         else:
             out.append(re.escape(c))
             i += 1
-    return "".join(out)
-
-
-def _wildcard_fullmatch(pattern: str, text: str) -> bool:
-    """Excel-style *, ? and ~ wildcard match against the whole text (case-insensitive)."""
-    # pattern is re.escape'd; re.error cannot occur
-    regex_pat = _wildcard_to_regex(pattern)
+    regex_pat = "".join(out)
     return re.fullmatch(regex_pat, text, flags=re.IGNORECASE) is not None
 
 
@@ -517,12 +490,17 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
     return matcher
 
 
+def _criterion_matcher(crit: Any) -> Callable[[Any], bool]:
+    # lru_cache raises TypeError when the criterion is unhashable.
+    try:
+        return _parse_criterion(crit)
+    except TypeError:
+        return _parse_criterion.__wrapped__(crit)
+
+
 def match_criteria(val: Any, crit: Any) -> bool:
     """Evaluate an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=')."""
-    try:
-        return _parse_criterion(crit)(val)
-    except TypeError:
-        return _parse_criterion.__wrapped__(crit)(val)
+    return _criterion_matcher(crit)(val)
 
 
 def _extract_numeric_array(
@@ -559,10 +537,10 @@ def _find_text_cut(
     instance_num: Any = 1,
     match_mode: Any = 0,
     after: bool = False,
-) -> tuple[str, str, int, int | None, bool]:
+) -> tuple[str, int, int | None, bool]:
     """Shared delimiter search for textbefore and textafter.
 
-    Returns (text_str, delim_str, instance_int, cut_idx, match_end_miss).
+    Returns (text_str, instance_int, cut_idx, match_end_miss).
     When the instance is within bounds, cut_idx is an index into the original
     text and match_end_miss is False. ``after=False`` is the start of that
     delimiter. ``after=True`` is the end, where the remainder starts.
@@ -602,7 +580,7 @@ def _find_text_cut(
     abs_inst = abs(inst)
     # One past the last real match is the match_end boundary.
     if abs_inst > n_matches:
-        return s, delim, inst, None, abs_inst == n_matches + 1
+        return s, inst, None, abs_inst == n_matches + 1
 
     # A negative instance counts from the end of that same list.
     chosen = spans[inst - 1] if inst > 0 else spans[inst]
@@ -610,7 +588,7 @@ def _find_text_cut(
     # TEXTAFTER add len(delim). A case-folded match can be a different
     # length than the delimiter, so the cut is the span's own end.
     idx = chosen[1] if after else chosen[0]
-    return s, delim, inst, idx, False
+    return s, inst, idx, False
 
 
 def _criteria_numbers(
@@ -621,42 +599,19 @@ def _criteria_numbers(
     pairs: Sequence[tuple[Any, Any]] | None = None,
 ) -> list[float] | None:
     """Collect matching numeric values for criteria-based functions (averageif, averageifs, sumif, sumifs)."""
-    if pairs is not None:
-        v_arr = np.asarray(r, dtype=object)
-        mask = _multi_criteria_mask(pairs, base_len=len(v_arr.ravel()), base_shape=v_arr.shape)
-    else:
+    if pairs is None:
         r_arr = np.asarray(r, dtype=object)
         v_arr = np.asarray(val_range, dtype=object) if val_range is not None else r_arr
         if val_range is not None and v_arr.shape != r_arr.shape:
             return None
-        mask = _multi_criteria_mask([(r, crit)], base_len=len(v_arr.ravel()), base_shape=v_arr.shape)
-
+        pairs = [(r, crit)]
+    else:
+        v_arr = np.asarray(r, dtype=object)
+    mask = _multi_criteria_mask(pairs, base_len=len(v_arr.ravel()), base_shape=v_arr.shape)
     if mask is None:
         return None
-
-    v_flat = v_arr.ravel()
-    vals: list[float] = []
-    for idx in range(len(v_flat)):
-        if not mask[idx]:
-            continue
-        cell = v_flat[idx]
-        if cell is None:
-            continue
-        if _is_calc_error(cell):
-            vals.append(float("nan"))
-            continue
-        if isinstance(cell, str):
-            if is_missing_value(cell):
-                continue
-            continue
-        if isinstance(cell, (bool, np.bool_)):
-            continue
-        try:
-            val = float(cell)
-            vals.append(val)
-        except (ValueError, TypeError, OverflowError):
-            pass
-    return vals
+    # Defaults keep error cells and NaN (SUMIFS) and skip text and bools.
+    return _extract_numeric_array(v_arr.ravel()[mask]).tolist()
 
 
 def _complex_coeff(n: float) -> str:
@@ -723,22 +678,18 @@ def _multi_criteria_mask(
         cond_ranges.append(arr.ravel())
         criteria.append(c)
 
-    if base_shape is not None and any(shape != base_shape for shape in shapes):
+    target = shapes[0] if base_shape is None else base_shape
+    if any(shape != target for shape in shapes):
         return None
-    if any(shape != shapes[0] for shape in shapes):
+    width = len(cond_ranges[0])
+    # base_len can disagree with the shape (callers pass it alone).
+    if base_len is not None and width != base_len:
         return None
-
-    expected_len = base_len if base_len is not None else len(cond_ranges[0])
-    for cr in cond_ranges:
-        if len(cr) != expected_len:
-            return None
+    expected_len = width
 
     mask = np.ones(expected_len, dtype=bool)
     for cr, crit in zip(cond_ranges, criteria):
-        try:
-            matcher = _parse_criterion(crit)
-        except TypeError:
-            matcher = _parse_criterion.__wrapped__(crit)
+        matcher = _criterion_matcher(crit)
         for idx in range(expected_len):
             if mask[idx] and not matcher(cr[idx]):
                 mask[idx] = False

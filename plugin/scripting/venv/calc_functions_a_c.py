@@ -527,8 +527,8 @@ def avedev(*args: Any) -> float:
 def averagea(*args: Any) -> float:
     # Blank, None, and whitespace stay in the denominator as 0, same as text.
     # Calc AVERAGEA(10,"",20) is 10. Skipping those values made this 15 and
-    # failed the spreadsheet-import translate test. _collect_a_values maps
-    # missing cells through _to_float_a, which returns 0 for them.
+    # failed the spreadsheet-import translate test. _collect_a_values treats
+    # blank and text as 0, while None is skipped inside that helper.
     vals = _collect_a_values(*args)
     if not vals.size:
         return float("nan")
