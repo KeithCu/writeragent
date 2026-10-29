@@ -27,7 +27,7 @@ import time
 from typing import Any, Iterator
 
 from compute_service.config import ComputeSettings
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, require_execute_wire, validate_session_id
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, canonical_execute_mode, validate_session_id
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, Deadline, MIN_REQUEST_SEC, PoolSingleton, error_dict, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
@@ -495,7 +495,6 @@ class FormulaProcessPool(BaseProcessPool):
         init_script: str | None = None,
         req_id: str | None = None,
         data_json: bytes | None = None,
-        wire: str = WIRE_JSON_FORWARD,
         decode_result: bool = True,
         deadline: float | None = None,
     ) -> dict[str, Any]:
@@ -510,11 +509,10 @@ class FormulaProcessPool(BaseProcessPool):
         if self._is_shutdown or not self.workers:
             return error_dict("SERVICE_SHUTDOWN", "Formula compute pool is shutting down.", req_id=req_id)
 
-        # One schema. A mode or wire the HTTP layer missed must not be
+        # One schema. A mode the HTTP layer missed must not be
         # rewritten and run: that returned 200 for a kernel that kept no state.
         try:
             mode = canonical_execute_mode(mode)
-            wire = require_execute_wire(wire)
             # HTTP rejects shared with no session id. Reject it here too, or
             # the pool leases a worker and the child treats a missing id as isolated.
             if mode == "shared" and (not isinstance(session_id, str) or not session_id.strip()):
@@ -535,7 +533,7 @@ class FormulaProcessPool(BaseProcessPool):
             return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
 
         try:
-            payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, mode=mode, init_script=init_script, req_id=req_id, wire=wire)
+            payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, mode=mode, init_script=init_script, req_id=req_id)
         except ExecuteRequestError as exc:
             return error_dict("INVALID_REQUEST", str(exc), req_id=req_id)
 
@@ -594,11 +592,10 @@ class FormulaProcessPool(BaseProcessPool):
                 self._finalize_session(leased, session_id, mode, result=result)
 
     @staticmethod
-    def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, mode: str = "isolated", init_script: str | None = None, req_id: str | None = None, wire: str = WIRE_JSON_FORWARD) -> dict[str, Any]:
-        # execute() already called require_execute_wire. Repeating it here only
-        # rejected direct callers. pickle is not a second payload. timeout_sec
-        # is set later by _run_execution from the remaining budget.
-        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "init_script": init_script, "wire": wire}
+    def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, mode: str = "isolated", init_script: str | None = None, req_id: str | None = None) -> dict[str, Any]:
+        # pickle is not a second payload. timeout_sec is set later by
+        # _run_execution from the remaining budget.
+        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "init_script": init_script}
         blob = data_json
         if blob is None and data is not None:
             # Convenience for pool tests / in-process callers. The HTTP

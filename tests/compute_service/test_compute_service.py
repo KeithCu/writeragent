@@ -24,10 +24,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from compute_service.config import ComputeSettings, ConfigError, clamp_timeout_sec, load_settings
-from compute_service.formula_worker import execute_code
+from compute_service.formula_worker import _handle_request
 from compute_service.formula_pool import shutdown_formula_pool
 from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
-from compute_service.json_forward import encode_multipart_vision
+from tests.compute_service.multipart_encode import encode_multipart_vision
 from compute_service.server import create_wsgi_app
 from compute_service.vision import shutdown_vision_pool
 
@@ -278,10 +278,10 @@ class TestTimeoutHelpers:
     def test_max_timeout_sec_1800_honored(self) -> None:
         assert clamp_timeout_sec(1200, max_timeout_sec=1800) == 1200
         assert clamp_timeout_sec(99999, max_timeout_sec=1800) == 1800
-        res = execute_code("result = 42", timeout_sec=1200, max_timeout_sec=1800)
+        res = json.loads(_handle_request({"code": "result = 42", "timeout_sec": 1200})["result_json"])
         assert res["status"] == "ok"
         assert res["result"] == 42
-        res2 = execute_code("result = 43", timeout_sec=1200)
+        res2 = json.loads(_handle_request({"code": "result = 43", "timeout_sec": 1200})["result_json"])
         assert res2["status"] == "ok"
         assert res2["result"] == 43
 
@@ -289,47 +289,47 @@ class TestTimeoutHelpers:
 class TestExecuteLocal:
     def test_mode_isolated_ignores_session(self) -> None:
         sid = "iso-test-session"
-        r1 = execute_code("x = 7\nresult = x", session_id=sid, mode="isolated")
+        r1 = json.loads(_handle_request({"code": "x = 7\nresult = x", "session_id": sid, "mode": "isolated"})["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 7
-        r2 = execute_code("result = x", session_id=sid, mode="isolated")
+        r2 = json.loads(_handle_request({"code": "result = x", "session_id": sid, "mode": "isolated"})["result_json"])
         assert r2["status"] == "error"
 
     def test_mode_shared_keeps_state(self) -> None:
         sid = "shared-test-session"
-        r1 = execute_code("x = 11\nresult = x", session_id=sid, mode="shared")
+        r1 = json.loads(_handle_request({"code": "x = 11\nresult = x", "session_id": sid, "mode": "shared"})["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 11
-        r2 = execute_code("result = x + 1", session_id=sid, mode="shared")
+        r2 = json.loads(_handle_request({"code": "result = x + 1", "session_id": sid, "mode": "shared"})["result_json"])
         assert r2["status"] == "ok" and r2["result"] == 12
 
     def test_large_matrix_is_nested_lists_not_split_grid(self) -> None:
-        r = execute_code("import numpy as np\nresult = np.arange(120).reshape(10, 12)")
+        r = json.loads(_handle_request({"code": "import numpy as np\nresult = np.arange(120).reshape(10, 12)"})["result_json"])
         assert r["status"] == "ok"
         assert isinstance(r["result"], list)
         assert r["result"][9][-1] == 119
         assert "__wa_payload__" not in (r["result"] if isinstance(r["result"], dict) else {})
 
     def test_nan_in_result_is_null(self) -> None:
-        r = execute_code("result = float('nan')")
+        r = json.loads(_handle_request({"code": "result = float('nan')"})["result_json"])
         assert r["status"] == "ok"
         assert r["result"] is None
         json.dumps(r, allow_nan=False)
 
     def test_init_script_shared_seeds_session(self) -> None:
         sid = "shared-init-session"
-        r1 = execute_code(
-            "result = HELPER + 1",
-            session_id=sid,
-            mode="shared",
-            init_script="HELPER = 41",
-        )
+        r1 = json.loads(_handle_request({
+            "code": "result = HELPER + 1",
+            "session_id": sid,
+            "mode": "shared",
+            "init_script": "HELPER = 41",
+        })["result_json"])
         assert r1["status"] == "ok", r1
         assert r1["result"] == 42
-        r2 = execute_code("result = HELPER + 2", session_id=sid, mode="shared")
+        r2 = json.loads(_handle_request({"code": "result = HELPER + 2", "session_id": sid, "mode": "shared"})["result_json"])
         assert r2["status"] == "ok"
         assert r2["result"] == 43
 
     def test_init_script_isolated_seeds_request(self) -> None:
-        r = execute_code("result = HELPER", mode="isolated", init_script="HELPER = 7")
+        r = json.loads(_handle_request({"code": "result = HELPER", "mode": "isolated", "init_script": "HELPER = 7"})["result_json"])
         assert r["status"] == "ok", r
         assert r["result"] == 7
 
@@ -341,8 +341,8 @@ class TestExecuteLocal:
         vs.clear_all_sandbox_sessions()
         init = "ONCE_ISO = 7"
         with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
-            r1 = execute_code("result = ONCE_ISO", mode="isolated", init_script=init)
-            r2 = execute_code("result = ONCE_ISO + 1", mode="isolated", init_script=init)
+            r1 = json.loads(_handle_request({"code": "result = ONCE_ISO", "mode": "isolated", "init_script": init})["result_json"])
+            r2 = json.loads(_handle_request({"code": "result = ONCE_ISO + 1", "mode": "isolated", "init_script": init})["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 7, r1
         assert r2["status"] == "ok" and r2["result"] == 8, r2
         # One init execution + two isolated cell executions (not init twice).
@@ -357,13 +357,13 @@ class TestExecuteLocal:
         sid = "shared-init-once"
         init = "ONCE_SHARED = 10"
         with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
-            r1 = execute_code("result = ONCE_SHARED", session_id=sid, mode="shared", init_script=init)
-            r2 = execute_code(
-                "result = ONCE_SHARED + 1",
-                session_id=sid,
-                mode="shared",
-                init_script=init,
-            )
+            r1 = json.loads(_handle_request({"code": "result = ONCE_SHARED", "session_id": sid, "mode": "shared", "init_script": init})["result_json"])
+            r2 = json.loads(_handle_request({
+                "code": "result = ONCE_SHARED + 1",
+                "session_id": sid,
+                "mode": "shared",
+                "init_script": init,
+            })["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 10, r1
         assert r2["status"] == "ok" and r2["result"] == 11, r2
         assert mock_run.call_count == 3

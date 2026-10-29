@@ -11,17 +11,27 @@ Measures the real-world latency and throughput difference between:
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
 from statistics import mean, median
+from typing import Any
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.formula_worker import execute_code
+from compute_service.formula_worker import _handle_request
+
+
+def _execute_code(code: str, data: Any = None) -> dict[str, Any]:
+    req: dict[str, Any] = {"code": code}
+    if data is not None:
+        req["data_json"] = json.dumps(data).encode("utf-8")
+    env = _handle_request(req)
+    return json.loads(env["result_json"])
 
 
 # Standalone micro-worker for Pickle IPC benchmarking
@@ -60,14 +70,14 @@ def run_benchmark(iterations: int = 100) -> None:
             data = scen["data"]
 
             # Warmup runs
-            execute_code(code, data)
+            _execute_code(code, data)
             pickle_pool.execute(code, data)
 
             # Benchmark In-Process
             inproc_times_ms: list[float] = []
             for _ in range(iterations):
                 t0 = time.perf_counter()
-                res = execute_code(code, data)
+                res = _execute_code(code, data)
                 t1 = time.perf_counter()
                 assert res.get("status") == "ok", f"In-proc failed: {res}"
                 inproc_times_ms.append((t1 - t0) * 1000.0)

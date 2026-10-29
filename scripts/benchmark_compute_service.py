@@ -43,7 +43,7 @@ _PROJECT_ROOT = _SCRIPT_DIR.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from compute_service.json_forward import encode_multipart_execute
+from tests.compute_service.multipart_encode import encode_multipart_execute
 
 WORKLOADS: dict[str, dict[str, Any]] = {
     "numpy_vector": {

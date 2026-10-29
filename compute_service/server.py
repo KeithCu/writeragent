@@ -29,7 +29,6 @@ from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigErro
 # Internal server clocks and timeouts shared with the route module; not public wsgi_server exports.
 from compute_service.wsgi_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, _accept_clock, _request_deadline, WSGIDualStackServer, service_listener_threads, sticky_listener_slots  # pyright: ignore[reportPrivateUsage]
 from compute_service.json_forward import (
-    WIRE_JSON_FORWARD,
     ExecuteRequestError,
     ExecuteRequestParts,
     VisionRequestParts,
@@ -877,7 +876,7 @@ def _handle_execute(environ: dict[str, Any], start_response: Any, settings: Comp
     sid = session_id if mode == "shared" else None
 
     def _execute(start_t: float) -> list[bytes]:
-        result_payload = run_execute(code=code, data_json=parts.data_json, session_id=sid, timeout_sec=timeout_sec, mode=mode, init_script=init_script, req_id=req_id, wire=WIRE_JSON_FORWARD, decode_result=False, deadline=deadline)
+        result_payload = run_execute(code=code, data_json=parts.data_json, session_id=sid, timeout_sec=timeout_sec, mode=mode, init_script=init_script, req_id=req_id, decode_result=False, deadline=deadline)
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         status = _payload_status(result_payload)
         log.info("done /v1/execute id=%r status=%r duration=%.2fms", req_id, status, duration_ms)

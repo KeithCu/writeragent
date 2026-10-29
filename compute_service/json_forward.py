@@ -38,14 +38,8 @@ _FORBIDDEN_META_KEYS = ("code", "data", "data_json", "init_script")
 _VISION_PART_NAMES = frozenset({"meta", "image"})
 _VISION_FORBIDDEN_META_KEYS = ("image", "image_b64")
 _ALLOWED_CTE = frozenset({"7bit", "8bit", "binary"})
-_BOUNDARY_TOKEN_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'()+_,-./:=?")
 
-WIRE_JSON_FORWARD = "json_forward"
 VALID_EXECUTE_MODES = frozenset({"isolated", "shared"})
-# One payload wire. ``pickle`` is not a second envelope, and a value outside
-# this set is rejected rather than rewritten and run.
-VALID_WIRES = frozenset({WIRE_JSON_FORWARD})
-VALID_RESPONSE_STATUSES = frozenset({"ok", "error"})
 
 
 class ExecuteRequestError(ValueError):
@@ -85,18 +79,6 @@ def _reject_nonfinite_number(value: Any) -> None:
             _reject_nonfinite_number(v)
 
 
-def require_execute_mode(mode: Any) -> str:
-    """Return ``isolated`` or ``shared``.
-
-    Anything else is rejected. A typo must not run as isolated and look
-    like a successful cell that kept no workbook state. HTTP and the pool
-    share this check.
-    """
-    if isinstance(mode, str) and mode in VALID_EXECUTE_MODES:
-        return mode
-    raise ExecuteRequestError("mode must be 'isolated' or 'shared'.")
-
-
 def canonical_execute_mode(mode: Any) -> str:
     """Missing mode is isolated. Every other value must be a real mode.
 
@@ -105,8 +87,10 @@ def canonical_execute_mode(mode: Any) -> str:
     multipart, and the pool call this before the worker runs.
     """
     if mode is None or mode == "":
-        return require_execute_mode("isolated")
-    return require_execute_mode(mode)
+        return "isolated"
+    if isinstance(mode, str) and mode in VALID_EXECUTE_MODES:
+        return mode
+    raise ExecuteRequestError("mode must be 'isolated' or 'shared'.")
 
 
 def validate_session_id(session_id: Any) -> str:
@@ -121,31 +105,6 @@ def validate_session_id(session_id: Any) -> str:
     if sid.endswith(":init") or sid.startswith("isolated:"):
         raise ExecuteRequestError(f"Invalid session_id {sid!r}: names ending in ':init' or starting with 'isolated:' are reserved.", code="INVALID_SESSION_ID")
     return sid
-
-
-def require_execute_wire(wire: Any) -> str:
-    """Return the one stdio payload wire. Unknown values are not rewritten."""
-    if isinstance(wire, str) and wire in VALID_WIRES:
-        return wire
-    raise ExecuteRequestError(f"wire must be {WIRE_JSON_FORWARD!r}.")
-
-
-def validate_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
-    """The one execute response shape, checked once before the worker dumps it.
-
-    ``status`` is ``ok`` (with ``result``) or ``error`` (with ``error`` text).
-    The HTTP host forwards the dumped bytes and does not interpret them again.
-    """
-    if not isinstance(payload, dict):
-        raise ExecuteRequestError("execute response must be an object")
-    status = payload.get("status")
-    if status not in VALID_RESPONSE_STATUSES:
-        raise ExecuteRequestError("execute response status must be 'ok' or 'error'")
-    if status == "error" and not payload.get("error") and not payload.get("message"):
-        raise ExecuteRequestError("execute error response requires error")
-    if status == "ok" and "result" not in payload:
-        raise ExecuteRequestError("execute ok response requires result")
-    return payload
 
 
 @dataclass(frozen=True)
@@ -186,10 +145,12 @@ def dumps_response(payload: dict[str, Any]) -> bytes:
 
 def json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bool = False, namespace_created: bool = False) -> dict[str, Any]:
     """Pickle envelope: small status for host logs + result_json bytes to forward."""
+    body = res
     if session_reset:
-        res["session_reset"] = True
+        body["session_reset"] = True
     try:
-        result_json = dumps_response(res)
+        result_json = dumps_response(body)
+        status = res.get("status")
     except (TypeError, ValueError) as exc:
         fallback: dict[str, Any] = {"status": "error", "error": f"JSON encode failed: {exc}"}
         if req_id is not None:
@@ -197,11 +158,8 @@ def json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bo
         if session_reset:
             fallback["session_reset"] = True
         result_json = dumps_response(fallback)
-        out: dict[str, Any] = {"id": req_id, "status": "error", "result_json": result_json, "namespace_created": namespace_created}
-        if session_reset:
-            out["session_reset"] = True
-        return out
-    out = {"id": req_id, "status": res.get("status"), "result_json": result_json, "namespace_created": namespace_created}
+        status = "error"
+    out: dict[str, Any] = {"id": req_id, "status": status, "result_json": result_json, "namespace_created": namespace_created}
     if session_reset:
         out["session_reset"] = True
     return out
@@ -214,53 +172,13 @@ def is_multipart_content_type(content_type: str | None) -> bool:
     return content_type.split(";", 1)[0].strip().lower().startswith("multipart/")
 
 
-def encode_multipart_execute(meta: dict[str, Any], data_json: bytes | None = None, *, code: str | bytes, init_script: str | bytes | None = None, boundary: str | None = None) -> tuple[str, bytes]:
-    """Build kit multipart. Returns ``(Content-Type, body bytes)``.
-
-    ``meta`` is ``id`` / ``mode`` / ``timeout_ms`` only. ``code`` and
-    ``init_script`` are raw source bytes, not JSON strings. ``data_json`` is
-    the raw grid. If ``--boundary`` occurs in any part body, a suffixed
-    boundary is chosen so the delimiter cannot split the payload.
-    """
-    meta_bytes = json.dumps(meta, allow_nan=False).encode("utf-8")
-    code_bytes = _as_source_bytes(code, label="code")
-    init_bytes = None if init_script is None else _as_source_bytes(init_script, label="init_script")
-    payloads = [meta_bytes, code_bytes]
-    if init_bytes is not None:
-        payloads.append(init_bytes)
-    if data_json is not None:
-        payloads.append(bytes(data_json))
-    chosen = _pick_boundary(payloads, boundary or "wa-compute")
-
-    def _part(name: str, content_type: str, payload: bytes) -> bytes:
-        return (f'--{chosen}\r\nContent-Disposition: form-data; name="{name}"\r\nContent-Type: {content_type}\r\nContent-Transfer-Encoding: 8bit\r\n\r\n').encode("ascii") + payload + b"\r\n"
-
-    chunks = [_part("meta", "application/json", meta_bytes), _part("code", "text/plain; charset=utf-8", code_bytes)]
-    if init_bytes is not None:
-        chunks.append(_part("init_script", "text/plain; charset=utf-8", init_bytes))
-    if data_json is not None:
-        chunks.append(_part("data", "application/json", bytes(data_json)))
-    chunks.append(f"--{chosen}--\r\n".encode("ascii"))
-    return f"multipart/form-data; boundary={_boundary_param(chosen)}", b"".join(chunks)
-
-
-def encode_multipart_vision(meta: dict[str, Any], image: bytes | bytearray | None = None, *, boundary: str | None = None) -> tuple[str, bytes]:
-    """Build vision multipart. Returns ``(Content-Type, body bytes)``."""
-    meta_bytes = json.dumps(meta, allow_nan=False).encode("utf-8")
-    image_bytes = None if image is None else bytes(image)
-    payloads = [meta_bytes]
-    if image_bytes is not None:
-        payloads.append(image_bytes)
-    chosen = _pick_boundary(payloads, boundary or "wa-vision")
-
-    def _part(name: str, content_type: str, cte: str, payload: bytes) -> bytes:
-        return (f'--{chosen}\r\nContent-Disposition: form-data; name="{name}"\r\nContent-Type: {content_type}\r\nContent-Transfer-Encoding: {cte}\r\n\r\n').encode("ascii") + payload + b"\r\n"
-
-    chunks = [_part("meta", "application/json", "8bit", meta_bytes)]
-    if image_bytes is not None:
-        chunks.append(_part("image", "application/octet-stream", "binary", image_bytes))
-    chunks.append(f"--{chosen}--\r\n".encode("ascii"))
-    return f"multipart/form-data; boundary={_boundary_param(chosen)}", b"".join(chunks)
+def _scan_multipart_body(body: bytes, content_type: str, allowed: frozenset[str]) -> dict[str, bytes]:
+    if not is_multipart_content_type(content_type):
+        raise ExecuteRequestError("Content-Type is not multipart")
+    if not isinstance(body, (bytes, bytearray)):
+        raise ExecuteRequestError("Request body must be bytes")
+    boundary = _boundary_from_content_type(content_type)
+    return _scan_multipart_parts(bytes(body), boundary, allowed)
 
 
 def parse_multipart_execute(body: bytes, content_type: str) -> ExecuteRequestParts:
@@ -281,47 +199,17 @@ def parse_multipart_execute(body: bytes, content_type: str) -> ExecuteRequestPar
       higher throughput (~551 - 571 RPS vs ~435 - 450 RPS on 4 workers) by
       streaming raw UTF-8 code parts without JSON string unescaping.
     """
-    if not is_multipart_content_type(content_type):
-        raise ExecuteRequestError("Content-Type is not multipart")
-    if not isinstance(body, (bytes, bytearray)):
-        raise ExecuteRequestError("Request body must be bytes")
-    boundary = _boundary_from_content_type(content_type)
-    named = _scan_multipart_parts(bytes(body), boundary, _PART_NAMES)
-    req_id, mode, timeout_ms, has_session_id = _parse_meta_object(named["meta"])
-    return ExecuteRequestParts(req_id=req_id, code=named.get("code"), mode=mode, timeout_ms=timeout_ms, init_script=named.get("init_script"), data_json=named.get("data"), has_session_id=has_session_id)
-
-
-def _as_source_bytes(value: str | bytes, *, label: str) -> bytes:
-    if isinstance(value, str):
-        return value.encode("utf-8")
-    if isinstance(value, (bytes, bytearray)):
-        return bytes(value)
-    raise ExecuteRequestError(f"{label} must be text")
-
-
-def _boundary_param(boundary: str) -> str:
-    if boundary and all(ch in _BOUNDARY_TOKEN_CHARS for ch in boundary):
-        return boundary
-    escaped = boundary.replace("\\", "\\\\").replace('"', '\\"')
-    return '"' + escaped + '"'
-
-
-def _pick_boundary(payloads: list[bytes], preferred: str) -> str:
-    """Choose a delimiter token that does not occur in any part body."""
-    candidate = preferred
-    n = 0
-    while True:
-        _validate_boundary(candidate)
-        try:
-            needle = f"--{candidate}".encode("ascii")
-        except UnicodeEncodeError as exc:
-            raise ExecuteRequestError("multipart boundary must be ASCII") from exc
-        if not any(needle in part for part in payloads):
-            return candidate
-        n += 1
-        if n > 10000:
-            raise ExecuteRequestError("could not choose a multipart boundary")
-        candidate = f"{preferred}-{n}"
+    named = _scan_multipart_body(body, content_type, _PART_NAMES)
+    meta = _parse_meta_object(named["meta"], _FORBIDDEN_META_KEYS)
+    return ExecuteRequestParts(
+        req_id=meta.get("id"),
+        code=named.get("code"),
+        mode=meta.get("mode"),
+        timeout_ms=meta.get("timeout_ms"),
+        init_script=named.get("init_script"),
+        data_json=named.get("data"),
+        has_session_id="session_id" in meta,
+    )
 
 
 def _validate_boundary(boundary: str) -> None:
@@ -601,7 +489,7 @@ def _disposition_name(value: str) -> str:
     return found
 
 
-def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
+def _parse_meta_object(meta_bytes: bytes, forbidden_keys: tuple[str, ...] | frozenset[str]) -> dict[str, Any]:
     if len(meta_bytes) > MAX_META_BYTES:
         raise ExecuteRequestError("meta part exceeds size cap")
     try:
@@ -610,7 +498,7 @@ def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
         raise ExecuteRequestError("invalid meta JSON") from exc
     if not isinstance(obj, dict):
         raise ExecuteRequestError("meta part must be a JSON object")
-    for key in _FORBIDDEN_META_KEYS:
+    for key in forbidden_keys:
         if key in obj:
             raise ExecuteRequestError(f"meta part must not include a {key!r} field")
     req_id = obj.get("id")
@@ -623,42 +511,21 @@ def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
     # tokens) and becomes inf. Echoing it as id crashed allow_nan=False.
     _reject_nonfinite_number(req_id)
     _reject_nonfinite_number(timeout_ms)
-    return req_id, obj.get("mode"), timeout_ms, "session_id" in obj
-
-
-def _parse_vision_meta(meta_bytes: bytes) -> tuple[Any, Any, Any, Any, Any]:
-    if len(meta_bytes) > MAX_META_BYTES:
-        raise ExecuteRequestError("meta part exceeds size cap")
-    try:
-        obj = json.loads(meta_bytes.decode("utf-8"), parse_constant=_reject_json_constant)
-    except Exception as exc:
-        raise ExecuteRequestError("invalid meta JSON") from exc
-    if not isinstance(obj, dict):
-        raise ExecuteRequestError("meta part must be a JSON object")
-    for key in _VISION_FORBIDDEN_META_KEYS:
-        if key in obj:
-            raise ExecuteRequestError(f"meta part must not include a {key!r} field")
-    req_id = obj.get("id")
-    if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
-        raise ExecuteRequestError("id must be a scalar")
-    timeout_ms = obj.get("timeout_ms")
-    if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
-        raise ExecuteRequestError("timeout_ms must be a scalar")
-    _reject_nonfinite_number(req_id)
-    _reject_nonfinite_number(timeout_ms)
-    return req_id, obj.get("helper"), timeout_ms, obj.get("params"), obj.get("file_path")
+    return obj
 
 
 def parse_multipart_vision(body: bytes, content_type: str) -> VisionRequestParts:
     """Boundary-scan vision multipart body and json.loads meta only."""
-    if not is_multipart_content_type(content_type):
-        raise ExecuteRequestError("Content-Type is not multipart")
-    if not isinstance(body, (bytes, bytearray)):
-        raise ExecuteRequestError("Request body must be bytes")
-    boundary = _boundary_from_content_type(content_type)
-    named = _scan_multipart_parts(bytes(body), boundary, _VISION_PART_NAMES)
-    req_id, helper, timeout_ms, params, file_path = _parse_vision_meta(named["meta"])
-    return VisionRequestParts(req_id=req_id, helper=helper, timeout_ms=timeout_ms, params=params, file_path=file_path, image=named.get("image"))
+    named = _scan_multipart_body(body, content_type, _VISION_PART_NAMES)
+    meta = _parse_meta_object(named["meta"], _VISION_FORBIDDEN_META_KEYS)
+    return VisionRequestParts(
+        req_id=meta.get("id"),
+        helper=meta.get("helper"),
+        timeout_ms=meta.get("timeout_ms"),
+        params=meta.get("params"),
+        file_path=meta.get("file_path"),
+        image=named.get("image"),
+    )
 
 
 def parse_execute_request(body: bytes, content_type: str | None) -> ExecuteRequestParts:

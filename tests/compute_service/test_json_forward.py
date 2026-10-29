@@ -15,14 +15,11 @@ import pytest
 from compute_service.config import ComputeSettings
 from compute_service.formula_pool import FormulaProcessPool, decode_worker_result, shutdown_formula_pool
 from compute_service.json_forward import (
-    WIRE_JSON_FORWARD,
     ExecuteRequestError,
     ExecuteRequestParts,
     MAX_META_BYTES,
     _disposition_name,
     dumps_response,
-    encode_multipart_execute,
-    encode_multipart_vision,
     is_multipart_content_type,
     parse_execute_request,
     parse_multipart_execute,
@@ -31,6 +28,7 @@ from compute_service.json_forward import (
     validate_session_id,
 )
 from compute_service.server import create_wsgi_app
+from tests.compute_service.multipart_encode import encode_multipart_execute, encode_multipart_vision
 
 
 @pytest.fixture(autouse=True)
@@ -496,7 +494,6 @@ class TestHttpBlobForward:
         assert seen["data_json"] == data_literal
         assert "data" not in seen
         assert seen.get("decode_result") is False
-        assert seen.get("wire") == WIRE_JSON_FORWARD
         # Host forwarded the worker bytes — no second dumps of the result.
         assert out == result_json
 
@@ -533,7 +530,6 @@ class TestHttpBlobForward:
         assert seen["data_json"] == GRID_BYTES
         assert "data" not in seen
         assert seen.get("decode_result") is False
-        assert seen.get("wire") == WIRE_JSON_FORWARD
         assert out == CUSTOM_RESULT_JSON
 
     def test_multipart_host_does_not_json_loads_grid(self) -> None:
@@ -766,33 +762,10 @@ class TestFormulaPoolWire:
                     code="result = [len(data.values), data.values[-1][-1]]",
                     data=grid,
                     req_id="jf-1",
-                    wire=WIRE_JSON_FORWARD,
                 )
             assert mock_pack.call_count == 0
             assert res.get("status") == "ok", res
             assert res.get("result") == [40, 1199.0]
-        finally:
-            pool.shutdown()
-
-    def test_pickle_wire_is_rejected_not_rewritten(self) -> None:
-        """``wire=pickle`` used to host_pack the grid and run the cell.
-
-        execute() rejects it. The builder does not rewrite it or pack ``data``.
-        """
-        grid = [[float(r * 30 + c) for c in range(30)] for r in range(40)]
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
-        try:
-            with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack:
-                res = pool.execute(
-                    code="result = len(data)",
-                    data=grid,
-                    wire="pickle",
-                    req_id="pickle-wire",
-                )
-            assert mock_pack.call_count == 0
-            assert res.get("status") == "error"
-            assert res.get("code") == "INVALID_REQUEST"
-            assert res.get("result") != 1200
         finally:
             pool.shutdown()
 
@@ -814,7 +787,6 @@ class TestFormulaPoolWire:
                     code="result = data[1][1]",
                     data_json=blob,
                     req_id="blob-1",
-                    wire=WIRE_JSON_FORWARD,
                 )
             assert captured["data_json"] == blob
             assert captured["has_data"] is False
@@ -850,7 +822,6 @@ class TestFormulaPoolWire:
                     code="result = data",
                     data_json=data_json,
                     req_id="big-1",
-                    wire=WIRE_JSON_FORWARD,
                     decode_result=False,
                 )
             assert mock_pack.call_count == 0
@@ -891,12 +862,11 @@ class TestPeelAndMultipartAgree:
         status_m, seen_m, _out_m = self._run(multipart, content_type, limit=limit)
         assert status_p.startswith("200"), _out_p
         assert status_m.startswith("200"), _out_m
-        for key in ("code", "init_script", "mode", "data_json", "wire", "session_id"):
+        for key in ("code", "init_script", "mode", "data_json", "session_id"):
             assert seen_p[key] == seen_m[key]
         assert seen_p["code"] == code
         assert seen_p["init_script"] == init
         assert seen_p["data_json"] == data
-        assert seen_p["wire"] == WIRE_JSON_FORWARD
         assert seen_p["mode"] == "isolated"
 
     def test_over_cap_and_bad_mode_rejected_on_both(self) -> None:

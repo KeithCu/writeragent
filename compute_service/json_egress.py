@@ -137,10 +137,7 @@ def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
     status = payload.get("status")
     if status != "ok":
         err = payload.get("error") or payload.get("message") or "execution failed"
-        out: dict[str, Any] = {"status": "error", "error": str(err), "stdout": payload.get("stdout") or ""}
-        # Keep message for older tests during transition
-        out["message"] = out["error"]
-        return sanitize_for_strict_json(out)
+        return {"status": "error", "error": str(err), "stdout": payload.get("stdout") or ""}
 
     result = payload.get("result")
     images: list[dict[str, Any]] = []
@@ -165,4 +162,4 @@ def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
     out = {"status": "ok", "result": result_out, "stdout": payload.get("stdout") or ""}
     if images:
         out["images"] = images
-    return sanitize_for_strict_json(out)
+    return out
