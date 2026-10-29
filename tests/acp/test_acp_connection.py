@@ -1008,7 +1008,7 @@ def test_inbound_lines_extend_the_idle_wait():
         time.sleep(0.05)
         end = time.monotonic() + 0.55
         while time.monotonic() < end:
-            conn._last_inbound = time.monotonic()
+            conn._notify_idle(time.monotonic())
             time.sleep(0.04)
 
     bumper = threading.Thread(target=bump)

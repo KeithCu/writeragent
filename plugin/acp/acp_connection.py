@@ -98,19 +98,6 @@ class _QueuedStop:
     proc: Any
 
 
-def _json_value(payload: str) -> Any:
-    """Parsed JSON, or ``_BAD_ID`` when ``payload`` is not JSON.
-
-    ``None`` is valid JSON, so a failed load cannot use None. ``json.loads``
-    is strict on purpose: ``safe_json_loads`` repairs a log prefix into a
-    value that is not the RPC object.
-    """
-    try:
-        return json.loads(payload)
-    except (ValueError, RecursionError):
-        return _BAD_ID
-
-
 def _accept_message(line: str) -> dict[str, Any] | None:
     """Return a JSON-RPC object, or None for stray stdout.
 
@@ -120,19 +107,24 @@ def _accept_message(line: str) -> dict[str, Any] | None:
     child was still alive. An ``id`` that is an array, object, or JSON
     boolean is the same stray line: ``pending.get`` would raise ``TypeError``
     on an unhashable key, or ``true`` would hash equal to request id ``1``.
-
-    # Load the whole line first; only a failed load falls through to find '{'.
+    ``json.loads`` is strict on purpose: ``safe_json_loads`` repairs a log
+    prefix into a value that is not the RPC object.
     """
     payload = line.lstrip()
-    msg = _json_value(payload)
-    if msg is _BAD_ID:
-        idx = line.find("{")
-        if idx < 0:
-            log.debug("Non-JSON output: %s", payload[:200])
-            return None
-        payload = line[idx:]
-        msg = _json_value(payload)
-    if msg is _BAD_ID:
+    msg: Any = None
+    parsed = False
+    while True:
+        try:
+            msg = json.loads(payload)
+            parsed = True
+            break
+        except (ValueError, RecursionError):
+            idx = line.find("{")
+            sliced = line[idx:] if idx > 0 else payload
+            if idx <= 0 or sliced == payload:
+                break
+            payload = sliced
+    if not parsed:
         log.debug("Non-JSON output: %s", payload[:200])
         return None
     if not isinstance(msg, dict):
@@ -205,18 +197,10 @@ class ACPConnection:
         self._inbound_cv = threading.Condition()
         self._last_inbound_at = time.monotonic()
 
-    @property
-    def _last_inbound(self) -> float:
-        return self._last_inbound_at
-
-    @_last_inbound.setter
-    def _last_inbound(self, value: float) -> None:
+    def _notify_idle(self, at: float | None = None) -> None:
         with self._inbound_cv:
-            self._last_inbound_at = value
-            self._inbound_cv.notify_all()
-
-    def _notify_idle(self) -> None:
-        with self._inbound_cv:
+            if at is not None:
+                self._last_inbound_at = at
             self._inbound_cv.notify_all()
 
     def start(self) -> None:
@@ -629,7 +613,7 @@ class ACPConnection:
                         continue
                     # Silence is what times out a prompt. Any accepted line,
                     # including session/update, resets that clock.
-                    self._last_inbound = time.monotonic()
+                    self._notify_idle(time.monotonic())
 
                     if "id" in msg and msg["id"] is None and "method" not in msg:
                         self._complete_null_id(msg)
