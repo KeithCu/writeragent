@@ -58,7 +58,7 @@ class NamedRangeHit(NamedTuple):
     named_range: Any
 
 
-def named_range_hit(container: Any, name: str, scope: str, sheet: Any | None) -> NamedRangeHit | None:
+def _named_range_hit(container: Any, name: str, scope: str, sheet: Any | None) -> NamedRangeHit | None:
     """Return the hit when *container* has a NamedRanges entry called *name*."""
     nrs = getattr(container, "NamedRanges", None)
     if nrs is None or not hasattr(nrs, "hasByName") or not nrs.hasByName(name):
@@ -89,7 +89,7 @@ def find_named_range(doc: Any, name: str) -> NamedRangeHit | None:
     # 1. Sheet prefix
     if prefix and sheets is not None and hasattr(sheets, "hasByName") and sheets.hasByName(prefix):
         target_sheet = sheets.getByName(prefix)
-        return named_range_hit(target_sheet, bare_name, prefix, target_sheet)
+        return _named_range_hit(target_sheet, bare_name, prefix, target_sheet)
 
     # 2. Active sheet
     active_sheet = uno_read(lambda: CalcBridge(doc).get_active_sheet(), None)
@@ -100,12 +100,12 @@ def find_named_range(doc: Any, name: str) -> NamedRangeHit | None:
     )
     if active_sheet is not None:
         scope = "" if active_name is None else active_name
-        hit = named_range_hit(active_sheet, clean_name, scope, active_sheet)
+        hit = _named_range_hit(active_sheet, clean_name, scope, active_sheet)
         if hit is not None:
             return hit
 
     # 3. Workbook global
-    hit = named_range_hit(doc, clean_name, "global", None)
+    hit = _named_range_hit(doc, clean_name, "global", None)
     if hit is not None:
         return hit
 
@@ -119,7 +119,7 @@ def find_named_range(doc: Any, name: str) -> NamedRangeHit | None:
                 continue
             if not is_agent_visible_sheet(s_name):
                 continue
-            hit = named_range_hit(sheet, clean_name, s_name, sheet)
+            hit = _named_range_hit(sheet, clean_name, s_name, sheet)
             if hit is not None:
                 return hit
 
