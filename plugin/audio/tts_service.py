@@ -62,10 +62,6 @@ from plugin.framework.worker_pool import run_in_background
 def get_config(*args: Any, **kwargs: Any) -> Any:
     return config.get_config(*args, **kwargs)
 
-
-def get_config_str(*args: Any, **kwargs: Any) -> Any:
-    return config.get_config_str(*args, **kwargs)
-
 __all__ = [
     "clean_text_for_speech",
     "is_speaking",
@@ -659,16 +655,7 @@ def _chunk_text(text: str, max_chunk: int = 4000) -> list[str]:
     chunks: list[str] = []
     remaining = text
     while len(remaining) > max_chunk:
-        window = remaining[:max_chunk]
-        split_idx = -1
-        for match in _CHUNK_BREAK_RE.finditer(window):
-            split_idx = match.end()
-        # A break in the first half would make tiny clips and leave the long
-        # tail for the next window. Prefer a space near the cap instead.
-        if split_idx < max_chunk // 2:
-            split_idx = window.rfind(" ")
-            if split_idx <= 0:
-                split_idx = max_chunk
+        split_idx = _chunk_cut(remaining, max_chunk)
         piece = remaining[:split_idx].strip()
         if piece:
             chunks.append(piece)
@@ -688,6 +675,8 @@ def _chunk_cut(text: str, max_chunk: int) -> int:
     split_idx = -1
     for match in _CHUNK_BREAK_RE.finditer(window):
         split_idx = match.end()
+    # A break in the first half would make tiny clips and leave the long
+    # tail for the next window. Prefer a space near the cap instead.
     if split_idx < max_chunk // 2:
         split_idx = window.rfind(" ")
         if split_idx <= 0:
@@ -1215,6 +1204,20 @@ def _kokoro_audio_file(
     return None
 
 
+def _wav_played_or_blocked(wav_path: str | None, generation: int | None) -> bool:
+    """True when the caller must not fall back to OS speech.
+
+    `played is not False` so a test double that returns None is not a failure.
+    """
+    played = False
+    if wav_path:
+        try:
+            played = _play_audio_file(wav_path, generation=generation)
+        finally:
+            _release_temp(wav_path)
+    return bool(_playback_blocked(generation) or (wav_path and played is not False))
+
+
 def _speak_kokoro_local(
     text: str,
     voice: str = _KOKORO_FALLBACK_VOICE,
@@ -1243,14 +1246,7 @@ def _speak_kokoro_local(
     wav_path = _kokoro_audio_file(
         text, voice, speed, on_status, generation, misaki_ready=misaki_ready,
     )
-    played = False
-    if wav_path:
-        try:
-            played = _play_audio_file(wav_path, generation=generation)
-        finally:
-            _release_temp(wav_path)
-    # `is False` so a test double that returns None is not treated as failure.
-    if _playback_blocked(generation) or (wav_path and played is not False):
+    if _wav_played_or_blocked(wav_path, generation):
         return
     log.warning(
         "Local Kokoro engine not available in configured venv. "
@@ -1328,13 +1324,7 @@ def _speak_piper_local(
         _speak_system(text, speed=speed, generation=generation)
         return
     wav_path = _piper_audio_file(text, voice, speed, on_status, generation)
-    played = False
-    if wav_path:
-        try:
-            played = _play_audio_file(wav_path, generation=generation)
-        finally:
-            _release_temp(wav_path)
-    if _playback_blocked(generation) or (wav_path and played is not False):
+    if _wav_played_or_blocked(wav_path, generation):
         return
     log.warning("Piper synthesis failed for voice %s; falling back to OS speech", voice)
     _speak_system(text, speed=speed, generation=generation)
@@ -1365,6 +1355,42 @@ def _synthesize_sentence_clip(
         return _ReadyClip(path, sentence, os.path.getsize(path), False)
     _release_temp(path)
     return _ReadyClip(None, sentence, 0, True)
+
+
+def _play_ready_queue(
+    ready: _ReadyQueue,
+    queue_generation: int,
+    playback_generation: int | None,
+    speed: float,
+) -> None:
+    """Play queued clips in order, then drop anything still buffered.
+
+    queue_generation is what put() used. playback_generation is what
+    _play_audio_file and _speak_system already receive, and it can be None.
+    """
+    global _ready_queue
+    try:
+        while True:
+            clip = ready.get(queue_generation)
+            if clip is None:
+                break
+            try:
+                played = False
+                if clip.path:
+                    played = _play_audio_file(clip.path, generation=playback_generation)
+                    if played is False and not _playback_blocked(playback_generation):
+                        _speak_system(clip.text, speed=speed, generation=playback_generation)
+                elif clip.speak_system and not _playback_blocked(playback_generation):
+                    _speak_system(clip.text, speed=speed, generation=playback_generation)
+            finally:
+                _release_temp(clip.path)
+    finally:
+        ready.close()
+        for path in ready.drain():
+            _unlink_quiet(path)
+        with _speech_lock:
+            if _ready_queue is ready:
+                _ready_queue = None
 
 
 def _run_sentence_pipeline(
@@ -1425,33 +1451,7 @@ def _run_sentence_pipeline(
             ready.close()
 
     run_in_background(_produce, dedicated=True, name="tts-prefetch")
-    try:
-        while True:
-            clip = ready.get(generation)
-            if clip is None:
-                break
-            try:
-                # `is False` so a test double that returns None is not a failure.
-                played = False
-                if clip.path:
-                    played = _play_audio_file(clip.path, generation=generation)
-                    if played is False and not _playback_blocked(generation):
-                        _speak_system(clip.text, speed=speed, generation=generation)
-                elif clip.speak_system:
-                    _speak_system(clip.text, speed=speed, generation=generation)
-            finally:
-                _release_temp(clip.path)
-    finally:
-        # A raise in playback used to leave tts-prefetch blocked in put()
-        # and the queued temps on disk until a later stop bumped the
-        # generation. close() shares the queue lock with put(), so nothing
-        # can append after it returns.
-        ready.close()
-        for path in ready.drain():
-            _unlink_quiet(path)
-        with _speech_lock:
-            if _ready_queue is ready:
-                _ready_queue = None
+    _play_ready_queue(ready, generation, generation, speed)
 
 
 def _speak_endpoint(
@@ -1496,7 +1496,6 @@ def _speak_endpoint(
             if tmp_path is None:
                 if not _playback_blocked(generation):
                     _notify_tts_status(_("Could not save speech audio."), on_status)
-                played = False
             else:
                 try:
                     with open(tmp_path, "wb") as f_out:
@@ -1506,7 +1505,6 @@ def _speak_endpoint(
                     log.exception("Could not write TTS audio to %s", tmp_path)
                     if not _playback_blocked(generation):
                         _notify_tts_status(_("Could not save speech audio."), on_status)
-                    played = False
                 finally:
                     _release_temp(tmp_path)
         if _playback_blocked(generation):
@@ -1542,18 +1540,22 @@ def _speak_endpoint(
                 )
                 if _playback_blocked(generation):
                     return
-                if clip is None:
-                    remaining = chunks[index:]
-                    if not _playback_blocked(generation):
-                        ready.put(_ReadyClip(None, " ".join(remaining), 0, True), eff_gen)
-                    return
-                tmp_path = _new_speech_temp(clip.suffix, generation)
-                if tmp_path is None:
-                    if not _playback_blocked(generation):
+                def _bail_remaining(index: int, *, notify: bool = False) -> None:
+                    if notify and not _playback_blocked(generation):
                         _notify_tts_status(_("Could not save speech audio."), on_status)
                     remaining = chunks[index:]
                     if not _playback_blocked(generation):
-                        ready.put(_ReadyClip(None, " ".join(remaining), 0, True), eff_gen)
+                        ready.put(
+                            _ReadyClip(None, " ".join(remaining), 0, True),
+                            eff_gen,
+                        )
+
+                if clip is None:
+                    _bail_remaining(index)
+                    return
+                tmp_path = _new_speech_temp(clip.suffix, generation)
+                if tmp_path is None:
+                    _bail_remaining(index, notify=True)
                     return
                 try:
                     with open(tmp_path, "wb") as f_out:
@@ -1561,11 +1563,7 @@ def _speak_endpoint(
                 except OSError:
                     log.exception("Could not write TTS audio to %s", tmp_path)
                     _release_temp(tmp_path)
-                    if not _playback_blocked(generation):
-                        _notify_tts_status(_("Could not save speech audio."), on_status)
-                    remaining = chunks[index:]
-                    if not _playback_blocked(generation):
-                        ready.put(_ReadyClip(None, " ".join(remaining), 0, True), eff_gen)
+                    _bail_remaining(index, notify=True)
                     return
                 if not ready.put(_ReadyClip(tmp_path, chunk, len(clip.audio), False), eff_gen):
                     _release_temp(tmp_path)
@@ -1576,28 +1574,7 @@ def _speak_endpoint(
             ready.close()
 
     run_in_background(_produce, dedicated=True, name="tts-endpoint-prefetch")
-    try:
-        while True:
-            item = ready.get(eff_gen)
-            if item is None:
-                break
-            try:
-                played = False
-                if item.path:
-                    played = _play_audio_file(item.path, generation=generation)
-                    if played is False and not _playback_blocked(generation):
-                        _speak_system(item.text, speed=speed, generation=generation)
-                elif item.speak_system and not _playback_blocked(generation):
-                    _speak_system(item.text, speed=speed, generation=generation)
-            finally:
-                _release_temp(item.path)
-    finally:
-        ready.close()
-        for path in ready.drain():
-            _unlink_quiet(path)
-        with _speech_lock:
-            if _ready_queue is ready:
-                _ready_queue = None
+    _play_ready_queue(ready, eff_gen, generation, speed)
 
 
 def speak_text_async(
@@ -1623,11 +1600,7 @@ def speak_text_async(
         log.debug("speak_text_async: No speakable text after cleaning")
         return
 
-    chosen_provider = provider
-    chosen_model = model
-    chosen_voice = voice
-    chosen_speed = speed
-    active_provider = chosen_provider if chosen_provider else str(get_config("audio.tts_provider") or "system")
+    active_provider = provider if provider else str(get_config("audio.tts_provider") or "system")
     sentences: list[str] | None = None
     if (
         sentence_speak_enabled()
@@ -1655,18 +1628,18 @@ def speak_text_async(
             # provider; reading config again could speak a different one.
             provider_code = clean_provider_name(active_provider)
             speed_val = (
-                parse_tts_speed(chosen_speed)
-                if chosen_speed is not None
+                parse_tts_speed(speed)
+                if speed is not None
                 else parse_tts_speed(get_config("audio.tts_speed"))
             )
-            model_name = chosen_model.strip() if isinstance(chosen_model, str) else ""
+            model_name = model.strip() if isinstance(model, str) else ""
             if provider_code == "endpoint" and not model_name:
                 from plugin.framework.client.model_fetcher import get_tts_model
 
                 model_name = get_tts_model() or "hexgrad/Kokoro-82M"
 
-            if chosen_voice and chosen_voice.strip():
-                voice_name = clean_voice_name(chosen_voice)
+            if voice and voice.strip():
+                voice_name = clean_voice_name(voice)
             else:
                 voice_name = get_scoped_tts_voice(provider_code, model_name)
 
