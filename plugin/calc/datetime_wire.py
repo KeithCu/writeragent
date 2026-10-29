@@ -146,10 +146,7 @@ def match_iso_duration(text: str) -> bool:
     """True when *text* matches the strict PT duration wire gate (integer H/M/S only)."""
     if not isinstance(text, str):
         return False
-    val = text.strip()
-    if not val or "." in val or "," in val or val.startswith("-"):
-        return False
-    return _DURATION_RE.match(val) is not None
+    return _DURATION_RE.match(text.strip()) is not None
 
 
 def duration_serial_from_iso(text: str) -> float:
@@ -171,22 +168,28 @@ def datetime_serial(dt: datetime.date | datetime.datetime, null_dt: datetime.dat
         return float(days) + time_day_fraction(dt)
     return float((dt - null_dt).days)
 
+_PRESERVE_TEMPORAL_DESTS: dict[str, tuple[str, ...]] = {
+    "date": ("date", "datetime"),
+    "time": ("time",),
+    "duration": ("time",),  # S16: elapsed FormatString is still Type TIME
+    "datetime": ("datetime",),
+}
+_COMPATIBLE_TEMPORAL_DESTS: dict[str, tuple[str, ...]] = {
+    "date": ("date",),
+    "time": ("time",),
+    "duration": ("time",),
+    "datetime": ("datetime", "date"),
+}
+
+
 def should_preserve_temporal_format(input_category: str, serial: float, dest_category: str | None) -> bool:
     """M1 preserve predicate: keep destination NumberFormat when category-compatible."""
     if dest_category is None:
         return False
-    if input_category == "date" and dest_category in ("date", "datetime"):
+    if dest_category in _PRESERVE_TEMPORAL_DESTS.get(input_category, ()):
         return True
-    if input_category == "time" and dest_category == "time":
-        return True
-    if input_category == "duration" and dest_category == "time":
-        # Clock or elapsed TIME columns (S16); elapsed FormatString is still Type TIME.
-        return True
-    if input_category == "datetime" and dest_category == "datetime":
-        return True
-    if input_category == "datetime" and dest_category == "date" and is_midnight_serial(serial):
-        return True
-    return False
+    # S15: a date format keeps a datetime only when the serial is midnight.
+    return input_category == "datetime" and dest_category == "date" and is_midnight_serial(serial)
 
 
 def is_compatible_temporal_template(input_category: str, template_category: str | None, format_code: object | None = None) -> bool:
@@ -199,18 +202,12 @@ def is_compatible_temporal_template(input_category: str, template_category: str 
     """
     if template_category is None:
         return False
-    if input_category == "date" and template_category == "date":
-        return True
-    if input_category == "time" and template_category == "time":
-        # Elapsed FormatString is still UNO Type TIME; skip so clock writes keep clock wire.
-        if is_elapsed_format_string(format_code):
-            return False
-        return True
-    if input_category == "duration" and template_category == "time":
-        return True
-    if input_category == "datetime" and template_category in ("datetime", "date"):
-        return True
-    return False
+    if template_category not in _COMPATIBLE_TEMPORAL_DESTS.get(input_category, ()):
+        return False
+    # Elapsed FormatString is still UNO Type TIME; clock writes must not inherit it.
+    if input_category == "time" and is_elapsed_format_string(format_code):
+        return False
+    return True
 
 
 def resolve_s25_row_empties(row: list[FormatDecision]) -> list[FormatDecision]:
