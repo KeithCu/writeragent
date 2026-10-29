@@ -19,17 +19,13 @@ _PY_SPEC = CalcFunctionSpec(
     display_name="PY",
     programmatic_name="py",
     description="Executes Python code in the configured venv and returns the result.",
-    arg_names=("code", "data"),
     arg_descriptions=("code desc", "data desc"),
-    optional_from=1,
 )
 _PYTHON_SPEC = CalcFunctionSpec(
     display_name="PYTHON",
     programmatic_name="python",
     description="Executes Python code in the configured venv and returns the result.",
-    arg_names=("code", "data"),
     arg_descriptions=("code desc", "data desc"),
-    optional_from=1,
 )
 
 
@@ -58,7 +54,7 @@ def test_python_addin_metadata_both_names():
 
 
 def test_single_spec_constructor():
-    addin = _SinglePythonAddIn(MagicMock(), _PY_SPEC)
+    addin = _SinglePythonAddIn(MagicMock(), (_PY_SPEC,))
     assert addin.getProgrammaticFunctionName("PY") == "py"
     assert addin.getDisplayFunctionName("py") == "PY"
 
@@ -83,39 +79,3 @@ def test_accessors_unknown_name():
 def test_argument_bounds(index: int, expected_desc: str):
     addin = _DualPythonAddIn(MagicMock(), (_PY_SPEC, _PYTHON_SPEC))
     assert addin.getArgumentDescription("python", index) == expected_desc
-
-
-def test_duplicate_names_raise():
-    dup_spec = CalcFunctionSpec(
-        display_name="PY",
-        programmatic_name="py_dup",
-        description="desc",
-        arg_names=(),
-        arg_descriptions=(),
-        optional_from=0,
-    )
-    with pytest.raises(ValueError, match="Duplicate display_name or programmatic_name"):
-        _DualPythonAddIn(MagicMock(), (_PY_SPEC, dup_spec))
-
-    dup_prog_spec = CalcFunctionSpec(
-        display_name="PY2",
-        programmatic_name="py",
-        description="desc",
-        arg_names=(),
-        arg_descriptions=(),
-        optional_from=0,
-    )
-    with pytest.raises(ValueError, match="Duplicate display_name or programmatic_name"):
-        _DualPythonAddIn(MagicMock(), (_PY_SPEC, dup_prog_spec))
-
-
-@pytest.mark.parametrize("args", [
-    {"display_name": "", "programmatic_name": "p", "description": "d", "arg_names": (), "arg_descriptions": (), "optional_from": 0},
-    {"display_name": "D", "programmatic_name": "", "description": "d", "arg_names": (), "arg_descriptions": (), "optional_from": 0},
-    {"display_name": "D", "programmatic_name": "p", "description": "d", "arg_names": ("a",), "arg_descriptions": (), "optional_from": 0},
-    {"display_name": "D", "programmatic_name": "p", "description": "d", "arg_names": ("a",), "arg_descriptions": ("desc",), "optional_from": -1},
-    {"display_name": "D", "programmatic_name": "p", "description": "d", "arg_names": ("a",), "arg_descriptions": ("desc",), "optional_from": 2},
-])
-def test_calc_function_spec_validation(args: dict):
-    with pytest.raises(ValueError):
-        CalcFunctionSpec(**args)

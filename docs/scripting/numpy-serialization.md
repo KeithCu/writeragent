@@ -389,7 +389,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 | Location | Role |
 |----------|------|
 | [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py) | Single source: unified pack/unpack, threshold, `describe_wire_value` for logs |
-| [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `count_cells()` understands split_grid envelopes |
+| [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `wire_cell_count` in `payload_codec` understands split_grid envelopes |
 | [`plugin/scripting/venv_worker.py`](../../plugin/scripting/venv_worker.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
 | [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) | `=PY()` ingress pack + matrix/session flattening (result already unpacked) |
 | [`plugin/calc/python/venv.py`](../../plugin/calc/python/venv.py) | Chat tool ingress pack |

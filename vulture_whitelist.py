@@ -362,7 +362,6 @@ _.adopt_chat_sidebar  # function: plugin/chatbot/sidebar_test_hooks.py:1673
 _.approval_active  # function: plugin/chatbot/sidebar_test_hooks.py:2613
 _.assert_no_empty_graphics  # function: plugin/chatbot/sidebar_test_hooks.py:3106
 _.audio_status  # function: plugin/chatbot/sidebar_test_hooks.py:2684
-_.calc_addin_args_to_python  # function: plugin/calc/calc_addin_data.py:130
 _.clear_all_document_persistence  # function: plugin/writer/locale/grammar_persistence.py:778
 _.clear_all_sandbox_sessions  # function: plugin/scripting/venv/venv_sandbox.py:1116
 _.clear_fake_stt  # function: plugin/chatbot/sidebar_test_hooks.py:611

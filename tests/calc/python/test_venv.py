@@ -49,7 +49,7 @@ def test_execute_passes_data(mock_run):
     tool = RunVenvPythonScript()
     ctx = TestingFactory.create_context(doc_type="calc")
     packed = {"__wa_payload__": "calc_range", "shape": [1, 1], "data": [[10]]}
-    with patch("plugin.calc.python.venv.resolve_python_data_on_main_thread", return_value=(packed, None)):
+    with patch("plugin.calc.python.venv.run_on_main", return_value=(packed, None)):
         out = tool.execute(ctx, code="result = float(np.sum(data))")
     assert out["status"] == "ok"
     mock_run.assert_called_once()
@@ -85,7 +85,7 @@ def test_execute_writer_ignores_data(mock_run):
     mock_run.return_value = {"status": "ok", "result": 0}
     tool = RunVenvPythonScript()
     ctx = TestingFactory.create_context(doc_type="writer")
-    with patch("plugin.calc.python.venv.resolve_python_data_on_main_thread") as mock_resolve:
+    with patch("plugin.calc.python.venv.run_on_main") as mock_resolve:
         out = tool.execute(ctx, code="result = 1", data=[[1, 2]], data_range="A1:A2")
     assert out["status"] == "ok"
     mock_resolve.assert_not_called()
@@ -173,7 +173,7 @@ def test_strip_image_payloads():
 def test_execute_data_resolution_error_has_tool_error_code():
     tool = RunVenvPythonScript()
     ctx = TestingFactory.create_context(doc_type="calc")
-    with patch("plugin.calc.python.venv.resolve_python_data_on_main_thread", return_value=(None, "no such sheet")):
+    with patch("plugin.calc.python.venv.run_on_main", return_value=(None, "no such sheet")):
         out = tool.execute(ctx, code="result = 1", data_range="Nope.A1")
     assert out["status"] == "error"
     assert out["code"] == "DATA_RESOLUTION_ERROR"

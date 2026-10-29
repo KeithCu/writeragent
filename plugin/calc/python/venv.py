@@ -14,8 +14,8 @@ import os
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
-from plugin.calc.calc_addin_data import resolve_python_data_on_main_thread
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
+from plugin.framework.queue_executor import run_on_main
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
 from plugin.scripting.payload_codec import find_image_payloads, strip_image_payloads, write_image_payload_to_temp
 from plugin.scripting.venv_worker import run_code_in_user_venv
@@ -143,7 +143,14 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         if ctx.doc_type == "calc":
             data_range = kwargs.get("data_range")
             data = kwargs.get("data")
-            py_data, err = resolve_python_data_on_main_thread(ctx.doc, data_range=data_range, data=data)
+            from plugin.calc import calc_addin_data
+
+            py_data, err = run_on_main(
+                calc_addin_data._resolve_python_data,
+                ctx.doc,
+                data_range=data_range,
+                data=data,
+            )
             if err:
                 return self._tool_error(err, code="DATA_RESOLUTION_ERROR")
         else:
