@@ -32,10 +32,9 @@ def _load_generator():
 @with_native_doc("calc")
 def test_preserve_live_py_formulas_round_trip(ctx, doc):
     from plugin.calc.address_utils import format_address
-    from plugin.calc.python.cell_discovery import is_py_formula_text
     from plugin.calc.spreadsheet_import.extract import py_formula_semantics
-    from plugin.calc.spreadsheet_import.import_dialog import run_sheet_conversion
     from plugin.calc.spreadsheet_import.ingest import ingest_sheet
+    from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, build_output_model, enrich_number_formats
 
     sheet = doc.getSheets().getByIndex(0)
     sheet.getCellByPosition(0, 0).setValue(10.0)
@@ -46,12 +45,16 @@ def test_preserve_live_py_formulas_round_trip(ctx, doc):
     source_model = ingest_sheet(sheet)
     assert source_model.cells["B2"].type == "py_formula"
 
-    run_sheet_conversion(doc, sheet, vectorize=False, verify=False)
-    target = doc.getSheets().getByName("PythonImport")
+    enrich_number_formats(sheet, source_model)
+    output = build_output_model(source_model)
+    sheets = doc.getSheets()
+    sheets.insertNewByName("PythonImport", sheets.getCount())
+    target = sheets.getByName("PythonImport")
+    apply_output_to_sheet(target, output)
 
-    assert target.getCellByPosition(0, 0).getValue() == 10.0
-    assert target.getCellByPosition(0, 1).getValue() == 20.0
-    assert is_py_formula_text(target.getCellByPosition(1, 0).getFormula())
+    assert output.cells["A1"].value == 10.0
+    assert output.cells["A2"].value == 20.0
+    assert target.getCellByPosition(1, 0).getFormula() == "=SUM(A1:A2)"
 
     col, row = 1, 1
     src_formula = sheet.getCellByPosition(col, row).getFormula()
