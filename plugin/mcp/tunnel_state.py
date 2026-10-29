@@ -53,9 +53,6 @@ class TunnelState(BaseState):
     public_url: Optional[str] = None
     retry_count: int = 0
     max_retries: int = DEFAULT_MAX_RETRIES
-    backoff_initial: float = DEFAULT_INITIAL_BACKOFF
-    backoff_factor: float = DEFAULT_BACKOFF_FACTOR
-    max_backoff: float = DEFAULT_MAX_BACKOFF
     last_error: Optional[str] = None
     desired_running: bool = False
     connected_at: Optional[float] = None  # monotonic time of URL_ACQUIRED
@@ -236,7 +233,7 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
         # Non-auth process drop: check if retries remain
         if state.retry_count < state.max_retries:
             attempt = state.retry_count + 1
-            delay = compute_backoff_delay(retry_count=state.retry_count, initial=state.backoff_initial, factor=state.backoff_factor, max_backoff=state.max_backoff)
+            delay = compute_backoff_delay(state.retry_count)
             effects.append(ScheduleRetryTimerEffect(delay_seconds=delay, attempt=attempt, max_retries=state.max_retries))
             reason = "connection dropped (code %s)" % rc if had_url else "tunnel process exited (code %s)" % rc
             err_msg = "%s; reconnecting (attempt %s/%s in %.1fs)…" % (reason, attempt, state.max_retries, delay)
