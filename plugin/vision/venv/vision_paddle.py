@@ -103,6 +103,17 @@ def _json_dict(obj: Any) -> dict[str, Any] | None:
     return view if isinstance(view, dict) else None
 
 
+def _dict_views(obj: Any) -> list[dict[str, Any]]:
+    """``Result.json`` when it is a dict, then *obj* when *obj* is a dict."""
+    views: list[dict[str, Any]] = []
+    view = _json_dict(obj)
+    if view is not None:
+        views.append(view)
+    if isinstance(obj, dict):
+        views.append(obj)
+    return views
+
+
 def _looks_like_v3_payload(data: dict[str, Any]) -> bool:
     return "rec_texts" in data or "parsing_res_list" in data or "table_res_list" in data
 
@@ -117,13 +128,7 @@ def _paddle_payload(obj: Any) -> dict[str, Any] | None:
     ``block_label`` schema only on ``.json``. 2.x regions use ``res`` for line
     text or ``{"html": ...}`` — those must not be unwrapped as a page.
     """
-    candidates: list[dict[str, Any]] = []
-    view = _json_dict(obj)
-    if view is not None:
-        candidates.append(view)
-    if isinstance(obj, dict):
-        candidates.append(obj)
-    for data in candidates:
+    for data in _dict_views(obj):
         inner = data.get("res")
         if isinstance(inner, dict) and _looks_like_v3_payload(inner):
             return inner
@@ -280,27 +285,30 @@ def _decode_image(image: Any, params: dict[str, Any]) -> Any:
         scale = float(params.get("images_scale") or 1.0)
     except (TypeError, ValueError):
         scale = 1.0
-    if scale <= 0 or scale == 1.0:
-        return decode_image_bytes(image)
     return decode_image_bytes(image, scale=scale)
 
 
-def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
-    helper = "extract_text"
+def _engine_or_error(factory: Any, params: dict[str, Any], helper: str, fail_log: str) -> tuple[Any, dict[str, Any] | None]:
+    """Constructor failures become error_result. Leaving them unhandled aborts the vision call."""
     lang = str(params.get("lang") or "en").strip() or "en"
-    # Constructor errors from _get_paddle_ocr become error_result. Leaving
-    # them unhandled aborts the vision call.
     try:
-        engine = _get_paddle_ocr(lang)
+        return factory(lang), None
     except ImportError:
-        return error_result(
+        return None, error_result(
             "PADDLEOCR_UNAVAILABLE",
             "Install paddleocr and paddlepaddle in your venv (Settings → Python): pip install paddleocr paddlepaddle numpy",
             helper=helper,
         )
     except Exception as exc:
-        log.exception("PaddleOCR constructor failed")
-        return error_result("VISION_ERROR", str(exc), helper=helper)
+        log.exception(fail_log)
+        return None, error_result("VISION_ERROR", str(exc), helper=helper)
+
+
+def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
+    helper = "extract_text"
+    engine, err = _engine_or_error(_get_paddle_ocr, params, helper, "PaddleOCR constructor failed")
+    if err is not None:
+        return err
 
     try:
         image_array = _decode_image(image, params)
@@ -520,10 +528,6 @@ def _table_from_structure_res(res: Any, *, name: str) -> dict[str, Any] | None:
     return None
 
 
-def _append_table_plaintext(text_parts: list[str], table: dict[str, Any]) -> None:
-    text_parts.extend(table_to_tsv_lines(table))
-
-
 def _parsed_table(html: str, table_index: int) -> tuple[dict[str, Any], int] | None:
     if "<table" not in html.lower():
         return None
@@ -555,15 +559,7 @@ def _v3_block_fields(block: Any) -> tuple[str, str, Any]:
 
 
 def _v3_table_html(item: Any) -> str:
-    sources: list[Any] = []
-    view = _json_dict(item)
-    if view is not None:
-        sources.append(view)
-    if isinstance(item, dict):
-        sources.append(item)
-    for source in sources:
-        if not isinstance(source, dict):
-            continue
+    for source in _dict_views(item):
         inner = source.get("res")
         if isinstance(inner, dict):
             source = inner
@@ -630,7 +626,7 @@ def _parse_v3_structure_page(
             if parsed is not None:
                 table, table_index = parsed
                 tables.append(table)
-                _append_table_plaintext(text_parts, table)
+                text_parts.extend(table_to_tsv_lines(table))
             # Table HTML is the grid (``tables[]``), not block prose. Same rule
             # as ``_text_from_structure_res`` for a 2.x ``res.html`` table.
             blocks.append({"type": "table", "text": "", "box": box})
@@ -646,7 +642,7 @@ def _parse_v3_structure_page(
             continue
         table, table_index = parsed
         tables.append(table)
-        _append_table_plaintext(text_parts, table)
+        text_parts.extend(table_to_tsv_lines(table))
         blocks.append({"type": "table", "text": "", "box": [0, 0, 0, 0]})
 
     return blocks, tables, text_parts, table_index
@@ -707,7 +703,7 @@ def _parse_structure_output(raw_pages: list[Any]) -> tuple[list[dict[str, Any]],
             table = _table_from_structure_res(res, name=f"table_{table_index}")
             if table:
                 tables.append(table)
-                _append_table_plaintext(text_parts, table)
+                text_parts.extend(table_to_tsv_lines(table))
             block_text = _text_from_structure_res(res)
             blocks.append({"type": "table", "text": block_text, "box": box})
             continue
@@ -755,15 +751,6 @@ def _run_pp_structure(engine: Any, image_array: Any) -> list[Any]:
     return _normalize_structure_pages(raw)
 
 
-def _is_table_markup(text: str) -> bool:
-    """True when block text is a raw ``<table>`` fragment, not prose."""
-    return "<table" in text.lower()
-
-
-def _is_heading(block_type: str) -> bool:
-    return block_type.strip().lower() in _HEADING_TYPES
-
-
 def html_from_paddle_structure(
     blocks: list[dict[str, Any]],
     tables: list[dict[str, Any]],
@@ -781,11 +768,11 @@ def html_from_paddle_structure(
         # the ``html`` key). That markup was escaped into a second ``<p>``
         # (``&lt;table&gt;``) beside the real table. Skip table markup even
         # when ``text`` is non-empty so insert_mode=html shows one table.
-        if block_type == "table" and (not text or _is_table_markup(text)):
+        if block_type == "table" and (not text or "<table" in text.lower()):
             continue
         if not text:
             continue
-        if _is_heading(block_type):
+        if block_type in _HEADING_TYPES:
             parts.append(f"<h2>{html_module.escape(text)}</h2>")
         else:
             parts.append(f"<p>{html_module.escape(text)}</p>")
@@ -799,20 +786,9 @@ def html_from_paddle_structure(
 
 def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_structure"
-    lang = str(params.get("lang") or "en").strip() or "en"
-    # Constructor errors from _get_pp_structure become error_result with
-    # VISION_ERROR. Leaving them unhandled aborts the vision call.
-    try:
-        engine = _get_pp_structure(lang)
-    except ImportError:
-        return error_result(
-            "PADDLEOCR_UNAVAILABLE",
-            "Install paddleocr and paddlepaddle in your venv (Settings → Python): pip install paddleocr paddlepaddle numpy",
-            helper=helper,
-        )
-    except Exception as exc:
-        log.exception("PPStructure constructor failed")
-        return error_result("VISION_ERROR", str(exc), helper=helper)
+    engine, err = _engine_or_error(_get_pp_structure, params, helper, "PPStructure constructor failed")
+    if err is not None:
+        return err
 
     try:
         image_array = _decode_image(image, params)
