@@ -870,7 +870,10 @@ class TestSchemas:
         """Regression: Send path must not import-probe the venv on get_schemas."""
         reg = _make_registry(FakeTool())
         ctx = MagicMock()
-        with patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python"):
+        with (
+            patch("plugin.vision.vision_availability.get_config_str", return_value="/venv"),
+            patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/venv/bin/python"),
+        ):
             reg.get_schemas("openai", doc=TestingFactory.create_doc(doc_type="writer"), ctx=ctx)
         mock_probe.assert_not_called()
 

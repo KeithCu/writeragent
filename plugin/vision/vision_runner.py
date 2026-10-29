@@ -132,10 +132,7 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
             local_params["lang"] = _resolve_locale_language(ctx, graphic_obj)
 
         png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=name_str or None, graphic_obj=graphic_obj)
-        source = "graphic_name" if name_str else "selection"
-        context: dict[str, Any] = {"source": source}
-        if source == "graphic_name":
-            context["image_name"] = str(image_name).strip()
+        context: dict[str, Any] = {"source": "graphic_name", "image_name": name_str} if name_str else {"source": "selection"}
         return png_bytes, local_params, context
 
     png_bytes, params_out, context = execute_on_main_thread(_export_on_main_thread)
@@ -148,8 +145,6 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
             details={"size": len(png_bytes), "limit": VISION_IMAGE_MAX_BYTES},
         )
     spec: dict[str, Any] = {"helper": name, "params": {k: v for k, v in params_out.items() if k != "image_name"}}
-    if stop_checker is None:
-        stop_checker = getattr(ctx, "stop_checker", None)
     # venv OCR (up to the long worker budget, ~120s) stays on this thread.
     return run_vision(ctx, spec, png_bytes, context=context, stop_checker=stop_checker)
 
@@ -166,8 +161,6 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
     """
     name = _validate_helper(helper)
 
-    if stop_checker is None:
-        stop_checker = getattr(ctx, "stop_checker", None)
     params_dict = dict(params) if params is not None else {}
     explicit_name = str(params_dict.get("image_name") or "").strip()
 
