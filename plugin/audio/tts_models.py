@@ -20,16 +20,6 @@ from typing import Callable
 
 from plugin.framework.errors import best_effort
 
-__all__ = [
-    "DownloadOutcome",
-    "_download_to",
-    "_failed_model_downloads",
-    "_resolve_kokoro_model_files",
-    "_resolve_piper_model_file",
-    "is_download_failed",
-    "remember_download_failed",
-]
-
 from plugin.audio.model_cache_paths import (
     KOKORO_MODEL_FILENAME,
     KOKORO_VOICES_FILENAME,
@@ -292,14 +282,8 @@ def _download_to_inner(
             req = urllib.request.Request(url, headers={"User-Agent": "WriterAgent/1.0"})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 headers = getattr(resp, "headers", None)
-                ct: str | None = None
-                cl: str | None = None
-                if headers is not None:
-                    ct = headers.get("Content-Type")
-                    cl = headers.get("Content-Length")
-                elif hasattr(resp, "getheader"):
-                    ct = resp.getheader("Content-Type")
-                    cl = resp.getheader("Content-Length")
+                ct: str | None = headers.get("Content-Type") if headers is not None else None
+                cl: str | None = headers.get("Content-Length") if headers is not None else None
 
                 if ct:
                     ct_base = ct.split(";", 1)[0].strip().lower()
@@ -321,13 +305,10 @@ def _download_to_inner(
                     except (ValueError, TypeError):
                         expected_len = None
 
-                # Set 1.0s socket timeout so cancellation can be polled frequently
-                sock = getattr(resp, "sock", None)
-                if sock is None:
-                    fp = getattr(resp, "fp", None)
-                    if fp is not None:
-                        raw_io = getattr(fp, "raw", None)
-                        sock = getattr(raw_io, "_sock", None) if raw_io is not None else getattr(fp, "_sock", None)
+                # 1s socket timeout so cancellation can be polled during a stalled read.
+                fp = getattr(resp, "fp", None)
+                raw_io = getattr(fp, "raw", None) if fp is not None else None
+                sock = getattr(raw_io, "_sock", None) if raw_io is not None else None
                 if sock is not None and hasattr(sock, "settimeout"):
                     with contextlib.suppress(Exception):
                         sock.settimeout(1.0)
@@ -431,7 +412,7 @@ def _download_to_inner(
     return DownloadOutcome.FAILED
 
 
-def _resolve_kokoro_model_files(
+def _resolve_kokoro_model_files(  # pyright: ignore[reportUnusedFunction]
     on_status: Callable[[str], None] | None = None,
     generation: int | None = None,
     cancelled: Callable[[], bool] | None = None,
@@ -597,7 +578,7 @@ def _download_piper_pair(
     return DownloadOutcome.OK
 
 
-def _resolve_piper_model_file(
+def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
     voice: str,
     on_status: Callable[[str], None] | None = None,
     generation: int | None = None,
