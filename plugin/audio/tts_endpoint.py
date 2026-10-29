@@ -21,27 +21,6 @@ from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE
 from plugin.framework.client.http_security import public_target
 from plugin.framework.i18n import _
 
-__all__ = [
-    "_EndpointClip",
-    "_alternate_tts_response_format",
-    "_content_type_is_mp3",
-    "_content_type_is_pcm",
-    "_content_type_is_wav",
-    "_default_endpoint_format",
-    "_download_endpoint_speech",
-    "_explicit_openrouter",
-    "_pcm_rate_from_content_type",
-    "_pcm_s16le_to_wav",
-    "_post_audio_speech",
-    "_resolve_tts_voice",
-    "_sniff_audio_format",
-    "_speech_failure_message",
-    "_speech_headers",
-    "_speech_read_timeout",
-    "_speech_url",
-    "_tts_format_key",
-]
-
 log = logging.getLogger(__name__)
 
 _PCM_RATE_RE = re.compile(r"rate\s*=\s*(\d+)", re.IGNORECASE)
@@ -51,40 +30,10 @@ _TTS_FORMAT_WORDS_RE = re.compile(r"\b(mp3|pcm|wav)\b")
 
 
 @dataclasses.dataclass(frozen=True)
-class _AudioFormat:
-    name: str  # request token remembered: "mp3" | "wav" | "pcm"
-    suffix: str  # ".mp3" or ".wav"
-    wrap_pcm: bool
-
-
-_FORMATS = {
-    "mp3": _AudioFormat("mp3", ".mp3", False),
-    "wav": _AudioFormat("wav", ".wav", False),
-    "pcm": _AudioFormat("pcm", ".wav", True),
-}
-
-
-@dataclasses.dataclass(frozen=True)
 class _EndpointClip:
     audio: bytes
     suffix: str
     request_format: str
-
-
-def _content_type_is_pcm(content_type: str) -> bool:
-    """True when Content-Type declares raw PCM (e.g. Gemini audio/pcm; rate=24000)."""
-    ct = (content_type or "").lower()
-    return "audio/pcm" in ct or "audio/x-pcm" in ct or "audio/l16" in ct or "codec=pcm" in ct
-
-
-def _content_type_is_wav(content_type: str) -> bool:
-    ct = (content_type or "").lower()
-    return "audio/wav" in ct or "audio/x-wav" in ct or "audio/wave" in ct
-
-
-def _content_type_is_mp3(content_type: str) -> bool:
-    ct = (content_type or "").lower()
-    return "audio/mpeg" in ct or "audio/mp3" in ct
 
 
 def _sniff_audio_format(audio_bytes: bytes) -> str | None:
@@ -110,29 +59,23 @@ def _pcm_rate_from_content_type(content_type: str) -> int:
 
 def _pcm_s16le_to_wav(pcm: bytes, sample_rate: int) -> bytes:
     """Wrap raw 16-bit mono signed little-endian PCM samples in a standard WAV header."""
-    num_channels = 1
-    bits_per_sample = 16
-    byte_rate = sample_rate * num_channels * (bits_per_sample // 8)
-    block_align = num_channels * (bits_per_sample // 8)
     data_size = len(pcm)
-    riff_size = 36 + data_size
-    header = struct.pack(
+    return struct.pack(
         "<4sI4s4sIHHIIHH4sI",
         b"RIFF",
-        riff_size,
+        36 + data_size,
         b"WAVE",
         b"fmt ",
         16,
-        1,  # PCM format
-        num_channels,
+        1,  # PCM
+        1,  # mono
         sample_rate,
-        byte_rate,
-        block_align,
-        bits_per_sample,
+        sample_rate * 2,
+        2,  # block align
+        16,
         b"data",
         data_size,
-    )
-    return header + pcm
+    ) + pcm
 
 
 def _alternate_tts_response_format(body: str, requested: str, status: int) -> str | None:
@@ -144,11 +87,7 @@ def _alternate_tts_response_format(body: str, requested: str, status: int) -> st
         fmt = m.group(1)
         if fmt != requested:
             return fmt
-    fallback_map = {"mp3": "wav", "wav": "mp3", "pcm": "mp3"}
-    alt = fallback_map.get(requested)
-    if alt and alt != requested:
-        return alt
-    return None
+    return {"mp3": "wav", "wav": "mp3", "pcm": "mp3"}.get(requested)
 
 
 def _speech_url(endpoint_url: str) -> str:
@@ -331,7 +270,7 @@ def _resolve_tts_voice(model: str, voice: str, endpoint_url: str | None = None) 
     return canonical_voice_id(family, voice)
 
 
-def _download_endpoint_speech(
+def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
     text: str,
     endpoint_url: str,
     api_key: str,
@@ -398,7 +337,7 @@ def _download_endpoint_speech(
             return None
         if err_body and attempt == 0:
             alt = _alternate_tts_response_format(err_body, response_format, code)
-            if alt and alt != response_format:
+            if alt:
                 log.info(
                     "TTS response_format %s rejected for %s; retrying %s",
                     response_format, model, alt,
@@ -419,37 +358,32 @@ def _download_endpoint_speech(
         return None
 
     # Sniff magic bytes first; then match Content-Type; fallback to requested format.
+    ct = (content_type or "").lower()
     sniffed = _sniff_audio_format(audio_bytes)
-    detected = True
-    actual_format: str
     if sniffed in ("wav", "mp3"):
         actual_format = sniffed
-    elif _content_type_is_pcm(content_type):
+    elif any(token in ct for token in ("audio/pcm", "audio/x-pcm", "audio/l16", "codec=pcm")):
         actual_format = "pcm"
-    elif _content_type_is_wav(content_type):
+    elif any(token in ct for token in ("audio/wav", "audio/x-wav", "audio/wave")):
         actual_format = "wav"
-    elif _content_type_is_mp3(content_type):
+    elif "audio/mpeg" in ct or "audio/mp3" in ct:
         actual_format = "mp3"
     else:
-        detected = False
-        actual_format = response_format if response_format in _FORMATS else "mp3"
-
-    row = _FORMATS[actual_format]
-    if detected:
-        remember_tts_response_format(fmt_key, row.name)
-
-    if row.wrap_pcm:
-        rate = _pcm_rate_from_content_type(content_type)
-        audio_bytes = _pcm_s16le_to_wav(audio_bytes, rate)
-
+        actual_format = None
+    if actual_format is None:
+        actual_format = response_format
+    else:
+        remember_tts_response_format(fmt_key, actual_format)
+    if actual_format == "pcm":
+        audio_bytes = _pcm_s16le_to_wav(audio_bytes, _pcm_rate_from_content_type(content_type))
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     log.info(
         "TTS audio received from %s (model=%s, format=%s, bytes=%d, elapsed_ms=%d)",
-        public_target(url), model, row.name, len(audio_bytes), elapsed_ms,
+        public_target(url), model, actual_format, len(audio_bytes), elapsed_ms,
     )
     if stop_checker and stop_checker():
         log.info("TTS playback cancelled after download")
         return None
-
-    return _EndpointClip(audio=audio_bytes, suffix=row.suffix, request_format=row.name)
+    suffix = ".mp3" if actual_format == "mp3" else ".wav"
+    return _EndpointClip(audio=audio_bytes, suffix=suffix, request_format=actual_format)
 
