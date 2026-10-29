@@ -337,6 +337,9 @@ def try_stub_initialize(recorder: Any) -> bool:
     # a test soffice sets WRITERAGENT_TESTING.
     ctrl = read_stub_recorder_control()
     if not ctrl.get("skip"):
+        # This take spawns a real child, so try_stub_stop must reap it.
+        # Stale G flags would make Stop drop _proc and leak the child (S6).
+        _STUB_RECORDER_FLAGS.pop(recorder, None)
         return False
     # Always apply JSON (including null/false) so G12 fail_start / G14
     # missing_wav cannot stick on the live recorder for later cases.
@@ -2494,10 +2497,10 @@ class _UrpSlashHost:
             dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
 
     def append_output(self, text: str) -> None:
-        append = getattr(self, "_append_response", None)
-        if callable(append):
-            # ``role`` matches SendButtonListener._append_response (run_slash_command).
-            append(text, role="assistant")
+        from plugin.chatbot.dialogs import get_control_text, set_control_text
+
+        current = get_control_text(self.response_control, default="") or ""
+        set_control_text(self.response_control, current + text)
 
     def clear_chat(self) -> None:
         if self.clear_listener is not None:

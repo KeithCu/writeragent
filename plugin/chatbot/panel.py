@@ -1649,24 +1649,6 @@ class SendButtonListener(BaseActionListener):
         self._tool_calling._do_send_chat_with_tools(
             query_text, model, doc_type_label, skip_append_user=True
         )
-        flags = self.sidebar_mode_flags or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
-        sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
-        if sidebar_mode != CHAT_MODE_CHAT:
-            self._append_response(
-                "\n" + _("[Peer send requires Chat mode on this sidebar.]") + "\n"
-            )
-            self._terminal_status = "Error"
-            return
-        started = current_turn(self)
-        if isinstance(started, TurnController):
-            started.mode = CHAT_MODE_CHAT
-            started.model = model
-        if not already_appended:
-            self.session.add_user_message(query_text)
-            self._append_response(query_text, role="user")
-        self._tool_calling._do_send_chat_with_tools(
-            query_text, model, doc_type_label, skip_append_user=True
-        )
 
     # Writer edit selection uses WriterStreamedRewriteSession (document compound undo). Broader
     # chat/tool undo grouping is still future work.

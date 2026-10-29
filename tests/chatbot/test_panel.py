@@ -12,7 +12,7 @@ import dataclasses
 import logging
 import sys
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 import pytest
 
 from plugin.chatbot.panel import (
@@ -2176,6 +2176,19 @@ def test_extracted_peer_send_logs_missing_document(caplog: pytest.LogCaptureFixt
     err_records = [r for r in caplog.records if "no compatible document model" in r.message and "has_frame=False" in r.message]
     assert len(err_records) == 1
     assert listener._terminal_status == "Error"
+
+
+def test_extracted_peer_send_starts_one_chat_turn() -> None:
+    # A second _do_send_chat_with_tools started a second drain; the first never
+    # finished and kept the "stream" drain owner, stalling queued peer turns.
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+    listener = _make_send_listener()
+    listener._require_send_document = MagicMock(return_value=(MagicMock(), "calc"))
+    listener._tool_calling = MagicMock()
+    with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT):
+        listener._do_send_extracted_peer("hello", already_appended=True)
+    listener._tool_calling._do_send_chat_with_tools.assert_called_once_with("hello", ANY, "calc", skip_append_user=True)
 
 
 def test_clear_greeting_lookup_does_not_log_missing_document(caplog: pytest.LogCaptureFixture) -> None:
