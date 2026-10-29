@@ -44,15 +44,7 @@ from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
-KOKORO_RUNTIME = ("kokoro-onnx", "soundfile")
-PIPER_PACKAGE = "piper-tts"
-MISAKI_LANG_EXTRAS = ("ja", "zh")
-G2P_SHARED = ("phonemizer-fork", "espeakng-loader")
-ESPEAK_PIP = ("misaki",) + G2P_SHARED
-
-
-def misaki_lang_extra() -> str:
-    return f"misaki[{','.join(MISAKI_LANG_EXTRAS)}]"
+ESPEAK_PIP = ("misaki", "phonemizer-fork", "espeakng-loader")
 
 
 def uv_install(*packages: str) -> str:
@@ -60,23 +52,21 @@ def uv_install(*packages: str) -> str:
     return "uv pip install " + " ".join(quoted)
 
 
-KOKORO_PIP_INSTALL = uv_install(*KOKORO_RUNTIME, misaki_lang_extra(), *G2P_SHARED)
-TTS_INSTALL_CMD = uv_install(*KOKORO_RUNTIME, PIPER_PACKAGE, misaki_lang_extra(), *G2P_SHARED)
+KOKORO_PIP_INSTALL = "uv pip install kokoro-onnx soundfile 'misaki[ja,zh]' phonemizer-fork espeakng-loader"
+TTS_INSTALL_CMD = "uv pip install kokoro-onnx soundfile piper-tts 'misaki[ja,zh]' phonemizer-fork espeakng-loader"
 
 _PROBE_TIMEOUT_SEC = 90.0
 _PIP_TIMEOUT_SEC = 300.0
 _UNIDIC_TIMEOUT_SEC = 300.0
 
-G2P_FAILED_FMT = "Misaki G2P failed for %s: %s"
-G2P_FALLBACK_FMT = "Kokoro fell back to espeak-ng for %s; non-English text may be misread"
 G2P_FAILED_MARK = "Misaki G2P failed"
 
 
 def g2p_fallback_warning(lang: str, exc: BaseException | None = None) -> str:
-    fallback = G2P_FALLBACK_FMT % lang
+    fallback = "Kokoro fell back to espeak-ng for %s; non-English text may be misread" % lang
     if exc is None:
         return fallback
-    return (G2P_FAILED_FMT % (lang, exc)) + " " + fallback
+    return ("Misaki G2P failed for %s: %s" % (lang, exc)) + " " + fallback
 
 
 @dataclass(frozen=True)
@@ -188,8 +178,6 @@ def kokoro_g2p_lang(text: str, voice: str = "") -> str:
     if not voice:
         return "en-us"
     target = _kokoro_lang_for_voice(voice)
-    if target in ("en-us", "en-gb"):
-        return target
     if target in ("ja", "zh", "hi") and _text_is_latin_script(text):
         return "en-us"
     return target
@@ -284,40 +272,18 @@ def _cancelled(cancelled: Callable[[], bool] | None) -> bool:
 RunCmd = Callable[[list[str], float], subprocess.CompletedProcess[str] | None]
 
 
-def _run_cmd(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str] | None:
-    try:
-        return subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-            stdin=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        log.warning("Kokoro phonemizer command failed (%s): %s", cmd[0], exc)
-        return None
-
-
-def _failure_detail(completed: subprocess.CompletedProcess[str] | None) -> str:
-    if completed is None:
-        return ""
-    return (completed.stderr or completed.stdout or "").strip()
-
-
 def _run_checked(
     cmd: list[str],
     timeout: float,
     *,
     what: str,
     level: int,
-    run_cmd: RunCmd | None,
+    run_cmd: RunCmd,
     log_when_empty: bool,
 ) -> bool:
-    runner = run_cmd or _run_cmd
-    completed = runner(cmd, timeout)
+    completed = run_cmd(cmd, timeout)
     if completed is None or completed.returncode != 0:
-        detail = _failure_detail(completed)
+        detail = "" if completed is None else (completed.stderr or completed.stdout or "").strip()
         if detail or log_when_empty:
             log.log(level, "%s: %s", what, detail[-2000:])
         return False
@@ -327,7 +293,7 @@ def _run_checked(
 def _venv_probe_ok(
     py_exe: str,
     lang: str,
-    run_cmd: RunCmd | None = None,
+    run_cmd: RunCmd,
 ) -> bool:
     code = kokoro_misaki_probe_code(lang)
     if not code:
@@ -345,7 +311,7 @@ def _venv_probe_ok(
 def _pip_install(
     py_exe: str,
     packages: tuple[str, ...],
-    run_cmd: RunCmd | None = None,
+    run_cmd: RunCmd,
 ) -> bool:
     uv = shutil.which("uv")
     if uv:
@@ -365,7 +331,7 @@ def _pip_install(
 
 def _download_unidic(
     py_exe: str,
-    run_cmd: RunCmd | None = None,
+    run_cmd: RunCmd,
 ) -> bool:
     """``misaki[ja]`` depends on the unidic package, which does not include the dictionary."""
     return _run_checked(
@@ -383,7 +349,8 @@ def ensure_kokoro_misaki(
     lang: str,
     on_status: Callable[[str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
-    run_cmd: RunCmd | None = None,
+    *,
+    run_cmd: RunCmd,
 ) -> bool | None:
     """Install the Misaki extra for ``lang`` when the venv cannot import it.
 
@@ -397,18 +364,16 @@ def ensure_kokoro_misaki(
     with _probe_ok_lock:
         if (py_exe, lang) in _probe_ok_keys:
             return True
-    packages = kokoro_misaki_packages(lang)
-    if not packages:
+    spec = _LANG_SPECS.get(lang)
+    if spec is None or not spec.packages:
         return True
-    if _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
+
+    def remember() -> bool:
         with _probe_ok_lock:
             _probe_ok_keys.add((py_exe, lang))
         return True
-    if _cancelled(cancelled):
-        return None
 
-    _emit(on_status, _("Installing Kokoro phonemizer…"))
-    if not _pip_install(py_exe, packages, run_cmd=run_cmd):
+    def fail() -> bool:
         _emit(
             on_status,
             _("Couldn't install the Kokoro phonemizer; this language may be misread. Install with: {0}").format(
@@ -416,27 +381,24 @@ def ensure_kokoro_misaki(
             ),
         )
         return False
+
+    if _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
+        return remember()
+    if _cancelled(cancelled):
+        return None
+
+    _emit(on_status, _("Installing Kokoro phonemizer…"))
+    if not _pip_install(py_exe, spec.packages, run_cmd=run_cmd):
+        return fail()
     if _cancelled(cancelled):
         return None
     if _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
-        with _probe_ok_lock:
-            _probe_ok_keys.add((py_exe, lang))
-        return True
+        return remember()
 
     # fugashi's default dictionary is not in the wheel. Without this download,
     # JAG2P() raises and Japanese falls back to espeak ("chinese letter").
-    spec = _LANG_SPECS.get(lang)
-    if spec is not None and spec.needs_unidic:
+    if spec.needs_unidic:
         _emit(on_status, _("Downloading Japanese phonemizer dictionary…"))
         if _download_unidic(py_exe, run_cmd=run_cmd) and _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
-            with _probe_ok_lock:
-                _probe_ok_keys.add((py_exe, lang))
-            return True
-
-    _emit(
-        on_status,
-        _("Couldn't install the Kokoro phonemizer; this language may be misread. Install with: {0}").format(
-            kokoro_misaki_install_hint(lang)
-        ),
-    )
-    return False
+            return remember()
+    return fail()

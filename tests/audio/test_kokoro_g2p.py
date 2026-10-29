@@ -397,7 +397,7 @@ def test_ensure_kokoro_misaki_installs_ja_when_probe_fails():
     calls: list[list[str]] = []
     probes = {"n": 0}
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, timeout):
         calls.append(list(cmd))
         if "-c" in cmd:
             probes["n"] += 1
@@ -407,10 +407,9 @@ def test_ensure_kokoro_misaki_installs_ja_when_probe_fails():
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     messages: list[str] = []
-    with patch("plugin.audio.kokoro_g2p.shutil.which", return_value=None), \
-         patch("plugin.audio.kokoro_g2p.subprocess.run", side_effect=fake_run):
+    with patch("plugin.audio.kokoro_g2p.shutil.which", return_value=None):
         ready = ensure_kokoro_misaki(
-            "/venv/bin/python", "ja", on_status=messages.append
+            "/venv/bin/python", "ja", on_status=messages.append, run_cmd=fake_run
         )
 
     assert ready is True
@@ -423,7 +422,7 @@ def test_ensure_kokoro_misaki_downloads_unidic_when_ja_still_unusable():
     calls: list[list[str]] = []
     probes = {"n": 0}
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, timeout):
         calls.append(list(cmd))
         if "-c" in cmd:
             probes["n"] += 1
@@ -432,9 +431,10 @@ def test_ensure_kokoro_misaki_downloads_unidic_when_ja_still_unusable():
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     messages: list[str] = []
-    with patch("plugin.audio.kokoro_g2p.shutil.which", return_value="/usr/bin/uv"), \
-         patch("plugin.audio.kokoro_g2p.subprocess.run", side_effect=fake_run):
-        ready = ensure_kokoro_misaki("/venv/bin/python", "ja", on_status=messages.append)
+    with patch("plugin.audio.kokoro_g2p.shutil.which", return_value="/usr/bin/uv"):
+        ready = ensure_kokoro_misaki(
+            "/venv/bin/python", "ja", on_status=messages.append, run_cmd=fake_run
+        )
 
     assert ready is True
     assert calls[1] == [
@@ -448,7 +448,7 @@ def test_ensure_kokoro_misaki_espeak_langs_skip_torch_and_unidic():
     calls: list[list[str]] = []
     probes = {"n": 0}
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, timeout):
         calls.append(list(cmd))
         if "-c" in cmd:
             probes["n"] += 1
@@ -456,9 +456,8 @@ def test_ensure_kokoro_misaki_espeak_langs_skip_torch_and_unidic():
             return subprocess.CompletedProcess(cmd, code, "", "")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    with patch("plugin.audio.kokoro_g2p.shutil.which", return_value=None), \
-         patch("plugin.audio.kokoro_g2p.subprocess.run", side_effect=fake_run):
-        ready = ensure_kokoro_misaki("/venv/bin/python", "fr-fr")
+    with patch("plugin.audio.kokoro_g2p.shutil.which", return_value=None):
+        ready = ensure_kokoro_misaki("/venv/bin/python", "fr-fr", run_cmd=fake_run)
 
     assert ready is True
     assert calls[1] == [
@@ -467,15 +466,16 @@ def test_ensure_kokoro_misaki_espeak_langs_skip_torch_and_unidic():
 
 
 def test_ensure_kokoro_misaki_reports_install_failure_and_does_not_raise():
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, timeout):
         if "-c" in cmd:
             return subprocess.CompletedProcess(cmd, 1, "", "ModuleNotFoundError: misaki")
         return subprocess.CompletedProcess(cmd, 1, "", "no network")
 
     messages: list[str] = []
-    with patch("plugin.audio.kokoro_g2p.shutil.which", return_value=None), \
-         patch("plugin.audio.kokoro_g2p.subprocess.run", side_effect=fake_run):
-        ready = ensure_kokoro_misaki("/venv/bin/python", "es", on_status=messages.append)
+    with patch("plugin.audio.kokoro_g2p.shutil.which", return_value=None):
+        ready = ensure_kokoro_misaki(
+            "/venv/bin/python", "es", on_status=messages.append, run_cmd=fake_run
+        )
 
     assert ready is False
     assert messages[0] == "Installing Kokoro phonemizer…"
@@ -484,19 +484,29 @@ def test_ensure_kokoro_misaki_reports_install_failure_and_does_not_raise():
 
 
 def test_ensure_kokoro_misaki_english_does_not_install():
-    with patch("plugin.audio.kokoro_g2p.subprocess.run") as run:
-        ready = ensure_kokoro_misaki("/venv/bin/python", "en-us")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, timeout):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    ready = ensure_kokoro_misaki("/venv/bin/python", "en-us", run_cmd=fake_run)
     assert ready is True
-    run.assert_not_called()
+    assert calls == []
 
 
 def test_ensure_kokoro_misaki_cancelled_skips_install():
-    with patch("plugin.audio.kokoro_g2p.subprocess.run") as run:
-        ready = ensure_kokoro_misaki(
-            "/venv/bin/python", "ja", cancelled=lambda: True
-        )
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, timeout):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    ready = ensure_kokoro_misaki(
+        "/venv/bin/python", "ja", cancelled=lambda: True, run_cmd=fake_run
+    )
     assert ready is None
-    run.assert_not_called()
+    assert calls == []
 
 
 def test_kokoro_g2p_lang_english_on_non_english_voice():
