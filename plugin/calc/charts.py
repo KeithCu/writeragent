@@ -73,6 +73,21 @@ def supportsService(obj: Any, service_name: str) -> bool:
         return False
 
 
+def _doc_kind(doc: Any) -> Literal["draw"] | None:
+    """Draw or Impress. DrawingDocument is probed first, then PresentationDocument.
+
+    Both orders accept a live Draw doc and a live Impress doc (Impress supports
+    both services, so the OR is true). A disposed document raises on the first
+    call either way. UpsertChart used to probe Presentation first; the branch
+    taken is the same.
+    """
+    if supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(
+        doc, "com.sun.star.presentation.PresentationDocument"
+    ):
+        return "draw"
+    return None
+
+
 log = logging.getLogger("writeragent.calc")
 
 # Chart CLSID: classic OLE chart (Calc sheet charts, Writer TextEmbeddedObject)
@@ -119,10 +134,7 @@ def _normalize_clsid_value(clsid: Any) -> str:
     if isinstance(clsid, str):
         return clsid
     if isinstance(clsid, (bytes, bytearray)):
-        try:
-            return clsid.decode("ascii", errors="replace")
-        except Exception:
-            return ""
+        return clsid.decode("ascii", errors="replace")
     try:
         return str(clsid)
     except Exception:
@@ -256,12 +268,12 @@ def _chart_parameters(base_schema: dict[str, Any] | None, doc_type: str | None) 
     return params
 
 
-def _unique_chart_name(existing: set[str], stem: str = "Chart_") -> str:
+def _unique_chart_name(existing: set[str]) -> str:
     """Find the lowest unused indexed name."""
     idx = 0
-    while f"{stem}{idx}" in existing:
+    while f"Chart_{idx}" in existing:
         idx += 1
-    return f"{stem}{idx}"
+    return f"Chart_{idx}"
 
 
 def _listed_chart_name(shape_or_name: Any) -> str:
@@ -771,6 +783,13 @@ def _format_chart_exception_msg(e: Exception) -> str:
     return f"{type(e).__name__}"
 
 
+def _with_warnings(out: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+    # Absent key when empty. Callers and MCP clients use .get("warnings", []).
+    if warnings:
+        out["warnings"] = warnings
+    return out
+
+
 def _chart_list_failure(doc: Any, exc: Exception, errors: list[dict[str, Any]], **where: Any) -> None:
     """Record one chart-list read failure, or re-raise when *doc* is closed.
 
@@ -863,6 +882,24 @@ def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> It
             yield from _iter_page_shapes(shape, doc, parent=shape)
 
 
+def _collect_page_shape_names(page: Any, doc: Any, existing: set[str], skip: Any = None) -> None:
+    # skip is the OLE shape just added on Draw/Impress. Counting its Name
+    # consumes a Chart_N (LibreOffice may already have named it). Identity
+    # is `is`; uno_same would skip a different wrapper than this loop did.
+    # A disposed shape is skipped. Any other Name error propagates.
+    for shape, _parent, _shape_type in _iter_page_shapes(page, doc):
+        if skip is not None and shape is skip:
+            continue
+        try:
+            nm = getattr(shape, "Name", None)
+            if nm:
+                existing.add(nm)
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                continue
+            raise
+
+
 def _named_ole_chart_ref(
     shape: Any,
     parent: Any,
@@ -915,7 +952,7 @@ def _lookup_chart(
             if ref is not None:
                 return ChartLookup(ref=ref)
         return ChartLookup()
-    elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
+    elif _doc_kind(doc) == "draw":
         draw_pages = doc.getDrawPages()
         count = draw_pages.getCount()
         if page is not None:
@@ -962,10 +999,6 @@ class ListCharts(ToolBaseDummy):
     """List charts; Dummy backend for ``ManageCharts`` action=list."""
 
     name: str | None = "list_charts"
-    intent: str | None = "navigate"
-    description: str = "List all charts in the current context (active sheet, document, or slide) with name, title, and type."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -1037,7 +1070,7 @@ class ListCharts(ToolBaseDummy):
             except Exception as exc:
                 _chart_list_failure(doc, exc, errors, source="draw_page")
 
-        elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
+        elif _doc_kind(doc) == "draw":
             try:
                 pages = doc.getDrawPages()
                 pages_count = pages.getCount()
@@ -1094,17 +1127,6 @@ class GetChartInfo(ToolBaseDummy):
     """Chart details; Dummy backend for ``ManageCharts`` action=get_info."""
 
     name: str | None = "get_chart_info"
-    intent: str | None = "navigate"
-    description: str = "Get detailed info about a chart: type, title, ranges (if Calc), axis titles, and legend properties."
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "Chart name (from list_charts)."},
-            "page": {"type": "integer", "description": "Zero-based page/slide index (Draw/Impress only)."},
-        },
-        "required": ["name"],
-    }
-    uno_services: list[str] | None = ListCharts.uno_services
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -1188,19 +1210,6 @@ class UpsertChart(ToolBaseDummy):
     """Create/edit chart; Dummy backend for ``ManageCharts`` action=create|edit."""
 
     name: str | None = "upsert_chart"
-    intent: str | None = "edit"
-    description: str = "Creates a new chart or modifies an existing chart on a sheet, document, or slide."
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "action": {"type": "string", "enum": ["create", "edit"], "description": "Action to perform: 'create' a new chart, or 'edit' an existing one."},
-            "name": {"type": "string", "description": "Name of the chart to edit (required for action='edit'); create always uses the next free 'Chart_N' name."},
-            **CHART_PROPERTIES,
-        },
-        "required": ["action"],
-    }
-    uno_services: list[str] | None = ListCharts.uno_services
-    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         action = kwargs.get("action")
@@ -1226,7 +1235,7 @@ class UpsertChart(ToolBaseDummy):
                     return self._create_calc_chart(ctx, rect, chart_service, **kwargs)
                 elif supportsService(doc, "com.sun.star.text.TextDocument"):
                     return self._create_writer_chart(ctx, rect, chart_service, **kwargs)
-                elif supportsService(doc, "com.sun.star.presentation.PresentationDocument") or supportsService(doc, "com.sun.star.drawing.DrawingDocument"):
+                elif _doc_kind(doc) == "draw":
                     return self._create_draw_chart(ctx, rect, chart_service, **kwargs)
                 return self._tool_error("Unsupported document type for chart creation.")
             except Exception as e:
@@ -1289,10 +1298,7 @@ class UpsertChart(ToolBaseDummy):
                         return self._tool_error(f"Failed to set has_header: {msg}", code="CHART_EDIT_ERROR")
 
             try:
-                headers = kwargs.get("headers")
-                rows = kwargs.get("rows")
-                if headers and rows:
-                    _apply_chart_data_arrays(chart_doc, headers, rows)
+                _apply_chart_data_arrays(chart_doc, kwargs.get("headers"), kwargs.get("rows"))
 
                 # If chart_type is provided, update the diagram first
                 chart_type = kwargs.get("chart_type")
@@ -1310,9 +1316,7 @@ class UpsertChart(ToolBaseDummy):
                 return self._tool_error(f"Failed to edit chart: {msg}", code="CHART_EDIT_ERROR")
 
             out: dict[str, Any] = {"status": "ok", "name": chart_name, "message": "Chart updated."}
-            if warnings:
-                out["warnings"] = warnings
-            return out
+            return _with_warnings(out, warnings)
 
         return self._tool_error(f"Unsupported action: '{action}'")
 
@@ -1396,9 +1400,7 @@ class UpsertChart(ToolBaseDummy):
             raise
         # _process_events() causes a hang in tests
         out = {"status": "ok", "message": f"Chart '{name}' created on sheet '{sheet.getName()}'.", "name": name, "sheet": sheet.getName()}
-        if warnings:
-            out["warnings"] = warnings
-        return out
+        return _with_warnings(out, warnings)
 
     def _create_writer_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         """Insert a chart as inline ``TextEmbeddedObject`` (Writer body text).
@@ -1444,15 +1446,7 @@ class UpsertChart(ToolBaseDummy):
             if is_real_disposal(exc):
                 raise
         page = doc.getDrawPage()
-        for s, _p, _st in _iter_page_shapes(page, doc):
-            try:
-                nm = getattr(s, "Name", None)
-                if nm:
-                    existing_names.add(nm)
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    continue
-                raise
+        _collect_page_shape_names(page, doc, existing_names)
         name = _unique_chart_name(existing_names)
 
         # We use plain createInstance for Writer; createInstanceWithArguments can be flaky for OLE
@@ -1559,10 +1553,7 @@ class UpsertChart(ToolBaseDummy):
                     raise RuntimeError(f"Failed to create diagram instance for service: {service}")
                 chart_doc.setDiagram(diagram)
                 log.info("Set chart diagram: %s", service)
-                headers = kwargs.get("headers")
-                rows = kwargs.get("rows")
-                if headers and rows:
-                    _apply_chart_data_arrays(chart_doc, headers, rows)
+                _apply_chart_data_arrays(chart_doc, kwargs.get("headers"), kwargs.get("rows"))
                 warnings = _apply_chart_styling(chart_doc, **kwargs)
             except Exception:
                 # Diagram installation and styling must succeed or the embed is rolled back.
@@ -1589,9 +1580,7 @@ class UpsertChart(ToolBaseDummy):
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         out: dict[str, Any] = {"status": "ok", "message": f"Chart '{actual_name}' inserted in Writer.", "name": actual_name}
-        if warnings:
-            out["warnings"] = warnings
-        return out
+        return _with_warnings(out, warnings)
 
     def _create_draw_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -1640,16 +1629,7 @@ class UpsertChart(ToolBaseDummy):
             existing_names: set[str] = set()
             for i in range(count):
                 pg = draw_pages.getByIndex(i)
-                for s, _p, _st in _iter_page_shapes(pg, doc):
-                    if s is not shape:
-                        try:
-                            nm = getattr(s, "Name", None)
-                            if nm:
-                                existing_names.add(nm)
-                        except Exception as exc:
-                            if is_disposed_exception(exc):
-                                continue
-                            raise
+                _collect_page_shape_names(pg, doc, existing_names, skip=shape)
             name = _unique_chart_name(existing_names)
             shape.Name = name
 
@@ -1658,10 +1638,7 @@ class UpsertChart(ToolBaseDummy):
                 _drop_failed_chart_insert(lambda: page.remove(shape), name or "draw-chart")
                 return self._tool_error("Cannot access chart content.")
             chart_doc.setDiagram(chart_doc.createInstance(service))
-            headers = kwargs.get("headers")
-            rows = kwargs.get("rows")
-            if headers and rows:
-                _apply_chart_data_arrays(chart_doc, headers, rows)
+            _apply_chart_data_arrays(chart_doc, kwargs.get("headers"), kwargs.get("rows"))
             warnings = _apply_chart_styling(chart_doc, **kwargs)
         except Exception:
             _drop_failed_chart_insert(lambda: page.remove(shape), name or "draw-chart")
@@ -1669,27 +1646,13 @@ class UpsertChart(ToolBaseDummy):
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         out: dict[str, Any] = {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name, "page": page_index}
-        if warnings:
-            out["warnings"] = warnings
-        return out
+        return _with_warnings(out, warnings)
 
 
 class DeleteChart(ToolBaseDummy):
     """Delete chart; Dummy backend for ``ManageCharts`` action=delete."""
 
     name: str | None = "delete_chart"
-    intent: str | None = "edit"
-    description: str = "Delete a chart by name."
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "Chart name to delete."},
-            "page": {"type": "integer", "description": "Zero-based page/slide index (Draw/Impress only)."},
-        },
-        "required": ["name"],
-    }
-    uno_services: list[str] | None = ListCharts.uno_services
-    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
