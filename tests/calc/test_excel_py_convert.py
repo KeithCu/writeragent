@@ -493,12 +493,10 @@ def test_demo5_table1():
 def test_excel_deps_roundtrip_on_xlws_export():
     """Table/ANCHORARRAY tokens are restored on _xlws.PY; Calc still uses A1 snapshots.
 
-    Policy: EXCEL_DEP_TOKEN_FIDELITY / models.py module doc.
+    Policy: models.py module doc.
     """
-    from plugin.calc.excel_py_convert.models import EXCEL_DEP_TOKEN_FIDELITY
     from plugin.calc.excel_py_convert.to_excel import convert_dag_report_to_excel, deps_for_xlws_export
 
-    assert "round-trip fidelity" in EXCEL_DEP_TOKEN_FIDELITY
     dag = convert_model_to_dag(demo3_groupby())
     excel = convert_dag_report_to_excel(dag)
     c1 = next(c for c in excel.cells if c.cell == "C1")
@@ -1391,7 +1389,7 @@ def test_no_double_xml_unescape():
     )
     ws_root = ET.fromstring(ws_xml)
 
-    cells = _iter_py_cells(ws_root, "Sheet1")
+    cells = _iter_py_cells(ws_root, "Sheet1", [])
     assert len(cells) == 1
     # Literal &lt; must remain &lt;, not converted to <
     assert "&lt;tag&gt;" in cells[0].formula_raw
@@ -1607,7 +1605,7 @@ def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
 
 
 def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
-    """Temporary files (.tmprewrite, .tmpexcelpy) must be cleaned up on exception."""
+    """Temporary files ({stem}_*.tmp) must be cleaned up on exception."""
     from plugin.calc.excel_py_convert.xlsx_write import write_excel_python_xlsx
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
@@ -1620,11 +1618,13 @@ def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
     def fail_transform(zin, zout):
         raise RuntimeError("simulated transform error")
 
+    dst = src.with_suffix(src.suffix + ".out")
     with pytest.raises(RuntimeError):
-        rewrite_zip(src, src.with_suffix(src.suffix + ".out"), fail_transform, temp_suffix=".tmprewrite")
-    assert not (src.with_suffix(src.suffix + ".out.tmprewrite")).exists()
+        rewrite_zip(src, dst, fail_transform)
+    assert not dst.exists()
+    assert list(dst.parent.glob(dst.stem + "_*.tmp")) == []
 
-    # 2. Test .tmpexcelpy cleanup
+    # 2. Test temp file cleanup on write failure
     def fail_writestr(*_args, **_kwargs):
         raise RuntimeError("simulated write error")
 
@@ -1644,7 +1644,8 @@ def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(zipfile.ZipFile, "writestr", fail_writestr)
     with pytest.raises(RuntimeError):
         write_excel_python_xlsx(src, rep, out)
-    assert not (out.with_suffix(out.suffix + ".tmpexcelpy")).exists()
+    assert not out.exists()
+    assert list(tmp_path.glob("temp_clean_out_*.tmp")) == []
 
 
 def test_write_excel_python_xlsx_patched_empty_element(tmp_path: Path):
@@ -3289,7 +3290,7 @@ def test_parse_python_scripts_normal_and_hostile_indices():
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("xl/pythonScripts.xml", normal_xml)
     with zipfile.ZipFile(buf, "r") as zf:
-        scripts = _parse_python_scripts(zf)
+        scripts = _parse_python_scripts(zf, [])
         assert scripts == ["x = 1", "y = 2"]
 
     hostile_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
