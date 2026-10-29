@@ -249,8 +249,6 @@ _venv_policy_owner: int | None = None
 
 PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = ""
 
-PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = ""
-
 
 def images_specialized_sub_agent_hint() -> str:
     """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"images\").
@@ -291,7 +289,7 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
     else:
         data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
     _ensure_venv_import_policy_strings()
-    policy = _VENV_IMPORT_POLICY_FULL or _load_venv_import_policy_full()
+    policy = _VENV_IMPORT_POLICY_FULL
     from plugin.scripting.import_policy import format_matplotlib_plot_hint, format_units_helper_hint
 
     plot_hint = format_matplotlib_plot_hint(agent_label=agent_label)
@@ -362,12 +360,6 @@ def get_document_research_workflow_hint(ctx: Any | None = None, doc: Any | None 
     if peer:
         hint = hint + "\n" + peer
     return hint
-
-
-def _load_venv_import_policy_full() -> str:
-    from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
-
-    return format_venv_import_policy_for_prompt(compact=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1005,6 +997,17 @@ def _catalog_entries_from_base(base_cls: Any, *, agent_label: str | None = None,
     return entries
 
 
+def _special_base(agent_label: str) -> Any:
+    if agent_label == "Calc":
+        from plugin.calc.base import ToolCalcSpecialBase
+        return ToolCalcSpecialBase
+    if agent_label == "Draw":
+        from plugin.draw.base import ToolDrawSpecialBase
+        return ToolDrawSpecialBase
+    from plugin.writer.specialized_base import ToolWriterSpecialBase
+    return ToolWriterSpecialBase
+
+
 def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Full specialized domain catalog — same entries as sidebar/delegate domain hints.
 
@@ -1015,36 +1018,26 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     shapes a chat prompt, so discovery covers everything the flat tool list exposes. The
     no-document merge uses the same flag as the per-app branches.
     """
-    if agent_label == "Calc":
-        from plugin.calc.base import ToolCalcSpecialBase
-
-        entries = _catalog_entries_from_base(ToolCalcSpecialBase, agent_label="Calc", ctx=ctx, for_discovery=for_discovery)
-    elif agent_label == "Draw":
-        from plugin.draw.base import ToolDrawSpecialBase
-
-        entries = _catalog_entries_from_base(ToolDrawSpecialBase, agent_label="Draw", ctx=ctx, for_discovery=for_discovery)
-    elif agent_label == "Writer":
-        from plugin.writer.specialized_base import ToolWriterSpecialBase
-
-        entries = _catalog_entries_from_base(ToolWriterSpecialBase, agent_label="Writer", ctx=ctx, for_discovery=for_discovery)
-    else:
-        from plugin.calc.base import ToolCalcSpecialBase
-        from plugin.draw.base import ToolDrawSpecialBase
-        from plugin.writer.specialized_base import ToolWriterSpecialBase
-
-        seen: dict[str, str] = {}
-        for base, label in ((ToolWriterSpecialBase, "Writer"), (ToolCalcSpecialBase, "Calc"), (ToolDrawSpecialBase, "Draw")):
-            # The per-app branches forward for_discovery. This merge must too,
-            # or a Calc-only hidden domain stays hidden. python is also on
-            # Writer and Draw, which hid that gap.
-            for entry in _catalog_entries_from_base(base, agent_label=label, ctx=ctx, for_discovery=for_discovery):
-                dom = entry["domain"]
-                desc = entry["description"]
-                if dom not in seen or len(desc) > len(seen[dom]):
-                    seen[dom] = desc
-        return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
-    entries.sort(key=lambda e: e["domain"])
-    return entries
+    if agent_label in ("Writer", "Calc", "Draw"):
+        entries = _catalog_entries_from_base(
+            _special_base(agent_label),
+            agent_label=agent_label,
+            ctx=ctx,
+            for_discovery=for_discovery,
+        )
+        entries.sort(key=lambda e: e["domain"])
+        return entries
+    seen: dict[str, str] = {}
+    for label in ("Writer", "Calc", "Draw"):
+        # Merge must forward for_discovery. python is hidden on Calc chat only.
+        for entry in _catalog_entries_from_base(
+            _special_base(label), agent_label=label, ctx=ctx, for_discovery=for_discovery,
+        ):
+            dom = entry["domain"]
+            desc = entry["description"]
+            if dom not in seen or len(desc) > len(seen[dom]):
+                seen[dom] = desc
+    return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 
 
 def _get_specialized_domains_str(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None) -> str:
@@ -1071,16 +1064,12 @@ def get_specialized_delegation_for_model(model: Any, ctx: Any = None) -> str:
     from plugin.doc.doc_type import is_calc, is_draw
 
     if is_calc(model):
-        from plugin.calc.base import ToolCalcSpecialBase
-
-        return get_specialized_delegation_tool_hint(ToolCalcSpecialBase, "Calc", ctx=ctx)
-    if is_draw(model):
-        from plugin.draw.base import ToolDrawSpecialBase
-
-        return get_specialized_delegation_tool_hint(ToolDrawSpecialBase, "Draw", ctx=ctx)
-    from plugin.writer.specialized_base import ToolWriterSpecialBase
-
-    return get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer", ctx=ctx)
+        label = "Calc"
+    elif is_draw(model):
+        label = "Draw"
+    else:
+        label = "Writer"
+    return get_specialized_delegation_tool_hint(_special_base(label), label, ctx=ctx)
 
 
 def format_specialized_domains_description(special_base_class: Any, *, agent_label: str | None = None, ctx: Any = None) -> str:
@@ -1288,20 +1277,12 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
     """
     label = (kind or "writer").strip().lower()
     if label == "calc":
-        from plugin.calc.base import ToolCalcSpecialBase
-
-        delegation = get_specialized_delegation_tool_hint(ToolCalcSpecialBase, "Calc", ctx=ctx)
-        asm = "calc"
+        agent, asm = "Calc", "calc"
     elif label in ("draw", "impress"):
-        from plugin.draw.base import ToolDrawSpecialBase
-
-        delegation = get_specialized_delegation_tool_hint(ToolDrawSpecialBase, "Draw", ctx=ctx)
-        asm = "draw"
+        agent, asm = "Draw", "draw"
     else:
-        from plugin.writer.specialized_base import ToolWriterSpecialBase
-
-        delegation = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer", ctx=ctx)
-        asm = "writer"
+        agent, asm = "Writer", "writer"
+    delegation = get_specialized_delegation_tool_hint(_special_base(agent), agent, ctx=ctx)
 
     base = _assemble_chat_prompt(asm, delegation, ctx)
     base = _append_additional_instructions(base, additional_instructions)
@@ -1395,7 +1376,7 @@ def _ensure_venv_import_policy_strings() -> None:
 def _init_venv_import_policy_strings() -> None:
     """Late init: import_policy pulls smolagents; constants must be fully loaded first."""
     global _VENV_IMPORT_POLICY_COMPACT, _VENV_IMPORT_POLICY_FULL
-    global PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE, PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE
+    global PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
     global CALC_FORMULA_SYNTAX, DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, CALC_PYTHON_FORMULA_LLM_HINT
 
     from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
@@ -1404,7 +1385,6 @@ def _init_venv_import_policy_strings() -> None:
     _VENV_IMPORT_POLICY_COMPACT = compact
     _VENV_IMPORT_POLICY_FULL = format_venv_import_policy_for_prompt(compact=False)
     PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = compact + " "
-    PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = compact
     CALC_FORMULA_SYNTAX = f"""FORMULA SYNTAX: LibreOffice formulas use semicolon (;) between arguments, not comma.
 Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1), =PY("result = …"; Orders.A1:H500)
