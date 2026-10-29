@@ -685,7 +685,7 @@ class MCPProtocolHandler:
         return wire_types.initialize_result(protocol_version=wire_types.MCP_PROTOCOL_VERSION, client_protocol_version=client_version, server_version=self.version, instructions=build_initialize_instructions(self._tool_exposure_mode()))
 
     def _mcp_ping(self, params: Any) -> Any:
-        return wire_types.ping_result()
+        return {}
 
     def _tool_exposure_mode(self) -> str:
         """Read mcp.tool_exposure_mode (delegate | direct_flat | direct_discovery)."""
@@ -787,13 +787,13 @@ class MCPProtocolHandler:
         if mode != "direct_discovery":
             schemas = [s for s in schemas if s.get("name") != "find_tools"]
 
-        return wire_types.list_tools_result(schemas)
+        return {"tools": schemas}
 
     def _mcp_resources_list(self, params: Any) -> Any:
-        return wire_types.empty_resources_result()
+        return {"resources": []}
 
     def _mcp_prompts_list(self, params: Any) -> Any:
-        return wire_types.empty_prompts_result()
+        return {"prompts": []}
 
     def _mcp_tools_call(self, params: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
         call_params = wire_types.CallToolRequestParams.from_params(params)

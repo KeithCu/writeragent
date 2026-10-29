@@ -117,7 +117,7 @@ def test_jsonrpc_failure_preserves_data_and_codes():
 
 def test_jsonrpc_success_tools_list_golden_envelope():
     tools = [{"name": "test_tool", "description": "A test tool", "inputSchema": {"type": "object", "properties": {}}}]
-    envelope = wire_types.jsonrpc_success(1, wire_types.list_tools_result(tools))
+    envelope = wire_types.jsonrpc_success(1, {"tools": tools})
     assert envelope["jsonrpc"] == "2.0"
     assert envelope["id"] == 1
     assert envelope["result"]["tools"][0]["name"] == "test_tool"
@@ -130,9 +130,6 @@ def test_call_tool_request_params_from_params():
 
 
 def test_call_tool_request_params_missing_name():
-    # The pytest pre is total. A missing name is ValueError from the body,
-    # including when deal is installed. CrossHair still rejects {} so check
-    # does not see that ValueError.
     with pytest.raises(ValueError, match="params.name"):
         wire_types.CallToolRequestParams.from_params({})
     with pytest.raises(ValueError, match="params.name"):

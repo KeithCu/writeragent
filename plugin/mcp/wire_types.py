@@ -23,7 +23,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, cast
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, _profile, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, _profile, ascii_bounded, str_bounded, deal
 
 # Aligned with upstream python-sdk LATEST_PROTOCOL_VERSION.
 MCP_PROTOCOL_VERSION = "2025-11-25"
@@ -144,20 +144,6 @@ def jsonrpc_failure(req_id: RequestId, code: int, message: str, data: Any | None
     return {"jsonrpc": "2.0", "id": req_id, "error": err}
 
 
-@dataclasses.dataclass
-class InitializeResult:
-    protocol_version: str
-    capabilities: dict[str, Any]
-    server_info: dict[str, Any]
-    instructions: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"protocolVersion": self.protocol_version, "capabilities": self.capabilities, "serverInfo": self.server_info}
-        if self.instructions is not None:
-            out["instructions"] = self.instructions
-        return out
-
-
 def _deal_initialize_client_version_ok_crosshair(client_protocol_version: object) -> bool:
     return client_protocol_version is None or not isinstance(client_protocol_version, str) or str_bounded(client_protocol_version, DEAL_MAX_TOKEN)
 
@@ -176,23 +162,12 @@ _deal_initialize_client_version_ok = _profile(_deal_initialize_client_version_ok
 @deal.post(lambda result: isinstance(result, dict) and "protocolVersion" in result and "capabilities" in result)
 def initialize_result(*, protocol_version: str, server_version: str, instructions: str, client_protocol_version: str | None = None) -> dict[str, Any]:
     negotiated = client_protocol_version if client_protocol_version is not None else protocol_version
-    return InitializeResult(protocol_version=negotiated, capabilities={"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}}, server_info={"name": "WriterAgent MCP", "version": server_version}, instructions=instructions).to_dict()
-
-
-def list_tools_result(tools: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"tools": tools}
-
-
-def empty_resources_result() -> dict[str, Any]:
-    return {"resources": []}
-
-
-def empty_prompts_result() -> dict[str, Any]:
-    return {"prompts": []}
-
-
-def ping_result() -> dict[str, Any]:
-    return {}
+    return {
+        "protocolVersion": negotiated,
+        "capabilities": {"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}},
+        "serverInfo": {"name": "WriterAgent MCP", "version": server_version},
+        "instructions": instructions,
+    }
 
 
 @dataclasses.dataclass(frozen=True)
@@ -203,55 +178,15 @@ class CallToolRequestParams:
     @classmethod
     def from_params(cls, params: dict[str, Any]) -> CallToolRequestParams:
         # crosshair: off
-        return _call_tool_request_params_from_dict(params)
-
-
-_DEAL_CALL_DICT_LEN = 2 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
-_DEAL_CALL_KEY_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
-_DEAL_CALL_VAL_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-
-
-def _deal_call_tool_params_ok_crosshair(params: object) -> bool:
-    if type(params) is not dict:
-        return False
-    # type() is dict narrows to Top[dict] (keys Never); ty then rejects Literal lookups.
-    raw = cast("dict[str, Any]", params)
-    if len(raw) > _DEAL_CALL_DICT_LEN:
-        return False
-    name = raw.get("name")
-    if not isinstance(name, str) or not ascii_bounded(name, _DEAL_CALL_VAL_LEN, min_len=1):
-        return False
-    arguments = raw.get("arguments")
-    if arguments is not None and type(arguments) is not dict:
-        return False
-    if not all(type(k) is str and ascii_bounded(k, _DEAL_CALL_KEY_LEN) for k in raw):
-        return False
-    for v in raw.values():
-        if v is None:
-            continue
-        if isinstance(v, str) and ascii_bounded(v, _DEAL_CALL_VAL_LEN):
-            continue
-        if type(v) is dict and len(v) <= _DEAL_CALL_DICT_LEN and all(type(nk) is str and ascii_bounded(nk, _DEAL_CALL_KEY_LEN) for nk in v):
-            continue
-        return False
-    return True
-
-
-_deal_call_tool_params_ok = _profile(_deal_call_tool_params_ok_crosshair)
-
-
-@deal.pre(lambda params: _deal_call_tool_params_ok(params))
-def _call_tool_request_params_from_dict(params: dict[str, Any]) -> CallToolRequestParams:
-    # crosshair: off
-    name = params.get("name")
-    if not isinstance(name, str) or not name:
-        raise ValueError("tools/call requires params.name")
-    arguments = params.get("arguments", {})
-    if arguments is None:
-        arguments = {}
-    if not isinstance(arguments, dict):
-        raise ValueError("tools/call params.arguments must be an object")
-    return CallToolRequestParams(name=name, arguments=dict(arguments))
+        name = params.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError("tools/call requires params.name")
+        arguments = params.get("arguments", {})
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            raise ValueError("tools/call params.arguments must be an object")
+        return CallToolRequestParams(name=name, arguments=dict(arguments))
 
 
 def call_tool_result(text: str, *, is_error: bool = False) -> dict[str, Any]:

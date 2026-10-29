@@ -31,20 +31,7 @@ from plugin.mcp import wire_types
 from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.server import MCP_HTTP_MAX_BODY_BYTES, write_http_json
 
-MCP_PROTOCOL_VERSION = wire_types.MCP_PROTOCOL_VERSION
-
 log = logging.getLogger("writeragent.mcp.protocol")
-
-__all__ = [
-    "MCP_PROTOCOL_VERSION",
-    "_SESSION_EXPIRED_MSG",
-    "_get_request_session_id",
-    "_mcp_session_id",
-    "_mcp_session_lock",
-    "_mint_session_id_once",
-    "_reject_stale_session",
-    "_send_mcp_response_headers",
-]
 
 
 def _get_request_session_id(handler: Any) -> str | None:
@@ -57,7 +44,7 @@ def _get_request_session_id(handler: Any) -> str | None:
 def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -> None:
     """CORS plus streamable-HTTP MCP headers on every MCP transport response."""
     send_cors_headers(handler, preflight=False)
-    handler.send_header("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION)
+    handler.send_header("Mcp-Protocol-Version", wire_types.MCP_PROTOCOL_VERSION)
     if session_id:
         handler.send_header("Mcp-Session-Id", session_id)
 
@@ -69,7 +56,7 @@ _mcp_session_lock = threading.Lock()
 _SESSION_EXPIRED_MSG = "Session expired (server restarted). Call initialize again."
 
 
-def _mint_session_id_once() -> str:
+def _mint_session_id_once() -> str:  # pyright: ignore[reportUnusedFunction]
     """Assign uuid4 on first successful initialize; later calls keep that id."""
     global _mcp_session_id
     with _mcp_session_lock:
@@ -78,7 +65,7 @@ def _mint_session_id_once() -> str:
         return _mcp_session_id
 
 
-def _reject_stale_session(handler: Any, msg: Any = None) -> bool:
+def _reject_stale_session(handler: Any, msg: Any = None) -> bool:  # pyright: ignore[reportUnusedFunction]
     """Write HTTP 404 when Mcp-Session-Id is present and not the process id.
 
     Spec clients re-initialize on 404, not 409 or silent success. No header is
