@@ -627,7 +627,6 @@ def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
     from plugin.mcp import mcp_ui
 
     mcp_ui._tested_provider_tunnel_urls.clear()
-    mcp_ui._retired_provider_tunnel_urls.clear()
 
     snippet = MagicMock()
     port = MagicMock()
@@ -663,7 +662,6 @@ def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
         assert written["mcpServers"]["libreoffice"]["url"] == "https://<subdomain>.trycloudflare.com/mcp"
     finally:
         mcp_ui._tested_provider_tunnel_urls.clear()
-        mcp_ui._retired_provider_tunnel_urls.clear()
 
 
 class TestProviderButtonIcons:

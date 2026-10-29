@@ -7,10 +7,10 @@
 
 Concurrency:
 Tunnel line, exit, and retry threads and the UI thread share
-``_tested_provider_tunnel_urls`` and ``_retired_provider_tunnel_urls``.
-``_active_settings_dialog_lock`` covers those two URL caches plus the dialog
-pointer. ``_refresh_active_snippet`` runs only after that lock is released
-because inline dispatch on the main thread re-acquires the lock.
+``_tested_provider_tunnel_urls``. ``_active_settings_dialog_lock`` covers
+that URL cache plus the dialog pointer. ``_refresh_active_snippet`` runs
+only after that lock is released because inline dispatch on the main thread
+re-acquires the lock.
 """
 
 from __future__ import annotations
@@ -34,14 +34,11 @@ from plugin.chatbot.dialogs import copy_to_clipboard, get_checkbox_state, get_co
 log = logging.getLogger("writeragent.mcp.ui")
 
 _active_settings_dialog_ref: Any = None
-# The lock covers the dialog pointer and both URL caches. The posted refresh
+# The lock covers the dialog pointer and the URL cache. The posted refresh
 # runs after the lock is released because post can invoke it inline and that
 # path takes the lock again.
 _active_settings_dialog_lock = threading.Lock()
 _tested_provider_tunnel_urls: dict[str, str] = {}
-# Providers whose cached public URL must not be shown. Set when the tunnel
-# stops, fails, or drops the URL; cleared by a fresh Test or a new connect.
-_retired_provider_tunnel_urls: set[str] = set()
 
 _PROVIDER_DEFAULT_URLS = {"cloudflare": "https://<subdomain>.trycloudflare.com/mcp", "bore": "http://bore.pub:<remote-port>/mcp", "ngrok": "https://<domain>.ngrok-free.app/mcp", "tailscale": "https://<machine>.<tailnet>.ts.net/mcp"}
 
@@ -147,32 +144,22 @@ def remember_tested_tunnel_url(provider: str, url: str) -> None:
     if not p or not url:
         return
     with _active_settings_dialog_lock:
-        _retired_provider_tunnel_urls.discard(p)
         _tested_provider_tunnel_urls[p] = url
 
 
-def clear_tested_provider_tunnel_url(provider: str | None = None) -> None:
-    """Drop cached public URLs that are no longer a live tunnel.
+def clear_tested_provider_tunnel_url(provider: str) -> None:
+    """Drop one provider's cached public URL.
 
-    ``sync_mcp_config_snippet`` kept copying
-    ``_tested_provider_tunnel_urls`` after the tunnel stopped, failed, or
-    lost its public URL. Settings copy and the client snippet still showed
-    that dead URL. Retiring the provider makes the next sync use the local
-    URL or the provider template. ``remember_tested_tunnel_url`` (Test or a
-    new connect) is what puts a URL back.
+    The snippet used to keep copying that URL after the tunnel stopped,
+    failed, or lost its public address. The next sync then uses the local
+    URL or the provider template. ``remember_tested_tunnel_url`` stores a
+    URL again. An empty provider does nothing and does not refresh.
     """
     with _active_settings_dialog_lock:
-        if provider is None:
-            for name in list(_tested_provider_tunnel_urls):
-                _retired_provider_tunnel_urls.add(name)
-            _tested_provider_tunnel_urls.clear()
-        else:
-            p = provider.strip().lower()
-            if not p:
-                return
-            _tested_provider_tunnel_urls.pop(p, None)
-            _retired_provider_tunnel_urls.add(p)
-    # The refresh takes this lock, and post_to_main_thread may run it before post returns.
+        p = provider.strip().lower()
+        if not p:
+            return
+        _tested_provider_tunnel_urls.pop(p, None)
     _refresh_active_snippet()
 
 
@@ -182,11 +169,7 @@ def notify_tunnel_url_acquired(provider: str, url: str) -> None:
     _refresh_active_snippet()
 
 
-def sync_mcp_config_snippet(
-    dlg: Any,
-    custom_tunnel_url: str | None = None,
-    custom_provider: str | None = None,
-) -> None:
+def sync_mcp_config_snippet(dlg: Any) -> None:
     """Synchronize MCP client config snippet according to port, tunnel_enabled, and provider."""
     if not dlg:
         return
@@ -206,18 +189,9 @@ def sync_mcp_config_snippet(
 
     selected_provider = _read_tunnel_provider(dlg)
 
-    if custom_tunnel_url and custom_provider:
-        remember_tested_tunnel_url(custom_provider, custom_tunnel_url)
-    elif custom_tunnel_url:
-        remember_tested_tunnel_url(selected_provider, custom_tunnel_url)
-
-    # A retired entry is a URL from a tunnel that has since stopped, failed,
-    # or dropped its public address. Do not copy it into the snippet. The
-    # membership test and the pop share the lock so a connect cannot store a
-    # URL in the gap the pop would then delete.
+    # Same lock as remember and clear. A stop cannot drop the URL mid-read,
+    # and a connect cannot publish into a gap.
     with _active_settings_dialog_lock:
-        if selected_provider in _retired_provider_tunnel_urls:
-            _tested_provider_tunnel_urls.pop(selected_provider, None)
         active_url = _tested_provider_tunnel_urls.get(selected_provider)
     if not active_url:
         from plugin.mcp import _shared_tunnel
@@ -320,7 +294,9 @@ class TestTunnelListener(BaseActionListener):
                         tunnel_enabled_ctrl = get_optional(self._dlg, "mcp__tunnel_enabled")
                         if tunnel_enabled_ctrl:
                             set_checkbox_state(tunnel_enabled_ctrl, True)
-                        sync_mcp_config_snippet(self._dlg, custom_tunnel_url=pub_url, custom_provider=provider)
+                        if get_checkbox_state(tunnel_enabled_ctrl):
+                            remember_tested_tunnel_url(provider, pub_url)
+                        sync_mcp_config_snippet(self._dlg)
                     msgbox(self._ctx, _("MCP Tunnel Test"), msg)
 
             post_to_main_thread(_apply)
