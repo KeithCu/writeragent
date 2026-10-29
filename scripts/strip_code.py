@@ -259,7 +259,7 @@ def strip_assert_statements(bundle_path: str, dry_run: bool = False) -> None:
 def strip_grammar_obs_calls(bundle_path: str, dry_run: bool = False) -> None:
     """Remove ``grammar_obs(...)`` / ``_grammar_obs(...)`` expression statements from Python files.
 
-    Uses :func:`plugin.framework.ast_stmt_edit.remove_expr_statements` (AST line ranges,
+    Uses :func:`plugin.framework.ast_stmt_edit.remove_statements` (AST line ranges,
     including multi-line calls; inserts ``pass`` when stripping would leave an empty block).
     """
     _walk_and_strip_expr_statements(

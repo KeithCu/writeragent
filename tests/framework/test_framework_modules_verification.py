@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -18,7 +19,6 @@ from plugin.framework.openrouter_model_id import (
     openrouter_model_ids_equivalent,
 )
 from plugin.framework.ast_stmt_edit import (
-    remove_expr_statements,
     remove_statements,
 )
 from plugin.framework.default_models import (
@@ -60,12 +60,14 @@ def test_remove_expr_statements_contracts(src: str) -> None:
         import ast
         return isinstance(node.value, ast.Call) and getattr(node.value.func, "id", None) in ("grammar_obs", "xl")
 
-    res_src, count = remove_expr_statements(src, _match)
+    res_src, count = remove_statements(
+        src,
+        lambda node: isinstance(node, ast.Expr) and _match(node),
+    )
     assert isinstance(res_src, str)
     assert isinstance(count, int)
     assert count >= 0
     # Output must be valid Python syntax
-    import ast
     ast.parse(res_src)
 
 
