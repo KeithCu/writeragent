@@ -45,12 +45,8 @@ def _writer_page_style_name_at_cursor(doc: Any) -> str | None:
     return None
 
 
-def _writer_fallback_style_names() -> tuple[str, ...]:
-    return ("Standard", "Default Page Style")
-
-
 @safe_uno_call(default=None)
-def _read_writer_page_style_mm(doc: Any, style_name: str) -> dict[str, Any] | None:
+def _writer_canvas_for_style(doc: Any, style_name: str) -> str | None:
     page_styles = doc.getStyleFamilies().getByName("PageStyles")
     if not page_styles.hasByName(style_name):
         return None
@@ -61,47 +57,25 @@ def _read_writer_page_style_mm(doc: Any, style_name: str) -> dict[str, Any] | No
     rm = float(style.getPropertyValue("RightMargin")) / 100.0
     tm = float(style.getPropertyValue("TopMargin")) / 100.0
     bm = float(style.getPropertyValue("BottomMargin")) / 100.0
-    landscape = bool(style.getPropertyValue("IsLandscape"))
-    return {
-        "style_name": style_name,
-        "width_mm": w,
-        "height_mm": h,
-        "left_margin_mm": lm,
-        "right_margin_mm": rm,
-        "top_margin_mm": tm,
-        "bottom_margin_mm": bm,
-        "is_landscape": landscape,
-    }
+    orient = "landscape" if bool(style.getPropertyValue("IsLandscape")) else "portrait"
+    return (
+        " Document canvas (Writer): "
+        f"page style '{style_name}'; paper {w:.1f} x {h:.1f} mm ({orient}); "
+        f"margins L/R/T/B {lm:.1f}/{rm:.1f}/"
+        f"{tm:.1f}/{bm:.1f} mm. "
+        "Shape x/y/width/height use LibreOffice units of 1/100 mm. "
+        "For page-anchored shapes, (0,0) is relative to the printable page area (inside margins), not the paper edge."
+    )
 
 
 @safe_uno_call(default="")
 def _format_writer_canvas(doc: Any) -> str:
     resolved = _writer_page_style_name_at_cursor(doc)
-    candidates: list[str] = []
-    if resolved:
-        candidates.append(resolved)
-    candidates.extend(n for n in _writer_fallback_style_names() if n not in candidates)
-
-    geom: dict[str, Any] | None = None
-    used_style = ""
-    for name in candidates:
-        geom = _read_writer_page_style_mm(doc, name)
-        if geom:
-            used_style = name
-            break
-
-    if not geom:
-        return ""
-
-    orient = "landscape" if geom["is_landscape"] else "portrait"
-    return (
-        " Document canvas (Writer): "
-        f"page style '{used_style}'; paper {geom['width_mm']:.1f} x {geom['height_mm']:.1f} mm ({orient}); "
-        f"margins L/R/T/B {geom['left_margin_mm']:.1f}/{geom['right_margin_mm']:.1f}/"
-        f"{geom['top_margin_mm']:.1f}/{geom['bottom_margin_mm']:.1f} mm. "
-        "Shape x/y/width/height use LibreOffice units of 1/100 mm. "
-        "For page-anchored shapes, (0,0) is relative to the printable page area (inside margins), not the paper edge."
-    )
+    for name in dict.fromkeys(n for n in (resolved, "Standard", "Default Page Style") if n):
+        text = _writer_canvas_for_style(doc, name)
+        if text:
+            return text
+    return ""
 
 
 @safe_uno_call(default="")
