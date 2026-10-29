@@ -250,6 +250,12 @@ _COLOR_NAMES: dict[str, int] = {
 _RGB_RE = re.compile(r"^rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*[\d.]+\s*)?\)$")
 
 
+def _pack_rgb(r: int, g: int, b: int) -> int | None:
+    if 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255:
+        return (r << 16) | (g << 8) | b
+    return None
+
+
 def parse_color_to_uno_int(color_val: Any) -> int | None:
     """Convert hex, named, rgb()/rgba(), int, or RGB tuple/list to a UNO RGB int.
 
@@ -257,8 +263,6 @@ def parse_color_to_uno_int(color_val: Any) -> int | None:
     to 24-bit RGB. Callers that only accept strings (e.g. Calc ``set_style``) should
     reject non-strings before calling this.
     """
-    if color_val is None or color_val is False:
-        return None
     if isinstance(color_val, bool):
         # bool is a subclass of int; never treat True/False as colors.
         return None
@@ -269,12 +273,8 @@ def parse_color_to_uno_int(color_val: Any) -> int | None:
             r, g, b = int(color_val[0]), int(color_val[1]), int(color_val[2])
         except (TypeError, ValueError):
             return None
-        if 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255:
-            return (r << 16) | (g << 8) | b
-        return None
+        return _pack_rgb(r, g, b)
     if not isinstance(color_val, str):
-        return None
-    if not color_val.strip():
         return None
 
     color_str = color_val.strip().lower()
@@ -284,21 +284,9 @@ def parse_color_to_uno_int(color_val: Any) -> int | None:
 
     rgb_match = _RGB_RE.match(color_str)
     if rgb_match:
-        try:
-            r = int(rgb_match.group(1))
-            g = int(rgb_match.group(2))
-            b = int(rgb_match.group(3))
-        except ValueError:
-            return None
-        if 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255:
-            return (r << 16) | (g << 8) | b
-        return None
+        return _pack_rgb(int(rgb_match.group(1)), int(rgb_match.group(2)), int(rgb_match.group(3)))
 
-    hex_str = color_str
-    if hex_str.startswith("0x"):
-        hex_str = hex_str[2:]
-    else:
-        hex_str = hex_str.lstrip("#")
+    hex_str = color_str[2:] if color_str.startswith("0x") else color_str.lstrip("#")
     if len(hex_str) == 3:
         hex_str = "".join(c * 2 for c in hex_str)
     if len(hex_str) == 6:
@@ -352,10 +340,7 @@ def apply_character_properties(
         results["CharPosture"] = safe_set_property(target, "CharPosture", _font_slant(italic))
     if color is not None:
         parsed = parse_color_to_uno_int(color)
-        if parsed is not None:
-            results["CharColor"] = safe_set_property(target, "CharColor", parsed)
-        else:
-            results["CharColor"] = False
+        results["CharColor"] = parsed is not None and safe_set_property(target, "CharColor", parsed)
     if underline is not None:
         results["CharUnderline"] = safe_set_property(target, "CharUnderline", underline)
     return results
