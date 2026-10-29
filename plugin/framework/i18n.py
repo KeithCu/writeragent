@@ -107,14 +107,9 @@ def get_lo_locale(ctx: Any | None = None) -> str:
 def _mo_candidates(localedir: str, lang: str) -> list[str]:
     # crosshair: off
     """Likely ``.mo`` paths for *lang* (exact tag, then language stem)."""
-    tags = [lang]
     stem = lang.split(".")[0]
-    if stem not in tags:
-        tags.append(stem)
-    if "_" in stem:
-        prefix = stem.split("_", 1)[0]
-        if prefix not in tags:
-            tags.append(prefix)
+    # First-seen order is the search order: exact tag, text before '.', language before '_'.
+    tags = dict.fromkeys((lang, stem, stem.split("_", 1)[0]))
     return [os.path.join(localedir, tag, "LC_MESSAGES", f"{_DOMAIN}.mo") for tag in tags]
 
 
