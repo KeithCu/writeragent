@@ -80,11 +80,9 @@ class DiagnosticEntry:
 class PythonDiagnosticsStore:
     """Thread-safe ring buffer of diagnostics keyed by workbook."""
 
-    _max: int
     _lock: threading.Lock
 
-    def __init__(self, *, max_entries: int = _MAX_ENTRIES_PER_WORKBOOK) -> None:
-        self._max = max(1, int(max_entries))
+    def __init__(self) -> None:
         self._lock = threading.Lock()
         self._by_workbook: OrderedDict[str, deque[DiagnosticEntry]] = OrderedDict()
         self._listeners: list[Any] = []
@@ -108,7 +106,7 @@ class PythonDiagnosticsStore:
                 # The store is a process-wide singleton and an evicted bucket is simply no longer listed.
                 if len(self._by_workbook) >= _MAX_WORKBOOKS:
                     self._by_workbook.pop(next(iter(self._by_workbook)))
-                bucket = deque(maxlen=self._max)
+                bucket = deque(maxlen=_MAX_ENTRIES_PER_WORKBOOK)
                 self._by_workbook[key] = bucket
             else:
                 self._by_workbook.move_to_end(key)
@@ -159,12 +157,7 @@ def get_diagnostics_store() -> PythonDiagnosticsStore:
     return _STORE
 
 
-def record_python_eval(*, workbook_key: str, code: str, status: str, message: str = "", stdout: str = "", traceback: str = "", sheet: str = "", address: str = "") -> DiagnosticEntry:
-    """Record one ``=PY()`` outcome (safe to call from formula evaluation)."""
-    return _STORE.record(workbook_key=workbook_key, code=code, status=status, message=message, stdout=stdout, traceback=traceback, sheet=sheet, address=address)
-
-
-def diagnostics_workbook_key(ctx: Any, doc: Any | None = None) -> str:
+def diagnostics_workbook_key(doc: Any | None = None) -> str:
     """Stable workbook key for the diagnostics store (UNO-light best effort).
 
     Uses the calling document only, and only reads an existing session id

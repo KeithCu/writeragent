@@ -1943,7 +1943,7 @@ def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, st
 
     Skips successful evaluations with empty stdout so the log stays actionable.
     """
-    from plugin.calc.python.diagnostics import diagnostics_workbook_key, record_python_eval
+    from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 
     stdout = ""
     tb = traceback
@@ -1958,8 +1958,8 @@ def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, st
     if status == "ok" and not (stdout or "").strip():
         return
     best_effort(
-        lambda: record_python_eval(
-            workbook_key=diagnostics_workbook_key(ctx, doc=doc),
+        lambda: get_diagnostics_store().record(
+            workbook_key=diagnostics_workbook_key(doc),
             code=code or "",
             status=status,
             message=msg,
