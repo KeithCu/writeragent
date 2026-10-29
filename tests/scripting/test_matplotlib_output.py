@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from plugin.scripting.payload_codec import (
@@ -546,6 +548,8 @@ def test_capture_open_figures_closes_when_render_raises(monkeypatch):
         raise RuntimeError("bad figure")
 
     monkeypatch.setattr(vs, "_figure_to_image_payload", boom)
+    # Capture skips work until pyplot is imported; don't depend on test order.
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", _Plt())
     with pytest.raises(RuntimeError, match="bad figure"):
         vs._capture_open_figures_payload()
     assert closed["n"] == 1
