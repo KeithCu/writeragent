@@ -394,20 +394,23 @@ def insert_image_result_on_sheet(
     # If called from a background recalculation or script worker thread, post asynchronously to the main thread.
     # The main-thread path lets ImageEgressError propagate and the off-main notify_cell path annotates
     # instead, because the formula has already been answered by the time the posted callable runs.
+    def _run() -> None:
+        _insert_image_result_on_sheet_impl(
+            ctx,
+            payload,
+            code=code,
+            doc=doc,
+            image_index=image_index,
+            image_path=image_path,
+            image_count=image_count,
+        )
+        if notify_cell:
+            _clear_image_cell_annotation(ctx, doc, code)
+
     if not on_main_thread():
         def _off_main_wrapper() -> None:
             try:
-                _insert_image_result_on_sheet_impl(
-                    ctx,
-                    payload,
-                    code=code,
-                    doc=doc,
-                    image_index=image_index,
-                    image_path=image_path,
-                    image_count=image_count,
-                )
-                if notify_cell:
-                    _clear_image_cell_annotation(ctx, doc, code)
+                _run()
             except ImageEgressError as err:
                 if notify_cell:
                     _set_image_cell_annotation(ctx, doc, code, str(err))
@@ -417,17 +420,7 @@ def insert_image_result_on_sheet(
         post_to_main_thread(_off_main_wrapper)
         return
 
-    _insert_image_result_on_sheet_impl(
-        ctx,
-        payload,
-        code=code,
-        doc=doc,
-        image_index=image_index,
-        image_path=image_path,
-        image_count=image_count,
-    )
-    if notify_cell:
-        _clear_image_cell_annotation(ctx, doc, code)
+    _run()
 
 
 def _insert_image_result_on_sheet_impl(
@@ -523,10 +516,9 @@ def _insert_image_result_on_sheet_impl(
             except Exception:
                 log.debug("insert_image_result_on_sheet: selection fallback failed", exc_info=True)
 
-        we_created_temp = False
         if image_path:
             tmp_path = image_path
-        elif payload is not None and isinstance(payload, dict) and payload.get("image_path"):
+        elif payload.get("image_path"):
             tmp_path = str(payload["image_path"])
         else:
             tmp_path = write_image_payload_to_temp(payload)

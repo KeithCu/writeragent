@@ -60,6 +60,12 @@ def _append_table_rows(
                 rows.append([cell(row)])
 
 
+def _append_truncation_note(rows: list[list[Any]], table: dict[str, Any]) -> None:
+    if table.get("truncated"):
+        total = table.get("total_rows")
+        rows.append([f"(showing first rows; {total} total)" if total is not None else "(truncated)"])
+
+
 def calc_anchor_from_selection(doc: Any) -> tuple[int, int]:
     """Return (start_col, start_row) from the current Calc selection."""
     controller = doc.getCurrentController()
@@ -105,10 +111,7 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
             _append_blank(rows)
             rows.append([str(table.get("name") or "table")])
             _append_table_rows(rows, table.get("columns"), table.get("rows"), _cell)
-            if table.get("truncated"):
-                total = table.get("total_rows")
-                note = f"(showing first rows; {total} total)" if total is not None else "(truncated)"
-                rows.append([note])
+            _append_truncation_note(rows, table)
 
     metadata = result.get("metadata")
     if isinstance(metadata, dict) and metadata:
@@ -147,9 +150,8 @@ def insert_tabular_result_into_calc(
         addr = qualify_a1(sheet_name, addr)
 
     grid = pad_grid(grid)
-    rows = len(grid)
-    cols = len(grid[0]) if rows > 0 else 0
-    if rows > 0 and cols > 0:
+    if grid and grid[0]:
+        rows, cols = len(grid), len(grid[0])
         # Refuse to overwrite user data, same as _write_array_formula in manipulator.py.
         sheet = bridge.get_sheet(sheet_name) if sheet_name else bridge.get_active_sheet()
         occupied: list[tuple[int, int]] = []
