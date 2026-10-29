@@ -18,16 +18,6 @@ from plugin.draw.bridge import DrawBridge
 from plugin.framework.errors import uno_probe
 from plugin.framework.tool import ToolBase, ToolContext
 
-# XShape.getShapeType() is the authoritative service name. Exact short names;
-# never substring, so "title" cannot also match "subtitle".
-_ROLE_BY_TYPE = {
-    "TitleTextShape": "title",
-    "SubtitleShape": "subtitle",
-    "OutlinerShape": "body",
-    "OutlineShape": "body",
-    "NotesShape": "notes",
-}
-
 # Specific tokens first so matching is not shape-order / substring-any.
 # Name tags, not class names. "title" is also a substring of "subtitle" — subtitle first.
 _ROLE_PRIORITY = (
@@ -68,7 +58,7 @@ def _scan_shapes(page: Any) -> list[_ScanRow]:
         shape = page.getByIndex(i)
         name = uno_probe(lambda: str(shape.Name), "") or ""
         shape_type = _shape_type(shape)
-        role = _ROLE_BY_TYPE.get(shape_type) or _role_from_label(shape_type) or ""
+        role = _role_from_label(shape_type) or ""
         has_text = uno_probe(lambda: hasattr(shape, "getString"), False)
         out.append((i, shape, shape_type, role, name, has_text))
     return out
@@ -78,19 +68,19 @@ def _find_placeholder(page: Any, role: str, scan: list[_ScanRow] | None = None) 
     """Find a placeholder shape by role name.
 
     Tries multiple identification strategies:
-    1. exact getShapeType() map
-    2. shape Name tag. Never by position.
+    1. shape-type role from _role_from_label
+    2. shape Name through the same table. Never by position.
     """
     role_lower = role.lower()
     if scan is None:
         scan = _scan_shapes(page)
 
-    # Strategy 1: exact getShapeType() map
+    # Strategy 1: role taken from the shape type
     for i, shape, _shape_type, type_role, _name, _has_text in scan:
         if type_role == role_lower:
             return shape, i
 
-    # Strategy 2: match by shape Name using the same map
+    # Strategy 2: shape Name via _role_from_label
     for i, shape, _shape_type, _type_role, name, _has_text in scan:
         if name and _role_from_label(name) == role_lower:
             return shape, i
