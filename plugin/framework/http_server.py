@@ -35,7 +35,6 @@ log = logging.getLogger("writeragent.framework.http_server")
 
 __all__ = [
     "DualStackThreadPoolHTTPServer",
-    "_PORT_IN_USE_ERRNOS",
     "_PORT_IN_USE_GUIDANCE",
     "format_bind_failure",
     "is_port_in_use_error",
@@ -233,7 +232,7 @@ class _RequestThreads:
         return cancelled
 
 
-def format_bind_failure(host: str, port: int | str, exc: BaseException, service_name: str = "HTTP") -> str:
+def format_bind_failure(host: str, port: int | str, exc: BaseException) -> str:
     """Short user-facing body for server start failures (no full traceback).
 
     Always includes host:port and the exception line. Port conflicts get the same
@@ -461,9 +460,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         if not done.wait(timeout):
             log.warning("HTTP request drain exceeded %.0fs; abandoning in-flight handlers", timeout)
 
-    def fileno(self) -> int:
-        return self.socket.fileno()
-
     def _warn_due(self, attr: str, now: float) -> bool:
         if now - getattr(self, attr) < _WARN_THROTTLE_SEC:
             return False
@@ -673,22 +669,18 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         """Submit incoming request to the thread pool executor."""
         try:
             fut = self.executor.submit(self.process_request_thread, request, client_address, established=established)
-        except _AcceptQueueFull as exc:
-            now = time.monotonic()
-            if self._warn_due("_last_queue_full_warn", now):
-                log.warning(
-                    "Accept queue full (%d pending, cap %d); closing connection",
-                    exc.pending,
-                    exc.limit,
-                )
-            self._on_queue_full(request)
-            try:
-                self.shutdown_request(request)
-            except Exception:
-                log.exception("Failed to close accepted connection")
-            return
-        except Exception:
-            log.exception("Failed to submit accepted connection")
+        except Exception as exc:
+            if isinstance(exc, _AcceptQueueFull):
+                now = time.monotonic()
+                if self._warn_due("_last_queue_full_warn", now):
+                    log.warning(
+                        "Accept queue full (%d pending, cap %d); closing connection",
+                        exc.pending,
+                        exc.limit,
+                    )
+                self._on_queue_full(request)
+            else:
+                log.exception("Failed to submit accepted connection")
             try:
                 self.shutdown_request(request)
             except Exception:

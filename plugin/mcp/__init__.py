@@ -241,7 +241,7 @@ class McpModule(ModuleBase):
             return ""
         host, port, exc = _last_start_failure
         shown = port if port is not None else "?"
-        return format_bind_failure(host, shown, exc, service_name="MCP")
+        return format_bind_failure(host, shown, exc)
 
     def _start_failure_reportable(self) -> bool:
         if _last_start_failure is None:

@@ -76,7 +76,7 @@ def test_is_port_in_use_error_by_errno():
 
 
 def test_format_mcp_start_failure_port_in_use():
-    msg = format_bind_failure("localhost", 18765, OSError(98, "Address already in use"), service_name="MCP")
+    msg = format_bind_failure("localhost", 18765, OSError(98, "Address already in use"))
     assert "localhost:18765" in msg
     assert "OSError" in msg
     assert _PORT_IN_USE_GUIDANCE in msg
@@ -84,7 +84,7 @@ def test_format_mcp_start_failure_port_in_use():
 
 
 def test_format_mcp_start_failure_other_oserror():
-    msg = format_bind_failure("127.0.0.1", 9000, OSError(13, "Permission denied"), service_name="MCP")
+    msg = format_bind_failure("127.0.0.1", 9000, OSError(13, "Permission denied"))
     assert "127.0.0.1:9000" in msg
     assert "Permission denied" in msg
     assert _PORT_IN_USE_GUIDANCE not in msg
