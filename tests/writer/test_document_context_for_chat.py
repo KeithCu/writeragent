@@ -4,10 +4,9 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.doc.document_helpers import (
-    _inject_markers_into_excerpt,
+    _inject_selection_markers,
     _writer_selection_overlaps_windows,
     get_document_context_for_chat,
-    get_full_document_text,
 )
 from plugin.doc.text_helpers import _read_writer_text_slice
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
@@ -36,7 +35,11 @@ def test_read_writer_text_slice_uses_deletion_filter(mock_get_cursor, mock_witho
 )
 def test_inject_markers_into_excerpt_selection_inside(value, value_2, expected):
     excerpt = "abcdefghij"
-    out = _inject_markers_into_excerpt(excerpt, 0, 10, value, value_2, "[START]\n", "\n[END]")
+    with patch(
+        "plugin.doc.text_helpers._read_writer_text_slice",
+        side_effect=lambda _model, start, length: excerpt[start:start + length],
+    ):
+        out = _inject_selection_markers(MagicMock(), excerpt, 0, 10, value, value_2, "[START]\n", "\n[END]")
     assert out == expected
 
 @patch("plugin.doc.text_helpers._read_writer_text_slice")
@@ -182,39 +185,6 @@ def test_writer_selection_overlaps_windows_false_when_before_excerpt():
 
     with patch("plugin.doc.text_helpers.get_text_cursor_at_range", return_value=exc_cursor):
         assert _writer_selection_overlaps_windows(model, [(100, 200)], "sel_start", "sel_end") is False
-
-
-@patch("plugin.doc.text_helpers.get_full_writer_text", return_value="writer body")
-@patch("plugin.doc.doc_type.get_document_type")
-def test_get_full_document_text_writer_uses_text_helpers(mock_doc_type, mock_writer):
-    from plugin.doc.doc_type import DocumentType
-
-    mock_doc_type.return_value = DocumentType.WRITER
-    model = MagicMock()
-    assert get_full_document_text(model, max_chars=50) == "writer body"
-    mock_writer.assert_called_once_with(model, 50)
-
-
-@patch("plugin.calc.analyzer.get_full_calc_text", return_value="calc summary")
-@patch("plugin.doc.doc_type.get_document_type")
-def test_get_full_document_text_calc_lazy_imports_analyzer(mock_doc_type, mock_calc):
-    from plugin.doc.doc_type import DocumentType
-
-    mock_doc_type.return_value = DocumentType.CALC
-    model = MagicMock()
-    assert get_full_document_text(model, max_chars=80) == "calc summary"
-    mock_calc.assert_called_once_with(model, 80)
-
-
-@patch("plugin.draw.bridge.get_draw_context_for_chat", return_value="draw summary")
-@patch("plugin.doc.doc_type.get_document_type")
-def test_get_full_document_text_draw_uses_bridge(mock_doc_type, mock_draw):
-    from plugin.doc.doc_type import DocumentType
-
-    mock_doc_type.return_value = DocumentType.DRAW
-    model = MagicMock()
-    assert get_full_document_text(model, max_chars=90) == "draw summary"
-    mock_draw.assert_called_once_with(model, 90)
 
 
 @patch("plugin.draw.bridge.get_draw_context_for_chat", return_value="impress summary")

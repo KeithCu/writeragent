@@ -8,7 +8,6 @@ import pytest
 from plugin.doc.document_helpers import (
     DocumentService,
     get_document_context_for_chat,
-    get_full_document_text,
     resolve_locator,
 )
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
@@ -547,14 +546,6 @@ def test_get_page_count_handles_nested_xtext_cursor():
 
     assert count == 274
     mock_body.createTextCursorByRange.assert_not_called()
-
-def test_get_full_document_text_disposed():
-    model = MagicMock()
-    model.supportsService.side_effect = DocumentDisposedError("stale")
-
-    with pytest.raises(DocumentDisposedError):
-        get_full_document_text(model)
-
 
 def test_get_document_context_for_chat_writer_disposed():
     model = MagicMock()
