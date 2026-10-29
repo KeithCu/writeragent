@@ -128,18 +128,11 @@ class ModuleLoader:
             if name == "core":
                 continue
 
-            # Try nested path first (e.g. "launcher/providers/claude")
             rel_path = name.replace(".", os.sep)
             module_dir = os.path.join(get_plugin_dir(), rel_path)
             import_path = "plugin." + name
-
             if not os.path.isdir(module_dir):
-                # Legacy fallback for flat paths (e.g. "launcher_claude")
-                dir_name = name.replace(".", "_")
-                module_dir = os.path.join(get_plugin_dir(), dir_name)
-                import_path = "plugin." + dir_name
-                if not os.path.isdir(module_dir):
-                    continue
+                continue
 
             # Dynamic ModuleBase initialization
             try:

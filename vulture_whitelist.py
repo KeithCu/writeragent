@@ -348,7 +348,6 @@ _.dispatch_text  # function: plugin/scripting/venv/trusted_dispatch.py:109
 _.dispatch_vale  # function: plugin/scripting/venv/trusted_dispatch.py:150
 _.dispatch_vision  # function: plugin/scripting/venv/trusted_dispatch.py:119
 _.initialize_all  # method: plugin/framework/service.py:175
-_.service_names  # other: plugin/framework/service.py:183
 
 # =============================================================================
 # 4. Test-Only Code, Fixtures, Hooks, and Samples

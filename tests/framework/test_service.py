@@ -41,16 +41,6 @@ class DummyService(ServiceBase):
 class AnotherService(ServiceBase):
     name = 'another'
 
-class TestServiceBase():
-
-    def test_service_base_methods(self):
-
-        class MyService(ServiceBase):
-            name = 'my_service'
-        svc = MyService()
-        svc.initialize('mock_ctx')
-        svc.shutdown()
-
 class TestRegister():
 
     def test_register_and_get(self):
@@ -98,5 +88,5 @@ class TestAccess():
         reg = ServiceRegistry()
         reg.register('dummy', DummyService())
         reg.register('another', AnotherService())
-        assert (set(reg.service_names) == {'dummy', 'another'})
+        assert (set(reg._services) == {'dummy', 'another'})
 
