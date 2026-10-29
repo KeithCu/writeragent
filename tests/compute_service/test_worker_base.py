@@ -2263,7 +2263,7 @@ def test_unadopted_child_that_survives_kill_is_abandoned(monkeypatch: pytest.Mon
     with caplog.at_level(logging.WARNING, logger="compute_service.worker"):
         assert loser.signal_from() is True
     assert any("abandoning" in record.getMessage() for record in caplog.records)
-    assert enqueued == [("abandon", loser.managed)]
+    assert enqueued == [loser.managed]
     assert worker.process is published
     assert published.killed is False
 
@@ -2471,7 +2471,7 @@ def test_abandoned_diagnostic_does_not_join_the_drain(monkeypatch: pytest.Monkey
     worker.child = child
     assert worker.kill() is True
     assert worker.child is None
-    assert enqueued == [("abandon", child.managed)]
+    assert enqueued == [child.managed]
     assert "still-running" in child.diagnostic_tail()
 
 
@@ -3004,7 +3004,7 @@ def test_child_signal_kills_grandchild() -> None:
                 os.kill(gpid, signal.SIGKILL)
             except OSError:
                 pass
-        managed.close()
+        managed.kill_tree()
 
 
 

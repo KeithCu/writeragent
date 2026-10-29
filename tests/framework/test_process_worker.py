@@ -230,7 +230,7 @@ def test_abandoned_after_wait_timeout(
     assert child.signal_from() is True
     assert proc.events == ["kill", "stdin", "stdout", "wait"]
     assert proc.stderr.closed is False
-    assert reaper_enqueued == [("abandon", child.managed)]
+    assert reaper_enqueued == [child.managed]
 
     warning_records = [
         r

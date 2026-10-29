@@ -1386,7 +1386,7 @@ def test_persistent_editor_terminate_signals_live_child_without_managed_close(
 
     killed_procs: list[Any] = []
     monkeypatch.setattr(launch_mod, "kill_process_tree", lambda p: killed_procs.append(p))
-    monkeypatch.setattr(launch_mod.ManagedSubprocess, "close", MagicMock(side_effect=AssertionError("close called")))
+    monkeypatch.setattr(launch_mod.ManagedSubprocess, "close", MagicMock(side_effect=AssertionError("close called")), raising=False)
     monkeypatch.setattr(launch_mod.ManagedSubprocess, "kill_tree", MagicMock(side_effect=AssertionError("kill_tree called")))
 
     editor.terminate()
@@ -1414,7 +1414,7 @@ def test_persistent_editor_terminate_kills_only_when_wait_times_out(
 
     killed_procs: list[Any] = []
     monkeypatch.setattr(launch_mod, "kill_process_tree", lambda p: killed_procs.append(p))
-    monkeypatch.setattr(launch_mod.ManagedSubprocess, "close", MagicMock(side_effect=AssertionError("close called")))
+    monkeypatch.setattr(launch_mod.ManagedSubprocess, "close", MagicMock(side_effect=AssertionError("close called")), raising=False)
     monkeypatch.setattr(launch_mod.ManagedSubprocess, "kill_tree", MagicMock(side_effect=AssertionError("kill_tree called")))
 
     editor.terminate()
