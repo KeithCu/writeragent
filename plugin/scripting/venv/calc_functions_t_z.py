@@ -237,7 +237,7 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         # bool("0") is true, so a zero flag invented a virtual delimiter.
         # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
         use_end = _as_nonzero(match_end)
-        s, _delim, inst, idx, match_end_miss = _find_text_cut(
+        s, inst, idx, match_end_miss = _find_text_cut(
             text, delimiter, instance_num, match_mode, after=after
         )
         if idx is not None:

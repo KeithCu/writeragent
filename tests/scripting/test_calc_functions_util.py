@@ -31,7 +31,6 @@ from plugin.scripting.venv.calc_functions_util import (
     _npf_result,
     _parse_weekend,
     _serial_to_date,
-    _to_float_a,
     _wildcard_fullmatch,
     match_criteria,
 )
@@ -129,22 +128,6 @@ def test_extract_numeric_array():
     assert np.allclose(arr_with_bool, [10.0, 1.0, 0.0])
 
 
-def test_to_float_a():
-    assert _to_float_a(42) == 42.0
-    assert _to_float_a(3.14) == 3.14
-    assert _to_float_a(True) == 1.0
-    assert _to_float_a(False) == 0.0
-    assert _to_float_a(np.bool_(True)) == 1.0
-    assert _to_float_a(np.bool_(False)) == 0.0
-    assert _to_float_a(None) == 0.0
-    assert _to_float_a("") == 0.0
-    assert _to_float_a("invalid") == 0.0
-    assert _to_float_a("#VALUE!") == 0.0
-    # int past the float range used to raise OverflowError out of the helper.
-    assert _to_float_a(10**400) == 0.0
-    assert _to_float_a(-(10**400)) == 0.0
-
-
 def test_collect_a_values():
     # None is skipped (blank cell), while "" and "text" evaluate to 0.0
     res = _collect_a_values([1.0, 2.0], True, False, "text", "", None, [3.0, np.bool_(True)])
@@ -152,6 +135,8 @@ def test_collect_a_values():
     assert np.allclose(res, [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, 3.0, 1.0])
     empty_res = _collect_a_values()
     assert len(empty_res) == 0
+    assert list(_collect_a_values(10**400)) == [0.0]
+    assert list(_collect_a_values(-(10**400))) == [0.0]
 
 
 def test_serial_to_date():
@@ -213,46 +198,46 @@ def test_find_text_cut():
     import pytest
 
     # Positive instance, before
-    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 1, after=False)
-    assert (s, delim, inst, idx, at_end) == ("a-b-c", "-", 1, 1, False)
+    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 1, after=False)
+    assert (s, inst, idx, at_end) == ("a-b-c", 1, 1, False)
 
     # Positive instance, after
-    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 1, after=True)
-    assert (s, delim, inst, idx, at_end) == ("a-b-c", "-", 1, 2, False)
+    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 1, after=True)
+    assert (s, inst, idx, at_end) == ("a-b-c", 1, 2, False)
 
     # Second instance, before and after
-    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 2, after=False)
+    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 2, after=False)
     assert idx == 3
-    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 2, after=True)
+    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 2, after=True)
     assert idx == 4
 
     # Negative instance
-    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=False)
+    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=False)
     assert (idx, at_end) == (3, False)
-    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=True)
+    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=True)
     # End of the last hyphen. The remainder starts at 4, not at the
     # hyphen itself: TEXTAFTER used to add len(delim) to a start index.
     assert (idx, at_end) == (4, False)
 
     # Match mode 1 (case insensitive)
-    s, delim, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=False)
+    s, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=False)
     assert idx == 3
-    s, delim, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=True)
+    s, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=True)
     assert idx == 6
 
     # Match end miss (instance lands on boundary)
-    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 3)
+    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 3)
     assert idx is None and at_end is True
 
     # Real miss (beyond boundary)
-    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 4)
+    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 4)
     assert idx is None and at_end is False
 
     # lower() of İ grows, so an index into the lowered string included "b".
-    s, delim, inst, idx, at_end = _find_text_cut("aİb", "b", 1, match_mode=1, after=False)
+    s, inst, idx, at_end = _find_text_cut("aİb", "b", 1, match_mode=1, after=False)
     assert idx == 2
     # rfind saw an overlapping second "aa". The walk is non-overlapping.
-    s, delim, inst, idx, at_end = _find_text_cut("aaa", "aa", -1, after=False)
+    s, inst, idx, at_end = _find_text_cut("aaa", "aa", -1, after=False)
     assert idx == 0
 
     # Instance 0 raises ValueError
