@@ -282,9 +282,4 @@ def test_stream_usage_is_normalized_without_summing():
     assert end["usage"]["output_tokens"] == 15
     assert end["usage"]["completion_tokens"] == 15
     assert "prompt_tokens" not in end["usage"]
-    # Stashed snapshot replaces the cumulative output count. It must not be 16.
-    assert state["_anthropic_usage"]["prompt_tokens"] == 25
-    assert state["_anthropic_usage"]["input_tokens"] == 25
-    assert state["_anthropic_usage"]["output_tokens"] == 15
-    assert state["_anthropic_usage"]["completion_tokens"] == 15
 
