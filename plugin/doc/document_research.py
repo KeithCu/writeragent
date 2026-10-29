@@ -88,14 +88,10 @@ _EXTENSION_DOC_TYPE: dict[str, DocTypeGuess] = {
     ".odg": "draw",
     ".pptx": "draw",
     ".ppt": "draw",
-    ".png": "image",
-    ".jpg": "image",
-    ".jpeg": "image",
-    ".gif": "image",
-    ".webp": "image",
-    ".bmp": "image",
-    ".svg": "image",
 }
+
+for _image_ext in NEARBY_IMAGE_EXTENSIONS:
+    _EXTENSION_DOC_TYPE[_image_ext] = "image"
 
 
 def _extensions_for_file_kind(file_kind: FileKind) -> frozenset[str]:
@@ -114,12 +110,8 @@ def filter_document_research_discovery_tools(tools: list[ToolBase]) -> list[Tool
     """Hide cross-file search tools that do not apply to the current folder_search_mode; list/delegate always kept."""
     from plugin.framework.constants import folder_search_enabled
 
-    hidden: set[str] = set()
-    if folder_search_enabled():
-        hidden.add("grep_nearby_files")
-    else:
-        hidden.add("search_nearby_files")
-    return [t for t in tools if t.name not in hidden]
+    hidden = "grep_nearby_files" if folder_search_enabled() else "search_nearby_files"
+    return [t for t in tools if t.name != hidden]
 
 
 def _normalize_path(path: str) -> str:
@@ -303,7 +295,7 @@ def _scan_directory(
     except OSError as e:
         raise OSError(f"Cannot list directory {directory!r}: {e}") from e
 
-    candidates: list[tuple[str, tuple[str, os.stat_result]]] = []
+    candidates: list[tuple[str, str, str, os.stat_result]] = []
     for idx, name in enumerate(names):
         if idx % 50 == 0 and stop_checker and stop_checker():
             raise InterruptedError("USER_STOPPED")
@@ -327,27 +319,17 @@ def _scan_directory(
             st = os.stat(full)
         except OSError:
             continue
-        candidates.append((name, (full, st)))
+        candidates.append((name, full, norm, st))
 
-    # Sort by mtime newest first
-    candidates.sort(key=lambda item: item[1][1].st_mtime, reverse=True)
+    candidates.sort(key=lambda item: item[3].st_mtime, reverse=True)
 
-    for name, (full, st) in candidates:
+    for name, full, norm, st in candidates:
         if len(entries) >= max_entries:
             truncated = True
             break
-        norm = _normalize_path(full)
         url = open_paths.get(norm) or path_to_file_url(full)
         entries.append(
-            FileEntry(
-                path=norm,
-                name=name,
-                url=url,
-                modified=st.st_mtime,
-                size_bytes=st.st_size,
-                doc_type_guess=guess_doc_type_from_path(full),
-                is_open=norm in open_paths,
-            )
+            _make_entry(norm, name, url, st.st_mtime, st.st_size, is_open=norm in open_paths)
         )
     return entries, truncated
 
@@ -381,38 +363,50 @@ def _entries_from_open_only(
             truncated = True
             break
         entries.append(
-            FileEntry(
-                path=norm,
-                name=os.path.basename(norm),
-                url=url,
-                modified=mtime,
-                size_bytes=size,
-                doc_type_guess=guess_doc_type_from_path(norm),
-                is_open=True,
-            )
+            _make_entry(norm, os.path.basename(norm), url, mtime, size, is_open=True)
         )
     return entries, truncated
 
 
+def _make_entry(
+    path: str,
+    name: str,
+    url: str,
+    modified: float,
+    size_bytes: int,
+    *,
+    is_open: bool,
+) -> FileEntry:
+    return FileEntry(
+        path=path,
+        name=name,
+        url=url,
+        modified=modified,
+        size_bytes=size_bytes,
+        doc_type_guess=guess_doc_type_from_path(path),
+        is_open=is_open,
+    )
+
+
 def file_entry_for_path(path: str) -> FileEntry:
     """Build a FileEntry dict for a single file on disk."""
-    norm = os.path.normpath(os.path.abspath(path))
-    entry = FileEntry(
-        path=norm,
-        name=os.path.basename(norm),
-        url=path_to_file_url(norm),
-        modified=0.0,
-        size_bytes=0,
-        doc_type_guess=guess_doc_type_from_path(norm),
-        is_open=False,
-    )
+    norm = _normalize_path(path)
+    modified = 0.0
+    size_bytes = 0
     try:
         st = os.stat(norm)
-        entry["modified"] = st.st_mtime
-        entry["size_bytes"] = st.st_size
+        modified = st.st_mtime
+        size_bytes = st.st_size
     except OSError:
         pass
-    return entry
+    return _make_entry(
+        norm,
+        os.path.basename(norm),
+        path_to_file_url(norm),
+        modified,
+        size_bytes,
+        is_open=False,
+    )
 
 
 _USE_DEFAULT = object()
@@ -528,7 +522,7 @@ def resolve_path_or_name(
         return norm, path_to_file_url(norm)
 
     listing = list_nearby_files(
-        ctx, active_model, filter=filter or raw, file_kind=file_kind, max_entries=_DEFAULT_MAX_ENTRIES
+        ctx, active_model, filter=filter or raw, file_kind=file_kind
     )
     if listing.get("status") != "ok":
         return None, listing.get("message", "Could not resolve file")
@@ -692,12 +686,10 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     leaves as ``ListenerBoundary``. A runtime error is re-raised as itself,
     not as disposal and not as ``[]``.
     """
-    from plugin.framework.thread_guard import assert_main_thread
-    from plugin.framework.uno_context import get_desktop
     from plugin.doc.doc_type import get_document_type
-    from plugin.framework.uno_context import get_runtime_uid
+    from plugin.framework.thread_guard import assert_main_thread
+    from plugin.framework.uno_context import get_desktop, get_runtime_uid
     from plugin.framework.uno_listeners import reraise_listener_boundary
-    import os
 
     try:
         assert_main_thread("document_research.get_open_documents")
@@ -748,40 +740,27 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
 
         if not uno_read(_is_office_doc, True):
             continue
-        url = model.getURL()
-        if not url:
-            # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
-            # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
-            doc_type = uno_read(
-                lambda: doc_type_family_label(get_document_type(model)),
-                "unknown",
-            )
-            if doc_type == "unknown":
-                log.debug("get_open_documents: doc type lookup failed for an untitled doc", exc_info=True)
-            docs.append({
-                "name": "Untitled",
-                "url": "",
-                "uid": get_runtime_uid(model),
-                "path": "",
-                "doc_type": doc_type,
-                "is_active": _is_same_document(model, active_model),
-                "modified": _is_modified(model)
-            })
-            continue
-        
-        path = _system_path_from_url(str(url)) or ""
+        url_raw = model.getURL()
+        # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
+        # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
+        untitled = not url_raw
+        path = "" if untitled else (_system_path_from_url(str(url_raw)) or "")
         # str, not DocTypeGuess: the enum fallback below yields any doc_type label.
-        doc_type_guess: str = guess_doc_type_from_path(path) if path else "unknown"
+        doc_type_guess: str = "unknown" if untitled or not path else guess_doc_type_from_path(path)
         if doc_type_guess == "unknown":
             doc_type_guess = uno_read(
                 lambda: doc_type_family_label(get_document_type(model)),
                 "unknown",
             )
-        
+            if untitled:
+                log.debug(
+                    "get_open_documents: doc type lookup failed for an untitled doc",
+                    exc_info=True,
+                )
         name = os.path.basename(path) if path else "Untitled"
         docs.append({
             "name": name,
-            "url": str(url),
+            "url": "" if untitled else str(url_raw),
             "uid": get_runtime_uid(model),
             "path": path,
             "doc_type": doc_type_guess,
