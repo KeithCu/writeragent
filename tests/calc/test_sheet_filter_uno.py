@@ -130,7 +130,7 @@ def test_calc_sheet_filter_invalid_range(ctx, doc):
 @native_test
 def test_filter_operator2_table_matches_live_uno(ctx):
     from com.sun.star.sheet import FilterOperator2
-    from plugin.calc.sheet_filter_criteria import _FILTER_OPERATOR2
+    from plugin.calc.sheet_filter_criteria import FILTER_OPERATOR2_LABELS
 
-    for name, code in _FILTER_OPERATOR2:
+    for code, name in enumerate(FILTER_OPERATOR2_LABELS):
         assert getattr(FilterOperator2, name) == code

@@ -21,30 +21,28 @@ from typing import Any, NamedTuple
 from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, _profile, ascii_bounded, deal
 from plugin.framework.errors import UnoObjectError
 
-# Stable table of all FilterOperator2 (name, code) pairs (for tool JSON schemas).
-_FILTER_OPERATOR2: tuple[tuple[str, int], ...] = (
-    ("EMPTY", 0),
-    ("NOT_EMPTY", 1),
-    ("EQUAL", 2),
-    ("NOT_EQUAL", 3),
-    ("GREATER", 4),
-    ("GREATER_EQUAL", 5),
-    ("LESS", 6),
-    ("LESS_EQUAL", 7),
-    ("TOP_VALUES", 8),
-    ("TOP_PERCENT", 9),
-    ("BOTTOM_VALUES", 10),
-    ("BOTTOM_PERCENT", 11),
-    ("CONTAINS", 12),
-    ("DOES_NOT_CONTAIN", 13),
-    ("BEGINS_WITH", 14),
-    ("DOES_NOT_BEGIN_WITH", 15),
-    ("ENDS_WITH", 16),
-    ("DOES_NOT_END_WITH", 17),
+# Stable table of FilterOperator2 labels (for tool JSON schemas); the IDL code is the index.
+FILTER_OPERATOR2_LABELS: tuple[str, ...] = (
+    "EMPTY",
+    "NOT_EMPTY",
+    "EQUAL",
+    "NOT_EQUAL",
+    "GREATER",
+    "GREATER_EQUAL",
+    "LESS",
+    "LESS_EQUAL",
+    "TOP_VALUES",
+    "TOP_PERCENT",
+    "BOTTOM_VALUES",
+    "BOTTOM_PERCENT",
+    "CONTAINS",
+    "DOES_NOT_CONTAIN",
+    "BEGINS_WITH",
+    "DOES_NOT_BEGIN_WITH",
+    "ENDS_WITH",
+    "DOES_NOT_END_WITH",
 )
-
-FILTER_OPERATOR2_LABELS: tuple[str, ...] = tuple(name for name, _code in _FILTER_OPERATOR2)
-_NAME_TO_CODE: dict[str, int] = {name: code for name, code in _FILTER_OPERATOR2}
+_NAME_TO_CODE: dict[str, int] = {name: i for i, name in enumerate(FILTER_OPERATOR2_LABELS)}
 
 
 class FilterCriterion(NamedTuple):
@@ -208,11 +206,10 @@ def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
     if not op_name:
         raise UnoObjectError("Each criterion needs 'operator' (FilterOperator2 name).")
     op_code = resolve_filter_operator_code(op_name)
-    op_label = filter_operator2_code_to_name(op_code)
-    if not is_first and raw.get("connection") is not None:
-        conn = filter_connection_code(str(raw["connection"]))
-    else:
-        conn = filter_connection_code("AND")
+    op_label = _normalize_operator_name(op_name)
+    conn = filter_connection_code(
+        None if (is_first or raw.get("connection") is None) else str(raw["connection"])
+    )
 
     kind = _OP_VALUE_KIND.get(op_label, "text")
     if kind == "none":
