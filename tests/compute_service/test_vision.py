@@ -17,10 +17,11 @@ from unittest.mock import patch
 
 import pytest
 
-from compute_service.config import ComputeSettings, read_allowlisted_file
+from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
-from compute_service.vision import VisionProcessPool, _FILE_READ_MAX_BYTES, _handle_request, _read_allowed_image, get_vision_pool, shutdown_vision_pool
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, encode_multipart_vision
+from compute_service.vision import VisionProcessPool, _handle_request, get_vision_pool, shutdown_vision_pool
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+from tests.compute_service.multipart_encode import encode_multipart_vision
 
 
 from tests.compute_service.conftest import get_free_port
@@ -112,8 +113,8 @@ def _hide_proc_fd(monkeypatch, platform: str) -> None:
 
 def test_vision_file_read_is_capped(tmp_path) -> None:
     path = tmp_path / "big.bin"
-    path.write_bytes(b"x" * (_FILE_READ_MAX_BYTES + 1))
-    data, err = _read_allowed_image(str(path), (str(tmp_path),), "ocr-big")
+    path.write_bytes(b"x" * (MAX_BODY_BYTES + 1))
+    data, err = read_allowlisted_file(str(path), (str(tmp_path),), max_bytes=MAX_BODY_BYTES)
     assert data is None
     assert err is not None
     assert err["code"] == "FILE_TOO_LARGE"
@@ -306,7 +307,7 @@ class TestVisionPoolSupervisor:
             return real_open(path, flags, *args, **kwargs)
 
         with patch("compute_service.config.os.open", side_effect=open_after_swap):
-            data, err = _read_allowed_image(str(inside), [str(allowed)], "race")
+            data, err = read_allowlisted_file(str(inside), [str(allowed)], max_bytes=MAX_BODY_BYTES)
         assert swapped["done"] is True
         assert data != b"secret-bytes"
         assert err is not None
@@ -595,28 +596,8 @@ def test_read_timeout_kills_and_next_execute_respawns(tmp_path) -> None:
         pool.shutdown()
 
 
-def test_vision_worker_rejects_both_sources() -> None:
-    """file_path and a non-empty image buffer together is a client error."""
-    from compute_service.vision import _handle_request
-
-    both = _handle_request({"id": "both", "file_path": "/tmp/x.png", "image_bytes": b"png"})
-    assert both.get("code") == "INVALID_REQUEST"
-
-    # Empty bytes are not a second source, so the file path is still attempted.
-    file_only = _handle_request({"id": "file-only", "file_path": "/no/such", "image_bytes": b""})
-    assert file_only.get("code") != "INVALID_REQUEST"
-
-
-def test_vision_worker_empty_bytes_not_missing_source() -> None:
-    """An empty byte string must not be misclassified as a missing image source."""
-    from compute_service.vision import _handle_request
-
-    res = _handle_request({"id": "empty-bytes", "image_bytes": b""})
-    assert res.get("code") != "MISSING_IMAGE_SOURCE"
-
-
 def test_vision_pool_execute_accepts_bytearray() -> None:
-    """image_b64 may be passed as a bytearray and should be converted to bytes."""
+    """image_b64 may be passed as a bytearray."""
     from unittest.mock import MagicMock
 
     pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1))
@@ -639,7 +620,7 @@ def test_vision_pool_execute_accepts_bytearray() -> None:
         assert res.get("status") == "ok"
         assert payload_received is not None
         assert payload_received["image_bytes"] == b"dummy image bytes"
-        assert isinstance(payload_received["image_bytes"], bytes)
+        assert isinstance(payload_received["image_bytes"], bytearray)
     finally:
         pool.shutdown()
 

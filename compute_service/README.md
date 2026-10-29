@@ -130,8 +130,7 @@ request shapes, why multipart exists, and the plan to retire peel.
     "id": "req-123",
     "status": "error",
     "error": "SyntaxError: invalid syntax ({string}, line 1)",
-    "stdout": "",
-    "message": "SyntaxError: invalid syntax ({string}, line 1)"
+    "stdout": ""
   }
   ```
 

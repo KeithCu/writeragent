@@ -24,75 +24,20 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.config import DEFAULT_SETTINGS, clamp_timeout_sec
+from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
-from compute_service.json_forward import json_forward_envelope, validate_execute_response, validate_session_id
+from compute_service.json_forward import json_forward_envelope
 from compute_service.worker_base import configure_compute_worker_env, run_compute_worker
 
 # Default math/OpenMP thread pools to 1 thread early before any heavy math imports.
 configure_compute_worker_env()
 
-# execute_code pulls in the sandbox lazily on the first execution so
-# the ready handshake is not spent on that graph with an empty stderr.
+# ast sandboxing is loaded lazily on the first execution so the ready
+# handshake is not spent on that graph with an empty stderr.
 
 # Do not load the Cython accelerator here. The compute payload is JSON-forward
 # (worker json.loads data_json / dumps result_json once). There is no
 # split_grid field on this pipe. Cython flatten stays on the LibrePy host.
-
-
-def execute_code(code: str, data: Any = None, session_id: str | None = None, timeout_sec: int | None = None, *, mode: str = "isolated", init_script: str | None = None, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int | None = None) -> dict[str, Any]:
-    """Execute *code* under AST sandboxing; return a JSON object of status, result, stdout, and error.
-
-    The host already clamps request timeouts to configured bounds (e.g. 1800s);
-    the worker does not impose a second 600s clamp when max_timeout_sec is None.
-    """
-    # Lazy import to avoid loading the heavy sandbox graph at module load time.
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
-
-    # Always pass an explicit timeout so the sandbox never consults WriterAgent defaults.
-    timeout_sec = clamp_timeout_sec(timeout_sec, default_timeout_sec=default_timeout_sec, max_timeout_sec=max_timeout_sec)
-
-    # Shared kernel only when explicitly requested *and* a session id is provided.
-    use_session: str | None = None
-    if mode == "shared" and isinstance(session_id, str) and session_id.strip():
-        use_session = validate_session_id(session_id)
-
-    # Stable init_session_id so run_sandboxed_code runs init once per worker and
-    # seeds later cells from that namespace (hash change replaces the snapshot).
-    init_sid: str | None = None
-    init_code = init_script if isinstance(init_script, str) and init_script.strip() else None
-    init_hash: str | None = None
-    if init_code is not None:
-        init_hash = hashlib.sha256(init_code.encode("utf-8")).hexdigest()
-        if use_session is not None:
-            init_sid = f"{use_session}:init"
-        else:
-            init_sid = f"isolated:{init_hash}:init"
-
-    # What was wrong: Large arrays / grids were packed into binary float64 split_grid
-    # envelopes by default, which cast ints to float64 and turned ints > 2^53 into text,
-    # only for json_egress to immediately decode them back into lists.
-    # How it happened: run_sandboxed_code defaulted to force="auto", packing grids
-    # >= BINARY_MIN_CELLS into split_grid buffers.
-    # Why this change: The compute service output is JSON and never needed the binary
-    # buffer across a process boundary; force="never" keeps results as native lists
-    # so integers stay exact.
-    raw = run_sandboxed_code(
-        code=code,
-        data=data,
-        force="never",
-        session_id=use_session,
-        timeout_sec=timeout_sec,
-        init_script=init_code,
-        init_session_id=init_sid,
-        init_script_hash=init_hash,
-    )
-
-    namespace_created = raw.pop("namespace_created", None)
-    out = normalize_execute_response(raw)
-    if namespace_created is not None:
-        out["namespace_created"] = namespace_created
-    return out
 
 
 def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
@@ -133,17 +78,60 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         return json_forward_envelope(err, req_id=req_id, session_reset=False, namespace_created=False)
 
     session_id = req.get("session_id")
-    # Pool execute() already rejected a bad mode or wire. The stdio dict
+    # Pool execute() already rejected a bad mode. The stdio dict
     # carries that canonical mode; checking again duplicated the gate.
     mode = req.get("mode", "isolated")
     timeout_sec = req.get("timeout_sec")
     init_script = req.get("init_script")
 
     try:
-        data = _load_request_data(req)
-        raw_res = execute_code(code=code, data=data, session_id=session_id, timeout_sec=timeout_sec, mode=mode, init_script=init_script)
-        created = bool(raw_res.pop("namespace_created", False))
-        res = validate_execute_response(raw_res)
+        raw_data = req.get("data_json")
+        data = None if raw_data is None else json.loads(raw_data)
+
+        # Lazy import to avoid loading the heavy sandbox graph at module load time.
+        from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+
+        eff_timeout = DEFAULT_SETTINGS.default_timeout_sec if timeout_sec is None else timeout_sec
+
+        # Shared kernel only when explicitly requested *and* a session id is provided.
+        use_session: str | None = None
+        if mode == "shared" and isinstance(session_id, str) and session_id.strip():
+            use_session = session_id.strip()
+
+        # Stable init_session_id so run_sandboxed_code runs init once per worker and
+        # seeds later cells from that namespace (hash change replaces the snapshot).
+        init_sid: str | None = None
+        init_code = init_script if isinstance(init_script, str) and init_script.strip() else None
+        init_hash: str | None = None
+        if init_code is not None:
+            init_hash = hashlib.sha256(init_code.encode("utf-8")).hexdigest()
+            if use_session is not None:
+                init_sid = f"{use_session}:init"
+            else:
+                init_sid = f"isolated:{init_hash}:init"
+
+        # What was wrong: Large arrays / grids were packed into binary float64 split_grid
+        # envelopes by default, which cast ints to float64 and turned ints > 2^53 into text,
+        # only for json_egress to immediately decode them back into lists.
+        # How it happened: run_sandboxed_code defaulted to force="auto", packing grids
+        # >= BINARY_MIN_CELLS into split_grid buffers.
+        # Why this change: The compute service output is JSON and never needed the binary
+        # buffer across a process boundary; force="never" keeps results as native lists
+        # so integers stay exact.
+        raw = run_sandboxed_code(
+            code=code,
+            data=data,
+            force="never",
+            session_id=use_session,
+            timeout_sec=eff_timeout,
+            init_script=init_code,
+            init_session_id=init_sid,
+            init_script_hash=init_hash,
+        )
+
+        namespace_created = raw.pop("namespace_created", None)
+        res = normalize_execute_response(raw)
+        created = bool(namespace_created)
         if req_id is not None and isinstance(res, dict):
             res["id"] = req_id
         session_reset = bool(req.get("expect_namespace")) and created
@@ -153,23 +141,6 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         # json_egress are only status/error/stdout; this path must match.
         err = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": str(exc), "stdout": ""}
         return json_forward_envelope(err, req_id=req_id, session_reset=False, namespace_created=False)
-
-
-def _load_request_data(req: dict[str, Any]) -> Any:
-    """One deserialize of the data blob on the worker (never on the HTTP host).
-
-    The stdio dict carries ``data_json`` only. A ``data`` object is not a
-    second wire: absent ``data_json`` means no data.
-    """
-    raw = req.get("data_json")
-    if raw is None:
-        return None
-    if isinstance(raw, (bytes, bytearray)):
-        try:
-            return json.loads(bytes(raw).decode("utf-8"))
-        except Exception as exc:
-            raise ValueError(f"Invalid data_json: {exc}") from exc
-    raise ValueError("data_json must be bytes")
 
 
 def main() -> int:

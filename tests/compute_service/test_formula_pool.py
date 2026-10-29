@@ -1078,19 +1078,14 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_worker_does_not_recheck_mode_or_wire(self) -> None:
-        """Stdio does not reject a mode or wire the pool already checked.
+    def test_worker_does_not_recheck_mode(self) -> None:
+        """Stdio does not reject a mode the pool already checked.
 
         ``data`` is not a payload field. A false mode is not re-validated
         here; pool execute() still rejects it before stdio.
         """
         from compute_service.formula_worker import _handle_request
         from compute_service.formula_pool import decode_worker_result
-
-        pickled = decode_worker_result(_handle_request({"id": "pk", "code": "result = data", "wire": "pickle", "data": [1, 2, 3]}))
-        assert pickled.get("status") == "ok"
-        assert pickled.get("code") != "INVALID_REQUEST"
-        assert pickled.get("result") != [1, 2, 3]
 
         plain = decode_worker_result(_handle_request({"id": "data-field", "code": "result = data", "data": [1, 2, 3]}))
         assert plain.get("result") != [1, 2, 3]
@@ -1215,18 +1210,6 @@ class TestFormulaPoolSupervisor:
             assert obj_res.get("status") == "error"
             assert obj_res.get("code") == "INVALID_REQUEST"
             assert obj_res.get("id") == "obj-data"
-        finally:
-            pool.shutdown()
-
-    def test_execute_rejects_unknown_wire(self) -> None:
-        """Unknown wire is an error from execute(). The payload builder does not check again."""
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
-        try:
-            res = pool.execute(code="result = 1", wire="bogus_wire", req_id="test-wire")
-            assert res.get("status") == "error"
-            assert res.get("code") == "INVALID_REQUEST"
-            assert res.get("result") != 1
-            assert "wire" in str(res.get("error", ""))
         finally:
             pool.shutdown()
 

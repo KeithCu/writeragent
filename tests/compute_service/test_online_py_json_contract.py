@@ -11,18 +11,26 @@ over the compute_service wire. Keep this file aligned when changing anyjson.cxx.
 from __future__ import annotations
 
 import json
+from typing import Any
 
-
-from compute_service.formula_worker import execute_code
+from compute_service.formula_worker import _handle_request
 from compute_service.json_egress import to_dumb_json_value
 import pytest
+
+
+def _execute_code(code: str, *, data: Any = None, mode: str = "isolated") -> dict[str, Any]:
+    req: dict[str, Any] = {"code": code, "mode": mode}
+    if data is not None:
+        req["data_json"] = json.dumps(data, allow_nan=False).encode("utf-8")
+    env = _handle_request(req)
+    return json.loads(env["result_json"])
 
 
 class TestOnlinePyJsonContract:
     """Shapes C++ buildExecuteRequestJson / jsonResultToAny must agree on."""
 
     def test_scalar_result_roundtrip(self) -> None:
-        out = execute_code("result = 1 + 1")
+        out = _execute_code("result = 1 + 1")
         assert out["status"] == "ok"
         assert out["result"] == 2
         json.dumps(out, allow_nan=False)
@@ -35,25 +43,25 @@ class TestOnlinePyJsonContract:
         ],
     )
     def test_null_and_nan(self, value) -> None:
-        out = execute_code(value)
+        out = _execute_code(value)
         assert out["status"] == "ok"
         assert out["result"] == [None, None]
         json.dumps(out, allow_nan=False)
 
 
     def test_one_by_one_stays_nested(self) -> None:
-        out = execute_code("result = [[7]]")
+        out = _execute_code("result = [[7]]")
         assert out["status"] == "ok"
         assert out["result"] == [[7]]
 
     def test_eval_error_payload(self) -> None:
-        out = execute_code("result = 1 / 0")
+        out = _execute_code("result = 1 / 0")
         assert out["status"] == "error"
         assert out.get("error")
         json.dumps(out, allow_nan=False)
 
     def test_ragged_grid_errors(self) -> None:
-        out = execute_code("result = [[1, 2], [3]]")
+        out = _execute_code("result = [[1, 2], [3]]")
         json.dumps(out, allow_nan=False)
         if out["status"] == "ok":
             # Service currently pads or passes through; must stay JSON-serializable.
@@ -62,7 +70,7 @@ class TestOnlinePyJsonContract:
             assert out.get("error")
 
     def test_1d_list_for_row_vector(self) -> None:
-        out = execute_code("import numpy as np\nresult = np.array([10, 20, 30])")
+        out = _execute_code("import numpy as np\nresult = np.array([10, 20, 30])")
         assert out["status"] == "ok"
         assert out["result"] == [10, 20, 30]
 
@@ -74,24 +82,24 @@ class TestOnlinePyJsonContract:
         ],
     )
     def test_2d_grid(self, value, value_2, value_3, value_4) -> None:
-        out = execute_code(value)
+        out = _execute_code(value)
         assert out["status"] == "ok"
         assert out["result"] == [[1, value_2], [value_3, value_4]]
 
     def test_column_vector_stays_nested(self) -> None:
         # C++ parse keeps [[1],[2],[3]] as 3×1 (emit may flatten ranges the other way).
-        out = execute_code("result = [[1], [2], [3]]")
+        out = _execute_code("result = [[1], [2], [3]]")
         assert out["status"] == "ok"
         assert out["result"] == [[1], [2], [3]]
 
     def test_numpy_column_vector_egress(self) -> None:
-        out = execute_code("import numpy as np\nresult = np.array([[1], [2], [3]])")
+        out = _execute_code("import numpy as np\nresult = np.array([[1], [2], [3]])")
         assert out["status"] == "ok"
         assert out["result"] == [[1], [2], [3]]
 
 
     def test_images_top_level_on_plot(self) -> None:
-        out = execute_code(
+        out = _execute_code(
             "import matplotlib.pyplot as plt\n"
             "fig, ax = plt.subplots()\n"
             "ax.plot([0, 1], [0, 1])\n"
@@ -113,7 +121,7 @@ class TestOnlinePyJsonContract:
             "mode": "isolated",
         }
         json.dumps(body, allow_nan=False)
-        out = execute_code(body["code"], data=body["data"], mode=body["mode"])
+        out = _execute_code(body["code"], data=body["data"], mode=body["mode"])
         assert out["status"] == "ok"
         assert out["result"] == 6.0
 
@@ -121,7 +129,7 @@ class TestOnlinePyJsonContract:
         # C++ sends multiple ranges as a JSON array when aData.getLength() > 1.
         # Injected as ranges (always list); multi-arg data is the same list object.
         data = [[[1, 2]], [[3], [4]]]
-        out = execute_code(
+        out = _execute_code(
             "result = [len(ranges), data is ranges, ranges[0].values[0][0], ranges[1].values[1][0]]",
             data=data,
         )
@@ -141,6 +149,6 @@ class TestBusyPlaceholderSemantics:
         assert "#BUSY!" == "#BUSY!"
 
     def test_error_field_on_sandbox_failure(self) -> None:
-        out = execute_code("import subprocess\nresult = subprocess")
+        out = _execute_code("import subprocess\nresult = subprocess")
         assert out["status"] == "error"
         assert "error" in out

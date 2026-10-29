@@ -17,7 +17,7 @@ import logging
 import os
 import sys
 import time
-from typing import Any, cast
+from typing import Any
 
 # Ensure repo root is on sys.path
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -29,10 +29,6 @@ from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
 from compute_service.worker_base import MIN_REQUEST_SEC, BaseProcessPool, Deadline, PoolSingleton, error_dict, resolve_override, run_compute_worker
 
 log = logging.getLogger("compute_service.vision")
-
-# Same cap as ComputeSettings.max_body_bytes. file_path does not pass through
-# the HTTP check, and an unbounded read was pickled into the parent afterward.
-_FILE_READ_MAX_BYTES = MAX_BODY_BYTES
 
 _WORKER_SCRIPT = os.path.abspath(__file__)
 
@@ -72,13 +68,10 @@ class VisionProcessPool(BaseProcessPool):
         if not self.is_enabled():
             return error_dict("VISION_SERVICE_DISABLED", "Vision / OCR service is not enabled on this instance (ocr_workers=0).", req_id=req_id)
 
-        assert image is None or isinstance(image, (bytes, bytearray))
-
         # Only None means "use the default". Zero is an explicit timeout.
         eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
-        image_bytes = None if image is None else bytes(image)
         prefixes = () if allow_paths is None else tuple(str(p) for p in allow_paths)
-        payload = {"id": req_id, "helper": helper, "image_bytes": image_bytes, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
+        payload = {"id": req_id, "helper": helper, "image_bytes": image, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
 
         # Queue until a worker is free. The caller's timeout/deadline is the bound;
         # VISION_POOL_BUSY means that wait expired, not that the pool was busy
@@ -130,25 +123,6 @@ def shutdown_vision_pool(*, permanent: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _read_allowed_image(file_path: str, allow_paths: Any, req_id: Any) -> tuple[bytes | None, dict[str, Any] | None]:
-    """Return ``(bytes, None)`` or ``(None, error)``.
-
-    The HTTP handler returns 400 for a path that is outside the allowlist
-    before the pool is touched. The read itself is ``read_allowlisted_file``:
-    the same prefix rule, applied to the opened path. Linux uses
-    ``/proc/self/fd`` for that descriptor. Other platforms realpath the path
-    that was opened, so a symlink swapped in before ``open`` returns cannot
-    leave the prefix.
-    """
-    prefixes = allow_paths if isinstance(allow_paths, (list, tuple)) else ()
-    data, err = read_allowlisted_file(file_path, prefixes, max_bytes=_FILE_READ_MAX_BYTES)
-    if err is not None:
-        body = dict(err)
-        body["id"] = req_id
-        return None, body
-    return data, None
-
-
 def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     req_id = req.get("id")
     helper = str(req.get("helper") or "extract_text").strip()
@@ -156,19 +130,16 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     file_path = req.get("file_path")
     image_bytes_raw = req.get("image_bytes")
 
-    image_bytes: bytes
-    has_bytes = isinstance(image_bytes_raw, (bytes, bytearray)) and len(image_bytes_raw) > 0
-    if file_path and has_bytes:
-        return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": "Provide image bytes or file_path, not both."}
     if file_path:
-        image_bytes_opt, err_body = _read_allowed_image(file_path, req.get("allow_paths"), req_id)
-        if err_body is not None:
-            return err_body
-        image_bytes = cast("bytes", image_bytes_opt)
-    elif isinstance(image_bytes_raw, (bytes, bytearray)):
-        image_bytes = bytes(image_bytes_raw)
+        prefixes = req.get("allow_paths")
+        if not isinstance(prefixes, (list, tuple)):
+            prefixes = ()
+        data, err = read_allowlisted_file(file_path, prefixes, max_bytes=MAX_BODY_BYTES)
+        if err is not None:
+            return error_dict(err["code"], err["error"], req_id=req_id)
+        image_bytes = data
     else:
-        return {"id": req_id, "status": "error", "code": "MISSING_IMAGE_SOURCE", "error": "Either image buffer or 'file_path' (server filesystem path) must be provided."}
+        image_bytes = image_bytes_raw
 
     try:
         from plugin.vision.venv.vision import run_vision

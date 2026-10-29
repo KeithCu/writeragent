@@ -5,15 +5,23 @@
 
 from __future__ import annotations
 
-from compute_service.formula_worker import execute_code
+import json
+from typing import Any
+
+from compute_service.formula_worker import _handle_request
 from plugin.scripting.payload_codec import is_split_grid
 import pytest
+
+
+def _execute_code(code: str) -> dict[str, Any]:
+    env = _handle_request({"code": code})
+    return json.loads(env["result_json"])
 
 
 def test_numpy_arange_returns_plain_int_lists() -> None:
     pytest.importorskip("numpy")
     code = "import numpy as np\nresult = np.arange(300).reshape(30, 10)"
-    out = execute_code(code)
+    out = _execute_code(code)
     assert out["status"] == "ok"
     res = out["result"]
     assert isinstance(res, list)
@@ -33,7 +41,7 @@ def test_int64_large_integers_exact() -> None:
 import numpy as np
 result = np.array([2**53 + 1, 2**62] * 60, dtype=np.int64)
 """
-    out = execute_code(code)
+    out = _execute_code(code)
     assert out["status"] == "ok"
     res = out["result"]
     assert isinstance(res, list)
@@ -51,7 +59,7 @@ def test_float_array_stays_float() -> None:
 import numpy as np
 result = np.linspace(0.0, 1.0, 150)
 """
-    out = execute_code(code)
+    out = _execute_code(code)
     assert out["status"] == "ok"
     res = out["result"]
     assert isinstance(res, list)
@@ -72,7 +80,7 @@ df = pd.DataFrame({
 })
 result = df
 """
-    out = execute_code(code)
+    out = _execute_code(code)
     assert out["status"] == "ok"
     res = out["result"]
     assert isinstance(res, dict)
@@ -105,7 +113,7 @@ def test_pandas_series_returns_plain_list() -> None:
 import pandas as pd
 result = pd.Series(list(range(200)), name="nums")
 """
-    out = execute_code(code_named)
+    out = _execute_code(code_named)
     assert out["status"] == "ok"
     res = out["result"]
     assert isinstance(res, dict)
@@ -124,7 +132,7 @@ result = pd.Series(list(range(200)), name="nums")
 import pandas as pd
 result = pd.Series([i * 1.5 for i in range(200)])
 """
-    out_unnamed = execute_code(code_unnamed)
+    out_unnamed = _execute_code(code_unnamed)
     assert out_unnamed["status"] == "ok"
     res_unnamed = out_unnamed["result"]
     assert isinstance(res_unnamed, list)
