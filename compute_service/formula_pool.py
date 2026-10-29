@@ -129,14 +129,10 @@ class FormulaProcessPool(BaseProcessPool):
             entry.users += 1
             lock = entry.lock
 
-        acquired = False
         try:
-            lock.acquire()
-            acquired = True
-            yield
+            with lock:
+                yield
         finally:
-            if acquired:
-                lock.release()
             with self._cond:
                 entry.users -= 1
                 if entry.users <= 0 and self._session_locks.get(session_id) is entry:
@@ -184,9 +180,7 @@ class FormulaProcessPool(BaseProcessPool):
         """
         with self._cond:
             current = self._sessions.get(session_id)
-            if only_if_worker is not None and (current is None or current.worker is not only_if_worker):
-                return
-            if current is not None:
+            if current is not None and (only_if_worker is None or current.worker is only_if_worker):
                 self._sessions.pop(session_id, None)
 
     def _worker_session_count(self, worker: BaseProcessWorker) -> int:
@@ -227,42 +221,18 @@ class FormulaProcessPool(BaseProcessPool):
                 return s.worker
             return None
 
-    def _drop_session_after_reset(self, session_id: str, worker: BaseProcessWorker, res: dict[str, Any]) -> bool:
-        """Forget *session_id* only when the worker reset reports ``ok``.
-
-        A non-ok response can mean the worker still holds the namespace.
-        Dropping the id would make the next sticky cell look new on a
-        kernel that is not empty.
-        """
-        if res.get("status") == "ok":
-            self._drop_session(session_id, only_if_worker=worker)
-            return True
-        log.error("reset_session failed for %s; keeping session map because the worker may still hold the namespace: %s", session_id, res)
-        return False
-
-    def _reset_session_on_worker(self, worker: BaseProcessWorker, session_id: str, timeout_sec: float = SESSION_RESET_TIMEOUT_SEC) -> dict[str, Any]:
-        """Send reset_session action to leased worker and update session map on ok."""
-        res = worker.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
-        self._drop_session_after_reset(session_id, worker, res)
-        return res
-
     def should_recycle_worker(self, worker: BaseProcessWorker) -> bool:
         """Recycle worker if tasks_executed >= max_tasks, unless holding active shared sessions.
 
         Workers holding active shared sessions skip normal max_tasks recycling to preserve state.
         """
         with self._cond:
-            if not worker.is_alive():
-                self._recycling.discard(worker)
-                return False
-            if self._worker_has_sessions(worker):
-                self._recycling.discard(worker)
-                return False
-            if worker.tasks_executed >= self.max_tasks:
+            recycle = worker.is_alive() and not self._worker_has_sessions(worker) and worker.tasks_executed >= self.max_tasks
+            if recycle:
                 self._recycling.add(worker)
-                return True
-            self._recycling.discard(worker)
-            return False
+            else:
+                self._recycling.discard(worker)
+            return recycle
 
     def _clear_recycling_mark(self, worker: BaseProcessWorker) -> None:
         with self._cond:
@@ -319,7 +289,13 @@ class FormulaProcessPool(BaseProcessPool):
             with self.leased(worker, timeout_sec=timeout_sec) as leased:
                 if leased is None:
                     return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Could not lease worker to reset session."}
-                return self._reset_session_on_worker(leased, session_id, timeout_sec=timeout_sec)
+                res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
+                # A non-ok reset can mean the worker still holds the namespace.
+                if res.get("status") == "ok":
+                    self._drop_session(session_id, only_if_worker=leased)
+                else:
+                    log.error("reset_session failed for %s; keeping session map because the worker may still hold the namespace: %s", session_id, res)
+                return res
 
     def check_dependencies(self, packages: list[str] | None = None, timeout_sec: float = 10.0) -> tuple[bool, str | None]:
         """Ask an idle worker to verify required dependencies (e.g. numpy, sympy).
