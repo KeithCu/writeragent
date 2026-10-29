@@ -11,16 +11,15 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
     header_prefix,
     parse_run_import_call_spec,
-    parse_run_import_call_params,
 )
 from plugin.scripting.trusted_action_registry import (
     TrustedActionWiring,
     get_trusted_action_wiring,
 )
 from plugin.scripting.duckdb_sql import (
-    SqlScriptMeta,
     get_sql_script_templates,
     parse_sql_script_header,
 )
@@ -43,7 +42,7 @@ def test_sql_script_templates_and_header_parsing() -> None:
     for helper, code in templates.items():
         assert isinstance(code, str)
         meta = parse_sql_script_header(code)
-        assert isinstance(meta, SqlScriptMeta)
+        assert isinstance(meta, HelperScriptMeta)
         assert meta.helper == helper
         assert isinstance(meta.params, dict)
 
@@ -85,9 +84,6 @@ def test_parse_run_import_call_spec_literal() -> None:
     assert isinstance(spec1, dict)
     assert spec1.get("helper") == "query_folder_sql"
     assert spec1.get("params") == {"files": ["a.csv"]}
-
-    params1 = parse_run_import_call_params(code1, run_name="run_sql")
-    assert params1 == {"files": ["a.csv"]}
 
 
 from plugin.scripting.audio_silence_detector import pcm_energy_int16

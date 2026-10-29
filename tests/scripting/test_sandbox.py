@@ -15,7 +15,6 @@ from unittest.mock import patch
 import pytest
 
 from plugin.scripting.sandbox import (
-    _reset_cache,
     detect_sandbox,
     resolve_libreoffice_python,
     resolve_venv_python,
@@ -261,14 +260,14 @@ def test_resolve_libreoffice_python_empty_uses_bundled(tmp_path, monkeypatch):
 # --- Subprocess spawn helper tests (relocated from test_subprocess_helpers.py) ---
 
 def test_detect_flatpak_via_file():
-    _reset_cache()
+    detect_sandbox.cache_clear()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=True) as mock_exists:
             with patch.dict("os.environ", {}, clear=True):
                 assert detect_sandbox() == "flatpak"
                 mock_exists.assert_called_with("/.flatpak-info")
     finally:
-        _reset_cache()
+        detect_sandbox.cache_clear()
 
 
 @pytest.mark.parametrize(
@@ -279,26 +278,26 @@ def test_detect_flatpak_via_file():
     ],
 )
 def test_detect_flatpak_via_env(value, value_2, expected):
-    _reset_cache()
+    detect_sandbox.cache_clear()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=False):
             with patch.dict("os.environ", {value: value_2}, clear=True):
                 assert detect_sandbox() == expected
     finally:
-        _reset_cache()
+        detect_sandbox.cache_clear()
 
 def test_detect_none():
-    _reset_cache()
+    detect_sandbox.cache_clear()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=False):
             with patch.dict("os.environ", {}, clear=True):
                 assert detect_sandbox() is None
     finally:
-        _reset_cache()
+        detect_sandbox.cache_clear()
 
 
 def test_result_is_cached():
-    _reset_cache()
+    detect_sandbox.cache_clear()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=True) as mock_exists:
             with patch.dict("os.environ", {}, clear=True):
@@ -306,11 +305,11 @@ def test_result_is_cached():
                 assert detect_sandbox() == "flatpak"
                 mock_exists.assert_called_once()
     finally:
-        _reset_cache()
+        detect_sandbox.cache_clear()
 
 
 def test_wrap_flatpak():
-    _reset_cache()
+    detect_sandbox.cache_clear()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=True):
             with patch.dict("os.environ", {}, clear=True):
@@ -318,11 +317,11 @@ def test_wrap_flatpak():
                 result = wrap_command_for_sandbox(cmd)
                 assert result == ["flatpak-spawn", "--host", "/home/user/.venv/bin/python", "script.py"]
     finally:
-        _reset_cache()
+        detect_sandbox.cache_clear()
 
 
 def test_wrap_snap_unchanged():
-    _reset_cache()
+    detect_sandbox.cache_clear()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=False):
             with patch.dict("os.environ", {"SNAP_NAME": "libreoffice"}, clear=True):
@@ -330,11 +329,11 @@ def test_wrap_snap_unchanged():
                 result = wrap_command_for_sandbox(cmd)
                 assert result == cmd
     finally:
-        _reset_cache()
+        detect_sandbox.cache_clear()
 
 
 def test_wrap_no_sandbox():
-    _reset_cache()
+    detect_sandbox.cache_clear()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=False):
             with patch.dict("os.environ", {}, clear=True):
@@ -342,12 +341,12 @@ def test_wrap_no_sandbox():
                 result = wrap_command_for_sandbox(cmd)
                 assert result == cmd
     finally:
-        _reset_cache()
+        detect_sandbox.cache_clear()
 
 
 def test_wrap_flatpak_forwards_env_and_cwd():
     cmd = ["/py", "a"]
-    _reset_cache()
+    detect_sandbox.cache_clear()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=True):
             with patch.dict("os.environ", {}, clear=True):
@@ -375,23 +374,23 @@ def test_wrap_flatpak_forwards_env_and_cwd():
         # Outside Flatpak
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=False):
             with patch.dict("os.environ", {}, clear=True):
-                _reset_cache()
+                detect_sandbox.cache_clear()
                 res_outside = wrap_command_for_sandbox(cmd, env={"PATH": "/usr/bin", "A": "b=c"}, cwd="/work")
                 assert res_outside == ["/py", "a"]
 
         # Snap with env=
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=False):
             with patch.dict("os.environ", {"SNAP_NAME": "libreoffice"}, clear=True):
-                _reset_cache()
+                detect_sandbox.cache_clear()
                 res_snap = wrap_command_for_sandbox(cmd, env={"PATH": "/usr/bin", "A": "b=c"}, cwd="/work")
                 assert res_snap == ["/py", "a"]
     finally:
-        _reset_cache()
+        detect_sandbox.cache_clear()
 
 
 def test_wrap_flatpak_watch_bus():
     cmd = ["/py", "a"]
-    _reset_cache()
+    detect_sandbox.cache_clear()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=True):
             with patch.dict("os.environ", {}, clear=True):
@@ -420,15 +419,15 @@ def test_wrap_flatpak_watch_bus():
 
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=False):
             with patch.dict("os.environ", {}, clear=True):
-                _reset_cache()
+                detect_sandbox.cache_clear()
                 res_outside = wrap_command_for_sandbox(cmd, env={"A": "b"}, cwd="/work", watch_bus=True)
                 assert res_outside == ["/py", "a"]
     finally:
-        _reset_cache()
+        detect_sandbox.cache_clear()
 
 
 def test_wrap_does_not_mutate_original():
-    _reset_cache()
+    detect_sandbox.cache_clear()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=True):
             with patch.dict("os.environ", {}, clear=True):
@@ -437,7 +436,7 @@ def test_wrap_does_not_mutate_original():
                 wrap_command_for_sandbox(cmd)
                 assert cmd == original
     finally:
-        _reset_cache()
+        detect_sandbox.cache_clear()
 
 
 def test_scrub_env_and_workspace_path_accept_long_values(tmp_path) -> None:
@@ -716,13 +715,13 @@ def test_python_candidates_in_bin_dir_handles_oserror(tmp_path, monkeypatch) -> 
 
 
 def test_detect_sandbox_cache_clear(monkeypatch) -> None:
-    """detect_sandbox result is cached and _reset_cache clears it."""
-    from plugin.scripting.sandbox import _reset_cache, detect_sandbox
+    """detect_sandbox result is cached and detect_sandbox.cache_clear() clears it."""
+    from plugin.scripting.sandbox import detect_sandbox
 
     monkeypatch.delenv("FLATPAK_ID", raising=False)
     monkeypatch.delenv("SNAP_NAME", raising=False)
     monkeypatch.setattr("os.path.exists", lambda path: False)
-    _reset_cache()
+    detect_sandbox.cache_clear()
 
     assert detect_sandbox() is None
 
@@ -730,9 +729,9 @@ def test_detect_sandbox_cache_clear(monkeypatch) -> None:
     # Still cached as None before reset
     assert detect_sandbox() is None
 
-    _reset_cache()
+    detect_sandbox.cache_clear()
     assert detect_sandbox() == "snap"
-    _reset_cache()
+    detect_sandbox.cache_clear()
 
 
 def test_writeragent_alias_authorization_matches_mirrored_plugin_entry() -> None:

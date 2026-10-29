@@ -182,46 +182,38 @@ def text(val: Any, fmt: Any) -> str | float:
             return _format_number_pattern(float(val), places, grouped)
         except (ValueError, TypeError, OverflowError, InvalidOperation):
             return str(val)
-    if fmt_str in _PERCENT_FORMATS:
-        places = _PERCENT_FORMATS[fmt_str]
-        try:
+    try:
+        if fmt_str in _PERCENT_FORMATS:
+            places = _PERCENT_FORMATS[fmt_str]
             number = float(val)
             # A non-finite value is not a percent. "inf%" would look formatted.
             if not math.isfinite(number):
                 return str(number)
             formatted = _format_number_pattern(number, places, False, scale=100)
             return f"{formatted}%"
-        except (ValueError, TypeError, OverflowError, InvalidOperation):
-            return str(val)
-    date_fmt = _DATE_FORMATS.get(fmt_str.lower())
-    if date_fmt is not None:
-        # _serial_to_date is the same +693594 ordinal. A bad serial stays
-        # the original text, as the hand-rolled fromordinal path did.
-        day = _serial_to_date(val)
-        if day is None:
-            return str(val)
-        try:
+        lower = fmt_str.lower()
+        date_fmt = _DATE_FORMATS.get(lower)
+        if date_fmt is not None:
+            # _serial_to_date is the same +693594 ordinal. A bad serial stays
+            # the original text, as the hand-rolled fromordinal path did.
+            day = _serial_to_date(val)
+            if day is None:
+                return str(val)
             return day.strftime(date_fmt)
-        except (ValueError, TypeError, OverflowError):
-            return str(val)
-    if fmt_str.lower() == "mmm d, yyyy":
-        day = _serial_to_date(val)
-        if day is None:
-            return str(val)
-        try:
+        if lower == "mmm d, yyyy":
+            day = _serial_to_date(val)
+            if day is None:
+                return str(val)
             return f"{day.strftime('%b')} {day.day}, {day.year}"
-        except (ValueError, TypeError, OverflowError):
-            return str(val)
-    if fmt_str.lower() == "hh:mm:ss":
-        try:
+        if lower == "hh:mm:ss":
             total_sec = round(float(val) * 86400.0)
             wrapped_sec = total_sec % 86400
             h = wrapped_sec // 3600
             m = (wrapped_sec % 3600) // 60
             s = wrapped_sec % 60
             return f"{h:02d}:{m:02d}:{s:02d}"
-        except (ValueError, TypeError, OverflowError):
-            return str(val)
+    except (ValueError, TypeError, OverflowError, InvalidOperation):
+        return str(val)
     # ScText calls NFGetPreviewStringGuess and PushIllegalArgument (Err:502)
     # when the format is rejected. The tables above are the whole set this
     # helper implements. str(val) made text(1234.5, "$#,##0.00") return
@@ -240,44 +232,28 @@ def text(val: Any, fmt: Any) -> str | float:
 fmt = text
 
 
-def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
+def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mode: Any, match_end: Any, if_not_found: Any, *, after: bool) -> str | float:
     try:
         # bool("0") is true, so a zero flag invented a virtual delimiter.
         # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
         use_end = _as_nonzero(match_end)
         s, inst, idx, match_end_miss = _find_text_cut(
-            text, delimiter, instance_num, match_mode, after=True
+            text, delimiter, instance_num, match_mode, after=after
         )
         if idx is not None:
-            # The cut is already the end of the delimiter, including a
-            # negative instance. Adding len(delim) again skipped a second
-            # copy when the matched span was longer than the delimiter.
-            return s[idx:]
-        if use_end and match_end_miss:
-            # ScTextBeforeOrAfter inserts the virtual delimiter at 0
-            # when the instance is negative. Text after that is the whole
-            # string. A positive instance's virtual delimiter is the end,
-            # so the remainder is empty. Both signs used to return "".
-            return s if inst < 0 else ""
-        return if_not_found
-    except (ValueError, TypeError, OverflowError):
-        # _find_text_cut does int(float(instance_num)). An infinite instance
-        # raises OverflowError, which this handler did not catch, so TEXTAFTER
-        # raised instead of the NaN used for any other invalid instance.
-        return float("nan")
-
-
-def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
-    try:
-        # bool("0") is true, so a zero flag invented a virtual delimiter.
-        # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
-        use_end = _as_nonzero(match_end)
-        s, inst, idx, match_end_miss = _find_text_cut(
-            text, delimiter, instance_num, match_mode, after=False
-        )
-        if idx is not None:
+            if after:
+                # The cut is already the end of the delimiter, including a
+                # negative instance. Adding len(delim) again skipped a second
+                # copy when the matched span was longer than the delimiter.
+                return s[idx:]
             return s[:idx]
         if use_end and match_end_miss:
+            if after:
+                # ScTextBeforeOrAfter inserts the virtual delimiter at 0
+                # when the instance is negative. Text after that is the whole
+                # string. A positive instance's virtual delimiter is the end,
+                # so the remainder is empty. Both signs used to return "".
+                return s if inst < 0 else ""
             # ScTextBeforeOrAfter inserts the virtual delimiter at 0
             # when the instance is negative, and at the end otherwise.
             # Text before offset 0 is empty. This branch used to return
@@ -286,9 +262,17 @@ def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any
         return if_not_found
     except (ValueError, TypeError, OverflowError):
         # _find_text_cut does int(float(instance_num)). An infinite instance
-        # raises OverflowError, which this handler did not catch, so TEXTBEFORE
-        # raised instead of the NaN used for any other invalid instance.
+        # raises OverflowError, which this handler did not catch, so TEXTAFTER
+        # and TEXTBEFORE raised instead of the NaN used for any other invalid instance.
         return float("nan")
+
+
+def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
+    return _text_before_or_after(text, delimiter, instance_num, match_mode, match_end, if_not_found, after=True)
+
+
+def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
+    return _text_before_or_after(text, delimiter, instance_num, match_mode, match_end, if_not_found, after=False)
 
 
 def _textjoin_piece(val: Any) -> str:
@@ -301,11 +285,8 @@ def _textjoin_piece(val: Any) -> str:
     """
     if isinstance(val, (bool, np.bool_)):
         return str(bool(val))
-    if isinstance(val, (int, np.integer)) and not isinstance(val, bool):
-        try:
-            return str(int(val))
-        except (ValueError, TypeError, OverflowError):
-            return str(val)
+    if isinstance(val, (int, np.integer)):
+        return str(int(val))
     if isinstance(val, (float, np.floating)):
         # float() of a float/np.floating does not raise.
         number = float(val)
@@ -378,30 +359,26 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
 
         if row_delimiter is not None:
             rows = _split_text(s, str(row_delimiter), ci)
-            if skip_empty:
-                rows = [r for r in rows if r]
-            res = []
-            for r in rows:
-                if col_delimiter is not None:
-                    cols = _split_text(r, str(col_delimiter), ci)
-                else:
-                    cols = [r]
-                if skip_empty:
-                    cols = [c for c in cols if c]
-                res.append(cols)
-            # pad with pad_with to make rectangle
-            max_cols = max(len(row) for row in res) if res else 0
-            for row in res:
-                while len(row) < max_cols:
-                    # Omitted pad_with is NaN: ScTextSplit PutError(NotAvailable).
-                    # Do not use xlookup's "#N/A" string here.
-                    row.append(pad_with)
-            return res
         else:
-            cols = _split_text(s, str(col_delimiter), ci)
+            rows = [s]
+        if skip_empty:
+            rows = [r for r in rows if r]
+        res = []
+        for r in rows:
+            if col_delimiter is not None:
+                cols = _split_text(r, str(col_delimiter), ci)
+            else:
+                cols = [r]
             if skip_empty:
                 cols = [c for c in cols if c]
-            return [cols]
+            res.append(cols)
+        # pad with pad_with to make rectangle
+        max_cols = max(len(row) for row in res) if res else 0
+        for row in res:
+            # Omitted pad_with is NaN: ScTextSplit PutError(NotAvailable).
+            # Do not use xlookup's "#N/A" string here.
+            row.extend([pad_with] * (max_cols - len(row)))
+        return res
     except (ValueError, TypeError, OverflowError, re.error):
         # A broad Exception hid programming errors as NaN. An empty
         # delimiter still raises ValueError and stays NaN. match_mode is
@@ -427,7 +404,7 @@ def time(hour: Any, minute: Any, second: Any) -> float:
         return float("nan")
     if wrapped == 0.0:
         return 0.0
-    return float(wrapped / 86400.0)
+    return wrapped / 86400.0
 
 
 def timevalue(text: Any) -> float:
@@ -509,12 +486,10 @@ def trend(*args: Any) -> Any:
             const = True
 
         if const:
-            A = np.c_[data_x, np.ones(data_x.shape[0])]
-            c, _unused, _unused2, _unused3 = np.linalg.lstsq(A, data_y, rcond=None)
-            pred = np.c_[new_data_x, np.ones(new_data_x.shape[0])] @ c
-        else:
-            c, _unused, _unused2, _unused3 = np.linalg.lstsq(data_x, data_y, rcond=None)
-            pred = new_data_x @ c
+            data_x = np.c_[data_x, np.ones(data_x.shape[0])]
+            new_data_x = np.c_[new_data_x, np.ones(new_data_x.shape[0])]
+        c = np.linalg.lstsq(data_x, data_y, rcond=None)[0]
+        pred = new_data_x @ c
 
         return pred.tolist()
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
@@ -610,13 +585,10 @@ def unichar(number: Any) -> str | float:
 
 
 def unicode(text: Any) -> float:
-    try:
-        s = str(text)
-        if not s:
-            return float("nan")
-        return float(ord(s[0]))
-    except (ValueError, TypeError):
+    s = str(text)
+    if not s:
         return float("nan")
+    return float(ord(s[0]))
 
 
 def _unique_key(item: Any) -> Any:
@@ -633,7 +605,7 @@ def _unique_key(item: Any) -> Any:
         return tuple(_unique_key(part) for part in item)
     if isinstance(item, (bool, np.bool_)):
         return ("b", bool(item))
-    if isinstance(item, (int, float, np.integer, np.floating)) and not isinstance(item, bool):
+    if isinstance(item, (int, float, np.integer, np.floating)):
         try:
             number = float(item)
         except (ValueError, TypeError, OverflowError):
@@ -1034,11 +1006,6 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     # if_not_found; it is a bad range. Report #VALUE!, same as other shape
     # mismatches, instead of letting the exception escape.
     try:
-        if r_flat.ndim == 1:
-            # A 1-D numeric return was an np.int64 / np.float64. The 2-D
-            # branch already returns Python values via tolist().
-            cell = r_flat[best_idx]
-            return cell.item() if isinstance(cell, np.generic) else cell
         if r_flat.ndim == 2:
             l_shape = np.asarray(lookup_arr).shape
             if len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1:
@@ -1055,8 +1022,8 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
                 # A horizontal 1×N lookup into a one-row return sliced out a
                 # one-element column and .tolist() wrapped it. A 1×1 result is a scalar.
                 return _scalar_if_singleton(r_flat[:, best_idx].tolist())
-            cell = r_flat.ravel()[best_idx]
-            return cell.item() if isinstance(cell, np.generic) else cell
+        # A 1-D numeric return was an np.int64 / np.float64. ndim >= 3 and a
+        # 2-D row shorter than best_idx use the same ravel unwrap.
         cell = r_flat.ravel()[best_idx]
         return cell.item() if isinstance(cell, np.generic) else cell
     except IndexError:
@@ -1116,9 +1083,9 @@ def _flatten_range(arg: Any) -> list[Any]:
 def _xor_logical(val: Any, *, in_range: bool) -> tuple[str, bool | float | str]:
     if isinstance(val, np.generic):
         val = val.item()
-    if isinstance(val, (bool, np.bool_)):
+    if isinstance(val, bool):
         return ("ok", bool(val))
-    if isinstance(val, (int, np.integer)) and not isinstance(val, bool):
+    if isinstance(val, int):
         return ("ok", int(val) != 0)
     if isinstance(val, (float, np.floating)):
         number = float(val)

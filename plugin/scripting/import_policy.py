@@ -19,6 +19,7 @@ from plugin.scripting.sandbox import (
     DANGEROUS_MODULES,
     FILE_BLOCKED_MODULES,
     NETWORK_BLOCKED_MODULES,
+    _PROCESS_MODULES,
     build_sandbox_policy,
     policy_blocked_imports,
 )
@@ -44,18 +45,6 @@ def venv_blocked_modules() -> tuple[str, ...]:
     return tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
 
 
-_PROCESS_MODULES = ("subprocess", "multiprocessing", "_multiprocessing", "pty")
-
-
-def _host_escape_blocked_list() -> str:
-    escapes = [m for m in DANGEROUS_MODULES if m not in ("plugin", "writeragent.framework") and m not in _PROCESS_MODULES]
-    return ", ".join(escapes) + "; plugin internals"
-
-
-def _process_blocked_list() -> str:
-    return ", ".join(m for m in DANGEROUS_MODULES if m in _PROCESS_MODULES)
-
-
 def _auto_import_alias(module_name: str, import_stmt: str) -> str:
     marker = " as "
     if marker in import_stmt:
@@ -70,12 +59,7 @@ def _auto_imports_prompt_lists() -> tuple[str, str]:
     for module_name, import_stmt in AUTO_IMPORTS.items():
         aliases.append(_auto_import_alias(module_name, import_stmt))
         modules.append(module_name)
-    if not modules:
-        return "", ""
-    if len(modules) == 1:
-        do_not = modules[0]
-    else:
-        do_not = ", ".join(modules[:-1]) + f", or {modules[-1]}"
+    do_not = ", ".join(modules[:-1]) + f", or {modules[-1]}"
     return ", ".join(aliases), do_not
 
 
@@ -88,8 +72,15 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         f"DO NOT import {do_not_import}. "
         "Prefer np/sp/pd/st and scipy over hand-rolled Python; use dt for dates, plt for charts."
     )
-    host_escape = _host_escape_blocked_list()
-    processes = _process_blocked_list()
+    host_escape = (
+        ", ".join(
+            m
+            for m in DANGEROUS_MODULES
+            if m not in ("plugin", "writeragent.framework") and m not in _PROCESS_MODULES
+        )
+        + "; plugin internals"
+    )
+    processes = ", ".join(m for m in DANGEROUS_MODULES if m in _PROCESS_MODULES)
     networking = ", ".join(NETWORK_BLOCKED_MODULES)
     file_writes = ", ".join(FILE_BLOCKED_MODULES)
 

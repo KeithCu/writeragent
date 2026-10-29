@@ -19,7 +19,7 @@ from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     is_status_helper_result,
     make_template_api,
-    parse_run_import_call_params,
+    parse_run_import_call_spec,
 )
 
 from plugin.scripting.calc_range import ensure_rectangular_2d
@@ -84,8 +84,9 @@ def resolve_output_style(helper: str, output_style: str | None) -> str:
 
 def extract_units_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     """Extract units insertion kwargs (e.g. output_style) from script code."""
-    body_params = parse_run_import_call_params(code, run_name="run_units")
-    if body_params is None:
+    spec = parse_run_import_call_spec(code, run_name="run_units")
+    body_params = spec.get("params") if spec else None
+    if not isinstance(body_params, dict):
         return {}
     raw_style = body_params.get("output_style")
     if raw_style is None:

@@ -13,7 +13,6 @@ from plugin.scripting.helper_domain import (
     build_helper_script_template,
     format_elapsed_time,
     parse_helper_script_header,
-    parse_run_import_call_params,
     parse_run_import_call_spec,
     rps_insert_failed_outcome,
     script_header_needs_data_binding,
@@ -87,8 +86,9 @@ def test_parse_run_import_call_params_reads_body():
     code = (
         'result = run_units({"helper": "convert_quantity", "params": {"value":"20","to_unit":"mm/h"}}, None, {})\n'
     )
-    params = parse_run_import_call_params(code, run_name="run_units")
-    assert params == {"value": "20", "to_unit": "mm/h"}
+    spec = parse_run_import_call_spec(code, run_name="run_units")
+    assert spec is not None
+    assert spec["params"] == {"value": "20", "to_unit": "mm/h"}
 
 
 def test_parse_run_import_call_spec_reads_helper_and_params():
@@ -202,7 +202,6 @@ def test_direct_call_units_positional_prefix_and_keywords():
 
 def test_parse_run_import_call_null_byte_returns_none():
     assert parse_run_import_call_spec("\x00", run_name="\x00") is None
-    assert parse_run_import_call_params("\x00", run_name="\x00") is None
 
 
 def test_format_elapsed_time_buckets():
@@ -217,8 +216,9 @@ def test_parse_run_import_call_params_nested_unary():
         'result = run_units({"helper": "h", "params": {"n": -5, "items": [-1, 2], '
         '"pos": +3, "dbl": -(-4)}}, None, {})\n'
     )
-    params = parse_run_import_call_params(code, run_name="run_units")
-    assert params == {"n": -5, "items": [-1, 2], "pos": 3, "dbl": 4}
+    spec = parse_run_import_call_spec(code, run_name="run_units")
+    assert spec is not None
+    assert spec["params"] == {"n": -5, "items": [-1, 2], "pos": 3, "dbl": 4}
 
 
 def test_rps_insert_failed_outcome_empty_str_uses_repr():
@@ -293,7 +293,9 @@ def test_unresolved_output_style_is_omitted():
         "from writeragent.scripting.units import convert_quantity\n"
         "convert_quantity(1, 'm', 'km', output_style=style_var)\n"
     )
-    assert parse_run_import_call_params(code, run_name="run_units") == {
+    spec = parse_run_import_call_spec(code, run_name="run_units")
+    assert spec is not None
+    assert spec["params"] == {
         "value": 1,
         "from": "m",
         "to": "km",
@@ -315,7 +317,9 @@ def test_unresolved_list_and_dict_value_are_omitted():
     code = (
         'result = run_units({"helper": "convert_quantity", "params": {"value": user_var, "to": "km", "items": [1, user_var]}}, None, {})\n'
     )
-    assert parse_run_import_call_params(code, run_name="run_units") == {"to": "km"}
+    spec = parse_run_import_call_spec(code, run_name="run_units")
+    assert spec is not None
+    assert spec["params"] == {"to": "km"}
 
 
 def test_format_elapsed_time_boundary_rounding():

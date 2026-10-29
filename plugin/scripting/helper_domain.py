@@ -125,16 +125,11 @@ def _literal_value(node: ast.AST) -> Any:
                 continue
             out[key] = val
         return out
-    if isinstance(node, ast.List):
+    if isinstance(node, ast.List | ast.Tuple):
         items = [_literal_value(elt) for elt in node.elts]
         if any(item is _UNRESOLVED for item in items):
             return _UNRESOLVED
-        return items
-    if isinstance(node, ast.Tuple):
-        items = [_literal_value(elt) for elt in node.elts]
-        if any(item is _UNRESOLVED for item in items):
-            return _UNRESOLVED
-        return tuple(items)
+        return tuple(items) if isinstance(node, ast.Tuple) else items
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
         # Recurse so -(-5) and {"n": -1} both resolve. The old check only
         # accepted a top-level USub of a Constant, so nested unary and unary
@@ -146,17 +141,6 @@ def _literal_value(node: ast.AST) -> Any:
             return value
         return -value
     return _UNRESOLVED
-
-
-@deal.pre(lambda code, run_name="": _deal_user_code_ok(code, run_name))
-@deal.post(lambda result: result is None or isinstance(result, dict))
-def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] | None:
-    """Return the ``params`` dict from ``run_name({"helper": ..., "params": {...}}, ...)`` when literal."""
-    spec = parse_run_import_call_spec(code, run_name=run_name)
-    if not spec:
-        return None
-    params = spec.get("params")
-    return params if isinstance(params, dict) else None
 
 
 def _writeragent_imported_names(tree: ast.AST) -> set[str]:
@@ -470,8 +454,8 @@ def format_elapsed_time(seconds: float) -> str:
     Round to two decimal places before the 60-second check. Checking the raw
     value formatted 59.999 as "60.00s" instead of "1m 0s".
     """
-    if round(seconds, 2) >= 60.0:
-        rounded = round(seconds, 2)
+    rounded = round(seconds, 2)
+    if rounded >= 60.0:
         minutes = int(rounded // 60)
         secs = int(rounded % 60)
         return f"{minutes}m {secs}s"
@@ -603,42 +587,6 @@ def plot_insert_ok_outcome(
     return rps_ok_outcome(status_ok, result=result, stdout=stdout)
 
 
-def symbolic_insert_ok_outcome(
-    *,
-    helper: str,
-    latex: str,
-    t0: float,
-    stdout: str | None,
-    result: Any,
-) -> dict[str, Any]:
-    return preview_insert_ok_outcome(
-        domain_label="Math",
-        helper=helper,
-        preview_text=latex,
-        t0=t0,
-        stdout=stdout,
-        result=result,
-    )
-
-
-def units_insert_ok_outcome(
-    *,
-    helper: str,
-    formatted: str,
-    t0: float,
-    stdout: str | None,
-    result: Any,
-) -> dict[str, Any]:
-    return preview_insert_ok_outcome(
-        domain_label="Units",
-        helper=helper,
-        preview_text=formatted,
-        t0=t0,
-        stdout=stdout,
-        result=result,
-    )
-
-
 # --- Host Facade Factory ---
 
 from types import SimpleNamespace
@@ -704,7 +652,6 @@ def make_template_api(cfg: DomainFacadeConfig) -> Any:
         return _template_body(helper, dict(cfg.default_params.get(helper, {})))
 
     return SimpleNamespace(
-        template_body=_template_body,
         get_templates=get_templates,
         parse_header=parse_header,
         template_for=template_for,

@@ -91,8 +91,8 @@ def test_syntax_error_cached() -> None:
 
 def test_lru_eviction() -> None:
     clear_python_code_hot_cache()
-    original_max = hot_cache._max_entries
-    hot_cache._max_entries = 2
+    original_max = hot_cache._DEFAULT_MAX_ENTRIES
+    hot_cache._DEFAULT_MAX_ENTRIES = 2
     try:
         imports = list(BASE_BUILTIN_MODULES)
         key_old = hot_cache._cache_key("result = 1", imports)
@@ -102,7 +102,7 @@ def test_lru_eviction() -> None:
         assert key_old not in hot_cache._cache
         assert len(hot_cache._cache) == 2
     finally:
-        hot_cache._max_entries = original_max
+        hot_cache._DEFAULT_MAX_ENTRIES = original_max
 
 
 def test_ast_parse_skipped_on_cache_hit() -> None:
@@ -304,7 +304,7 @@ def test_sandbox_ast_validation_denylist_table() -> None:
 
 def test_all_ast_stmt_and_expr_subclasses_covered() -> None:
     from plugin.contrib.smolagents.local_python_executor import _HANDLERS
-    from plugin.scripting.sandbox_cache import _STRUCTURAL_NODES, validate_sandbox_ast
+    from plugin.scripting.sandbox_cache import validate_sandbox_ast
 
     def get_subclasses(cls: type[ast.AST]) -> set[type[ast.AST]]:
         subclasses: set[type[ast.AST]] = set()
@@ -317,7 +317,7 @@ def test_all_ast_stmt_and_expr_subclasses_covered() -> None:
     imports = list(BASE_BUILTIN_MODULES)
 
     for node_cls in sorted(all_nodes, key=lambda c: c.__name__):
-        if node_cls in _HANDLERS or node_cls in _STRUCTURAL_NODES or issubclass(node_cls, ast.Constant):
+        if node_cls in _HANDLERS or node_cls is ast.ExceptHandler or issubclass(node_cls, ast.Constant):
             continue
         instance = node_cls.__new__(node_cls)
         mod = ast.Module(body=[cast("ast.stmt", instance)], type_ignores=[])
