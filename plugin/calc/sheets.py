@@ -100,8 +100,7 @@ class SwitchSheet(ToolCalcSheetBase):
         controller = doc.getCurrentController()
         controller.setActiveSheet(sheet)
         log.info("Switched to sheet: %s", sheet_name)
-        result = f"Switched to sheet '{sheet_name}'."
-        return {"status": "ok", "message": result}
+        return {"status": "ok", "message": f"Switched to sheet '{sheet_name}'."}
 
 
 class CreateSheet(ToolCalcSheetBase):
@@ -135,14 +134,13 @@ class CreateSheet(ToolCalcSheetBase):
 
         sheets.insertNewByName(sheet_name, position)
         log.info("New sheet created: %s (position: %d)", sheet_name, position)
-        result = (
-            f"New sheet named '{sheet_name}' created; no cells copied. "
-            f"Not activated: qualify writes with the sheet name (e.g. '{sheet_name}'.A1)."
-        )
         return {
             "status": "ok",
             "sheet": sheet_name,
-            "message": result,
+            "message": (
+                f"New sheet named '{sheet_name}' created; no cells copied. "
+                f"Not activated: qualify writes with the sheet name (e.g. '{sheet_name}'.A1)."
+            ),
             "instruction": get_sheets_create_completion_instruction(),
         }
 
@@ -189,10 +187,10 @@ class DeleteSheet(ToolCalcSheetBase):
 
         doc = ctx.doc
         CalcBridge(doc).get_sheet(sheet_name)
-        if sheet_name.startswith("_"):
+        if not is_agent_visible_sheet(sheet_name):
             return self._tool_error(f"Cannot delete internal sheet '{sheet_name}'.")
         sheets = doc.getSheets()
-        visible_names = [n for n in sheets.getElementNames() if not n.startswith("_")]
+        visible_names = filter_agent_sheet_names(sheets.getElementNames())
         if len(visible_names) <= 1:
             return self._tool_error("Cannot delete the only sheet in the document.")
         sheets.removeByName(sheet_name)
@@ -222,10 +220,9 @@ class ProtectSheet(ToolCalcSheetBase):
 
         actual_name = sheet.getName()
         is_currently_protected = sheet.isProtected()
-        if should_protect and is_currently_protected:
-            return {"status": "ok", "message": f"Sheet '{actual_name}' is already protected."}
-        if not should_protect and not is_currently_protected:
-            return {"status": "ok", "message": f"Sheet '{actual_name}' is already unprotected."}
+        state = "protected" if should_protect else "unprotected"
+        if should_protect == is_currently_protected:
+            return {"status": "ok", "message": f"Sheet '{actual_name}' is already {state}."}
 
         if should_protect:
             try:
@@ -243,13 +240,9 @@ class ProtectSheet(ToolCalcSheetBase):
                 return self._tool_error(f"Sheet '{actual_name}' is password-protected; unprotect it in LibreOffice.")
 
         if sheet.isProtected() == is_currently_protected:
-            target_state = "protected" if should_protect else "unprotected"
-            return self._tool_error(f"Failed to set sheet '{actual_name}' to {target_state}.")
+            return self._tool_error(f"Failed to set sheet '{actual_name}' to {state}.")
 
-        if should_protect:
-            msg = f"Sheet '{actual_name}' is now protected."
-        else:
-            msg = f"Sheet '{actual_name}' is now unprotected."
+        msg = f"Sheet '{actual_name}' is now {state}."
 
         log.info("%s", msg)
         return {"status": "ok", "message": msg}

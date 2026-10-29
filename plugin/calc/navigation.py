@@ -63,11 +63,7 @@ class CellLinkSpanRegistry:
         spans = self._spans.get(key)
         if not spans:
             return
-        kept = [span for span in spans if span[1] <= start_len]
-        if kept:
-            self._spans[key] = kept
-        else:
-            self._spans.pop(key, None)
+        self._spans[key] = [span for span in spans if span[1] <= start_len]
 
 
 cell_link_registry = CellLinkSpanRegistry()
@@ -89,7 +85,7 @@ def normalize_cell_address(raw: str) -> str | None:
         return None
     try:
         col, row = parse_address(a1)
-    except (ValueError, Exception):
+    except Exception:
         return None
     if not (0 <= col <= MAX_COL and 0 <= row <= MAX_ROW):
         return None
@@ -117,20 +113,14 @@ def drop_cell_link_spans_from(control: Any, start_len: int) -> None:
     cell_link_registry.drop_from(control, start_len)
 
 
-def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | None:
-    """Resolve *address* to ``(sheet, col, row)`` for the open Calc document."""
-    target = normalize_cell_address(address)
-    if not target or doc is None:
-        return None
-    return _canonical_resolve_sheet_and_cell(doc, target)
-
-
 def navigate_to_cell(doc: Any, _ctx: Any, address: str) -> bool:
     """Select *address* in the Calc document (PyUNO select, not sidebar dispatch)."""
-    resolved = resolve_sheet_and_cell(doc, address)
+    target = normalize_cell_address(address)
+    resolved = _canonical_resolve_sheet_and_cell(doc, target) if target and doc is not None else None
     if not resolved:
         log.debug("navigate_to_cell: could not resolve %r", address)
         return False
+    assert doc is not None
     sheet, col, row = resolved
     try:
         controller = doc.getCurrentController()
