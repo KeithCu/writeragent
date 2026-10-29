@@ -6,47 +6,20 @@
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING
 
-from plugin.calc.spreadsheet_import.models import FORMULA_LIKE_TYPES, CellRecord, SheetModel
+from plugin.calc.spreadsheet_import.models import FORMULA_LIKE_TYPES, SheetModel
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-
-
-_RANGE_REF_PATTERN = re.compile(r"\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?", re.IGNORECASE)
-
-
-def extract_range_refs(formula: str) -> list[str]:
-    """Extract same-sheet range/cell tokens (``A1`` or ``A1:B2``) left-to-right."""
-    if not formula:
-        return []
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for match in _RANGE_REF_PATTERN.finditer(formula.upper()):
-        c1, r1, c2, r2 = match.group(1), match.group(2), match.group(3), match.group(4)
-        if c2 is not None and r2 is not None:
-            ref = f"{c1}{r1}:{c2}{r2}"
-        else:
-            ref = f"{c1}{r1}"
-        if ref not in seen:
-            seen.add(ref)
-            ordered.append(ref)
-    return ordered
-
-
-def formula_like_addresses(cells: dict[str, CellRecord]) -> list[str]:
-    """Addresses of cells that participate in the formula dependency DAG."""
-    return sorted(addr for addr, cell in cells.items() if cell.type in FORMULA_LIKE_TYPES)
 
 
 def build_dependency_graph(model: SheetModel) -> dict[str, list[str]]:
     """Map each formula-like cell to in-scope precedent addresses it depends on."""
     scope = frozenset(model.cells)
     graph: dict[str, list[str]] = {}
-    for addr in formula_like_addresses(model.cells):
+    for addr in sorted(addr for addr, cell in model.cells.items() if cell.type in FORMULA_LIKE_TYPES):
         cell = model.cells[addr]
         deps = [p for p in cell.precedents if p in scope and model.cells[p].type != "empty"]
         graph[addr] = deps
@@ -112,28 +85,28 @@ def _strongly_connected_groups(nodes: set[str], graph: dict[str, list[str]]) -> 
     counter = 0
     groups: list[list[str]] = []
 
+    def visit(node: str) -> Iterator[str]:
+        nonlocal counter
+        index[node] = counter
+        low[node] = counter
+        counter += 1
+        scc_stack.append(node)
+        on_stack.add(node)
+        # Same neighbor set as the old root and prec pushes. graph.get and
+        # `p in nodes` stay: a precedent can be on the sheet and still not be
+        # a formula-graph node.
+        return iter(sorted({p for p in graph.get(node, ()) if p in nodes}))
+
     for root in sorted(nodes):
         if root in index:
             continue
-        index[root] = counter
-        low[root] = counter
-        counter += 1
-        scc_stack.append(root)
-        on_stack.add(root)
-        root_neighbors = iter(sorted({p for p in graph.get(root, ()) if p in nodes}))
-        work_stack: list[tuple[str, Iterator[str]]] = [(root, root_neighbors)]
+        work_stack: list[tuple[str, Iterator[str]]] = [(root, visit(root))]
 
         while work_stack:
             node, neighbors_iter = work_stack[-1]
             for prec in neighbors_iter:
                 if prec not in index:
-                    index[prec] = counter
-                    low[prec] = counter
-                    counter += 1
-                    scc_stack.append(prec)
-                    on_stack.add(prec)
-                    prec_neighbors = iter(sorted({p for p in graph.get(prec, ()) if p in nodes}))
-                    work_stack.append((prec, prec_neighbors))
+                    work_stack.append((prec, visit(prec)))
                     break
                 if prec in on_stack:
                     low[node] = min(low[node], index[prec])

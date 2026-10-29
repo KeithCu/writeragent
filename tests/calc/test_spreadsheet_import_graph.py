@@ -8,15 +8,9 @@ from __future__ import annotations
 
 from plugin.calc.spreadsheet_import.graph import (
     build_dependency_graph,
-    extract_range_refs,
     topological_formula_order,
 )
 from plugin.calc.spreadsheet_import.ingest import ingest_from_arrays
-
-
-def test_extract_range_refs():
-    refs = extract_range_refs("=SUM($A$1:B2)+C3")
-    assert refs == ["A1:B2", "C3"]
 
 
 def test_topological_chain():

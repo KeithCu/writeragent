@@ -5,7 +5,6 @@
 """Translate P1 Calc formulas to ``=PY()`` Python source via vendored AST."""
 
 from __future__ import annotations
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -18,44 +17,32 @@ from plugin.calc.address_utils import parse_address, parse_range_string, split_s
 
 
 class TranslationError(ValueError):
-    """Base error for formula translation failures."""
+    """Formula translation failure. ``reason`` is the import-report code.
 
-    reason: str = "PARSE_ERROR"
+    Reference failures use ``UNSUPPORTED_FUNCTION`` because that was the
+    ``UnsupportedRef`` class attribute. Arity failures use
+    ``UNSUPPORTED_ARITY``. Direct failures use ``PARSE_ERROR``.
+    """
 
-
-class UnsupportedFunction(TranslationError):
-    """Raised when encountering a function with no Python translation."""
-
-    reason: str = "UNSUPPORTED_FUNCTION"
-
-
-class BadArity(TranslationError):
-    """Raised when a function receives too few or too many arguments."""
-
-    reason: str = "UNSUPPORTED_ARITY"
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason: str = reason
 
 
-class UnsupportedRef(TranslationError):
-    """Raised when encountering an unsupported reference structure."""
-
-    reason: str = "UNSUPPORTED_FUNCTION"
-
-
-@dataclass
 class _CodegenState:
-    ranges: list[str] = field(default_factory=list)
-    _index: dict[str, int] = field(default_factory=dict)
+    def __init__(self, cell_addr: str | None = None) -> None:
+        self.cell_addr: str | None = cell_addr
+        self._ranges: dict[str, int] = {}
 
     def add_range(self, addr: str) -> int:
         key = _canonical_range(addr)
-        if key not in self._index:
-            self._index[key] = len(self.ranges)
-            self.ranges.append(key)
-        return self._index[key]
+        if key not in self._ranges:
+            self._ranges[key] = len(self._ranges)
+        return self._ranges[key]
 
     def ref_expr(self, addr: str) -> str:
         idx = self.add_range(addr)
-        if len(self.ranges) == 1:
+        if len(self._ranges) == 1:
             return "data"
         return f"data[{idx}]"
 
@@ -97,16 +84,16 @@ def _walk_ranges(node: Any, state: _CodegenState) -> None:
 
 
 def _emit_operand(node: OperandNode) -> str:
-    if node.tsubtype == "logical":
-        return "True" if str(node.tvalue).upper() == "TRUE" else "False"
-    if node.tsubtype == "text":
-        return repr(str(node.tvalue))
-    if node.tsubtype == "error":
-        raise TranslationError("error literal")
-    # number or none
     text = str(node.tvalue)
-    if text.upper() in ("TRUE", "FALSE"):
-        return "True" if text.upper() == "TRUE" else "False"
+    upper = text.upper()
+    if node.tsubtype == "text":
+        return repr(text)
+    if node.tsubtype == "error":
+        raise TranslationError("PARSE_ERROR", "error literal")
+    # Logical tokens are TRUE/FALSE. Any other logical value stays False.
+    # The same spelling on a non-text, non-error token is the old second check.
+    if node.tsubtype == "logical" or upper in ("TRUE", "FALSE"):
+        return "True" if upper == "TRUE" else "False"
     try:
         val = float(text)
         if val.is_integer():
@@ -116,38 +103,38 @@ def _emit_operand(node: OperandNode) -> str:
         return repr(text)
 
 
-def _emit_expr(node: Any, state: _CodegenState, cell_addr: str | None = None) -> str:
+def _emit_expr(node: Any, state: _CodegenState) -> str:
     if isinstance(node, RangeNode):
         return state.ref_expr(node.address)
     if isinstance(node, OperandNode):
         return _emit_operand(node)
     if isinstance(node, OperatorNode):
-        return _emit_operator(node, state, cell_addr)
+        return _emit_operator(node, state)
     if isinstance(node, FunctionNode):
-        return _emit_function(node, state, cell_addr)
-    raise TranslationError(f"unknown node {type(node)}")
+        return _emit_function(node, state)
+    raise TranslationError("PARSE_ERROR", f"unknown node {type(node)}")
 
 
-def _emit_operator(node: OperatorNode, state: _CodegenState, cell_addr: str | None = None) -> str:
+def _emit_operator(node: OperatorNode, state: _CodegenState) -> str:
     if node.ttype == "operator-prefix":
-        rhs = _emit_expr(node.right, state, cell_addr)
+        rhs = _emit_expr(node.right, state)
         if node.tvalue == "-":
             return f"(-{rhs})"
         if node.tvalue == "+":
             return rhs
-        raise TranslationError("unsupported prefix op")
+        raise TranslationError("PARSE_ERROR", "unsupported prefix op")
     if node.ttype == "operator-postfix":
         # Emit (expr * 0.01), parenthesized. Postfix % binds tighter than
         # ^ and * / (check -50% and 2^50%). The parser builds a postfix
         # operator node; rejecting that node drops a legal formula.
         if node.tvalue == "%":
-            expr = _emit_expr(node.left, state, cell_addr)
+            expr = _emit_expr(node.left, state)
             return f"({expr} * 0.01)"
-        raise TranslationError(f"unsupported postfix op {node.tvalue}")
+        raise TranslationError("PARSE_ERROR", f"unsupported postfix op {node.tvalue}")
     if node.ttype != "operator-infix":
-        raise TranslationError("unsupported operator type")
-    left = _emit_expr(node.left, state, cell_addr)
-    right = _emit_expr(node.right, state, cell_addr)
+        raise TranslationError("PARSE_ERROR", "unsupported operator type")
+    left = _emit_expr(node.left, state)
+    right = _emit_expr(node.right, state)
     op = node.tvalue
     if op == "^":
         return f"({left} ** {right})"
@@ -160,11 +147,11 @@ def _emit_operator(node: OperatorNode, state: _CodegenState, cell_addr: str | No
     return f"({left} {op} {right})"
 
 
-def _emit_row_col(axis: int, is_count: bool, node: FunctionNode, state: _CodegenState, cell_addr: str | None = None) -> str:
+def _emit_row_col(axis: int, is_count: bool, node: FunctionNode, state: _CodegenState) -> str:
     """Consolidated emitter for ROW/COLUMN (is_count=False) and ROWS/COLUMNS (is_count=True)."""
     if is_count:
         if not node.args:
-            raise BadArity("ROWS/COLUMNS requires 1 argument")
+            raise TranslationError("UNSUPPORTED_ARITY", "ROWS/COLUMNS requires 1 argument")
         arg = node.args[0]
         if isinstance(arg, RangeNode):
             _sheet, bare = split_sheet_prefix(arg.address)
@@ -174,28 +161,28 @@ def _emit_row_col(axis: int, is_count: bool, node: FunctionNode, state: _Codegen
                 return f"np.float64({abs(er - sr) + 1})" if axis == 0 else f"np.float64({abs(ec - sc) + 1})"
             except ValueError:
                 pass
-        expr = _emit_expr(arg, state, cell_addr)
+        expr = _emit_expr(arg, state)
         return f"np.float64(np.asarray({expr}).shape[{axis}])"
 
     # ROW / COLUMN:
     if not node.args:
-        if not cell_addr:
+        if not state.cell_addr:
             # Without a cell address, ROW() and COLUMN() cannot name a row
             # or a column, so fail as unsupported. Falling through to
             # float(1) counted as a successful translation.
-            raise UnsupportedRef("ROW/COLUMN without reference requires cell_addr")
+            raise TranslationError("UNSUPPORTED_FUNCTION", "ROW/COLUMN without reference requires cell_addr")
         try:
-            col_idx, row_idx = parse_address(cell_addr.replace("$", ""))
+            col_idx, row_idx = parse_address(state.cell_addr.replace("$", ""))
             return f"np.float64({row_idx + 1})" if axis == 0 else f"np.float64({col_idx + 1})"
         except ValueError as exc:
-            raise UnsupportedRef(f"Cannot parse cell address {cell_addr}") from exc
+            raise TranslationError("UNSUPPORTED_FUNCTION", f"Cannot parse cell address {state.cell_addr}") from exc
 
     arg = node.args[0]
     if not isinstance(arg, RangeNode):
-        raise UnsupportedRef("ROW/COLUMN argument must be a range")
+        raise TranslationError("UNSUPPORTED_FUNCTION", "ROW/COLUMN argument must be a range")
 
     # Strip the sheet prefix and $ so parse_range_string can read the
-    # coordinates. Anything else raises UnsupportedRef. parse_range_string
+    # coordinates. Anything else raises TranslationError. parse_range_string
     # rejects a prefix and $, and the ValueError handler returned float(1),
     # so =ROW($A$5) and =ROW(Sheet2.A1:A3) emitted (1)+0.0.
     _sheet, bare = split_sheet_prefix(arg.address)
@@ -203,23 +190,18 @@ def _emit_row_col(axis: int, is_count: bool, node: FunctionNode, state: _Codegen
     try:
         (sc, sr), (ec, er) = parse_range_string(clean_ref)
     except ValueError as exc:
-        raise UnsupportedRef(f"Invalid range in ROW/COLUMN: {arg.address}") from exc
+        raise TranslationError("UNSUPPORTED_FUNCTION", f"Invalid range in ROW/COLUMN: {arg.address}") from exc
 
-    if axis == 0:
-        if sr == er:
-            return f"np.float64({sr + 1})"
-        rows = [float(r) for r in range(sr + 1, er + 2)]
-        return f"np.array({rows}, dtype=float)"
-    else:
-        if sc == ec:
-            return f"np.float64({sc + 1})"
-        cols = [float(c) for c in range(sc + 1, ec + 2)]
-        return f"np.array({cols}, dtype=float)"
+    start, end = (sr, er) if axis == 0 else (sc, ec)
+    if start == end:
+        return f"np.float64({start + 1})"
+    values = [float(v) for v in range(start + 1, end + 2)]
+    return f"np.array({values}, dtype=float)"
 
 
 def _emit_switch(args: list[str]) -> str:
     if len(args) < 2:
-        raise BadArity("SWITCH arity")
+        raise TranslationError("UNSUPPORTED_ARITY", "SWITCH arity")
     expr = args[0]
     pairs = args[1:]
     if len(pairs) % 2 == 1:
@@ -238,7 +220,7 @@ def _emit_switch(args: list[str]) -> str:
 
 def _emit_ifs(args: list[str]) -> str:
     if len(args) < 2 or len(args) % 2 != 0:
-        raise BadArity("IFS arity")
+        raise TranslationError("UNSUPPORTED_ARITY", "IFS arity")
     res = "None"
     for i in range(len(args) - 2, -1, -2):
         cond = args[i]
@@ -247,31 +229,27 @@ def _emit_ifs(args: list[str]) -> str:
     return res
 
 
-def _emit_function(node: FunctionNode, state: _CodegenState, cell_addr: str | None = None) -> str:
+def _emit_function(node: FunctionNode, state: _CodegenState) -> str:
     name = str(node.tvalue).upper().replace("_XLFN.", "")
     if name == "ROW":
-        return _emit_row_col(0, False, node, state, cell_addr)
+        return _emit_row_col(0, False, node, state)
     if name == "COLUMN":
-        return _emit_row_col(1, False, node, state, cell_addr)
+        return _emit_row_col(1, False, node, state)
     if name == "ROWS":
-        return _emit_row_col(0, True, node, state, cell_addr)
+        return _emit_row_col(0, True, node, state)
     if name == "COLUMNS":
-        return _emit_row_col(1, True, node, state, cell_addr)
-    args = [_emit_expr(arg, state, cell_addr) for arg in (node.args or [])]
-    if name == "SWITCH":
-        return _emit_switch(args)
-    if name == "IFS":
-        return _emit_ifs(args)
+        return _emit_row_col(1, True, node, state)
+    args = [_emit_expr(arg, state) for arg in (node.args or [])]
     emitted = _P1_FUNCTION_EMITTERS.get(name)
     if emitted is None:
-        raise UnsupportedFunction(f"unsupported function {name}")
+        raise TranslationError("UNSUPPORTED_FUNCTION", f"unsupported function {name}")
     try:
         return emitted(args)
     except IndexError as exc:
-        # Catch IndexError and raise BadArity (UNSUPPORTED_ARITY). The
-        # emitters index args directly, so too few arguments crash out of
+        # Catch IndexError and raise TranslationError("UNSUPPORTED_ARITY", ...).
+        # The emitters index args directly, so too few arguments crash out of
         # translate_formula.
-        raise BadArity(f"insufficient arguments for {name}") from exc
+        raise TranslationError("UNSUPPORTED_ARITY", f"insufficient arguments for {name}") from exc
 
 
 def _emit_aggregate(args: list[str]) -> str:
@@ -280,9 +258,9 @@ def _emit_aggregate(args: list[str]) -> str:
     try:
         fn = int(args[0])
     except (ValueError, TypeError):
-        raise UnsupportedFunction("AGGREGATE requires a numeric literal in 1..13 as first argument")
+        raise TranslationError("UNSUPPORTED_FUNCTION", "AGGREGATE requires a numeric literal in 1..13 as first argument")
     if not (1 <= fn <= 13):
-        raise UnsupportedFunction(f"AGGREGATE function_num {fn} not supported")
+        raise TranslationError("UNSUPPORTED_FUNCTION", f"AGGREGATE function_num {fn} not supported")
     return f"calc.aggregate({', '.join(args)})"
 
 
@@ -294,11 +272,11 @@ def _emit_if(args: list[str]) -> str:
         return f"({args[1]} if {args[0]} else False)"
     if len(args) == 3:
         return f"({args[1]} if {args[0]} else {args[2]})"
-    raise BadArity("IF expects 2 or 3 arguments")
+    raise TranslationError("UNSUPPORTED_ARITY", "IF expects 2 or 3 arguments")
 
 
 def _bad_arity(name: str, expected: int | str, got: int) -> str:
-    raise BadArity(f"{name} expects {expected} args, got {got}")
+    raise TranslationError("UNSUPPORTED_ARITY", f"{name} expects {expected} args, got {got}")
 
 
 def _exact(name: str, n: int, template: str) -> Callable[[list[str]], str]:
@@ -379,6 +357,8 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "FALSE": lambda _a: "False",
     "PI": lambda _a: "math.pi",
     "IF": _emit_if,
+    "IFS": _emit_ifs,
+    "SWITCH": _emit_switch,
     "AND": lambda a: f"all([{', '.join(a)}])" if len(a) >= 1 else _bad_arity("AND", ">=1", 0),
     "OR": lambda a: f"any([{', '.join(a)}])" if len(a) >= 1 else _bad_arity("OR", ">=1", 0),
     # Text (P2)
@@ -711,10 +691,10 @@ def translate_formula(formula: str, cell_addr: str | None = None) -> Translation
     except (SyntaxError, ValueError, IndexError):
         return TranslationResult(ok=False, reason="PARSE_ERROR")
 
-    state = _CodegenState()
+    state = _CodegenState(cell_addr)
     try:
         _walk_ranges(ast, state)
-        body = _emit_expr(ast, state, cell_addr)
+        body = _emit_expr(ast, state)
     except TranslationError as exc:
         return TranslationResult(ok=False, reason=exc.reason)
     except IndexError:
@@ -722,4 +702,4 @@ def translate_formula(formula: str, cell_addr: str | None = None) -> Translation
     except (ValueError, TypeError):
         return TranslationResult(ok=False, reason="PARSE_ERROR")
 
-    return TranslationResult(ok=True, code=body, data_ranges=list(state.ranges))
+    return TranslationResult(ok=True, code=body, data_ranges=list(state._ranges))
