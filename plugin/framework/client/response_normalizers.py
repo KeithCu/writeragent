@@ -37,16 +37,12 @@ LLM_DEV_BUILD_SYSTEM_PREFIX = (
 
 
 @lru_cache(maxsize=1)
-def _has_plugin_tests_spec() -> bool:
+def should_prepend_dev_llm_system_prefix() -> bool:
+    """True when this bundle includes test modules (same signal as the optional Debug / in-OXT tests)."""
     try:
         return importlib.util.find_spec("plugin.tests") is not None
     except Exception:
         return False
-
-
-def should_prepend_dev_llm_system_prefix() -> bool:
-    """True when this bundle includes test modules (same signal as the optional Debug / in-OXT tests)."""
-    return _has_plugin_tests_spec()
 
 
 # Local / Harmony-style models sometimes leak chat-template control tokens.
@@ -146,68 +142,35 @@ def extract_and_strip_images_from_message(message: dict[str, Any], strip_structu
     if not content:
         return extracted_images
 
+    def repl(match: re.Match[str]) -> str:
+        return _record_image(extracted_images, match.group(1), match.group(2))
+
     if isinstance(content, str):
-        # Scan for inline data:image URIs
-        def repl(match: re.Match[str]) -> str:
-            return _record_image(extracted_images, match.group(1), match.group(2))
-
-        new_content_str = _DATA_URI_IMAGE_RE.sub(repl, content)
-        message["content"] = new_content_str
-
+        message["content"] = _DATA_URI_IMAGE_RE.sub(repl, content)
     elif isinstance(content, list):
         new_content_list: list[Any] = []
         for part in content:
-            if not isinstance(part, dict):
-                new_content_list.append(part)
-                continue
-
-            p_type = part.get("type")
-            if p_type == "text":
-                text = _text_of(part.get("text"))
-
-                def repl(match: re.Match[str]) -> str:
-                    return _record_image(extracted_images, match.group(1), match.group(2))
-
-                new_text = _DATA_URI_IMAGE_RE.sub(repl, text)
-                part["text"] = new_text
-                new_content_list.append(part)
-            elif p_type == "image_url":
-                if strip_structured_image_blocks:
-                    # ``image_url`` is a dict on OpenAI and a string on some
-                    # local hosts. A present null used to crash .get before HTTP.
-                    image_url = part.get("image_url")
-                    if isinstance(image_url, dict):
-                        url_val = image_url.get("url", "")
-                    elif isinstance(image_url, str):
-                        url_val = image_url
-                    else:
-                        url_val = ""
-
-                    # Bugfix: Remote http/https image URLs on assistant/tool messages were previously
-                    # replaced with [Image Ref] but never extracted or moved to the user message, losing images.
-                    # Malformed data: URLs or other non-http schemes were also silently deleted.
-                    # Now http/https URLs are extracted to be reattached, malformed/other schemes are preserved
-                    # in place, and null/non-string values remain replaced with [Image Ref].
-                    if not isinstance(url_val, str) or not url_val:
-                        new_content_list.append({"type": "text", "text": "[Image Ref]"})
-                    elif url_val.startswith("data:"):
-                        match = _DATA_URI_IMAGE_RE.search(url_val)
-                        if match:
-                            _record_image(extracted_images, match.group(1), match.group(2))
-                            new_content_list.append({"type": "text", "text": "[Image Ref]"})
-                        else:
-                            new_content_list.append(part)
-                    elif url_val.startswith(("http://", "https://")):
-                        extracted_images.append({"url": url_val})
-                        new_content_list.append({"type": "text", "text": "[Image Ref]"})
-                    else:
-                        new_content_list.append(part)
-                else:
-                    new_content_list.append(part)
-            else:
-                new_content_list.append(part)
+            if isinstance(part, dict) and part.get("type") == "text":
+                part["text"] = _DATA_URI_IMAGE_RE.sub(repl, _text_of(part.get("text")))
+            elif (
+                isinstance(part, dict)
+                and part.get("type") == "image_url"
+                and strip_structured_image_blocks
+            ):
+                image_url = part.get("image_url")
+                url_val = _text_of(image_url.get("url") if isinstance(image_url, dict) else image_url)
+                if not url_val:
+                    part = {"type": "text", "text": "[Image Ref]"}
+                elif url_val.startswith("data:"):
+                    match = _DATA_URI_IMAGE_RE.search(url_val)
+                    if match:
+                        _record_image(extracted_images, match.group(1), match.group(2))
+                        part = {"type": "text", "text": "[Image Ref]"}
+                elif url_val.startswith(("http://", "https://")):
+                    extracted_images.append({"url": url_val})
+                    part = {"type": "text", "text": "[Image Ref]"}
+            new_content_list.append(part)
         message["content"] = new_content_list
-
     return extracted_images
 
 

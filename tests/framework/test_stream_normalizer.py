@@ -99,7 +99,7 @@ def test_normalize_delta_basic():
 
 def test_extract_reasoning_replay_reasoning_content_only():
     replay = sn.extract_reasoning_replay_from_response(
-        message_snapshot={"reasoning_content": "trace-a"},
+        sync_message={"reasoning_content": "trace-a"},
     )
     assert replay == {"reasoning_content": "trace-a"}
 
@@ -166,7 +166,7 @@ def test_extract_reasoning_replay_streaming_ignores_snapshot():
     replay = sn.extract_reasoning_replay_from_response(
         streaming_text="".join(parts),
         streaming_meta=meta,
-        message_snapshot={
+        sync_message={
             "reasoning": "duplicate",
             "reasoning_details": [
                 {"type": "reasoning.text", "text": "b", "index": 0},
@@ -267,7 +267,7 @@ def test_extract_reasoning_replay_disabled():
     old = sn.PRESERVE_REASONING_IN_SESSION
     try:
         sn.PRESERVE_REASONING_IN_SESSION = False
-        assert sn.extract_reasoning_replay_from_response(message_snapshot={"reasoning": "x"}) == {}
+        assert sn.extract_reasoning_replay_from_response(sync_message={"reasoning": "x"}) == {}
     finally:
         sn.PRESERVE_REASONING_IN_SESSION = old
 
