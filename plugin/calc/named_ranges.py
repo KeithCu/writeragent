@@ -35,10 +35,8 @@ log = logging.getLogger("writeragent.calc")
 
 # NamedRangeFlag bitmask mappings (com.sun.star.sheet.NamedRangeFlag)
 _FLAG_NAME_TO_BIT: dict[str, int] = {"filter_criteria": 1, "print_area": 2, "column_header": 4, "row_header": 8}
-
-_BIT_TO_FLAG_NAME: dict[int, str] = {v: k for k, v in _FLAG_NAME_TO_BIT.items()}
-
-_FLAG_MASK = 15
+# Disjoint NamedRangeFlag bits. sum equals the OR-mask (15).
+_FLAG_MASK = sum(_FLAG_NAME_TO_BIT.values())
 
 # Gemini rejects oneOf; advertise the LLM-friendly form. _parse_flags still
 # accepts a comma-string or integer bitmask if sent.
@@ -55,20 +53,17 @@ def _parse_flags(flags: list[str] | str | int | None) -> int:
 
     if isinstance(flags, int):
         mask = flags
-    elif isinstance(flags, str):
+    else:
+        if isinstance(flags, str):
+            tokens = flags.replace(",", " ").split()
+        elif isinstance(flags, (list, tuple)):
+            tokens = [str(raw) for raw in flags]
+        else:
+            raise ValueError(f"Invalid flags type: expected int, str, list, or tuple, got {type(flags).__name__}.")
+
         mask = 0
-        tokens = [f.strip().lower() for f in flags.replace(",", " ").split() if f.strip()]
-        for item in tokens:
-            if item in _FLAG_NAME_TO_BIT:
-                mask |= _FLAG_NAME_TO_BIT[item]
-            elif item.isdigit():
-                mask |= int(item)
-            else:
-                raise ValueError(f"Unknown flag '{item}'. Valid flags: {', '.join(_FLAG_NAME_TO_BIT)}.")
-    elif isinstance(flags, (list, tuple)):
-        mask = 0
-        for raw in flags:
-            item = str(raw).strip().lower()
+        for raw in tokens:
+            item = raw.strip().lower()
             if not item:
                 continue
             if item in _FLAG_NAME_TO_BIT:
@@ -77,8 +72,6 @@ def _parse_flags(flags: list[str] | str | int | None) -> int:
                 mask |= int(item)
             else:
                 raise ValueError(f"Unknown flag '{item}'. Valid flags: {', '.join(_FLAG_NAME_TO_BIT)}.")
-    else:
-        raise ValueError(f"Invalid flags type: expected int, str, list, or tuple, got {type(flags).__name__}.")
 
     if mask < 0 or mask & ~_FLAG_MASK:
         raise ValueError(f"Invalid flags mask {mask}: only bits 1, 2, 4, and 8 are allowed.")
@@ -87,11 +80,7 @@ def _parse_flags(flags: list[str] | str | int | None) -> int:
 
 def _format_flags(flag_mask: int) -> list[str]:
     """Format an integer NamedRangeFlag bitmask into human-readable strings."""
-    result: list[str] = []
-    for bit, name in _BIT_TO_FLAG_NAME.items():
-        if flag_mask & bit:
-            result.append(name)
-    return result
+    return [name for name, bit in _FLAG_NAME_TO_BIT.items() if flag_mask & bit]
 
 
 # Messages from ScNamedRangesObj::addNewByName (sc/source/ui/unoobj/nameuno.cxx).
@@ -175,26 +164,6 @@ def _resolve_container(doc: Any, scope: str | None) -> tuple[Any, str, Any | Non
     raise UnoObjectError(f"No sheet found with name '{clean_scope}' for scoped named ranges.")
 
 
-def _iter_named_range_sheets(doc: Any, *, agent_visible_only: bool) -> Any:
-    """Yield ``(sheet, name)`` for sheets that expose NamedRanges.
-
-    Agent-facing scans pass *agent_visible_only* so ``_``-prefixed generated
-    sheets (``__Anonymous_Sheet_DB__*``) stay in the file but are not listed
-    or used as an unqualified fallback. An explicit scope still resolves them.
-    """
-    if not hasattr(doc, "getSheets"):
-        return
-    sheets = doc.getSheets()
-    for idx in range(sheets.getCount()):
-        sheet = sheets.getByIndex(idx)
-        if not hasattr(sheet, "NamedRanges"):
-            continue
-        s_name = sheet.getName() if hasattr(sheet, "getName") else ""
-        if agent_visible_only and not is_agent_visible_sheet(s_name):
-            continue
-        yield sheet, s_name
-
-
 def _resolve_named_range_target(
     tool: ToolCalcRangeBase,
     doc: Any,
@@ -255,22 +224,6 @@ def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int 
     return CellAddress(Sheet=sheet_idx, Column=col_idx, Row=row_idx)
 
 
-def _resolve_base_cell_pos(
-    tool: Any,
-    doc: Any,
-    sheet_obj: Any,
-    base_cell: str | None,
-) -> Any | dict[str, Any]:
-    sheet_idx = 0
-    if sheet_obj is not None:
-        sheet_idx = _sheet_index(doc, sheet_obj.getName()) or 0
-
-    try:
-        return _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
-    except ValueError as ve:
-        return tool._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
-
-
 def _extract_range_info(nr: Any, scope: str, doc: Any = None) -> dict[str, Any]:
     """Extract structured metadata dictionary from an XNamedRange object."""
     name = nr.getName() if hasattr(nr, "getName") else str(nr)
@@ -322,26 +275,30 @@ class NamedRangeList(ToolCalcRangeBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         scope_arg = kwargs.get("scope", "global")
-        if scope_arg is None or str(scope_arg).strip() == "":
-            scope_arg = "global"
-        scope_clean = str(scope_arg).strip()
+        scope_clean = (str(scope_arg).strip() if scope_arg is not None else "") or "global"
 
         doc = ctx.doc
         result: list[dict[str, Any]] = []
+        entries: list[tuple[Any, str]] = []
 
         if scope_clean.lower() == "all":
-            # Global
             if hasattr(doc, "NamedRanges"):
-                for name in doc.NamedRanges.getElementNames():
-                    nr = doc.NamedRanges.getByName(name)
-                    result.append(_extract_range_info(nr, "global", doc))
-            # Visible sheets only. _-prefixed generated tabs stay in the file.
-            for sheet, s_name in _iter_named_range_sheets(doc, agent_visible_only=True):
-                for name in sheet.NamedRanges.getElementNames():
-                    nr = sheet.NamedRanges.getByName(name)
-                    result.append(_extract_range_info(nr, s_name, doc))
+                entries.append((doc.NamedRanges, "global"))
+            if hasattr(doc, "getSheets"):
+                sheets = doc.getSheets()
+                for idx in range(sheets.getCount()):
+                    sheet = sheets.getByIndex(idx)
+                    if not hasattr(sheet, "NamedRanges"):
+                        continue
+                    s_name = sheet.getName() if hasattr(sheet, "getName") else ""
+                    if not is_agent_visible_sheet(s_name):
+                        continue
+                    entries.append((sheet.NamedRanges, s_name))
         else:
-            container, effective_scope, _ = _resolve_container(doc, scope_clean)
+            container, effective_scope, _sheet = _resolve_container(doc, scope_clean)
+            entries.append((container, effective_scope))
+
+        for container, effective_scope in entries:
             for name in container.getElementNames():
                 nr = container.getByName(name)
                 result.append(_extract_range_info(nr, effective_scope, doc))
@@ -413,9 +370,13 @@ class NamedRangeAdd(ToolCalcRangeBase):
             if container.hasByName(name):
                 return self._tool_error(f"A named range with the name '{name}' already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
 
-            pos = _resolve_base_cell_pos(self, doc, sheet_obj, base_cell)
-            if isinstance(pos, dict):
-                return pos
+            sheet_idx = 0
+            if sheet_obj is not None:
+                sheet_idx = _sheet_index(doc, sheet_obj.getName()) or 0
+            try:
+                pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+            except ValueError as ve:
+                return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
 
             container.addNewByName(name, content, pos, type_mask)
             log.info("Named range added: [%s] %s -> %s (flags=%d)", effective_scope, name, content, type_mask)
@@ -461,8 +422,10 @@ class NamedRangeEdit(ToolCalcRangeBase):
             container, effective_scope, sheet_obj, nr = resolved
 
             old_name = nr.getName()
-            if new_name is not None and new_name.strip() and new_name.strip() != old_name:
-                new_clean = new_name.strip()
+            new_clean = new_name.strip() if new_name is not None else ""
+            if new_clean == old_name:
+                new_clean = ""
+            if new_clean:
                 # setName does not run IsNameValid, so reject A1, Sales.2026,
                 # 1abc, and names with spaces using the same messages as
                 # addNewByName. Do not touch the range until the new name and
@@ -474,8 +437,6 @@ class NamedRangeEdit(ToolCalcRangeBase):
                     return self._tool_error(invalid, code="INVALID_NAME")
                 if container.hasByName(new_clean):
                     return self._tool_error(f"Cannot rename to '{new_clean}': a named range with that name already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
-            else:
-                new_clean = None
 
             try:
                 type_mask = _parse_flags(flags_arg) if flags_arg is not None else None
@@ -484,9 +445,13 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
             pos = None
             if base_cell is not None:
-                pos = _resolve_base_cell_pos(self, doc, sheet_obj, base_cell)
-                if isinstance(pos, dict):
-                    return pos
+                sheet_idx = 0
+                if sheet_obj is not None:
+                    sheet_idx = _sheet_index(doc, sheet_obj.getName()) or 0
+                try:
+                    pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+                except ValueError as ve:
+                    return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
 
             old_content = nr.getContent() if content is not None else None
             old_type = nr.getType() if flags_arg is not None else None
@@ -494,9 +459,6 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
             if new_clean:
                 nr.setName(new_clean)
-                final_name = new_clean
-            else:
-                final_name = old_name
 
             applied: list[str] = []
             try:
@@ -528,7 +490,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
                 raise
 
             log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)
-            return {"status": "ok", "message": f"Named range '{final_name}' updated successfully in scope '{effective_scope}'."}
+            return {"status": "ok", "message": f"Named range '{new_clean or old_name}' updated successfully in scope '{effective_scope}'."}
         except IllegalArgumentException as e:
             log.exception("Edit named range failed for %s", name)
             return self._tool_error(f"Failed to edit named range: {str(e)}", code="NAMED_RANGE_ERROR")
@@ -586,9 +548,8 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
         if not range_arr:
             return self._tool_error("range is required", code="INVALID_ARGUMENT")
         range_str = range_arr[0].strip()
-        border_str = kwargs.get("border", "top")
-        if border_str is None or str(border_str).strip() == "":
-            border_str = "top"
+        border_raw = kwargs.get("border", "top")
+        border_str = border_raw if border_raw is not None and str(border_raw).strip() else "top"
         border_clean = str(border_str).strip().upper()
         scope = kwargs.get("scope")
 

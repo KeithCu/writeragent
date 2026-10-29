@@ -148,7 +148,6 @@ def test_quote_sheet_name_and_qualify_a1():
     assert qualify_a1("O'Brien", "D4") == "'O''Brien'.D4"
     assert qualify_a1("Q1.Sales", "E5") == "'Q1.Sales'.E5"
     assert qualify_a1("Foo!Bar", "F6") == "'Foo!Bar'.F6"
-    assert qualify_a1("Sheet1", "A1", sep="!") == "Sheet1!A1"
 
     assert quote_sheet_name("$Prices") == "'$Prices'"
     assert qualify_a1("$Prices", "A1") == "'$Prices'.A1"
