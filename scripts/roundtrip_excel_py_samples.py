@@ -72,8 +72,8 @@ def _deps_acceptable(orig_deps: list[str], back_deps: list[str], ordering: list[
 
 
 def roundtrip_one(src: Path, out_dir: Path) -> tuple[bool, list[str]]:
-    from plugin.calc.excel_py_convert.convert import (
-        convert_to_dag,
+    from plugin.calc.excel_py_convert.convert import convert_to_dag
+    from plugin.calc.excel_py_convert.xlsx_write import (
         write_dag_formulas_xlsx,
         write_excel_python_xlsx,
     )

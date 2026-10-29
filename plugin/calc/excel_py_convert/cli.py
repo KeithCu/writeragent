@@ -28,7 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--best-effort", action="store_true", help="Emit partial conversions even when some cells fail (default: fail-closed)")
     args = parser.parse_args(argv)
 
-    from plugin.calc.excel_py_convert.convert import convert_path, write_dag_formulas_xlsx, write_excel_python_xlsx
+    from plugin.calc.excel_py_convert.convert import convert_path
+    from plugin.calc.excel_py_convert.xlsx_write import write_dag_formulas_xlsx, write_excel_python_xlsx
 
     if args.from_report and args.direction != "excel":
         print("--from-report only valid with --to excel", file=sys.stderr)
@@ -36,22 +37,19 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         report = convert_path(args.path, direction=args.direction, out_report=args.report, best_effort=args.best_effort, from_report=args.from_report)
+        if args.write_xlsx:
+            if args.path.suffix.lower() != ".xlsx":
+                print("--write-xlsx requires an .xlsx source (package shell)", file=sys.stderr)
+                return 2
+            if args.direction == "dag":
+                write_dag_formulas_xlsx(args.path, report, args.write_xlsx)
+            else:
+                write_excel_python_xlsx(args.path, report, args.write_xlsx)
     except (OSError, zipfile.BadZipFile, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
     if args.write_xlsx:
-        if args.path.suffix.lower() != ".xlsx":
-            print("--write-xlsx requires an .xlsx source (package shell)", file=sys.stderr)
-            return 2
-        try:
-            if args.direction == "dag":
-                write_dag_formulas_xlsx(args.path, report, args.write_xlsx)
-            else:
-                write_excel_python_xlsx(args.path, report, args.write_xlsx)
-        except (OSError, zipfile.BadZipFile, ValueError) as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 1
         print(f"wrote {args.write_xlsx}", file=sys.stderr)
 
     if args.report:

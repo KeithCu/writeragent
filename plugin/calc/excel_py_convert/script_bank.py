@@ -176,18 +176,6 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
     return banks, warnings
 
 
-def _is_binding_xl_call(node: ast.Call) -> bool:
-    """True when ``xl("%Pn%")`` — intentional sandbox bridge, not a live sheet read."""
-    if not (isinstance(node.func, ast.Name) and node.func.id == "xl"):
-        return False
-    if not node.args:
-        return False
-    ref = node.args[0]
-    if isinstance(ref, ast.Constant) and isinstance(ref.value, str):
-        return bool(_P_TOKEN_RE.match(ref.value.strip()))
-    return False
-
-
 def collect_safety_warnings(code: str) -> list[str]:
     """Advisory checks: non-binding ``xl()``, imports blocked by the sandbox.
 
@@ -238,7 +226,13 @@ def collect_safety_warnings(code: str) -> list[str]:
             if is_blocked(node.module):
                 warnings.append(f"import is blocked by the Python sandbox: {node.module}")
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "xl":
-            if not _is_binding_xl_call(node):
+            # xl("%Pn%") is the intentional sandbox bridge; warn on live reads/dynamic forms.
+            ref = node.args[0] if node.args else None
+            if not (
+                isinstance(ref, ast.Constant)
+                and isinstance(ref.value, str)
+                and _P_TOKEN_RE.match(ref.value.strip())
+            ):
                 warnings.append('non-binding xl() call (sandbox xl only resolves "%Pn%" formula bindings; no live sheet reads)')
     return list(dict.fromkeys(warnings))
 
