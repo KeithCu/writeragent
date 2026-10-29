@@ -324,13 +324,9 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
     if not apply_autofit:
         return
     try:
-        import sys
+        from com.sun.star.drawing import TextFitToSizeType
 
-        fit_enum: Any = sys.modules.get("com.sun.star.drawing.TextFitToSizeType")
-        if not fit_enum:
-            from com.sun.star.drawing import TextFitToSizeType as fit_enum
-
-        shape.setPropertyValue("TextFitToSize", fit_enum.AUTOFIT)
+        shape.setPropertyValue("TextFitToSize", TextFitToSizeType.AUTOFIT)
     except Exception as ex:
         if is_real_disposal(ex):
             raise
@@ -392,18 +388,13 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     # Fill Style (solid, transparent, etc)
     if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
         try:
-            import sys
+            from com.sun.star.drawing import FillStyle
 
-            fill_enum = sys.modules.get("com.sun.star.drawing.FillStyle")
-            if not fill_enum:
-                from com.sun.star.drawing import FillStyle
-
-                fill_enum = FillStyle
             style_str = kwargs["fill_style"].lower()
             if style_str == "none" or style_str == "transparent":
-                shape.setPropertyValue("FillStyle", fill_enum.NONE)
+                shape.setPropertyValue("FillStyle", FillStyle.NONE)
             elif style_str == "solid":
-                shape.setPropertyValue("FillStyle", fill_enum.SOLID)
+                shape.setPropertyValue("FillStyle", FillStyle.SOLID)
         except Exception as exc:
             _failed_prop(failed_props, "fill_style", exc)
 
@@ -428,12 +419,9 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     # Line Style (ensure border is visible when colored or sized)
     if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
         try:
-            import sys
+            from com.sun.star.drawing import LineStyle
 
-            line_enum: Any = sys.modules.get("com.sun.star.drawing.LineStyle")
-            if not line_enum:
-                from com.sun.star.drawing import LineStyle as line_enum
-            shape.setPropertyValue("LineStyle", line_enum.SOLID)
+            shape.setPropertyValue("LineStyle", LineStyle.SOLID)
         except Exception as exc:
             _failed_prop(failed_props, "line_style", exc)
 
@@ -466,8 +454,6 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 # flowchart-or, flowchart-predefined-process, flowchart-preparation, flowchart-process, flowchart-punched-tape,
 # flowchart-sequential-access, flowchart-sort, flowchart-stored-data, flowchart-summing-junction,
 # flowchart-terminator
-#    "flowchart-* (e.g. flowchart-process, flowchart-decision; full set omitted for brevity); "
-#   "fontwork-*; scrollbars (horizontal-scroll, vertical-scroll); "
 
 _CREATE_SHAPE_SHAPE_TYPE_DESC = (
     "Type of shape. "
@@ -852,6 +838,25 @@ def _apply_box(shape: Any, box: tuple[int, int, int, int]) -> None:
         shape.setPosition(Point(x, y))
 
 
+def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout_arg: str, *, min_count: int, too_few: str, layout_fn: Any, ok_message: str, page_kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Shared align/distribute tail. Do not catch: disposal and a bad index must reach execute_safe."""
+    from plugin.draw.bridge import resolve_shape_page
+
+    if len(indices) < min_count:
+        return tool._tool_error(too_few)
+    page, actual_idx, err = resolve_shape_page(ctx, page_kwargs)
+    if err or page is None:
+        return tool._tool_error(err or "No draw page available.")
+    shapes = [page.getByIndex(i) for i in indices]
+    new_boxes = layout_fn([_shape_box(s) for s in shapes], layout_arg)
+    for shape, box in zip(shapes, new_boxes):
+        _apply_box(shape, box)
+    res: dict[str, Any] = {"status": "ok", "message": ok_message, "page": actual_idx, "indices": list(indices)}
+    if any(_outside_page(page, s) for s in shapes):
+        res["warnings"] = [_OUTSIDE_PAGE_WARNING]
+    return res
+
+
 class AlignShapes(ToolDrawShapeBase):
     name: str | None = "align_shapes"
     intent: str | None = "edit"
@@ -868,29 +873,11 @@ class AlignShapes(ToolDrawShapeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import resolve_shape_page
-        from plugin.draw.layout import align_boxes
-
         indices = kwargs["indices"]
         assert isinstance(indices, list)
         # Schema requires alignment and rejects values outside the enum, including "".
         alignment = kwargs["alignment"]
-        if len(indices) < 2:
-            return self._tool_error("At least two shape indices are required to align.")
-        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
-        if err or page is None:
-            return self._tool_error(err or "No draw page available.")
-        # A bad index and align_boxes ValueError propagate. The old catch
-        # returned str(exc) and reported a closed document as a normal tool error.
-        shapes = [page.getByIndex(i) for i in indices]
-        boxes = [_shape_box(s) for s in shapes]
-        new_boxes = align_boxes(boxes, alignment)
-        for shape, box in zip(shapes, new_boxes):
-            _apply_box(shape, box)
-        res: dict[str, Any] = {"status": "ok", "message": "Shapes aligned", "page": actual_idx, "indices": list(indices)}
-        if any(_outside_page(page, s) for s in shapes):
-            res["warnings"] = [_OUTSIDE_PAGE_WARNING]
-        return res
+        return _layout_on_page(self, ctx, indices, alignment, min_count=2, too_few="At least two shape indices are required to align.", layout_fn=layout.align_boxes, ok_message="Shapes aligned", page_kwargs=kwargs)
 
 
 class DistributeShapes(ToolDrawShapeBase):
@@ -909,28 +896,11 @@ class DistributeShapes(ToolDrawShapeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import resolve_shape_page
-        from plugin.draw.layout import distribute_boxes
-
         indices = kwargs["indices"]
         assert isinstance(indices, list)
         # Schema requires axis and rejects values outside the enum, including "".
         axis = kwargs["axis"]
-        if len(indices) < 3:
-            return self._tool_error("At least three shape indices are required to distribute.")
-        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
-        if err or page is None:
-            return self._tool_error(err or "No draw page available.")
-        # Same as align: do not catch. A closed document must reach execute_safe.
-        shapes = [page.getByIndex(i) for i in indices]
-        boxes = [_shape_box(s) for s in shapes]
-        new_boxes = distribute_boxes(boxes, axis)
-        for shape, box in zip(shapes, new_boxes):
-            _apply_box(shape, box)
-        res = {"status": "ok", "message": "Shapes distributed", "page": actual_idx, "indices": list(indices)}
-        if any(_outside_page(page, s) for s in shapes):
-            res["warnings"] = [_OUTSIDE_PAGE_WARNING]
-        return res
+        return _layout_on_page(self, ctx, indices, axis, min_count=3, too_few="At least three shape indices are required to distribute.", layout_fn=layout.distribute_boxes, ok_message="Shapes distributed", page_kwargs=kwargs)
 
 
 class CreateDiagram(ToolDrawShapeBase):
@@ -1039,11 +1009,8 @@ class CreateDiagram(ToolDrawShapeBase):
 
         connected = []
         for conn in connections:
-            src = id_to_index.get(str(conn.get("from")))
-            dst = id_to_index.get(str(conn.get("to")))
-            if src is None or dst is None:
-                cleanup_shapes()
-                return self._tool_error("Unknown connection endpoint: %s -> %s" % (conn.get("from"), conn.get("to")))
+            src = id_to_index[str(conn.get("from"))]
+            dst = id_to_index[str(conn.get("to"))]
             conn_kwargs = {"start": src, "end": dst, "page": actual_idx}
             if conn.get("line_color"):
                 conn_kwargs["line_color"] = conn["line_color"]
