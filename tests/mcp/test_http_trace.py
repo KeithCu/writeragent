@@ -33,22 +33,13 @@ class _FakeHandler:
 
 
 def test_header_case_insensitivity_and_none(caplog: pytest.LogCaptureFixture) -> None:
-    # Lowercase-keyed dict
-    handler_dict = _FakeHandler(headers={"origin": "https://app.example"})
-    with caplog.at_level(logging.INFO, logger="writeragent.mcp.http"):
-        http_trace.log_http_request(handler_dict, "POST", "/mcp")
-    assert "origin='https://app.example'" in caplog.text
-
-    # email.message.Message
-    caplog.clear()
     msg = email.message.Message()
-    msg["Origin"] = "https://app.example"
+    msg["origin"] = "  https://app.example  "
     handler_msg = _FakeHandler(headers=msg)
     with caplog.at_level(logging.INFO, logger="writeragent.mcp.http"):
         http_trace.log_http_request(handler_msg, "POST", "/mcp")
     assert "origin='https://app.example'" in caplog.text
 
-    # headers = None
     caplog.clear()
     handler_none = _FakeHandler(headers=None)
     with caplog.at_level(logging.INFO, logger="writeragent.mcp.http"):
@@ -73,7 +64,9 @@ def test_log_forbidden_origin_strips_query_and_escapes(caplog: pytest.LogCapture
 
 def test_log_mcp_transport_entry_casing_and_defaults(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.INFO, logger="writeragent.mcp.http"):
-        handler = _FakeHandler(headers={"mcp-protocol-version": "2025-06-18"})
+        msg = email.message.Message()
+        msg["mcp-protocol-version"] = "2025-06-18"
+        handler = _FakeHandler(headers=msg)
         http_trace.log_mcp_transport_entry(handler, "mcp")
         assert "protocol_version='2025-06-18'" in caplog.text
         assert "content_length=0" in caplog.text

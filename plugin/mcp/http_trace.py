@@ -23,14 +23,13 @@ def _client(handler: Any) -> str:
 
 
 def _header(handler: Any, name: str) -> str | None:
+    # Message.get is case-insensitive. Strip: the HTTP parser leaves trailing
+    # whitespace, and %r / the User-Agent slice would change if it stayed.
     headers = getattr(handler, "headers", None)
     if not headers:
         return None
-    wanted = name.lower()
-    for key, value in headers.items():
-        if str(key).lower() == wanted:
-            return value.strip() if isinstance(value, str) and value.strip() else None
-    return None
+    value = headers.get(name)
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def log_http_request(handler: Any, method: str, path: str) -> None:
