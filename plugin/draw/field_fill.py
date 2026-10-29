@@ -77,21 +77,25 @@ def resolve_field_node(
     """
     flat = _flatten_tree(tree)
     wanted_name = (name or "").strip()
+    wanted_path = None if path_index is None else str(path_index).strip()
+    # bool subclasses int; int(True) == 1 would select the wrong shape.
+    parsed_index: int | None = None
+    if index is not None and not isinstance(index, bool):
+        try:
+            parsed_index = int(index)
+        except (TypeError, ValueError):
+            parsed_index = None
+
     if wanted_name:
         name_hits = [n for n in flat if (n.get("name") or "") == wanted_name]
         if not name_hits:
             name_hits = [n for n in flat if isinstance(n.get("control"), dict) and (n["control"].get("name") or "") == wanted_name]
         if len(name_hits) > 1:
             narrowed: list[dict[str, Any]] = []
-            if path_index is not None:
-                p_wanted = str(path_index).strip()
-                narrowed = [n for n in name_hits if str(n.get("path_index")) == p_wanted]
-            if not narrowed and index is not None and not isinstance(index, bool):
-                try:
-                    idx = int(index)
-                    narrowed = [n for n in name_hits if n.get("index") == idx]
-                except (TypeError, ValueError):
-                    pass
+            if wanted_path is not None:
+                narrowed = [n for n in name_hits if str(n.get("path_index")) == wanted_path]
+            if not narrowed and parsed_index is not None:
+                narrowed = [n for n in name_hits if n.get("index") == parsed_index]
             if narrowed:
                 name_hits = narrowed
         return _pick_unique(
@@ -101,24 +105,19 @@ def resolve_field_node(
             % (wanted_name, ", ".join(_node_address(n) for n in name_hits)),
         )
 
-    if path_index is not None:
-        wanted_path = str(path_index).strip()
+    if wanted_path is not None:
         for node in flat:
             if str(node.get("path_index")) == wanted_path:
                 return node, None
         return None, "No shape at path_index %s on this page." % path_index
 
     if index is not None:
-        if isinstance(index, bool):
-            return None, "Invalid shape index: %s" % index
-        try:
-            idx = int(index)
-        except (TypeError, ValueError):
+        if parsed_index is None:
             return None, "Invalid shape index: %s" % index
         for node in flat:
-            if node.get("index") == idx:
+            if node.get("index") == parsed_index:
                 return node, None
-        return None, "No shape at index %s on this page." % idx
+        return None, "No shape at index %s on this page." % parsed_index
 
     hint = (label_hint or "").strip().lower()
     if hint:
@@ -171,15 +170,11 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
         state = coerce_control_state(value)
         if state is None:
             return False, "Could not interpret %r as a checkbox/radio State." % value
-        def _set_state() -> None:
-            model.State = state
-        return _write(_set_state, "set state", "Setting State failed: %s")
+        return _write(lambda: setattr(model, "State", state), "set state", "Setting State failed: %s")
 
     if hasattr(model, "Text"):
         val = "" if value is None else str(value)
-        def _set_text() -> None:
-            model.Text = val
-        return _write(_set_text, "set text", "Setting Text failed: %s")
+        return _write(lambda: setattr(model, "Text", val), "set text", "Setting Text failed: %s")
 
     if hasattr(shape, "setString"):
         val = "" if value is None else str(value)
@@ -250,7 +245,6 @@ class FillDrawFields(ToolDrawShapeBase):
         # getByIndex raises on a bad index; it does not return None.
         tree = build_shape_tree(page)
         results: list[dict[str, Any]] = []
-        ok_count = 0
         for i, raw in enumerate(fields):
             if not isinstance(raw, dict):
                 results.append({"ok": False, "error": "Field %s is not an object." % i})
@@ -294,9 +288,8 @@ class FillDrawFields(ToolDrawShapeBase):
                 entry["label_hint"] = node["label_hint"]
             if not applied:
                 entry["error"] = detail
-            else:
-                ok_count += 1
             results.append(entry)
 
+        ok_count = sum(1 for r in results if r["ok"])
         status = "ok" if ok_count == len(fields) else ("partial" if ok_count else "error")
         return {"status": status, "page": actual_idx, "ok_count": ok_count, "fail_count": len(fields) - ok_count, "results": results}
