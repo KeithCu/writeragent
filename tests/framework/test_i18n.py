@@ -320,6 +320,19 @@ class TestI18n:
         assert (translation.gettext("Built-in")) == ("Integriert")
         assert (type(translation)) is not (NullTranslations)
 
+    def test_mo_candidate_order_exact_stem_prefix(self):
+        """Office de-DE looks up de_DE then de (locales/ has de/, not de_DE/)."""
+        import os
+
+        cand = i18n_module._mo_candidates
+
+        def mo(tag: str) -> str:
+            return os.path.join("/loc", tag, "LC_MESSAGES", "writeragent.mo")
+
+        assert (cand("/loc", "de_DE.UTF-8")) == ([mo("de_DE.UTF-8"), mo("de_DE"), mo("de")])
+        assert (cand("/loc", "zh_TW")) == ([mo("zh_TW"), mo("zh")])
+        assert (cand("/loc", "ja")) == ([mo("ja")])
+
     def test_days_ago_translation_across_all_locales(self):
         """Verify that all 34 compiled locales contain a valid translation for '{0}d ago'."""
         import os
