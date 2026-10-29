@@ -81,26 +81,6 @@ def shared_cache_root() -> Path:
     return Path.home() / ".cache"
 
 
-def kokoro_probe_dirs() -> tuple[Path, ...]:
-    """Kokoro directories, first hit first."""
-    return _under_cache(_KOKORO_PROBE)
-
-
-def kokoro_download_dir() -> Path:
-    """Canonical Kokoro dump: ``<cache>/kokoro``."""
-    return shared_cache_root().joinpath(*_KOKORO_CANONICAL)
-
-
-def piper_probe_dirs() -> tuple[Path, ...]:
-    """Piper directories, first hit first."""
-    return _under_cache(_PIPER_PROBE)
-
-
-def piper_download_dir() -> Path:
-    """Canonical Piper dump: ``<cache>/piper``."""
-    return shared_cache_root().joinpath(*_PIPER_CANONICAL)
-
-
 def resolve_kokoro_model_paths() -> tuple[Path, Path]:
     """Return the Kokoro model and voices paths to use or to download into.
 
@@ -124,7 +104,7 @@ def resolve_kokoro_model_paths() -> tuple[Path, Path]:
     voices_found: Path | None = None
 
     if model_path is None or voices_path is None:
-        for directory in kokoro_probe_dirs():
+        for directory in _under_cache(_KOKORO_PROBE):
             if model_path is None:
                 candidate = directory / KOKORO_MODEL_FILENAME
                 if _is_usable_file(candidate):
@@ -149,7 +129,7 @@ def kokoro_should_download(path: Path, env_var: str) -> bool:
     """Whether a missing Kokoro path should be fetched.
 
     An env override is downloaded only when os.fspath(path) equals both the
-    override and kokoro_download_dir() / filename. Compare strings, do not resolve().
+    override and <cache>/kokoro/<filename>. Compare strings, do not resolve().
     A probed path is a download target.
     """
     if _is_usable_file(path):
@@ -160,7 +140,7 @@ def kokoro_should_download(path: Path, env_var: str) -> bool:
     override = _env_override(env_var)
     if override is None:
         return True
-    canonical = kokoro_download_dir() / filename
+    canonical = shared_cache_root().joinpath(*_KOKORO_CANONICAL) / filename
     return os.fspath(override) == os.fspath(path) and os.fspath(path) == os.fspath(canonical)
 
 
@@ -178,12 +158,12 @@ def resolve_piper_voice_paths(voice_id: str) -> tuple[Path, Path]:
         voice_id = _PIPER_PLAIN_FALLBACK_ID
     onnx_name = f"{voice_id}.onnx"
     json_name = f"{voice_id}.onnx.json"
-    for directory in piper_probe_dirs():
+    for directory in _under_cache(_PIPER_PROBE):
         onnx_path = directory / onnx_name
         json_path = directory / json_name
         if _is_usable_file(onnx_path) and _is_usable_file(json_path):
             return onnx_path, json_path
-    dest = piper_download_dir()
+    dest = shared_cache_root().joinpath(*_PIPER_CANONICAL)
     return dest / onnx_name, dest / json_name
 
 
@@ -207,7 +187,7 @@ def _kokoro_missing_target(sibling_dir: Path | None) -> Path:
     """Directory a missing Kokoro file should be downloaded into."""
     if sibling_dir is not None and _directory_is_writable(sibling_dir):
         return sibling_dir
-    return kokoro_download_dir()
+    return shared_cache_root().joinpath(*_KOKORO_CANONICAL)
 
 
 def _directory_is_writable(directory: Path) -> bool:
