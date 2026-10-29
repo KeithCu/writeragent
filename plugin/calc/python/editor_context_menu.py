@@ -36,6 +36,13 @@ _interceptor: Any = None
 _doc_listener: Any = None
 
 
+def _edit_python_cell_url() -> str:
+    """CommandURL for this OXT. LibrePy bootstrap is OnStartApp, so resolve at intercept time."""
+    from plugin.framework.uno_context import resolve_package_extension_id
+
+    return f"{resolve_package_extension_id()}:scripting.edit_python_cell"
+
+
 def _is_calc_controller(controller: Any) -> bool:
     if controller is None:
         return False
@@ -110,10 +117,7 @@ def _get_interceptor() -> Any:
                 from plugin.framework.i18n import _
 
                 entry.setPropertyValue("Text", _("Edit Python in Cell..."))
-                # CommandURL for this OXT. LibrePy bootstrap is OnStartApp, so resolve at intercept time.
-                from plugin.framework.uno_context import resolve_package_extension_id
-
-                entry.setPropertyValue("CommandURL", f"{resolve_package_extension_id()}:scripting.edit_python_cell")
+                entry.setPropertyValue("CommandURL", _edit_python_cell_url())
 
                 count = container.getCount()
                 container.insertByIndex(count, separator)
