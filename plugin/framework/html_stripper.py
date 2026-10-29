@@ -116,12 +116,7 @@ def _parse_tag(buf: str) -> _Tag:
     if not is_close and stripped.endswith("/"):
         before = stripped[:-1]
         is_empty = (not before) or before[-1].isspace()
-    if is_empty:
-        is_real = True
-    elif name in _HTML_ELEMENTS and ((not rest) or rest[0].isspace()):
-        is_real = True
-    else:
-        is_real = False
+    is_real = is_empty or (name in _HTML_ELEMENTS and (not rest or rest[0].isspace()))
     return _Tag(name=name, is_close=is_close, is_empty=is_empty, is_real=is_real)
 
 
@@ -133,23 +128,18 @@ def escape_prose_angle_brackets(text: str) -> str:
         return text
 
     out: list[str] = []
-    in_tag = False
     tag_buffer = ""
     quote = ""
 
-    def release_buffer(buf: str) -> None:
-        if not buf:
-            return
-        if buf.startswith("<"):
-            out.append("&lt;")
-            out.append(buf[1:])
-        else:
-            out.append(buf)
+    def abort() -> None:
+        nonlocal tag_buffer, quote
+        out.append("&lt;" + tag_buffer[1:])
+        tag_buffer = ""
+        quote = ""
 
     for char in text:
-        if not in_tag:
+        if not tag_buffer:
             if char == "<":
-                in_tag = True
                 tag_buffer = "<"
                 quote = ""
             else:
@@ -159,19 +149,15 @@ def escape_prose_angle_brackets(text: str) -> str:
                 quote = ""
             tag_buffer += char
             if len(tag_buffer) > _TAG_BUFFER_LIMIT:
-                release_buffer(tag_buffer)
-                in_tag = False
-                tag_buffer = ""
-                quote = ""
+                abort()
         elif char in ('"', "'"):
             tag_buffer += char
             quote = char
         elif char == "<":
-            release_buffer(tag_buffer)
+            out.append("&lt;" + tag_buffer[1:])
             tag_buffer = "<"
             quote = ""
         elif char == ">":
-            in_tag = False
             buf = tag_buffer
             tag_buffer = ""
             quote = ""
@@ -184,16 +170,12 @@ def escape_prose_angle_brackets(text: str) -> str:
             if len(tag_buffer) == 2:
                 first_char = tag_buffer[1]
                 if not (first_char.isalpha() or first_char in ("/", "!", "?")):
-                    release_buffer(tag_buffer)
-                    in_tag = False
-                    tag_buffer = ""
+                    abort()
             elif len(tag_buffer) > _TAG_BUFFER_LIMIT:
-                release_buffer(tag_buffer)
-                in_tag = False
-                tag_buffer = ""
+                abort()
 
-    if in_tag and tag_buffer:
-        release_buffer(tag_buffer)
+    if tag_buffer:
+        out.append("&lt;" + tag_buffer[1:])
 
     return "".join(out)
 
@@ -208,7 +190,6 @@ class StreamingHTMLStripper:
     emails, and an element name glued to ``@`` or ``,``) is kept.
     """
 
-    in_tag: bool
     tag_buffer: str
     # Quote character currently open inside a tag (``"`` or ``'``), else "".
     _quote: str
@@ -221,7 +202,6 @@ class StreamingHTMLStripper:
     dropped_real_tag: bool
 
     def __init__(self) -> None:
-        self.in_tag = False
         self.tag_buffer = ""
         self._quote = ""
         self._discard_until = ""
@@ -241,7 +221,6 @@ class StreamingHTMLStripper:
         """Stop buffering a tag. Emit unless we are discarding element text."""
         if (force_emit or not self._discard_until) and self.tag_buffer:
             out.append(self.tag_buffer)
-        self.in_tag = False
         self.tag_buffer = ""
         self._quote = ""
 
@@ -268,7 +247,6 @@ class StreamingHTMLStripper:
         """
         buf = self.tag_buffer
         tag = _parse_tag(buf)
-        self.in_tag = False
         self.tag_buffer = ""
         self._quote = ""
         if tag.is_real:
@@ -303,9 +281,8 @@ class StreamingHTMLStripper:
         # crosshair: off
         out: list[str] = []
         for char in chunk:
-            if not self.in_tag:
+            if not self.tag_buffer:
                 if char == "<":
-                    self.in_tag = True
                     self.tag_buffer = "<"
                     self._quote = ""
                 elif not self._discard_until:
@@ -320,7 +297,7 @@ class StreamingHTMLStripper:
                 self._push_tag_char(char, out, reject_bad_start=False)
             elif char in ('"', "'"):
                 self._push_tag_char(char, out, reject_bad_start=True)
-                if self.in_tag:
+                if self.tag_buffer:
                     self._quote = char
             elif char == "<":
                 # A new '<' while inside a tag means the previous one was not a tag.
@@ -376,23 +353,12 @@ class StreamingHTMLStripper:
         """Return any remaining buffered text when the stream is completed."""
         # No close tag arrived. Dropping the hold used to erase a short
         # mention ("use a <script> tag") when the reply ended under the cap.
-        if self._discard_until:
-            held = self._discard_body
-            if self.in_tag and self.tag_buffer:
-                held += self.tag_buffer
-            self.in_tag = False
-            self.tag_buffer = ""
-            self._quote = ""
-            self._discard_until = ""
-            self._discard_body = ""
-            return self._unescape_emitted(held, hold_tail=False)
-        if self.in_tag and self.tag_buffer:
-            buf = self.tag_buffer
-            self.in_tag = False
-            self.tag_buffer = ""
-            self._quote = ""
-            return self._unescape_emitted(buf, hold_tail=False)
-        return self._unescape_emitted("", hold_tail=False)
+        held = self._discard_body + self.tag_buffer
+        self.tag_buffer = ""
+        self._quote = ""
+        self._discard_until = ""
+        self._discard_body = ""
+        return self._unescape_emitted(held, hold_tail=False)
 
 
 def text_has_real_html_tag(text: str) -> bool:
@@ -448,49 +414,33 @@ def html_to_search_text(text: str) -> str:
         return re.sub(r"[ \t\r\n]+", " ", text).strip()
 
     lines: list[str] = []
-    current_words: list[str] = []
-    current_word: list[str] = []
+    parts: list[str] = []
 
-    def flush_word() -> None:
-        if current_word:
-            current_words.append("".join(current_word))
-            current_word.clear()
+    def collapsed() -> str:
+        line = " ".join("".join(parts).split())
+        parts.clear()
+        return line
 
     def flush_block() -> None:
-        flush_word()
-        if current_words:
-            lines.append(" ".join(current_words))
-            current_words.clear()
+        line = collapsed()
+        if line:
+            lines.append(line)
 
     def flush_line_break() -> None:
-        flush_word()
-        if current_words:
-            lines.append(" ".join(current_words))
-            current_words.clear()
-        else:
-            lines.append("")
+        lines.append(collapsed())
 
     def add_text(chunk: str) -> None:
-        for c in chunk:
-            if c.isspace():
-                flush_word()
-            else:
-                current_word.append(c)
+        parts.append(chunk)
 
-    in_tag = False
-    tag_buf: list[str] = []
+    tag_buf = ""
     quote = ""
     discard_until = ""
     discard_body: list[str] = []
 
-    i = 0
-    n = len(text)
-    while i < n:
-        char = text[i]
-        if not in_tag:
+    for char in text:
+        if not tag_buf:
             if char == "<":
-                in_tag = True
-                tag_buf = ["<"]
+                tag_buf = "<"
                 quote = ""
             elif discard_until:
                 discard_body.append(char)
@@ -498,29 +448,25 @@ def html_to_search_text(text: str) -> str:
                     add_text("".join(discard_body))
                     discard_until = ""
                     discard_body.clear()
-            elif char.isspace():
-                flush_word()
             else:
-                current_word.append(char)
+                parts.append(char)
         elif quote:
             if char == quote:
                 quote = ""
-            tag_buf.append(char)
+            tag_buf += char
             if len(tag_buf) > _TAG_BUFFER_LIMIT:
-                add_text("".join(tag_buf))
-                in_tag = False
-                tag_buf.clear()
+                add_text(tag_buf)
+                tag_buf = ""
         elif char in ('"', "'"):
-            tag_buf.append(char)
+            tag_buf += char
             quote = char
         elif char == "<":
-            add_text("".join(tag_buf))
-            tag_buf = ["<"]
+            add_text(tag_buf)
+            tag_buf = "<"
             quote = ""
         elif char == ">":
-            buf_str = "".join(tag_buf)
-            in_tag = False
-            tag_buf.clear()
+            buf_str = tag_buf
+            tag_buf = ""
             quote = ""
             tag = _parse_tag(buf_str)
             if discard_until:
@@ -539,24 +485,20 @@ def html_to_search_text(text: str) -> str:
             elif tag.name in _SEARCH_BLOCK_TAGS:
                 flush_block()
         else:
-            tag_buf.append(char)
+            tag_buf += char
             if len(tag_buf) == 2:
                 fc = tag_buf[1]
                 if not (fc.isalpha() or fc in ("/", "!", "?")):
-                    add_text("".join(tag_buf))
-                    in_tag = False
-                    tag_buf.clear()
+                    add_text(tag_buf)
+                    tag_buf = ""
             elif len(tag_buf) > _TAG_BUFFER_LIMIT:
-                add_text("".join(tag_buf))
-                in_tag = False
-                tag_buf.clear()
-        i += 1
+                add_text(tag_buf)
+                tag_buf = ""
 
-    if in_tag and tag_buf:
-        add_text("".join(tag_buf))
+    if tag_buf:
+        add_text(tag_buf)
 
     flush_block()
-    out = "\n".join(lines)
-    return _unescape_entities(out)
+    return _unescape_entities("\n".join(lines))
 
 
