@@ -3,29 +3,18 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Document type detection and sidebar/tool label maps (no Calc analyzer import).
+"""Document type detection (no Calc analyzer import).
 
-Four vocabularies are coordinated by ``_META``:
-1. Canonical UNO service (e.g. ``com.sun.star.text.TextDocument``).
-2. Distinct lowercase label (``writer``, ``calc``, ``draw``, ``impress``, ``unknown``)
-   via ``doc_type_label_for_enum``.
-3. Family lowercase label (``writer``, ``calc``, ``draw``, ``unknown``)
-   via ``doc_type_family_label``, where Impress collapses to ``draw``.
-4. Display title (``Writer``, ``Calc``, ``Draw``, ``Unknown``)
-   via ``doc_type_title_for_label``.
-
-``_SERVICE_PRIORITY`` defines classification and probe priority (Writer, Calc,
-Impress, Draw), which differs from enum declaration order because Impress
-supports both PresentationDocument and DrawingDocument and must be tested first.
-
-Menu guards and ``=PY()`` session lookup need ``is_writer`` / ``is_calc`` without
-loading ``document_helpers`` → ``SheetAnalyzer``.
+Probe order is Writer, Calc, Impress, Draw. Impress also supports
+DrawingDocument, so it is tested before Draw. Impress's distinct label
+is ``impress``; family and display title collapse to ``draw`` / ``Draw``.
+Menu guards and ``=PY()`` need ``is_writer`` / ``is_calc`` without importing
+``document_helpers`` (that imports ``SheetAnalyzer``).
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Literal
 
@@ -58,19 +47,12 @@ class DocumentType(Enum):
     IMPRESS = auto()
 
 
-@dataclass(frozen=True)
-class _DocTypeMeta:
-    service: str
-    label: DocTypeLabel  # writer / calc / draw / impress
-    family: DocTypeFamily  # writer / calc / draw; Impress family is draw
-    display: str  # Writer / Calc / Draw
-
-
-_META: dict[DocumentType, _DocTypeMeta] = {
-    DocumentType.WRITER: _DocTypeMeta(TEXT_DOCUMENT_SERVICE, "writer", "writer", "Writer"),
-    DocumentType.CALC: _DocTypeMeta(CALC_DOCUMENT_SERVICE, "calc", "calc", "Calc"),
-    DocumentType.IMPRESS: _DocTypeMeta(IMPRESS_DOCUMENT_SERVICE, "impress", "draw", "Draw"),
-    DocumentType.DRAW: _DocTypeMeta(DRAW_DOCUMENT_SERVICE, "draw", "draw", "Draw"),
+# (service, distinct label). Family is "draw" only for label "impress".
+_TYPE_ROWS: dict[DocumentType, tuple[str, DocTypeLabel]] = {
+    DocumentType.WRITER: (TEXT_DOCUMENT_SERVICE, "writer"),
+    DocumentType.CALC: (CALC_DOCUMENT_SERVICE, "calc"),
+    DocumentType.IMPRESS: (IMPRESS_DOCUMENT_SERVICE, "impress"),
+    DocumentType.DRAW: (DRAW_DOCUMENT_SERVICE, "draw"),
 }
 
 _SERVICE_PRIORITY: tuple[DocumentType, ...] = (
@@ -80,33 +62,20 @@ _SERVICE_PRIORITY: tuple[DocumentType, ...] = (
     DocumentType.DRAW,
 )
 
-
-def _build_label_to_services() -> dict[str, frozenset[str]]:
-    mapping: dict[str, set[str]] = {}
-    for dt in _SERVICE_PRIORITY:
-        meta = _META[dt]
-        mapping.setdefault(meta.label, set()).add(meta.service)
-        mapping.setdefault(meta.family, set()).add(meta.service)
-    return {k: frozenset(v) for k, v in mapping.items()}
-
+# "impress" is PresentationDocument only. "draw" is the family (both services).
+_LABEL_TO_UNO_SERVICES: dict[str, frozenset[str]] = {
+    "writer": frozenset((TEXT_DOCUMENT_SERVICE,)),
+    "calc": frozenset((CALC_DOCUMENT_SERVICE,)),
+    "impress": frozenset((IMPRESS_DOCUMENT_SERVICE,)),
+    "draw": frozenset((DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)),
+}
 
 _log = logging.getLogger(__name__)
-_LABEL_TO_UNO_SERVICES: dict[str, frozenset[str]] = _build_label_to_services()
-_LABEL_TO_TITLE: dict[str, str] = {meta.label: meta.display for meta in _META.values()}
-
-
-def _normalize_label(label: str | None) -> str:
-    if not label:
-        return ""
-    return str(label).strip().lower()
 
 
 def uno_services_for_doc_type_label(doc_type: str | None) -> frozenset[str]:
     """Return UNO services implied by a sidebar/doc_type label (no live document)."""
-    norm = _normalize_label(doc_type)
-    if not norm:
-        return frozenset()
-    return _LABEL_TO_UNO_SERVICES.get(norm, frozenset())
+    return _LABEL_TO_UNO_SERVICES.get((doc_type or "").strip().lower(), frozenset())
 
 
 def uno_services_for_document(model: Any, doc_type: str | None) -> frozenset[str]:
@@ -130,7 +99,7 @@ def get_document_uno_services(model: Any) -> frozenset[str]:
         return frozenset()
     found: set[str] = set()
     for dt in _SERVICE_PRIORITY:
-        service_name = _META[dt].service
+        service_name = _TYPE_ROWS[dt][0]
         if safe_call(model.supportsService, f"Check {service_name}", service_name):
             found.add(service_name)
     return frozenset(found)
@@ -138,14 +107,16 @@ def get_document_uno_services(model: Any) -> frozenset[str]:
 
 def doc_type_label_for_enum(doc_type: DocumentType) -> DocTypeLabel:
     """Distinct lowercase label (``\"writer\"``, ``\"calc\"``, ``\"draw\"``, ``\"impress\"``, ``\"unknown\"``)."""
-    meta = _META.get(doc_type)
-    return meta.label if meta is not None else "unknown"
+    row = _TYPE_ROWS.get(doc_type)
+    return row[1] if row is not None else "unknown"
 
 
 def doc_type_family_label(doc_type: DocumentType) -> DocTypeFamily:
     """Research / path-family label folding Impress into ``\"draw\"``."""
-    meta = _META.get(doc_type)
-    return meta.family if meta is not None else "unknown"
+    label = doc_type_label_for_enum(doc_type)
+    if label == "impress":
+        return "draw"
+    return label
 
 
 def doc_type_str_from_doc(doc: Any) -> str | None:
@@ -162,27 +133,31 @@ def doc_type_str_from_doc(doc: Any) -> str | None:
     return None
 
 
+def _display_title(label: str | None) -> str | None:
+    """Writer, Calc, or Draw. None if empty or unknown. impress displays as Draw."""
+    norm = (label or "").strip().lower()
+    if norm == "impress":
+        norm = "draw"
+    if norm in ("writer", "calc", "draw"):
+        return norm.capitalize()
+    return None
+
+
 def doc_type_title_for_label(label: str | None) -> str:
     """Sidebar display title (Writer/Calc/Draw) for a cached lowercase doc_type label."""
-    norm = _normalize_label(label)
-    if not norm:
-        return "Unknown"
-    return _LABEL_TO_TITLE.get(norm, "Unknown")
+    return _display_title(label) or "Unknown"
 
 
 def agent_label_for_doc_type(doc_type: str | None) -> str | None:
     """Sidebar / agent display label (Writer, Calc, Draw) or None for unknown/empty."""
-    if not doc_type:
-        return None
-    title = doc_type_title_for_label(doc_type)
-    return None if title == "Unknown" else title
+    return _display_title(doc_type)
 
 
 def agent_label_for_context(ctx: Any) -> str:
     """Writer / Calc / Draw label used to validate specialized domain names."""
     raw = (getattr(ctx, "doc_type", None) or "").strip().lower()
-    titled = doc_type_title_for_label(raw)
-    if raw and titled != "Unknown":
+    titled = _display_title(raw)
+    if titled is not None:
         return titled
     services = getattr(ctx, "uno_services_supported", None) or ()
     blob = " ".join(str(svc) for svc in services)
@@ -190,8 +165,6 @@ def agent_label_for_context(ctx: Any) -> str:
         return "Calc"
     if "PresentationDocument" in blob or "DrawingDocument" in blob:
         return "Draw"
-    if "TextDocument" in blob:
-        return "Writer"
     return "Writer"
 
 
@@ -209,7 +182,7 @@ def get_document_type(model: Any) -> DocumentType:
     # keyed that way would return the wrong type for a new document.
     # Check services in priority order
     for dt in _SERVICE_PRIORITY:
-        service_name = _META[dt].service
+        service_name = _TYPE_ROWS[dt][0]
         if safe_call(model.supportsService, f"Check {service_name}", service_name):
             return dt
 
