@@ -38,8 +38,8 @@ from plugin.calc.bridge import CalcBridge
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.inspector import CellInspector
 from plugin.calc.manipulator import CellManipulator, _parse_formula_or_values_string, _values_length_mismatch_message
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.visual_helpers import parse_color_to_uno_int
-from plugin.framework.deal_shim import deal
 
 # Verbose per-cell dicts blow chat/tool context (issue 405: A1:H500 → HTTP 400).
 # Inspector.read_range stays uncapped for UNO tests and internal callers.
@@ -66,9 +66,7 @@ log = logging.getLogger("writeragent.calc")
 
 
 def _opt_bool(kwargs: dict[str, Any], key: str) -> tuple[bool | None, str | None]:
-    if key not in kwargs:
-        return None, None
-    raw = kwargs[key]
+    raw = kwargs.get(key)
     if raw is None:
         return None, None
     if isinstance(raw, bool):
@@ -81,9 +79,7 @@ def _opt_bool(kwargs: dict[str, Any], key: str) -> tuple[bool | None, str | None
 
 
 def _strict_int(kwargs: dict[str, Any], key: str, minimum: int | None = None) -> tuple[int | None, str | None]:
-    if key not in kwargs:
-        return None, None
-    raw = kwargs[key]
+    raw = kwargs.get(key)
     if raw is None:
         return None, None
     if type(raw) is not int:
@@ -97,36 +93,17 @@ def _strict_int(kwargs: dict[str, Any], key: str, minimum: int | None = None) ->
 
 
 def _opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
-    if key not in kwargs:
-        return None, None
-    raw = kwargs[key]
+    raw = kwargs.get(key)
     if raw is None:
         return None, None
     if isinstance(raw, str) and raw.strip() == "":
         return None, None
     if not isinstance(raw, str):
         return None, f"{key} must be a string, got {type(raw).__name__}"
-    parsed = _parse_color(raw)
+    parsed = parse_color_to_uno_int(raw)
     if parsed is None:
         return None, f"Invalid {key}: '{raw}'"
     return parsed, None
-
-
-# ── Colour helper ──────────────────────────────────────────────────────
-
-
-@deal.post(lambda result: result is None or (isinstance(result, int) and 0 <= result <= 0xFFFFFF))
-def _parse_color(color_str: Any) -> int | None:
-    """Convert a hex colour string or named colour to an RGB integer.
-
-    String-only wrapper around :func:`parse_color_to_uno_int` so Calc ``set_style``
-    keeps rejecting non-string LLM args (ints/tuples) instead of accepting them.
-    """
-    if not color_str:
-        return None
-    if not isinstance(color_str, str):
-        return None
-    return parse_color_to_uno_int(color_str)
 
 
 def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
@@ -173,17 +150,15 @@ def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipula
     return CellManipulator(CalcBridge(ctx.doc)), _range_args(range_arg)
 
 
-def _compound_undo(doc: Any, title: str) -> Any:
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
-    return WriterCompoundUndo(doc, title)
+def _get_undo_manager(doc: Any) -> Any:
+    if not hasattr(doc, "getUndoManager"):
+        return None
+    return doc.getUndoManager()
 
 
 def _undo_action_count(doc: Any) -> int:
     def _do() -> int:
-        if not hasattr(doc, "getUndoManager"):
-            return 0
-        um = doc.getUndoManager()
+        um = _get_undo_manager(doc)
         if um is None:
             return 0
         titles = um.getAllUndoActionTitles()
@@ -195,9 +170,7 @@ def _undo_action_count(doc: Any) -> int:
 def _undo_titled_group(doc: Any, title: str, prev_count: int = 0) -> bool:
     """Undo the group we just closed, only when its title is the newest one and count grew."""
     def _do_undo() -> bool:
-        if not hasattr(doc, "getUndoManager"):
-            return False
-        um = doc.getUndoManager()
+        um = _get_undo_manager(doc)
         if um is None:
             return False
         titles = um.getAllUndoActionTitles()
@@ -215,7 +188,7 @@ def _mutate_ranges(
     ranges: list[Any],
     undo_title: str,
     apply_one: Callable[[Any], str | dict[str, Any]],
-    done_message: str,
+    done_message: str = "",
     format_result: Callable[[list[Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run apply_one on each range inside one compound undo."""
@@ -224,16 +197,14 @@ def _mutate_ranges(
 
     group = None
     target = ranges[0]
-    applied = 0
     results: list[Any] = []
     prev_count = _undo_action_count(doc)
     try:
-        group = _compound_undo(doc, undo_title)
+        group = WriterCompoundUndo(doc, undo_title)
         with group:
             for r in ranges:
                 target = r
                 res = apply_one(r)
-                applied += 1
                 results.append(res)
         if format_result is not None:
             return format_result(results)
@@ -246,15 +217,14 @@ def _mutate_ranges(
     except Exception as exc:
         if is_real_disposal(exc):
             raise
-        undone = False
-        if group is not None and getattr(group, "entered", False):
-            undone = _undo_titled_group(doc, undo_title, prev_count)
+        entered = group is not None and getattr(group, "entered", False)
+        undone = _undo_titled_group(doc, undo_title, prev_count) if entered else False
         if undone:
             return tool._tool_error(f"Failed on range {target!r}: {exc}. Nothing was kept.")
-        if applied > 0:
-            if not (group is not None and getattr(group, "entered", False)):
-                return tool._tool_error(f"Failed on range {target!r}: {exc}. {applied} range(s) were already changed individually.")
-            return tool._tool_error(f"Failed on range {target!r}: {exc}. {applied} range(s) were already changed; one Ctrl+Z undoes them.")
+        if len(results) > 0:
+            if not entered:
+                return tool._tool_error(f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed individually.")
+            return tool._tool_error(f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed; one Ctrl+Z undoes them.")
         return tool._tool_error(str(exc))
 
 
@@ -314,17 +284,15 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
     # data_array[1:] globally across all columns. Checking each column's row 0 cell
     # allows text headers to label columns while non-text cells are counted as data
     # starting from row 0.
-    if not isinstance(data_array, (list, tuple)) or not data_array:
+    if not data_array:
         return []
     header_row = data_array[0]
-    if not isinstance(header_row, (list, tuple)):
-        return []
     n_cols = min(len(header_row), _DISTINCT_PEEK_MAX_COLUMNS)
     if n_cols <= 0:
         return []
     out: list[dict[str, Any]] = []
     for col_i in range(n_cols):
-        raw_header = header_row[col_i] if col_i < len(header_row) else None
+        raw_header = header_row[col_i]
         if isinstance(raw_header, str) and raw_header.strip():
             label = raw_header.strip()
             scan_rows = data_array[1:]
@@ -332,23 +300,18 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
             label = index_to_column(start_column + col_i)
             scan_rows = data_array
         # Track every distinct for the count; only the first LIST_CAP go in the payload.
-        seen: set[str] = set()
-        listed: list[str] = []
-        overflow = False
+        seen: dict[str, None] = {}
         for row in scan_rows:
-            if not isinstance(row, (list, tuple)) or col_i >= len(row):
+            if col_i >= len(row):
                 continue
             key = _distinct_display(row[col_i])
             if key is None or key in seen:
                 continue
-            seen.add(key)
-            if len(listed) < _DISTINCT_PEEK_LIST_CAP:
-                listed.append(key)
+            seen[key] = None
             if len(seen) > _DISTINCT_PEEK_HIGH_CARDINALITY:
-                overflow = True
                 break
         entry: dict[str, Any] = {"column": label}
-        if overflow:
+        if len(seen) > _DISTINCT_PEEK_HIGH_CARDINALITY:
             entry["unique_count"] = f"{_DISTINCT_PEEK_HIGH_CARDINALITY}+"
             entry["skipped"] = "high cardinality"
         else:
@@ -356,7 +319,7 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
             if len(seen) > _DISTINCT_PEEK_LIST_CAP:
                 entry["skipped"] = "high cardinality"
             else:
-                entry["values"] = listed
+                entry["values"] = list(seen)
         out.append(entry)
     return out
 
@@ -410,17 +373,6 @@ def _normalize_source_arg(raw: Any) -> tuple[str | None, str | None]:
         return None, "source must be a string A1 or Sheet.A1 address (dot sheet prefix, never Excel !)."
     stripped = raw.strip()
     return (stripped or None), None
-
-
-def _values_conflict_with_source(kwargs: dict[str, Any]) -> bool:
-    """True when ``source`` is set and ``values`` was also passed (including empty).
-
-    Keith rule: source and values are mutually exclusive. Empty ``values`` still
-    counts as provided so a paste-copy is not confused with a clear/write.
-    """
-    if "values" not in kwargs:
-        return False
-    return kwargs.get("values") is not None
 
 
 class ReadCellRange(ToolBase):
@@ -580,12 +532,10 @@ class WriteCellRange(ToolBase):
             return self._tool_error("range is required")
 
         # source XOR values: a paste-copy must not also write/clear a values payload.
+        # Explicit values, including "", conflict; a missing key and None do not.
         if source:
-            if _values_conflict_with_source(kwargs):
+            if kwargs.get("values") is not None:
                 return self._tool_error("Do not pass values when source is set. To copy a block, pass source and dest range only.")
-
-            def _apply_copy(dest: Any) -> dict[str, Any]:
-                return manipulator.copy_formula_range(source, dest)
 
             def _format_copy(results: list[Any]) -> dict[str, Any]:
                 last = results[-1]
@@ -604,8 +554,7 @@ class WriteCellRange(ToolBase):
                 ctx.doc,
                 rn,
                 "WriterAgent: Copy range",
-                _apply_copy,
-                "",
+                lambda dest: manipulator.copy_formula_range(source, dest),
                 format_result=_format_copy,
             )
 
@@ -755,24 +704,10 @@ class SetCellStyle(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
-        bg_color, err = _opt_color(kwargs, "bg_color")
-        if err:
-            return self._tool_error(err)
-
-        font_color, err = _opt_color(kwargs, "font_color")
-        if err:
-            return self._tool_error(err)
-
-        border_color, err = _opt_color(kwargs, "border_color")
-        if err:
-            return self._tool_error(err)
-
         # Direct execute() skips validate; these type checks stay so
         # tests/calc/test_cells.py still gets a tool error instead of a silent no-op.
         def _optional_font_size() -> tuple[float | None, str | None]:
-            if "font_size" not in kwargs:
-                return None, None
-            raw = kwargs["font_size"]
+            raw = kwargs.get("font_size")
             if raw is None:
                 return None, None
             # bool is a subclass of int; reject it so true/false cannot become 1.0/0.0.
@@ -781,9 +716,7 @@ class SetCellStyle(ToolBase):
             return float(raw), None
 
         def _optional_str(key: str) -> tuple[str | None, str | None]:
-            if key not in kwargs:
-                return None, None
-            raw = kwargs[key]
+            raw = kwargs.get(key)
             if raw is None:
                 return None, None
             if not isinstance(raw, str):
@@ -792,30 +725,29 @@ class SetCellStyle(ToolBase):
                 return None, None
             return raw, None
 
-        bold, err = _opt_bool(kwargs, "bold")
-        if err:
-            return self._tool_error(err)
-        italic, err = _opt_bool(kwargs, "italic")
-        if err:
-            return self._tool_error(err)
-        wrap_text, err = _opt_bool(kwargs, "wrap_text")
-        if err:
-            return self._tool_error(err)
+        style_kwargs: dict[str, Any] = {}
+        for key in ("bg_color", "font_color", "border_color"):
+            color_val, err = _opt_color(kwargs, key)
+            if err:
+                return self._tool_error(err)
+            style_kwargs[key] = color_val
+
+        for key in ("bold", "italic", "wrap_text"):
+            bool_val, err = _opt_bool(kwargs, key)
+            if err:
+                return self._tool_error(err)
+            style_kwargs[key] = bool_val
+
         font_size, err = _optional_font_size()
         if err:
             return self._tool_error(err)
-        h_align, err = _optional_str("h_align")
-        if err:
-            return self._tool_error(err)
-        v_align, err = _optional_str("v_align")
-        if err:
-            return self._tool_error(err)
-        # number_format: scripting_only_parameters; omitted from LLM schema.
-        number_format, err = _optional_str("number_format")
-        if err:
-            return self._tool_error(err)
+        style_kwargs["font_size"] = font_size
 
-        style_kwargs: dict[str, Any] = {"bold": bold, "italic": italic, "bg_color": bg_color, "font_color": font_color, "font_size": font_size, "h_align": h_align, "v_align": v_align, "wrap_text": wrap_text, "border_color": border_color, "number_format": number_format}
+        for key in ("h_align", "v_align", "number_format"):
+            str_val, err = _optional_str(key)
+            if err:
+                return self._tool_error(err)
+            style_kwargs[key] = str_val
 
         if len(rn) == 0:
             return self._tool_error("range is required")

@@ -94,7 +94,7 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
 
             # Use the formula array, not getString(), so formulas are not
             # replaced by their evaluated display text.
-            cell_text = str(raw_val) if raw_val != "" and raw_val is not None else ""
+            cell_text = "" if raw_val is None else str(raw_val)
 
             if not cell_text:
                 continue
@@ -102,10 +102,9 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
             if not is_edit:
                 tasks.append(StreamCompletionTask(cell_text, extend_sys, extend_max, (col, row, None)))
             else:
-                cell_original = cell_text
-                prompt = _build_calc_edit_prompt(cell_original, user_input)
-                max_tokens = len(cell_original) + edit_max
-                tasks.append(StreamCompletionTask(prompt, edit_sys, max_tokens, (col, row, cell_original)))
+                prompt = _build_calc_edit_prompt(cell_text, user_input)
+                max_tokens = len(cell_text) + edit_max
+                tasks.append(StreamCompletionTask(prompt, edit_sys, max_tokens, (col, row, cell_text)))
         if len(tasks) >= _MAX_CELLS:
             truncated = True
             break
@@ -131,22 +130,22 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
         if not is_edit:
             accumulated_text[0] = task.prompt
 
+        # Only a text cell stays text; numbers and formulas go through setFormula
+        # so an edited 42 -> 43 stays numeric.
+        def _write_cell(text: str) -> None:
+            if cell_kind == TEXT:
+                cell.setString(text)
+            else:
+                cell.setFormula(text)
+
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
                 accumulated_text[0] += chunk_text
-                # Only a text cell stays text; numbers and formulas go through setFormula
-                # so an edited 42 -> 43 stays numeric.
-                if cell_kind == TEXT:
-                    cell.setString(accumulated_text[0])
-                else:
-                    cell.setFormula(accumulated_text[0])
+                _write_cell(accumulated_text[0])
 
         def on_error(e: BaseException) -> None:
             if original is not None:
-                if cell_kind == TEXT:
-                    cell.setString(original)
-                else:
-                    cell.setFormula(original)
+                _write_cell(original)
             msgbox(ctx, title, format_error_message(e))
 
         return apply_chunk, on_error
