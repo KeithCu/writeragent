@@ -7,7 +7,6 @@
 from unittest.mock import patch
 
 from plugin.audio.tts_voices import (
-    TTS_TEST_SAMPLE,
     VoiceContext,
     _preferred_harvested_voice,
     canonical_voice_id,
@@ -321,7 +320,7 @@ def test_piper_and_kokoro_voice_list_shows_parenthetical_only():
 def test_tts_test_sample_uses_gettext():
     with patch("plugin.audio.tts_voices._", return_value="Bonjour, je suis WriterAgent.") as mock_gettext:
         assert tts_test_sample() == "Bonjour, je suis WriterAgent."
-        mock_gettext.assert_called_once_with(TTS_TEST_SAMPLE)
+        mock_gettext.assert_called_once_with("Hello, I'm your LibreOffice WriterAgent.")
 
 
 def test_module_yaml_voice_options_use_catalog_provider():
@@ -346,7 +345,7 @@ def test_voice_catalog_asset_drives_runtime_maps():
         raw = json.load(handle)
 
     parsed = _parse_catalog(raw)
-    assert len(parsed.kokoro) == 54
+    assert len(parsed["kokoro_items"]) == 54
 
     piper_ids = [row["id"] for row in raw["piper"]["voices"]]
     assert list(_PIPER_VOICE_MODELS) == piper_ids
@@ -430,7 +429,6 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
             assert get_scoped_tts_voice("endpoint", gemini) == "Puck"
 
         cfg._tts_supported_voices.pop(gemini, None)
-        cfg._model_fetch_tts_cache["speech"] = [grok]
         assert voice_options_for_provider("endpoint", grok, endpoint="https://openrouter.ai/api") == []
         assert get_voice_family("endpoint", grok, endpoint="https://openrouter.ai/api") == "openrouter"
 

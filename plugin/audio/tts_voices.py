@@ -66,10 +66,6 @@ def is_kokoro_voice_id(voice: str) -> bool:
     return len(clean) >= 3 and clean[0] in KOKORO_VOICE_PREFIX_TO_LANG and clean[1:3] in ("f_", "m_")
 
 
-# English source for Settings → Speech → Test voice. ``_()`` speaks the UI locale.
-TTS_TEST_SAMPLE = "Hello, I'm your LibreOffice WriterAgent."
-
-
 def tts_test_sample() -> str:
     """Localized sample sentence for Settings → Speech → Test voice."""
     return _("Hello, I'm your LibreOffice WriterAgent.")
@@ -88,22 +84,10 @@ def clean_provider_name(provider_or_label: str) -> str:
 
 
 def _normalize_voice_family(family: str) -> str:
-    """Translate legacy or UI family names or provider labels into canonical catalog keys."""
+    """Canonical family key, or a provider label via clean_provider_name."""
     fam = (family or "").strip().lower()
-    if not fam:
-        return "system"
-    if fam in ("local", "system_speech", "os", "native"):
-        return "system"
-    if fam in ("remote", "api", "cloud"):
-        return "openai"
     if fam in ("kokoro", "piper", "openai", "openrouter", "together", "system"):
         return fam
-    if "openrouter" in fam:
-        return "openrouter"
-    if "together" in fam:
-        return "together"
-    if "openai" in fam:
-        return "openai"
     return clean_provider_name(family)
 
 
@@ -216,13 +200,8 @@ def clean_voice_name(voice_or_label: str) -> str:
     if not voice_or_label:
         return ""
     text = voice_or_label.strip()
-    if _looks_like_path(text):
-        head, inside = split_display_label(text)
-        if inside is not None and head and _FILE_EXT_RE.search(head):
-            return head
-        return text
     head, inside = split_display_label(text)
-    if inside is not None and head:
+    if inside is not None and head and (not _looks_like_path(text) or _FILE_EXT_RE.search(head)):
         return head
     return text
 
@@ -477,17 +456,10 @@ def resolve_voice_context(
         return VoiceContext(family="together", source="unknown", rows=(), editable=True)
 
     if host == "openrouter":
-        from plugin.framework.client.model_fetcher import _model_fetch_tts_cache, cached_tts_models
+        from plugin.framework.client.model_fetcher import cached_tts_models
 
         models = cached_tts_models(ep_str)
-        if models is None:
-            raw_speech = _model_fetch_tts_cache.get("speech")
-            if isinstance(raw_speech, list):
-                models = raw_speech
-
-        if models is None:
-            return VoiceContext(family="openrouter", source="unknown", rows=(), editable=True)
-        if m_str and match_voice_id(m_str, models) is not None:
+        if models is None or (m_str and match_voice_id(m_str, models) is not None):
             return VoiceContext(family="openrouter", source="unknown", rows=(), editable=True)
         return _catalog_context("openai", locale)
 
@@ -541,7 +513,7 @@ def pick_voice_id(
 ) -> str:
     """Pick voice id for Settings dialog sync and save."""
     if not options:
-        return match_voice_id(current_id, []) or current_id or stored_id
+        return current_id or stored_id
 
     values = [str(opt.get("value") or "") for opt in options if "value" in opt]
     if current_id:

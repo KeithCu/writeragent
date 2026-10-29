@@ -356,7 +356,6 @@ _.initialize_all  # method: plugin/framework/service.py:175
 # defined in plugin/ that are called exclusively from tests/ (which Vulture
 # does not scan by default).
 # =============================================================================
-_.TTS_TEST_SAMPLE  # variable: plugin/audio/tts_voices.py:76
 _.adopt_chat_sidebar  # function: plugin/chatbot/sidebar_test_hooks.py:1673
 _.approval_active  # function: plugin/chatbot/sidebar_test_hooks.py:2613
 _.assert_no_empty_graphics  # function: plugin/chatbot/sidebar_test_hooks.py:3106
