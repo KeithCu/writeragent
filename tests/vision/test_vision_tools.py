@@ -123,7 +123,7 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
     assert "images" in enum
 
 
-@patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
+@patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/venv/bin/python")
 @patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_venv_configured_true_when_python_resolves(_cfg, _exe):
     assert vision_venv_configured(MagicMock()) is True

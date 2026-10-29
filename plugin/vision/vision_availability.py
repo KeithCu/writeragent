@@ -20,13 +20,6 @@ _VISION_TOOL_NAME = "extract_structure_from_image"
 _DELEGATE_GATEWAY_NAMES = frozenset({"delegate_to_specialized_writer_toolset", "delegate_to_specialized_calc_toolset", "delegate_to_specialized_draw_toolset"})
 
 
-def _resolve_vision_python_exe() -> str | None:
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
-    if not venv_dir:
-        return None
-    return resolve_venv_python(venv_dir)
-
-
 def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
     """Whether a specialized domain can actually run, for the exposure layers that advertise it.
 
@@ -52,7 +45,10 @@ def vision_venv_configured(ctx: Any = None) -> bool:
     # Config read failures are ConfigError: log them and return False.
     # get_config takes no ctx, so a missing ctx is not a reason to skip Settings.
     try:
-        return _resolve_vision_python_exe() is not None
+        venv_dir = get_config_str("scripting.python_venv_path").strip()
+        if not venv_dir:
+            return False
+        return resolve_venv_python(venv_dir) is not None
     except ConfigError as exc:
         log.warning("vision_venv_configured: config error: %s", exc)
         return False
@@ -81,10 +77,7 @@ def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = Non
         params = fn.get("parameters")
         props = params.get("properties") if isinstance(params, dict) else None
         domain_prop = props.get("domain") if isinstance(props, dict) else None
-        if not isinstance(params, dict) or not isinstance(props, dict):
-            out.append(schema)
-            continue
-        if not (isinstance(domain_prop, dict) and isinstance(domain_prop.get("enum"), list)):
+        if not isinstance(params, dict) or not isinstance(props, dict) or not isinstance(domain_prop, dict) or not isinstance(domain_prop.get("enum"), list):
             out.append(schema)
             continue
         # Copy only the path being changed; deepcopy of the whole schema ran on
