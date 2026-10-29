@@ -109,19 +109,18 @@ def r1c1_to_a1(r1c1_formula: str, cell_addr: str) -> str:
     return _R1C1_REF_RE.sub(replace_r1c1, r1c1_formula)
 
 
-def is_cross_sheet_range(range_addr: str) -> bool:
-    """True when *range_addr* refers to another sheet (not a same-sheet A1 range)."""
-    addr = str(range_addr).strip()
-    if "!" in addr:
-        return True
-    if "." not in addr:
-        return False
-    sheet, _unused, rest = addr.partition(".")
-    return bool(sheet and rest and not re.match(r"^\$?[A-Z]+\$?\d", sheet, re.IGNORECASE))
-
-
 def translation_has_cross_sheet_ranges(ranges: list[str]) -> bool:
-    return any(is_cross_sheet_range(r) for r in ranges)
+    """True when any range refers to another sheet (not a same-sheet A1 range)."""
+    for range_addr in ranges:
+        addr = str(range_addr).strip()
+        if "!" in addr:
+            return True
+        if "." not in addr:
+            continue
+        sheet, _unused, rest = addr.partition(".")
+        if sheet and rest and not re.match(r"^\$?[A-Z]+\$?\d", sheet, re.IGNORECASE):
+            return True
+    return False
 
 
 def detect_vectorized_columns(model: SheetModel) -> dict[str, list[str]]:
@@ -142,17 +141,12 @@ def detect_vectorized_columns(model: SheetModel) -> dict[str, list[str]]:
         sorted_cells = sorted(cells, key=lambda item: item[0])
 
         current_group: list[str] = []
-        current_r1c1: str | None = None
-        last_row: int = 0
+        current_r1c1 = ""
+        last_row = 0
 
         for row, addr, formula in sorted_cells:
             r1c1 = to_r1c1(formula, addr)
-
-            if current_r1c1 is None:
-                current_group = [addr]
-                current_r1c1 = r1c1
-                last_row = row
-            elif r1c1 == current_r1c1 and row == last_row + 1:
+            if current_group and r1c1 == current_r1c1 and row == last_row + 1:
                 current_group.append(addr)
                 last_row = row
             else:
