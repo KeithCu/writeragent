@@ -85,15 +85,6 @@ def _read_shape_property(shape: Any, name: str) -> Any:
     return None
 
 
-def _visible_area_hmm(shape: Any) -> tuple[int, int] | None:
-    """``OLE2Shape.VisibleArea`` is already 1/100 mm.
-
-    ``SvxOle2Shape`` ``OWN_ATTR_OLE_VISAREA`` (``svx/source/unodraw/unoshap4.cxx``)
-    converts ``GetOrigObjSize`` with ``Map100thMM``.
-    """
-    return _content_size_hmm(_read_shape_property(shape, "VisibleArea"))
-
-
 def _embedded_object_visual_hmm(shape: Any) -> tuple[int, int] | None:
     """``XVisualObject`` size from the ``EmbeddedObject`` property.
 
@@ -130,12 +121,16 @@ def _embedded_object_visual_hmm(shape: Any) -> tuple[int, int] | None:
 
 
 def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
-    """Best-effort formula box in 1/100 mm, or None when UNO has no size."""
-    for reader in (_visible_area_hmm, _embedded_object_visual_hmm):
-        wh = reader(shape)
-        if wh is not None:
-            return wh
-    return None
+    """Best-effort formula box in 1/100 mm, or None when UNO has no size.
+
+    ``VisibleArea`` is already 1/100 mm. ``SvxOle2Shape``
+    ``OWN_ATTR_OLE_VISAREA`` (``svx/source/unodraw/unoshap4.cxx``) converts
+    ``GetOrigObjSize`` with ``Map100thMM``.
+    """
+    wh = _content_size_hmm(_read_shape_property(shape, "VisibleArea"))
+    if wh is not None:
+        return wh
+    return _embedded_object_visual_hmm(shape)
 
 
 def _uno_ctx_from_tool_ctx(ctx: Any) -> Any:
@@ -149,9 +144,7 @@ def _heuristic_size_hmm(formula: str) -> tuple[int, int]:
     n = max(8, len(formula.strip()))
     # ~550 hmm per 10 chars width, height grows slowly with line breaks
     lines = max(1, formula.count("newline") + formula.count("\n") + 1)
-    w = min(_MAX_W_HMM, max(_MIN_W_HMM, n * 55))
-    h = min(_MAX_H_HMM, max(_MIN_H_HMM, 800 + lines * 450))
-    return w, h
+    return n * 55, 800 + lines * 450
 
 
 class InsertMathDraw(ToolDrawSpecialBase):
