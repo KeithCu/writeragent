@@ -26,19 +26,15 @@ class _LayoutBlock(NamedTuple):
 
 
 def _box_xywh(block: dict[str, Any]) -> tuple[int, int, int, int]:
-    # Non-numeric or short box lists raise TypeError/ValueError, so parse
-    # coordinates as numbers and treat missing entries as 0.
+    # Missing, short, or non-numeric coordinates are 0. Non-dicts are a zero box.
     raw = block.get("box") if isinstance(block, dict) else None
     if not isinstance(raw, (list, tuple)):
         return (0, 0, 0, 0)
     vals: list[int] = []
-    for i in range(4):
-        if i < len(raw):
-            try:
-                vals.append(int(float(raw[i])))
-            except (ValueError, TypeError):
-                vals.append(0)
-        else:
+    for item in (list(raw) + [0, 0, 0, 0])[:4]:
+        try:
+            vals.append(int(float(item)))
+        except (ValueError, TypeError):
             vals.append(0)
     return (vals[0], vals[1], vals[2], vals[3])
 
@@ -57,10 +53,6 @@ def _has_box(block: _LayoutBlock) -> bool:
     return block.box[2] > 0 and block.box[3] > 0
 
 
-def _sort_key(block: _LayoutBlock) -> tuple[int, int]:
-    return (block.box[1], block.box[0])
-
-
 def _block_center_x(block: _LayoutBlock) -> float:
     return float(block.box[0] + block.box[2] / 2.0)
 
@@ -74,10 +66,6 @@ def _page_width(blocks: list[_LayoutBlock]) -> float:
     return float(max(edges)) if edges else 800.0
 
 
-def _is_full_width(block: _LayoutBlock, page_w: float) -> bool:
-    return block.box[2] >= page_w * 0.55
-
-
 def _render_blocks(blocks: list[_LayoutBlock]) -> str:
     return "".join(b.html for b in blocks if b.html)
 
@@ -87,17 +75,8 @@ def _group_bands(blocks: list[_LayoutBlock]) -> list[list[_LayoutBlock]]:
         return []
     # A zero box [0,0,0,0] has no position. Leave those blocks in input order
     # and keep them out of spatial bands, or they sort to y=0 at the top.
-    zero_indices = {i for i, b in enumerate(blocks) if not _has_box(b)}
-    boxed_blocks = [b for i, b in enumerate(blocks) if i not in zero_indices]
-    sorted_boxed = sorted(boxed_blocks, key=_sort_key)
-
-    ordered: list[_LayoutBlock] = []
-    boxed_iter = iter(sorted_boxed)
-    for i in range(len(blocks)):
-        if i in zero_indices:
-            ordered.append(blocks[i])
-        else:
-            ordered.append(next(boxed_iter))
+    boxed = iter(sorted((b for b in blocks if _has_box(b)), key=lambda b: (b.box[1], b.box[0])))
+    ordered = [next(boxed) if _has_box(b) else b for b in blocks]
 
     heights = [max(b.box[3], 1) for b in ordered if _has_box(b)]
     median_h = sorted(heights)[len(heights) // 2] if heights else 20
@@ -106,11 +85,11 @@ def _group_bands(blocks: list[_LayoutBlock]) -> list[list[_LayoutBlock]]:
     bands: list[list[_LayoutBlock]] = [[ordered[0]]]
     band_bottom = _block_bottom(ordered[0])
     for block in ordered[1:]:
-        if not _has_box(block) or not _has_box(bands[-1][-1]):
-            bands.append([block])
-            band_bottom = _block_bottom(block)
-            continue
-        if block.box[1] - band_bottom <= gap:
+        if (
+            _has_box(block)
+            and _has_box(bands[-1][-1])
+            and block.box[1] - band_bottom <= gap
+        ):
             bands[-1].append(block)
             band_bottom = max(band_bottom, _block_bottom(block))
         else:
@@ -122,8 +101,6 @@ def _group_bands(blocks: list[_LayoutBlock]) -> list[list[_LayoutBlock]]:
 # Flattening a band by (y, x) interleaves columns; centered single-column text
 # has no gutter. Split into columns only when extents have a positive gap.
 def _render_narrow_run(run: list[_LayoutBlock], split_x: float) -> str:
-    if len(run) < 2:
-        return _render_blocks(run)
     left = [b for b in run if _block_center_x(b) < split_x]
     right = [b for b in run if _block_center_x(b) >= split_x]
     if left and right:
@@ -137,15 +114,13 @@ def _render_narrow_run(run: list[_LayoutBlock], split_x: float) -> str:
 
 
 def _render_band(band: list[_LayoutBlock], page_w: float, split_x: float) -> str:
-    if len(band) == 1:
-        return _render_blocks(band)
     parts: list[str] = []
     narrow: list[_LayoutBlock] = []
     for block in band:
-        if _is_full_width(block, page_w):
+        if block.box[2] >= page_w * 0.55:
             parts.append(_render_narrow_run(narrow, split_x))
             narrow = []
-            parts.append(_render_blocks([block]))
+            parts.append(block.html)
         else:
             narrow.append(block)
     parts.append(_render_narrow_run(narrow, split_x))

@@ -57,19 +57,18 @@ _TABLE_PREFIX_RE = re.compile(
     r"^(?:\s*(?:<caption>.*?</caption>|<colgroup>.*?</colgroup>|<col\b[^>]*\/?>))+",
     re.IGNORECASE | re.DOTALL,
 )
+_STYLE_ATTR_RE = re.compile(r"""(?i)\bstyle\s*=\s*(['"])(.*?)\1""")
 
 
 def _style_has_border_none(attrs: str) -> bool:
     """True for layout-only tables (two-column bbox HTML uses border:none)."""
-    match = re.search(r"""(?i)\bstyle\s*=\s*(['"])(.*?)\1""", attrs)
+    match = _STYLE_ATTR_RE.search(attrs)
     return bool(match and re.search(r"(?:^|;)\s*border\s*:\s*none\b", match.group(2), re.IGNORECASE))
 
 
 def _merge_style_decls(tag: str, attrs: str, extra: str) -> str:
     """Merge extra CSS declarations into a tag's existing style attribute (or add one)."""
-    if not extra:
-        return f"<{tag}{attrs}>"
-    match = re.search(r"""(?i)\bstyle\s*=\s*(['"])(.*?)\1""", attrs)
+    match = _STYLE_ATTR_RE.search(attrs)
     existing_style = match.group(2) if match else ""
     existing_props = {
         part.split(":", 1)[0].strip().lower()
@@ -100,10 +99,7 @@ def augment_lo_heading_styles(html: str) -> str:
     def _repl(match: re.Match[str]) -> str:
         tag = match.group(1).lower()
         attrs = match.group(2) or ""
-        extra = _LO_HEADING_INLINE.get(tag, "")
-        if not extra:
-            return match.group(0)
-        return _merge_style_decls(tag, attrs, extra)
+        return _merge_style_decls(tag, attrs, _LO_HEADING_INLINE[tag])
 
     return _HEADING_TAG_RE.sub(_repl, html)
 
@@ -182,72 +178,51 @@ def _convert_tex_in_text(text: str, convert_fn: Any) -> str:
     """Scan and convert TeX math within a single text run."""
     if not ("$" in text or r"\(" in text or r"\[" in text):
         return text
+    # $$ / \[ / \( share one scan. Single $...$ stays separate.
+    delims = (("$$", "$$", True), ("\\[", "\\]", True), ("\\(", "\\)", False))
     out: list[str] = []
     i = 0
     n = len(text)
     while i < n:
-        ch = text[i]
-        if text.startswith("$$", i):
-            close_at = text.find("$$", i + 2)
+        for opener, closer, display_block in delims:
+            if not text.startswith(opener, i):
+                continue
+            close_at = text.find(closer, i + len(opener))
             if close_at != -1:
-                inner = text[i + 2 : close_at]
-                mathml = _latex_to_math_element(html_module.unescape(inner), display_block=True, convert_fn=convert_fn)
+                inner = text[i + len(opener) : close_at]
+                mathml = _latex_to_math_element(
+                    html_module.unescape(inner), display_block=display_block, convert_fn=convert_fn
+                )
                 if mathml is not None:
                     out.append(mathml)
-                    i = close_at + 2
-                    continue
-            # A failed $$ convert emits and skips both dollar signs so the
-            # second '$' cannot pair later as inline math.
-            out.append("$$")
-            i += 2
-            continue
-        elif text.startswith("\\[", i):
-            close_at = text.find("\\]", i + 2)
-            if close_at != -1:
-                inner = text[i + 2 : close_at]
-                mathml = _latex_to_math_element(html_module.unescape(inner), display_block=True, convert_fn=convert_fn)
-                if mathml is not None:
-                    out.append(mathml)
-                    i = close_at + 2
-                    continue
-            out.append("\\[")
-            i += 2
-            continue
-        elif text.startswith("\\(", i):
-            close_at = text.find("\\)", i + 2)
-            if close_at != -1:
-                inner = text[i + 2 : close_at]
-                mathml = _latex_to_math_element(html_module.unescape(inner), display_block=False, convert_fn=convert_fn)
-                if mathml is not None:
-                    out.append(mathml)
-                    i = close_at + 2
-                    continue
-            out.append("\\(")
-            i += 2
-            continue
-        elif ch == "$" and not _looks_like_currency_dollar(text, i):
-            close_at = text.find("$", i + 1)
-            if close_at != -1 and close_at > i + 1:
-                inner = text[i + 1 : close_at]
-                unescaped = html_module.unescape(inner)
-                # Require a TeX cue so prose like "cost $foo later $bar" stays text.
-                if "\\" in unescaped or "^" in unescaped or re.search(r"_[{\\A-Za-z]", unescaped):
-                    mathml = _latex_to_math_element(unescaped, display_block=False, convert_fn=convert_fn)
-                    if mathml is not None:
-                        out.append(mathml)
-                        i = close_at + 1
-                        continue
-        out.append(ch)
-        i += 1
+                    i = close_at + len(closer)
+                    break
+            # A failed $$ emits both dollars so the second cannot pair as $...$.
+            out.append(opener)
+            i += len(opener)
+            break
+        else:
+            ch = text[i]
+            if ch == "$" and not _looks_like_currency_dollar(text, i):
+                close_at = text.find("$", i + 1)
+                if close_at != -1 and close_at > i + 1:
+                    inner = text[i + 1 : close_at]
+                    unescaped = html_module.unescape(inner)
+                    if "\\" in unescaped or "^" in unescaped or re.search(r"_[{\\A-Za-z]", unescaped):
+                        mathml = _latex_to_math_element(
+                            unescaped, display_block=False, convert_fn=convert_fn
+                        )
+                        if mathml is not None:
+                            out.append(mathml)
+                            i = close_at + 1
+                            continue
+            out.append(ch)
+            i += 1
     return "".join(out)
 
 
 def _replace_tex_outside_tags(s: str, convert_fn: Any) -> str:
     """Turn ``$$…$$`` / ``\\[…\\]`` / ``\\(…\\)`` (and conservative ``$…$``) into ``<math>``."""
-    # Fast path: skip processing if no TeX delimiters are present.
-    if not ("$" in s or r"\(" in s or r"\[" in s):
-        return s
-
     # Match delimiters inside text runs only. Matching across tags swallows
     # markup, and TeX entities must be unescaped before MathML conversion.
     # Skip runs inside <code> and <pre>.
@@ -300,8 +275,7 @@ def convert_latex_delimiters_to_mathml(html: str) -> str:
 
 
 def _header_row_to_th(row_html: str) -> str:
-    row_html = re.sub(r"<td\b", "<th", row_html, flags=re.IGNORECASE)
-    return re.sub(r"</td\b", "</th", row_html, flags=re.IGNORECASE)
+    return re.sub(r"(</?)td\b", r"\1th", row_html, flags=re.IGNORECASE)
 
 
 def _promote_first_header_row(inner: str) -> str:
@@ -326,12 +300,9 @@ def _promote_first_header_row(inner: str) -> str:
     # nests bodies. Rewrite only when the remaining prefix and suffix are
     # a single optional <tbody></tbody> pair.
     prefix_match = _TABLE_PREFIX_RE.match(before)
-    if prefix_match:
-        table_prefix = prefix_match.group(0)
-        remaining_before = before[prefix_match.end() :].strip()
-    else:
-        table_prefix = ""
-        remaining_before = before.strip()
+    end = prefix_match.end() if prefix_match else 0
+    table_prefix = prefix_match.group(0) if prefix_match else ""
+    remaining_before = before[end:].strip()
 
     after_stripped = after.strip()
 
@@ -463,22 +434,20 @@ def _safe_int(val: Any, default: int = 0) -> int:
 
 
 def _html_table_from_columns_rows(
-    columns: list[Any],
-    rows: list[list[Any]],
+    columns: list[Any] | None,
+    rows: list[list[Any]] | None,
     spans: list[dict[str, Any]] | None = None,
 ) -> str:
-    if not columns and not rows:
+    col_list = list(columns) if columns else []
+    row_lists = [list(row) for row in (rows or []) if isinstance(row, list)]
+    if not col_list and not row_lists:
         return ""
-    grid = [list(columns)] if columns else []
-    for row in rows:
-        if isinstance(row, list):
-            grid.append(list(row))
-    if not grid:
-        return ""
+    grid = [col_list] if col_list else []
+    grid.extend(row_lists)
 
     num_rows = len(grid)
-    num_cols = max((len(r) for r in grid), default=0)
-    if num_rows == 0 or num_cols == 0:
+    num_cols = max(len(r) for r in grid)
+    if num_cols == 0:
         return ""
 
     # Pad ragged rows to the computed grid width so short rows do not shift
@@ -491,7 +460,7 @@ def _html_table_from_columns_rows(
     # raise TypeError/ValueError, and an unbounded span loops the grid.
     covered: set[tuple[int, int]] = set()
     span_at: dict[tuple[int, int], tuple[int, int]] = {}
-    for span in spans or []:
+    for span in spans if isinstance(spans, list) else ():
         if not isinstance(span, dict):
             continue
         origin_row = _safe_int(span.get("row"), 0)
@@ -512,7 +481,7 @@ def _html_table_from_columns_rows(
                         covered.add((rr, cc))
 
     lines = ['<table border="1">']
-    header_is_th = bool(columns)
+    header_is_th = bool(col_list)
     body_opened = False
     for r_idx, row in enumerate(grid):
         tag = "th" if r_idx == 0 and header_is_th else "td"
@@ -550,9 +519,9 @@ def _tables_to_html(tables: list[dict[str, Any]] | None) -> list[str]:
         if not isinstance(table, dict):
             continue
         table_html = _html_table_from_columns_rows(
-            list(table.get("columns") or []),
-            [list(row) for row in (table.get("rows") or []) if isinstance(row, list)],
-            list(table.get("spans") or []) if isinstance(table.get("spans"), list) else None,
+            table.get("columns"),
+            table.get("rows"),
+            table.get("spans"),
         )
         if table_html:
             out.append(table_html)
