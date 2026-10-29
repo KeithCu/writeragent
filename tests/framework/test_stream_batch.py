@@ -122,7 +122,7 @@ def test_batching_stream_queue_timer_emission(monkeypatch):
     # does not emit the same burst again when the interval elapses.
     if bq._timer is not None:
         bq._timer.cancel()
-    bq._timer_flush()
+    bq.flush()
 
     item = raw.get_nowait()
     assert item == (StreamQueueKind.CHUNK, "delayed")

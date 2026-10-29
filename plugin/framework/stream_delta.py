@@ -111,11 +111,7 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
 
 def _arguments_string(fn: dict[str, Any]) -> str:
     args = fn.get("arguments")
-    if args is None:
-        return ""
-    if not isinstance(args, str):
-        return str(args)
-    return args
+    return "" if args is None else str(args)
 
 
 def coalesce_split_tool_calls(tool_calls: object) -> list[Any]:

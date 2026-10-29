@@ -22,27 +22,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("writeragent.framework.queue_executor")
 
-__all__ = [
-    "SendCancellation",
-    "SendCancelled",
-    "_AGENT_ACTIVE_COUNT",
-    "_AGENT_ACTIVE_LOCK",
-    "_AGENT_OPEN_SCOPES",
-    "_current_send_cancellation",
-    "_fail_closed",
-    "_resolve_bound_scope",
-    "_restore_send_cancellation",
-    "agent_session",
-    "bind_send_stop_checker",
-    "capture_send_stop",
-    "get_current_send_cancellation",
-    "is_agent_active",
-    "send_stopped",
-    "wait_for_approval",
-]
-
 _AGENT_ACTIVE_LOCK = threading.Lock()
-_AGENT_ACTIVE_COUNT = 0
 # Scopes whose agent_session has not exited yet (identity, under the lock).
 _AGENT_OPEN_SCOPES: list["SendCancellation"] = []
 _current_send_cancellation: ContextVar["SendCancellation | None"] = ContextVar("current_send_cancellation", default=None)
@@ -151,8 +131,6 @@ class SendCancellation:
         # Unbound Stop only latches the flag. Falling back to default_executor
         # cancelled MCP, grammar, and peer items posted before the drain bound
         # this scope. The sidebar drain checks is_cancelled() and returns.
-        if not executors:
-            return
         for executor in executors:
             executor.cancel_pending_work(self)
 
@@ -161,7 +139,7 @@ def get_current_send_cancellation() -> SendCancellation | None:
     return _current_send_cancellation.get()
 
 
-def _resolve_bound_scope(bound_scope: SendCancellation | None | _ScopeUnset) -> SendCancellation | None:
+def _resolve_bound_scope(bound_scope: SendCancellation | None | _ScopeUnset) -> SendCancellation | None:  # pyright: ignore[reportUnusedFunction]
     """Current send when the caller did not pass a scope.
 
     ``is _SCOPE_UNSET`` is the only unset value. Checkers do not narrow ``is``
@@ -243,7 +221,6 @@ def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancel
     Pass an existing *scope* when Stop must be able to cancel before the drain
     body starts (Send ``actionPerformed`` returns, then AsyncCallback runs drain).
     """
-    global _AGENT_ACTIVE_COUNT
     if scope is None:
         scope = SendCancellation()
     # Bind here, not when StartSendEffect creates the scope: Stop before the
@@ -253,7 +230,6 @@ def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancel
     scope.bind_executor(default_executor)
     token = _current_send_cancellation.set(scope)
     with _AGENT_ACTIVE_LOCK:
-        _AGENT_ACTIVE_COUNT += 1
         _AGENT_OPEN_SCOPES.append(scope)
     abort = True
     try:
@@ -266,13 +242,9 @@ def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancel
         if abort and not scope.is_cancelled():
             scope.cancel()
         with _AGENT_ACTIVE_LOCK:
-            _AGENT_ACTIVE_COUNT = max(0, _AGENT_ACTIVE_COUNT - 1)
-            for i, open_scope in enumerate(_AGENT_OPEN_SCOPES):
-                if open_scope is scope:
-                    del _AGENT_OPEN_SCOPES[i]
-                    break
+            _AGENT_OPEN_SCOPES.remove(scope)
             previous = token.old_value
-            previous_open = any(open_scope is previous for open_scope in _AGENT_OPEN_SCOPES)
+            previous_open = previous in _AGENT_OPEN_SCOPES
         _restore_send_cancellation(scope, token, previous_open)
 
 
@@ -304,4 +276,4 @@ def _restore_send_cancellation(scope: SendCancellation, token: Any, previous_ope
 
 def is_agent_active() -> bool:
     with _AGENT_ACTIVE_LOCK:
-        return _AGENT_ACTIVE_COUNT > 0
+        return bool(_AGENT_OPEN_SCOPES)
