@@ -3,11 +3,11 @@ import email.utils
 import ssl
 import time
 from typing import Any
+from unittest.mock import patch
 
 from plugin.framework.client import request_controls
 from plugin.framework.client.request_controls import (
     OPENROUTER_FREE_MIN_GAP_SEC,
-    LocalHttpsCertificateFallback,
     RequestPacer,
     _reserve_host_send_slot,
     _structured_error_is_overload,
@@ -15,9 +15,7 @@ from plugin.framework.client.request_controls import (
     backoff_delay_sec,
     clear_host_gap,
     emit_retry_status,
-    ensure_free_model_pacing,
-    format_retry_wait_status,
-    is_openrouter_free_model,
+    enable_local_unverified,
     mark_host_sent,
     pacing_key,
     parse_retry_after,
@@ -27,6 +25,7 @@ from plugin.framework.client.request_controls import (
     reset_host_pacing_for_tests,
     reset_local_unverified_hosts_for_tests,
     retry_after_exceeds_cap,
+    ssl_mode_for,
     stream_error_is_overload,
     wait_abortable,
     wait_host_gap,
@@ -37,6 +36,8 @@ def _remaining(key: str, now: Any = None) -> float:
     current = (now or time.monotonic)()
     with request_controls._host_gap_lock:
         gap = request_controls._host_gap_sec.get(key, 0.0)
+        if key.endswith(":free"):
+            gap = max(gap, OPENROUTER_FREE_MIN_GAP_SEC)
         last = request_controls._host_last_sent.get(key)
     if gap <= 0 or last is None:
         return 0.0
@@ -50,33 +51,34 @@ def setup_function() -> None:
 
 def test_request_pacer_sleeps_for_back_to_back_sends():
     sleeps: list[float] = []
-    times = iter([1000.0, 1000.0, 1000.0])
-    pacer = RequestPacer(monotonic=lambda: next(times), sleep=sleeps.append)
+    pacer = RequestPacer()
 
-    pacer.wait_before_send()
-    pacer.mark_sent()
-    pacer.wait_before_send()
+    with (
+        patch("plugin.framework.client.request_controls.time.monotonic", return_value=1000.0),
+        patch("plugin.framework.client.request_controls.time.sleep", side_effect=sleeps.append),
+    ):
+        pacer.wait_before_send()
+        pacer.mark_sent()
+        pacer.wait_before_send()
 
     assert sleeps == [0.05]
 
 
 def test_local_https_certificate_fallback_only_enables_for_local_cert_errors():
-    fallback = LocalHttpsCertificateFallback()
+    assert ssl_mode_for("https", "localhost") == "verified"
+    assert ssl_mode_for("https", "api.openai.com") == "verified"
+    assert enable_local_unverified("localhost", ssl.SSLCertVerificationError("self-signed certificate")) is True
+    assert ssl_mode_for("https", "localhost") == "unverified"
+    assert ssl_mode_for("https", "api.openai.com") == "verified"
 
-    assert fallback.ssl_mode_for("https", "localhost") == "verified"
-    assert fallback.ssl_mode_for("https", "api.openai.com") == "verified"
-    assert fallback.enable_if_applicable("localhost", ssl.SSLCertVerificationError("self-signed certificate")) is True
-    assert fallback.ssl_mode_for("https", "localhost") == "unverified"
-    assert fallback.ssl_mode_for("https", "api.openai.com") == "verified"
-
-    assert fallback.enable_if_applicable("api.openai.com", ssl.SSLCertVerificationError("self-signed certificate")) is False
-    assert fallback.enable_if_applicable("localhost", OSError("connection reset")) is False
-    assert fallback.ssl_mode_for("http", "localhost") == "plain"
+    assert enable_local_unverified("api.openai.com", ssl.SSLCertVerificationError("self-signed certificate")) is False
+    assert enable_local_unverified("localhost", OSError("connection reset")) is False
+    assert ssl_mode_for("http", "localhost") == "plain"
     # The next client must not pay the failed handshake again.
-    assert LocalHttpsCertificateFallback().ssl_mode_for("https", "localhost") == "unverified"
+    assert ssl_mode_for("https", "localhost") == "unverified"
     # A dotless name is not local. Search-domain names must stay verified.
-    assert fallback.enable_if_applicable("ollama-box", ssl.SSLCertVerificationError("self-signed certificate")) is False
-    assert fallback.ssl_mode_for("https", "ollama-box") == "verified"
+    assert enable_local_unverified("ollama-box", ssl.SSLCertVerificationError("self-signed certificate")) is False
+    assert ssl_mode_for("https", "ollama-box") == "verified"
 
 
 def test_parse_retry_after_seconds_and_http_date():
@@ -93,34 +95,23 @@ def test_parse_retry_after_seconds_and_http_date():
 
 
 def test_backoff_honors_retry_after_floor_with_zero_jitter():
-    # OpenClaw: 1.4ms Retry-After with jitter=0 ceils to 2ms, never undercuts the hint.
-    delay = backoff_delay_sec(
-        attempt=1,
-        retry_after_sec=0.0014,
-        min_delay=0.0,
-        max_delay=0.01,
-        jitter=0,
-        rng=lambda: 0.0,
-    )
-    assert delay == 0.002
+    # OpenClaw: Retry-After ceils to avoid undercutting the hint even at roll 0.
+    with patch("plugin.framework.client.request_controls.random.random", return_value=0.0):
+        delay = backoff_delay_sec(attempt=1, retry_after_sec=1.0001)
+    assert delay == 1.001
 
 
 def test_backoff_without_retry_after_grows_with_attempt():
-    d1 = backoff_delay_sec(attempt=1, min_delay=0.3, max_delay=30.0, jitter=0, rng=lambda: 0.0)
-    d2 = backoff_delay_sec(attempt=2, min_delay=0.3, max_delay=30.0, jitter=0, rng=lambda: 0.0)
+    with patch("plugin.framework.client.request_controls.random.random", return_value=0.0):
+        d1 = backoff_delay_sec(attempt=1)
+        d2 = backoff_delay_sec(attempt=2)
     assert d1 == 0.3
     assert d2 == 0.6
 
 
 def test_backoff_over_cap_retry_after_spreads_downward():
-    delay = backoff_delay_sec(
-        attempt=1,
-        retry_after_sec=100.0,
-        min_delay=0.3,
-        max_delay=30.0,
-        jitter="full",
-        rng=lambda: 0.0,
-    )
+    with patch("plugin.framework.client.request_controls.random.random", return_value=0.0):
+        delay = backoff_delay_sec(attempt=1, retry_after_sec=100.0)
     assert delay == 15.0
 
 
@@ -144,15 +135,8 @@ def test_wait_abortable_stops_without_sleeping_remainder():
     assert sleeps == [0.05]
 
 
-def test_format_retry_wait_status_rounds_seconds():
-    assert "0.3s" in format_retry_wait_status(0.3)
-    assert "2s" in format_retry_wait_status(1.6)
-
-
 def test_openrouter_free_pacing_key_covers_suffix_and_auto_router():
-    assert is_openrouter_free_model("deepseek/deepseek-r1:free")
-    assert is_openrouter_free_model("openrouter/free")
-    assert not is_openrouter_free_model("openai/gpt-oss-120b")
+    assert pacing_key("openrouter.ai", "openai/gpt-oss-120b", openrouter=True) == "openrouter.ai"
     assert pacing_key("openrouter.ai", "deepseek/deepseek-r1:free", openrouter=True) == "openrouter.ai:free"
     assert pacing_key("openrouter.ai", "openrouter/free", openrouter=True) == "openrouter.ai:free"
     assert pacing_key("openrouter.ai", "deepseek/deepseek-r1:free") == "openrouter.ai"
@@ -169,7 +153,7 @@ def test_openrouter_free_floor_survives_clear_and_yields_to_larger_429():
     def now() -> float:
         return clock["t"]
 
-    key = ensure_free_model_pacing("openrouter.ai", "openrouter/free", openrouter=True)
+    key = pacing_key("openrouter.ai", "openrouter/free", openrouter=True)
     assert key == "openrouter.ai:free"
     mark_host_sent(key, monotonic=now)
     clock["t"] = 101.0
@@ -183,7 +167,7 @@ def test_openrouter_free_floor_survives_clear_and_yields_to_larger_429():
 
 
 def test_free_pacing_not_seeded_off_openrouter():
-    key = ensure_free_model_pacing("localhost", "llama3:free", port=11434)
+    key = pacing_key("localhost", "llama3:free", port=11434)
     assert key == "localhost:11434"
     assert _remaining(key) == 0.0
 
@@ -192,6 +176,7 @@ def test_request_model_from_body_reads_model_field():
     assert request_model_from_body(b'{"model": "openrouter/free"}') == "openrouter/free"
     assert request_model_from_body('{"model": "foo:free"}') == "foo:free"
     assert request_model_from_body(b"not-json") is None
+    assert request_model_from_body(bytearray(b'{"model": "x"}')) is None
 
 
 def test_host_gap_claims_do_not_both_see_zero_wait():
@@ -228,9 +213,11 @@ def test_host_gap_is_sticky_until_first_try_success():
 def test_emit_retry_status_skips_none():
     emit_retry_status(None, 1.0)
     seen: list[str] = []
-    emit_retry_status(seen.append, 2.0)
-    assert len(seen) == 1
-    assert "2s" in seen[0]
+    emit_retry_status(seen.append, 0.3)
+    emit_retry_status(seen.append, 1.6)
+    assert len(seen) == 2
+    assert "0.3s" in seen[0]
+    assert "2s" in seen[1]
 
 
 def test_parse_retry_after_ms():
@@ -267,7 +254,7 @@ def test_wait_host_gap_stop_does_not_clobber_later_claim():
 
 
 def test_wait_host_gap_status_callback():
-    key = ensure_free_model_pacing("openrouter.ai", "openrouter/free", openrouter=True)
+    key = pacing_key("openrouter.ai", "openrouter/free", openrouter=True)
     mark_host_sent(key, monotonic=lambda: 100.0)
     seen: list[str] = []
     # Key has 3s floor, 1s has elapsed, remaining is 2s.
@@ -286,9 +273,8 @@ def test_wait_host_gap_status_callback():
 
 def test_local_https_certificate_fallback_logs_warning(caplog):
     import logging
-    fallback = LocalHttpsCertificateFallback()
     with caplog.at_level(logging.WARNING):
-        fallback.enable_if_applicable("localhost", ssl.SSLCertVerificationError("self-signed certificate"))
+        enable_local_unverified("localhost", ssl.SSLCertVerificationError("self-signed certificate"))
     assert any(rec.levelno == logging.WARNING and "Local HTTPS certificate verification failed for localhost" in rec.message for rec in caplog.records)
 
 

@@ -7,7 +7,7 @@
 
 Concurrency: ``RequestPacer`` (minimum gap between sends) is a field on one
 transport and is not locked. Each ``LlmClient`` has its own transport.
-``LocalHttpsCertificateFallback`` remembers local hosts process-wide (same
+Local HTTPS unverified fallback remembers local hosts process-wide (same
 locking style as the host-gap cache) so the next client does not pay a
 failed handshake for a self-signed localhost cert. Public hosts stay verified.
 
@@ -29,7 +29,7 @@ import random
 import re
 import threading
 import time
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 
 from .errors import stream_error_message
 from .ssl_helpers import is_certificate_verify_error
@@ -76,17 +76,12 @@ def _shown_seconds(delay_sec: float) -> int | float:
     return int(round(delay_sec)) if delay_sec >= 1 else round(max(delay_sec, 0.0), 1)
 
 
-def format_retry_wait_status(delay_sec: float) -> str:
-    """Short sidebar status line for the abortable retry wait."""
-    from plugin.framework.i18n import _
-
-    return _("Provider busy, retrying in {0}s…").format(_shown_seconds(delay_sec))
-
-
 def emit_retry_status(status_callback: Callable[[str], None] | None, delay_sec: float) -> None:
     if status_callback is None:
         return
-    status_callback(format_retry_wait_status(delay_sec))
+    from plugin.framework.i18n import _
+
+    status_callback(_("Provider busy, retrying in {0}s…").format(_shown_seconds(delay_sec)))
 
 
 def parse_retry_after(header: str | None) -> float | None:
@@ -141,37 +136,28 @@ def over_cap_retry_message(provider_message: str, retry_after_sec: float) -> str
     return provider_message + " " + _("Provider asked to wait {0}s, which is above the {1}s retry cap.").format(_shown_seconds(retry_after_sec), _shown_seconds(RETRY_MAX_DELAY_SEC))
 
 
-def _apply_jitter_ms(delay_ms: float, jitter: float | Literal["full"], mode: Literal["symmetric", "positive"], rng: Callable[[], float]) -> float:
+def _apply_jitter_ms(delay_ms: float, *, positive: bool) -> float:
     # OpenClaw packages/retry applyJitter: Retry-After is a lower bound, so
     # positive jitter ceils. Over-cap hints spread downward to avoid lockstep.
-    if jitter == "full":
-        if mode == "symmetric":
-            return max(0.0, round(delay_ms * (0.5 + rng() * 0.5)))
-        return max(0.0, math.ceil(delay_ms * (1.0 + rng())))
-    if jitter <= 0:
-        return math.ceil(delay_ms) if mode == "positive" else delay_ms
-    fraction = rng()
-    offset = fraction * jitter if mode == "positive" else (fraction * 2.0 - 1.0) * jitter
-    raw = delay_ms * (1.0 + offset)
-    return max(0.0, math.ceil(raw) if mode == "positive" else round(raw))
+    roll = random.random()
+    if positive:
+        return max(0.0, math.ceil(delay_ms * (1.0 + roll)))
+    return max(0.0, round(delay_ms * (0.5 + roll * 0.5)))
 
 
-def backoff_delay_sec(*, attempt: int = 1, retry_after_sec: float | None = None, min_delay: float = RETRY_MIN_DELAY_SEC, max_delay: float = RETRY_MAX_DELAY_SEC, jitter: float | Literal["full"] = "full", rng: Callable[[], float] = random.random) -> float:
-    """Jittered delay before the next attempt. ``attempt`` is 1-based (first wait = min_delay)."""
+def backoff_delay_sec(*, attempt: int = 1, retry_after_sec: float | None = None) -> float:
+    """Jittered delay before the next attempt. ``attempt`` is 1-based (first wait = min delay)."""
     retry_after_value = retry_after_sec if retry_after_sec is not None and math.isfinite(retry_after_sec) else None
     if retry_after_value is not None:
-        base = max(retry_after_value, min_delay)
+        base = max(retry_after_value, RETRY_MIN_DELAY_SEC)
     else:
-        base = min_delay * (2 ** max(attempt - 1, 0))
-    delay_cap = max_delay
-    delay = min(base, delay_cap)
-    can_honor = retry_after_value is not None and retry_after_value <= delay_cap
-    has_retry_after = retry_after_value is not None
-    wants_positive = (not has_retry_after or can_honor) if jitter == "full" else can_honor
-    delay_ms = delay * 1000.0
-    delay_ms = _apply_jitter_ms(delay_ms, jitter, "positive" if wants_positive else "symmetric", rng)
-    delay = min(max(delay_ms / 1000.0, min_delay), delay_cap)
-    return delay
+        base = RETRY_MIN_DELAY_SEC * (2 ** max(attempt - 1, 0))
+    delay = min(base, RETRY_MAX_DELAY_SEC)
+    can_honor = retry_after_value is not None and retry_after_value <= RETRY_MAX_DELAY_SEC
+    # Full jitter: positive unless a Retry-After above the cap must spread downward.
+    wants_positive = retry_after_value is None or can_honor
+    delay_ms = _apply_jitter_ms(delay * 1000.0, positive=wants_positive)
+    return min(max(delay_ms / 1000.0, RETRY_MIN_DELAY_SEC), RETRY_MAX_DELAY_SEC)
 
 
 def wait_abortable(delay_sec: float, stop_checker: Callable[[], bool] | None = None, *, sleep: Callable[[float], None] | None = None, monotonic: Callable[[], float] | None = None, chunk_sec: float = RETRY_WAIT_CHUNK_SEC) -> bool:
@@ -196,13 +182,9 @@ def _error_code_is_overload(value: Any) -> bool:
     """True when a structured provider code is itself an overload signal."""
     if isinstance(value, bool) or value is None:
         return False
-    if isinstance(value, int):
-        return value in (429, 503, 529)
-    if isinstance(value, float):
-        return value in (429.0, 503.0, 529.0)
+    if isinstance(value, (int, float)):
+        return value in RETRYABLE_HTTP_STATUS
     text = str(value).strip().lower()
-    if not text:
-        return False
     if text in {"429", "503", "529"}:
         return True
     return any(marker in text for marker in _OVERLOAD_TEXT_MARKERS)
@@ -224,17 +206,13 @@ def _structured_error_is_overload(chunk: dict[str, Any]) -> bool:
     return False
 
 
-def _text_is_overload(message: Any, *, status_code: int | None = None) -> bool:
+def _text_is_overload(message: Any) -> bool:
     """Check if an error indicates an overload/rate-limit condition.
 
     Checks HTTP status / structured error code (including OpenRouter error.code
     in the body) first; the text fallback matches only phrases like 'overloaded' /
     'rate limit', no bare 429/503.
     """
-    if isinstance(message, dict):
-        return _structured_error_is_overload(message)
-    if status_code is not None and _error_code_is_overload(status_code):
-        return True
     if not message or not isinstance(message, str):
         return False
 
@@ -281,12 +259,6 @@ _host_gap_sec: dict[str, float] = {}
 _host_last_sent: dict[str, float] = {}
 
 
-def is_openrouter_free_model(model: str | None) -> bool:
-    mid = str(model or "").strip()
-    # Catalog auto-router is ``openrouter/free``; per-model free variants end in ``:free``.
-    return bool(mid) and (mid.endswith(":free") or mid == "openrouter/free")
-
-
 def pacing_key(host: str, model: str | None = None, *, port: int | None = None, openrouter: bool = False) -> str:
     """Host key for gap maps; ``{host}:{port}:free`` for OpenRouter free models."""
     if not host:
@@ -297,37 +269,24 @@ def pacing_key(host: str, model: str | None = None, *, port: int | None = None, 
         base = f"[{host}]:{port}"
     else:
         base = f"{host}:{port}"
-    if openrouter and is_openrouter_free_model(model):
+    mid = str(model or "").strip()
+    if openrouter and mid and (mid.endswith(":free") or mid == "openrouter/free"):
         return f"{base}:free"
     return base
 
 
 def request_model_from_body(body: object) -> str | None:
     """Read the chat ``model`` field from a JSON request body."""
-    if isinstance(body, bytes):
-        raw: str | bytes = body
-    elif isinstance(body, str):
-        raw = body
-    else:
-        return None
-    if not raw:
+    if not isinstance(body, (str, bytes)) or not body:
         return None
     try:
-        payload = json.loads(raw)
+        payload = json.loads(body)
     except (ValueError, TypeError):
         return None
     if isinstance(payload, dict):
         model = payload.get("model")
         return model if isinstance(model, str) else None
     return None
-
-
-def ensure_free_model_pacing(host: str, model: str | None, *, port: int | None = None, openrouter: bool = False) -> str:
-    """Return the pacing key and seed the 3s :free floor when applicable."""
-    key = pacing_key(host, model, port=port, openrouter=openrouter)
-    if key.endswith(":free"):
-        remember_host_gap(key, OPENROUTER_FREE_MIN_GAP_SEC)
-    return key
 
 
 def reset_host_pacing_for_tests() -> None:
@@ -354,15 +313,13 @@ def remember_host_gap(host: str, delay_sec: float) -> None:
 def clear_host_gap(host: str) -> None:
     """Drop a learned gap after a first-try success (server is no longer busy).
 
-    ``:free`` keys keep the 20 rpm floor so a 200 does not return to bursting.
+    The :free floor is applied on the next reserve, so :free does not burst
+    and the paid key is not written.
     """
     if not host:
         return
     with _host_gap_lock:
-        if host.endswith(":free"):
-            _host_gap_sec[host] = OPENROUTER_FREE_MIN_GAP_SEC
-        else:
-            _host_gap_sec.pop(host, None)
+        _host_gap_sec.pop(host, None)
 
 
 def mark_host_sent(host: str, *, monotonic: Callable[[], float] | None = None) -> None:
@@ -383,6 +340,8 @@ def _reserve_host_send_slot(host: str, *, monotonic: Callable[[], float] | None 
     now = (monotonic or time.monotonic)()
     with _host_gap_lock:
         gap = _host_gap_sec.get(host, 0.0)
+        if host.endswith(":free"):
+            gap = max(gap, OPENROUTER_FREE_MIN_GAP_SEC)
         previous_last = _host_last_sent.get(host)
         wait = 0.0
         if gap > 0 and previous_last is not None:
@@ -393,8 +352,6 @@ def _reserve_host_send_slot(host: str, *, monotonic: Callable[[], float] | None 
 
 
 def _rollback_host_reservation(host: str, reserved_at: float, previous_last: float | None) -> None:
-    if not host:
-        return
     with _host_gap_lock:
         if _host_last_sent.get(host) == reserved_at:
             if previous_last is None:
@@ -413,7 +370,7 @@ def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, sta
             stored_gap = _host_gap_sec.get(host, 0.0)
         # Bugfix: Previously wait_host_gap unconditionally called emit_retry_status,
         # showing "Provider busy, retrying in {0}s…" even during initial pre-send pacing
-        # for free-tier models (3s floor seeded by ensure_free_model_pacing).
+        # for free-tier models (3s floor on :free keys).
         # What was wrong: False "Provider busy" warning appeared before any failure occurred.
         # How it happened: Both rate-limit retries and proactive rate pacing used the same status formatter.
         # Why this change fixes it: If the pacing key is a :free model and stored gap is <= the free floor,
@@ -443,27 +400,20 @@ class RequestPacer:
     """
 
     min_interval_sec: float
-    _monotonic: Callable[[], float] | None
-    _sleep: Callable[[float], None] | None
     last_sent_monotonic: float
 
-    def __init__(self, min_interval_sec: float = LLM_MIN_REQUEST_INTERVAL_SEC, *, monotonic: Callable[[], float] | None = None, sleep: Callable[[float], None] | None = None) -> None:
+    def __init__(self, min_interval_sec: float = LLM_MIN_REQUEST_INTERVAL_SEC) -> None:
         self.min_interval_sec = min_interval_sec
-        self._monotonic = monotonic
-        self._sleep = sleep
         self.last_sent_monotonic = 0.0
-
-    def _now(self) -> float:
-        return (self._monotonic or time.monotonic)()
 
     def wait_before_send(self) -> None:
         """Sleep if needed so consecutive sends are not back-to-back."""
-        wait = self.min_interval_sec - (self._now() - self.last_sent_monotonic)
+        wait = self.min_interval_sec - (time.monotonic() - self.last_sent_monotonic)
         if wait > 0:
-            (self._sleep or time.sleep)(wait)
+            time.sleep(wait)
 
     def mark_sent(self) -> None:
-        self.last_sent_monotonic = self._now()
+        self.last_sent_monotonic = time.monotonic()
 
 
 _local_unverified_hosts: set[str] = set()
@@ -476,40 +426,31 @@ def reset_local_unverified_hosts_for_tests() -> None:
         _local_unverified_hosts.clear()
 
 
-def _local_host_unverified(host: str) -> bool:
-    with _local_unverified_lock:
-        return host in _local_unverified_hosts
+def ssl_mode_for(scheme: str, host: str) -> str:
+    """Return ``verified``, ``unverified``, or ``plain`` for the next connection.
 
-
-class LocalHttpsCertificateFallback:
-    """Track local HTTPS hosts that should retry with certificate verification disabled.
-
-    The host set is process-wide. A new ``LlmClient`` per sidebar send used to
-    forget the fallback and fail TLS verify on every request.
+    Public HTTPS is always verified. Local HTTPS starts verified and
+    switches to unverified only after ``enable_local_unverified`` records a
+    certificate failure (self-signed Ollama/LM Studio). Previously this
+    returned ``unverified`` for every non-local host, which silently
+    disabled TLS checks for OpenAI, Anthropic, OpenRouter, and similar.
     """
-
-    def ssl_mode_for(self, scheme: str, host: str) -> str:
-        """Return ``verified``, ``unverified``, or ``plain`` for the next connection.
-
-        Public HTTPS is always verified. Local HTTPS starts verified and
-        switches to unverified only after ``enable_if_applicable`` records a
-        certificate failure (self-signed Ollama/LM Studio). Previously this
-        returned ``unverified`` for every non-local host, which silently
-        disabled TLS checks for OpenAI, Anthropic, OpenRouter, and similar.
-        """
-        if scheme != "https":
-            return "plain"
-        if is_local_host(host) and _local_host_unverified(host):
-            return "unverified"
-        return "verified"
-
-    def enable_if_applicable(self, host: str, err: BaseException) -> bool:
-        """Enable unverified retry for a local host after certificate validation fails."""
-        if not host or not is_local_host(host) or not is_certificate_verify_error(err):
-            return False
+    if scheme != "https":
+        return "plain"
+    if is_local_host(host):
         with _local_unverified_lock:
             if host in _local_unverified_hosts:
-                return False
-            _local_unverified_hosts.add(host)
-        log.warning("Local HTTPS certificate verification failed for %s; retrying unverified.", host)
-        return True
+                return "unverified"
+    return "verified"
+
+
+def enable_local_unverified(host: str, err: BaseException) -> bool:
+    """Enable unverified retry for a local host after certificate validation fails."""
+    if not host or not is_local_host(host) or not is_certificate_verify_error(err):
+        return False
+    with _local_unverified_lock:
+        if host in _local_unverified_hosts:
+            return False
+        _local_unverified_hosts.add(host)
+    log.warning("Local HTTPS certificate verification failed for %s; retrying unverified.", host)
+    return True

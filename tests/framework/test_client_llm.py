@@ -3144,7 +3144,13 @@ def test_request_json_200_clears_stuck_host_gap(client):
 
 
 def test_request_json_200_resets_free_gap_to_floor(client):
-    from plugin.framework.client.request_controls import OPENROUTER_FREE_MIN_GAP_SEC, _host_gap_sec, remember_host_gap
+    from plugin.framework.client.request_controls import (
+        OPENROUTER_FREE_MIN_GAP_SEC,
+        _host_gap_sec,
+        _reserve_host_send_slot,
+        mark_host_sent,
+        remember_host_gap,
+    )
 
     client.config["endpoint"] = "https://openrouter.ai/api/v1"
     remember_host_gap("openrouter.ai:443:free", 12.0)
@@ -3154,8 +3160,10 @@ def test_request_json_200_resets_free_gap_to_floor(client):
     body = json.dumps({"model": "deepseek/deepseek-r1:free"}).encode()
     with patch.object(client, "_send_request", return_value=response), patch.object(client, "_close_if_connection_close"):
         client._request_json("POST", "/v1/audio/transcriptions", body, {})
-    assert _host_gap_sec.get("openrouter.ai:443:free") == OPENROUTER_FREE_MIN_GAP_SEC
+    assert "openrouter.ai:443:free" not in _host_gap_sec
     assert "openrouter.ai:443" not in _host_gap_sec
+    mark_host_sent("openrouter.ai:443:free", monotonic=lambda: 100.0)
+    assert _reserve_host_send_slot("openrouter.ai:443:free", monotonic=lambda: 100.0)[0] == OPENROUTER_FREE_MIN_GAP_SEC
 
 
 def test_stream_503_tokens_limit_is_not_an_overload_retry(client, _fast_retry_waits):

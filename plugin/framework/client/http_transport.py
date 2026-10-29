@@ -43,12 +43,11 @@ from .request_controls import (
     RETRY_MAX_ATTEMPTS,
     RETRY_MAX_DELAY_SEC,
     RETRYABLE_HTTP_STATUS,
-    LocalHttpsCertificateFallback,
     RequestPacer,
     backoff_delay_sec,
     clear_host_gap,
     emit_retry_status,
-    ensure_free_model_pacing,
+    enable_local_unverified,
     mark_host_sent,
     over_cap_retry_message,
     pacing_key,
@@ -57,6 +56,7 @@ from .request_controls import (
     remember_host_gap,
     request_model_from_body,
     retry_after_exceeds_cap,
+    ssl_mode_for,
     wait_abortable,
     wait_host_gap,
 )
@@ -142,7 +142,6 @@ class LlmHttpTransport:
     _endpoint_getter: Callable[[], str]
     _timeout_getter: Callable[[], int | float]
     _pacer: RequestPacer
-    _cert_fallback: LocalHttpsCertificateFallback
     _openrouter_getter: Callable[[], bool] | None
 
     def __init__(
@@ -150,14 +149,11 @@ class LlmHttpTransport:
         endpoint_getter: Callable[[], str],
         timeout_getter: Callable[[], int | float],
         *,
-        pacer: RequestPacer | None = None,
-        cert_fallback: LocalHttpsCertificateFallback | None = None,
         openrouter_getter: Callable[[], bool] | None = None,
     ) -> None:
         self._endpoint_getter = endpoint_getter
         self._timeout_getter = timeout_getter
-        self._pacer = pacer or RequestPacer()
-        self._cert_fallback = cert_fallback or LocalHttpsCertificateFallback()
+        self._pacer = RequestPacer()
         self._openrouter_getter = openrouter_getter
         self._persistent_conn: http.client.HTTPConnection | http.client.HTTPSConnection | None = None
         self._conn_key: tuple[str, str, int, str] | None = None
@@ -210,7 +206,7 @@ class LlmHttpTransport:
     def get_connection(self) -> http.client.HTTPConnection | http.client.HTTPSConnection:
         """Get or create a persistent ``http.client`` connection."""
         scheme, host, port = self._endpoint_parts()
-        ssl_mode = self._cert_fallback.ssl_mode_for(scheme, host)
+        ssl_mode = ssl_mode_for(scheme, host)
         new_key = (scheme, host, port, ssl_mode)
 
         if self._persistent_conn:
@@ -285,7 +281,7 @@ class LlmHttpTransport:
         """Send one request on the persistent connection and return its response."""
         parts = self._pacing_parts()
         model = request_model_from_body(body)
-        key = ensure_free_model_pacing(parts[0], model, port=parts[1], openrouter=parts[2])
+        key = pacing_key(parts[0], model, port=parts[1], openrouter=parts[2])
         if not wait_host_gap(key, stop_checker, status_callback):
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
         conn = connection_getter() if connection_getter is not None else self.get_connection()
@@ -347,7 +343,7 @@ class LlmHttpTransport:
             return self.send(method, path, body, headers, connection_getter=connection_getter, stop_checker=stop_checker, status_callback=status_callback, _stale_resend=False)
 
     def enable_local_ssl_fallback(self, err: Exception) -> bool:
-        enabled = self._cert_fallback.enable_if_applicable(self.current_host(), err)
+        enabled = enable_local_unverified(self.current_host(), err)
         if enabled:
             self.close()
         return enabled
