@@ -511,7 +511,7 @@ def _command_from_dispatch_url(url: Any) -> str:
     # What was wrong: dispatch command extraction read url.Path directly, ignoring Complete-only URLs and double-appending queries.
     # How it happened: Path and Query handling was duplicated across dispatch and status listeners without Complete-only fallback.
     # Why this change: delegate base extraction to dispatch_command_from_url and append Query only when ? is not already in command.
-    command = dispatch_command_from_url(url, protocol_prefix=_DISPATCH_PROTOCOL)
+    command = dispatch_command_from_url(url)
     query = getattr(url, "Query", None) or ""
     if query and "?" not in command:
         return "%s.%s" % (command, query)

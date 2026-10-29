@@ -18,7 +18,6 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from plugin.framework.constants import EXTENSION_ID_LIBREPY
 from plugin.framework.deal_shim import DEAL_MAX_URL, _profile, ascii_bounded, deal
 
 
@@ -36,8 +35,6 @@ def _deal_url_ok_crosshair(url: object) -> bool:
 
 _deal_url_ok = _profile(_deal_url_ok_crosshair, _deal_url_ok_pytest)
 
-LIBREPY_DISPATCH_PROTOCOL = EXTENSION_ID_LIBREPY + ":"
-
 
 def matches_extension_dispatch_url(url: Any, extension_id: str) -> bool:
     """Return True when *url* is an extension menu/protocol dispatch URL."""
@@ -48,11 +45,11 @@ def matches_extension_dispatch_url(url: Any, extension_id: str) -> bool:
     return complete.startswith(extension_id + ":")
 
 
-def dispatch_command_from_url(url: Any, *, protocol_prefix: str = LIBREPY_DISPATCH_PROTOCOL) -> str:
+def dispatch_command_from_url(url: Any) -> str:
     """Extract handler command from a LibreOffice dispatch URL.
 
-    Shared extractor for LibrePy and WriterAgent dispatch URLs. WriterAgent
-    passes ``protocol_prefix``. Do not append ``Query`` here.
+    Shared extractor for LibrePy and WriterAgent dispatch URLs.
+    Do not append ``Query`` here.
 
     LO usually sets ``Path`` (e.g. ``main.settings``). Some dispatch paths only
     populate ``Complete`` (``org.extension.librepy:main.settings``); derive Path
@@ -62,8 +59,6 @@ def dispatch_command_from_url(url: Any, *, protocol_prefix: str = LIBREPY_DISPAT
     if path:
         return path
     complete = str(getattr(url, "Complete", None) or "").strip()
-    if complete.startswith(protocol_prefix):
-        return complete[len(protocol_prefix) :].lstrip("/")
     if ":" in complete:
         return complete.split(":", 1)[1].lstrip("/")
     return complete
@@ -85,13 +80,6 @@ def _is_google_host(url: Any) -> bool:
     return host_matches(get_url_hostname(url), "generativelanguage.googleapis.com")
 
 
-def _zai_url_path(url: Any) -> str:
-    """Normalized path without trailing slash (empty string when bare host)."""
-    if not isinstance(url, str):
-        return ""
-    return (urllib.parse.urlparse(url).path or "").rstrip("/")
-
-
 @deal.pre(lambda url, is_openwebui=False: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str) and result.startswith("/"))
 def get_api_version_suffix(url: Any, is_openwebui: bool = False) -> str:
@@ -100,7 +88,7 @@ def get_api_version_suffix(url: Any, is_openwebui: bool = False) -> str:
         return "/api"
     # Z.ai: bare host uses general OpenAI base (/api/paas/v4); deeper paths append /v4 only.
     if _is_zai_host(url):
-        if _zai_url_path(url) in ("", "/"):
+        if not get_url_path(url).rstrip("/"):
             return "/api/paas/v4"
         return "/v4"
     # Google Gemini: OpenAI-compatible API base is /v1beta/openai
@@ -116,65 +104,45 @@ def normalize_endpoint_url(url: Any, is_openwebui: bool = False) -> str:
     """Clean up endpoint URL: strip whitespace, trailing slashes, and domain-specific version suffixes."""
     if type(url) is not str or not url.strip():
         return ""
-    url = url.strip()
-    # Remove trailing /
-    while url.endswith("/"):
-        url = url[:-1]
-
-    # Open WebUI chat is {base}/api/chat/completions — strip pasted /api/v1, /api, or /v1 in one pass.
-    # (Half-stripping /api/v1 → /api then appending /api again yields /api/api/chat/completions.)
+    url = url.strip().rstrip("/")
+    # One strip, longest suffix first. Open WebUI must take /api/v1 in one
+    # pass (half-stripping to /api, then re-appending /api, yields /api/api/...).
+    # Z.ai legacy presets stored https://api.z.ai/v4 before the general base
+    # was /api/paas/v4. That /v4 is only a fallback after the live suffix.
+    suffixes: tuple[str, ...]
     if is_openwebui:
-        lower = url.lower()
-        if lower.endswith("/api/v1"):
-            return url[: -len("/api/v1")]
-        if lower.endswith("/api"):
-            return url[: -len("/api")]
-        if lower.endswith("/v1"):
-            return url[:-3]
-        return url
-
-    if _is_google_host(url):
-        lower = url.lower()
-        if lower.endswith("/v1beta/openai"):
-            return url[: -len("/v1beta/openai")]
-        if lower.endswith("/v1beta"):
-            return url[: -len("/v1beta")]
-        if lower.endswith("/v1"):
-            return url[:-3]
-        return url
-
-    # Remove the version suffix we expect to add back (e.g. /v1, /v4, /api/paas/v4)
-    suffix = get_api_version_suffix(url, is_openwebui=False)
-    if url.lower().endswith(suffix):
-        url = url[: -len(suffix)]
-    elif _is_zai_host(url) and url.lower().endswith("/v4"):
-        # Legacy preset stored https://api.z.ai/v4 before general base was /api/paas/v4.
-        url = url[:-3]
-    elif url.lower().endswith("/v1"):
-        # Always strip /v1 as a fallback for custom endpoints
-        url = url[:-3]
-
+        suffixes = ("/api/v1", "/api", "/v1")
+    elif _is_google_host(url):
+        suffixes = ("/v1beta/openai", "/v1beta", "/v1")
+    else:
+        suffixes = (get_api_version_suffix(url, is_openwebui=False),)
+        if _is_zai_host(url):
+            suffixes += ("/v4",)
+        suffixes += ("/v1",)
+    for suffix in suffixes:
+        if url.lower().endswith(suffix):
+            return url[: -len(suffix)]
     return url
 
 
-def _parse(url: Any) -> urllib.parse.ParseResult | None:
+_EMPTY_PARSE = urllib.parse.urlparse("")
+
+
+def _parse(url: Any) -> urllib.parse.ParseResult:
     if type(url) is not str:
-        return None
+        return _EMPTY_PARSE
     try:
         return urllib.parse.urlparse(url)
     except (ValueError, TypeError, AttributeError):
-        return None
+        return _EMPTY_PARSE
 
 
 @deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_hostname(url: Any) -> str:
     """Return hostname from URL safely."""
-    parsed = _parse(url)
-    if parsed is None:
-        return ""
     try:
-        return parsed.hostname or ""
+        return _parse(url).hostname or ""
     except (ValueError, TypeError, AttributeError):
         # ParseResult.hostname raises ValueError for invalid ports.
         return ""
@@ -197,20 +165,14 @@ def get_url_domain(url: Any) -> str:
 @deal.post(lambda result: isinstance(result, str))
 def get_url_path(url: Any) -> str:
     """Return path from URL safely."""
-    parsed = _parse(url)
-    if parsed is None:
-        return ""
-    return parsed.path or ""
+    return _parse(url).path
 
 
 @deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, dict))
 def get_url_query_dict(url: Any) -> dict[str, list[str]]:
     """Return query parameters as dict (values are lists)."""
-    parsed = _parse(url)
-    if parsed is None:
-        return {}
-    return urllib.parse.parse_qs(parsed.query)
+    return urllib.parse.parse_qs(_parse(url).query)
 
 
 @deal.pre(lambda url: _deal_url_ok(url))
@@ -218,8 +180,6 @@ def get_url_query_dict(url: Any) -> dict[str, list[str]]:
 def get_url_path_and_query(url: Any) -> str:
     """Return path + query string from URL."""
     parsed = _parse(url)
-    if parsed is None:
-        return "/"
     path = parsed.path or "/"
     if parsed.query:
         return f"{path}?{parsed.query}"
@@ -230,10 +190,7 @@ def get_url_path_and_query(url: Any) -> str:
 @deal.post(lambda result: isinstance(result, bool))
 def is_pdf_url(url: Any) -> bool:
     """Check for .pdf in the URL path safely."""
-    parsed = _parse(url)
-    if parsed is None:
-        return False
-    return (parsed.path or "").lower().endswith(".pdf")
+    return _parse(url).path.lower().endswith(".pdf")
 
 
 # ---------------------------------------------------------------------------
@@ -261,8 +218,6 @@ def normalize_file_url(url: str) -> str:
     Sandbox / session_manager keep their own stdlib copies (no UNO, Windows).
     """
     raw = str(url).strip()
-    if raw.startswith("file:///"):
-        return raw
     if raw.startswith("file:/") and not raw.startswith("file://"):
         return "file://" + raw[len("file:") :]
     return raw

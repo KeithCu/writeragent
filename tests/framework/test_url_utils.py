@@ -172,12 +172,7 @@ class TestLibrePyDispatchUrl:
 
     def test_command_from_complete_writeragent_prefix(self):
         url = self._Url(complete="org.extension.writeragent:main.settings", path="")
-        assert (
-            dispatch_command_from_url(
-                url, protocol_prefix="org.extension.writeragent:"
-            )
-            == "main.settings"
-        )
+        assert dispatch_command_from_url(url) == "main.settings"
 
 
 class TestPathToFileUrl:
