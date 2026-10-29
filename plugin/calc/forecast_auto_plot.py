@@ -118,9 +118,6 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
 
 def build_viz_request(forecast_helper: str, *, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None) -> tuple[str, dict[str, Any]] | None:
     """Return (viz_helper, viz_params) for a completed forecast result."""
-    if forecast_helper != "forecast_time_series":
-        return None
-
     forecast_table = _forecast_table(forecast_result)
     if forecast_table is None:
         return None
@@ -149,17 +146,13 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         viz_helper, viz_params = request
 
         from plugin.calc.calc_addin_data import _resolve_python_data
-        from plugin.framework.queue_executor import execute_on_main_thread
-        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import run_on_main
 
-        def _read_history() -> tuple[Any, str | None]:
+        def _read_history(*_args: Any, **_kwargs: Any) -> tuple[Any, str | None]:
             # Sheet read is UNO. Viz IPC (run_trusted_viz) stays on the caller.
             return _resolve_python_data(doc, data_range=data_range, data=None)
 
-        if on_main_thread():
-            py_data, err = _read_history()
-        else:
-            py_data, err = execute_on_main_thread(_read_history)
+        py_data, err = run_on_main(_read_history)
         if err:
             return {"status": "error", "message": f"Could not read forecast history: {err}"}
         if py_data is None:

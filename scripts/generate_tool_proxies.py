@@ -191,8 +191,8 @@ class ParamRecord(NamedTuple):
 def _collect_params(tool: "ToolBase") -> list[ParamRecord]:
     # Read tool.parameters directly, not get_parameters(doc_type). ManageCharts.get_parameters
     # strips Calc or Writer/Draw fields per doc_type, but proxy stubs must keep the union.
-    # The only other get_parameters overrides are ToolBaseDummy (unregistered) and
-    # run_venv_python_script (in API_EXCLUDED_TOOLS).
+    # The only other get_parameters override is run_venv_python_script
+    # (in API_EXCLUDED_TOOLS).
     props = (tool.parameters or {}).get("properties", {})
     required_set = set((tool.parameters or {}).get("required", []))
     tool_name = getattr(tool, "name", "") or ""

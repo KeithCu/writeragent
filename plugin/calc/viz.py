@@ -37,16 +37,6 @@ class PlotDataTool(ToolBaseDummy):
     }
     long_running: bool = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        import copy
-        from typing import cast
-
-        p = copy.deepcopy(self.parameters)
-        if p and "properties" in p:
-            props = cast("dict[str, Any]", p["properties"])
-            props.pop("data", None)
-        return p
-
     def is_async(self) -> bool:
         return True
 
@@ -66,7 +56,7 @@ class PlotDataTool(ToolBaseDummy):
 
         dr = str(data_range).strip() if data_range else None
         params = kwargs.get("params") if isinstance(kwargs.get("params"), dict) else None
-        headers = bool(kwargs.get("headers", True)) if "headers" in kwargs else True
+        headers = bool(kwargs.get("headers", True))
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
 
         from plugin.scripting.viz import run_trusted_viz
