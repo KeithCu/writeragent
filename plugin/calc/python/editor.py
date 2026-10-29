@@ -196,7 +196,6 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
     except Exception:
         log.warning("python_editor: selection has no RangeAddress", exc_info=True)
         return None
-    bridge = CalcBridge(model)
     # Selection sheet and the active sheet can differ. Falling back to
     # get_active_sheet() when getByIndex failed read a different sheet at
     # the same column and row. Refuse; the caller already explains that
@@ -210,7 +209,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
     if sheet is None:
         log.warning("python_editor: selection sheet missing")
         return None
-    cell = bridge.get_cell(sheet, addr.StartColumn, addr.StartRow)
+    cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
     formulas = _cell_formula_strings(cell)
     formula = formulas[0] if formulas else ""
     log.info("python_editor: cell (%s,%s) formulas=%r", addr.StartColumn, addr.StartRow, formulas)

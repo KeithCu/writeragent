@@ -138,7 +138,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     bridge = CalcBridge(doc)
     col, row = parse_address(cell_address.strip())
     sheet = bridge.get_active_sheet()
-    cell = bridge.get_cell(sheet, col, row)
+    cell = sheet.getCellByPosition(col, row)
 
     content = html_std.unescape(html)
     prepared = format_support._ensure_html_linebreaks(content)
