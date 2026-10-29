@@ -87,7 +87,7 @@ def test_parse_run_import_call_spec_literal() -> None:
 
 
 from plugin.scripting.audio_silence_detector import pcm_energy_int16
-from plugin.calc.cells import _parse_color
+from plugin.doc.visual_helpers import parse_color_to_uno_int
 
 
 @given(pcm=st.binary(max_size=200))
@@ -107,7 +107,7 @@ def test_parse_run_import_call_spec_no_crash(code: str, run_name: str) -> None:
 
 @given(color_str=st.one_of(st.text(max_size=30), st.none()))
 def test_parse_color_invariants(color_str: str | None) -> None:
-    res = _parse_color(color_str)
+    res = parse_color_to_uno_int(color_str)
     if res is not None:
         assert isinstance(res, int)
         assert 0 <= res <= 0xFFFFFF

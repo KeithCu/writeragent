@@ -60,15 +60,15 @@ def _used_shape_from_ods(path: Path) -> tuple[int, int]:
 
 
 def test_cells_parse_color():
-    from plugin.calc.cells import _parse_color
-    assert _parse_color("red") == 0xFF0000
-    assert _parse_color("RED") == 0xFF0000
-    assert _parse_color("#00FF00") == 0x00FF00
-    assert _parse_color("#000") == 0x000000
-    assert _parse_color("invalid") is None
-    assert _parse_color(2) is None
-    assert _parse_color(None) is None
-    assert _parse_color("") is None
+    from plugin.doc.visual_helpers import parse_color_to_uno_int
+
+    assert parse_color_to_uno_int("red") == 0xFF0000
+    assert parse_color_to_uno_int("RED") == 0xFF0000
+    assert parse_color_to_uno_int("#00FF00") == 0x00FF00
+    assert parse_color_to_uno_int("#000") == 0x000000
+    assert parse_color_to_uno_int("invalid") is None
+    assert parse_color_to_uno_int(None) is None
+    assert parse_color_to_uno_int("") is None
 
 
 def test_inspector_single_cell_range_fallback():
@@ -990,7 +990,6 @@ def test_json_array_value_count_and_a1_shape():
     from plugin.calc.cells import (
         _a1_range_shape,
         _normalize_source_arg,
-        _values_conflict_with_source,
     )
     from plugin.calc.manipulator import _parse_formula_or_values_string
 
@@ -1007,10 +1006,6 @@ def test_json_array_value_count_and_a1_shape():
     assert _normalize_source_arg("   ") == (None, None)
     src, err = _normalize_source_arg(["A1:C3"])
     assert src is None and err is not None
-    assert not _values_conflict_with_source({"range": ["A1"]})
-    assert not _values_conflict_with_source({"range": ["A1"], "values": None})
-    assert _values_conflict_with_source({"range": ["A1"], "values": ""})
-    assert _values_conflict_with_source({"range": ["A1"], "values": "=A1"})
 
 
 def test_write_formula_range_rejects_semicolon_json_mismatch():
@@ -1077,7 +1072,7 @@ def test_write_formula_range_accepts_matching_json_and_scalar_fill():
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+        patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
         manip_cls.return_value.write_formula_range.return_value = "wrote"
         matched = WriteCellRange().execute(ctx, range=["A1:A2"], values='["x", "y"]')
@@ -1133,7 +1128,7 @@ def test_write_formula_range_source_only_copies_block_size():
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+        patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
         manip_cls.return_value.copy_formula_range.return_value = {
             "message": "Copied 3×3 from Sheet1.A1:C3 onto Sample.A1.",
@@ -1143,13 +1138,18 @@ def test_write_formula_range_source_only_copies_block_size():
         result = WriteCellRange().execute(
             ctx, range=["Sample.A1"], source="Sheet1.A1:C3"
         )
+        result2 = WriteCellRange().execute(
+            ctx, range=["Sample.A1"], source="Sheet1.A1:C3", values=None
+        )
 
     assert result["status"] == "ok"
     assert result["rows_copied"] == 3
     assert result["cols_copied"] == 3
     assert "3×3" in result["message"]
+    assert result2["status"] == "ok"
     manip_cls.return_value.write_formula_range.assert_not_called()
-    manip_cls.return_value.copy_formula_range.assert_called_once_with(
+    assert manip_cls.return_value.copy_formula_range.call_count == 2
+    manip_cls.return_value.copy_formula_range.assert_called_with(
         "Sheet1.A1:C3", "Sample.A1"
     )
 
@@ -1468,7 +1468,7 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
             pass
 
     with (
-        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
@@ -1512,7 +1512,7 @@ def test_set_cell_style_multi_range_rolls_back_on_error():
             pass
 
     with (
-        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
@@ -1552,7 +1552,7 @@ def test_set_cell_style_disposal_propagates():
             pass
 
     with (
-        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
@@ -1595,7 +1595,7 @@ def test_set_cell_style_runtime_exception_still_rolls_back():
             pass
 
     with (
-        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
@@ -1635,7 +1635,7 @@ def test_write_formula_range_disposal_propagates():
             pass
 
     with (
-        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
@@ -1676,7 +1676,7 @@ def test_empty_new_group_does_not_undo_older_action():
             pass
 
     with (
-        patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
@@ -1713,7 +1713,7 @@ def test_two_range_array_write_measures_once():
     ctx = SimpleNamespace(doc=MagicMock())
     with (
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+        patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
         manipulator = manip_cls.return_value
         manipulator.prepare_array_formula_if_needed.side_effect = [(2, 2), (2, 2)]

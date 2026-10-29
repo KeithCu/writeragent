@@ -391,15 +391,6 @@
       }
     },
     "calc": {
-      "cells.py": {
-        "status": "verified",
-        "priority": "high",
-        "tool": "deal+hypothesis",
-        "functions_contracted": [
-          "_parse_color"
-        ],
-        "ci_integration": true
-      },
       "calc_addin_data.py": {
         "status": "verified",
         "priority": "high",
