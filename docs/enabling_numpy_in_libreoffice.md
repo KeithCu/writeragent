@@ -245,22 +245,6 @@ Subprocess lifecycle, worker protocol, Linux pipe performance, and serialization
 
 Host↔venv plumbing (module map, worker protocol, `python_max_data_cells`, benchmarks): **[scripting/numpy-serialization.md](scripting/numpy-serialization.md)**.
 
-### `=PY()` recalc timings (`py_timing`)
-
-Off by default. In [`plugin/calc/python/function.py`](../plugin/calc/python/function.py) set **`PYTHON_TIMINGS_LOG = True`**, rebuild/deploy, then with `log_level` DEBUG each `=PY()` / `=PYTHON()` evaluation writes one line to `writeragent_debug.log` starting with `py_timing`. Durations are measured with `perf_counter` inside the add-in — **do not subtract log `asctime` values**. Leave the flag `False` in committed code.
-
-| Field | Meaning |
-|-------|---------|
-| `ipc_ms` | Time waiting on the venv worker (calculation + pickle). First cell after LO start includes spawn + prime. |
-| `total_ms` | This add-in call, host entry through return |
-| `pack_ms` / `image_ms` | Range pack; plot insert + formula locator |
-| `cached` | `1` if the matrix result session skipped a worker round-trip |
-| `pass_wall_ms` | Wall from the first add-in in this recalc clump through this call |
-| `pass_sum_ms` | Sum of `total_ms` in the clump |
-| `pass_outside_ms` | `pass_wall_ms - pass_sum_ms` — time **not** in our add-in (Calc DAG, other formulas, drawing) |
-
-After opening a demo workbook, grep `py_timing` and read the **last** line’s `pass_*` plus per-cell `ipc_ms`. A new clump starts if more than 2s elapsed since the previous add-in returned.
-
 ### Safety model
 
 

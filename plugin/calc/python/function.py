@@ -57,12 +57,8 @@ _MATRIX_SCALAR_SESSIONS_LOCK = threading.Lock()
 _MATRIX_SCALAR_SESSIONS: dict[tuple[int, tuple[str, ...], str], WorkerResultSession] = {}
 
 
-# Recalc-clump timings for DEBUG ``py_timing`` lines (not asctime deltas).
-# Flip to True in this file when measuring workbook-open / recalc cost; leave False in commits.
-PYTHON_TIMINGS_LOG = False
-_PY_PASS_STATS = threading.local()
+# Matrix sessions stay reusable across passes within this gap.
 _PY_PASS_GAP_SEC = 2.0
-_PY_HELPER_IN_SPEC_RE = re.compile(r"""["']helper["']\s*:\s*["'](\w+)["']""")
 
 
 def flatten_result_values(result: Any) -> list[Any]:
@@ -579,11 +575,7 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
     with _MATRIX_SCALAR_SESSIONS_LOCK:
         _expire_matrix_sessions_locked(now)
         state = _MATRIX_SCALAR_SESSIONS.get(key)
-        if (
-            not isinstance(state, WorkerResultSession)
-            or not _flat_result_equal(state.flat, tuple(flat))
-            or (now - state.timestamp) > _PY_PASS_GAP_SEC
-        ):
+        if state is None or not _flat_result_equal(state.flat, tuple(flat)):
             state = WorkerResultSession(result, flat, timestamp=now)
             _MATRIX_SCALAR_SESSIONS[key] = state
         state.timestamp = now
@@ -591,9 +583,7 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
         state.next_index = idx + 1
         if state.next_index >= len(state.flat):
             _MATRIX_SCALAR_SESSIONS.pop(key, None)
-    if 0 <= idx < len(state.flat):
-        return state.flat[idx]
-    return state.flat[-1] if state.flat else ""
+    return state.flat[idx]
 
 
 # CellFlags bitmask: VALUE (1) | DATETIME (2) | STRING (4) | FORMULA (16) | HARDATTR (32) = 55.
@@ -606,7 +596,7 @@ _SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
 class SpillCell:
     row: int
     col: int
-    kind: str  # "n" float, "s" str, "e" empty, "err" formula error code, "u" unknown (load of old JSON only)
+    kind: str  # "n" float, "s" str, "e" empty, "err" formula error code
     value: float | str | int | None
 
 
@@ -714,8 +704,6 @@ def _cell_matches_stored_value(sheet: Any, row: int, col: int, cell_rec: SpillCe
                 return int(err_val) == int(cell_rec.value)
             except (TypeError, ValueError):
                 return False
-        if cell_rec.kind == "u":
-            return False
     except Exception:
         return False
     return False
@@ -804,7 +792,7 @@ class CalcSpillModifyListener(BaseModifyListener):
                                 continue
 
                             remapped = False
-                            if spill_rec.code and not any(c.kind == "u" for c in spill_rec.cells):
+                            if spill_rec.code:
                                 loc = search_sheet_for_formula(sheet, spill_rec.code, doc=doc)
                                 if loc is not None:
                                     _loc_cell, new_row, new_col = loc
@@ -840,7 +828,7 @@ class CalcSpillModifyListener(BaseModifyListener):
                                         try:
                                             spill_cell = sheet.getCellByPosition(c.col, c.row)
                                             if not _cell_is_formula(spill_cell):
-                                                if c.kind == "u" or _cell_matches_stored_value(sheet, c.row, c.col, c):
+                                                if _cell_matches_stored_value(sheet, c.row, c.col, c):
                                                     spill_cell.clearContents(_SPILL_CLEAR_FLAGS)
                                         except Exception:
                                             log.debug("CalcSpillModifyListener: failed to clear cell (%d, %d)", c.row, c.col, exc_info=True)
@@ -935,22 +923,13 @@ def load_spill_registry_for_doc(doc: Any) -> None:
                             raw_cells = value.get("cells") or []
                             cells = []
                             for c in raw_cells:
-                                if isinstance(c, dict):
-                                    r_val = c.get("r")
-                                    if r_val is None:
-                                        r_val = c.get("row", 0)
-                                    r = int(r_val or 0)
-                                    c_val = c.get("c")
-                                    if c_val is None:
-                                        c_val = c.get("col", 0)
-                                    col = int(c_val or 0)
-                                    t = str(c.get("t", c.get("kind", "u")))
-                                    v = _spill_value_from_json(t, c.get("v", c.get("value")))
-                                    cells.append(SpillCell(row=r, col=col, kind=t, value=v))
+                                if isinstance(c, dict) and "r" in c and "c" in c and "t" in c:
+                                    r = int(c["r"] or 0)
+                                    col = int(c["c"] or 0)
+                                    kind = str(c["t"])
+                                    v = _spill_value_from_json(kind, c.get("v"))
+                                    cells.append(SpillCell(row=r, col=col, kind=kind, value=v))
                             SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = SpillRecord(code=code, cells=cells)
-                        elif isinstance(value, list):
-                            spill_cells = [SpillCell(int(r), int(c), "u", None) for r, c in value]
-                            SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = SpillRecord(code="", cells=spill_cells)
             except Exception:
                 log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
                 continue
@@ -975,7 +954,7 @@ def save_spill_registry_for_doc(doc: Any) -> None:
                 for c in record.cells:
                     item: dict[str, Any] = {"r": c.row, "c": c.col, "t": c.kind}
                     if c.kind == "n" and isinstance(c.value, float) and not math.isfinite(c.value):
-                        # Bugfix: this used to be saved as kind "u" (unknown). Cleanup clears "u"
+                        # Bugfix: this used to be saved as kind "u" (unknown). Cleanup cleared "u"
                         # unconditionally, so saving and reloading made a later user edit of a NaN
                         # spill cell disappear when the formula was deleted. Keep kind "n" and
                         # write the value as text because JSON has no NaN/inf.
@@ -1204,7 +1183,7 @@ def perform_deferred_spill(
                 # We overwrite previously spilled cells, not #SPILL! on user edits, because the registry stores coordinates only, not the values we wrote.
                 previous_record = SPILL_REGISTRY.get(reg_key)
                 if previous_record is not None:
-                    old_coords = previous_record.spills if isinstance(previous_record, SpillRecord) else previous_record
+                    old_coords = previous_record.spills
                     for r, c in old_coords:
                         if (r, c) != (formula_row, formula_col):
                             try:
@@ -1434,7 +1413,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
     reg_key = (doc_key, sheet_name, formula_row, formula_col)
     previous_record = SPILL_REGISTRY.get(reg_key)
-    previous_spills = previous_record.spills if isinstance(previous_record, SpillRecord) else (previous_record or [])
+    previous_spills = previous_record.spills if previous_record is not None else []
     prev_spill_set = set(previous_spills)
 
     log.debug("Spill: previous spills for cell %r: %r", reg_key, previous_spills)
@@ -1467,17 +1446,12 @@ def _queue_deferred_spill_write(ctx: Any, code: str, grid_to_spill: list[list[An
     from plugin.framework.queue_executor import post_to_main_thread
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-    doc_url = prepared.doc_key
-    sheet_name = prepared.sheet_name
-    formula_row = prepared.formula_row
-    formula_col = prepared.formula_col
-    sheet_obj = prepared.sheet
     spill_lifecycle = _lifecycle_key(target_doc)
 
     def _deferred_spill_on_main() -> None:
-        post_to_main_thread(lambda: perform_deferred_spill(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill, doc=target_doc, sheet=sheet_obj, code=code, lifecycle_key=spill_lifecycle))
+        post_to_main_thread(lambda: perform_deferred_spill(ctx, prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, lifecycle_key=spill_lifecycle))
 
-    token = f"{sheet_name}:{formula_row}:{formula_col}"
+    token = f"{prepared.sheet_name}:{prepared.formula_row}:{prepared.formula_col}"
     t = _new_spill_timer(0.1, _deferred_spill_on_main)
     _register_spill_timer(spill_lifecycle, t, token=token)
     t.start()
@@ -1505,12 +1479,7 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
             return
         from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-        doc_url = prepared.doc_key
-        sheet_name = prepared.sheet_name
-        formula_row = prepared.formula_row
-        formula_col = prepared.formula_col
-        sheet_obj = prepared.sheet
-        perform_deferred_spill(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill, doc=target_doc, sheet=sheet_obj, code=code, lifecycle_key=_lifecycle_key(target_doc))
+        perform_deferred_spill(ctx, prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, lifecycle_key=_lifecycle_key(target_doc))
 
     def _deferred() -> None:
         post_to_main_thread(_on_main)
@@ -1693,22 +1662,6 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
     return best_effort(lambda: build_python_eval_init_kwargs(doc), "get_python_init_kwargs", {}) or {}
 
 
-def _py_timing_code_label(code: str) -> str:
-    """Short greppable id: JSON helper name, else a compact code prefix."""
-    src = code or ""
-    matched = _PY_HELPER_IN_SPEC_RE.search(src)
-    if matched:
-        return matched.group(1)
-    return " ".join(src.split())[:48]
-
-
-def _emit_py_timing(*, code: str, total_ms: int, pack_ms: int, ipc_ms: int, image_ms: int, cached: bool, pass_start: float, n: int, pass_sum_ms: int, last_end: float) -> None:
-    """Log absolute per-call ms plus recalc-clump totals (DEBUG)."""
-    pass_wall_ms = int(round((last_end - pass_start) * 1000))
-    pass_outside_ms = max(0, pass_wall_ms - pass_sum_ms)
-    log.debug("py_timing code=%s n=%s total_ms=%s pack_ms=%s ipc_ms=%s image_ms=%s cached=%s | pass_wall_ms=%s pass_sum_ms=%s pass_outside_ms=%s", _py_timing_code_label(code), n, total_ms, pack_ms, ipc_ms, image_ms, 1 if cached else 0, pass_wall_ms, pass_sum_ms, pass_outside_ms)
-
-
 def clear_python_addin_cache() -> None:
     """Clear formula result cache across all threads (e.g. on session reset or document reload)."""
     with _MATRIX_SCALAR_SESSIONS_LOCK:
@@ -1816,27 +1769,15 @@ def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -
     cancel_pending_spill_timers(lifecycle_key)
     from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers
 
-    if lifecycle_key:
-        cancel_pending_sheet_timers(lifecycle_key)
-    if doc_url:
-        cancel_pending_sheet_timers(doc_url)
-    if lifecycle_key:
-        # Sheet listeners are keyed by lifecycle id, not the file URL, so an
-        # unload that only matched doc_url left the dispatcher registered.
-        for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == lifecycle_key]:
+    # Listeners are keyed by lifecycle id; rows by _spill_registry_doc_key
+    # (a RuntimeUID is also _lifecycle_key). Skip "": every unsaved book has getURL()=="".
+    for ident in filter(None, (lifecycle_key, doc_url)):
+        cancel_pending_sheet_timers(ident)
+        for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == ident]:
             SHEET_MODIFY_LISTENERS.pop(skey, None)
-        # Rows are keyed by _spill_registry_doc_key. When the document has a
-        # RuntimeUID, that uid is also _lifecycle_key, so this sweep removes
-        # them. Do not sweep an empty URL: every unsaved book has getURL()=="".
-        LOADED_DOCUMENTS.discard(lifecycle_key)
-        for key in [k for k in SPILL_REGISTRY if k[0] == lifecycle_key]:
-            SPILL_REGISTRY.pop(key, None)
-    if doc_url:
-        LOADED_DOCUMENTS.discard(doc_url)
-        for key in [k for k in SPILL_REGISTRY if k[0] == doc_url]:
-            SPILL_REGISTRY.pop(key, None)
-        for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == doc_url]:
-            SHEET_MODIFY_LISTENERS.pop(skey, None)
+        LOADED_DOCUMENTS.discard(ident)
+        for reg_key in [k for k in SPILL_REGISTRY if k[0] == ident]:
+            SPILL_REGISTRY.pop(reg_key, None)
     clear_python_addin_cache()
 
 
@@ -1852,21 +1793,8 @@ def execute_python_addin(ctx: Any, code: str, data: Any = None, true_strings: se
 
 def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strings: set[str] | None = None, false_strings: set[str] | None = None, *, doc: Any | None = None) -> Any:
     log.debug("=== PYTHON(%r, data=%r) ===", code, data)
-    timings = PYTHON_TIMINGS_LOG
-    t_enter = time.perf_counter() if timings else 0.0
-    if timings:
-        last_end = getattr(_PY_PASS_STATS, "last_end", None)
-        if last_end is None or (t_enter - last_end) > _PY_PASS_GAP_SEC:
-            _PY_PASS_STATS.pass_start = t_enter
-            _PY_PASS_STATS.n = 0
-            _PY_PASS_STATS.sum_ms = 0
-    pack_ms = 0
-    ipc_ms = 0
-    image_ms = 0
-    used_cache = False
     target_doc: Any = doc
     try:
-        t_pack = time.perf_counter() if timings else 0.0
         args = split_python_addin_data_args(data)
         # Named-range args arrive as already-evaluated values from Calc.
         # Relative names (Sheet!A4:J39) shift from the calling cell — UNO
@@ -1921,8 +1849,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             worker_data = pack_calc_multi_data_for_wire(py_data) if is_multi else pack_calc_data_for_wire(py_data)
         else:
             worker_data = None
-        if timings:
-            pack_ms = int(round((time.perf_counter() - t_pack) * 1000))
         # Synchronous: =PY() runs during Calc recalc; UI event pumping from
         # run_blocking_in_thread can re-enter the formula engine and yield #VALUE!.
         # target_doc is the add-in caller argument (strip hydrate + worker session).
@@ -1941,7 +1867,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 _expire_matrix_sessions_locked(now)
                 cached = _MATRIX_SCALAR_SESSIONS.get(cache_key)
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
-            used_cache = True
             res = {"status": "ok", "result": cached.raw}
         else:
             from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
@@ -1962,7 +1887,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 on_main_thread(),
                 in_sync_host_dispatch(),
             )
-            t_ipc = time.perf_counter() if timings else 0.0
             res = run_code_in_user_venv(
                 ctx,
                 code,
@@ -1973,9 +1897,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 python_tool_domain="",
                 **init_kwargs,
             )
-
-            if timings:
-                ipc_ms = int(round((time.perf_counter() - t_ipc) * 1000))
         log.debug("PYTHON res from worker: %r", res)
         if res.get("status") == "ok":
             result = res.get("result")
@@ -1992,11 +1913,8 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
             images = find_image_payloads(result)
             if images:
-                t_img = time.perf_counter() if timings else 0.0
                 for i, img in enumerate(images):
                     insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
-                if timings:
-                    image_ms = int(round((time.perf_counter() - t_img) * 1000))
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")
             # Pass data_token: the digest was already computed for the cache key.
             final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=target_doc, data_token=data_token)
@@ -2018,13 +1936,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
         _record_py_diagnostic(ctx, code, None, status="error", message=err_msg, traceback=str(e), doc=target_doc)
         log.debug("PYTHON returning exception wrapper: %r", err_msg)
         return err_msg
-    finally:
-        if timings:
-            total_ms = int(round((time.perf_counter() - t_enter) * 1000))
-            _PY_PASS_STATS.n = getattr(_PY_PASS_STATS, "n", 0) + 1
-            _PY_PASS_STATS.sum_ms = getattr(_PY_PASS_STATS, "sum_ms", 0) + total_ms
-            _PY_PASS_STATS.last_end = time.perf_counter()
-            _emit_py_timing(code=code, total_ms=total_ms, pack_ms=pack_ms, ipc_ms=ipc_ms, image_ms=image_ms, cached=used_cache, pass_start=getattr(_PY_PASS_STATS, "pass_start", t_enter), n=_PY_PASS_STATS.n, pass_sum_ms=int(_PY_PASS_STATS.sum_ms), last_end=_PY_PASS_STATS.last_end)
 
 
 def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, status: str, message: str = "", traceback: str = "", doc: Any | None = None) -> None:

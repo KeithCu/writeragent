@@ -453,7 +453,13 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     def mock_get_prop(model, name, default=None):
         if name == "WriterAgentSpillRegistry":
             return saved_payload if saved_payload is not None else json.dumps({
-                "Sheet1:1,1": [[2, 1], [3, 1]]
+                "Sheet1:1,1": {
+                    "code": "orig_code",
+                    "cells": [
+                        {"r": 2, "c": 1, "t": "n", "v": 20.0},
+                        {"r": 3, "c": 1, "t": "n", "v": 30.0},
+                    ],
+                }
             })
         return default
 
@@ -475,8 +481,9 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     assert key in python_function.SPILL_REGISTRY
     rec = python_function.SPILL_REGISTRY[key]
     assert rec.spills == [(2, 1), (3, 1)]
-    assert rec.code == ""
-    assert all(c.kind == "u" for c in rec.cells)
+    assert rec.code == "orig_code"
+    assert rec.cells[0].kind == "n" and rec.cells[0].value == 20.0
+    assert rec.cells[1].kind == "n" and rec.cells[1].value == 30.0
 
     python_function.SPILL_REGISTRY[key] = SpillRecord(
         code="some_code",
@@ -636,8 +643,8 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
     sheet2 = doc2.getSheets().getByName("Sheet1")
     sheet1.getCellByPosition(1, 1).setFormula('=PYTHON("untitled_spill_a")')
     sheet2.getCellByPosition(1, 1).setFormula('=PYTHON("untitled_spill_b")')
-    stored[id(doc1)] = json.dumps({"Sheet1:1,1": [[2, 1]]})
-    stored[id(doc2)] = json.dumps({"Sheet1:1,1": [[9, 9]]})
+    stored[id(doc1)] = json.dumps({"Sheet1:1,1": {"code": "untitled_spill_a", "cells": [{"r": 2, "c": 1, "t": "n", "v": 1.0}]}})
+    stored[id(doc2)] = json.dumps({"Sheet1:1,1": {"code": "untitled_spill_b", "cells": [{"r": 9, "c": 9, "t": "n", "v": 1.0}]}})
 
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
@@ -681,7 +688,12 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
                 ],
             }
         }
-        assert json.loads(stored[id(doc2)]) == {"Sheet1:1,1": [[9, 9]]}
+        assert json.loads(stored[id(doc2)]) == {
+            "Sheet1:1,1": {
+                "code": "untitled_spill_b",
+                "cells": [{"r": 9, "c": 9, "t": "n", "v": 1.0}],
+            }
+        }
 
         # Blank listener identity must not clear either untitled book.
         blank = python_function.CalcSpillModifyListener(ctx1, "", "Sheet1")
@@ -1351,104 +1363,6 @@ def test_execute_python_addin_maps_timeout_error(monkeypatch) -> None:
     assert out.startswith("Error:")
     assert "timed out" in out.lower()
     assert "Settings" in out
-
-
-def _reset_py_pass_stats() -> None:
-    python_function._PY_PASS_STATS.last_end = None
-    python_function._PY_PASS_STATS.n = 0
-    python_function._PY_PASS_STATS.sum_ms = 0
-    python_function._PY_PASS_STATS.pass_start = None
-
-
-def test_py_timing_off_by_default(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    python_function.clear_python_addin_cache()
-    monkeypatch.setattr(python_function, "PYTHON_TIMINGS_LOG", False)
-    _reset_py_pass_stats()
-    caplog.set_level(logging.DEBUG, logger="plugin.calc.python.function")
-    monkeypatch.setattr(
-        python_function,
-        "run_code_in_user_venv",
-        lambda *_a, **_k: {"status": "ok", "result": 2.0},
-    )
-    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
-    monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
-    python_function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "1+1")
-    assert not any(r.message.startswith("py_timing ") for r in caplog.records)
-
-
-def test_py_timing_logs_ipc_ms_and_pass_totals(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """Each =PY() logs its own calculation time; pass_* is wall vs sum, not asctime deltas."""
-    python_function.clear_python_addin_cache()
-    monkeypatch.setattr(python_function, "PYTHON_TIMINGS_LOG", True)
-    _reset_py_pass_stats()
-    caplog.set_level(logging.DEBUG, logger="plugin.calc.python.function")
-    monkeypatch.setattr(
-        python_function,
-        "run_code_in_user_venv",
-        lambda *_a, **_k: {"status": "ok", "result": 2.0},
-    )
-    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
-    monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
-    ctx = _ctx_with_doc(CalcDocStub())
-    code = (
-        'from writeragent.scripting.analysis import run_analysis; '
-        'run_analysis({"helper":"describe_data","params":{}}, data, {})["status"]'
-    )
-    assert python_function.execute_python_addin(ctx, code) == 2.0
-    assert python_function.execute_python_addin(ctx, code) == 2.0
-    from tests.harness.strip_bundle import module_source_contains
-
-    if not module_source_contains(python_function, "py_timing "):
-        return
-
-    lines = [r.message for r in caplog.records if r.message.startswith("py_timing ")]
-    assert len(lines) >= 2
-    assert "code=describe_data" in lines[0]
-    assert "ipc_ms=" in lines[0]
-    assert "total_ms=" in lines[0]
-    assert "pass_outside_ms=" in lines[0]
-    assert "n=1" in lines[0]
-    assert "n=2" in lines[1]
-    assert "pass_sum_ms=" in lines[1]
-
-
-def test_py_timing_cached_matrix_skips_ipc(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    python_function.clear_python_addin_cache()
-    monkeypatch.setattr(python_function, "PYTHON_TIMINGS_LOG", True)
-    _reset_py_pass_stats()
-    caplog.set_level(logging.DEBUG, logger="plugin.calc.python.function")
-    doc = CalcDocStub()
-    sheet = doc.getSheets().getByIndex(0)
-    code = "result = [1, 2, 3]"
-    sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
-    ctx = _ctx_with_doc(doc)
-    worker_data = None
-    tid = threading.get_ident()
-    key = (tid, python_function.session_key(ctx, code, doc=doc), python_function._worker_data_token(worker_data))
-    python_function._MATRIX_SCALAR_SESSIONS[key] = python_function.WorkerResultSession(
-        [1.0, 2.0, 3.0], [1.0, 2.0, 3.0]
-    )
-    called: list[int] = []
-
-    def _should_not_run(*_a, **_k):
-        called.append(1)
-        return {"status": "ok", "result": 99}
-
-    monkeypatch.setattr(python_function, "run_code_in_user_venv", _should_not_run)
-    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    out = python_function.execute_python_addin(ctx, code, doc=doc)
-    assert called == []
-    assert out == 1.0
-    from tests.harness.strip_bundle import module_source_contains
-
-    if not module_source_contains(python_function, "py_timing "):
-        return
-    lines = [r.message for r in caplog.records if r.message.startswith("py_timing ")]
-    assert lines
-    assert "cached=1" in lines[-1]
-    assert "ipc_ms=0" in lines[-1]
 
 
 def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2928,9 +2842,9 @@ def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPat
 
     python_function.load_spill_registry_for_doc(doc)
     doc_key = "file:///fake_malformed.ods"
-    assert (doc_key, "Sheet1", 1, 1) in python_function.SPILL_REGISTRY
+    assert (doc_key, "Sheet1", 1, 1) not in python_function.SPILL_REGISTRY
     assert (doc_key, "Sheet1", 4, 4) in python_function.SPILL_REGISTRY
-    assert len([k for k in python_function.SPILL_REGISTRY if k[0] == doc_key]) == 2
+    assert len([k for k in python_function.SPILL_REGISTRY if k[0] == doc_key]) == 1
 
 
 def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.MonkeyPatch) -> None:
