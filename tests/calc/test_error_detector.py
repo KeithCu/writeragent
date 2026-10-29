@@ -14,10 +14,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from plugin.calc.error_detector import (
-    ERROR_PATTERNS,
     ERROR_TYPES,
     ErrorDetector,
-    get_calc_error_name,
+    _ERROR_PATTERN_BY_UPPER,
     is_calc_error_display,
 )
 
@@ -28,8 +27,8 @@ def test_error_detector_data():
         "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "#ERROR!",
         "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532",
     })
-    assert ERROR_PATTERNS == expected_tokens
-    assert len({t.upper() for t in ERROR_PATTERNS}) == len(ERROR_PATTERNS)
+    assert set(_ERROR_PATTERN_BY_UPPER.values()) == expected_tokens
+    assert len(_ERROR_PATTERN_BY_UPPER) == len(expected_tokens)
     assert is_calc_error_display("#div/0!") == "#DIV/0!"
     assert is_calc_error_display(" err:502 ") == "Err:502"
     assert is_calc_error_display("#ERROR!") == "#ERROR!"
@@ -38,12 +37,6 @@ def test_error_detector_data():
     for code, info in ERROR_TYPES.items():
         assert "name" in info
         assert "description" in info
-
-
-def test_get_calc_error_name():
-    assert get_calc_error_name(501) == "Invalid character"
-    assert get_calc_error_name(532) == "#DIV/0!"
-    assert get_calc_error_name(9999) == "Unknown error (9999)"
 
 
 def test_get_error_type():
