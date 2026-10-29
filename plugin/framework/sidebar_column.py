@@ -38,17 +38,23 @@ _FRAME_VS_COLUMN = 1.5
 def sidebar_column_width(n_width: int, parent_w: int, min_w: int = 180) -> int:
     """Pixel width the panel window and ChildFrame must fill."""
     # XDL dlg:width="180" is AppFont, not pixels.
+    if n_width <= 0:
+        return parent_w if parent_w > 0 else min_w
     if n_width == _XDL_APPFONT_LEAK_PX and _XDL_APPFONT_LEAK_PX < parent_w <= _XDL_LEAK_PARENT_MAX:
         return parent_w
     # Document frame is several times the column. A grow with a lagging
     # ChildFrame request is only a little larger (Keith 900 vs 806).
-    if n_width > 0 and parent_w > 0 and n_width > int(parent_w * _FRAME_VS_COLUMN):
+    if parent_w > 0 and n_width > int(parent_w * _FRAME_VS_COLUMN):
         return parent_w
-    if n_width > 0:
-        return n_width
-    if parent_w > 0:
-        return parent_w
-    return min_w
+    return n_width
+
+
+def _pos_size(win: Any) -> tuple[int, int]:
+    if win is not None and hasattr(win, "getPosSize"):
+        rect = win.getPosSize()
+        if rect is not None:
+            return (getattr(rect, "Width", 0) or 0, getattr(rect, "Height", 0) or 0)
+    return (0, 0)
 
 
 def apply_sidebar_height_for_width(
@@ -62,20 +68,9 @@ def apply_sidebar_height_for_width(
     current_h = _LAYOUT_PREFERRED
     layout_size = uno.createUnoStruct("com.sun.star.ui.LayoutSize", _LAYOUT_MIN, _LAYOUT_MAX, _LAYOUT_PREFERRED)
     with suppress_disposed("apply_sidebar_height_for_width", logger=log):
-        parent_w = 0
-        parent_h = 0
-        if parent_window is not None and hasattr(parent_window, "getPosSize"):
-            pr = parent_window.getPosSize()
-            if pr is not None:
-                parent_w = getattr(pr, "Width", 0) or 0
-                parent_h = getattr(pr, "Height", 0) or 0
-
+        parent_w, parent_h = _pos_size(parent_window)
         # Read current actual size *before* we decide.
-        panel_h = 0
-        if panel_window is not None and hasattr(panel_window, "getPosSize"):
-            before = panel_window.getPosSize()
-            if before is not None:
-                panel_h = getattr(before, "Height", 0) or 0
+        _, panel_h = _pos_size(panel_window)
 
         # Width is negotiated here; height stays whatever LO/deck already allocated.
         current_h = panel_h if panel_h > 0 else (parent_h if parent_h > 0 else _LAYOUT_PREFERRED)
