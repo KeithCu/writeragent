@@ -68,19 +68,6 @@ class ServiceBase(ABC):
 
     name: str | None = None
 
-    def initialize(self, ctx: Any) -> None:
-        """Called once during bootstrap with the UNO component context.
-
-        Override to perform setup that requires UNO (desktop access,
-        service manager, etc.).
-
-        Args:
-            ctx: UNO component context (com.sun.star.uno.XComponentContext).
-        """
-
-    def shutdown(self) -> None:
-        """Called on extension unload. Override to clean up."""
-
 
 def iter_named_concrete_subclasses(module: Any, base: type, *skip_bases: type) -> Any:
     """Yield concrete subclasses defined in ``module`` that set ``name``.
@@ -160,6 +147,3 @@ class ServiceRegistry:
     def __contains__(self, name: str) -> bool:
         return name in self._services
 
-    @property
-    def service_names(self) -> list[str]:
-        return list(self._services.keys())

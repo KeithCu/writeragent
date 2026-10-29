@@ -45,4 +45,4 @@ def test_every_writer_tool_class_is_registered():
 
 def test_writer_services_are_registered():
     services, _unused = _initialized()
-    assert {"writer_bookmarks", "writer_tree", "writer_proximity", "writer_index"} <= set(services.service_names)
+    assert {"writer_bookmarks", "writer_tree", "writer_proximity", "writer_index"} <= set(services._services)

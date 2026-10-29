@@ -33,10 +33,7 @@ def topo_sort(modules: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if name in visiting:
             raise ConfigError(f"Cyclic module requires graph at {name!r}", code="MODULE_CYCLE")
         visiting.add(name)
-        m = by_name.get(name)
-        if m is None:
-            visiting.discard(name)
-            return
+        m = by_name[name]
         for req in m.get("requires", []):
             provider = provides.get(req, req)
             if provider in by_name:
