@@ -56,7 +56,6 @@ from plugin.framework.queue_executor import execute_on_main_thread
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework.tool_schema import (
-    _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers,
     call_properties as call_properties,
     coerce_call_args as coerce_call_args,
     to_mcp_schema as to_mcp_schema,
@@ -274,7 +273,7 @@ class ToolBase(_ToolErrorMixin, ABC):
                      ``exclude_tiers``). Sidebar-only tools use ``"chat"``
                      (on the chat wire; hidden from MCP). Default ``"core"``.
         intent:      Optional group label (e.g. "navigate", "edit", "review",
-                     "media") for ``get_tools(intent=...)`` filtering.
+                     "media"). Registry lookup does not filter on it.
         is_mutation:  Whether the tool mutates the document.  ``None``
                      means auto-detect from a read prefix (``get_``,
                      ``list_``, …) or a later domain-verb token
@@ -487,19 +486,13 @@ class ToolBaseDummy(_ToolErrorMixin):
 
 def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
     """True if *t* is a Writer/Calc/Draw specialized tool for *active_domain*."""
-    # Support composite domains like "python:writer"
-    active_domain_base = active_domain.split(":")[0] if ":" in active_domain else active_domain
+    # "python:writer" → base python, subdomain writer.
+    # "a:b:c" → base a, subdomain b. split, not partition.
+    parts = active_domain.split(":")
+    base = parts[0]
     tool_domain = getattr(t, "specialized_domain", None)
-
-    if tool_domain != active_domain_base:
-        # If the tool matches the subdomain exactly, and we are in a composite domain, include it.
-        if ":" in active_domain:
-            subdomain = active_domain.split(":")[1]
-            if tool_domain == subdomain:
-                return True
-        return False
-    # Cross-app specialized tools (e.g. external venv Python) register once but must
-    # appear under delegate_to_specialized_writer/calc/draw_toolset(domain=...) for any doc.
+    if tool_domain != base:
+        return len(parts) > 1 and tool_domain == parts[1]
     if getattr(t, "specialized_cross_cutting", False):
         return True
     return bool(getattr(t, "is_app_specialized_tool", False))
@@ -557,7 +550,6 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
     # from training memory when the property was removed from the schema
     # (see docs/calc/date-time-handling.md S26).
     kwargs = dict(tool_kwargs)
-    had_ctx_arg = "ctx" in kwargs
     kwargs.pop("ctx", None)
     doc_type = getattr(ctx, "doc_type", None)
     caller = getattr(ctx, "caller", None)
@@ -565,14 +557,8 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
     schema = tool.get_parameters(doc_type) or {}
     props = call_properties(schema) or {}
     extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if caller == "script" else frozenset()
-    # One allow-list (including properties {}). The outbound check
-    # uses the same helper before any provider shim.
     kept = without_unknown_kwargs(schema, kwargs, extra_ok)
-    # Keep the names that were dropped: they are reported back as ignored_parameters.
-    ignored: list[str] = sorted(k for k in kwargs if k not in kept)
-    if had_ctx_arg and "ctx" not in ignored:
-        ignored.append("ctx")
-        ignored.sort()
+    ignored: list[str] = sorted(k for k in tool_kwargs if k not in kept)
     kwargs = kept
 
     required = schema.get("required") or []
@@ -611,7 +597,6 @@ class ToolRegistry:
     """
 
     _services: Any
-    batch_mode: bool
 
     def __init__(self, services: Any) -> None:
         self._services = services
@@ -620,7 +605,6 @@ class ToolRegistry:
         # must keep the union of required_core_tools. ClassVar cannot be set on
         # the instance, so store the merge here.
         self._required_core_union: dict[str, frozenset[str]] = {}
-        self.batch_mode = False  # suppress per-tool cache invalidation
 
     # ── Registration ──────────────────────────────────────────────────
 
@@ -700,8 +684,6 @@ class ToolRegistry:
         self,
         doc: Any = None,
         doc_type: str | None = None,
-        tier: str | None = None,
-        intent: str | None = None,
         names: Any = None,
         filter_doc_type: bool = True,
         exclude_tiers: Any = _UNSET_EXCLUDE_TIERS,
@@ -715,8 +697,6 @@ class ToolRegistry:
             doc: Optional document model (legacy; prefer doc_type + uno_services_supported).
             doc_type: Optional string indicating compatibility ("writer", "calc", "draw").
             uno_services_supported: Cached UNO service names from sidebar/MCP (no live doc probe).
-            tier: Optional string; main chat tools use ``"core"``.
-            intent: Optional string filtering by tool intent.
             names: Optional collection of exact tool names. ``None`` applies
                 no name filter. An empty collection matches nothing. A bare
                 string is that one name, not a substring.
@@ -746,13 +726,12 @@ class ToolRegistry:
             if on_main_thread():
                 uno_services_supported = get_document_uno_services(doc)
 
-        # Helper to check if a tool supports the document
-        def supports_doc(t: Any) -> bool:
-            if not filter_doc_type:
-                return True
-            return tool_supports_document(t, doc_type=doc_type, uno_services_supported=uno_services_supported)
-
-        tools = [t for t in tools if supports_doc(t)]
+        tools = [
+            t for t in tools
+            if not filter_doc_type or tool_supports_document(
+                t, doc_type=doc_type, uno_services_supported=uno_services_supported
+            )
+        ]
 
         # If we have an active domain, we want to include its tools (and the finish tool),
         # even if they are in the excluded tiers.
@@ -790,17 +769,7 @@ class ToolRegistry:
             tools = filtered_tools
         else:
             if to_exclude:
-
-                def _tier_excluded(t: Any) -> bool:
-                    tier = getattr(t, "tier", None)
-                    return tier in to_exclude
-
-                tools = [t for t in tools if not _tier_excluded(t)]
-
-        if tier:
-            tools = [t for t in tools if t.tier == tier]
-        if intent:
-            tools = [t for t in tools if t.intent == intent]
+                tools = [t for t in tools if getattr(t, "tier", None) not in to_exclude]
         # Only None skips the filter. Callers pass tool names, not a substring
         # to search. ``if names`` treats ``[]`` and ``""`` as no filter and
         # returns every tool. A bare string is iterable, so ``t.name in
@@ -852,29 +821,29 @@ class ToolRegistry:
 
         uno_services = kwargs.get("uno_services_supported") or uno_services_for_document(doc, doc_type)
         if protocol == "openai":
-            # get_image is only useful to a vision-capable text model on the chat path; hide it from
-            # text-only models. The MCP path (below) always keeps it (client assumed vision-capable).
-            # UI thread: the cached answer; a cold model schedules a background lookup.
             from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
             from plugin.vision.image_filter import filter_get_image_for_text_only_model
 
-            tools = filter_get_image_for_text_only_model(tools, has_native_vision(get_text_model(), get_current_endpoint()))
-            schemas = narrow_delegate_domain_enums([to_openai_schema(t, doc_type=doc_type) for t in tools], tools, uno_services)
-            ctx = kwargs.get("ctx")
-            if ctx is not None:
-                from plugin.vision.vision_availability import filter_vision_delegate_schemas
+            tools = filter_get_image_for_text_only_model(
+                tools, has_native_vision(get_text_model(), get_current_endpoint())
+            )
+            convert = to_openai_schema
+            peer_domain: str | None = active_domain
+        else:
+            convert = to_mcp_schema
+            peer_domain = None
 
-                schemas = filter_vision_delegate_schemas(schemas, ctx)
-            from plugin.doc.peer_message import filter_peer_message_schemas
+        schemas = narrow_delegate_domain_enums(
+            [convert(t, doc_type=doc_type) for t in tools], tools, uno_services
+        )
+        ctx = kwargs.get("ctx")
+        if protocol == "openai" and ctx is not None:
+            from plugin.vision.vision_availability import filter_vision_delegate_schemas
 
-            schemas = filter_peer_message_schemas(schemas, ctx, doc=doc, active_domain=active_domain)
-            return schemas
-
-        # Never advertise peer send tools on MCP, including find_tools(domain=…).
+            schemas = filter_vision_delegate_schemas(schemas, ctx)
         from plugin.doc.peer_message import filter_peer_message_schemas
 
-        schemas = narrow_delegate_domain_enums([to_mcp_schema(t, doc_type=doc_type) for t in tools], tools, uno_services)
-        return filter_peer_message_schemas(schemas, kwargs.get("ctx"), doc=doc, active_domain=None)
+        return filter_peer_message_schemas(schemas, ctx, doc=doc, active_domain=peer_domain)
 
     def get(self, name: str) -> ToolBase | None:
         """Get a tool by name, or None."""
