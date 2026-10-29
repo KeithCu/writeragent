@@ -127,9 +127,7 @@ def commit_or_rollback_mutation(
     from plugin.framework.errors import is_real_disposal
 
     try:
-        error = commit_or_rollback(doc, undo_title, mutate)
-        if error is not None:
-            return error
+        return commit_or_rollback(doc, undo_title, mutate)
     except UndoUnavailable:
         return tool._tool_error(
             undo_unavailable_msg,
@@ -145,7 +143,6 @@ def commit_or_rollback_mutation(
         # _tool_error nests kwargs under details; callers also read them top-level.
         err.update(extra_error)
         return err
-    return None
 
 
 def _undo_steps(kwargs: dict[str, Any]) -> int:
@@ -194,12 +191,13 @@ class Undo(ToolBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to undo (default: 1)."}}, "required": []}
     uno_services: list[str] | None = None
     is_mutation: bool | None = True
+    _action_key: str = "undone"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return _step_undo_manager(self, ctx, "undone", kwargs)
+        return _step_undo_manager(self, ctx, self._action_key, kwargs)
 
 
-class Redo(ToolBase):
+class Redo(Undo):
     """Redo the last undone action."""
 
     name: str | None = "redo"
@@ -209,8 +207,4 @@ class Redo(ToolBase):
         "undid, and tell the user."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to redo (default: 1)."}}, "required": []}
-    uno_services: list[str] | None = None
-    is_mutation: bool | None = True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return _step_undo_manager(self, ctx, "redone", kwargs)
+    _action_key: str = "redone"
