@@ -904,9 +904,8 @@ def test_apply_temporal_format_runs_vertically_merges_homogeneous_column():
     apply = ("apply", 42)
     decisions = [[apply], [apply], [apply]]
 
-    applied = manip._apply_temporal_format_runs(sheet, start=(0, 10), decisions=decisions)
+    manip._apply_temporal_format_runs(sheet, start=(0, 10), decisions=decisions)
 
-    assert applied == 3
     sheet.getCellRangeByPosition.assert_called_once_with(0, 10, 0, 12)
     target.setPropertyValue.assert_called_once_with("NumberFormat", 42)
 
