@@ -19,7 +19,6 @@ from plugin.framework.errors import ConfigError
 from plugin.framework.config import (
     get_config,
     get_config_dict,
-    remove_config,
     set_config,
 )
 from plugin.framework.config_schema import get_config_schema
@@ -49,10 +48,6 @@ class ConfigService(ServiceBase):
         """Set a config value."""
         set_config(key, value)
 
-    def remove(self, key: str) -> None:
-        """Reset a config key."""
-        remove_config(key)
-
     def get_dict(self) -> dict[str, Any]:
         """Return all config."""
         return get_config_dict()
@@ -77,6 +72,3 @@ class ModuleConfigProxy:
 
     def set(self, key: str, value: Any) -> None:
         self._config.set(self._qualify(key), value)
-
-    def remove(self, key: str) -> None:
-        self._config.remove(self._qualify(key))

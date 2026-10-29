@@ -53,11 +53,6 @@ class TestSetGet():
         assert data is not None
         assert (data['mcp.mcp_port'] == 9000)
 
-    def test_remove(self, config_svc):
-        config_svc.set('mcp.mcp_port', 9000)
-        config_svc.remove('mcp.mcp_port')
-        assert (config_svc.get('mcp.mcp_port') == 18765)
-
     def test_get_dict(self, config_svc):
         config_svc.set('mcp.mcp_port', 9000)
         d = config_svc.get_dict()
@@ -132,19 +127,6 @@ class TestModuleConfigProxy():
         try:
             proxy = config_svc.proxy_for('mcp')
             assert (proxy.get('nonexistent', default='fallback') == 'fallback')
-        finally:
-            c.get_config = old_get_config
-
-    def test_proxy_remove(self, config_svc):
-        "Remove via ModuleConfigProxy (proxy.remove)."
-        import plugin.framework.config as c
-        old_get_config = c.get_config
-        c.get_config = (lambda x, y=None: None)
-        try:
-            proxy = config_svc.proxy_for('mcp')
-            proxy.set('mcp_port', 9000)
-            proxy.remove('mcp_port')
-            assert (proxy.get('mcp_port') == 18765)
         finally:
             c.get_config = old_get_config
 
