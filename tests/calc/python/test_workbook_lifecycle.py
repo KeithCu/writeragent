@@ -111,7 +111,7 @@ def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.Mo
 
 
 def test_unload_clears_in_memory_spill_state():
-    python_function.SPILL_REGISTRY[("file:///gone.ods", "Sheet1", 0, 0)] = [(0, 1)]
+    python_function.SPILL_REGISTRY[("file:///gone.ods", "Sheet1", 0, 0)] = python_function.SpillRecord(code="", cells=[])
     python_function.LOADED_DOCUMENTS.add("file:///gone.ods")
     ctx = MagicMock()
     listener = _CalcPythonUnloadListener(ctx, "calc:file:///gone.ods", "key-spill", doc_url="file:///gone.ods")

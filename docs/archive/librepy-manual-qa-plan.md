@@ -34,8 +34,6 @@ Each **work packet** below is independent after **P0** (venv + smoke). Assign on
 
 **Fail rule:** `#VALUE!`, `#NUM!` from a successful computation we expected to be a number, empty when a value is expected, LO crash, hang past timeout, or missing menu.
 
-Slow open of `numpy_domains_demo.ods`: set `PYTHON_TIMINGS_LOG = True` in `plugin/calc/python/function.py`, deploy, then grep `py_timing` in `writeragent_debug.log` (DEBUG). Use `ipc_ms` / last line `pass_*`, not `asctime` deltas — [enabling_numpy.md §5](../enabling_numpy_in_libreoffice.md).
-
 ---
 
 ## P0 — Environment (every agent, once)
