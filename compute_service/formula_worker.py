@@ -129,13 +129,11 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             init_script_hash=init_hash,
         )
 
-        namespace_created = raw.pop("namespace_created", None)
+        created = bool(raw.pop("namespace_created", None))
         res = normalize_execute_response(raw)
-        created = bool(namespace_created)
-        if req_id is not None and isinstance(res, dict):
+        if req_id is not None:
             res["id"] = req_id
-        session_reset = bool(req.get("expect_namespace")) and created
-        return json_forward_envelope(res, req_id=req_id, session_reset=session_reset, namespace_created=created)
+        return json_forward_envelope(res, req_id=req_id, session_reset=bool(req.get("expect_namespace")) and created, namespace_created=created)
     except Exception as exc:
         # Traceback included server paths on the kit wire. Eval errors from
         # json_egress are only status/error/stdout; this path must match.
