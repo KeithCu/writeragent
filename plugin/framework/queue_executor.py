@@ -37,6 +37,7 @@ MCP HTTP thread still comes through this queue onto the UI thread.
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import sys
 import threading
@@ -302,8 +303,6 @@ class QueueExecutor:
             # DISPLAY=:9 (or any toolkit) can still create AsyncCallback; a poke
             # from a LoLane worker would run UNO on the VCL/bridge callback path
             # while ``_lo_thread`` is mid-call → "Binary URP bridge already disposed".
-            import os
-
             if os.environ.get("WRITERAGENT_EVAL_HARNESS") == "1":
                 log.info("QueueExecutor: EVAL_HARNESS set — AsyncCallback disabled (UNO stays on designated thread)")
                 self._async_callback_service = None
@@ -605,13 +604,7 @@ class QueueExecutor:
 
     def should_run_inline(self) -> bool:
         """Whether to skip the queue and call *fn* on the caller's thread."""
-        if _force_marshal_mode:
-            return False
-        import os
-
-        if os.environ.get("WRITERAGENT_TESTING") == "1":
-            return True
-        return False
+        return not _force_marshal_mode and os.environ.get("WRITERAGENT_TESTING") == "1"
 
     def execute(self, fn: Callable[..., Any], *args: Any, timeout: float = 30.0, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> Any:
         """Execute function on main thread (blocking).
@@ -739,8 +732,6 @@ def async_callback_for_drain_rearm() -> Any | None:
     ``addCallback`` directly so the mock-sidebar soffice (which sets the flag)
     still returns to the VCL loop between batches.
     """
-    import os
-
     if os.environ.get("WRITERAGENT_EVAL_HARNESS") == "1":
         return None
     if _force_marshal_mode or _test_poke_handler is not None:
