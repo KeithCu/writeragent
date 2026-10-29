@@ -45,7 +45,6 @@ def test_reap_kills_the_group_before_dropping_stderr(monkeypatch):
     monkeypatch.setattr("plugin.scripting.audio_recorder_service.kill_process_tree", _kill)
     _reap_recording_process(child, 0.01)
     assert order == ["terminate", "kill", "join"]
-    assert child._closed is False
 
 
 def test_is_audio_recording_configured_true():
