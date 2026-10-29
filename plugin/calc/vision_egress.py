@@ -12,7 +12,7 @@ from plugin.calc.address_utils import format_address, qualify_a1
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.rich_html import insert_cell_html_rich
-from plugin.calc.tabular_egress import _append_blank, _append_table_rows, pad_grid
+from plugin.calc.tabular_egress import _append_blank, _append_table_rows, _append_truncation_note, pad_grid
 from plugin.doc.visual_helpers import get_graphic_object_by_name, selected_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
@@ -108,10 +108,7 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
             row_widths = [len(r) if isinstance(r, list) else 1 for r in table_rows] if isinstance(table_rows, list) else []
             width = max([col_width, *row_widths], default=0)
             merges.extend(_table_span_merges(table, header_grid_row=header_grid_row, max_grid_row=len(rows) - 1, max_width=width))
-            if table.get("truncated"):
-                total = table.get("total_rows")
-                note = f"(showing first rows; {total} total)" if total is not None else "(truncated)"
-                rows.append([note])
+            _append_truncation_note(rows, table)
 
     return rows, merges
 
@@ -186,6 +183,5 @@ def insert_vision_structure_into_calc(doc: Any, _uno_ctx: Any, result: dict[str,
     for r1, c1, r2, c2 in merges:
         start = format_address(col + c1, row + r1)
         end = format_address(col + c2, row + r2)
-        if start != end:
-            manipulator.merge_cells(qualify_a1(sheet_name, f"{start}:{end}"), center=False)
+        manipulator.merge_cells(qualify_a1(sheet_name, f"{start}:{end}"), center=False)
     return len(grid)
