@@ -97,8 +97,6 @@ class SymbolicMathTool(ToolCalcPythonBase):
         if result.get("status") != "ok":
             return result
 
-        out: dict[str, Any] = dict(result)
-
         def _insert() -> None:
             insert_symbolic_result_into_doc(ctx.ctx, ctx.doc, result, display_block=display_block)
 
@@ -107,15 +105,13 @@ class SymbolicMathTool(ToolCalcPythonBase):
             # What was wrong: out["math_inserted"] was unconditionally True, even
             # on Calc where tabular_egress writes cells instead of inserting a Math object.
             # Why this change fixes it: set math_inserted only when doc_type != "calc".
-            out["math_inserted"] = ctx.doc_type != "calc"
-            if ctx.doc_type == "calc":
-                out["message"] = "Symbolic result written to active sheet"
-            else:
-                out["message"] = "Math formula inserted in document"
+            is_calc = ctx.doc_type == "calc"
+            result["math_inserted"] = not is_calc
+            result["message"] = "Symbolic result written to active sheet" if is_calc else "Math formula inserted in document"
         except CalcError as exc:
             # Occupied target cells: nothing was written; tell the model to pick an empty target.
             return self._tool_error(str(exc))
         except Exception as exc:
-            out["insert_error"] = str(exc)
+            result["insert_error"] = str(exc)
 
-        return out
+        return result

@@ -22,9 +22,9 @@ def calc_ctx():
     return ctx
 
 
-@patch("plugin.scripting.optimize.insert_optimize_result_into_calc")
+@patch("plugin.calc.optimize.insert_optimize_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.optimize.run_trusted_optimize")
+@patch("plugin.calc.optimize.run_trusted_optimize")
 def test_optimize_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     inside = {"flag": False}
 
@@ -62,9 +62,9 @@ def test_optimize_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
     assert mock_insert.call_args.kwargs["start_row"] == 0
     mock_main_thread.assert_called_once()
 
-@patch("plugin.scripting.optimize.insert_optimize_result_into_calc")
+@patch("plugin.calc.optimize.insert_optimize_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.optimize.run_trusted_optimize")
+@patch("plugin.calc.optimize.run_trusted_optimize")
 def test_optimize_data_handles_complex_output_range(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "linear_programming"}
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -148,9 +148,9 @@ def test_optimize_data_describes_parameters():
     assert "minimum-variance" in tool.description.lower()
 
 
-@patch("plugin.scripting.optimize.insert_optimize_result_into_calc", side_effect=RuntimeError("disk full"))
+@patch("plugin.calc.optimize.insert_optimize_result_into_calc", side_effect=RuntimeError("disk full"))
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.optimize.run_trusted_optimize")
+@patch("plugin.calc.optimize.run_trusted_optimize")
 def test_optimize_sheet_write_failure_keeps_the_result(
     mock_run_trusted, mock_main_thread, mock_insert, calc_ctx
 ):

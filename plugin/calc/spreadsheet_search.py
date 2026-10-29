@@ -23,11 +23,6 @@ if TYPE_CHECKING:
 _HIT_TEXT_MAX = 200
 
 
-def _cell_address_str(cell: Any) -> str:
-    addr = cell.getCellAddress()
-    return format_address(addr.Column, addr.Row)
-
-
 def iter_target_sheets(doc: Any, *, all_sheets: bool, sheet_name: str | None = None) -> Iterator[tuple[Any, str]]:
     """Yield ``(sheet, name)`` pairs respecting the agent-visible sheet filter."""
     if all_sheets:
@@ -74,14 +69,13 @@ def search_spreadsheet_cells(
         # per hit. max_results still bounds the loop if findNext repeats.
         cell = sheet.findFirst(sd)
         while cell is not None:
-            if stop_checker and stop_checker():
-                return matches
-            if len(matches) >= max_results:
+            if (stop_checker and stop_checker()) or len(matches) >= max_results:
                 return matches
             value = cell.getString()
             if len(value) > _HIT_TEXT_MAX:
                 value = value[:_HIT_TEXT_MAX] + "…"
-            matches.append({"sheet": sname, "cell": _cell_address_str(cell), "value": value})
+            addr = cell.getCellAddress()
+            matches.append({"sheet": sname, "cell": format_address(addr.Column, addr.Row), "value": value})
             cell = sheet.findNext(cell, sd)
 
     return matches
