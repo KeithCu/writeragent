@@ -359,32 +359,26 @@ def _validate_source_text(raw: Any, *, limit: int, label: str, required: bool, m
         if max_bytes is not None and len(raw) > max_bytes:
             raise ExecuteRequestError(f"{label} exceeds max body size ({max_bytes} bytes).", code="CODE_TOO_LARGE")
         if len(raw) == 0:
-            if required:
-                raise ExecuteRequestError(f"Missing '{label}' string parameter.")
-            return None
-        try:
-            text = bytes(raw).decode("utf-8")
-        except UnicodeDecodeError:
-            raise ExecuteRequestError(f"Invalid UTF-8 in {label} part.")
-        if len(text) > limit:
-            raise ExecuteRequestError(f"{label} exceeds max_code_chars ({limit}).", code="CODE_TOO_LARGE")
-        return text
+            text: str | None = None
+        else:
+            try:
+                text = bytes(raw).decode("utf-8")
+            except UnicodeDecodeError:
+                raise ExecuteRequestError(f"Invalid UTF-8 in {label} part.")
+    elif isinstance(raw, str):
+        text = raw
+    elif raw is None:
+        text = None
+    else:
+        raise ExecuteRequestError(f"{label} must be text.")
 
-    if isinstance(raw, str):
-        if raw == "":
-            if required:
-                raise ExecuteRequestError(f"Missing '{label}' string parameter.")
-            return None
-        if len(raw) > limit:
-            raise ExecuteRequestError(f"{label} exceeds max_code_chars ({limit}).", code="CODE_TOO_LARGE")
-        return raw
-
-    if raw is None:
+    if text is None or text == "":
         if required:
             raise ExecuteRequestError(f"Missing '{label}' string parameter.")
         return None
-
-    raise ExecuteRequestError(f"{label} must be text.")
+    if len(text) > limit:
+        raise ExecuteRequestError(f"{label} exceeds max_code_chars ({limit}).", code="CODE_TOO_LARGE")
+    return text
 
 
 def _transfer_encoding_is_chunked(environ: dict[str, Any]) -> bool:
@@ -662,6 +656,7 @@ class _Admission:
 
     timeout_sec: float
     parsed: Any = None
+    req_id: Any = None
 
 
 def _admit_body(
@@ -685,7 +680,7 @@ def _admit_body(
             max_timeout_sec=settings.max_timeout_sec,
         )
     )
-    return _Admission(timeout_sec=timeout_sec, parsed=parts), None
+    return _Admission(timeout_sec=timeout_sec, parsed=parts, req_id=parts.req_id), None
 
 
 def _admit_reset(
@@ -698,7 +693,7 @@ def _admit_reset(
     if err is not None:
         return None, err
     assert data is not None
-    return _Admission(timeout_sec=float(settings.default_timeout_sec), parsed=data), None
+    return _Admission(timeout_sec=float(settings.default_timeout_sec), parsed=data, req_id=data.get("id")), None
 
 
 def _admit_vision(
@@ -716,7 +711,20 @@ def _admit_vision(
             "Vision / OCR service is not enabled on this instance (ocr_workers=0).",
             code="VISION_SERVICE_DISABLED",
         )
-    return _admit_body(environ, settings, start_response, default_timeout_sec=settings.ocr_timeout_sec, load=_load_vision_request)
+    return _admit_body(
+        environ,
+        settings,
+        start_response,
+        default_timeout_sec=settings.ocr_timeout_sec,
+        load=lambda env, st, start: _load_parts(
+            env,
+            st,
+            start,
+            parse_multipart_vision,
+            multipart_error="Invalid multipart vision body",
+            other_error="Invalid vision body",
+        ),
+    )
 
 
 def _gated(
@@ -764,7 +772,7 @@ def _gated(
             return prep_err
         assert admission is not None
 
-        req_id = admission.parsed.get("id") if isinstance(admission.parsed, dict) else admission.parsed.req_id
+        req_id = admission.req_id
 
         deadline = _request_deadline(environ.get("compute.accept_time"), admission.timeout_sec)
         remaining = deadline - time.monotonic()
@@ -786,43 +794,31 @@ def _gated(
         environ["compute.close_connection"] = True
         if started:
             return []
-        req_id = (
-            admission.parsed.get("id")
-            if admission is not None and isinstance(admission.parsed, dict)
-            else getattr(getattr(admission, "parsed", None), "req_id", None)
-        )
+        req_id = None if admission is None else admission.req_id
         return _error(_start, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR", req_id=req_id)
     finally:
         if acquired:
             semaphore.release()
 
 
-def _load_execute_request(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[ExecuteRequestParts | None, list[bytes] | None]:
-    """Read and peel an execute body."""
+def _load_parts(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+    parse: Callable[[bytes, str], Any],
+    *,
+    multipart_error: str,
+    other_error: str,
+) -> tuple[Any, list[bytes] | None]:
     raw_body, err_resp = _read_request_body(environ, settings, start_response)
     if err_resp is not None:
         return None, err_resp
     assert raw_body is not None
     content_type = environ.get("CONTENT_TYPE") or ""
     try:
-        parts = parse_execute_request(raw_body, content_type)
+        parts = parse(raw_body, content_type)
     except ExecuteRequestError:
-        err = "Invalid multipart execute body" if is_multipart_content_type(content_type) else "Invalid JSON"
-        return None, _error(start_response, "400 Bad Request", err)
-    return parts, None
-
-
-def _load_vision_request(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[VisionRequestParts | None, list[bytes] | None]:
-    """Read and boundary-scan a vision multipart body."""
-    raw_body, err_resp = _read_request_body(environ, settings, start_response)
-    if err_resp is not None:
-        return None, err_resp
-    assert raw_body is not None
-    content_type = environ.get("CONTENT_TYPE") or ""
-    try:
-        parts = parse_multipart_vision(raw_body, content_type)
-    except ExecuteRequestError:
-        err = "Invalid multipart vision body" if is_multipart_content_type(content_type) else "Invalid vision body"
+        err = multipart_error if is_multipart_content_type(content_type) else other_error
         return None, _error(start_response, "400 Bad Request", err)
     return parts, None
 
@@ -956,9 +952,7 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
 
 @dataclass(frozen=True, slots=True)
 class _Route:
-    path: str
     method: str
-    allow: str
     is_body_route: bool
     handler: Callable[[dict[str, Any], Any], list[bytes]]
 
@@ -1024,7 +1018,20 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             busy_code="WORKER_POOL_BUSY",
             busy_message="All compute workers are currently busy.",
             route_fn=lambda s, admission: _handle_execute(env, s, settings, _get_execute(), admission),
-            prepare=lambda s: _admit_body(env, settings, s, default_timeout_sec=settings.default_timeout_sec, load=_load_execute_request),
+            prepare=lambda s: _admit_body(
+                env,
+                settings,
+                s,
+                default_timeout_sec=settings.default_timeout_sec,
+                load=lambda env, st, start: _load_parts(
+                    env,
+                    st,
+                    start,
+                    parse_execute_request,
+                    multipart_error="Invalid multipart execute body",
+                    other_error="Invalid JSON",
+                ),
+            ),
         )
 
     def _enter_reset(env: dict[str, Any], start: Any) -> list[bytes]:
@@ -1052,13 +1059,10 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         )
 
     routes: dict[str, _Route] = {
-        r.path: r
-        for r in (
-            _Route("/health", "GET", "GET", False, _enter_health),
-            _Route("/v1/execute", "POST", "POST", True, _enter_execute),
-            _Route("/v1/session/reset", "POST", "POST", True, _enter_reset),
-            _Route("/v1/vision", "POST", "POST", True, _enter_vision),
-        )
+        "/health": _Route("GET", False, _enter_health),
+        "/v1/execute": _Route("POST", True, _enter_execute),
+        "/v1/session/reset": _Route("POST", True, _enter_reset),
+        "/v1/vision": _Route("POST", True, _enter_vision),
     }
 
     def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
@@ -1078,7 +1082,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             body = b"Method Not Allowed"
             start_response(
                 "405 Method Not Allowed",
-                [("Content-Type", "text/plain"), ("Content-Length", str(len(body))), ("Allow", route.allow)],
+                [("Content-Type", "text/plain"), ("Content-Length", str(len(body))), ("Allow", route.method)],
             )
             return [body]
 
@@ -1172,17 +1176,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
-    overrides = {
-        "host": args.host,
-        "port": args.port,
-        "workers": args.workers,
-        "worker_max_tasks": args.worker_max_tasks,
-        "ocr_workers": args.ocr_workers,
-        "ocr_timeout_sec": args.ocr_timeout_sec,
-        "ocr_max_tasks": args.ocr_max_tasks,
-        "api_key_file": args.api_key_file,
-        "log_level": args.log_level,
-    }
+    overrides = {key: value for key, value in vars(args).items() if key != "config_path"}
     try:
         settings = load_settings(overrides=overrides, config_path=args.config_path)
     except ConfigError as exc:

@@ -3352,7 +3352,7 @@ def test_run_with_logging_deadline_errors_before_headers() -> None:
         busy_code="WORKER_POOL_BUSY",
         busy_message="busy",
         route_fn=route_fn,
-        prepare=lambda _s: (_Admission(timeout_sec=5.0, parsed={"id": "early"}), None),
+        prepare=lambda _s: (_Admission(timeout_sec=5.0, parsed={"id": "early"}, req_id="early"), None),
     )
     assert calls == ["500 Internal Server Error"]
     assert b"INTERNAL_ERROR" in b"".join(body)
