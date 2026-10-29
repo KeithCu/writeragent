@@ -53,8 +53,6 @@ class GrepNearbyFiles(ToolBase):
             return self._tool_error("pattern is required")
 
         file_subset = kwargs.get("file_subset")
-        regex = bool(kwargs.get("regex", False))
-        case_sensitive = bool(kwargs.get("case_sensitive", False))
 
         return grep_nearby_files(
             ctx.ctx,
@@ -62,8 +60,8 @@ class GrepNearbyFiles(ToolBase):
             ctx.services,
             str(pattern),
             file_subset=str(file_subset) if file_subset else None,
-            regex=regex,
-            case_sensitive=case_sensitive,
+            regex=bool(kwargs.get("regex", False)),
+            case_sensitive=bool(kwargs.get("case_sensitive", False)),
             stop_checker=ctx.stop_checker,
             status_callback=ctx.status_callback,
         )
