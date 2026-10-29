@@ -86,7 +86,6 @@ class SheetRepairResult:
     """Patch list + post-repair map for one sheet."""
 
     skipped: bool
-    skip_reason: str | None
     patches: tuple[GeometricPatch, ...]
     records: dict[str, GeometricRecord]
     sheet_name: str = ""
@@ -98,14 +97,24 @@ def local_a1(address: str) -> str:
     return rest.replace("$", "").strip().upper()
 
 
+def _parse_local(address: str) -> tuple[int, int] | None:
+    local = local_a1(address)
+    if not local:
+        return None
+    try:
+        return parse_address(local)
+    except (TypeError, ValueError):
+        return None
+
+
 def same_cell_ref(left: str, right: str) -> bool:
     """True when two formula tokens name the same cell (``$`` / sheet ignored)."""
     return bool(left) and bool(right) and local_a1(left) == local_a1(right)
 
 
 def _local_ref_on_sheet(token: str, sheet_name: str | None) -> str | None:
-    sheet, rest = split_sheet_prefix(token or "")
-    local = rest.replace("$", "").strip().upper()
+    sheet, _rest = split_sheet_prefix(token or "")
+    local = local_a1(token)
     if not local:
         return None
     if sheet and (sheet_name is None or sheet.casefold() != sheet_name.casefold()):
@@ -126,29 +135,6 @@ def _arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None)
     c_lo, c_hi = (c0, c1) if c0 <= c1 else (c1, c0)
     r_lo, r_hi = (r0, r1) if r0 <= r1 else (r1, r0)
     return c_lo <= tcol <= c_hi and r_lo <= trow <= r_hi
-
-
-def formula_mentions_cell(formula: str, address: str, *, sheet_name: str | None = None) -> bool:
-    """True when *formula* has a one-hop Calc ref to *address* (Err:522 risk).
-
-    Checks trailing ``=PY`` data args (cell or range) and an unquoted
-    code-in-cell token. Does not parse Python source for ``xl("A2")``.
-    """
-    target = local_a1(address)
-    if not target or not formula:
-        return False
-    args = formula_data_args(formula)
-    if args is None:
-        return False
-    if any(_arg_covers_cell(arg, target, sheet_name=sheet_name) for arg in args):
-        return True
-    if py_formula_has_unquoted_code_ref(formula):
-        parts = parse_python_formula(formula)
-        if parts is not None:
-            code_local = _local_ref_on_sheet(parts.code, sheet_name)
-            if code_local is not None and code_local == target:
-                return True
-    return False
 
 
 def formula_data_args(formula: str) -> list[str] | None:
@@ -274,6 +260,19 @@ def _neighbors(tokens: list[str], live_keys: set[str], sheet_name: str) -> set[s
     }
 
 
+def _adj_for(
+    formula: str,
+    args: list[str] | None,
+    live_keys: set[str],
+    sheet_name: str,
+) -> set[str]:
+    tokens = list(args or [])
+    ref_tok = _code_ref_token(formula)
+    if ref_tok:
+        tokens.append(ref_tok)
+    return _neighbors(tokens, live_keys, sheet_name)
+
+
 def _reaches(start: str, target: str, adj: Mapping[str, set[str]]) -> bool:
     stack, seen = [start], set()
     while stack:
@@ -312,10 +311,10 @@ def _plan_cell(
 
 def _a1_shift(address: str, dcol: int, drow: int) -> str | None:
     """Apply a col/row delta to a sheet-local A1 token. ``None`` if unusable."""
-    try:
-        col, row = parse_address(local_a1(address))
-    except (TypeError, ValueError):
+    parsed = _parse_local(address)
+    if parsed is None:
         return None
+    col, row = parsed
     ncol, nrow = col + dcol, row + drow
     if ncol < 0 or nrow < 0:
         return None
@@ -327,11 +326,12 @@ def _a1_shift(address: str, dcol: int, drow: int) -> str | None:
 
 def _rule2_candidate_score(old: str, rec: GeometricRecord, live: str, desired: str) -> tuple[int, int] | None:
     """``pred + (live − old)`` equals *desired* — the cell moved with its formula."""
-    try:
-        ocol, orow = parse_address(local_a1(old))
-        lcol, lrow = parse_address(local_a1(live))
-    except (TypeError, ValueError):
+    parsed_old = _parse_local(old)
+    parsed_live = _parse_local(live)
+    if parsed_old is None or parsed_live is None:
         return None
+    ocol, orow = parsed_old
+    lcol, lrow = parsed_live
     dcol, drow = lcol - ocol, lrow - orow
     if not (dcol or drow):
         return None
@@ -454,9 +454,7 @@ def _rehome_or_keep_record(
             log.debug("geometric_recalc: no homeless match for %s (desired %s); not recording", key, desired)
         return
     consumed.add(chosen)
-    if chosen != key and working.get(chosen) is incoming.get(chosen):
-        working.pop(chosen, None)
-    elif chosen not in live_keys:
+    if (chosen != key and working.get(chosen) is incoming.get(chosen)) or chosen not in live_keys:
         working.pop(chosen, None)
     if key in incoming and key != chosen and key not in consumed:
         evicted.add(key)
@@ -466,7 +464,6 @@ def _rehome_or_keep_record(
 
 def compute_eval_index(
     cells: list[GeometricCell],
-    formulas: Mapping[str, str],
     records: Mapping[str, GeometricRecord],
     workbook_key: str,
 ) -> frozenset[EvalIndexKey]:
@@ -478,43 +475,24 @@ def compute_eval_index(
     then mark the group strip-safe after the user replaced the attached
     predecessor with real data, and that data would be stripped.
     """
-    cell_by_addr = {cell.address: cell for cell in cells}
-    groups: dict[EvalIndexKey, list[str]] = {}
-    for cell in cells:
-        formula = formulas.get(cell.address, cell.formula)
-        key = EvalIndexKey(workbook_key, cell.resolved_code, repair_n_args(formula))
-        groups.setdefault(key, []).append(cell.address)
-
-    def _is_ours(addr: str) -> bool:
+    def _is_ours(addr: str, args: list[str] | None) -> bool:
         rec = records.get(addr)
-        if rec is None:
-            return False
-        formula = formulas.get(addr, cell_by_addr[addr].formula)
-        args = formula_data_args(formula)
-        if not args:
+        if rec is None or not args:
             return False
         return _last_matches(args, rec.predecessor)
 
+    groups: dict[EvalIndexKey, list[tuple[str, list[str] | None]]] = {}
+    for cell in cells:
+        args = formula_data_args(cell.formula)
+        n_args = 0 if args is None else len(args)
+        key = EvalIndexKey(workbook_key, cell.resolved_code, n_args)
+        groups.setdefault(key, []).append((cell.address, args))
+
     safe: set[EvalIndexKey] = set()
-    for key, addrs in groups.items():
-        if addrs and all(_is_ours(addr) for addr in addrs):
+    for key, items in groups.items():
+        if all(_is_ours(addr, args) for addr, args in items):
             safe.add(key)
     return frozenset(safe)
-
-
-def should_strip_eval_args(
-    *,
-    workbook_key: str | None,
-    resolved_code: str,
-    n_args: int,
-    strip_safe: frozenset[EvalIndexKey] | set[EvalIndexKey],
-    unambiguous: bool,
-) -> bool:
-    """Eval gate: strip only when the session is unambiguous and the triple is ours."""
-    if not unambiguous or not workbook_key:
-        return False
-    key = EvalIndexKey(workbook_key, resolved_code, n_args)
-    return key in strip_safe
 
 
 def compute_sheet_repair(
@@ -527,14 +505,13 @@ def compute_sheet_repair(
     """List-diff + splice for one sheet. No UNO.
 
     *cells* must already be row-major. Cap-hit (*truncated*) skips the whole
-    sheet: no patches and skip_reason="discovery_cap".
+    sheet: skipped=True, empty patches, and the incoming records.
     An exact 100 with ``truncated=False`` is chained.
     """
-    incoming = {local_a1(k): v for k, v in dict(records or {}).items()}
+    incoming = {local_a1(k): v for k, v in (records or {}).items()}
     if truncated:
         return SheetRepairResult(
             skipped=True,
-            skip_reason="discovery_cap",
             patches=(),
             records=dict(incoming),
             sheet_name=sheet_name,
@@ -546,16 +523,10 @@ def compute_sheet_repair(
     data_args_by_key = {
         local_a1(cell.address): formula_data_args(cell.formula) for cell in cells
     }
-    code_refs: dict[str, str | None] = {}
     adj: dict[str, set[str]] = {}
     for cell in cells:
         key = local_a1(cell.address)
-        code_ref = _code_ref_token(cell.formula)
-        code_refs[key] = code_ref
-        tokens = list(data_args_by_key.get(key) or [])
-        if code_ref:
-            tokens.append(code_ref)
-        adj[key] = _neighbors(tokens, live_keys, sheet_name)
+        adj[key] = _adj_for(cell.formula, data_args_by_key.get(key), live_keys, sheet_name)
 
     desired_by_key: dict[str, str | None] = {}
     for i, cell in enumerate(cells):
@@ -564,7 +535,7 @@ def compute_sheet_repair(
     evicted: set[str] = set()
     rule2_claimed = _collect_rule2_claimed(cells, incoming, live_keys, desired_by_key, data_args_by_key)
 
-    for i, cell in enumerate(cells):
+    for cell in cells:
         key = local_a1(cell.address)
         data_args = data_args_by_key.get(key)
         if data_args is None:
@@ -605,11 +576,7 @@ def compute_sheet_repair(
                 predecessor=desired,
             )
         )
-        tokens = list(new_args)
-        ref_tok = code_refs.get(key)
-        if ref_tok:
-            tokens.append(ref_tok)
-        adj[key] = _neighbors(tokens, live_keys, sheet_name)
+        adj[key] = _adj_for(cell.formula, new_args, live_keys, sheet_name)
         if action == "remove":
             working.pop(key, None)
         elif desired is not None:
@@ -620,7 +587,6 @@ def compute_sheet_repair(
 
     return SheetRepairResult(
         skipped=False,
-        skip_reason=None,
         patches=tuple(patches),
         records=working,
         sheet_name=sheet_name,

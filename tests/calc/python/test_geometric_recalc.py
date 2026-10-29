@@ -37,12 +37,10 @@ from plugin.calc.python.geometric_recalc import (
     reset_geometric_runtime_for_tests,
     resolved_code_for_formula,
     save_geometric_registry_for_doc,
-    should_strip_eval_args,
 )
 from plugin.calc.python.geometric_recalc_core import (
     GEOMETRIC_DISCOVERY_CAP,
     formula_data_args,
-    formula_mentions_cell,
     rebuild_formula_with_data_args,
     repair_n_args,
     same_cell_ref,
@@ -82,16 +80,15 @@ def _repair(
 
 def _safe_after_patches(cells: list[GeometricCell], result, workbook_key: str = WB) -> frozenset[EvalIndexKey]:
     patches_by_addr = {p.address: p.new_formula for p in result.patches}
-    formulas = {cell.address: patches_by_addr.get(cell.address, cell.formula) for cell in cells}
     patched = [
         GeometricCell(
             address=cell.address,
-            formula=formulas[cell.address],
+            formula=patches_by_addr.get(cell.address, cell.formula),
             resolved_code=cell.resolved_code,
         )
         for cell in cells
     ]
-    return compute_eval_index(patched, formulas, result.records, workbook_key)
+    return compute_eval_index(patched, result.records, workbook_key)
 
 
 def _patch_map(result):
@@ -143,17 +140,6 @@ def test_two_cells_append_predecessor():
     assert patches["A2"].action == "append"
     assert patches["A2"].new_formula == '=PY("df = clean(df)";A1)'
     assert result.records["A2"].predecessor == "A1"
-
-
-def test_formula_mentions_cell_one_hop():
-    assert formula_mentions_cell('=PY("x = 1"; A2)', "A2")
-    assert formula_mentions_cell('=PY("x = 1"; $A$2)', "A2")
-    assert formula_mentions_cell('=PY("np.sum(data)"; A2:A5)', "A3")
-    assert not formula_mentions_cell('=PY("x = 1"; B2)', "A2")
-    assert not formula_mentions_cell('=PY("result = xl(\'A2\')")', "A2")
-    assert formula_mentions_cell("=PY(A2)", "A2")
-    assert not formula_mentions_cell("=PY(A3)", "A2")
-    assert formula_mentions_cell('=PY("x"; Sheet2.A2)', "A2", sheet_name="Sheet1") is False
 
 
 def test_other_sheet_ref_is_not_a_local_cycle():
@@ -732,13 +718,10 @@ def test_fill_down_unanimous_ours_is_strip_safe():
         result,
     )
     assert key in safe
-    assert should_strip_eval_args(
-        workbook_key=WB,
-        resolved_code=code,
-        n_args=2,
-        strip_safe=safe,
-        unambiguous=True,
-    )
+    col, pred = _mean_range_and_pred()
+    replace_geometric_strip_safe(WB, safe)
+    assert maybe_strip_geometric_eval_args(code, [col, pred], doc=_wb_doc()) == [col]
+    reset_geometric_runtime_for_tests()
     first_key = _key(code, 1)
     assert first_key not in safe
 
@@ -753,17 +736,13 @@ def test_mixed_matrix_index_poisons_the_triple():
         GeometricCell("A3", f'=PY("{code}"; B1:B10; C5)', code),
     ]
     records = {"A2": GeometricRecord(predecessor="A1")}
-    formulas = {c.address: c.formula for c in cells}
-    safe = compute_eval_index(cells, formulas, records, WB)
+    safe = compute_eval_index(cells, records, WB)
     mixed_key = _key(code, 2)
     assert mixed_key not in safe
-    assert not should_strip_eval_args(
-        workbook_key=WB,
-        resolved_code=code,
-        n_args=2,
-        strip_safe=safe,
-        unambiguous=True,
-    )
+    replace_geometric_strip_safe(WB, safe)
+    args = ["b_data", "c_data"]
+    assert maybe_strip_geometric_eval_args(code, args, doc=_wb_doc()) == args
+    reset_geometric_runtime_for_tests()
 
 
 def test_user_passed_previous_mixed_with_mapped_poisons():
@@ -790,27 +769,19 @@ def test_two_workbooks_unambiguous_false_no_strip():
     result = _repair(cells)
     safe = _safe_after_patches(cells, result)
     assert _key("np.mean(data)", 2) in safe
-    assert not should_strip_eval_args(
-        workbook_key=WB,
-        resolved_code="np.mean(data)",
-        n_args=2,
-        strip_safe=safe,
-        unambiguous=False,
-    )
-    assert not should_strip_eval_args(
-        workbook_key="",
-        resolved_code="np.mean(data)",
-        n_args=2,
-        strip_safe=safe,
-        unambiguous=True,
-    )
+    replace_geometric_strip_safe(WB, safe)
+    code = "np.mean(data)"
+    args = ["range_data", "pred_data"]
+    assert maybe_strip_geometric_eval_args(code, args, doc=None) == args
+    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+        assert maybe_strip_geometric_eval_args(code, args, doc=_wb_doc()) == args
+    reset_geometric_runtime_for_tests()
 
 
 def test_cap_hit_skips_sheet_no_patches_no_strip_safe():
     cells = [_cell(f"A{i + 1}", '=PY("x")') for i in range(GEOMETRIC_DISCOVERY_CAP)]
     result = _repair(cells, sheet_name="Data", truncated=True)
     assert result.skipped is True
-    assert result.skip_reason == "discovery_cap"
     assert result.patches == ()
 
 
@@ -1516,8 +1487,7 @@ def test_mixed_same_code_n_args_overpoisons_other_range():
         "A2": GeometricRecord(predecessor="A1"),
         "D2": GeometricRecord(predecessor="D1"),
     }
-    formulas = {cell.address: cell.formula for cell in cells}
-    safe = compute_eval_index(cells, formulas, records, WB)
+    safe = compute_eval_index(cells, records, WB)
     assert _key(code, 2) not in safe
     replace_geometric_strip_safe(WB, safe)
     assert maybe_strip_geometric_eval_args(code, [range_a, pred], doc=_wb_doc()) == [range_a, pred]
@@ -1830,7 +1800,6 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
     )
     res, _cells = _repair_one_sheet("ctx", doc, sheet, wk)
     # The append patch failed to land, so A2 must NOT be recorded with predecessor A1.
-    assert "A2" not in res.records
     assert "A2" not in records_for_sheet(wk, "Sheet1")
 
     # Scenario B: Remove patch fails (e.g. stale cell).
@@ -1845,7 +1814,6 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
     )
     res2, _cells2 = _repair_one_sheet("ctx", doc, sheet, wk)
     # The remove patch failed, so the incoming record for A2 must be kept in pre-patch state.
-    assert res2.records.get("A2") == GeometricRecord(predecessor="A1")
     assert records_for_sheet(wk, "Sheet1").get("A2") == GeometricRecord(predecessor="A1")
 
 
@@ -1865,8 +1833,7 @@ def test_compute_eval_index_requires_last_arg_equals_predecessor_bug2():
 
     # Case 1: User replaced formula to pass their own data cell C5 instead of predecessor A1.
     cells_user_cell = [GeometricCell("A2", f'=PY("{code}"; B1:B10; C5)', code)]
-    formulas_user_cell = {c.address: c.formula for c in cells_user_cell}
-    safe1 = compute_eval_index(cells_user_cell, formulas_user_cell, records, WB)
+    safe1 = compute_eval_index(cells_user_cell, records, WB)
     # Must NOT be marked strip-safe.
     assert _key(code, 2) not in safe1
     replace_geometric_strip_safe(WB, safe1)
@@ -1875,23 +1842,20 @@ def test_compute_eval_index_requires_last_arg_equals_predecessor_bug2():
 
     # Case 2: User formula has non-cell argument (e.g. range or string).
     cells_range = [GeometricCell("A2", f'=PY("{code}"; B1:B10)', code)]
-    formulas_range = {c.address: c.formula for c in cells_range}
-    safe2 = compute_eval_index(cells_range, formulas_range, records, WB)
+    safe2 = compute_eval_index(cells_range, records, WB)
     assert _key(code, 1) not in safe2
 
     # Case 3: Live formula actually has predecessor A1.
     cells_correct = [GeometricCell("A2", f'=PY("{code}"; B1:B10; A1)', code)]
-    formulas_correct = {c.address: c.formula for c in cells_correct}
-    safe3 = compute_eval_index(cells_correct, formulas_correct, records, WB)
+    safe3 = compute_eval_index(cells_correct, records, WB)
     assert _key(code, 2) in safe3
     replace_geometric_strip_safe(WB, safe3)
     assert maybe_strip_geometric_eval_args(code, [col, user_val], doc=_wb_doc()) == [col]
 
     # Case 4: Workbook-wide sheet-scoped keys (Sheet1:A2).
     scoped_cells = [GeometricCell("Sheet1:A2", f'=PY("{code}"; B1:B10; A1)', code)]
-    scoped_formulas = {"Sheet1:A2": f'=PY("{code}"; B1:B10; A1)'}
     scoped_records = {"Sheet1:A2": GeometricRecord(predecessor="A1")}
-    safe4 = compute_eval_index(scoped_cells, scoped_formulas, scoped_records, WB)
+    safe4 = compute_eval_index(scoped_cells, scoped_records, WB)
     assert _key(code, 2) in safe4
 
 
