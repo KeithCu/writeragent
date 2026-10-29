@@ -36,14 +36,6 @@ def compile_search_pattern(
         raise ValueError(f"Invalid regex: {e}") from e
 
 
-def _build_paragraph_match(text: str, para_idx: int, ctx_paras: int, para_count: int, para_texts: list[str]) -> dict[str, Any]:
-    """Build a single match result with context paragraphs."""
-    ctx_lo = max(0, para_idx - ctx_paras)
-    ctx_hi = min(para_count, para_idx + ctx_paras + 1)
-    context = [{"index": j, "text": para_texts[j]} for j in range(ctx_lo, ctx_hi)]
-    return {"text": text, "paragraph_index": para_idx, "context": context}
-
-
 def search_paragraph_texts(
     pattern: str,
     para_texts: list[str],
@@ -53,39 +45,33 @@ def search_paragraph_texts(
     max_results: int = 20,
     context_paragraphs: int = 1,
     stop_checker: Any = None,
-) -> tuple[list[dict[str, Any]], int]:
-    """Search *para_texts* for *pattern*; return (matches up to max_results, hits found up to max_results + 1).
+) -> tuple[list[dict[str, Any]], bool]:
+    """Search *para_texts* for *pattern*; return (matches up to max_results, truncated).
 
-    The search stops scanning paragraphs once hits reach max_results + 1 because callers
-    detect truncation with count > len(matches).
+    truncated is True when another hit exists beyond the returned matches.
+    The scan stops on that extra hit. A stop_checker break is not truncation.
     """
     if not pattern:
-        return [], 0
+        return [], False
 
     para_count = len(para_texts)
     compiled = compile_search_pattern(pattern, regex=regex, case_sensitive=case_sensitive)
-
     matches: list[dict[str, Any]] = []
-    found_count = 0
-    # Stop scanning paragraphs once we hit max_results + 1. Previously, the loop scanned the entire
-    # document to count all occurrences even when matches was already full. Since callers only
-    # check count > len(matches) to detect truncation, capping at max_results + 1 saves scanning large docs.
-    scan_limit = max_results + 1
 
     for i, ptext in enumerate(para_texts):
         if stop_checker and stop_checker():
             break
         if not ptext:
             continue
-
         for m in compiled.finditer(ptext):
-            found_count += 1
-            if len(matches) < max_results:
-                matches.append(_build_paragraph_match(m.group(), i, context_paragraphs, para_count, para_texts))
-            if found_count >= scan_limit:
-                return matches, found_count
+            if len(matches) >= max_results:
+                return matches, True
+            ctx_lo = max(0, i - context_paragraphs)
+            ctx_hi = min(para_count, i + context_paragraphs + 1)
+            context = [{"index": j, "text": para_texts[j]} for j in range(ctx_lo, ctx_hi)]
+            matches.append({"text": m.group(), "paragraph_index": i, "context": context})
 
-    return matches, found_count
+    return matches, False
 
 
 # Same service string as text_helpers.build_heading_tree and document_research_grep.
@@ -128,23 +114,13 @@ def _anchor_contains_point(text_obj: Any, match_start: Any, element: Any) -> boo
     Used only for non-paragraph slots (tables). The element itself is not an
     ``XTextRange``; its anchor is.
     """
-    get_anchor = getattr(element, "getAnchor", None)
-    if not callable(get_anchor):
-        return False
-
     def _check() -> bool:
-        anchor = get_anchor()
-        # getattr: the anchor is an untyped UNO object. Direct getStart/getEnd
-        # access is an unknown attribute to the type checker.
-        get_start = getattr(anchor, "getStart", None)
-        get_end = getattr(anchor, "getEnd", None)
-        if not callable(get_start) or not callable(get_end):
-            return False
+        anchor = element.getAnchor()
         # compareRegionStarts: 1 if the first starts before the second, 0 if equal, -1 if after.
-        cmp_start = text_obj.compareRegionStarts(match_start, get_start())
+        cmp_start = text_obj.compareRegionStarts(match_start, anchor.getStart())
         if cmp_start > 0:
             return False
-        cmp_end = text_obj.compareRegionStarts(match_start, get_end())
+        cmp_end = text_obj.compareRegionStarts(match_start, anchor.getEnd())
         return cmp_end >= 0
 
     return uno_probe(_check, False)
@@ -164,9 +140,7 @@ def _index_outside_paragraphs(
     between those paragraphs is the table's enumeration index. Returns None
     when the point is in no paragraph or table slot.
     """
-    if not para_ranges:
-        return None
-    prev_enum = entries[low - 1][0] if entries and low > 0 else -1
+    prev_enum = entries[low - 1][0] if low > 0 else -1
     next_enum = entries[low][0] if low < len(entries) else len(para_ranges)
     slots = range(prev_enum + 1, next_enum)
     if len(slots) == 1:
@@ -194,12 +168,9 @@ def find_paragraph_for_range(
 
     Binary search calls ``getStart`` / ``getEnd`` only on
     ``com.sun.star.text.Paragraph`` elements. ``SwXTextTable`` is
-    not an ``XTextRange``. The attribute lookup happens before
-    ``safe_call``, so it raises ``AttributeError`` (callers that
-    catch ``Exception`` then drop the index and omit the index). The
-    returned index is still the full-enumeration index (tables
-    keep their slots). A point in the gap between paragraphs maps
-    to that slot.
+    not an ``XTextRange``. The returned index is still the
+    full-enumeration index (tables keep their slots). A point in the
+    gap between paragraphs maps to that slot.
     """
     try:
         if text_obj is None:
@@ -264,24 +235,15 @@ def _anchor_is_at_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para
     """
     if para_idx < 0 or para_idx >= len(para_ranges):
         return False
-    get_start = getattr(anchor, "getStart", None)
-    if not callable(get_start):
-        return False
-    match_start = uno_probe(get_start, None)
-    if match_start is None:
-        return False
     element = para_ranges[para_idx]
 
     def _test() -> bool:
+        match_start = anchor.getStart()
+        if match_start is None:
+            return False
         if _is_text_paragraph(element):
-            compare = getattr(text_obj, "compareRegionStarts", None)
-            if not callable(compare):
-                return False
-            # compareRegionStarts is untyped UNO. Only an int is a region test:
-            # 1 when the first position starts before the second, 0 when equal,
-            # -1 when after.
-            cmp_start = compare(match_start, element.getStart())
-            cmp_end = compare(match_start, element.getEnd())
+            cmp_start = text_obj.compareRegionStarts(match_start, element.getStart())
+            cmp_end = text_obj.compareRegionStarts(match_start, element.getEnd())
             if isinstance(cmp_start, bool) or not isinstance(cmp_start, int):
                 return False
             if isinstance(cmp_end, bool) or not isinstance(cmp_end, int):
