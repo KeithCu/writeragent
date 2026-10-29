@@ -652,8 +652,8 @@ def test_maybe_export_skips_without_py_cells(tmp_path: Path):
     empty = ConversionReport(direction="excel", cells=[])
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
-        patch("plugin.calc.excel_py_convert.convert.convert_uno_doc_to_excel", return_value=empty),
-        patch("plugin.calc.excel_py_convert.convert.write_excel_python_xlsx") as write_xlsx,
+        patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=empty),
+        patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as write_xlsx,
     ):
         assert maybe_export_excel_py_on_save(MagicMock(), doc) is False
         write_xlsx.assert_not_called()
@@ -681,8 +681,8 @@ def test_maybe_export_writes_native_package(tmp_path: Path):
     )
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
-        patch("plugin.calc.excel_py_convert.convert.convert_uno_doc_to_excel", return_value=report),
-        patch("plugin.calc.excel_py_convert.convert.write_excel_python_xlsx") as write_xlsx,
+        patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
+        patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as write_xlsx,
         patch("plugin.calc.excel_py_convert.auto_open.has_excel_python_xlsx", return_value=True),
     ):
         assert maybe_export_excel_py_on_save(MagicMock(), doc) is True
@@ -716,9 +716,9 @@ def test_maybe_export_msgbox_on_failure(tmp_path: Path):
     try:
         with (
             patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
-            patch("plugin.calc.excel_py_convert.convert.convert_uno_doc_to_excel", return_value=report),
+            patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
             patch(
-                "plugin.calc.excel_py_convert.convert.write_excel_python_xlsx",
+                "plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx",
                 side_effect=ValueError("boom"),
             ),
             patch("plugin.chatbot.dialogs.msgbox") as box,
@@ -798,8 +798,8 @@ def test_convert_uno_doc_to_excel_max_scan_refuses_export(tmp_path: Path):
     path.touch()
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
-        patch("plugin.calc.excel_py_convert.convert.convert_uno_doc_to_excel", return_value=report),
-        patch("plugin.calc.excel_py_convert.convert.write_excel_python_xlsx") as mock_write,
+        patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
+        patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as mock_write,
         patch("plugin.chatbot.dialogs.msgbox") as box,
     ):
         assert maybe_export_excel_py_on_save(ctx, doc) is False
@@ -861,8 +861,8 @@ def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
     path.touch()
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
-        patch("plugin.calc.excel_py_convert.convert.convert_uno_doc_to_excel", return_value=report),
-        patch("plugin.calc.excel_py_convert.convert.write_excel_python_xlsx") as mock_write,
+        patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
+        patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as mock_write,
         patch("plugin.chatbot.dialogs.msgbox") as box,
     ):
         assert maybe_export_excel_py_on_save(ctx, doc) is False
@@ -870,10 +870,14 @@ def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
         box.assert_called_once()
 
 
-def test_convert_uno_doc_to_excel_bank_sheet_cached_once():
+def test_convert_uno_doc_to_excel_bank_sheet_cached_once(monkeypatch):
     """Multiple banked cells on a sheet perform string lookup from cached bank map."""
+    from types import SimpleNamespace
+
+    from com.sun.star.sheet import CellFlags
     from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
 
+    monkeypatch.setattr(CellFlags, "STRING", 4, raising=False)
     doc = CalcDocStub()
     sheets = doc.getSheets()
     sheets.insertNewByName("py_code_Sheet1", sheets.getCount())
@@ -884,6 +888,12 @@ def test_convert_uno_doc_to_excel_bank_sheet_cached_once():
     sheet = sheets.getByName("Sheet1")
     sheet.getCellRangeByName("B2").setFormula("=PY(py_code_Sheet1.B2)")
     sheet.getCellRangeByName("C3").setFormula("=PY(py_code_Sheet1.C3)")
+
+    bank_range = bank.getCellRangeByName("B2:C3")
+    bank.queryContentCells = lambda _flags=0: SimpleNamespace(
+        getCount=lambda: 1,
+        getByIndex=lambda _idx: bank_range,
+    )
 
     with patch.object(bank, "getCellRangeByName", wraps=bank.getCellRangeByName) as spy_get_cell:
         report = convert_uno_doc_to_excel(doc)

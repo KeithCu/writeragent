@@ -107,6 +107,7 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
     added_defined_names: list[str] = []
     overwritten_bank_strings: list[tuple[Any, str, str]] = []
     overwritten_formulas: list[tuple[Any, str, str]] = []
+    named_ranges = getattr(doc, "NamedRanges", None)
 
     def _rollback() -> list[str]:
         failed: list[str] = []
@@ -122,7 +123,6 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
             except Exception as exc:
                 log.warning("excel_py apply: rollback setString failed for %s: %s", a1, exc)
                 failed.append(f"rollback incomplete: setString {a1}: {exc}")
-        named_ranges = getattr(doc, "NamedRanges", None)
         if named_ranges is not None and hasattr(named_ranges, "removeByName"):
             for name in reversed(added_defined_names):
                 try:
@@ -150,7 +150,6 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
                 inserted_sheets.append(code_sheet)
             bank_sheet = sheets.getByName(code_sheet)
 
-            named_ranges = getattr(doc, "NamedRanges", None)
             if named_ranges is not None:
                 expected_def = bank_defined_name_for(code_sheet)
                 if hasattr(named_ranges, "hasByName") and not named_ranges.hasByName(expected_def):

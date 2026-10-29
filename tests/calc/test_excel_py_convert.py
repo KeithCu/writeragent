@@ -13,7 +13,7 @@ from xml.etree import ElementTree as ET
 import pytest
 
 from plugin.calc.excel_py_convert.auto_open import has_excel_python_xlsx
-from plugin.calc.excel_py_convert.convert import convert_to_excel, write_dag_formulas_xlsx, write_excel_python_xlsx
+from plugin.calc.excel_py_convert.convert import convert_to_excel
 from plugin.calc.excel_py_convert.models import (
     ConvertedCell,
     ConversionReport,
@@ -52,7 +52,11 @@ from plugin.calc.excel_py_convert.to_excel import (
     rewrite_dag_code_to_excel,
     xlws_py_formula,
 )
-from plugin.calc.excel_py_convert.xlsx_write import python_scripts_xml
+from plugin.calc.excel_py_convert.xlsx_write import (
+    python_scripts_xml,
+    write_dag_formulas_xlsx,
+    write_excel_python_xlsx,
+)
 from plugin.calc.python.formula_edit import (
     escape_code_for_excel_formula,
     escape_code_for_formula,
@@ -1582,7 +1586,7 @@ def test_script_bank_truncation_collision_raises():
 
 def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
     """write_dag_formulas_xlsx must close the openpyxl workbook in try/finally on all errors."""
-    from plugin.calc.excel_py_convert.convert import write_dag_formulas_xlsx
+    from plugin.calc.excel_py_convert.xlsx_write import write_dag_formulas_xlsx
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
     src = tmp_path / "dag_src.xlsx"
@@ -1606,7 +1610,7 @@ def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
 
 def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
     """Temporary files (.tmprewrite, .tmpexcelpy) must be cleaned up on exception."""
-    from plugin.calc.excel_py_convert.convert import write_excel_python_xlsx
+    from plugin.calc.excel_py_convert.xlsx_write import write_excel_python_xlsx
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
     src = tmp_path / "temp_clean_src.xlsx"
@@ -1648,7 +1652,7 @@ def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
 def test_write_excel_python_xlsx_patched_empty_element(tmp_path: Path):
     """write_excel_python_xlsx must not treat an Element with 0 children as falsy."""
     from xml.etree import ElementTree as ET
-    from plugin.calc.excel_py_convert.convert import write_excel_python_xlsx
+    from plugin.calc.excel_py_convert.xlsx_write import write_excel_python_xlsx
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
     # Minimal xlsx

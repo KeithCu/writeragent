@@ -69,19 +69,12 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
                 rng = string_cells.getByIndex(idx)
                 addr = rng.getRangeAddress()
                 _collect_data_array_strings(rng, addr, cached)
-        if not cached:
-            cells_attr = getattr(bank_sheet, "_cells", None)
-            if isinstance(cells_attr, dict):
-                for (c, r), cell in cells_attr.items():
-                    s = str(cell.getString() if hasattr(cell, "getString") else "")
-                    if s.strip():
-                        cached[f"{index_to_column(c)}{r + 1}"] = s
-            elif hasattr(bank_sheet, "createCursor"):
-                cursor = bank_sheet.createCursor()
-                cursor.gotoStartOfUsedArea(False)
-                cursor.gotoEndOfUsedArea(True)
-                addr = cursor.getRangeAddress()
-                _collect_data_array_strings(cursor, addr, cached)
+        if not cached and hasattr(bank_sheet, "createCursor"):
+            cursor = bank_sheet.createCursor()
+            cursor.gotoStartOfUsedArea(False)
+            cursor.gotoEndOfUsedArea(True)
+            addr = cursor.getRangeAddress()
+            _collect_data_array_strings(cursor, addr, cached)
         bank_cache[sheet_key] = cached
         return cached
 

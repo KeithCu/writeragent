@@ -161,7 +161,7 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
             return False
         try:
             from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
-            from plugin.calc.excel_py_convert.convert import convert_to_dag
+            from plugin.calc.excel_py_convert.convert import convert_to_dag, store_dag_meta_on_doc
 
             report = convert_to_dag(path)
             if not report.ok:
@@ -176,7 +176,6 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
             if errors:
                 log.warning("excel_py auto-open: UNO apply failed (leaving formulas as imported) for %s: %s", path, "; ".join(errors))
                 return False
-            from plugin.calc.excel_py_convert.convert import store_dag_meta_on_doc
 
             try:
                 store_dag_meta_on_doc(doc, report)
@@ -218,7 +217,8 @@ def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
         if not acquired:
             return False
         try:
-            from plugin.calc.excel_py_convert.convert import convert_uno_doc_to_excel, write_excel_python_xlsx
+            from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
+            from plugin.calc.excel_py_convert.xlsx_write import write_excel_python_xlsx
 
             report = convert_uno_doc_to_excel(doc)
             if not report.ok:
