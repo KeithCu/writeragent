@@ -17,47 +17,30 @@ from typing import Iterable
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, _profile, deal, str_bounded
 
 
-def _deal_model_id_ok_pytest(model_id: object) -> bool:
-    # Catalog ids are longer than DEAL_MAX_TOKEN. The cap raised
-    # PreContractError on a real OpenRouter id. The body splits on ':'.
-    return isinstance(model_id, str)
-
-
-def _deal_model_id_ok_crosshair(model_id: object) -> bool:
-    return str_bounded(model_id, DEAL_MAX_TOKEN)
-
-
-_deal_model_id_ok = _profile(_deal_model_id_ok_crosshair, _deal_model_id_ok_pytest)
-
-
-def _deal_catalog_ids_ok_pytest(catalog_ids: object) -> bool:
-    # The live catalog has more than DEAL_MAX_SHAPE_DIM models.
-    return catalog_ids is None or isinstance(catalog_ids, (list, tuple, set, frozenset))
-
-
-def _deal_catalog_ids_ok_crosshair(catalog_ids: object) -> bool:
-    return catalog_ids is None or (
-        isinstance(catalog_ids, (list, tuple, set, frozenset)) and len(catalog_ids) <= DEAL_MAX_SHAPE_DIM
+# Pytest keeps _profile's default always-true predicate. The bounds are
+# CrossHair-only: live ids exceed DEAL_MAX_TOKEN and the live catalog exceeds
+# DEAL_MAX_SHAPE_DIM.
+_deal_model_id_ok = _profile(lambda model_id: str_bounded(model_id, DEAL_MAX_TOKEN))
+_deal_catalog_ids_ok = _profile(
+    lambda catalog_ids: catalog_ids is None
+    or (
+        isinstance(catalog_ids, (list, tuple, set, frozenset))
+        and len(catalog_ids) <= DEAL_MAX_SHAPE_DIM
     )
-
-
-_deal_catalog_ids_ok = _profile(_deal_catalog_ids_ok_crosshair, _deal_catalog_ids_ok_pytest)
+)
 
 # Dynamic: routing/behavior shortcuts (any model; strip for catalog lookup).
 OPENROUTER_DYNAMIC_SUFFIXES = frozenset({"nitro", "floor", "exacto", "online"})
 
 
 @deal.pre(lambda model_id: _deal_model_id_ok(model_id))
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2)
-def _split_suffix(model_id: str) -> tuple[str, str | None]:
-    if ":" not in model_id:
-        return model_id, None
+@deal.post(lambda result: isinstance(result, str))
+def _split_suffix(model_id: str) -> str:
     parts = model_id.split(":")
     if any(not p for p in parts):
-        return model_id, None
+        return model_id
     kept = [parts[0]] + [p for p in parts[1:] if p not in OPENROUTER_DYNAMIC_SUFFIXES]
-    dropped = [p for p in parts[1:] if p in OPENROUTER_DYNAMIC_SUFFIXES]
-    return ":".join(kept), ":".join(dropped) or None
+    return ":".join(kept)
 
 
 @deal.pre(lambda model_id, catalog_ids=None: _deal_model_id_ok(model_id) and _deal_catalog_ids_ok(catalog_ids))
@@ -69,13 +52,11 @@ def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | No
     (``:nitro``, ``:floor``, …) fall back to the base slug.
     """
     mid = str(model_id or "").strip()
-    if not mid:
-        return mid
     catalog = set(catalog_ids) if catalog_ids is not None else None
     if catalog is not None and mid in catalog:
         return mid
-    base, routing = _split_suffix(mid)
-    if routing is not None and (catalog is None or base in catalog):
+    base = _split_suffix(mid)
+    if base != mid and (catalog is None or base in catalog):
         return base
     return mid
 
@@ -98,8 +79,6 @@ def openrouter_model_ids_equivalent(a: str, b: str, catalog_ids: Iterable[str] |
     if ra == rb:
         return True
     # Tip: 'gpt-oss-20b:nitro' (no vendor) must still match 'openai/gpt-oss-20b'.
-    if "/" in ra and "/" not in rb:
-        return ra.split("/", 1)[1] == rb
-    if "/" in rb and "/" not in ra:
-        return rb.split("/", 1)[1] == ra
+    if ("/" in ra) != ("/" in rb):
+        return ra.split("/", 1)[-1] == rb.split("/", 1)[-1]
     return False

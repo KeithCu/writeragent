@@ -103,58 +103,33 @@ def get_provider_defaults(provider: str | None) -> dict[str, str]:
     return defaults
 
 
-def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
-    """True if a DEFAULT_MODELS row applies to this combobox (text/image/audio).
-
-    Catalog entries use :class:`ModelCapability` bitmasks.
-    """
-    try:
-        cap = capability if isinstance(capability, ModelCapability) else ModelCapability(int(capability))
-    except (TypeError, ValueError):
-        return False
-    if req_cap == "text":
-        return bool(cap & ModelCapability.CHAT)
-    if req_cap == "image":
-        return bool(cap & ModelCapability.IMAGE)
-    if req_cap in ("audio", "tts"):
-        return bool(cap & ModelCapability.AUDIO)
-    return False
-
-
-def _has_openrouter_casefold(models: list[str], model_id: str) -> bool:
-    """True when ``models`` already has ``model_id`` ignoring ASCII case.
-
-    OpenRouter's speech list returns ``hexgrad/kokoro-82m``; the catalog id is
-    ``hexgrad/Kokoro-82M``. Suffix variants (``:nitro``) are not the same id.
-    """
-    folded = model_id.casefold()
-    return any(mid.casefold() == folded for mid in models)
-
-
 def merge_provider_default_models(to_show: list[str], provider: str, req_cap: str) -> None:
     """Append curated default model ids for this provider/capability."""
+    mask = _COMBO_CAP.get(req_cap)
+    if mask is None:
+        return
     for m in DEFAULT_MODELS:
         capability = m.get("capability", ModelCapability.CHAT)
-        if not _default_model_row_matches_combo(capability, req_cap):
+        if not (capability & mask):
             continue
         effective_id = resolve_model_id(m, provider)
         if not effective_id:
             continue
-        is_default = False
-        if req_cap == "text" and (m.get("default_text") or effective_id == "openrouter/free"):
-            is_default = True
-        elif req_cap == "image" and m.get("default_image"):
-            is_default = True
-        elif req_cap == "audio" and (m.get("default_audio") or m.get("stt")):
-            # stt marks non-default speech-to-text rows (Together Whisper / Nemotron).
-            # AUDIO|CHAT models such as Gemini are not STT entries.
-            is_default = True
-        elif req_cap == "tts" and (m.get("default_tts") or m.get("tts")):
-            is_default = True
+        # stt marks non-default speech-to-text rows (Together Whisper / Nemotron).
+        # AUDIO|CHAT models such as Gemini are not STT entries.
+        is_default = (
+            (req_cap == "text" and (m.get("default_text") or effective_id == "openrouter/free"))
+            or (req_cap == "image" and m.get("default_image"))
+            or (req_cap == "audio" and _row_is_stt(m))
+            or (req_cap == "tts" and _row_is_tts(m))
+        )
         if not is_default:
             continue
-        # Keep the API id when the speech list already supplied a case variant.
-        if provider == "openrouter" and _has_openrouter_casefold(to_show, effective_id):
+        # OpenRouter's speech list returns hexgrad/kokoro-82m; the catalog id
+        # is hexgrad/Kokoro-82M. Suffix variants (:nitro) are not the same id.
+        if provider == "openrouter" and any(
+            mid.casefold() == effective_id.casefold() for mid in to_show
+        ):
             continue
         if effective_id not in to_show:
             to_show.append(effective_id)
@@ -182,9 +157,12 @@ def get_model_capability(model_id: Any, endpoint: Any) -> int:
 # source of truth; a new sonic-* or nemotron ASR id can still appear).
 _TOGETHER_TTS_PREFIXES: tuple[str, ...] = ("canopylabs/orpheus", "hexgrad/kokoro", "cartesia/sonic")
 _TOGETHER_STT_PREFIXES: tuple[str, ...] = ("openai/whisper", "nvidia/parakeet", "nvidia/nemotron")
-# nemotron chat ids (nvidia/nemotron-nano) share the STT prefix. ASR rows
-# carry "asr"; whisper and parakeet prefixes do not need that extra check.
-_TOGETHER_STT_ASR_PREFIXES = frozenset({"nvidia/nemotron"})
+_COMBO_CAP = {
+    "text": ModelCapability.CHAT,
+    "image": ModelCapability.IMAGE,
+    "audio": ModelCapability.AUDIO,
+    "tts": ModelCapability.AUDIO,
+}
 
 
 def _row_is_tts(model: dict[str, Any]) -> bool:
@@ -197,34 +175,15 @@ def _row_is_stt(model: dict[str, Any]) -> bool:
 
 def catalog_speech_ids(provider: str, kind: str) -> list[str]:
     """Every TTS or STT catalog id for ``provider``, not only the default."""
-    want_tts = kind == "tts"
+    pred = _row_is_tts if kind == "tts" else _row_is_stt
     out: list[str] = []
     for model in DEFAULT_MODELS:
-        if want_tts:
-            if not _row_is_tts(model):
-                continue
-        elif not _row_is_stt(model):
+        if not pred(model):
             continue
         effective_id = resolve_model_id(model, provider)
         if effective_id and effective_id not in out:
             out.append(effective_id)
     return out
-
-
-def _together_id_matches_prefix(folded: str, prefixes: tuple[str, ...]) -> bool:
-    """Prefix match for Together speech ids.
-
-    ``nvidia/nemotron`` also matches chat ids (``nemotron-nano``). Those rows
-    are not ASR unless the id contains ``asr``. Whisper and parakeet stay
-    prefix-only; sonic stays on the TTS list.
-    """
-    for prefix in prefixes:
-        if not folded.startswith(prefix):
-            continue
-        if prefix in _TOGETHER_STT_ASR_PREFIXES and "asr" not in folded:
-            continue
-        return True
-    return False
 
 
 def together_speech_ids(kind: str, remote_models: list[str] | None = None) -> list[str]:
@@ -244,7 +203,12 @@ def together_speech_ids(kind: str, remote_models: list[str] | None = None) -> li
         folded = mid.casefold()
         if folded in seen:
             continue
-        if _together_id_matches_prefix(folded, prefixes):
+        # nvidia/nemotron also matches chat ids (nemotron-nano). Those are
+        # not ASR unless the id contains "asr". Whisper, parakeet, and the
+        # TTS prefixes do not overlap this string.
+        if folded.startswith(prefixes) and not (
+            folded.startswith("nvidia/nemotron") and "asr" not in folded
+        ):
             extras.append(mid)
             seen.add(folded)
     return curated + extras

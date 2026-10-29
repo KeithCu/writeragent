@@ -11,15 +11,6 @@ from typing import Any
 from plugin.framework.config import LRU_MAX_ITEMS, get_config, set_config
 from plugin.framework.i18n import _
 
-__all__ = [
-    "_MODEL_COMBO_PLACEHOLDER_MSGIDS",
-    "_is_model_combobox_placeholder",
-    "_sanitize_model_combobox_value",
-    "lru_config_key",
-    "next_lru_list",
-    "update_lru_history",
-]
-
 _MODEL_COMBO_PLACEHOLDER_MSGIDS = (
     "(Enter API Key to load models)",
     "(Connection failed)",
@@ -30,16 +21,13 @@ _MODEL_COMBO_PLACEHOLDER_MSGIDS = (
 
 def _is_model_combobox_placeholder(val: str) -> bool:
     text = str(val or "").strip()
-    if not text:
-        return False
-
     for msgid in _MODEL_COMBO_PLACEHOLDER_MSGIDS:
         if text == msgid or text == _(msgid):
             return True
     return False
 
 
-def _sanitize_model_combobox_value(val: str) -> str:
+def _sanitize_model_combobox_value(val: str) -> str:  # pyright: ignore[reportUnusedFunction]
     """Drop Settings combobox placeholder strings; they are not real model ids."""
     cleaned = str(val or "").strip()
     return "" if _is_model_combobox_placeholder(cleaned) else cleaned
@@ -70,8 +58,6 @@ def next_lru_list(current: Any, val: Any, max_items: int) -> list[str] | None:
         return None
     new_lru = [val_str] + [x for x in dict.fromkeys(lru) if x != val_str]
     new_lru = new_lru[:max_items]
-    if isinstance(current, list) and current == new_lru:
-        return None
     return new_lru
 
 
