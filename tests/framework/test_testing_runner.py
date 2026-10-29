@@ -712,7 +712,9 @@ def test_parse_cli_args_rejects_bad_repeat() -> None:
         tr._parse_cli_args(["--repeat", "abc"])
 
 
-def test_parse_cli_args_pair_expands() -> None:
+def test_parse_cli_args_pair_expands(monkeypatch) -> None:
+    # _parse_cli_args sets this module global; restore it so later run_module_suite tests on the same xdist worker are not filtered.
+    monkeypatch.setattr(tr, "_cli_exact_function_names", [])
     assert tr._parse_cli_args(["--pair", "tree-math"]) == [
         "test_get_draw_tree",
         "test_insert_math_draw",
