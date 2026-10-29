@@ -17,9 +17,7 @@ _VIZ_HINT_RE = re.compile(r"\b(chart|plot|visual|graph|distribution|histogram|he
 
 
 def task_hint_implies_plot(task_hint: str | None) -> bool:
-    if not task_hint or not str(task_hint).strip():
-        return False
-    return _VIZ_HINT_RE.search(str(task_hint)) is not None
+    return bool(task_hint and _VIZ_HINT_RE.search(task_hint))
 
 
 def helper_should_auto_plot(helper: str, allowed: frozenset[str], *, auto_plot: bool, task_hint: str | None) -> bool:
