@@ -37,64 +37,8 @@ from plugin.framework.thread_guard import THREAD_VIOLATION_MARK
 log = logging.getLogger(__name__)
 
 # Safe imports for optional PyUNO environment (ensures unit test compatibility outside of LO)
-_unohelper: Any = None
-_XEventListener: Any = None
-_XActionListener: Any = None
-_XItemListener: Any = None
-_XTextListener: Any = None
-_XKeyListener: Any = None
-_XWindowListener: Any = None
-_XDocumentEventListener: Any = None
-_XActivationEventListener: Any = None
-_XContainerListener: Any = None
-_XMouseListener: Any = None
-_XFocusListener: Any = None
-_XMouseClickHandler: Any = None
-_XTopWindowListener: Any = None
-_XModifyListener: Any = None
-_XTerminateListener: Any = None
 _HAVE_UNO = False
-
-try:
-    import unohelper as _unohelper_impl
-    from com.sun.star.lang import XEventListener as _XEventListener_impl
-    from com.sun.star.awt import (
-        XActionListener as _XActionListener_impl,
-        XItemListener as _XItemListener_impl,
-        XTextListener as _XTextListener_impl,
-        XKeyListener as _XKeyListener_impl,
-        XWindowListener as _XWindowListener_impl,
-        XMouseListener as _XMouseListener_impl,
-        XFocusListener as _XFocusListener_impl,
-        XMouseClickHandler as _XMouseClickHandler_impl,
-        XTopWindowListener as _XTopWindowListener_impl,
-    )
-    from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl
-    from com.sun.star.sheet import XActivationEventListener as _XActivationEventListener_impl
-    from com.sun.star.container import XContainerListener as _XContainerListener_impl
-    from com.sun.star.util import XModifyListener as _XModifyListener_impl
-    from com.sun.star.frame import XTerminateListener as _XTerminateListener_impl
-
-    _unohelper = _unohelper_impl
-    _XEventListener = _XEventListener_impl
-    _XActionListener = _XActionListener_impl
-    _XItemListener = _XItemListener_impl
-    _XTextListener = _XTextListener_impl
-    _XKeyListener = _XKeyListener_impl
-    _XWindowListener = _XWindowListener_impl
-    _XDocumentEventListener = _XDocumentEventListener_impl
-    _XActivationEventListener = _XActivationEventListener_impl
-    _XContainerListener = _XContainerListener_impl
-    _XMouseListener = _XMouseListener_impl
-    _XFocusListener = _XFocusListener_impl
-    _XMouseClickHandler = _XMouseClickHandler_impl
-    _XTopWindowListener = _XTopWindowListener_impl
-    _XModifyListener = _XModifyListener_impl
-    _XTerminateListener = _XTerminateListener_impl
-    _HAVE_UNO = True
-except ImportError:
-    pass
-
+_unohelper: Any = None
 
 if TYPE_CHECKING:
 
@@ -148,39 +92,46 @@ if TYPE_CHECKING:
 else:
     # Each fallback is its own class. One shared stub is a duplicate base
     # on BaseListener(_BaseParent, _XEventListenerParent).
-    _DummyBase = type("_DummyBase", (), {})
-    _DummyEventListener = type("_DummyEventListener", (), {})
-    _DummyActionListener = type("_DummyActionListener", (), {})
-    _DummyItemListener = type("_DummyItemListener", (), {})
-    _DummyTextListener = type("_DummyTextListener", (), {})
-    _DummyKeyListener = type("_DummyKeyListener", (), {})
-    _DummyWindowListener = type("_DummyWindowListener", (), {})
-    _DummyDocumentEventListener = type("_DummyDocumentEventListener", (), {})
-    _DummyActivationListener = type("_DummyActivationListener", (), {})
-    _DummyContainerListener = type("_DummyContainerListener", (), {})
-    _DummyMouseListener = type("_DummyMouseListener", (), {})
-    _DummyFocusListener = type("_DummyFocusListener", (), {})
-    _DummyMouseClickHandler = type("_DummyMouseClickHandler", (), {})
-    _DummyTopWindowListener = type("_DummyTopWindowListener", (), {})
-    _DummyModifyListener = type("_DummyModifyListener", (), {})
-    _DummyTerminateListener = type("_DummyTerminateListener", (), {})
+    try:
+        import unohelper as _unohelper
+        from com.sun.star.lang import XEventListener as _XEventListenerParent
+        from com.sun.star.awt import (
+            XActionListener as _XActionListenerParent,
+            XItemListener as _XItemListenerParent,
+            XTextListener as _XTextListenerParent,
+            XKeyListener as _XKeyListenerParent,
+            XWindowListener as _XWindowListenerParent,
+            XMouseListener as _XMouseListenerParent,
+            XFocusListener as _XFocusListenerParent,
+            XMouseClickHandler as _XMouseClickHandlerParent,
+            XTopWindowListener as _XTopWindowListenerParent,
+        )
+        from com.sun.star.document import XDocumentEventListener as _XDocumentEventListenerParent
+        from com.sun.star.sheet import XActivationEventListener as _XActivationEventListenerParent
+        from com.sun.star.container import XContainerListener as _XContainerListenerParent
+        from com.sun.star.util import XModifyListener as _XModifyListenerParent
+        from com.sun.star.frame import XTerminateListener as _XTerminateListenerParent
 
-    _BaseParent = _unohelper.Base if _HAVE_UNO else _DummyBase
-    _XEventListenerParent = _XEventListener if _HAVE_UNO else _DummyEventListener
-    _XActionListenerParent = _XActionListener if _HAVE_UNO else _DummyActionListener
-    _XItemListenerParent = _XItemListener if _HAVE_UNO else _DummyItemListener
-    _XTextListenerParent = _XTextListener if _HAVE_UNO else _DummyTextListener
-    _XKeyListenerParent = _XKeyListener if _HAVE_UNO else _DummyKeyListener
-    _XWindowListenerParent = _XWindowListener if _HAVE_UNO else _DummyWindowListener
-    _XDocumentEventListenerParent = _XDocumentEventListener if _HAVE_UNO else _DummyDocumentEventListener
-    _XActivationEventListenerParent = _XActivationEventListener if _HAVE_UNO else _DummyActivationListener
-    _XContainerListenerParent = _XContainerListener if _HAVE_UNO else _DummyContainerListener
-    _XMouseListenerParent = _XMouseListener if _HAVE_UNO else _DummyMouseListener
-    _XFocusListenerParent = _XFocusListener if _HAVE_UNO else _DummyFocusListener
-    _XMouseClickHandlerParent = _XMouseClickHandler if _HAVE_UNO else _DummyMouseClickHandler
-    _XTopWindowListenerParent = _XTopWindowListener if _HAVE_UNO else _DummyTopWindowListener
-    _XModifyListenerParent = _XModifyListener if _HAVE_UNO else _DummyModifyListener
-    _XTerminateListenerParent = _XTerminateListener if _HAVE_UNO else _DummyTerminateListener
+        _BaseParent = _unohelper.Base
+        _HAVE_UNO = True
+    except ImportError:
+        _unohelper = None
+        _BaseParent = type("_DummyBase", (), {})
+        _XEventListenerParent = type("_DummyEventListener", (), {})
+        _XActionListenerParent = type("_DummyActionListener", (), {})
+        _XItemListenerParent = type("_DummyItemListener", (), {})
+        _XTextListenerParent = type("_DummyTextListener", (), {})
+        _XKeyListenerParent = type("_DummyKeyListener", (), {})
+        _XWindowListenerParent = type("_DummyWindowListener", (), {})
+        _XDocumentEventListenerParent = type("_DummyDocumentEventListener", (), {})
+        _XActivationEventListenerParent = type("_DummyActivationListener", (), {})
+        _XContainerListenerParent = type("_DummyContainerListener", (), {})
+        _XMouseListenerParent = type("_DummyMouseListener", (), {})
+        _XFocusListenerParent = type("_DummyFocusListener", (), {})
+        _XMouseClickHandlerParent = type("_DummyMouseClickHandler", (), {})
+        _XTopWindowListenerParent = type("_DummyTopWindowListener", (), {})
+        _XModifyListenerParent = type("_DummyModifyListener", (), {})
+        _XTerminateListenerParent = type("_DummyTerminateListener", (), {})
 
 
 # Marker on wrappers from ``_catch_and_log``. Prefer this over ``id()`` so a
@@ -259,76 +210,53 @@ def reraise_listener_boundary(exc: BaseException) -> NoReturn:
     raise boundary from exc
 
 
-_UNSET = object()
+def _catch_and_log(func: Any = None, *, failure: Any = None) -> Any:
+    """Catch and log exceptions in UNO listener callbacks.
 
-
-def _listener_failure_value(func: Any) -> Any:
-    """``sal_Bool`` methods must not return None or the bridge type-errors.
-
-    ``from __future__ import annotations`` stores the return annotation as
-    the string ``bool`` rather than the bool type.
+    ``failure`` is what a soft failure returns. ``sal_Bool`` methods pass
+    ``failure=False``; the bridge type-errors on None.
     """
-    ret = getattr(func, "__annotations__", {}).get("return")
-    if ret is bool or ret == "bool":
-        return False
-    return None
 
-
-def _catch_and_log(func: Any, failure: Any = _UNSET) -> Any:
-    """Decorator to catch and log exceptions in UNO listener callbacks."""
-    if failure is _UNSET:
-        failure = _listener_failure_value(func)
-
-    @functools.wraps(func)
-    def wrapper(self: Any, ev: Any = None, *args: Any, **kwargs: Any) -> Any:
-        try:
-            return func(self, ev, *args, **kwargs)
-        except ListenerBoundary as boundary:
-            # Already classified. A veto still has to be the UNO type.
-            if boundary.kind == "veto":
-                raise boundary.original
-            raise
-        except Exception as exc:
-            # One boundary. Vetoes are re-raised as the original UNO exception
-            # so the bridge can still veto. Thread violations and real
-            # disposal leave as ListenerBoundary, which except Exception
-            # cannot swallow. disposing() does not raise on disposal: a
-            # throw there stops the broadcaster from notifying the remaining
-            # listeners. Any other callback is a query, and a dead desktop
-            # must not look like an empty success. A runtime error is logged
-            # and returns the failure value; it is not disposal.
-            # A type-name allow-list (CloseVeto, then TerminationVeto, with
-            # DisposedException added and removed) and a bare except
-            # Exception both miss this: the except swallows
-            # assert_main_thread's RuntimeError, and a disposed desktop
-            # becomes the failure return (None / False) — the same shape as
-            # "nothing is open". A RuntimeException name is easy to treat
-            # as that disposal, or the reverse. Every one of those is an
-            # Exception, so each call site would re-check names.
-            #
-            # Classify first. TypeError and ValueError as their own except
-            # clauses never reach listener_boundary. A disposal or veto that
-            # subclasses either type would be logged and returned as a soft
-            # failure. An ordinary TypeError or ValueError still logs under
-            # its type name and does not enter the bridge.
-            signal = listener_boundary(exc)
-            if signal is not None and signal.kind == "disposed" and func.__name__ == "disposing":
-                log.debug("%s disposing: source already disposed", self.__class__.__name__)
+    def decorate(fn: Any) -> Any:
+        @functools.wraps(fn)
+        def wrapper(self: Any, ev: Any = None, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return fn(self, ev, *args, **kwargs)
+            except ListenerBoundary as boundary:
+                # Already classified. A veto still has to be the UNO type.
+                if boundary.kind == "veto":
+                    raise boundary.original
+                raise
+            except Exception as exc:
+                # Classify before any per-type handler. A TypeError or ValueError
+                # clause above this would treat a disposal or veto that subclasses
+                # that type as a soft failure (None / False). disposing() must not
+                # raise on real disposal: a throw stops the broadcaster from
+                # notifying the remaining listeners. A veto is re-raised as the
+                # original UNO exception. Any other runtime error is logged under
+                # its type name and returns the failure value.
+                signal = listener_boundary(exc)
+                if signal is not None and signal.kind == "disposed" and fn.__name__ == "disposing":
+                    log.debug("%s disposing: source already disposed", self.__class__.__name__)
+                    return failure
+                if signal is not None:
+                    reraise_listener_boundary(exc)
+                if isinstance(exc, TypeError):
+                    log.exception(f"{self.__class__.__name__} TypeError in {fn.__name__}")
+                    return failure
+                if isinstance(exc, ValueError):
+                    log.exception(f"{self.__class__.__name__} ValueError in {fn.__name__}")
+                    return failure
+                log.exception(f"{self.__class__.__name__} unhandled exception in {fn.__name__}")
                 return failure
-            if signal is not None:
-                reraise_listener_boundary(exc)
-            if isinstance(exc, TypeError):
-                log.exception(f"{self.__class__.__name__} TypeError in {func.__name__}")
-                return failure
-            if isinstance(exc, ValueError):
-                log.exception(f"{self.__class__.__name__} ValueError in {func.__name__}")
-                return failure
-            log.exception(f"{self.__class__.__name__} unhandled exception in {func.__name__}")
-            return failure
 
-    setattr(wrapper, _CATCH_LOGGED_ATTR, True)
-    setattr(wrapper, _CATCH_FAILURE_ATTR, failure)
-    return wrapper
+        setattr(wrapper, _CATCH_LOGGED_ATTR, True)
+        setattr(wrapper, _CATCH_FAILURE_ATTR, failure)
+        return wrapper
+
+    if func is None:
+        return decorate
+    return decorate(func)
 
 
 # ---------------------------------------------------------
@@ -343,26 +271,17 @@ class BaseListener(_BaseParent, _XEventListenerParent):
         # subclass override entered the bridge without _catch_and_log.
         # How it happened: adding or wrapping new listener methods required updating _UNO_CALLBACK_NAMES.
         # Why this change: discover callback names dynamically from base classes on the MRO with _CATCH_LOGGED_ATTR.
-        callback_names: set[str] = set()
-        for base in cls.__mro__:
-            if base is cls:
-                continue
-            for name, attr in base.__dict__.items():
-                if getattr(attr, _CATCH_LOGGED_ATTR, False):
-                    callback_names.add(name)
-
-        for name in callback_names:
-            method = cls.__dict__.get(name)
+        for name, method in list(cls.__dict__.items()):
             if method is None or getattr(method, _CATCH_LOGGED_ATTR, False):
                 continue
-            # __init_subclass__ wraps an override that replaced the base method,
-            # and the override often has no return annotation. The base method's
-            # failure contract (from _catch_and_log) is preserved.
-            base_method = next(
-                (b.__dict__[name] for b in cls.__mro__[1:] if name in b.__dict__ and hasattr(b.__dict__[name], _CATCH_FAILURE_ATTR)),
-                None,
-            )
-            assert base_method is not None, name
+            base_method = None
+            for base in cls.__mro__[1:]:
+                candidate = base.__dict__.get(name)
+                if candidate is not None and getattr(candidate, _CATCH_LOGGED_ATTR, False):
+                    base_method = candidate
+                    break
+            if base_method is None:
+                continue
             failure = getattr(base_method, _CATCH_FAILURE_ATTR)
             setattr(cls, name, _catch_and_log(method, failure=failure))
 
@@ -593,11 +512,11 @@ class BaseFocusListener(BaseListener, _XFocusListenerParent):
 
 
 class BaseMouseClickHandler(BaseListener, _XMouseClickHandlerParent):
-    @_catch_and_log
+    @_catch_and_log(failure=False)
     def mousePressed(self, e: Any) -> bool:  # noqa: N802 -- UNO signature
         return bool(self.on_mouse_pressed(e))
 
-    @_catch_and_log
+    @_catch_and_log(failure=False)
     def mouseReleased(self, e: Any) -> bool:  # noqa: N802 -- UNO signature
         return bool(self.on_mouse_released(e))
 
