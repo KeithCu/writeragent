@@ -115,35 +115,18 @@ def derive_otp_look(path: str) -> str:
 
 
 def _format_look(mood: str, accents: list[str], pic_tag: str) -> str:
-    parts: list[str] = []
-    if mood:
-        parts.append(mood)
-    if accents:
-        parts.append("%s accents" % "/".join(accents))
-    if pic_tag:
-        parts.append(pic_tag)
-    return "; ".join(parts)
+    accent = ("%s accents" % "/".join(accents)) if accents else ""
+    return "; ".join(p for p in (mood, accent, pic_tag) if p)
 
 
 def _picture_tag(names: Iterable[str]) -> str:
-    images = 0
-    for name in names:
-        norm = _norm_zip_name(name)
-        if norm.startswith("pictures/") and norm.endswith(_IMAGE_EXT):
-            images += 1
-    if images >= 2:
-        return "illustrated"
-    if images == 1:
-        # Single decorative SVG/PNG/etc. (Metropolis ships one chrome SVG).
-        return "graphic chrome"
-    return ""
+    # One decorative image is Metropolis chrome (a single SVG/PNG); several is illustrated.
+    images = sum(1 for name in names if (norm := _norm_zip_name(name)).startswith("pictures/") and norm.endswith(_IMAGE_EXT))
+    return "illustrated" if images >= 2 else "graphic chrome" if images == 1 else ""
 
 
 def _thumbnail_samples(zf: zipfile.ZipFile) -> list[tuple[int, int, int]]:
-    raw = _read_member(zf, "thumbnails/thumbnail.png")
-    if not raw:
-        return []
-    return decode_png_rgb(raw) or []
+    return decode_png_rgb(_read_member(zf, "thumbnails/thumbnail.png") or b"") or []
 
 
 def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
@@ -227,14 +210,12 @@ def _inflate_capped(data: bytes, limit: int) -> bytes | None:
     ``list_designs`` / ``apply_design`` would allocate it on the main
     thread. ``max_length`` stops at ``limit + 1`` bytes.
     """
-    if limit < 0:
-        return None
     try:
         dec = zlib.decompressobj()
         out = dec.decompress(data, limit + 1)
     except zlib.error:
         return None
-    if len(out) > limit or not dec.eof:
+    if len(out) != limit or not dec.eof:
         return None
     return out
 
@@ -282,7 +263,7 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
         return None
     if interlace != 0:
         return None
-    if color_type not in (0, 2, 3, 4, 6):
+    if color_type not in _SAMPLES_PER_PIXEL:
         return None
     if bit_depth not in (1, 2, 4, 8):
         return None
@@ -297,8 +278,6 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
         return None
     raw = _inflate_capped(bytes(idat), expected)
     if raw is None:
-        return None
-    if len(raw) < expected:
         return None
     bpp = max(1, (bit_depth * spp + 7) // 8)
     total_pixels = width * height
@@ -316,14 +295,9 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
         unpacked = _unpack_row(row, width, bit_depth, color_type, palette, trans)
         if unpacked is None:
             return None
-        if len(pixels) < _MAX_SAMPLED_PIXELS:
-            for x, pix in enumerate(unpacked):
-                if (pixel_idx + x) % step == 0:
-                    pixels.append(pix)
-                    if len(pixels) >= _MAX_SAMPLED_PIXELS:
-                        break
+        pixels.extend(unpacked[(-pixel_idx) % step::step])
         pixel_idx += len(unpacked)
-    return pixels
+    return pixels[:_MAX_SAMPLED_PIXELS]
 
 
 def _recon_scanline(filt: int, row: bytearray, prior: bytes, bpp: int) -> bool:
@@ -383,28 +357,16 @@ def _unpack_row(row: bytes | bytearray, width: int, bit_depth: int, color_type: 
             g = row[i * 2]
             out.append((g, g, g))
         return out
-    # Gray (0) and indexed (3): one sample per pixel. 1/2/4-bit is MSB first.
-    samples: list[int]
-    if bit_depth == 8:
-        samples = list(row[:width])
-    else:
-        samples = []
-        maxv = (1 << bit_depth) - 1
-        per_byte = 8 // bit_depth
-        for byte in row:
-            for shift in range(per_byte - 1, -1, -1):
-                samples.append((byte >> (shift * bit_depth)) & maxv)
-                if len(samples) >= width:
-                    break
-            if len(samples) >= width:
-                break
+    # Gray (0) and indexed (3): one sample per pixel, MSB first.
+    # 8-bit is the shift-0 case (range(0, -1, -8) == [0]); maxv is 255.
+    maxv = (1 << bit_depth) - 1
+    samples = [(b >> s) & maxv for b in row for s in range(8 - bit_depth, -1, -bit_depth)][:width]
     if color_type == 0:
         # 1/2/4-bit samples are 0..maxv. Copying them as 0..255 leaves an
         # all-white 1-bit thumbnail at sample 1, so the mood comes out dark.
         # PNG scales with g * 255 // maxv. 8-bit maxv is 255, so those
         # samples are unchanged.
-        scale = (1 << bit_depth) - 1
-        return [(g * 255 // scale, g * 255 // scale, g * 255 // scale) for g in samples]
+        return [(v, v, v) for v in (g * 255 // maxv for g in samples)]
     out = []
     pal_len = len(palette)
     for idx in samples:
