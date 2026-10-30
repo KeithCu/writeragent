@@ -795,7 +795,7 @@ def test_run_ok_save_shows_running_and_no_save_box():
 
 
 def test_run_builtin_keeps_warning_on_the_label():
-    warning_text = ui._builtin_helpers_readonly_text()
+    warning_text = ui.read_only_helper_message()
     save_result = ui._ScriptSaveResult(warning_text, "builtin")
 
     # Case 1: success restores builtin warning

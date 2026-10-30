@@ -119,13 +119,6 @@ class _ScriptSaveResult:
     channel: Literal["none", "ok", "builtin", "modal"]
 
 
-def _builtin_helpers_readonly_text() -> str:
-    # Monaco and the native dialog share this sentence. Save As, with Attach
-    # unchecked, copies a helper into My Scripts. Do not add a Copy button and
-    # do not edit the XDL.
-    return read_only_helper_message()
-
-
 def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str, doc: Any = None) -> None:
     """Show Save / Save As / Delete / New failures. Those buttons used to only log."""
     log.exception("%s failed in dialog", where)
@@ -216,23 +209,6 @@ class NativePythonScriptDialog:
         self._top_listener: Any | None = None
         self._open_failure_detail = None
         self._name_config_key = resolve_run_script_name_config_key(initial_doc)
-
-    @classmethod
-    def show(
-        cls,
-        ctx: Any,
-        *,
-        doc: Any | None,
-        modeless: bool,
-    ) -> tuple[bool, str | None]:
-        inst = cls(
-            ctx,
-            initial_doc=doc,
-            modeless=modeless,
-        )
-        if inst._open():
-            return True, None
-        return False, inst._open_failure_detail
 
     def close(self, *, toolkit_teardown: bool = False) -> None:
         """Hide/dispose the dialog.
@@ -348,7 +324,10 @@ class NativePythonScriptDialog:
         if only_if_changed and script_origin_is_writable(origin) and self._current_scripts.get(display_name) == t:
             return _ScriptSaveResult(None, "none")
         if not script_origin_is_writable(origin):
-            return _ScriptSaveResult(_builtin_helpers_readonly_text(), "builtin")
+            # Monaco and the native dialog share this sentence. Save As, with Attach
+            # unchecked, copies a helper into My Scripts. Do not add a Copy button and
+            # do not edit the XDL.
+            return _ScriptSaveResult(read_only_helper_message(), "builtin")
         if origin == SCRIPT_ORIGIN_DOCUMENT:
             if self._doc is None:
                 return _ScriptSaveResult(_("No document is open to save scripts."), "modal")
@@ -414,34 +393,27 @@ class NativePythonScriptDialog:
         lbl = dlg.getControl("InstructionLbl") if dlg is not None else None
 
         if attach_to_document and doc is not None:
-            overwrite = name in get_document_scripts(doc)
-            if overwrite and not show_approval_dialog(
-                ctx,
-                _("A script named '{0}' already exists in this document. Overwrite?").format(name),
-                dialog_title,
-            ):
-                return False
-            err = attach_document_script(doc, name, code, overwrite=True)
-            if err:
-                set_control_text(lbl, err)
-                return False
-            self._refresh_script_dropdown(document_script_display_name(name))
-            set_control_text(lbl, doc_success_msg % name)
-            return True
+            exists = name in get_document_scripts(doc)
+            prompt = _("A script named '{0}' already exists in this document. Overwrite?").format(name)
+            display = document_script_display_name(name)
+            success = doc_success_msg % name
         else:
-            if name in get_user_scripts() and not show_approval_dialog(
-                ctx,
-                _("A script named '{0}' already exists in My Scripts. Overwrite?").format(name),
-                dialog_title,
-            ):
-                return False
+            exists = name in get_user_scripts()
+            prompt = _("A script named '{0}' already exists in My Scripts. Overwrite?").format(name)
+            display = name
+            success = user_success_msg % name
+        if exists and not show_approval_dialog(ctx, prompt, dialog_title):
+            return False
+        if attach_to_document and doc is not None:
+            err = attach_document_script(doc, name, code, overwrite=True)
+        else:
             err = save_user_script(name, code)
-            if err:
-                set_control_text(lbl, err)
-                return False
-            self._refresh_script_dropdown(name)
-            set_control_text(lbl, user_success_msg % name)
-            return True
+        if err:
+            set_control_text(lbl, err)
+            return False
+        self._refresh_script_dropdown(display)
+        set_control_text(lbl, success)
+        return True
 
     def _wire_listeners(self, dlg: Any, select_ctrl: Any) -> None:
         ctx = self._ctx
@@ -563,10 +535,7 @@ class NativePythonScriptDialog:
                 lbl = dlg.getControl("InstructionLbl")
                 real_name, origin = resolve_script_picker_entry(display_name, owner._script_origin_map)
                 if not script_origin_is_writable(origin):
-                    set_control_text(
-                        lbl,
-                        _builtin_helpers_readonly_text(),
-                    )
+                    set_control_text(lbl, read_only_helper_message())
                     return
                 if show_approval_dialog(
                     ctx,
@@ -649,11 +618,14 @@ def show_python_input_dialog(
     """
     try:
         modeless = native_run_script_modeless_enabled()
-        return NativePythonScriptDialog.show(
+        inst = NativePythonScriptDialog(
             ctx,
-            doc=doc,
+            initial_doc=doc,
             modeless=modeless,
         )
+        if inst._open():
+            return True, None
+        return False, inst._open_failure_detail
     except Exception as exc:
         log.exception("show_python_input_dialog failed")
         return False, exception_traceback(exc)

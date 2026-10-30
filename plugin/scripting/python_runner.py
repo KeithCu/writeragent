@@ -85,6 +85,12 @@ def _html_insert_text(value: Any) -> str:
     return html_mod.escape(html_mod.escape(str(value)))
 
 
+def _html_row(cells: list[Any] | tuple[Any, ...], tag: str = "td") -> str:
+    """One ``<tr>`` of ``th`` or ``td`` cells. Same bytes as the old per-cell appends."""
+    inner = "".join(f"<{tag}>{_html_insert_text(cell)}</{tag}>" for cell in cells)
+    return "<tr>" + inner + "</tr>"
+
+
 def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) -> str:
     """Convert a list of dicts or lists to an HTML table.
 
@@ -99,20 +105,14 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
 
     # Explicit headers (e.g. from dataframe payload) take precedence for order and 1-col cases.
     if headers:
-        parts.append('<table border="1"><thead><tr>')
-        for h in headers:
-            parts.append(f"<th>{_html_insert_text(h)}</th>")
-        parts.append("</tr></thead><tbody>")
+        parts.append('<table border="1"><thead>' + _html_row(headers, "th") + "</thead><tbody>")
         # data may be list of lists (2d) or flat list (1-col series-like)
         if data and isinstance(data[0], (list, tuple)):
             for row in data:
-                parts.append("<tr>")
-                for cell in row:
-                    parts.append(f"<td>{_html_insert_text(cell)}</td>")
-                parts.append("</tr>")
+                parts.append(_html_row(row))
         else:
             for v in data:
-                parts.append(f"<tr><td>{_html_insert_text(v)}</td></tr>")
+                parts.append(_html_row([v]))
         parts.append("</tbody></table>")
         return "".join(parts)
 
@@ -131,13 +131,10 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
                 for k in row.keys():
                     seen_keys.setdefault(str(k), k)
         keys = list(seen_keys.keys())
-        parts.append('<table border="1"><thead><tr>')
-        for key in keys:
-            parts.append(f"<th>{_html_insert_text(key)}</th>")
-        parts.append("</tr></thead><tbody>")
+        parts.append('<table border="1"><thead>' + _html_row(keys, "th") + "</thead><tbody>")
         for row in data:
-            parts.append("<tr>")
             if isinstance(row, dict):
+                cells: list[Any] = []
                 for key in keys:
                     orig_key = seen_keys[key]
                     if orig_key in row:
@@ -148,12 +145,10 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
                             if str(candidate_k) == key:
                                 val = candidate_v
                                 break
-                    parts.append(f"<td>{_html_insert_text(val)}</td>")
+                    cells.append(val)
+                parts.append(_html_row(cells))
             else:
-                parts.append(f"<td>{_html_insert_text(row)}</td>")
-                for _col_idx in range(len(keys) - 1):
-                    parts.append("<td></td>")
-            parts.append("</tr>")
+                parts.append(_html_row([row, *[""] * (len(keys) - 1)]))
         parts.append("</tbody></table>")
         return "".join(parts)
 
@@ -161,13 +156,10 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
     if isinstance(data[0], (list, tuple)):
         parts.append('<table border="1">')
         for row in data:
-            parts.append("<tr>")
             if isinstance(row, (list, tuple)):
-                for cell in row:
-                    parts.append(f"<td>{_html_insert_text(cell)}</td>")
+                parts.append(_html_row(row))
             else:
-                parts.append(f"<td>{_html_insert_text(row)}</td>")
-            parts.append("</tr>")
+                parts.append(_html_row([row]))
         parts.append("</table>")
         return "".join(parts)
 
@@ -370,20 +362,16 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
     if vis is not None:
         return vis
 
-    def _resolve_data_ranges() -> list[str] | None:
-        binding = str(data_range).strip() if data_range else ""
-        if binding:
-            ranges = parse_data_binding_text(binding)
-            if ranges:
-                return ranges
-            return [binding]
-        sel = calc_selection_to_a1(doc)
-        return [sel] if sel else None
-
     py_data = None
     bindings: dict[str, Any] | None = None
     if is_calc(doc):
-        drs = _resolve_data_ranges()
+        binding = str(data_range).strip() if data_range else ""
+        if binding:
+            ranges = parse_data_binding_text(binding)
+            drs = ranges if ranges else [binding]
+        else:
+            sel = calc_selection_to_a1(doc)
+            drs = [sel] if sel else None
         if drs:
             # Pass the full address list so multi Data: bindings become data / ranges.
             py_data, err = _resolve_python_data(doc, data_range=drs, data=None)
@@ -808,10 +796,9 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         "saved_ok_text": save_ok_text,
         "run_script_doc": doc,
         "script_name": selected_script_name,
-        "doc_url": "",
+        "doc_url": document_scripts_identity(doc),
         "resource": "run_script",
     }
-    load_msg["doc_url"] = document_scripts_identity(doc)
     return launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save)
 
 
