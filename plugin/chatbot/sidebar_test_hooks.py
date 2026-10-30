@@ -1904,6 +1904,7 @@ _CHAT_CONTROL_NAMES = (
     "response_rich",
     "status",
     "model_selector",
+    "reasoning_effort_selector",
     "chat_mode_selector",
     "slash_popup",
 )

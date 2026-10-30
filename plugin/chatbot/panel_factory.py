@@ -699,6 +699,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception:
                 log.exception("_refresh_controls_from_config model/prompt refresh failed")
 
+            effort_selector = get_optional("reasoning_effort_selector")
+            if effort_selector:
+                try:
+                    from plugin.chatbot.config_ui_helpers import populate_reasoning_effort_selector
+                    populate_reasoning_effort_selector(effort_selector)
+                except Exception:
+                    log.exception("_refresh_controls_from_config reasoning effort refresh failed")
+
             chat_mode_selector = get_optional("chat_mode_selector")
             if chat_mode_selector:
                 with suppress_disposed("refresh chat_mode_selector from config", logger=log):
@@ -783,6 +791,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if model_selector and hasattr(model_selector, "getModel"):
                 set_control_enabled(model_selector, not is_external)
 
+            effort_selector = get_optional_control(root, "reasoning_effort_selector")
+            if effort_selector and hasattr(effort_selector, "getModel"):
+                set_control_enabled(effort_selector, not is_external)
+
             chat_mode_selector = get_optional_control(root, "chat_mode_selector")
             if chat_mode_selector and hasattr(chat_mode_selector, "getModel"):
                 set_control_enabled(chat_mode_selector, not is_external)
@@ -835,7 +847,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if set_image_val != current_image:
                 set_image_model(set_image_val, update_lru=False)
 
-    def _wire_model_selectors(self, model_selector: Any, image_model_selector: Any) -> None:
+    def _wire_model_selectors(self, model_selector: Any, image_model_selector: Any, effort_selector: Any = None) -> None:
         """Initializes model selectors and their sync listeners."""
         self._populate_model_combos(model_selector, image_model_selector)
 
@@ -857,6 +869,17 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 image_model_selector,
                 lambda: sync_sidebar_image_model(image_model_selector, update_lru=True),
                 lambda: sync_sidebar_image_model(image_model_selector, update_lru=False),
+            )
+
+        if effort_selector:
+            from plugin.chatbot.config_ui_helpers import populate_reasoning_effort_selector, sync_sidebar_reasoning_effort
+
+            populate_reasoning_effort_selector(effort_selector)
+            _wire_selector_sync_listeners(
+                self,
+                effort_selector,
+                lambda: sync_sidebar_reasoning_effort(effort_selector),
+                lambda: sync_sidebar_reasoning_effort(effort_selector),
             )
 
     def _sidebar_mode_flags(self, model: Any) -> SidebarModeFlags:

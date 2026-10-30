@@ -522,22 +522,19 @@ class TestSettingsEnhancements:
         status_ctrl.setText.assert_called_with("✓ Connected (25ms)")
 
     @patch("plugin.chatbot.dialog_views.open_system_url")
-    @patch("plugin.framework.config.get_reasoning_effort_for_endpoint", return_value="medium")
     @patch("plugin.framework.config.get_api_key_for_endpoint", return_value="sk-saved-together-key")
-    def test_provider_starter_listener_action(self, mock_get_key, mock_get_effort, mock_open_url):
+    def test_provider_starter_listener_action(self, mock_get_key, mock_open_url):
         from plugin.chatbot.dialog_views import ProviderStarterListener
 
         ctx = MagicMock()
         dlg = MagicMock()
         endpoint_ctrl = MagicMock()
         api_key_ctrl = MagicMock()
-        reasoning_ctrl = MagicMock()
 
         def get_control_side_effect(name):
             return {
                 "endpoint": endpoint_ctrl,
                 "api_key": api_key_ctrl,
-                "reasoning_effort": reasoning_ctrl,
             }.get(name)
 
         dlg.getControl.side_effect = get_control_side_effect
@@ -549,9 +546,7 @@ class TestSettingsEnhancements:
 
         endpoint_ctrl.setText.assert_called_with("https://api.together.xyz")
         mock_get_key.assert_called_once_with("https://api.together.xyz")
-        mock_get_effort.assert_called_once_with("https://api.together.xyz")
         api_key_ctrl.setText.assert_called_with("sk-saved-together-key")
-        reasoning_ctrl.setText.assert_called_with("medium")
         api_key_ctrl.setFocus.assert_called_once()
         mock_open_url.assert_called_once_with(ctx, "https://api.together.ai/settings/api-keys")
 
@@ -1036,56 +1031,6 @@ def test_sync_api_key_preset_loads_saved_key() -> None:
         event.Selected = 0
         listener.itemStateChanged(event)
     mock_set.assert_called_once_with(api, "sk-together")
-
-
-def test_sync_reasoning_effort_reloads_on_preset() -> None:
-    from plugin.chatbot.dialog_views import EndpointCombinedListener
-
-    combo = MagicMock()
-    combo.getText.return_value = "https://api.groq.com/openai/v1"
-    combo.getItem.return_value = "https://api.together.xyz/v1"
-    combo.setText.side_effect = lambda value: setattr(combo.getText, "return_value", value)
-    re_ctrl = MagicMock()
-    re_ctrl.getText.return_value = "(default)"
-
-    def get_optional_side_effect(dlg, name):
-        if name == "reasoning_effort":
-            return re_ctrl
-        return None
-
-    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
-    listener._synced_endpoint = "https://api.groq.com/openai/v1"
-    listener._catalog_is_warm = lambda resolved: True
-    listener._apply_from_cache = MagicMock()
-    listener.get_reasoning_effort_for_endpoint = lambda url: "high" if "together" in url else ""
-
-    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
-        event = MagicMock()
-        event.Selected = 0
-        listener.itemStateChanged(event)
-    re_ctrl.setText.assert_called_with("high")
-
-    # A typed-URL change that still shows the previous level reloads
-    re_ctrl.reset_mock()
-    combo.getText.return_value = "https://api.groq.com/openai/v1"
-    re_ctrl.getText.return_value = "high"
-    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
-        try:
-            listener.textChanged(MagicMock())
-        finally:
-            listener.close()
-    re_ctrl.setText.assert_called_with("(default)")
-
-    # A changed selection is kept
-    re_ctrl.reset_mock()
-    re_ctrl.getText.return_value = "low"
-    combo.getText.return_value = "https://api.groq.com/openai/v1x"
-    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
-        try:
-            listener.textChanged(MagicMock())
-        finally:
-            listener.close()
-    re_ctrl.setText.assert_not_called()
 
 
 @pytest.mark.parametrize(

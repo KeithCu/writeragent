@@ -49,7 +49,8 @@ def _xdl_snapshot():
         "chk_voice": (154, 138, 22, 14),
         "chat_mode_selector": (4, 203, 142, 14),
         "model_label": (4, 217, 142, 10),
-        "model_selector": (4, 229, 142, 14),
+        "model_selector": (4, 229, 104, 14),
+        "reasoning_effort_selector": (111, 229, 35, 14),
         "image_model_selector": (4, 217, 142, 14),
         "base_size_label": (4, 233, 20, 10),
         "base_size_input": (25, 231, 40, 14),
@@ -104,11 +105,26 @@ class TestComputeChatPanelLayout:
     def test_stretch_controls_fill_column(self):
         layouts = compute_chat_panel_layout(900, 500, _xdl_snapshot())
         right = 900 - column_right_margin(_xdl_snapshot())
-        for name in ("status", "query", "chat_mode_selector", "model_selector"):
+        for name in ("status", "query", "chat_mode_selector"):
             rect = layouts[name]
             assert rect.x + rect.width == right
         assert layouts["response"].x + layouts["response"].width == right
-        assert layouts["chat_mode_selector"].width == layouts["model_selector"].width
+        assert layouts["reasoning_effort_selector"].x + layouts["reasoning_effort_selector"].width == right
+        assert layouts["model_selector"].width < layouts["chat_mode_selector"].width
+        assert layouts["model_selector"].x + layouts["model_selector"].width + 3 == layouts["reasoning_effort_selector"].x
+
+    def test_model_selector_and_reasoning_effort_row_layout(self):
+        for w in (180, 250, 400, 900):
+            layouts = compute_chat_panel_layout(w, 500, _xdl_snapshot())
+            right = w - column_right_margin(_xdl_snapshot())
+            ms = layouts["model_selector"]
+            re = layouts["reasoning_effort_selector"]
+            assert ms.x == 4
+            assert ms.y == re.y
+            assert ms.height == re.height == 14
+            assert ms.x + ms.width + 3 == re.x
+            assert re.x + re.width == right
+            assert re.width == 35
 
     def test_narrow_panel_no_child_overflows(self):
         layouts = compute_chat_panel_layout(180, 500, _xdl_snapshot())

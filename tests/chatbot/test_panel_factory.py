@@ -1721,4 +1721,33 @@ def test_refresh_controls_mode_selector_caching() -> None:
         assert mock_pop_mode.call_count == 2
 
 
+def test_sidebar_reasoning_effort_wires_and_refreshes() -> None:
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.m_panelRootWindow = MagicMock()
+    el.send_listener = MagicMock()
+    el.send_listener.cached_doc_type = "writer"
+
+    effort_sel = MagicMock()
+    controls = {"reasoning_effort_selector": effort_sel}
+    el.m_panelRootWindow.getControl.side_effect = lambda n: controls.get(n)
+
+    with (
+        patch("plugin.chatbot.panel_factory.get_optional_control", side_effect=lambda _r, n: controls.get(n)),
+        patch("plugin.chatbot.config_ui_helpers.populate_reasoning_effort_selector") as mock_pop_effort,
+        patch("plugin.chatbot.panel_factory.ChatPanelElement._populate_model_combos"),
+        patch("plugin.chatbot.panel_factory.ChatPanelElement._update_backend_indicator"),
+    ):
+        el._wire_model_selectors(None, None, effort_sel)
+        assert effort_sel.addItemListener.call_count == 1
+        assert mock_pop_effort.call_count == 1
+
+        # Now config refresh: populates again, but does not re-add listener
+        el._refresh_controls_from_config()
+        assert effort_sel.addItemListener.call_count == 1
+        assert mock_pop_effort.call_count == 2
+
+
 
