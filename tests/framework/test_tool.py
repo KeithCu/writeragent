@@ -1360,6 +1360,11 @@ class TestToolIsolation:
         worker.start()
         worker.join(2)
         assert not worker.is_alive()
+        # The tool thread re-raises after queueing the error; let it die inside
+        # this test so its thread-exception warning is not pinned on the next one.
+        for t in threading.enumerate():
+            if t.name == "tool-timeout-boom_base":
+                t.join(2)
         assert "raised" not in box
         result = box["result"]
         assert result["status"] == "error"

@@ -1308,6 +1308,7 @@ def test_watchdog_check_continues_when_flush_raises(tmp_path) -> None:
         handler.close()
 
 
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_watchdog_loop_continues_after_tick_error() -> None:
     import threading
     import plugin.framework.logging as logging_mod
@@ -1336,6 +1337,7 @@ def test_watchdog_loop_continues_after_tick_error() -> None:
         assert check_count >= 2
 
 
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_watchdog_loop_continues_when_tick_log_fails() -> None:
     import threading
     import plugin.framework.logging as logging_mod
