@@ -39,11 +39,11 @@ def _split_spec(spec: Any) -> tuple[str, dict[str, Any]]:
 def _make_spec_runner(
     *,
     domain: str,
-    error_code: str,
     long_timeout: bool = False,
 ) -> Callable[..., dict[str, Any]]:
     """Build a ``run_*(ctx, spec, data, context=)`` client using run_trusted_action RPC."""
     # optimize uses "Optimization" for error reporting and docstrings.
+    error_code = f"{domain.upper()}_ERROR"
     error_label = "Optimization" if domain == "optimize" else domain.capitalize()
 
     def _runner(
@@ -80,37 +80,17 @@ def _make_spec_runner(
     return _runner
 
 
-run_analysis = _make_spec_runner(
-    domain="analysis",
-    error_code="ANALYSIS_ERROR",
-)
-
-run_viz = _make_spec_runner(
-    domain="viz",
-    error_code="VIZ_ERROR",
-)
-
-run_symbolic = _make_spec_runner(
-    domain="symbolic",
-    error_code="SYMBOLIC_ERROR",
-    long_timeout=True,
-)
-
-run_optimize = _make_spec_runner(
-    domain="optimize",
-    error_code="OPTIMIZE_ERROR",
-)
-
-run_forecast = _make_spec_runner(
-    domain="forecast",
-    error_code="FORECAST_ERROR",
-)
+run_analysis = _make_spec_runner(domain="analysis")
+run_viz = _make_spec_runner(domain="viz")
+run_symbolic = _make_spec_runner(domain="symbolic", long_timeout=True)
+run_optimize = _make_spec_runner(domain="optimize")
+run_forecast = _make_spec_runner(domain="forecast")
 
 
 # # --- Vision ---
 
 
-def _resolve_vision_timeout_sec(spec: dict[str, Any] | str) -> int:
+def _resolve_vision_timeout_sec(params: dict[str, Any]) -> int:
     """Vision uses the long budget, with some engine-specific tuning + user override."""
     # Read vision.worker_timeout_sec via get_config_int_safe for both engines.
     # A hardcoded 120s for Paddle ignored the user override, and swallowing
@@ -123,7 +103,6 @@ def _resolve_vision_timeout_sec(spec: dict[str, Any] | str) -> int:
     if custom > 0 and custom != DOCLING_WORKER_TIMEOUT_SEC:
         return int(custom)
 
-    _unused_helper, params = _split_spec(spec)
     if resolve_engine(params) == "paddle":
         return VISION_WORKER_TIMEOUT_SEC  # slightly lighter than full Docling
     return long_trusted_worker_timeout_sec()
@@ -138,14 +117,13 @@ def run_vision(
     stop_checker: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted vision helper in the user venv."""
-    timeout_sec = _resolve_vision_timeout_sec(spec)
     helper, params = _split_spec(spec)
+    timeout_sec = _resolve_vision_timeout_sec(params)
     return run_trusted_worker_action(
         ctx,
         domain="vision",
         helper=helper,
         params=params,
-        data_range=None,
         context=context,
         timeout_sec=timeout_sec,
         error_code="VISION_ERROR",
@@ -177,9 +155,6 @@ def run_folder_sql(
         ctx,
         domain="sql",
         helper="query_folder_sql",
-        params={},
-        data_range=None,
-        context=None,
         timeout_sec=configured_python_exec_timeout(),
         error_code="DUCKDB_SQL_ERROR",
         error_label="DuckDB SQL",
@@ -223,7 +198,6 @@ def run_text_analytics(
         domain="text",
         helper=helper,
         params=params,
-        data_range=None,
         context=context,
         timeout_sec=timeout_sec,
         error_code="TEXT_ANALYTICS_ERROR",
@@ -241,9 +215,6 @@ def run_languagetool_check(ctx: Any, text: str, bcp47: str) -> dict[str, Any]:
         ctx,
         domain="languagetool",
         helper="check",
-        params={},
-        data_range=None,
-        context=None,
         timeout_sec=LANGUAGETOOL_WORKER_TIMEOUT_SEC,
         error_code="LANGUAGETOOL_ERROR",
         error_label="LanguageTool",
@@ -260,9 +231,6 @@ def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[st
         ctx,
         domain="vale",
         helper="check",
-        params={},
-        data_range=None,
-        context=None,
         timeout_sec=VALE_WORKER_TIMEOUT_SEC,
         error_code="VALE_ERROR",
         error_label="Vale Linter",
