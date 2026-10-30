@@ -24,9 +24,9 @@ from compute_service.json_forward import (
     parse_execute_request,
     parse_multipart_execute,
     parse_multipart_vision,
-    peel_execute_request,
     validate_session_id,
 )
+from compute_service.json_peel import peel_execute_request
 from compute_service.server import create_wsgi_app
 from tests.compute_service.multipart_encode import encode_multipart_execute, encode_multipart_vision
 
