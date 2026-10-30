@@ -78,13 +78,10 @@ def _pick_size(width: int, height: int, landscape: str, portrait: str, square: s
 
 
 def _without_reasoning_details(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Chat Completions body must not carry reasoning_details.
+    """Drop reasoning_details, which api.openai.com Chat Completions rejects.
 
-    This PR is what writes that key onto openai session messages. api.openai.com
-    Chat Completions rejects the OpenRouter field. The Responses branch reads
-    the key itself, so only the chat branch strips it. Copy the dict; do not
-    mutate the list make_chat_request passed in. Leave reasoning and
-    reasoning_content alone. Those string keys predate this PR.
+    The Responses branch reads that key, so only the chat branch strips it.
+    Copies each changed dict instead of mutating the caller's messages.
     """
     out: list[dict[str, Any]] = []
     for message in messages:
@@ -102,8 +99,6 @@ def _responses_request(
         endpoint_effort=shim._endpoint_reasoning_effort(),
         chat_extra=chat_extra if isinstance(chat_extra, dict) else None,
     )
-    # If the effort-mapping function exists on HEAD, map data["reasoning"]["effort"]
-    # here and nowhere else. If it does not exist, leave the string.
     if "reasoning" in data and isinstance(data["reasoning"], dict):
         effort = data["reasoning"].get("effort")
         if effort:

@@ -66,10 +66,8 @@ def uses_responses_api(model_name: str | None, tools: list[dict[str, Any]] | Non
 def responses_effort(endpoint_effort: str, chat_extra: dict[str, Any] | None) -> str:
     """The string OpenAIShim's chat body would send as reasoning_effort.
 
-    chat_extra.reasoning.effort wins, matching base_provider_shim._chat_payload
-    lines 234–244. Blank means omit the reasoning object. No mapping table.
-    If a provider effort-mapping function exists on HEAD, the caller applies
-    it to this return value. This function does not.
+    chat_extra.reasoning.effort wins, as in base_provider_shim._chat_payload.
+    Blank means omit the reasoning object. The caller maps it per provider.
     """
     if isinstance(chat_extra, dict):
         reasoning = chat_extra.get("reasoning")
