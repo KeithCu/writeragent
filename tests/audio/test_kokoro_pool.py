@@ -245,6 +245,9 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
         def request_shutdown(self) -> None:
             self.shutdowns += 1
 
+        def signal(self) -> None:
+            pass
+
         def kill(self) -> bool:
             self.kills += 1
             return True
@@ -491,6 +494,9 @@ def test_cancel_inflight_returns_while_reap_blocks() -> None:
         def request_shutdown(self) -> None:
             self.shutdowns += 1
 
+        def signal(self) -> None:
+            pass
+
         def kill(self) -> bool:
             time.sleep(2)
             self.kills += 1
@@ -571,7 +577,7 @@ def test_execute_serializes_callers(tmp_path) -> None:
 
 def test_signal_kokoro_child_does_not_close_stdin() -> None:
     from unittest.mock import MagicMock
-    from plugin.audio.kokoro_pool import _KokoroWorker, _signal_kokoro_child
+    from plugin.audio.kokoro_pool import _KokoroWorker
 
     worker = _KokoroWorker(sys.executable, "unused.py")
     mock_managed = MagicMock()
@@ -581,7 +587,7 @@ def test_signal_kokoro_child_does_not_close_stdin() -> None:
     mock_managed.stdin = mock_stdin
     worker._managed = mock_managed
 
-    _signal_kokoro_child(worker)
+    worker.signal()
 
     mock_stdin.close.assert_not_called()
     assert not hasattr(mock_managed, "close_stdio") or mock_managed.close_stdio.call_count == 0
@@ -852,6 +858,7 @@ def test_get_kokoro_pool_caches_for_configured_venv(monkeypatch):
     class DummyPool:
         def __init__(self, py_exe: str):
             self.py_exe = py_exe
+            self.python_executable = py_exe
             self.configured_venv = None
             created_pools.append(self)
 
