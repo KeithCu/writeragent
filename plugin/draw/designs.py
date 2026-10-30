@@ -58,7 +58,6 @@ from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger("writeragent.draw.designs")
 
-NOT_IMPRESS_CODE = "UNSUPPORTED_DOC_TYPE"
 # Distinct from create-from-template's ``_wa_impress_otp`` so a hidden source
 # load does not collide with a leftover new-doc Hidden frame.
 _IMPORT_SOURCE_TARGET = "_wa_impress_otp_import"
@@ -208,10 +207,6 @@ _TEMPLATE_PROP_FALLBACK = ("Template", "Template_internal", "Template_user", "Te
 _OTP_EXT = ".otp"
 
 
-def not_impress_error(tool: ToolBase, action: str) -> dict[str, Any]:
-    return tool._tool_error("%s requires an Impress presentation, not a Draw document." % action, code=NOT_IMPRESS_CODE, doc_type="draw")
-
-
 def _template_property_names(settings: Any) -> list[str]:
     """Discover PathSettings template properties; never a filesystem prefix."""
     names: list[str] = []
@@ -286,14 +281,6 @@ def _iter_template_directories(ctx: Any) -> list[str]:
     return found
 
 
-def _design_id_from_path(path: str) -> str:
-    return os.path.splitext(os.path.basename(path))[0].strip().lower()
-
-
-def _design_name_from_path(path: str) -> str:
-    return os.path.splitext(os.path.basename(path))[0]
-
-
 def enumerate_impress_designs(ctx: Any, *, include_look: bool = True) -> list[dict[str, str]]:
     """Walk PathSettings template dirs for ``.otp`` files. Stable id = stem lowercased."""
     designs_by_id: dict[str, dict[str, str]] = {}
@@ -310,14 +297,15 @@ def enumerate_impress_designs(ctx: Any, *, include_look: bool = True) -> list[di
                 full = os.path.normpath(os.path.join(root, filename))
                 if not os.path.isfile(full):
                     continue
-                did = _design_id_from_path(full)
+                stem = os.path.splitext(os.path.basename(full))[0]
+                did = stem.strip().lower()
                 if len(designs_by_id) >= limit and did not in designs_by_id:
                     out = list(designs_by_id.values())
                     out.sort(key=lambda d: (d["name"].lower(), d["path"]))
                     return out
                 entry = {
                     "id": did,
-                    "name": _design_name_from_path(full),
+                    "name": stem,
                     "path": full,
                     "url": path_to_file_url(full),
                     # ZIP thumbnail / Pictures / styles — never Desktop-open.
@@ -1304,7 +1292,11 @@ class ApplyDesign(ToolBase):
         # Draw and every other non-Impress doc share this error.
         # _is_draw_only_doc returned the same payload.
         if not _is_impress_doc(ctx.doc):
-            return not_impress_error(self, "apply_design")
+            return self._tool_error(
+                "apply_design requires an Impress presentation, not a Draw document.",
+                code="UNSUPPORTED_DOC_TYPE",
+                doc_type="draw",
+            )
         design_key = kwargs["design"].strip()
         if not design_key:
             return self._tool_error("design is required.")
