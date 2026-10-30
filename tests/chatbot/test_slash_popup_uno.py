@@ -15,7 +15,7 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
     import sys
 
     from plugin.chatbot import slash_popup
-    from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN
+    from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, enable_mock_slash_commands
     from plugin.chatbot.slash_popup import SlashPopupController, uses_toolkit_overlay
     from plugin.tests.testing_utils import skip_windows_awt_top_dialog
 
@@ -25,6 +25,7 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
     skip_windows_awt_top_dialog("slash_popup createPeer/setVisible")
 
     slash_popup.ENABLE_SLASH = True
+    enable_mock_slash_commands()
 
     smgr = ctx.getServiceManager()
     dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
@@ -74,7 +75,7 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
         assert int(box.getItemCount()) >= 5
         ps = box.getPosSize()
         assert int(ps.Height) > 20
-        # TOP host + listbox child so the menu paints over full-size rich-text.
+        # Borderless floating host + listbox child so the menu paints over the rich text.
         assert popup._popup_floater is not None
 
         popup.on_query_text("/he")
@@ -91,9 +92,6 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
         assert popup.handle_key(KEY_RETURN, 0) is True
         assert popup.is_open is False
     finally:
-        if getattr(popup, "_popup_window", None) is not None:
-            try:
-                popup._popup_window.dispose()
-            except Exception:
-                pass
+        if popup is not None:
+            popup.dispose()
         dlg.dispose()
