@@ -19,6 +19,7 @@ from plugin.framework.config import (
     get_config,
     get_current_endpoint,
     get_api_key_for_endpoint,
+    get_reasoning_effort_for_endpoint,
     get_config_bool,
     get_config_int,
     get_config_float,
@@ -51,6 +52,22 @@ IMAGE_ASPECT_RATIO_ENUMS: dict[str, str] = {
     "Landscape (3:2)": "landscape_3_2",
     "Portrait (2:3)": "portrait_2_3",
 }
+
+REASONING_EFFORT_UNSET = N_("(default)")
+REASONING_EFFORT_LEVELS = (N_("low"), N_("medium"), N_("high"), N_("xhigh"), N_("max"))
+
+
+def reasoning_effort_options() -> list[dict[str, str]]:
+    return [{"label": REASONING_EFFORT_UNSET, "value": ""}] + [
+        {"label": level, "value": level} for level in REASONING_EFFORT_LEVELS
+    ]
+
+
+def reasoning_effort_display(stored: str) -> str:
+    for opt in reasoning_effort_options():
+        if opt["value"] == stored:
+            return _(opt["label"])
+    return _(REASONING_EFFORT_UNSET)
 
 
 def aspect_label_gettext(canonical: str) -> str:
@@ -92,6 +109,7 @@ def _get_core_field_specs(current_endpoint: str) -> list[dict[str, Any]]:
         {"name": "api_key", "value": str(get_api_key_for_endpoint(current_endpoint))},
         {"name": "temperature", "value": str(get_config_float("temperature")), "type": "float"},
         {"name": "chat_max_tokens", "value": str(get_config_int("chat_max_tokens")), "type": "int"},
+        {"name": "reasoning_effort", "value": reasoning_effort_display(get_reasoning_effort_for_endpoint(current_endpoint)), "options": reasoning_effort_options()},
         {"name": "additional_instructions", "value": get_config_str("additional_instructions")},
     ]
 
@@ -244,7 +262,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
         current_endpoint = saved_endpoint
 
     for key, val in result.items():
-        if key in ("endpoint", "api_key") or key not in field_specs_by_name:
+        if key in ("endpoint", "api_key", "reasoning_effort") or key not in field_specs_by_name:
             continue
 
         spec = field_specs_by_name[key]
@@ -362,6 +380,19 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
         )
         if slot is not None:
             pending["api_keys_by_endpoint"] = {slot: typed_key}
+
+    if "reasoning_effort" in result and "reasoning_effort" in field_specs_by_name:
+        shown = stored_select_value(result["reasoning_effort"], field_specs_by_name["reasoning_effort"].get("options"))
+        typed_effort = "" if shown is None else str(shown)
+        slot = endpoint_for_api_key_write(
+            typed_effort,
+            saved_endpoint,
+            current_endpoint,
+            get_reasoning_effort_for_endpoint(saved_endpoint),
+            get_reasoning_effort_for_endpoint(current_endpoint),
+        )
+        if slot is not None:
+            pending["reasoning_effort"] = {slot: typed_effort}
 
     from plugin.chatbot.settings_fields import changed_config_values
 

@@ -272,6 +272,68 @@ class TestConfigSyncFileIO:
         assert (data['api_keys_by_endpoint'].get('http://api.openai.com')) == ('sk-1234')
         assert (get_api_key_for_endpoint('http://api.openai.com')) == ('sk-1234')
 
+    def test_reasoning_effort_is_per_endpoint_and_normalized(self):
+        from plugin.framework.config import get_api_config, get_reasoning_effort_for_endpoint, set_reasoning_effort_for_endpoint
+
+        set_reasoning_effort_for_endpoint("https://api.openai.com/v1", "high")
+        set_reasoning_effort_for_endpoint("https://openrouter.ai/api/v1", "medium")
+
+        data = self._load_written()
+        assert "reasoning_effort" in data
+        assert data["reasoning_effort"].get("https://api.openai.com") == "high"
+        assert data["reasoning_effort"].get("https://openrouter.ai/api") == "medium"
+
+        assert get_reasoning_effort_for_endpoint("https://api.openai.com/v1") == "high"
+        assert get_reasoning_effort_for_endpoint("https://api.openai.com") == "high"
+        assert get_reasoning_effort_for_endpoint("https://openrouter.ai/api/v1") == "medium"
+        assert get_reasoning_effort_for_endpoint("https://openrouter.ai/api") == "medium"
+
+        set_config("endpoint", "https://api.openai.com/v1")
+        cfg = get_api_config()
+        assert cfg.get("reasoning_effort") == "high"
+
+        set_config("endpoint", "https://openrouter.ai/api/v1")
+        cfg_or = get_api_config()
+        assert cfg_or.get("reasoning_effort") == "medium"
+
+        set_config("endpoint", "https://api.together.xyz/v1")
+        cfg_other = get_api_config()
+        assert "reasoning_effort" not in cfg_other
+
+    def test_reasoning_effort_slot_patch_does_not_drop_other_endpoints(self):
+        from plugin.framework.config import get_config, set_reasoning_effort_for_endpoint
+
+        set_reasoning_effort_for_endpoint("https://api.openai.com/v1", "high")
+        set_reasoning_effort_for_endpoint("https://openrouter.ai/api/v1", "medium")
+
+        set_configs({"reasoning_effort": {"https://api.openai.com": "max"}})
+        stored = get_config("reasoning_effort")
+        assert stored.get("https://api.openai.com") == "max"
+        assert stored.get("https://openrouter.ai/api") == "medium"
+
+    def test_clear_reasoning_effort_drops_slot(self):
+        from plugin.framework.config import get_reasoning_effort_for_endpoint, set_reasoning_effort_for_endpoint
+
+        set_reasoning_effort_for_endpoint("https://api.openai.com/v1", "high")
+        set_reasoning_effort_for_endpoint("https://openrouter.ai/api/v1", "medium")
+
+        set_reasoning_effort_for_endpoint("https://api.openai.com/v1", "")
+        assert get_reasoning_effort_for_endpoint("https://api.openai.com/v1") == ""
+        assert get_reasoning_effort_for_endpoint("https://openrouter.ai/api/v1") == "medium"
+
+        set_reasoning_effort_for_endpoint("https://openrouter.ai/api/v1", "")
+        assert get_reasoning_effort_for_endpoint("https://openrouter.ai/api/v1") == ""
+        data = self._load_written()
+        assert not data.get("reasoning_effort")
+
+    def test_non_dict_reasoning_effort_resets(self):
+        from plugin.framework.config import get_config
+
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"reasoning_effort": "high"}, f)
+        reset_config_for_tests()
+        assert get_config("reasoning_effort") == {}
+
     def test_get_api_key_file_io_missing_file(self):
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
