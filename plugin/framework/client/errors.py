@@ -20,6 +20,7 @@ import urllib.parse
 from plugin.framework.i18n import _
 from plugin.framework.errors import NetworkError, http_status_message, safe_json_loads
 from plugin.framework.client.http_security import redact_secrets
+from .responses_shim import responses_failed_message
 
 log = logging.getLogger(__name__)
 
@@ -168,7 +169,12 @@ def stream_error_message(chunk: dict[str, Any]) -> str | None:
     if isinstance(err, str) and err.strip():
         return err.strip()
     event_type = chunk.get("type")
+    if event_type == "response.failed":
+        return responses_failed_message(chunk)
     if event_type == "error" or (isinstance(event_type, str) and event_type.endswith("_error")):
+        message = chunk.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
         return str(event_type)
     return None
 

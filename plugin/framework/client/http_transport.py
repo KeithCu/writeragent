@@ -207,7 +207,8 @@ class LlmHttpTransport:
                     sock.shutdown(socket.SHUT_RDWR)
             except Exception:
                 log.debug("persistent socket shutdown failed", exc_info=True)
-            self._persistent_conn.close()
+            if self._persistent_conn is not None:
+                self._persistent_conn.close()
         except Exception:
             log.debug("persistent connection close failed", exc_info=True)
         self._persistent_conn = None

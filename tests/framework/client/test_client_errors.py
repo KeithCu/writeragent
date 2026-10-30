@@ -112,6 +112,14 @@ class TestStreamErrorMessage:
     def test_type_error_event(self):
         assert stream_error_message({"type": "error"}) == "error"
         assert stream_error_message({"type": "overloaded_error"}) == "overloaded_error"
+        assert stream_error_message({"type": "error", "message": "boom", "code": "server_error"}) == "boom"
+
+    def test_responses_failed_event(self):
+        assert stream_error_message({"type": "response.failed", "response": {"error": {"message": "Invalid call"}}}) == "Invalid call"
+        assert stream_error_message({"type": "response.failed", "response": {"error": {"code": "rate_limit"}}}) == "rate_limit"
+        assert stream_error_message({"type": "response.failed"}) == "response.failed"
+        assert stream_error_message({"type": "response.incomplete"}) is None
+        assert stream_error_message({"type": "response.completed"}) is None
 
     def test_empty_or_null_error_returns_none(self):
         assert stream_error_message({}) is None
