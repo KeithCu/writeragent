@@ -4,8 +4,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Ask-box slash-command registry, prefix filter, and LRU ranking.
 
-The sidebar popup is UI-first: most names are stubs so Keith can pick the
-real set later. Ranking is prefix match, then ``slash_command_lru`` in
+The product list is /help /clear /stop. Echo-only ``[mock]`` stubs exist for
+the mock-LLM sidebar harness and register only through
+``enable_mock_slash_commands()``. Ranking is prefix match, then ``slash_command_lru`` in
 ``writeragent.json`` (empty filter and as a tie-break). Do not implement
 the consider-list in ``docs/chat/slash-commands.md`` here.
 """
@@ -42,12 +43,17 @@ class SlashCommand:
     clears_ask: bool = True
 
 
-# Wired: /help /clear /stop. The rest exist so prefix + LRU tests do not
-# depend on future product commands. Consider-list names are tagged mock.
+# Product commands: /help /clear /stop.
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("help", N_("Print the command list"), "wired", clears_ask=True),
     SlashCommand("clear", N_("Start a new chat"), "wired", clears_ask=True),
     SlashCommand("stop", N_("Cancel the in-flight send"), "wired", clears_ask=False),
+)
+
+# Echo-only stubs for the mock-LLM sidebar harness and prefix/LRU tests.
+# Never in the product list: only ``enable_mock_slash_commands()`` (called by
+# the debug-only sidebar test hooks) adds them to ``registered_slash_commands``.
+MOCK_SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("mock-alpha", N_("Mock command (echo only)"), "mock", clears_ask=True),
     SlashCommand("mock-bravo", N_("Mock command (echo only)"), "mock", clears_ask=True),
     SlashCommand("mock-charlie", N_("Mock command (echo only)"), "mock", clears_ask=True),
@@ -56,7 +62,20 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("model", N_("Switch model (mock)"), "mock", clears_ask=True),
 )
 
-SLASH_COMMANDS_BY_NAME: dict[str, SlashCommand] = {cmd.name: cmd for cmd in SLASH_COMMANDS}
+_mock_commands_enabled = False
+
+
+def enable_mock_slash_commands(enabled: bool = True) -> None:
+    """Mock-LLM harness only: show the ``[mock]`` stubs in the popup and /help."""
+    global _mock_commands_enabled
+    _mock_commands_enabled = bool(enabled)
+
+
+def registered_slash_commands() -> tuple[SlashCommand, ...]:
+    """Commands the popup, /help and ``run_slash_command`` see right now."""
+    if _mock_commands_enabled:
+        return SLASH_COMMANDS + MOCK_SLASH_COMMANDS
+    return SLASH_COMMANDS
 
 
 def slash_typed_prefix(text: str) -> str | None:
@@ -82,7 +101,7 @@ def filter_slash_commands(
     names float to the top when the filter is empty and as a tie-break
     among equal prefix matches.
     """
-    registry = tuple(commands) if commands is not None else SLASH_COMMANDS
+    registry = tuple(commands) if commands is not None else registered_slash_commands()
     prefix = slash_typed_prefix(typed)
     if prefix is None:
         if (typed or "").startswith("/"):
@@ -125,7 +144,7 @@ def format_slash_item(cmd: SlashCommand) -> str:
 
 
 def format_help_text(commands: Sequence[SlashCommand] | None = None) -> str:
-    rows = commands if commands is not None else SLASH_COMMANDS
+    rows = commands if commands is not None else registered_slash_commands()
     lines = [_("Slash commands:")]
     for cmd in rows:
         lines.append("  " + format_slash_item(cmd))
@@ -197,11 +216,8 @@ def run_slash_command(name: str, host: Any, commands: Sequence[SlashCommand] | N
     button, and leaves the draft.
     """
     clean = (name or "").lstrip("/").strip().lower()
-    cmd = (
-        {c.name: c for c in commands}.get(clean)
-        if commands is not None
-        else SLASH_COMMANDS_BY_NAME.get(clean)
-    )
+    registry = commands if commands is not None else registered_slash_commands()
+    cmd = {c.name: c for c in registry}.get(clean)
     if cmd is None:
         return False
     record_slash_lru(cmd.name)

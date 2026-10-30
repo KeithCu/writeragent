@@ -1737,3 +1737,41 @@ def test_fake_tts_off_restores_patches(
         if os.path.isfile(fake_tts_state_file):
             os.remove(fake_tts_state_file)
 
+
+
+class _TextCtl:
+    def __init__(self, text: str = "") -> None:
+        self.text = text
+
+    def getText(self) -> str:
+        return self.text
+
+    def setText(self, text: str) -> None:
+        self.text = text
+
+
+def test_urp_slash_host_help_appends_output() -> None:
+    # CI 40839406030: /help passed role= to the real _UrpSlashHost.append_output
+    # (TypeError). MagicMock hosts accept any kwargs, so drive the real class.
+    from plugin.chatbot.slash_commands import run_slash_command
+    from plugin.chatbot.sidebar_test_hooks import _UrpSlashHost
+
+    query = _TextCtl("/help")
+    response = _TextCtl("earlier\n")
+    host = _UrpSlashHost(query, response, None, None)
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("help", host) is True
+    assert query.text == ""
+    assert response.text.startswith("earlier\n")
+    assert "/help" in response.text and "/clear" in response.text
+
+
+def test_ensure_slash_popup_registers_mock_commands(monkeypatch) -> None:
+    import plugin.chatbot.slash_commands as slash
+
+    monkeypatch.setattr(slash, "_mock_commands_enabled", False)
+    monkeypatch.setattr(sidebar_test_hooks, "_require_debug", lambda: None)
+    monkeypatch.setattr(sidebar_test_hooks, "send_listener", lambda: None)
+    monkeypatch.setattr(sidebar_test_hooks, "_urp_slash_controller", lambda: None)
+    sidebar_test_hooks.ensure_slash_popup()
+    assert "mock-bravo" in [c.name for c in slash.registered_slash_commands()]

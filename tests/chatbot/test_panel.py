@@ -2609,3 +2609,19 @@ class TestJ02Regression:
 
 
 
+
+
+def test_append_output_shows_help_without_live_turn() -> None:
+    # Live qt6 box 2026-10-29: /help went through _append_response, which
+    # drops text with no live turn, so the transcript showed nothing.
+    from plugin.chatbot.panel import SendButtonListener
+    from unittest.mock import MagicMock, patch
+
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
+        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    widget = MagicMock()
+    listener.rich_text_widget = widget
+    with patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)), patch.object(listener, "_append_response") as append_response:
+        listener.append_output("\n/help — Print the command list\n")
+    widget.append_chunk.assert_called_once_with("\n/help — Print the command list\n")
+    append_response.assert_not_called()

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,7 +22,7 @@ from plugin.chatbot.slash_popup import (
     _above_ready_rect,
     _create_ask_peer_listbox,
     _is_combo_box,
-    _is_parent_local,
+    _list_height,
     _overlay_height,
     _popup_bounds,
     _printable_key_char,
@@ -33,6 +34,8 @@ from plugin.chatbot.slash_popup import (
 @pytest.fixture(autouse=True)
 def _enable_slash_for_unit_tests(monkeypatch):
     monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", True)
+    # Most tests drive the [mock] rows, like the mock-LLM sidebar harness.
+    monkeypatch.setattr("plugin.chatbot.slash_commands._mock_commands_enabled", True)
 
 
 class _ListBox:
@@ -121,6 +124,15 @@ def test_slash_opens_popup_with_full_list():
     assert popup.selected_name == "help"
     # Non-toolkit path fills in _refresh_list only. A second addItems doubled rows.
     assert len(box.items) == len(popup.visible_names)
+
+
+def test_product_popup_lists_no_mock_commands(monkeypatch):
+    # Keith 2026-10-29: /mock-bravo [mock] showed in a real dev build.
+    monkeypatch.setattr("plugin.chatbot.slash_commands._mock_commands_enabled", False)
+    popup, _box = _controller(lru=["mock-bravo"])
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=["mock-bravo"]):
+        popup.on_query_text("/")
+    assert popup.visible_names == ["help", "clear", "stop"]
 
 
 def test_he_leaves_help_selected():
@@ -368,7 +380,7 @@ def test_reposition_does_not_probe_screen_bounds(monkeypatch):
         calls["n"] += 1
         return None
 
-    monkeypatch.setattr("plugin.chatbot.slash_popup._screen_bounds_above_ready", _probe)
+    monkeypatch.setattr("plugin.chatbot.slash_popup._overlay_offset", _probe)
     popup, _box = _controller()
     popup.reposition()
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
@@ -588,7 +600,208 @@ def test_above_ready_uses_status_top():
     assert y + h <= 1678
 
 
-def test_parent_local_echo_detected():
-    # Box bug: Ask accessible returned (8,360) while PosSize was ~9,361.
-    assert _is_parent_local((8, 360), 9, 361, 307) is True
-    assert _is_parent_local((940, 400), 9, 361, 307) is False
+class _Acc:
+    def __init__(self, xy):
+        self._xy = xy
+
+    def getLocationOnScreen(self):
+        return SimpleNamespace(X=self._xy[0], Y=self._xy[1])
+
+
+class _Win:
+    """AWT window/peer stand-in with an accessible screen location."""
+
+    def __init__(self, xy=None, *, parent=None):
+        self.xy = xy
+        self.parent = parent
+        self.toolkit: Any = None
+        self.min_row_px: int | None = None
+        self.origin: Any = None
+        self.pos: list[tuple] = []
+        self.disposed = False
+
+    def getAccessibleContext(self):
+        return _Acc(self.xy) if self.xy is not None else None
+
+    def getToolkit(self):
+        return self.toolkit
+
+    def getMinimumSize(self, _cols, rows):
+        px = self.min_row_px
+        return SimpleNamespace(Width=0, Height=2 + px * rows) if px else None
+
+    def setPosSize(self, x, y, w, h, flags):
+        self.pos.append((x, y, w, h, flags))
+
+    def dispose(self):
+        self.disposed = True
+
+
+class _Toolkit:
+    def __init__(self, host_xy, list_xy=(0, 0)):
+        self.descs: list = []
+        self.host_xy = host_xy
+        self.list_xy = list_xy
+
+    def createWindow(self, desc):
+        self.descs.append(desc)
+        if desc.WindowServiceName == "listbox":
+            return _Win(self.list_xy)
+        return _Win(self.host_xy)
+
+
+class _Ctl:
+    def __init__(self, peer, rect):
+        self._peer = peer
+        self._rect = rect
+
+    def getPeer(self):
+        return self._peer
+
+    def getPosSize(self):
+        return self._rect
+
+    def getAccessibleContext(self):
+        # UnoControl keeps XAccessible on LibreOffice 26.2; peers do not.
+        return self._peer.getAccessibleContext()
+
+
+def _overlay_parts(monkeypatch, host_xy, ask_xy=(1010, 951)):
+    monkeypatch.setattr(
+        "plugin.chatbot.slash_popup._awt_window_constants",
+        lambda: (_R, SimpleNamespace, 0, 3, 16),
+    )
+    tk = _Toolkit(host_xy)
+    dialog_peer = _Win((1000, 100))
+    dialog_peer.toolkit = tk
+    ask = _Ctl(_Win(ask_xy), _R(10, 851, 400, 60))
+    dialog = _Ctl(dialog_peer, _R(0, 0, 420, 950))
+    return tk, ask, dialog
+
+
+def test_overlay_host_is_borderless_floatingwindow(monkeypatch):
+    # Keith 2026-10-29: "window"+TOP was a decorated soffice.bin WM window
+    # (kf6/qt6 ignore NODECORATION for WorkWindow). floatingwindow with no
+    # attributes is a VCL overlap window: no system frame, no title bar.
+    tk, ask, dialog = _overlay_parts(monkeypatch, host_xy=(10, 51))
+    created = _create_ask_peer_listbox(ask, dialog)
+    assert created is not None
+    host_desc, list_desc = tk.descs
+    assert host_desc.WindowServiceName == "floatingwindow"
+    assert host_desc.WindowAttributes == 0
+    assert (host_desc.Bounds.X, host_desc.Bounds.Y) == (0, 0)
+    assert host_desc.Parent is dialog.getPeer()
+    assert list_desc.WindowServiceName == "listbox"
+    assert list_desc.Parent is created[1]
+    # Ask sits at screen (1010, 951) = dialog-local (10, 851) + offset + host origin.
+    assert created[2] == (1010 - 10 - 10, 951 - 51 - 851)
+
+
+def test_overlay_without_position_is_disposed(monkeypatch):
+    tk, ask, dialog = _overlay_parts(monkeypatch, host_xy=None)
+    assert _create_ask_peer_listbox(ask, dialog) is None
+    assert len(tk.descs) == 2
+
+
+def test_reposition_applies_overlay_offset_and_measured_height():
+    popup, box = _controller()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/")
+    rows = min(len(popup._matches), _POPUP_MAX_ROWS)
+    host = _Win()
+    lst = _Win()
+    lst.min_row_px = 18
+    popup._popup_window = lst
+    popup.control = lst
+    popup._popup_floater = host
+    popup._ask_origin = (990, -850)
+    qr = popup.query_control.getPosSize()
+    popup.reposition()
+    h = 2 + 18 * rows
+    x, y, w, _h = _above_ready_rect(qr, rows, status_top=None, height=h)
+    assert host.pos[-1][:4] == (x + 990, y - 850, w, h)
+    assert lst.pos[-1][:4] == (0, 0, w, h)
+    assert popup._row_px == 18
+    assert _row_index_at_y(19, rows, popup._row_px) == 1
+
+
+def test_list_height_measures_rows_and_falls_back():
+    lst = SimpleNamespace(getMinimumSize=lambda _c, n: SimpleNamespace(Height=2 + 18 * n))
+    assert _list_height(lst, 6) == 110  # qt6 box: 18px rows; old estimate 90 clipped
+    assert _list_height(lst, 99) == 110
+    assert _list_height(SimpleNamespace(), 6) == _overlay_height(6)
+    bad = SimpleNamespace(getMinimumSize=lambda _c, _n: SimpleNamespace(Height=0))
+    assert _list_height(bad, 2) == _overlay_height(2)
+
+
+def test_toolkit_key_handler_registered_at_panel_creation(monkeypatch):
+    """Esc must reach us before the sidebar FocusManager, which also listens
+    app-wide and moves focus to the panel title. App key listeners run in
+    registration order, so ours is added once at panel creation and kept
+    until dispose; hide must not drop it."""
+    handler = object()
+    monkeypatch.setattr("plugin.chatbot.slash_popup._make_slash_key_handler", lambda host, label: handler)
+    toolkit = MagicMock()
+    peer = SimpleNamespace(getToolkit=lambda: toolkit)
+    query = SimpleNamespace(getPeer=lambda: peer, getText=lambda: "")
+    popup = SlashPopupController(_ListBox(), MagicMock(), query)
+    toolkit.addKeyHandler.assert_called_once_with(handler)
+    popup.hide(restore_send=False)
+    toolkit.removeKeyHandler.assert_not_called()
+    popup.dispose()
+    toolkit.removeKeyHandler.assert_called_once_with(handler)
+
+
+def test_toolkit_key_handler_not_registered_when_slash_disabled(monkeypatch):
+    monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", False)
+    toolkit = MagicMock()
+    peer = SimpleNamespace(getToolkit=lambda: toolkit)
+    query = SimpleNamespace(getPeer=lambda: peer, getText=lambda: "")
+    SlashPopupController(_ListBox(), MagicMock(), query)
+    toolkit.addKeyHandler.assert_not_called()
+
+
+class _ProbeCtl:
+    """UnoControlFixedText stand-in: accessible at its peer parent's origin."""
+
+    def __init__(self, made):
+        self.made = made
+        self.parent = None
+        self.disposed = False
+        made.append(self)
+
+    def setModel(self, _model):
+        pass
+
+    def createPeer(self, _toolkit, parent):
+        self.parent = parent
+
+    def setPosSize(self, *_args):
+        pass
+
+    def getAccessibleContext(self):
+        assert self.parent is not None
+        return _Acc(self.parent.origin)
+
+    def dispose(self):
+        self.disposed = True
+
+
+def test_overlay_offset_without_peer_accessibility(monkeypatch):
+    # CI 40978901270 (LibreOffice 26.2): toolkit peers have no
+    # getAccessibleContext, so the host origin came back None and the popup
+    # never opened. A UnoControl inside the host still reports it.
+    tk, ask, dialog = _overlay_parts(monkeypatch, host_xy=None)
+    made: list = []
+
+    def create(name, _ctx):
+        return _ProbeCtl(made) if name.endswith("FixedText") else object()
+
+    ctx = SimpleNamespace(getServiceManager=lambda: SimpleNamespace(createInstanceWithContext=create))
+    host = _Win(None)
+    host.origin = (10, 51)
+    host.toolkit = tk
+    from plugin.chatbot.slash_popup import _overlay_offset
+
+    assert _overlay_offset(host, ask, _R(10, 851, 400, 60), ctx) == (1010 - 10 - 10, 951 - 51 - 851)
+    assert len(made) == 1 and made[0].parent is host and made[0].disposed

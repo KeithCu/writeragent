@@ -585,9 +585,14 @@ class SendButtonListener(BaseActionListener):
             dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
 
     def append_output(self, text: str) -> None:
-        append = getattr(self, "_append_response", None)
-        if callable(append):
-            append(text, role="assistant")
+        """Show a UI-only line (slash /help); it is not a chat message.
+
+        ``_append_response`` drops text when no turn is live, which is always
+        the case for a slash command, so /help printed nothing.
+        """
+        widget = getattr(self, "rich_text_widget", None)
+        if widget is not None:
+            self._run_rich_ui(widget.append_chunk, text)
             return
         response = getattr(self, "response_control", None)
         if response is None:
@@ -1655,6 +1660,9 @@ class SendButtonListener(BaseActionListener):
 
     def disposing(self, Source: Any = None) -> None:
         _stop_tts()
+        popup = getattr(self, "slash_popup", None)
+        if popup is not None and callable(getattr(popup, "dispose", None)):
+            popup.dispose()
         # Detach both mouse listeners on dispose. attach_stop_mouse_listener
         # and attach_record_mouse_listener add listeners that strongly hold
         # send_listener; leaving them attached leaks the listener.
