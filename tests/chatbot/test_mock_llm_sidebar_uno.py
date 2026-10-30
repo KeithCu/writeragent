@@ -2749,9 +2749,11 @@ def _slash_prep():
         send_listener,
         uno_click,
     )
+    from plugin.chatbot.slash_commands import enable_mock_slash_commands
     from plugin.framework.config import set_config
 
     slash_popup.ENABLE_SLASH = True
+    enable_mock_slash_commands()  # [mock] rows exist only in this harness
     adopt_runtime_send_listeners()
     sl = getattr(_session, "listener", None) or send_listener()
     set_config("slash_command_lru", [])

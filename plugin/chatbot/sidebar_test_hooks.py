@@ -1316,6 +1316,9 @@ def handle_debug_sidebar_command(command: str) -> None:
     # Slash ops only touch the Ask ListBox. Run inline like SNAPSHOT —
     # queue_executor.post is not drained on this URP path (no AsyncCallback).
     if op in ("SLASH_REFRESH", "SLASH_ENTER", "SLASH_ESC"):
+        from plugin.chatbot.slash_commands import enable_mock_slash_commands
+
+        enable_mock_slash_commands()  # harness-only [mock] rows
         if sl is None:
             log.warning("debug_sidebar %s: no SendButtonListener", op)
             _write_debug_snapshot(None)
@@ -2544,8 +2547,12 @@ def ensure_slash_popup(*, listener: Any = None) -> Any:
     objects. Re-bind from the live ``slash_popup`` control so hooks can drive
     the menu even when the listener we found was not the one wiring attached.
     Out-of-process mock-sidebar has no in-process listener; bind over URP.
+    Registers the ``[mock]`` slash stubs: only this harness should see them.
     """
     _require_debug()
+    from plugin.chatbot.slash_commands import enable_mock_slash_commands
+
+    enable_mock_slash_commands()
     sl = listener if listener is not None else send_listener()
     if sl is not None:
         popup = getattr(sl, "slash_popup", None)

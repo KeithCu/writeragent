@@ -241,3 +241,32 @@ def test_slash_descriptions_are_translated_at_display_time(monkeypatch):
     assert slash.format_slash_item(slash.SLASH_COMMANDS[0]) == "/help — T:Print the command list"
     assert "/help — T:Print the command list" in slash.format_help_text()
 
+
+
+def test_mock_commands_not_registered_outside_harness(monkeypatch):
+    # Keith 2026-10-29: "/mock-bravo [mock]" showed in a real dev build.
+    import plugin.chatbot.slash_commands as slash
+
+    monkeypatch.setattr(slash, "_mock_commands_enabled", False)
+    assert [c.name for c in slash.registered_slash_commands()] == ["help", "clear", "stop"]
+    assert all(c.kind == "wired" for c in slash.SLASH_COMMANDS)
+    assert "mock" not in [c.kind for c in filter_slash_commands("/", ["mock-bravo"])]
+    assert "[mock]" not in format_help_text()
+    host = MagicMock()
+    assert run_slash_command("mock-bravo", host) is False
+    host.append_output.assert_not_called()
+
+
+def test_enable_mock_slash_commands_adds_stubs(monkeypatch):
+    import plugin.chatbot.slash_commands as slash
+
+    monkeypatch.setattr(slash, "_mock_commands_enabled", False)
+    slash.enable_mock_slash_commands()
+    names = [c.name for c in slash.registered_slash_commands()]
+    assert names[:3] == ["help", "clear", "stop"]
+    assert "mock-bravo" in names
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        host = MagicMock()
+        assert run_slash_command("mock-bravo", host) is True
+    slash.enable_mock_slash_commands(False)
+    assert "mock-bravo" not in [c.name for c in slash.registered_slash_commands()]
