@@ -111,7 +111,10 @@ def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
     choices = chunk.get("choices")
     if isinstance(choices, list) and choices:
         return True
-    return chunk.get("type") in _ANTHROPIC_STREAM_TYPES
+    event_type = chunk.get("type")
+    if isinstance(event_type, str) and event_type.startswith("response."):
+        return True
+    return event_type in _ANTHROPIC_STREAM_TYPES
 
 
 def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | None:

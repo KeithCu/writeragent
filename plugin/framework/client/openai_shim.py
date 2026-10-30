@@ -9,10 +9,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.framework.errors import NetworkError
 from .anthropic_shim import AnthropicShim
-from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_image_data_url, coerce_raw_b64
+from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_image_data_url, coerce_raw_b64, effort_payload
 from .google_shim import GoogleShim
 from .grok_shim import GrokShim
+from .responses_shim import (
+    is_responses_body,
+    parse_responses_chunk,
+    parse_responses_sync,
+    responses_failed_message,
+    responses_payload,
+    uses_responses_api,
+)
 
 # api.openai.com o-series and gpt-5/6 reject max_tokens. Dated snapshots
 # (o3-mini-2025-01-31, gpt-5-2025-08-07) and ft:gpt-5-... share the family prefix.
@@ -66,6 +75,23 @@ def _pick_size(width: int, height: int, landscape: str, portrait: str, square: s
     return square
 
 
+def _without_reasoning_details(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Chat Completions body must not carry reasoning_details.
+
+    This PR is what writes that key onto openai session messages. api.openai.com
+    Chat Completions rejects the OpenRouter field. The Responses branch reads
+    the key itself, so only the chat branch strips it. Copy the dict; do not
+    mutate the list make_chat_request passed in. Leave reasoning and
+    reasoning_content alone. Those string keys predate this PR.
+    """
+    out: list[dict[str, Any]] = []
+    for message in messages:
+        if isinstance(message, dict) and "reasoning_details" in message:
+            message = {key: value for key, value in message.items() if key != "reasoning_details"}
+        out.append(message)
+    return out
+
+
 class OpenAIShim(BaseProviderShim):
     """Official ``api.openai.com`` chat and Images API.
 
@@ -97,6 +123,47 @@ class OpenAIShim(BaseProviderShim):
         if temp is not None and temp != _OPENAI_DEFAULT_TEMPERATURE:
             data.pop("temperature", None)
         return data
+
+    def build_chat_request(
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+    ) -> tuple[str, str, bytes, dict[str, str]]:
+        if uses_responses_api(model_name, tools):
+            data = responses_payload(
+                messages, max_tokens, temperature, tools, stream, model_name, response_format,
+                endpoint_effort=self._endpoint_reasoning_effort(),
+                chat_extra=chat_extra if isinstance(chat_extra, dict) else None,
+            )
+            # If the effort-mapping function exists on HEAD, map data["reasoning"]["effort"]
+            # here and nowhere else. If it does not exist, leave the string.
+            if "reasoning" in data and isinstance(data["reasoning"], dict):
+                effort = data["reasoning"].get("effort")
+                if effort:
+                    fragment = effort_payload(self._reasoning_provider(), effort)
+                    val = fragment.get("reasoning_effort") or (fragment.get("reasoning") or {}).get("effort")
+                    if val:
+                        data["reasoning"]["effort"] = val
+            return self._post(self._url("/responses"), data)
+        return super().build_chat_request(
+            _without_reasoning_details(messages), max_tokens, temperature, tools, stream,
+            model_name, response_format, chat_extra,
+        )
+
+    def parse_response_chunk(
+        self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None
+    ) -> tuple[str, str | None, str | None, dict[str, Any]]:
+        event_type = chunk.get("type")
+        if isinstance(event_type, str) and event_type.startswith("response."):
+            if event_type == "response.failed":
+                raise NetworkError(responses_failed_message(chunk), code="STREAM_ERROR")
+            return parse_responses_chunk(chunk, stream_state, model_name=None)
+        return super().parse_response_chunk(chunk, stream_state)
+
+    def parse_sync_response(
+        self, response_data: dict[str, Any]
+    ) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
+        if isinstance(response_data, dict) and is_responses_body(response_data):
+            return parse_responses_sync(response_data)
+        return super().parse_sync_response(response_data)
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. The OpenAI Images API has no steps field.
