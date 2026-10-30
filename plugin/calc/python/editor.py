@@ -243,7 +243,7 @@ def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None,
     return result.code, format_data_binding_text(result.data_args)
 
 
-def _apply_formula_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | None, new_code: str, data_binding_text: str | None = None) -> dict[str, Any]:
+def _apply_formula_save(cell: Any, *, parsed_parts: PythonFormulaParts | None, new_code: str, data_binding_text: str | None = None) -> dict[str, Any]:
     rewritten = _maybe_apply_xl_static_rewrite(new_code, data_binding_text, parsed_parts=parsed_parts)
     if isinstance(rewritten, dict):
         return rewritten
@@ -260,12 +260,7 @@ def _apply_formula_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts
     return {"type": "saved", "ok": True, "save_as_plain": False}
 
 
-def _apply_plain_text_save(doc: Any, cell: Any, *, new_code: str) -> dict[str, Any]:
-    cell.setString(new_code)
-    return {"type": "saved", "ok": True, "save_as_plain": True, "status_ok_text": _("Saved without =PY().")}
-
-
-def _apply_followed_ref_save(doc: Any, formula_cell: Any, *, code_cell: Any, code_ref: str, new_code: str, data_binding_text: str | None, parsed_parts: PythonFormulaParts | None = None) -> dict[str, Any]:
+def _apply_followed_ref_save(formula_cell: Any, *, code_cell: Any, code_ref: str, new_code: str, data_binding_text: str | None, parsed_parts: PythonFormulaParts | None = None) -> dict[str, Any]:
     """Write Python to the referenced code cell; keep ``=PY($A$1; …)`` as a ref."""
     from plugin.calc.python.formula_edit import CALC_PYTHON_FN, build_data_suffix
 
@@ -303,11 +298,12 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | 
 
     with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
         if code_cell is not None and code_ref and not _same_calc_cell(code_cell, cell):
-            result = _apply_followed_ref_save(doc, cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
+            result = _apply_followed_ref_save(cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
         elif save_as_plain:
-            result = _apply_plain_text_save(doc, cell, new_code=new_code)
+            cell.setString(new_code)
+            result = {"type": "saved", "ok": True, "save_as_plain": True, "status_ok_text": _("Saved without =PY().")}
         else:
-            result = _apply_formula_save(doc, cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
+            result = _apply_formula_save(cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
         if result.get("type") == "saved":
             # Bugfix: Plain text saves previously skipped after_py_cell_save, leaving
             # stale geometric registry records for downgraded =PY() cells. Reconciling

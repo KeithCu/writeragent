@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent, TextEvent
 
+from plugin.calc.python import editor
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
     get_control_text,
@@ -49,9 +50,7 @@ _active: NativePythonCellEditorDialog | None = None
 def _status_text(body: str) -> str:
     prefix = _("Status:")
     label = body or _("Ready")
-    if prefix and not str(label).startswith(prefix):
-        return prefix + " " + label
-    return str(label)
+    return label if label.startswith(prefix) else f"{prefix} {label}"
 
 
 class NativePythonCellEditorDialog:
@@ -63,7 +62,6 @@ class NativePythonCellEditorDialog:
     _parsed_parts: Any
     _code_cell: Any
     _code_ref: str | None
-    _closed: bool
     _dirty: bool
     _loading: bool
     _opened: bool
@@ -76,7 +74,6 @@ class NativePythonCellEditorDialog:
         self._code_cell = code_cell if code_cell is not None else cell
         self._code_ref = code_ref
         self._dlg: Any | None = None
-        self._closed = False
         self._dirty = False
         self._loading = False
         self._top_listener: Any | None = None
@@ -85,7 +82,7 @@ class NativePythonCellEditorDialog:
 
     @property
     def is_open(self) -> bool:
-        return not self._closed and self._dlg is not None
+        return self._dlg is not None
 
     def retarget(self, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> None:
         self._doc = doc
@@ -100,9 +97,7 @@ class NativePythonCellEditorDialog:
     def close(self, *, toolkit_teardown: bool = False) -> None:
         """Hide/dispose. Esc/title-bar X already tears the peer down — do not dispose again."""
         global _active
-        if self._closed:
-            return
-        self._closed = True
+        # Null _dlg before hide/dispose. Disposing re-enters close(); a None dialog is the idempotency guard.
         dlg = self._dlg
         self._dlg = None
         if _active is self:
@@ -128,20 +123,15 @@ class NativePythonCellEditorDialog:
             self._dirty = True
 
     def _set_cell_addr(self) -> None:
-        from plugin.calc.python.editor import format_cell_a1
-
-        addr = format_cell_a1(self._code_cell if self._following_ref() else self._cell)
+        addr = editor.format_cell_a1(self._code_cell if self._following_ref() else self._cell)
         set_control_text(self._ctrl("CellAddr"), addr)
 
     def _following_ref(self) -> bool:
-        from plugin.calc.python.editor import _same_calc_cell
-
         # UNO often hands back distinct proxies for the same cell; identity (`is`)
         # would treat a self-ref as a follow. Address compare matches editor.py.
-        return bool(self._code_ref) and self._code_cell is not None and not _same_calc_cell(self._code_cell, self._cell)
+        return bool(self._code_ref) and self._code_cell is not None and not editor._same_calc_cell(self._code_cell, self._cell)
 
     def _apply_load(self, initial_code: str) -> None:
-        from plugin.calc.python.editor import editor_load_save_as_plain
         from plugin.calc.python.formula_edit import format_data_binding_display
 
         self._loading = True
@@ -152,7 +142,7 @@ class NativePythonCellEditorDialog:
         if self._parsed_parts is not None:
             data_text = format_data_binding_display(self._parsed_parts.data_suffix)
         set_control_text(self._ctrl("DataEdit"), data_text)
-        plain = editor_load_save_as_plain(parsed_parts=self._parsed_parts, initial_code=initial_code or "", follow_code_ref=self._following_ref())
+        plain = editor.editor_load_save_as_plain(parsed_parts=self._parsed_parts, initial_code=initial_code or "", follow_code_ref=self._following_ref())
         set_checkbox_state(self._ctrl("ChkPlainText"), 1 if plain else 0)
         self._sync_data_enabled()
         self._set_status(_("Ready"))
@@ -188,8 +178,6 @@ class NativePythonCellEditorDialog:
         return get_control_text(self._ctrl("DataEdit")).strip()
 
     def _save(self) -> None:
-        from plugin.calc.python.editor import _apply_cell_save
-
         try:
             self._set_status(_("Saving…"))
             save_as_plain = bool(get_checkbox_state(self._ctrl("ChkPlainText")))
@@ -197,18 +185,12 @@ class NativePythonCellEditorDialog:
             # Same rule as editor_shell.js btn-save: follow still sends Data while
             # Save without =PY() is checked (the code cell is plain text).
             binding = self._data_text() if follow or not save_as_plain else None
-            outcome = _apply_cell_save(self._doc, self._cell, parsed_parts=self._parsed_parts, new_code=self._code_text(), save_as_plain=save_as_plain, data_binding_text=binding, code_cell=self._code_cell if follow else None, code_ref=self._code_ref if follow else None)
+            outcome = editor._apply_cell_save(self._doc, self._cell, parsed_parts=self._parsed_parts, new_code=self._code_text(), save_as_plain=save_as_plain, data_binding_text=binding, code_cell=self._code_cell if follow else None, code_ref=self._code_ref if follow else None)
             if outcome.get("type") == "error":
                 self._set_status(str(outcome.get("message") or _("Error")))
                 return
             self._dirty = False
-            ok_text = outcome.get("status_ok_text")
-            if not ok_text:
-                if outcome.get("save_as_plain"):
-                    ok_text = _("Saved without =PY().")
-                else:
-                    ok_text = _("Saved.")
-            self._set_status(str(ok_text))
+            self._set_status(str(outcome.get("status_ok_text") or _("Saved.")))
         except Exception as exc:
             # Catch save errors directly in _save so retargeting and button clicks
             # both report the failure reason in status, and leave _dirty untouched.
@@ -293,13 +275,11 @@ def show_native_python_cell_editor(ctx: Any, *, doc: Any, cell: Any, initial_cod
     global _active
     if _active is not None and _active.is_open:
         if _active._dirty:
-            from plugin.calc.python.editor import confirm_unsaved_cell_edit, format_cell_a1
-
             # Bugfix: Unsaved prompt previously named the selection (_cell), which was
             # wrong when follow mode started editing the referenced code cell (_code_cell).
             # Name the cell actually being edited matching _set_cell_addr.
             shown = _active._code_cell if _active._following_ref() else _active._cell
-            choice = confirm_unsaved_cell_edit(ctx, format_cell_a1(shown))
+            choice = editor.confirm_unsaved_cell_edit(ctx, editor.format_cell_a1(shown))
             if choice == "cancel":
                 return True, None
             if choice == "save":
