@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Any, IO, Mapping
 
 from plugin.framework.deal_shim import (
@@ -39,7 +38,6 @@ __all__ = [
     "EDITOR_DEFAULT_TITLE",
     "PARENT_TO_CHILD_TYPES",
     "message_type",
-    "new_session_id",
     "normalize_target",
     "read_message",
     "session_id_of",
@@ -117,11 +115,6 @@ def message_type(message: dict[str, Any]) -> str:
     """Return the ``type`` field or empty string."""
     raw = message.get("type")
     return str(raw) if raw is not None else ""
-
-
-def new_session_id() -> str:
-    """Opaque routing id for one editor buffer (host-minted)."""
-    return uuid.uuid4().hex
 
 
 def _deal_ipc_dict_ok_pytest(msg: object) -> bool:
