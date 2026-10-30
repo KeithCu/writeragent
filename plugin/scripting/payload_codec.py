@@ -254,6 +254,14 @@ def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
         return False
 
 
+_CYTHON_ACCEL_MODULES = (
+    "contrib.vec_pack",
+    "writeragent_vec",
+    "vec_pack",
+    "plugin.contrib.vec_pack",
+)
+
+
 def load_cython_accelerator() -> None:
     """Attempt to load the Cython accelerator and verify it via a runtime canary test.
 
@@ -288,12 +296,7 @@ def load_cython_accelerator() -> None:
     # unifying with native_binaries.py — easy to drop the accelerator.
     import importlib
 
-    for mod_name in (
-        "contrib.vec_pack",
-        "writeragent_vec",
-        "vec_pack",
-        "plugin.contrib.vec_pack",
-    ):
+    for mod_name in _CYTHON_ACCEL_MODULES:
         if fn2d is not None and fn1d is not None:
             break
         try:
@@ -350,9 +353,7 @@ def invalidate_host_cython_accelerator() -> None:
     _CYTHON_ACCELERATOR_LOCATION = None
     _CYTHON_ACCELERATOR_INACTIVE_REASON = None
     for key in list(sys.modules):
-        if key in ("writeragent_vec", "contrib.vec_pack", "vec_pack", "plugin.contrib.vec_pack") or key.startswith(
-            ("writeragent_vec.", "contrib.vec_pack.", "vec_pack.", "plugin.contrib.vec_pack.")
-        ):
+        if key in _CYTHON_ACCEL_MODULES or any(key.startswith(m + ".") for m in _CYTHON_ACCEL_MODULES):
             sys.modules.pop(key, None)
 
 
@@ -427,49 +428,25 @@ SPLIT_GRID_WIRE_DTYPE = "float64"
 _FLOAT64_BYTES = 8
 
 
-def _is_grid_sequence(grid: object) -> bool:
-    """True for empty, 1D, or 2D list/tuple grids (jagged 2D allowed; flatten raises ValueError)."""
-    # crosshair: off
+def _deal_product_grid_ok(grid: object) -> bool:
+    """Deal domain for live Calc→worker pack.
+
+    Caps at Calc sheet bounds. 1D length uses the row cap; each 2D row uses
+    the column cap. Jagged rows are in domain; flatten raises ValueError.
+    """
     if not isinstance(grid, (list, tuple)):
         return False
-    if len(grid) == 0:
-        return True
-    first = grid[0]
-    if isinstance(first, (list, tuple)):
-        return all(isinstance(row, (list, tuple)) for row in grid)
-    return True
-
-
-def _bounded_rect_grid_ok(grid: object, max_rows: int, max_cols: int) -> bool:
-    """True for an empty, 1D, or rectangular-enough 2D list/tuple inside the caps.
-
-    1D length uses ``max_rows`` (the outer sequence). A 2D row uses ``max_cols``.
-    ``_deal_grid_ok`` and ``_deal_product_grid_ok`` are the same check with
-    different caps; this is the one copy.
-    """
-    if not _is_grid_sequence(grid) or not isinstance(grid, (list, tuple)):
-        return False
-    if len(grid) > max_rows:
+    if len(grid) > DEAL_MAX_ROW_INDEX + 1:
         return False
     if len(grid) == 0:
         return True
     first = grid[0]
     if isinstance(first, (list, tuple)):
+        max_cols = DEAL_MAX_COL_INDEX + 1
         for row in grid:
             if not isinstance(row, (list, tuple)) or len(row) > max_cols:
                 return False
     return True
-
-
-def _deal_product_grid_ok(grid: object) -> bool:
-    """Deal domain for live Calc→worker pack (``host_pack_*`` / flatten).
-
-    ``_deal_grid_ok`` stays ``DEAL_MAX_SHAPE_DIM``-sized for CrossHair/small helpers.
-    Product pack must accept real sheet ranges (Population A1:H1517 tripped the
-    256-row SHAPE_DIM cap: PreContractError surfaced as =PY cell Error text).
-    Caps at Calc sheet bounds (``DEAL_MAX_ROW_INDEX`` / ``DEAL_MAX_COL_INDEX``).
-    """
-    return _bounded_rect_grid_ok(grid, DEAL_MAX_ROW_INDEX + 1, DEAL_MAX_COL_INDEX + 1)
 
 
 def _deal_wire_dict_ok_crosshair(obj: object) -> bool:
@@ -642,13 +619,6 @@ def strip_image_payloads(obj: Any, *, _depth: int = 0) -> Any:
     return obj
 
 
-def image_payload_suffix(payload: dict[str, Any]) -> str:
-    """Return a temp-file suffix for *payload* (``.svg`` or ``.png``)."""
-    # crosshair: off
-    fmt = str(payload.get("format") or "png").lower()
-    return ".svg" if fmt == "svg" else ".png"
-
-
 def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
     """Write image bytes from *payload* to a persistent temp file; return absolute path.
 
@@ -658,7 +628,8 @@ def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
     stays. A failed write still removes the file this function created.
     """
     # crosshair: off
-    suffix = image_payload_suffix(payload)
+    fmt = str(payload.get("format") or "png").lower()
+    suffix = ".svg" if fmt == "svg" else ".png"
     path = ""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -912,29 +883,21 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     return f"{type(obj).__name__}={repr(obj)[:120]}"
 
 
-def _deal_shape_ok_pytest(shape: object) -> bool:
-    """Wide Calc-sized shape domain for pytest / production deal checks."""
-    max_dim = DEAL_MAX_ROW_INDEX + 1
-    return (
-        isinstance(shape, tuple)
-        and len(shape) <= DEAL_MAX_SHAPE_RANK
-        and all(isinstance(d, int) and 0 <= d <= max_dim for d in shape)
-    )
+_SHAPE_DIM_CAP = _profile(DEAL_MAX_SHAPE_DIM, DEAL_MAX_ROW_INDEX + 1)
 
 
-def _deal_shape_ok_crosshair(shape: object) -> bool:
-    """Tiny shape domain for CrossHair.
+def _deal_shape_ok(shape: object) -> bool:
+    """Tuple shape domain. Rank follows DEAL_MAX_SHAPE_RANK (4 pytest, 2 CrossHair).
 
-    Keep the FQNs on with a 2×{0..4} grid instead of off.
+    Dim cap is one Calc column on pytest (DEAL_MAX_ROW_INDEX + 1), not
+    DEAL_MAX_SHAPE_DIM. CrossHair keeps DEAL_MAX_SHAPE_DIM (4). Chosen once
+    at import; do not branch inside the @deal.pre lambda.
     """
     return (
         isinstance(shape, tuple)
-        and len(shape) <= 2
-        and all(isinstance(d, int) and 0 <= d <= 4 for d in shape)
+        and len(shape) <= DEAL_MAX_SHAPE_RANK
+        and all(isinstance(d, int) and 0 <= d <= _SHAPE_DIM_CAP for d in shape)
     )
-
-
-_deal_shape_ok = _profile(_deal_shape_ok_crosshair, _deal_shape_ok_pytest)
 
 
 @deal.pre(lambda shape: _deal_shape_ok(shape))
@@ -966,17 +929,15 @@ def _deal_force_min_cells_domain(min_cells: object, force: object, *, max_cells:
     )
 
 
-def _deal_force_min_cells_ok_crosshair(min_cells: object, force: object) -> bool:
-    return _deal_force_min_cells_domain(min_cells, force, max_cells=DEAL_MAX_SHAPE_DIM)
+_FORCE_MIN_CELLS_CAP = _profile(DEAL_MAX_SHAPE_DIM, DEAL_MAX_ROW_INDEX + 1)
 
 
-def _deal_force_min_cells_ok_pytest(min_cells: object, force: object) -> bool:
-    return _deal_force_min_cells_domain(min_cells, force, max_cells=DEAL_MAX_ROW_INDEX + 1)
+def _deal_force_min_cells_ok(min_cells: object, force: object) -> bool:
+    """Same domain as the old crosshair/pytest wrappers.
 
-
-_deal_force_min_cells_ok = _profile(
-    _deal_force_min_cells_ok_crosshair, _deal_force_min_cells_ok_pytest
-)
+    Pytest cap is DEAL_MAX_ROW_INDEX + 1. CrossHair cap is DEAL_MAX_SHAPE_DIM.
+    """
+    return _deal_force_min_cells_domain(min_cells, force, max_cells=_FORCE_MIN_CELLS_CAP)
 
 
 @deal.pre(lambda shape, *_unused, **__: _deal_shape_ok(shape))
@@ -1067,10 +1028,8 @@ def wire_cell_count(data: Any, *, _depth: int = 0) -> int:
     if _depth > _MAX_UNPACK_DEPTH:
         raise ValueError("payload_codec: wire_cell_count maximum recursion depth exceeded")
     if is_calc_range_payload(data):
-        shape = data.get("shape") or [0, 0]
-        if isinstance(shape, list) and len(shape) == 2:
-            return int(shape[0]) * int(shape[1])
-        return wire_cell_count(data.get("data"), _depth=_depth + 1)
+        shape = data["shape"]
+        return int(shape[0]) * int(shape[1])
     if is_multi_data(data):
         items = data.get("items") or []
         return sum(wire_cell_count(item, _depth=_depth + 1) for item in items)
@@ -1872,18 +1831,9 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
 
 
-def _deal_host_unpack_wire_ok_pytest(wire: object) -> bool:
-    """Any worker result is in domain.
-
-    datetime, Decimal, bytes, and other ordinary values failed the type list.
-    PreContractError (an AssertionError) fired on the recursive call inside
-    an accepted dict, before ``return wire``. The pre enumerated JSON scalars
-    plus numpy. The body already returns unrecognized objects unchanged.
-    CrossHair keeps that type list. ``wire`` is unused.
-    """
-    return True
-
-
+# A narrow type list raised PreContractError on real values (datetime, Decimal,
+# bytes, etc.); pytest/production stays total via _profile's default True.
+# CrossHair keeps that type list.
 def _deal_host_unpack_wire_ok_crosshair(wire: object) -> bool:
     return (
         _is_any_payload_envelope(wire)
@@ -1894,9 +1844,7 @@ def _deal_host_unpack_wire_ok_crosshair(wire: object) -> bool:
     )
 
 
-_deal_host_unpack_wire_ok = _profile(
-    _deal_host_unpack_wire_ok_crosshair, _deal_host_unpack_wire_ok_pytest
-)
+_deal_host_unpack_wire_ok = _profile(_deal_host_unpack_wire_ok_crosshair)
 
 
 @deal.pre(lambda wire, *_unused, **__: _deal_host_unpack_wire_ok(wire))
@@ -1908,11 +1856,9 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
         raise ValueError("payload_codec: host_unpack_data maximum recursion depth exceeded")
     if is_image_payload(wire):
         return wire
-    if is_calc_range_payload(wire):
-        # Rebuilding only __wa_payload__/shape/data/address drops any other
-        # envelope field. The dataframe branch already shallow-copies for the
-        # same reason. Copy the dict, then replace data so a future field
-        # survives. data is still unpacked.
+    if is_calc_range_payload(wire) or is_dataframe_payload(wire):
+        # Copy so later envelope fields survive (calc_range address,
+        # dataframe index/dtypes). data is still unpacked.
         unpacked_inner = host_unpack_data(
             wire.get("data"), as_nested_list=as_nested_list, _depth=_depth + 1
         )
@@ -1924,17 +1870,6 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
         return [host_unpack_data(item, as_nested_list=as_nested_list, _depth=_depth + 1) for item in items]
     if is_split_grid(wire):
         return host_unpack_split_grid(wire, as_nested_list=as_nested_list)
-    if is_dataframe_payload(wire):
-        # Rebuilding only __wa_payload__/columns/data drops any other envelope
-        # field (index, dtypes). The producer sets only those three today.
-        # Shallow-copy and replace data so a future field survives. data is
-        # still unpacked.
-        unpacked_inner = host_unpack_data(
-            wire.get("data"), as_nested_list=as_nested_list, _depth=_depth + 1
-        )
-        out = dict(wire)
-        out["data"] = unpacked_inner
-        return out
     # Plain dict only: CrossHair AttrDict is isinstance(dict) but blows up on __ch_pytype__ when iterating.
     # OrderedDict and other mappings come back as-is, nested envelopes still packed.
     # child_pack_result rebuilds plain dicts, so production does not hit this.
@@ -1986,10 +1921,11 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         strings = _validate_split_grid_strings(envelope, expected_cells)
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
 
+        arr = np.frombuffer(raw, dtype=np.float64)
+        if not is_1d:
+            arr = arr.reshape((nrows, ncols))
+
         if not strings:
-            arr = np.frombuffer(raw, dtype=np.float64)
-            if not is_1d:
-                arr = arr.reshape((nrows, ncols))
             # Uniform kind only matters on this numeric path. Computing it
             # up front re-read column_kinds and threw the result away when
             # strings were present.
@@ -2007,8 +1943,6 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
             # Mixed grids (strings present) go through the tolist + _to_py path below.
             return arr
 
-
-
         # Path for mixed-type grids with strings: Vectorized Object-Masking Strategy.
         #
         # --- Why this Vectorized Object-Masking Strategy? ---
@@ -2017,9 +1951,6 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         # (arr.astype(object)) allows holding arbitrary Python types. We then use
         # vectorized boolean masks to perform C-level bulk modifications, bypassing
         # slow cell-by-cell loops, modulo operations, and manual type-coercion in Python.
-        arr = np.frombuffer(raw, dtype=np.float64)
-        if not is_1d:
-            arr = arr.reshape((nrows, ncols))
 
         # 1. Bulk-replace NaN values with None using a C-level boolean mask
         nan_mask = np.isnan(arr)
@@ -2030,24 +1961,17 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         # Rather than checking index-level column types inside the main cell iteration
         # (which requires modulo index maths 'i % ncols'), we iterate once per column.
         # We then cast only the valid (non-None) elements in that column at C-speed.
-        has_int_or_bool = any(k in ("int", "bool") for k in column_kinds)
-        if has_int_or_bool:
-            col_is_int = [k == "int" for k in column_kinds]
-            col_is_bool = [k == "bool" for k in column_kinds]
-            for c, (is_int, is_bool) in enumerate(zip(col_is_int, col_is_bool)):
-                col_slice = obj_arr[:, c] if not is_1d else obj_arr
-                col_nan_mask = nan_mask[:, c] if not is_1d else nan_mask
-                valid_mask = ~col_nan_mask
-                if is_int:
-                    # Vectorized astype(int) casts valid float objects to Python ints in C.
-                    # Same corrupt-inf note as the uniform int astype: host raises
-                    # OverflowError, this emits a garbage int. Pack never writes it.
-                    # NaN never reaches this line because valid_mask drops it; do not add another NaN scan here.
-                    col_slice[valid_mask] = col_slice[valid_mask].astype(int)
-                elif is_bool:
-                    # Host unpack: True only for 1.0. astype(bool) treated 2.0 as True.
-                    numeric = np.asarray(col_slice[valid_mask], dtype=np.float64)
-                    col_slice[valid_mask] = numeric == 1.0
+        for c, k in enumerate(column_kinds):
+            if k not in ("int", "bool"):
+                continue
+            col_slice = obj_arr[:, c] if not is_1d else obj_arr
+            col_nan_mask = nan_mask[:, c] if not is_1d else nan_mask
+            valid_mask = ~col_nan_mask
+            if k == "int":
+                col_slice[valid_mask] = col_slice[valid_mask].astype(int)
+            else:
+                numeric = np.asarray(col_slice[valid_mask], dtype=np.float64)
+                col_slice[valid_mask] = numeric == 1.0
 
         # 3. Sparse Strings Overlay
         # The 'strings' dictionary is sparse and indexes values row-major (flat 1D).
@@ -2136,16 +2060,10 @@ def _child_unpack_single_data(wire: Any) -> Any:
     return unpacked
 
 
-def _deal_child_unpack_wire_ok_pytest(wire: object) -> bool:
-    """Child wire ingest is total on the pytest profile.
-
-    Same class of bug as ``host_unpack_data``: an odd but real payload
-    raised PreContractError instead of the body's ValueError/passthrough.
-    CrossHair keeps the closed type list. ``wire`` is unused.
-    """
-    return True
-
-
+# Child wire ingest is total on the pytest profile via _profile's default True.
+# Same class of bug as host_unpack_data: an odd but real payload raised
+# PreContractError instead of the body's ValueError/passthrough.
+# CrossHair keeps the closed type list.
 def _deal_child_unpack_wire_ok_crosshair(wire: object) -> bool:
     return (
         _is_any_payload_envelope(wire)
@@ -2155,9 +2073,7 @@ def _deal_child_unpack_wire_ok_crosshair(wire: object) -> bool:
     )
 
 
-_deal_child_unpack_wire_ok = _profile(
-    _deal_child_unpack_wire_ok_crosshair, _deal_child_unpack_wire_ok_pytest
-)
+_deal_child_unpack_wire_ok = _profile(_deal_child_unpack_wire_ok_crosshair)
 
 
 @deal.pre(lambda wire, *_unused, **__: _deal_child_unpack_wire_ok(wire))
@@ -2284,19 +2200,16 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
         if arr.ndim not in (1, 2):
             raise ValueError(f"split_grid supports rank 1 or 2, got ndim {arr.ndim}")
         kind = getattr(getattr(arr, "dtype", None), "kind", None)
-        if not _is_numeric_wire_kind(kind if isinstance(kind, str) else None):
+        if not _is_numeric_wire_kind(kind):
             raise ValueError(
                 f"split_grid float64 lane accepts dtype kinds i/u/f/b, got {kind!r}"
             )
+        assert isinstance(kind, str)
         ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
         # A bool ndarray is not an integer dtype. Tagging it "float" made host
         # unpack restore 1.0/0.0 instead of True/False.
-        if np.issubdtype(arr.dtype, np.bool_):
-            column_kinds = ["bool"] * ncols
-        elif np.issubdtype(arr.dtype, np.integer):
-            column_kinds = ["int"] * ncols
-        else:
-            column_kinds = ["float"] * ncols
+        tag = {"b": "bool", "i": "int", "u": "int"}.get(kind, "float")
+        column_kinds = [tag] * ncols
         wire_arr = np.ascontiguousarray(arr, dtype=np.float64)
         envelope: dict[str, Any] = {
             "__wa_payload__": PAYLOAD_SPLIT_GRID,
@@ -2407,10 +2320,9 @@ def child_pack_result(
                 # (``c``) passed it and astype(float64) dropped the imaginary
                 # part. Void/structured raised inside the cast and dropped the
                 # cell. Same sandbox import policy as the DataFrame path.
-                wire_kind = kind if isinstance(kind, str) else None
                 if (
                     result.ndim in (1, 2)
-                    and _is_numeric_wire_kind(wire_kind)
+                    and _is_numeric_wire_kind(kind)
                     and should_use_binary_envelope(shape, min_cells=min_cells, force=force)
                 ):
                     return child_pack_split_grid(result)
@@ -2442,39 +2354,30 @@ def child_pack_result(
                 )
             return packed_dict
         if isinstance(result, (list, tuple)):
-            if _needs_elementwise_pack(result, _depth=_depth+1):
-                packed = [child_pack_result(x, min_cells=min_cells, force=force, _depth=_depth + 1) for x in result]
-                # Tuple subclasses (namedtuple) collapse to a plain tuple. type(obj)(items)
-                # TypeErrors when __new__ does not take one iterable, and a script-local
-                # namedtuple is not importable on the host.
+            needs_each = _needs_elementwise_pack(result, _depth=_depth + 1)
+            row_like = False
+            if not needs_each:
+                row_like = bool(result) and type(result[0]) in (list, tuple)
+                if row_like:
+                    # Strict rectangular 2D of scalar cells. A list of grids
+                    # is rectangular outside but each cell is a row; split_grid
+                    # would store str(cell). That case packs each row instead.
+                    strict = all(
+                        isinstance(r, (list, tuple))
+                        and len(r) == len(result[0])
+                        and all(not isinstance(cell, (list, tuple)) for cell in r)
+                        for r in result
+                    )
+                    needs_each = not strict
+            if needs_each:
+                packed = [
+                    child_pack_result(x, min_cells=min_cells, force=force, _depth=_depth + 1)
+                    for x in result
+                ]
                 return tuple(packed) if isinstance(result, tuple) else type(result)(packed)
-            if (
-                result
-                and type(result[0]) in (list, tuple)
-                and all(
-                    isinstance(r, (list, tuple))
-                    and len(r) == len(result[0])
-                    and all(not isinstance(cell, (list, tuple)) for cell in r)
-                    for r in result
-                )
-            ):
-                # Strict rectangular 2D grid of scalar cells. A list-of-grids
-                # ([[[i], [i]], ...]) is rectangular in the outer shape, but
-                # each cell is a row. split_grid then stored str(cell)
-                # ("[0]") once rows*cols >= BINARY_MIN_CELLS. The jagged
-                # branch below packs each row on its own, same as rank-3
-                # ndarrays. str and bytes are not list/tuple, so they stay cells.
-                # Tuple rows become lists. Split_grid is a float64 buffer and
-                # cannot keep row container types, so the list path matches it.
-                # host_unpack_data restores a tuple only when the wire value is
-                # still a tuple; this branch does not send tuples.
+            if row_like:
                 grid = [list(row) for row in result]
                 grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))
-            elif result and type(result[0]) in (list, tuple):
-                # Jagged: first item is a row but later items are not (e.g. [[None], None]).
-                packed = [child_pack_result(x, min_cells=min_cells, force=force, _depth=_depth + 1) for x in result]
-                # Same tuple-subclass collapse as the elementwise branch above.
-                return tuple(packed) if isinstance(result, tuple) else type(result)(packed)
             else:
                 grid = list(result)
                 grid_shape = (len(grid),)

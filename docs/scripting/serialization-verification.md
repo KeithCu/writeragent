@@ -98,7 +98,7 @@ flowchart LR
 
 Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 
-- `_is_grid_sequence(grid)` — empty, 1D, or 2D list/tuple (jagged 2D allowed; flatten raises `ValueError`)
+- `_deal_product_grid_ok(grid)` — empty, 1D, or 2D list/tuple (jagged 2D allowed; flatten raises `ValueError`)
 - `_is_*_envelope` / public `is_*` — valid wire dict shapes for split_grid, multi_data, image, dataframe, calc_range
 - `_is_ndarray(obj)` — NumPy ndarray type check without importing NumPy at module load
 - `_deal_return` / `_DEAL_RETURN` — keyword-only `result=` for CrossHair/deal ensure arity (see formal_verification §8.1 A)
