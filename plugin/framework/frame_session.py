@@ -169,15 +169,6 @@ class FrameSession:
         """Ask field restored after a stream scroll on this frame only."""
         self.focus_pin = control
 
-    def clear_focus_pin_if(self, control: Any) -> None:
-        """Clear the pin only when it is still *control*.
-
-        Only this session's pin. A second window closing must not clear the
-        first window's query field.
-        """
-        if control is not None and self.focus_pin is control:
-            self.focus_pin = None
-
     def note_user_wants_query(self) -> None:
         """This frame's Ask field should take the caret after a stream scroll."""
         self._restore_query = True
@@ -379,12 +370,14 @@ class FrameSession:
         ``release_listeners`` after ``bind_panel`` has pointed this session
         at the new sidebar: the ``self.panel is panel`` check keeps the new
         panel, and those listeners belong to it. Only that panel's dispose
-        removes them. ``clear_focus_pin_if`` stays scoped to the control
-        that is still the pin.
+        removes them. The pin is cleared only when it is still this call's query
+        control.
         """
         if self._closed:
             return
-        self.clear_focus_pin_if(query_control)
+        # Same object only. Another window's teardown must not clear this pin.
+        if query_control is not None and self.focus_pin is query_control:
+            self.focus_pin = None
         # Each sidebar build appends an on_frame_close closure. Drop this
         # panel's hook or the old panel and send_listener stay alive across
         # deck reopens.
