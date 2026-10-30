@@ -492,6 +492,32 @@ def start_stderr_drain(stream: IO[Any] | None, *, max_tail_chars: int = _DEFAULT
     return tail
 
 
+def _quiet_close(stream: Any) -> None:
+    """Close one pipe. OSError means the fd is already gone. Do not catch ValueError."""
+    try:
+        stream.close()
+    except OSError:
+        pass
+
+
+def _kill_child(proc: subprocess.Popen[Any] | None, managed: Any) -> None:
+    """SIGKILL via the managed tree when present, otherwise the bare process.
+
+    managed.kill_tree() swallows Exception and logs. The bare kill swallows
+    only OSError. Leave unregister() at the call site: kill_tree() must not
+    unregister, and _reap unregisters after the wait, not inside the kill.
+    """
+    if managed is not None:
+        managed.kill_tree()
+        return
+    if proc is None:
+        return
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
 class AsyncProcess:
     """Run a child process and deliver stdout, stderr, and exit on dedicated threads.
 
@@ -603,14 +629,9 @@ class AsyncProcess:
             self._stdout_thread = None
             self._stderr_thread = None
             self._wait_thread = None
+            _kill_child(proc, managed)
             if managed is not None:
-                managed.kill_tree()
                 managed.unregister()
-            else:
-                try:
-                    proc.kill()
-                except OSError:
-                    pass
             try:
                 proc.wait(timeout=1.0)
             except (subprocess.TimeoutExpired, OSError):
@@ -628,6 +649,12 @@ class AsyncProcess:
         # instead of leaking memory. Short reads go through ``_iter_decoded_chunks``
         # so a UTF-8 code point split across reads is not replaced twice. The callback
         # try/except stays inside the loop: a bad callback must not close the pipe early.
+        def emit(line: str) -> None:
+            try:
+                callback(line.rstrip("\n\r"))
+            except Exception:
+                log.exception("AsyncProcess stream callback failed")
+
         parts: list[str] = []
         length = 0
         warned = False
@@ -635,10 +662,7 @@ class AsyncProcess:
             for chunk in _iter_decoded_chunks(stream):
                 lines, parts, length = _feed_line_buffer(parts, length, chunk)
                 for line in lines:
-                    try:
-                        callback(line.rstrip("\n\r"))
-                    except Exception:
-                        log.exception("AsyncProcess stream callback failed")
+                    emit(line)
                 while length > _MAX_STREAM_LINE_CHARS:
                     if not warned:
                         log.warning(
@@ -648,31 +672,18 @@ class AsyncProcess:
                         warned = True
                     overflow_lines, parts, length = _split_overflow(parts, length, _MAX_STREAM_LINE_CHARS)
                     for slice_line in overflow_lines:
-                        try:
-                            callback(slice_line.rstrip("\n\r"))
-                        except Exception:
-                            log.exception("AsyncProcess stream callback failed")
+                        emit(slice_line)
         finally:
             if parts:
-                tail = "".join(parts)
-                try:
-                    callback(tail.rstrip("\n\r"))
-                except Exception:
-                    log.exception("AsyncProcess stream callback failed")
-            try:
-                stream.close()
-            except OSError:
-                pass
+                emit("".join(parts))
+            _quiet_close(stream)
 
     def _drain_stream(self, stream: Any) -> None:
         try:
             for _text in _iter_decoded_chunks(stream):
                 pass
         finally:
-            try:
-                stream.close()
-            except OSError:
-                pass
+            _quiet_close(stream)
 
     def _join_handles(self, handles: tuple[BackgroundHandle | None, ...], timeout: float | None = 1.0) -> None:
         """Join reader threads unless this stack is that thread.
@@ -697,20 +708,11 @@ class AsyncProcess:
         if proc is None:
             return
         if proc.stdin is not None:
-            try:
-                proc.stdin.close()
-            except OSError:
-                pass
+            _quiet_close(proc.stdin)
         if stdout_thread is None and proc.stdout is not None:
-            try:
-                proc.stdout.close()
-            except OSError:
-                pass
+            _quiet_close(proc.stdout)
         if stderr_thread is None and proc.stderr is not None:
-            try:
-                proc.stderr.close()
-            except OSError:
-                pass
+            _quiet_close(proc.stderr)
 
     def _wait_for_exit(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, generation: int, managed: Any = None) -> None:
         # Wait and join only this call's child. Reading self.process and
@@ -755,13 +757,7 @@ class AsyncProcess:
             try:
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                if managed is not None:
-                    managed.kill_tree()
-                else:
-                    try:
-                        proc.kill()
-                    except OSError:
-                        pass
+                _kill_child(proc, managed)
                 # A stuck SIGKILL (uninterruptible sleep) must not block forever.
                 try:
                     proc.wait(timeout=timeout)
@@ -776,7 +772,8 @@ class AsyncProcess:
 
         Signal the child, close stdin (and close stdout/stderr only if that
         stream has no reader thread), and reap after the caller can drop its
-        lock. On Linux, close of the read fd from this thread does not
+        lock. Reader threads close their own pipe in their finally block once
+        they see EOF. On Linux, close of the read fd from this thread does not
         interrupt a reader blocked in os.read (bufsize=0). The child's exit
         produces the EOF that wakes the read. Closing the read end first
         discards unread bytes and makes the child's shutdown write fail with
@@ -798,23 +795,9 @@ class AsyncProcess:
                 proc.terminate()
             except OSError:
                 log.debug("terminate: process already gone", exc_info=True)
-        # On Linux, close() of a read fd does not interrupt a reader
-        # blocked in os.read (bufsize=0). The child's exit produces the EOF that
-        # wakes the read. Closing the read end prematurely discards unread bytes
-        # and causes the child's shutdown write to fail with EPIPE. Always close
-        # stdin, but close stdout/stderr only if there is no reader thread
-        # attached; reader threads close their pipe in their own finally block
-        # upon reaching EOF.
         self._close_child_pipes(proc, stdout_thread=stdout_thread, stderr_thread=stderr_thread)
         run_in_background(self._reap, proc, stdout_thread, stderr_thread, wait_thread, timeout, managed, name="asyncproc-reap", dedicated=True)
 
     def kill_tree(self) -> None:
         """Immediate SIGKILL of the process group (including grandchildren and helper processes)."""
-        managed = self._managed
-        if managed is not None:
-            managed.kill_tree()
-        elif self.process is not None:
-            try:
-                self.process.kill()
-            except OSError:
-                pass
+        _kill_child(self.process, self._managed)
