@@ -16,6 +16,7 @@ class TestGetProviderDefaults:
     @pytest.mark.parametrize(
         "value, value_2, expected",
         [
+            pytest.param("together", "text_model", "MiniMaxAI/MiniMax-M3", id="test_together_default_text_model_uses_minimax_m3"),
             pytest.param("openrouter", "tts_model", "hexgrad/Kokoro-82M", id="test_openrouter_default_tts_model_uses_kokoro"),
             pytest.param("together", "tts_model", "hexgrad/Kokoro-82M", id="test_together_default_tts_model_uses_kokoro"),
             pytest.param("openai", "tts_model", "tts-1", id="test_openai_default_tts_model_uses_tts_1"),

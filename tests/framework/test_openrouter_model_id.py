@@ -44,11 +44,11 @@ def test_nitro_without_catalog_always_strips() -> None:
 
 
 def test_equivalent_nitro_and_base() -> None:
-    assert openrouter_model_ids_equivalent("openai/gpt-oss-120b:nitro", "openai/gpt-oss-120b", _CATALOG)
+    assert openrouter_model_ids_equivalent("openai/gpt-oss-120b:nitro", "openai/gpt-oss-120b")
 
 
 def test_free_not_equivalent_to_base() -> None:
-    assert not openrouter_model_ids_equivalent("openai/gpt-oss-120b:free", "openai/gpt-oss-120b", _CATALOG)
+    assert not openrouter_model_ids_equivalent("openai/gpt-oss-120b:free", "openai/gpt-oss-120b")
 
 
 def test_equivalent_vendor_prefix_omitted() -> None:
