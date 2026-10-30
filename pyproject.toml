@@ -67,7 +67,7 @@ dev = [
     "isodate",
     "json-repair",
     "snowballstemmer",
-    "websockets>=13.0,<16",
+    "websockets>=17.4,<18",
     "pytest",
     "pytest-xdist",
     "pytest-timeout",
