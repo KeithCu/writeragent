@@ -375,7 +375,7 @@ def test_paddle_fallback_failure_preserves_docling_error(mock_convert):
     # Why this change: verify the fallback failure is caught and logged, returning the original docling_result.
     mock_convert.side_effect = ImportError("docling is not installed")
 
-    with patch("plugin.vision.venv.vision._run_paddle_helper", side_effect=RuntimeError("paddle crashed")):
+    with patch("plugin.vision.venv.vision_paddle.extract_text", side_effect=RuntimeError("paddle crashed")):
         result = run_vision({"helper": "extract_text", "params": {}}, b"png-bytes", {})
 
     assert result["status"] == "error"
