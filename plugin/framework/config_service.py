@@ -10,7 +10,6 @@ WriterAgent configuration service. There is no per-instance path.
 # crosshair: off
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from plugin.framework.service import ServiceBase
@@ -22,8 +21,6 @@ from plugin.framework.config import (
     set_config,
 )
 from plugin.framework.config_schema import get_config_schema
-
-log = logging.getLogger(__name__)
 
 
 class ConfigService(ServiceBase):
