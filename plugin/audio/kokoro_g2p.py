@@ -47,11 +47,6 @@ log = logging.getLogger(__name__)
 ESPEAK_PIP = ("misaki", "phonemizer-fork", "espeakng-loader")
 
 
-def uv_install(*packages: str) -> str:
-    quoted = [f"'{p}'" if "[" in p else p for p in packages]
-    return "uv pip install " + " ".join(quoted)
-
-
 KOKORO_PIP_INSTALL = "uv pip install kokoro-onnx soundfile 'misaki[ja,zh]' phonemizer-fork espeakng-loader"
 TTS_INSTALL_CMD = "uv pip install kokoro-onnx soundfile piper-tts 'misaki[ja,zh]' phonemizer-fork espeakng-loader"
 
@@ -73,10 +68,11 @@ def g2p_fallback_warning(lang: str, exc: BaseException | None = None) -> str:
 class MisakiLangSpec:
     module: str
     attr: str
-    kwargs: tuple[tuple[str, str], ...]
-    packages: tuple[str, ...]
-    probe_text: str
-    needs_unidic: bool
+    packages: tuple[str, ...] = ESPEAK_PIP
+    probe_text: str = "ok"
+    # Empty means call the class with no args (JAG2P / ZHG2P). EspeakG2P gets language=.
+    language: str = ""
+    needs_unidic: bool = False
 
 
 _ESPEAK_LANGS = ("es", "fr-fr", "it", "hi", "pt-br")
@@ -85,7 +81,6 @@ _LANG_SPECS: dict[str, MisakiLangSpec] = {
     "ja": MisakiLangSpec(
         module="misaki.ja",
         attr="JAG2P",
-        kwargs=(),
         packages=("misaki[ja]",),
         probe_text="\u3042",
         needs_unidic=True,
@@ -93,19 +88,14 @@ _LANG_SPECS: dict[str, MisakiLangSpec] = {
     "zh": MisakiLangSpec(
         module="misaki.zh",
         attr="ZHG2P",
-        kwargs=(),
         packages=("misaki[zh]",),
         probe_text="\u4f60",
-        needs_unidic=False,
     ),
     **{
         lang: MisakiLangSpec(
             module="misaki.espeak",
             attr="EspeakG2P",
-            kwargs=(("language", lang),),
-            packages=ESPEAK_PIP,
-            probe_text="ok",
-            needs_unidic=False,
+            language=lang,
         )
         for lang in _ESPEAK_LANGS
     },
@@ -121,11 +111,9 @@ def _get_misaki_g2p(lang: str) -> Any:
     inst = _g2p_cache.get(lang)
     if inst is not None:
         return inst
-    spec = _LANG_SPECS.get(lang)
-    if spec is None:
-        raise RuntimeError("no Misaki G2P for %s" % lang)
+    spec = _LANG_SPECS[lang]
     cls = getattr(import_module(spec.module), spec.attr)  # type: ignore[import-not-found, ty:unresolved-import]
-    inst = cls(**dict(spec.kwargs))
+    inst = cls(language=spec.language) if spec.language else cls()
     _g2p_cache[lang] = inst
     return inst
 
@@ -235,7 +223,8 @@ def kokoro_misaki_install_hint(lang: str) -> str:
     packages = kokoro_misaki_packages(lang)
     if not packages:
         return KOKORO_PIP_INSTALL
-    return uv_install(*packages)
+    quoted = " ".join(f"'{p}'" if "[" in p else p for p in packages)
+    return "uv pip install " + quoted
 
 
 def kokoro_misaki_probe_code(lang: str) -> str:
@@ -248,7 +237,7 @@ def kokoro_misaki_probe_code(lang: str) -> str:
     spec = _LANG_SPECS.get(lang)
     if spec is None:
         return ""
-    kwargs_str = ", ".join(f"{k}={v!r}" for k, v in spec.kwargs)
+    kwargs_str = f"language={spec.language!r}" if spec.language else ""
     return (
         f"from {spec.module} import {spec.attr}\n"
         f"phonemes, _tokens = {spec.attr}({kwargs_str})({spec.probe_text!r})\n"
@@ -365,7 +354,7 @@ def ensure_kokoro_misaki(
         if (py_exe, lang) in _probe_ok_keys:
             return True
     spec = _LANG_SPECS.get(lang)
-    if spec is None or not spec.packages:
+    if spec is None:
         return True
 
     def remember() -> bool:
