@@ -10,7 +10,7 @@ WORKDIR /app
 # PIL.Image and user `import PIL`. Figure capture defaults to SVG.
 RUN pip install --no-cache-dir --only-binary=:all: --target=/app/pkgs \
     "numpy==2.4.6" "pandas==3.1.0" "scipy==1.17.1" "matplotlib==3.11.2" \
-    "Pillow==13.0.0" "sympy==1.14.0" "pint==0.25.3"
+    "Pillow==13.0.0" "sympy==1.14.0" "pint==0.26.2"
 
 FROM python:3.12-slim AS bundle
 WORKDIR /src

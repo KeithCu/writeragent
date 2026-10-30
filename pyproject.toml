@@ -97,9 +97,9 @@ dev = [
     "fg-data-profiling",
     "pandas-montecarlo",
     "sympy",
-    # 0.26 (2026-09-10) uses PEP 695 type-params; mypy python_version=3.11
-    # follows pint internals and fails [syntax] (GHA 34520496629). Stay on 0.25.x.
-    "pint>=0.25.3,<0.26",
+    # pint 0.26 requires Python >= 3.12; 3.11 stays on 0.25.x.
+    "pint>=0.25.3,<0.26; python_version < '3.12'",
+    "pint>=0.26.2; python_version >= '3.12'",
     "matplotlib",
     "deal",
     "crosshair-tool",
