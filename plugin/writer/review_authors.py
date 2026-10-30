@@ -22,7 +22,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
-from typing import Any, Iterator
+from typing import Any, Generator
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ def end(ctx: Any, prior: tuple[str, str] | None) -> None:
 
 
 @contextlib.contextmanager
-def deletion_author() -> Iterator[None]:
+def deletion_author() -> Generator[None, None, None]:
     """Author the tracked deletion inside this block as the DELETE author, then restore the
     INSERT author. A no-op unless ``begin()`` armed split authoring on this thread."""
     ctx = getattr(_state, "ctx", None)

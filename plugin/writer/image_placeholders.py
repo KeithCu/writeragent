@@ -21,7 +21,7 @@ import html as html_mod
 import logging
 import re
 import uuid
-from typing import Any, Iterator, NamedTuple
+from typing import Any, Generator, NamedTuple
 
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 
@@ -255,7 +255,7 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
 
 
 @contextlib.contextmanager
-def _keep_placeholder_images(model: Any, content: str) -> Iterator[str]:
+def _keep_placeholder_images(model: Any, content: str) -> Generator[str, None, None]:
     """Yield *content* with data-less images swapped for markers; put the pictures back after."""
     swapped, kept = _swap_image_placeholders(model, content)
     yield swapped

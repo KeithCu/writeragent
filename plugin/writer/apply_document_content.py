@@ -782,7 +782,7 @@ class ApplyDocumentContent(ToolBase):
             return False
 
     @property
-    def long_running(self) -> bool:  # type: ignore[override]  # pyright: ignore[reportIncompatibleVariableOverride]
+    def long_running(self) -> bool:  # type: ignore[override]  # ty: ignore[invalid-property-type-override]  # pyright: ignore[reportIncompatibleVariableOverride]
         # With review-wait on, MCP must run this call on its HTTP thread so the wait can
         # block there (one request, one response -- the response just comes back after the
         # user reviews). With it off, stay a normal synchronous main-thread tool.

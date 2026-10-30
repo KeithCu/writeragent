@@ -25,7 +25,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from typing import Any, BinaryIO, Callable, IO, Iterator, cast
+from typing import Any, BinaryIO, Callable, IO, Generator, cast
 from weakref import WeakKeyDictionary
 
 log = logging.getLogger("writeragent.scripting.ipc")
@@ -690,7 +690,7 @@ def write_packed_frame_with_timeout(
 
 
 @contextmanager
-def _nonblocking(fd: int) -> Iterator[None]:
+def _nonblocking(fd: int) -> Generator[None, None, None]:
     """Make *fd* non-blocking for the block, then restore the previous mode.
 
     Leaving ``set_blocking(False)`` in place makes the next read treat

@@ -327,7 +327,7 @@ Key file permissions: readable only by the service user (e.g. mode `0400`). `./c
 
 coolwsd is the only hop that should reach this process. Bind loopback, set the same Bearer secret as `security.python_compute.api_key`, and do **not** mount a host venv or docker.sock. The smolagents local executor is not a hard sandbox boundary (`sandbox.py`: C extensions in pandas, numpy, PIL, and matplotlib can perform file I/O). Run the container only on loopback or a private network reachable only by coolwsd. Always set the API key: the container binds `0.0.0.0` and refuses to start without an API key configured.
 
-The AST sandbox allowlist is wider than the wheels installed in the container image: `import pint` and `import PIL` work, while `calc` (the `calc_functions` facade) is excluded from the image matching LibrePy. `import duckdb` is allowlisted in the sandbox but duckdb is not installed in the image (`session_duckdb` is absent with `duckdb_sql.py` excluded).
+The AST sandbox allowlist is wider than the wheels installed in the container image: `import pint`, `import PIL`, `import statsmodels`, `import seaborn`, `import networkx` and `import openpyxl` work, while `calc` (the `calc_functions` facade) is excluded from the image matching LibrePy. `import duckdb` is allowlisted in the sandbox but duckdb is not installed in the image (`session_duckdb` is absent with `duckdb_sql.py` excluded).
 
 `file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Send the raw `image` part. On this container image, OCR workers default to 0, and requests to `/v1/vision` return HTTP 501 `VISION_SERVICE_DISABLED`.
 

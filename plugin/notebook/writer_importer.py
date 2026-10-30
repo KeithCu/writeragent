@@ -38,7 +38,7 @@ import tempfile
 import time
 from contextlib import contextmanager
 from types import SimpleNamespace
-from typing import Any, Iterator, final
+from typing import Any, Generator, final
 
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
@@ -125,7 +125,7 @@ _OL_START_RE = re.compile(r"""(?is)<ol\b[^>]*\bstart\s*=\s*["']?(\d+)""")
 
 
 @contextmanager
-def _batch_document_updates(doc: Any) -> Iterator[None]:
+def _batch_document_updates(doc: Any) -> Generator[None, None, None]:
     """Suppress view/layout while inserting many in-flow controls.
 
     Hidden-document import would need a second Writer, a content copy, and a

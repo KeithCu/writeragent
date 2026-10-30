@@ -9,7 +9,7 @@ from __future__ import annotations
 import contextlib
 from dataclasses import dataclass
 import threading
-from typing import Any, Iterator
+from typing import Any, Generator, Iterator
 
 from plugin.framework.errors import best_effort
 
@@ -42,7 +42,7 @@ def _current_control_index() -> ControlIndex | None:
 
 
 @contextlib.contextmanager
-def control_lookup_scope(doc: Any) -> Iterator[None]:
+def control_lookup_scope(doc: Any) -> Generator[None, None, None]:
     """Hold a draw-page control index for *doc* on this thread across nested calls."""
     # crosshair: off  # threading.local() is engine-hostile
     if doc is None:

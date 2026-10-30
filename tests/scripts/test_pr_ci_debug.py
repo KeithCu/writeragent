@@ -41,7 +41,7 @@ def test_pr_ci_debug_env_only_when_input_true() -> None:
 
 def test_pr_ci_debug_uploads_artifacts_and_process_dump() -> None:
     text = _workflow()
-    assert "actions/upload-artifact@v4" in text
+    assert "actions/upload-artifact@v7" in text
     assert "ci-debug-${{ matrix.os }}" in text
     assert "Dump leftover processes" in text
     assert "tasklist" in text

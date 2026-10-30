@@ -30,7 +30,7 @@ import gc
 import logging
 import queue
 import threading
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Generator
 
 from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
 from plugin.framework.worker_pool import run_in_background
@@ -43,7 +43,7 @@ _gc_suspend_was_enabled = False
 
 
 @contextlib.contextmanager
-def automatic_gc_suspended() -> Iterator[None]:
+def automatic_gc_suspended() -> Generator[None, None, None]:
     """Keep automatic cyclic GC off while the caller holds SolarMutex and waits.
 
     A wait that never returns to the VCL loop keeps SolarMutex. If a worker

@@ -33,7 +33,7 @@ import sys
 import logging
 import threading
 import weakref
-from typing import Any, Iterator, cast
+from typing import Any, Generator, cast
 
 log = logging.getLogger("writeragent.events")
 
@@ -102,7 +102,7 @@ class EventBus:
         self._dispatching = threading.local()
 
     @contextlib.contextmanager
-    def _guard(self) -> Iterator[None]:
+    def _guard(self) -> Generator[None, None, None]:
         """Hold ``_lock`` and apply queued weakref drops after the outermost exit."""
         # crosshair: off
         self._lock.acquire()
