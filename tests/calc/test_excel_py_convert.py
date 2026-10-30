@@ -1733,7 +1733,7 @@ def test_ensure_cell_missing_row_ordering():
     from xml.etree import ElementTree as ET
 
     from plugin.calc.excel_py_convert.ooxml_util import local_name
-    from plugin.calc.excel_py_convert.xlsx_write import _ensure_cell, _ensure_sheet_data
+    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex, _ensure_sheet_data
 
     # Worksheet with row 1 and row 5
     xml = (
@@ -1747,14 +1747,15 @@ def test_ensure_cell_missing_row_ordering():
     ws = ET.fromstring(xml)
 
     # Insert B1 in row 1: must be inserted between A1 and C1
-    _ensure_cell(ws, "B1")
+    idx = _WorksheetCellIndex(ws)
+    idx.ensure_cell("B1")
     sheet_data = _ensure_sheet_data(ws)
     row1 = [r for r in sheet_data if r.attrib.get("r") == "1"][0]
     col_order_1 = [c.attrib.get("r") for c in row1]
     assert col_order_1 == ["A1", "B1", "C1"]
 
     # Insert row 3 (A3): must be inserted between row 1 and row 5
-    _ensure_cell(ws, "A3")
+    idx.ensure_cell("A3")
     row_order = [r.attrib.get("r") for r in sheet_data if local_name(r.tag) == "row"]
     assert row_order == ["1", "3", "5"]
 
@@ -1769,7 +1770,8 @@ def test_ensure_cell_missing_row_ordering():
     )
     ws_no_r = ET.fromstring(xml_no_r)
     # Ensure cell A2: should match second row (implicit 2) rather than creating a duplicate row
-    _c_a2 = _ensure_cell(ws_no_r, "A2")
+    idx_no_r = _WorksheetCellIndex(ws_no_r)
+    _c_a2 = idx_no_r.ensure_cell("A2")
     sheet_data_no_r = _ensure_sheet_data(ws_no_r)
     assert len(list(sheet_data_no_r)) == 2
 
@@ -3062,7 +3064,7 @@ def test_clear_spill_xml_touches_stored_cells_only():
     v_o = ET.SubElement(c_outside, "v")
     v_o.text = "outside"
 
-    _clear_spill_xml(ws_root, "A1", "A1:XFD10000", index=index)
+    _clear_spill_xml("A1", "A1:XFD10000", index=index)
 
     # Anchor value kept
     v_a_found = c_anchor.find("v")
@@ -3152,13 +3154,13 @@ def test_ensure_cell_ascending_large_sequence():
 
 
 def test_set_cell_xlws_formula_child_order_extlst_without_f():
-    from plugin.calc.excel_py_convert.xlsx_write import _set_cell_xlws_formula
+    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex, _set_cell_xlws_formula
 
     ws_root = ET.fromstring(
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
         '<sheetData><row r="1"><c r="A1"><v>123</v><extLst/></c></row></sheetData></worksheet>'
     )
-    _set_cell_xlws_formula(ws_root, "A1", "_xlws.PY(0,0)")
+    _set_cell_xlws_formula("A1", "_xlws.PY(0,0)", index=_WorksheetCellIndex(ws_root))
     cell = ws_root.find(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c")
     assert cell is not None
     tags = [local_name(ch.tag) for ch in cell]
@@ -3167,13 +3169,13 @@ def test_set_cell_xlws_formula_child_order_extlst_without_f():
 
 
 def test_set_cell_xlws_formula_existing_f_with_extlst():
-    from plugin.calc.excel_py_convert.xlsx_write import _set_cell_xlws_formula
+    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex, _set_cell_xlws_formula
 
     ws_root = ET.fromstring(
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
         '<sheetData><row r="1"><c r="A1"><f>OLD()</f><extLst/></c></row></sheetData></worksheet>'
     )
-    _set_cell_xlws_formula(ws_root, "A1", "_xlws.PY(0,0)")
+    _set_cell_xlws_formula("A1", "_xlws.PY(0,0)", index=_WorksheetCellIndex(ws_root))
     cell = ws_root.find(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c")
     assert cell is not None
     tags = [local_name(ch.tag) for ch in cell]

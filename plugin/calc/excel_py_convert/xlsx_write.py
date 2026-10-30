@@ -211,6 +211,26 @@ def _ensure_sheet_data(ws_root: ET.Element) -> ET.Element:
     return el
 
 
+def _row_num(el: ET.Element, prev: int) -> int:
+    r_attr = el.attrib.get("r")
+    if r_attr is None:
+        return prev + 1
+    try:
+        return int(r_attr)
+    except ValueError:
+        return prev + 1
+
+
+def _col_num(el: ET.Element, prev: int) -> int:
+    c_r = el.attrib.get("r")
+    if not c_r:
+        return prev + 1
+    parsed = _a1_row_col(c_r)
+    if parsed is None:
+        return prev + 1
+    return parsed[1]
+
+
 class _WorksheetCellIndex:
     """Index of rows and cells in a worksheet for ascending-order lookup and insertion."""
 
@@ -227,22 +247,11 @@ class _WorksheetCellIndex:
 
     def _build_index(self) -> None:
         current_row_num = 0
-        self.max_row = 0
-        self.max_col_by_row = {}
-        self.has_non_row = False
-        self.has_non_c_by_row = {}
         for row in list(self.sheet_data):
             if local_name(row.tag) != "row":
                 self.has_non_row = True
                 continue
-            r_attr = row.attrib.get("r")
-            if r_attr is not None:
-                try:
-                    current_row_num = int(r_attr)
-                except ValueError:
-                    current_row_num += 1
-            else:
-                current_row_num += 1
+            current_row_num = _row_num(row, current_row_num)
             if current_row_num > self.max_row:
                 self.max_row = current_row_num
             self.rows[current_row_num] = row
@@ -254,15 +263,7 @@ class _WorksheetCellIndex:
                 if local_name(c.tag) != "c":
                     has_non_c = True
                     continue
-                c_r = c.attrib.get("r")
-                if c_r:
-                    parsed = _a1_row_col(c_r)
-                    if parsed is not None:
-                        current_col_num = parsed[1]
-                    else:
-                        current_col_num += 1
-                else:
-                    current_col_num += 1
+                current_col_num = _col_num(c, current_col_num)
                 if current_col_num > max_col:
                     max_col = current_col_num
                 row_cells[current_col_num] = c
@@ -297,14 +298,7 @@ class _WorksheetCellIndex:
                         self.has_non_row = True
                         continue
                     insert_row_idx = idx + 1
-                    r_attr = r.attrib.get("r")
-                    if r_attr is not None:
-                        try:
-                            current_row_num = int(r_attr)
-                        except ValueError:
-                            current_row_num += 1
-                    else:
-                        current_row_num += 1
+                    current_row_num = _row_num(r, current_row_num)
                     if current_row_num > target_row:
                         insert_row_idx = idx
                         break
@@ -344,15 +338,7 @@ class _WorksheetCellIndex:
                     self.has_non_c_by_row[row_el] = True
                     insert_col_idx = idx
                     break
-                c_r = c.attrib.get("r")
-                if c_r:
-                    parsed_c = _a1_row_col(c_r)
-                    if parsed_c is not None:
-                        current_col_num = parsed_c[1]
-                    else:
-                        current_col_num += 1
-                else:
-                    current_col_num += 1
+                current_col_num = _col_num(c, current_col_num)
                 if current_col_num > target_col:
                     insert_col_idx = idx
                     break
@@ -363,22 +349,24 @@ class _WorksheetCellIndex:
         return cell
 
 
-def _ensure_cell(ws_root: ET.Element, a1: str, index: _WorksheetCellIndex | None = None) -> ET.Element:
-    """Return ``<c r="A1">``, creating row/cell under sheetData in ascending order when missing."""
-    if index is not None:
-        return index.ensure_cell(a1)
-    return _WorksheetCellIndex(ws_root).ensure_cell(a1)
+def _insert_before(parent: ET.Element, el: ET.Element, names: tuple[str, ...]) -> None:
+    insert_idx = len(parent)
+    for idx, child in enumerate(list(parent)):
+        if local_name(child.tag) in names:
+            insert_idx = idx
+            break
+    parent.insert(insert_idx, el)
 
 
 def _set_cell_xlws_formula(
-    ws_root: ET.Element,
     a1: str,
     formula: str,
     array_ref: str = "",
-    index: _WorksheetCellIndex | None = None,
+    *,
+    index: _WorksheetCellIndex,
 ) -> None:
     """Set formula on cell, clearing stale si, ca, v, is, and t attributes."""
-    cell = _ensure_cell(ws_root, a1, index=index)
+    cell = index.ensure_cell(a1)
     # Drop cached value / type so Excel recalculates from the formula.
     for child in list(cell):
         if local_name(child.tag) in ("v", "is"):
@@ -389,12 +377,7 @@ def _set_cell_xlws_formula(
     if f is None:
         f_tag = f"{{{SSML_NS}}}f" if cell.tag.startswith("{") else "f"
         f = ET.Element(f_tag)
-        insert_idx = len(cell)
-        for idx, child in enumerate(list(cell)):
-            if local_name(child.tag) in ("v", "is", "extLst"):
-                insert_idx = idx
-                break
-        cell.insert(insert_idx, f)
+        _insert_before(cell, f, ("v", "is", "extLst"))
     body = formula[1:] if formula.startswith("=") else formula
     f.text = body
     if "si" in f.attrib:
@@ -411,7 +394,7 @@ def _set_cell_xlws_formula(
             del f.attrib["ref"]
 
 
-def _clear_spill_xml(ws_root: ET.Element, anchor: str, array_ref: str, index: _WorksheetCellIndex | None = None) -> None:
+def _clear_spill_xml(anchor: str, array_ref: str, index: _WorksheetCellIndex) -> None:
     """Clear cached/array result cells in *array_ref* from XML, keeping the anchor."""
     if not array_ref:
         return
@@ -422,38 +405,20 @@ def _clear_spill_xml(ws_root: ET.Element, anchor: str, array_ref: str, index: _W
     anchor_parsed = _a1_row_col(anchor)
     anchor_r, anchor_c = anchor_parsed if anchor_parsed is not None else (0, 0)
 
-    if index is not None:
-        for r, row_el in index.rows.items():
-            if not (row1 <= r <= row2):
-                continue
-            row_cells = index.cells_by_row.get(row_el)
-            if not row_cells:
-                continue
-            for col, c in row_cells.items():
-                if not (col1 <= col <= col2) or (r, col) == (anchor_r, anchor_c):
-                    continue
-                for child in list(c):
-                    if local_name(child.tag) in ("f", "v", "is"):
-                        c.remove(child)
-                if "t" in c.attrib:
-                    del c.attrib["t"]
-        return
-
-    for c in find_all(ws_root, "c"):
-        c_r = c.attrib.get("r")
-        if not c_r:
+    for r, row_el in index.rows.items():
+        if not (row1 <= r <= row2):
             continue
-        parsed = _a1_row_col(c_r)
-        if parsed is None:
+        row_cells = index.cells_by_row.get(row_el)
+        if not row_cells:
             continue
-        r, col = parsed
-        if col1 <= col <= col2 and row1 <= r <= row2:
-            if (r, col) != (anchor_r, anchor_c):
-                for child in list(c):
-                    if local_name(child.tag) in ("f", "v", "is"):
-                        c.remove(child)
-                if "t" in c.attrib:
-                    del c.attrib["t"]
+        for col, c in row_cells.items():
+            if not (col1 <= col <= col2) or (r, col) == (anchor_r, anchor_c):
+                continue
+            for child in list(c):
+                if local_name(child.tag) in ("f", "v", "is"):
+                    c.remove(child)
+            if "t" in c.attrib:
+                del c.attrib["t"]
 
 
 _WORKBOOK_AFTER_CALC_PR = (
@@ -478,12 +443,7 @@ def _ensure_workbook_full_calc_on_load(wb: ET.Element) -> ET.Element:
         return calc_pr
     tag = f"{{{SSML_NS}}}calcPr" if wb.tag.startswith("{") else "calcPr"
     calc_pr = ET.Element(tag, attrib={"fullCalcOnLoad": "1"})
-    insert_idx = len(wb)
-    for idx, child in enumerate(list(wb)):
-        if local_name(child.tag) in _WORKBOOK_AFTER_CALC_PR:
-            insert_idx = idx
-            break
-    wb.insert(insert_idx, calc_pr)
+    _insert_before(wb, calc_pr, _WORKBOOK_AFTER_CALC_PR)
     return calc_pr
 
 
@@ -716,9 +676,9 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
             for cell in cells:
                 try:
                     if cell.array_ref:
-                        _clear_spill_xml(root, cell.cell, cell.array_ref, index=ws_index)
+                        _clear_spill_xml(cell.cell, cell.array_ref, index=ws_index)
                     formula = xlws_py_formula(cell.script_index, cell.return_type, deps_for_xlws_export(cell))
-                    _set_cell_xlws_formula(root, cell.cell, formula, array_ref=cell.array_ref, index=ws_index)
+                    _set_cell_xlws_formula(cell.cell, formula, array_ref=cell.array_ref, index=ws_index)
                 except Exception as exc:
                     errors.append(f"{cell.sheet}!{cell.cell}: {exc}")
             patched[part] = root
@@ -847,11 +807,11 @@ def write_dag_formulas_xlsx(
             for cell in cells:
                 try:
                     if cell.array_ref:
-                        _clear_spill_xml(root, cell.cell, cell.array_ref, index=ws_index)
+                        _clear_spill_xml(cell.cell, cell.array_ref, index=ws_index)
                     formula = _xlsx_formula_for_cell(cell)
                     if _INVALID_XML_CHARS_RE.search(formula):
                         raise ValueError(f"illegal XML character in formula: {formula!r}")
-                    _set_cell_xlws_formula(root, cell.cell, formula, array_ref="", index=ws_index)
+                    _set_cell_xlws_formula(cell.cell, formula, array_ref="", index=ws_index)
                 except Exception as exc:
                     errors.append(f"{cell.sheet}!{cell.cell}: {exc}")
 
@@ -931,12 +891,7 @@ def write_dag_formulas_xlsx(
             if dn_container is None:
                 dn_tag = f"{{{SSML_NS}}}definedNames" if wb_root.tag.startswith("{") else "definedNames"
                 dn_container = ET.Element(dn_tag)
-                insert_idx = len(wb_root)
-                for idx, child in enumerate(list(wb_root)):
-                    if local_name(child.tag) in _WORKBOOK_AFTER_DEFINED_NAMES:
-                        insert_idx = idx
-                        break
-                wb_root.insert(insert_idx, dn_container)
+                _insert_before(wb_root, dn_container, _WORKBOOK_AFTER_DEFINED_NAMES)
             has_dn = any(
                 local_name(dn.tag) == "definedName" and (dn.attrib.get("name") or "").lower() == def_name.lower()
                 for dn in dn_container
