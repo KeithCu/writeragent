@@ -18,7 +18,6 @@ from plugin.scripting.domain_registry import (
     FormatOkKind,
     get_picker_domains,
     get_post_venv_domains,
-    get_rps_domains,
 )
 from plugin.scripting.helper_domain import _RUN_DATA_BINDING_CALLS
 
@@ -35,9 +34,9 @@ def test_registry_module_attr_targets_resolve():
         if w.insert_kwargs_from_code is not None:
             targets.append(w.insert_kwargs_from_code)
     for p in PICKER_WIRING:
-        targets.append(p.templates)
-        if p.supports != "calc_only":
-            targets.append(p.supports)
+        targets.append(p.templates_ref)
+        if p.supports_ref != "calc_only":
+            targets.append(p.supports_ref)
 
     for target in targets:
         assert target.count(":") == 1, target
@@ -49,7 +48,7 @@ def test_registry_module_attr_targets_resolve():
 
 
 def test_rps_domain_order():
-    ids = [s.id for s in get_rps_domains()]
+    ids = [w.id for w in WIRING_TABLE]
     assert ids == [
         "vision",
         "viz",
@@ -65,7 +64,7 @@ def test_rps_domain_order():
 
 
 def test_rps_domains_have_post_venv_hooks():
-    for spec in get_rps_domains():
+    for spec in get_post_venv_domains():
         assert callable(spec.insert)
         assert callable(spec.format_ok)
         assert callable(spec.is_result)
@@ -110,7 +109,7 @@ def test_calc_only_insert_passes_document_then_context():
 
         spec = build_rps_spec(wiring)
         assert spec.insert is not None
-        with patch("plugin.scripting.domain_registry._resolve_fn", return_value=_record):
+        with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=_record):
             spec.insert(ctx, doc, result)
         if wiring.post_venv_calc_only:
             assert seen["args"] == (doc, ctx, result), wiring.id
@@ -132,7 +131,7 @@ def test_calc_only_insert_forwards_kwargs():
 
     spec = build_rps_spec(wiring)
     assert spec.insert is not None
-    with patch("plugin.scripting.domain_registry._resolve_fn", return_value=_record):
+    with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=_record):
         assert spec.insert(ctx, doc, result, start_col=4) == 3
     assert seen["args"] == (doc, ctx, result)
     assert seen["kwargs"] == {"start_col": 4}
@@ -195,11 +194,17 @@ def test_picker_supports_logs_when_the_check_raises(caplog):
     skip_if_release_build("log.debug stripped in release bundle")
     import logging
 
-    from plugin.scripting.domain_registry import _picker_supports_fn
+    from plugin.scripting.domain_registry import PickerWiring
 
-    fn = _picker_supports_fn("plugin.scripting.domain_registry:does_not_exist")
+    wiring = PickerWiring(
+        origin="test",
+        display_prefix="[Test] ",
+        title="Test",
+        supports_ref="plugin.scripting.domain_registry:does_not_exist",
+        templates_ref="",
+    )
     with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
-        assert fn(object()) is False
+        assert wiring.supports(object()) is False
     assert "supports check failed" in caplog.text
 
 
@@ -213,7 +218,7 @@ def test_sql_is_result_handles_missing_duckdb_sql(caplog):
     sql_wiring = next(w for w in WIRING_TABLE if w.id == "sql")
     spec = build_rps_spec(sql_wiring)
 
-    with patch("plugin.scripting.domain_registry._resolve_fn", side_effect=ImportError("No module named 'plugin.scripting.duckdb_sql'")):
+    with patch("plugin.scripting.domain_registry._resolve_module_attr", side_effect=ImportError("No module named 'plugin.scripting.duckdb_sql'")):
         with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
             assert spec.is_result({"some": "result"}) is False
     # Release strips log.debug; returning False is the behavior that must survive.
@@ -249,13 +254,13 @@ def test_rps_spec_insert_returns_int_only_when_int():
     wiring = next(w for w in WIRING_TABLE if w.id == "viz")
     spec = build_rps_spec(wiring)
 
-    with patch("plugin.scripting.domain_registry._resolve_fn", return_value=lambda *a, **kw: 42):
+    with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: 42):
         assert spec.insert(object(), object(), {}) == 42
 
-    with patch("plugin.scripting.domain_registry._resolve_fn", return_value=lambda *a, **kw: True):
+    with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: True):
         assert spec.insert(object(), object(), {}) is None
 
-    with patch("plugin.scripting.domain_registry._resolve_fn", return_value=lambda *a, **kw: None):
+    with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: None):
         assert spec.insert(object(), object(), {}) is None
 
 
@@ -272,10 +277,10 @@ def test_picker_supports_matches_post_venv_calc_only():
     for row in PICKER_WIRING:
         assert row.origin in by_id
         if by_id[row.origin].post_venv_calc_only:
-            assert row.supports == "calc_only"
+            assert row.supports_ref == "calc_only"
         else:
-            assert row.supports != "calc_only"
-            assert row.supports.count(":") == 1
+            assert row.supports_ref != "calc_only"
+            assert row.supports_ref.count(":") == 1
     assert set(by_id) - {row.origin for row in PICKER_WIRING} == {"text"}
 
 

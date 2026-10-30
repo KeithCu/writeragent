@@ -272,55 +272,43 @@ _IMPORT_DATA_BINDING: frozenset[str] = frozenset({
 })
 
 
-def _call_tail(func: ast.AST) -> str | None:
-    if isinstance(func, ast.Name):
-        return func.id
-    if isinstance(func, ast.Attribute):
-        return func.attr
-    return None
-
-
-def _ast_calls_binding_name(tree: ast.AST) -> bool:
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        name = _call_tail(node.func)
-        if name in _RUN_DATA_BINDING_CALLS or name == _SHEET_SQL_CALL:
-            return True
-    return False
-
-
-def _ast_imports_and_calls(tree: ast.AST) -> bool:
+def _ast_needs_data_binding(tree: ast.AST) -> bool:
     imported_names: set[str] = set()
     alias_modules: set[str] = set()
+    calls: list[ast.Call] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             mod = node.module or ""
-            for module in _IMPORT_DATA_BINDING:
-                if mod == module:
-                    for alias in node.names:
-                        bound = alias.asname or alias.name
-                        if bound and bound != "*":
-                            imported_names.add(bound)
-                elif mod == "writeragent.scripting":
-                    sub = module.split(".")[-1]
-                    for alias in node.names:
-                        if alias.name == sub:
-                            bound = alias.asname or alias.name
-                            alias_modules.add(bound)
+            if mod in _IMPORT_DATA_BINDING:
+                for alias in node.names:
+                    bound = alias.asname or alias.name
+                    if bound and bound != "*":
+                        imported_names.add(bound)
+            elif mod == "writeragent.scripting":
+                for alias in node.names:
+                    if f"writeragent.scripting.{alias.name}" in _IMPORT_DATA_BINDING:
+                        alias_modules.add(alias.asname or alias.name)
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                for module in _IMPORT_DATA_BINDING:
-                    if alias.name == module:
-                        bound = alias.asname or alias.name
-                        alias_modules.add(bound)
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if isinstance(node.func, ast.Name) and node.func.id in imported_names:
+                if alias.name in _IMPORT_DATA_BINDING:
+                    alias_modules.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name):
+                name: str | None = func.id
+            elif isinstance(func, ast.Attribute):
+                name = func.attr
+            else:
+                name = None
+            if name in _RUN_DATA_BINDING_CALLS or name == _SHEET_SQL_CALL:
+                return True
+            calls.append(node)
+    for node in calls:
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in imported_names:
             return True
-        if isinstance(node.func, ast.Attribute):
-            target = node.func.value
+        if isinstance(func, ast.Attribute):
+            target = func.value
             if isinstance(target, ast.Name) and target.id in alias_modules:
                 return True
     return False
@@ -352,9 +340,7 @@ def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
                 return True
         return any(module in code for module in _IMPORT_DATA_BINDING)
 
-    if _ast_calls_binding_name(tree):
-        return True
-    return _ast_imports_and_calls(tree)
+    return _ast_needs_data_binding(tree)
 
 
 
@@ -369,19 +355,11 @@ def _python_literal(val: Any) -> str:
     identifier is injected only for the data argument in
     build_helper_script_template.
     """
-    if val is None:
-        return "None"
-    if val is True:
-        return "True"
-    if val is False:
-        return "False"
-    if isinstance(val, (int, float, str)):
-        return repr(val)
     if isinstance(val, (list, tuple)):
         items = ", ".join(_python_literal(item) for item in val)
         return f"[{items}]" if isinstance(val, list) else f"({items}{',' if len(val) == 1 else ''})"
     if isinstance(val, dict):
-        parts = [f"{repr(k) if isinstance(k, str) else _python_literal(k)}: {_python_literal(v)}" for k, v in val.items()]
+        parts = [f"{_python_literal(k)}: {_python_literal(v)}" for k, v in val.items()]
         return "{" + ", ".join(parts) + "}"
     return repr(val)
 

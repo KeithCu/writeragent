@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -63,17 +63,6 @@ def is_reserved_script_name(name: str) -> bool:
 
 
 @dataclass(frozen=True)
-class PickerDomainSpec:
-    """One built-in helper group in the Run Python Script picker."""
-
-    origin: str
-    display_prefix: str
-    title_fn: Callable[[], str]
-    supports: Callable[[Any], bool]
-    templates: Callable[[], dict[str, str]]
-
-
-@dataclass(frozen=True)
 class RpsDomainSpec:
     """Post-venv result routing for one trusted helper domain."""
 
@@ -111,12 +100,6 @@ def _resolve_module_attr(target: str) -> Any:
     return getattr(importlib.import_module(mod_name), attr_name)
 
 
-def _resolve_fn(path: str | None) -> Any:
-    if not path:
-        return None
-    return _resolve_module_attr(path)
-
-
 # Opening block tags only. A substring count of "<p" / "<h" also matched
 # <pre>, <param>, <html>, <head>, <header>, and <hr>, so the status line
 # over-counted structure blocks when metrics omitted line_count.
@@ -131,10 +114,10 @@ def _vision_html_block_count(html: str) -> int:
 def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
     insert_kwargs_fn = None
     if w.insert_kwargs_from_code:
-        insert_kwargs_fn = _resolve_fn(w.insert_kwargs_from_code)
+        insert_kwargs_fn = _resolve_module_attr(w.insert_kwargs_from_code)
 
     def insert(ctx: Any, doc: Any, result: dict[str, Any], **kwargs: Any) -> Any:
-        fn = _resolve_fn(w.insert)
+        fn = _resolve_module_attr(w.insert)
         # Sheet egress is (doc, uno_ctx, result). Calling it as (ctx, doc, result)
         # passed the component context into calc_anchor_from_selection, which then
         # failed and the Run Python Script dialog reported an insert error.
@@ -199,14 +182,14 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
 
     def is_result(value: Any) -> bool:
         try:
-            fn = _resolve_fn(w.is_result)
+            fn = _resolve_module_attr(w.is_result)
         except ImportError as exc:
             # Bundles that omit a domain module (LibrePy drops duckdb_sql) raise
             # ImportError when resolving is_result. That aborted routing of a
             # plain Calc result. An unresolvable module means "not this domain".
             log.debug("Domain %s is_result module unavailable: %s", w.id, exc)
             return False
-        return fn(value) if fn is not None else False
+        return fn(value)
 
     return RpsDomainSpec(
         id=w.id,
@@ -309,12 +292,6 @@ def _rps_specs_by_id() -> dict[str, RpsDomainSpec]:
     return _rps_by_id
 
 
-def get_rps_domains() -> Sequence[RpsDomainSpec]:
-    """Ordered RPS domain specs. Spec objects are built on first use and reused."""
-    by_id = _rps_specs_by_id()
-    return [by_id[wiring.id] for wiring in WIRING_TABLE]
-
-
 # Post-venv is_result order differs slightly (symbolic before units, then plot special case, then vision, then calc domains)
 # We encode post-venv order as a separate sequence of domain ids.
 POST_VENV_DOMAIN_ORDER: tuple[str, ...] = (
@@ -348,46 +325,25 @@ class PickerWiring:
     origin: str
     display_prefix: str
     title: str
-    supports: str  # "calc_only" or "module.path:attr"
-    templates: str  # "module.path:attr" returning dict[str, str]
+    supports_ref: str  # "calc_only" or "module.path:attr"
+    templates_ref: str  # "module.path:attr" returning dict[str, str]
 
-
-def _picker_calc_only(doc: Any) -> bool:
-    return doc is not None and is_calc(doc)
-
-
-def _picker_supports_fn(supports: str) -> Callable[[Any], bool]:
-    if supports == "calc_only":
-        return _picker_calc_only
-
-    def _supports(doc: Any) -> bool:
+    def supports(self, doc: Any) -> bool:
+        if self.supports_ref == "calc_only":
+            return doc is not None and is_calc(doc)
         if doc is None:
             return False
         try:
-            return bool(_resolve_module_attr(supports)(doc))
+            return bool(_resolve_module_attr(self.supports_ref)(doc))
         except Exception:
-            log.debug("script picker supports check failed for %s", supports, exc_info=True)
+            log.debug("script picker supports check failed for %s", self.supports_ref, exc_info=True)
             return False
 
-    return _supports
+    def templates(self) -> dict[str, str]:
+        return dict(_resolve_module_attr(self.templates_ref)())
 
-
-def _picker_templates_fn(templates: str) -> Callable[[], dict[str, str]]:
-    def _templates() -> dict[str, str]:
-        return dict(_resolve_module_attr(templates)())
-
-    return _templates
-
-
-def build_picker_spec(wiring: PickerWiring) -> PickerDomainSpec:
-    title = wiring.title
-    return PickerDomainSpec(
-        origin=wiring.origin,
-        display_prefix=wiring.display_prefix,
-        title_fn=lambda: _(title),
-        supports=_picker_supports_fn(wiring.supports),
-        templates=_picker_templates_fn(wiring.templates),
-    )
+    def title_fn(self) -> str:
+        return _(self.title)
 
 
 PICKER_WIRING: tuple[PickerWiring, ...] = (
@@ -395,43 +351,43 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         origin=SCRIPT_ORIGIN_VISION,
         display_prefix=VISION_SCRIPT_DISPLAY_PREFIX,
         title=N_("Vision Helpers"),
-        supports="plugin.vision.vision_runner:supports_vision_manual",
-        templates="plugin.vision.vision_templates:get_vision_script_templates",
+        supports_ref="plugin.vision.vision_runner:supports_vision_manual",
+        templates_ref="plugin.vision.vision_templates:get_vision_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_MATH,
         display_prefix=MATH_SCRIPT_DISPLAY_PREFIX,
         title=N_("Math Helpers"),
-        supports="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
-        templates="plugin.scripting.symbolic:get_math_script_templates",
+        supports_ref="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
+        templates_ref="plugin.scripting.symbolic:get_math_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_UNITS,
         display_prefix=UNITS_SCRIPT_DISPLAY_PREFIX,
         title=N_("Units Helpers"),
-        supports="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
-        templates="plugin.scripting.units:get_units_script_templates",
+        supports_ref="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
+        templates_ref="plugin.scripting.units:get_units_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_ANALYSIS,
         display_prefix=ANALYSIS_SCRIPT_DISPLAY_PREFIX,
         title=N_("Analysis Helpers"),
-        supports="calc_only",
-        templates="plugin.scripting.analysis:get_analysis_script_templates",
+        supports_ref="calc_only",
+        templates_ref="plugin.scripting.analysis:get_analysis_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_SQL,
         display_prefix=SQL_SCRIPT_DISPLAY_PREFIX,
         title=N_("SQL Helpers"),
-        supports="calc_only",
-        templates="plugin.scripting.duckdb_sql:get_sql_script_templates",
+        supports_ref="calc_only",
+        templates_ref="plugin.scripting.duckdb_sql:get_sql_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_VIZ,
         display_prefix=VIZ_SCRIPT_DISPLAY_PREFIX,
         title=N_("Viz Helpers"),
-        supports="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
-        templates="plugin.scripting.viz:get_viz_script_templates",
+        supports_ref="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
+        templates_ref="plugin.scripting.viz:get_viz_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_QUANT,
@@ -444,22 +400,22 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         # How: the picker copied the symbolic/viz supports alias when the registry
         # was introduced. Egress was never a Writer inserter.
         # Why: "calc_only" matches analysis, sql, optimize, and forecast.
-        supports="calc_only",
-        templates="plugin.scripting.quant:get_quant_script_templates",
+        supports_ref="calc_only",
+        templates_ref="plugin.scripting.quant:get_quant_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_OPTIMIZE,
         display_prefix=OPTIMIZE_SCRIPT_DISPLAY_PREFIX,
         title=N_("Optimize Helpers"),
-        supports="calc_only",
-        templates="plugin.scripting.optimize:get_optimize_script_templates",
+        supports_ref="calc_only",
+        templates_ref="plugin.scripting.optimize:get_optimize_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_FORECAST,
         display_prefix=FORECAST_SCRIPT_DISPLAY_PREFIX,
         title=N_("Forecast Helpers"),
-        supports="calc_only",
-        templates="plugin.scripting.forecast:get_forecast_script_templates",
+        supports_ref="calc_only",
+        templates_ref="plugin.scripting.forecast:get_forecast_script_templates",
     ),
 )
 
@@ -469,18 +425,18 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
 RESERVED_SCRIPT_PREFIXES = (DOC_SCRIPT_DISPLAY_PREFIX, *(row.display_prefix for row in PICKER_WIRING))
 
 
-_picker_cache: list[PickerDomainSpec] | None = None
+_picker_cache: list[PickerWiring] | None = None
 
 
-def get_picker_domains() -> list[PickerDomainSpec]:
+def get_picker_domains() -> list[PickerWiring]:
     """Built-in helper sections for the script picker (lazy templates/supports).
 
-    Cached like ``get_rps_domains``. ``title_fn`` still calls ``_()`` on use,
-    so a later catalog load is not frozen into the cached specs.
+    Cached for the process. ``title_fn`` still calls ``_()`` on use,
+    so a later catalog load is not frozen into the cached rows.
     """
     global _picker_cache
     if _picker_cache is None:
-        _picker_cache = [build_picker_spec(wiring) for wiring in PICKER_WIRING]
+        _picker_cache = list(PICKER_WIRING)
     return _picker_cache
 
 
