@@ -47,20 +47,14 @@ class DocumentType(Enum):
     IMPRESS = auto()
 
 
-# (service, distinct label). Family is "draw" only for label "impress".
+# (service, distinct label). Insertion order is the probe order:
+# Writer, Calc, Impress, Draw. Family is "draw" only for label "impress".
 _TYPE_ROWS: dict[DocumentType, tuple[str, DocTypeLabel]] = {
     DocumentType.WRITER: (TEXT_DOCUMENT_SERVICE, "writer"),
     DocumentType.CALC: (CALC_DOCUMENT_SERVICE, "calc"),
     DocumentType.IMPRESS: (IMPRESS_DOCUMENT_SERVICE, "impress"),
     DocumentType.DRAW: (DRAW_DOCUMENT_SERVICE, "draw"),
 }
-
-_SERVICE_PRIORITY: tuple[DocumentType, ...] = (
-    DocumentType.WRITER,
-    DocumentType.CALC,
-    DocumentType.IMPRESS,
-    DocumentType.DRAW,
-)
 
 # "impress" is PresentationDocument only. "draw" is the family (both services).
 _LABEL_TO_UNO_SERVICES: dict[str, frozenset[str]] = {
@@ -98,8 +92,8 @@ def get_document_uno_services(model: Any) -> frozenset[str]:
     if model is None:
         return frozenset()
     found: set[str] = set()
-    for dt in _SERVICE_PRIORITY:
-        service_name = _TYPE_ROWS[dt][0]
+    for _unused_dt, row in _TYPE_ROWS.items():
+        service_name = row[0]
         if safe_call(model.supportsService, f"Check {service_name}", service_name):
             found.add(service_name)
     return frozenset(found)
@@ -181,8 +175,8 @@ def get_document_type(model: Any) -> DocumentType:
     # Four supportsService calls; id(model) is reused after close so a cache
     # keyed that way would return the wrong type for a new document.
     # Check services in priority order
-    for dt in _SERVICE_PRIORITY:
-        service_name = _TYPE_ROWS[dt][0]
+    for dt, row in _TYPE_ROWS.items():
+        service_name = row[0]
         if safe_call(model.supportsService, f"Check {service_name}", service_name):
             return dt
 
@@ -206,18 +200,15 @@ def is_draw(model: Any) -> bool:
 
 
 def doc_type_of(doc: Any) -> str | None:
-    """'writer' / 'calc' / 'draw' for a document model, or None when there is no document.
-
-    Same resolution every other tool relies on (lazy import of is_calc / is_draw)."""
+    """'writer' / 'calc' / 'draw' for a document model, or None when there is no document."""
     if doc is None:
         return None
 
     def _classify() -> str:
-        if is_calc(doc):
-            return "calc"
-        if is_draw(doc):
-            return "draw"
-        return "writer"
+        # One get_document_type walk. Family fold keeps Impress as "draw".
+        # Unknown stays "writer", as when is_calc and is_draw are both false.
+        label = doc_type_family_label(get_document_type(doc))
+        return "writer" if label == "unknown" else label
 
     return best_effort(_classify, "doc_type_of: could not classify document; defaulting to writer", "writer")
 
