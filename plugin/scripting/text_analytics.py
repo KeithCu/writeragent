@@ -31,12 +31,7 @@ from plugin.scripting.calc_functions_common import TEXT_ANALYTICS_HELPER_NAMES a
 log = logging.getLogger(__name__)
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    "full": {},
-    "readability": {},
-    "entities": {},
-    "key_phrases": {},
     "topics": {"n_topics": 4},
-    "sentiment": {},
 }
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {
@@ -69,18 +64,6 @@ _API = make_template_api(
 )
 
 get_text_analytics_script_templates = _API.get_templates
-
-
-
-
-def supports_text_analytics_manual(doc: Any) -> bool:
-    """True when Run Python Script should expose Text Analytics helpers on *doc*."""
-    if doc is None:
-        return False
-    from plugin.doc.doc_type import is_writer
-
-    return is_writer(doc)
-
 
 def resolve_text_analytics_document_inputs(
     doc: Any,
@@ -317,26 +300,28 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
 
     rows: list[str] = []
 
+    def _row(label: object, value: object) -> None:
+        rows.append(
+            f"<tr><td>{_html_insert_text(label)}</td><td>{_html_insert_text(value)}</td></tr>"
+        )
+
     rd = data.get("readability") or {}
     ds = data.get("descriptive_stats") or {}
     for k, v in {**rd, **ds}.items():
         if isinstance(v, (int, float, str)):
             val = f"{v:.3f}" if isinstance(v, float) else str(v)
-            rows.append(f"<tr><td>{_html_insert_text(k)}</td><td>{_html_insert_text(val)}</td></tr>")
+            _row(k, val)
 
     ents = data.get("entities") or []
     if ents:
-        labels: dict[str, int] = {}
-        for e in ents:
-            lab = e.get("label", "?")
-            labels[lab] = labels.get(lab, 0) + 1
-        for lab, cnt in sorted(labels.items(), key=lambda x: -x[1])[:12]:
-            rows.append(f"<tr><td>{_html_insert_text(f'entity:{lab}')}</td><td>{cnt}</td></tr>")
+        counts = Counter(e.get("label", "?") for e in ents)
+        for lab, cnt in counts.most_common()[:12]:
+            _row(f"entity:{lab}", cnt)
 
     kps = data.get("key_phrases") or []
     if kps:
         top = ", ".join(kp.get("lemma") or kp.get("text") or "" for kp in kps[:8])
-        rows.append(f"<tr><td>key_phrases</td><td>{_html_insert_text(top)}</td></tr>")
+        _row("key_phrases", top)
 
     # Topics (fancier text analytics): show top terms per topic + section assignments if present.
     topics = data.get("topics") or []
@@ -344,29 +329,27 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
         for t in topics[:6]:
             tid = t.get("id", "?")
             terms = ", ".join(t.get("terms", [])[:5])
-            rows.append(
-                f"<tr><td>{_html_insert_text(f'topic {tid}')}</td><td>{_html_insert_text(terms)}</td></tr>"
-            )
+            _row(f"topic {tid}", terms)
         assigns = data.get("assignments") or []
         if assigns:
             # Compact: show how many sections map to each topic
             counts = Counter(a.get("dominant_topic") for a in assigns)
             summary = "; ".join(f"t{tid}:{cnt}" for tid, cnt in sorted(counts.items()))
-            rows.append(f"<tr><td>topic sections</td><td>{_html_insert_text(summary)}</td></tr>")
+            _row("topic sections", summary)
 
     # Sentiment: overall + summary of per-section if available
     sent = data.get("sentiment") or {}
     if sent and isinstance(sent, dict) and "score" in sent:
         sc = sent.get("score", 0)
         lab = sent.get("label", "neutral")
-        rows.append(f"<tr><td>sentiment</td><td>{_html_insert_text(f'{lab} ({sc})')}</td></tr>")
+        _row("sentiment", f"{lab} ({sc})")
     per_sec = data.get("per_section") or []
     if per_sec:
         # Count labels across sections
         labels = Counter(str(p.get("label")) for p in per_sec if isinstance(p, dict) and p.get("label") is not None)
         if labels:
             summary = "; ".join(f"{lab}:{cnt}" for lab, cnt in labels.most_common())
-            rows.append(f"<tr><td>sections</td><td>{_html_insert_text(summary)}</td></tr>")
+            _row("sections", summary)
 
     if not rows:
         return ""

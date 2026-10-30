@@ -103,15 +103,9 @@ def test_run_text_analytics_unknown_helper_is_an_error():
     assert ta.is_text_analytics_result(out) is True
 
 
-def test_text_analytics_supports_and_names():
+def test_text_analytics_helper_names():
     assert hasattr(ta, "HELPER_NAMES")
     assert "full" in ta.HELPER_NAMES
-
-    # supports should not crash and return bool for common inputs
-    assert ta.supports_text_analytics_manual(None) is False
-    # A dummy object should return bool without raising
-    val = ta.supports_text_analytics_manual(object())
-    assert isinstance(val, bool)
 
 
 def test_check_diagnostics():
