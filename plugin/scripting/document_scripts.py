@@ -499,28 +499,25 @@ def _picker_state_from_parts(
 ) -> tuple[list[str], dict[str, str], dict[str, str]]:
     origin_map: dict[str, str] = {}
     merged: dict[str, str] = {}
+    items: list[str] = []
 
     for name in sorted(user_scripts.keys()):
         origin_map[name] = SCRIPT_ORIGIN_USER
         merged[name] = user_scripts[name]
+        items.append(name)
 
     for name in sorted(picker_document_scripts(doc_scripts)):
         display = document_script_display_name(name)
         origin_map[display] = SCRIPT_ORIGIN_DOCUMENT
         merged[display] = doc_scripts[name]
+        items.append(display)
 
-    domain_items: list[str] = []
     for domain, display_scripts in domain_entries:
         for display_name, code in display_scripts.items():
             origin_map[display_name] = domain.origin
             merged[display_name] = code
-            domain_items.append(display_name)
+            items.append(display_name)
 
-    items = (
-        sorted(user_scripts.keys())
-        + [document_script_display_name(n) for n in sorted(picker_document_scripts(doc_scripts))]
-        + domain_items
-    )
     return items, merged, origin_map
 
 
@@ -668,11 +665,6 @@ def build_scripts_list_message(
     return msg
 
 
-def _script_code_from_message(msg: dict[str, Any]) -> str:
-    raw = msg.get("code", "")
-    return raw if isinstance(raw, str) else ""
-
-
 def _document_script_storage_name(name: str) -> str:
     """Property key for a picker label. ``[Doc] Regional`` stores as ``Regional``."""
     return parse_document_script_display_name(name) or name
@@ -702,8 +694,6 @@ def readonly_fallback_name_taken_message(name: str, document_error: object) -> s
 
 
 def save_user_script(name: str, code: str) -> DocumentScriptError | None:
-    from plugin.scripting.domain_registry import is_reserved_script_name
-
     # What was wrong: A reserved name raised ValueError. Monaco New does not
     # pre-check prefixes, and _on_save_script did not catch it, so
     # editor_host._handle_picker showed str(ValueError).
@@ -745,7 +735,6 @@ def save_selected_script(
     code: str,
     *,
     allow_builtin_skip: bool = False,
-    is_builtin_fn: Callable[[str], bool] | None = None,
 ) -> str | None:
     """Save *code* to user scripts or *doc* matching *display_name*.
 
@@ -757,15 +746,12 @@ def save_selected_script(
     user_scripts = get_user_scripts()
     if display_name in user_scripts:
         save_err = save_user_script(display_name, code)
-        if isinstance(save_err, str) and save_err:
-            return save_err
-        return None
+        return save_err if isinstance(save_err, str) else None
     if doc is not None:
         stored, load_err = _load_document_script_map(doc)
     else:
         stored, load_err = {}, None
-    check_builtin = is_builtin_fn if is_builtin_fn is not None else is_picker_template_name
-    if check_builtin(display_name):
+    if is_picker_template_name(display_name):
         if allow_builtin_skip:
             return None
         return read_only_helper_message()
@@ -884,7 +870,8 @@ def _on_save_script(
     if target is None:
         return True
     name, origin, storage_name = target
-    script_code = _script_code_from_message(msg)
+    raw_code = msg.get("code", "")
+    script_code = raw_code if isinstance(raw_code, str) else ""
     if origin == SCRIPT_ORIGIN_DOCUMENT:
         assert storage_name is not None
         save_err = save_document_script(session_doc, storage_name, script_code)
