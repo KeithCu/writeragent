@@ -33,32 +33,8 @@ from plugin.framework.deal_shim import (
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
-# Dynamically sync/mirror allowed and dangerous modules from smolagents to avoid silent drift.
-# Note: LibreHarper bundles sandbox.py for wrap_command_for_sandbox without bundling
-# smolagents; fallback tuples ensure sandbox.py can still be imported in that slim package.
-try:
-    from plugin.contrib.smolagents.utils import BASE_BUILTIN_MODULES as _BASE_BUILTIN
-    BASE_BUILTIN_MODULES: tuple[str, ...] = tuple(_BASE_BUILTIN)
-except (ImportError, ModuleNotFoundError):
-    BASE_BUILTIN_MODULES = (
-        # WriterAgent: leading "from __future__ import" is valid user source
-        # (helper_domain inserts bindings after it). "collections" does not
-        # authorize "collections.abc"; the submodule is listed exactly.
-        "__future__",
-        "collections",
-        "collections.abc",
-        "datetime",
-        "itertools",
-        "math",
-        "queue",
-        "random",
-        "re",
-        "stat",
-        "statistics",
-        "time",
-        "unicodedata",
-    )
-
+# LibreHarper bundles this module for wrap_command_for_sandbox and does not
+# bundle smolagents. The fallback keeps `import plugin.scripting.sandbox` working.
 try:
     from plugin.contrib.smolagents.local_python_executor import DANGEROUS_MODULES as _DANGEROUS
     DANGEROUS_MODULES: tuple[str, ...] = tuple(_DANGEROUS)
@@ -1080,11 +1056,7 @@ def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
 
 def _first_executable_python(candidates: list[str]) -> str | None:
     # crosshair: off
-    seen: set[str] = set()
     for candidate in candidates:
-        if candidate in seen:
-            continue
-        seen.add(candidate)
         if _is_usable_python_file(candidate):
             return candidate
     return None
@@ -1127,37 +1099,3 @@ def resolve_venv_python(venv_dir: str) -> str | None:
     candidates.extend(_python_candidates_at_env_root(expanded))
     return _first_executable_python(candidates)
 
-
-@deal.pre(lambda target_path, root_dir: _deal_path_ok(target_path) and _deal_path_ok(root_dir))
-@deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
-    lambda target_path, root_dir, result: (
-        not result
-        or os.path.commonpath(
-            [
-                os.path.realpath(os.path.join(os.path.realpath(root_dir), target_path)),
-                os.path.realpath(root_dir),
-            ]
-        )
-        == os.path.realpath(root_dir)
-    )
-)
-def is_safe_workspace_path(target_path: str, root_dir: str) -> bool:
-    """Return True if *target_path* resolves to *root_dir* or a path inside it.
-
-    ``realpath`` follows symlinks. ``abspath`` only collapses ``..``, so a
-    link inside the root that pointed outside used to count as safe.
-    This is a check-then-use policy: a symlink can change between this
-    call and a later open.
-    """
-    if not target_path or not root_dir:
-        return False
-    try:
-        # abspath left symlink targets unchecked: root/link -> /etc/passwd
-        # stayed "inside" root because the link path itself was inside.
-        # realpath resolves that target before the commonpath comparison.
-        abs_root = os.path.realpath(root_dir)
-        abs_target = os.path.realpath(os.path.join(abs_root, target_path))
-        return os.path.commonpath([abs_target, abs_root]) == abs_root
-    except Exception:
-        return False

@@ -17,13 +17,16 @@ from plugin.scripting.import_policy import (
     format_matplotlib_plot_hint,
     format_units_helper_hint,
     format_venv_import_policy_for_prompt,
-    venv_blocked_modules,
+)
+from plugin.scripting.sandbox import (
+    build_sandbox_policy,
+    policy_blocked_imports,
 )
 import pytest
 
 
 def test_blocked_list_excludes_safe_stdlib_and_packages():
-    blocked = venv_blocked_modules()
+    blocked = tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
     for safe in (
         "json",
         "numpy",
@@ -55,14 +58,14 @@ def test_network_blocked_unless_enabled():
         policy_blocked_imports,
     )
 
-    assert "requests" in venv_blocked_modules()
+    assert "requests" in tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
     network_policy = build_sandbox_policy(network=True)
     assert "requests" not in policy_blocked_imports(network_policy)
     assert import_authorized("requests", policy_allowlist(network_policy)) is True
 
 
 def test_venv_blocked_includes_os_not_sys():
-    blocked = venv_blocked_modules()
+    blocked = tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
     for b in ("requests", "subprocess", "importlib", "pickle"):
         assert b in blocked
     assert "os" not in blocked
@@ -108,12 +111,11 @@ def test_venv_policy_preimported_lists_aliases():
 
 
 def test_venv_policy_auto_imports_match_constants():
-    from plugin.scripting.import_policy import _auto_import_alias
-
     compact = format_venv_import_policy_for_prompt(compact=True)
     full = format_venv_import_policy_for_prompt(compact=False)
     for module_name, import_stmt in AUTO_IMPORTS.items():
-        alias = _auto_import_alias(module_name, import_stmt)
+        marker = " as "
+        alias = import_stmt.rsplit(marker, 1)[-1].strip() if marker in import_stmt else module_name
         for policy in (compact, full):
             assert alias in policy
             assert module_name in policy
@@ -159,6 +161,11 @@ def test_matplotlib_plot_hint_draw():
     assert "slide" in hint.lower() or "page" in hint.lower()
 
 
+def test_matplotlib_plot_hint_impress_matches_draw():
+    assert format_matplotlib_plot_hint(doc_type="impress") == format_matplotlib_plot_hint(doc_type="draw")
+    assert format_matplotlib_plot_hint(doc_type="impress") == format_matplotlib_plot_hint(agent_label="Draw")
+
+
 def test_matplotlib_plot_hint_unknown_empty():
     assert format_matplotlib_plot_hint(doc_type="unknown") == ""
 
@@ -194,7 +201,7 @@ def test_venv_policy_does_not_advertise_duckdb():
         assert "session_duckdb" not in lower
         assert "run_sql" not in lower
         assert "duckdb" not in lower
-    assert "duckdb" not in venv_blocked_modules()
+    assert "duckdb" not in tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
 
 
 def test_blocked_categories_are_disjoint_and_valid() -> None:

@@ -3,77 +3,9 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""deal / Hypothesis / verification test suite for sandbox.is_safe_workspace_path."""
+"""Verification check that sandbox filesystem walkers stay off cover-all targets."""
 
 from __future__ import annotations
-
-import os
-
-from hypothesis import given, settings
-from hypothesis import strategies as st
-
-from plugin.framework.deal_shim import DEAL_MAX_PATH
-from plugin.scripting.sandbox import is_safe_workspace_path
-from tests.harness.vhs_budget import vhs_max_examples
-
-
-def test_basic_safe_paths() -> None:
-    root = "/home/user/workspace"
-    assert is_safe_workspace_path("file.txt", root) is True
-    assert is_safe_workspace_path("subdir/file.txt", root) is True
-    assert is_safe_workspace_path(".", root) is True
-
-
-def test_basic_unsafe_traversal_paths() -> None:
-    root = "/home/user/workspace"
-    assert is_safe_workspace_path("../file.txt", root) is False
-    assert is_safe_workspace_path("../../etc/passwd", root) is False
-    assert is_safe_workspace_path("subdir/../../etc/passwd", root) is False
-    assert is_safe_workspace_path("/etc/passwd", root) is False
-
-
-def test_symlink_outside_root_is_rejected(tmp_path) -> None:
-    root = tmp_path / "root"
-    outside = tmp_path / "outside"
-    root.mkdir()
-    outside.mkdir()
-    secret = outside / "secret.txt"
-    secret.write_text("x", encoding="utf-8")
-    link = root / "link"
-    link.symlink_to(secret)
-    assert is_safe_workspace_path("link", str(root)) is False
-    inner = root / "inner"
-    inner.mkdir()
-    alias = root / "alias"
-    alias.symlink_to(inner)
-    assert is_safe_workspace_path("alias/file.txt", str(root)) is True
-
-
-def test_empty_inputs_return_false() -> None:
-    assert is_safe_workspace_path("", "/home/user") is False
-    assert is_safe_workspace_path("file.txt", "") is False
-
-
-@given(
-    rel_path=st.text(max_size=50),
-    root_dir=st.text(min_size=1, max_size=50),
-)
-@settings(max_examples=vhs_max_examples(80, 800), deadline=None)
-def test_hypothesis_path_containment_invariants(rel_path: str, root_dir: str) -> None:
-    result = is_safe_workspace_path(rel_path, root_dir)
-    assert isinstance(result, bool)
-    if result:
-        # True means the symlink-resolved target stays inside the resolved root.
-        abs_root = os.path.realpath(root_dir)
-        abs_target = os.path.realpath(os.path.join(abs_root, rel_path))
-        assert os.path.commonpath([abs_target, abs_root]) == abs_root
-
-
-def test_safe_workspace_path_long_name_is_bool() -> None:
-    """A path longer than DEAL_MAX_PATH is checked by the body, not a contract error."""
-    too_long = "a" * (DEAL_MAX_PATH + 1)
-    assert isinstance(is_safe_workspace_path(too_long, "/home/user"), bool)
-    assert is_safe_workspace_path("José.txt", "/home/user/workspace") is True
 
 
 def test_sandbox_filesystem_helpers_are_off_cover_all() -> None:

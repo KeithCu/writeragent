@@ -439,20 +439,14 @@ def test_wrap_does_not_mutate_original():
         detect_sandbox.cache_clear()
 
 
-def test_scrub_env_and_workspace_path_accept_long_values(tmp_path) -> None:
+def test_scrub_env_accepts_long_values() -> None:
     """PATH and workspace paths are longer than the old deal caps."""
-    from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_PATH
-    from plugin.scripting.sandbox import is_safe_workspace_path, scrub_subprocess_env
+    from plugin.framework.deal_shim import DEAL_MAX_ARGV
+    from plugin.scripting.sandbox import scrub_subprocess_env
 
     env = scrub_subprocess_env({"PATH": "p" * (DEAL_MAX_ARGV + 1), "HOME": "/tmp"})
     assert env["PATH"] == "p" * (DEAL_MAX_ARGV + 1)
     assert env["PYTHONUTF8"] == "1"
-    root = tmp_path / ("d" * 40)
-    root.mkdir()
-    target = "t" * (DEAL_MAX_PATH + 1)
-    # A long relative name still resolves inside the root. The old pre
-    # raised before that check.
-    assert is_safe_workspace_path(target, str(root)) is True
 
 
 def test_import_authorized_alias_uses_plugin_allowlist() -> None:
@@ -531,7 +525,8 @@ def test_import_authorized_intermediate_nodes_rejected() -> None:
 
 
 def test_import_authorized_ignores_bare_star_and_allows_future_and_collections_abc() -> None:
-    from plugin.scripting.sandbox import BASE_BUILTIN_MODULES, import_authorized
+    from plugin.contrib.smolagents.utils import BASE_BUILTIN_MODULES
+    from plugin.scripting.sandbox import import_authorized
 
     assert import_authorized("__future__", BASE_BUILTIN_MODULES) is True
     assert import_authorized("collections.abc", BASE_BUILTIN_MODULES) is True
