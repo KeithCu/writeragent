@@ -25,7 +25,7 @@ import math
 import os
 import threading
 import time
-from typing import Any, Iterator
+from typing import Any, Generator
 
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, canonical_execute_mode, validate_session_id
@@ -105,7 +105,7 @@ class FormulaProcessPool(BaseProcessPool):
         self._recycling.clear()
 
     @contextmanager
-    def _session_gate(self, session_id: str) -> Iterator[None]:
+    def _session_gate(self, session_id: str) -> Generator[None, None, None]:
         """Placement gate for *session_id* (reference-counted).
 
         Held from lookup through worker release on shared execute/reset calls

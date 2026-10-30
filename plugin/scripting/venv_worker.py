@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, IO, Iterator, NoReturn
+from typing import Any, Callable, IO, Generator, NoReturn
 
 from plugin.framework.config import get_config_bool, get_config_str
 from plugin.framework.thread_guard import background, on_main_thread
@@ -427,7 +427,7 @@ class PythonWorkerManager:
         self._spawn_ready: threading.Event | None = None
 
     @contextlib.contextmanager
-    def _io_session(self, stop_checker: Callable[[], bool] | None = None) -> Iterator[None]:
+    def _io_session(self, stop_checker: Callable[[], bool] | None = None) -> Generator[None, None, None]:
         """Hold the IO lock with a warm worker; raise ``_IoSessionUnavailable`` otherwise."""
         reentry = self._acquire_io(stop_checker)
         if reentry is not None:

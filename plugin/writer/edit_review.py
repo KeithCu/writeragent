@@ -49,7 +49,7 @@ import logging
 import os
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterator
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generator
 
 if TYPE_CHECKING:
     from plugin.doc.compound_undo import WriterCompoundUndo
@@ -621,7 +621,7 @@ class EditReviewSession:
         return "modified"
 
     @contextlib.contextmanager
-    def _undo_lock(self) -> Iterator[None]:
+    def _undo_lock(self) -> Generator[None, None, None]:
         """Keep our internal bookkeeping (redline tagging, anchor bookmarks) OFF the user's
         undo stack. Without this, the first one or two Ctrl+Z presses after an agent edit only
         toggle our invisible wa_review bookmarks instead of undoing the visible change. Locking
@@ -1226,7 +1226,7 @@ def refuse_tracked_insert_or_delete(text_range: Any) -> None:
 
 
 @contextlib.contextmanager
-def _collapse_review_context(doc: Any, track_reviewable: bool, was_recording: bool, label: str) -> Iterator[None]:
+def _collapse_review_context(doc: Any, track_reviewable: bool, was_recording: bool, label: str) -> Generator[None, None, None]:
     before_ids = None
     before_ids_ok = False
     prior_author = None

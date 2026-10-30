@@ -17,7 +17,7 @@ import re
 import struct
 import threading
 import time
-from typing import Any, ClassVar, Iterator, cast
+from typing import Any, ClassVar, Generator, cast
 
 from plugin.framework.uno_listeners import BaseModifyListener
 
@@ -630,7 +630,7 @@ SHEET_MODIFY_LISTENERS: dict[tuple[str, str], Any] = {}
 
 
 @contextmanager
-def _undo_lock(doc: Any) -> Iterator[Any]:
+def _undo_lock(doc: Any) -> Generator[Any, None, None]:
     """Temporarily hide or lock undo recording during background spill operations.
 
     If an undo action exists (e.g. user just typed =PY()), enterHiddenUndoContext()

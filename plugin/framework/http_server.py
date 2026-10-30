@@ -351,10 +351,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             try:
                 infos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
                 seen_families = set()
-                for family, _unused, _unused2, _unused3, sockaddr in infos:
-                    if family not in seen_families:
-                        seen_families.add(family)
-                        bind_addresses.append((family, str(sockaddr[0])))
+                for info_family, _unused, _unused2, _unused3, sockaddr in infos:
+                    if info_family not in seen_families:
+                        seen_families.add(info_family)
+                        bind_addresses.append((info_family, str(sockaddr[0])))
             except Exception:
                 bind_addresses = [(socket.AF_INET, host)]
 
