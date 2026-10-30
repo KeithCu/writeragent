@@ -42,6 +42,14 @@ def resolve_model_id(model: dict[str, Any], provider: str | None) -> str | None:
     return resolved if isinstance(resolved, str) else None
 
 
+def _row_is_tts(model: dict[str, Any]) -> bool:
+    return bool(model.get("default_tts") or model.get("tts"))
+
+
+def _row_is_stt(model: dict[str, Any]) -> bool:
+    return bool(model.get("default_audio") or model.get("stt"))
+
+
 # FIXME, this should be a list, stored with the other endpoint pre-configured params
 @deal.pre(lambda provider: not provider or str_bounded(provider, DEAL_MAX_TOKEN))
 @deal.post(lambda result: isinstance(result, dict))
@@ -52,55 +60,43 @@ def get_provider_defaults(provider: str | None) -> dict[str, str]:
     # Local runtimes share bare-name conventions with Ollama; no separate catalog rows yet.
     if provider == "lmstudio":
         provider = "ollama"
-    defaults = {}
-    for model in DEFAULT_MODELS:
-        effective_id = resolve_model_id(model, provider)
-        if not effective_id:
-            continue
-
-        # Capability check using bitmasks
-        caps = model.get("capability", ModelCapability.NONE)
-
-        if (caps & ModelCapability.CHAT) and "text_model" not in defaults:
-            if model.get("default_text"):
-                defaults["text_model"] = effective_id
-        if (caps & ModelCapability.IMAGE) and "image_model" not in defaults:
-            if model.get("default_image"):
-                defaults["image_model"] = effective_id
-        if (caps & ModelCapability.AUDIO) and "stt_model" not in defaults:
-            if model.get("default_audio"):
-                defaults["stt_model"] = effective_id
-        if (caps & ModelCapability.AUDIO) and "tts_model" not in defaults:
-            if model.get("default_tts"):
-                defaults["tts_model"] = effective_id
-
-    # Fallback to first available if no explicit default was flagged
+    # Two maps: an earlier unflagged CHAT/IMAGE row must not block a later
+    # default_* row (Together MiniMax M3 after DeepSeek V4 Flash;
+    # OpenRouter gpt-oss-120b:nitro after openrouter/free).
+    flagged: dict[str, str] = {}
+    fallback: dict[str, str] = {}
     for model in DEFAULT_MODELS:
         effective_id = resolve_model_id(model, provider)
         if not effective_id:
             continue
         caps = model.get("capability", ModelCapability.NONE)
-        if (caps & ModelCapability.CHAT) and "text_model" not in defaults:
-            defaults["text_model"] = effective_id
-        if (caps & ModelCapability.IMAGE) and "image_model" not in defaults:
-            defaults["image_model"] = effective_id
+        chat = bool(caps & ModelCapability.CHAT)
+        image = bool(caps & ModelCapability.IMAGE)
+        audio = bool(caps & ModelCapability.AUDIO)
+        if chat and "text_model" not in flagged and model.get("default_text"):
+            flagged["text_model"] = effective_id
+        if image and "image_model" not in flagged and model.get("default_image"):
+            flagged["image_model"] = effective_id
+        if audio and "stt_model" not in flagged and model.get("default_audio"):
+            flagged["stt_model"] = effective_id
+        if audio and "tts_model" not in flagged and model.get("default_tts"):
+            flagged["tts_model"] = effective_id
+        if chat and "text_model" not in fallback:
+            fallback["text_model"] = effective_id
+        if image and "image_model" not in fallback:
+            fallback["image_model"] = effective_id
         # CHAT|AUDIO rows with neither stt nor tts flag (Gemini 3.1 Flash Lite
         # Preview, writeragent-mock) used to become both speech defaults: any
         # AUDIO row that was not explicitly TTS was treated as STT, and any
         # that was not explicitly STT was treated as TTS. Skip CHAT rows in
-        # this fallback only. The first loop's default_audio / default_tts
-        # flags are unchanged.
-        if not (caps & ModelCapability.CHAT):
-            if (caps & ModelCapability.AUDIO) and "stt_model" not in defaults:
-                # TTS rows (default_tts / tts) are not speech-to-text fallbacks.
-                if not model.get("default_tts") and not model.get("tts"):
-                    defaults["stt_model"] = effective_id
-            if (caps & ModelCapability.AUDIO) and "tts_model" not in defaults:
-                # STT rows (default_audio / stt) are not text-to-speech fallbacks.
-                if not model.get("default_audio") and not model.get("stt"):
-                    defaults["tts_model"] = effective_id
-
-    return defaults
+        # this fallback only. Explicit default_audio / default_tts flags above
+        # are unchanged.
+        if audio and not chat:
+            if "stt_model" not in fallback and not _row_is_tts(model):
+                fallback["stt_model"] = effective_id
+            if "tts_model" not in fallback and not _row_is_stt(model):
+                fallback["tts_model"] = effective_id
+    return {**fallback, **flagged}
 
 
 def merge_provider_default_models(to_show: list[str], provider: str, req_cap: str) -> None:
@@ -165,14 +161,6 @@ _COMBO_CAP = {
 }
 
 
-def _row_is_tts(model: dict[str, Any]) -> bool:
-    return bool(model.get("default_tts") or model.get("tts"))
-
-
-def _row_is_stt(model: dict[str, Any]) -> bool:
-    return bool(model.get("default_audio") or model.get("stt"))
-
-
 def catalog_speech_ids(provider: str, kind: str) -> list[str]:
     """Every TTS or STT catalog id for ``provider``, not only the default."""
     pred = _row_is_tts if kind == "tts" else _row_is_stt
@@ -192,10 +180,9 @@ def together_speech_ids(kind: str, remote_models: list[str] | None = None) -> li
     ``remote_models`` may be the raw ``GET /v1/models`` array. Chat rows are
     dropped. There is no Together ``output_modalities`` query.
     """
-    curated = catalog_speech_ids("together", kind)
+    out = catalog_speech_ids("together", kind)
     prefixes = _TOGETHER_TTS_PREFIXES if kind == "tts" else _TOGETHER_STT_PREFIXES
-    seen = {mid.casefold() for mid in curated}
-    extras: list[str] = []
+    seen = {mid.casefold() for mid in out}
     for raw in remote_models or []:
         mid = str(raw).strip()
         if not mid:
@@ -209,9 +196,9 @@ def together_speech_ids(kind: str, remote_models: list[str] | None = None) -> li
         if folded.startswith(prefixes) and not (
             folded.startswith("nvidia/nemotron") and "asr" not in folded
         ):
-            extras.append(mid)
+            out.append(mid)
             seen.add(folded)
-    return curated + extras
+    return out
 
 
 DEFAULT_MODELS: list[dict[str, Any]] = [

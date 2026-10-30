@@ -61,11 +61,9 @@ def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | No
     return mid
 
 
-@deal.pre(
-    lambda a, b, catalog_ids=None: _deal_model_id_ok(a) and _deal_model_id_ok(b) and _deal_catalog_ids_ok(catalog_ids)
-)
+@deal.pre(lambda a, b: _deal_model_id_ok(a) and _deal_model_id_ok(b))
 @deal.post(lambda result: isinstance(result, bool))
-def openrouter_model_ids_equivalent(a: str, b: str, catalog_ids: Iterable[str] | None = None) -> bool:
+def openrouter_model_ids_equivalent(a: str, b: str) -> bool:
     """True if two OpenRouter ids refer to the same underlying catalog model."""
     # Leave _split_suffix and resolve_openrouter_catalog_id on for check-all.
     # crosshair: off
@@ -74,8 +72,8 @@ def openrouter_model_ids_equivalent(a: str, b: str, catalog_ids: Iterable[str] |
         return sa == sb
     if sa == sb:
         return True
-    ra = resolve_openrouter_catalog_id(sa, catalog_ids)
-    rb = resolve_openrouter_catalog_id(sb, catalog_ids)
+    ra = resolve_openrouter_catalog_id(sa)
+    rb = resolve_openrouter_catalog_id(sb)
     if ra == rb:
         return True
     # Tip: 'gpt-oss-20b:nitro' (no vendor) must still match 'openai/gpt-oss-20b'.
