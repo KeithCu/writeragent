@@ -733,3 +733,79 @@ def test_paint_combo_clears_stale_items_on_empty_list():
     ctrl.addItems.assert_not_called()
 
 
+def test_reasoning_effort_label_mapping():
+    from plugin.chatbot.config_ui_helpers import (
+        REASONING_EFFORT_DISPLAY_LABELS,
+        display_to_reasoning_effort,
+        reasoning_effort_to_display,
+    )
+
+    assert REASONING_EFFORT_DISPLAY_LABELS == ("def", "lo", "med", "hi", "xhi", "max")
+
+    assert reasoning_effort_to_display("") == "def"
+    assert reasoning_effort_to_display(None) == "def"
+    assert reasoning_effort_to_display("(default)") == "def"
+    assert reasoning_effort_to_display("low") == "lo"
+    assert reasoning_effort_to_display("medium") == "med"
+    assert reasoning_effort_to_display("high") == "hi"
+    assert reasoning_effort_to_display("xhigh") == "xhi"
+    assert reasoning_effort_to_display("max") == "max"
+
+    assert display_to_reasoning_effort("def") == ""
+    assert display_to_reasoning_effort("lo") == "low"
+    assert display_to_reasoning_effort("med") == "medium"
+    assert display_to_reasoning_effort("hi") == "high"
+    assert display_to_reasoning_effort("xhi") == "xhigh"
+    assert display_to_reasoning_effort("max") == "max"
+    assert display_to_reasoning_effort("unknown") == ""
+
+
+def test_populate_reasoning_effort_selector():
+    from plugin.chatbot.config_ui_helpers import (
+        REASONING_EFFORT_DISPLAY_LABELS,
+        populate_reasoning_effort_selector,
+    )
+
+    ctrl = MagicMock()
+    ctrl.getItemCount.return_value = 0
+    model = MagicMock()
+    ctrl.getModel.return_value = model
+
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com/v1"), \
+         patch("plugin.framework.config.get_reasoning_effort_for_endpoint", return_value="high"):
+        populate_reasoning_effort_selector(ctrl)
+
+    assert model.StringItemList == REASONING_EFFORT_DISPLAY_LABELS
+    ctrl.setText.assert_called_with("hi")
+    ctrl.selectItem.assert_called_with("hi", True)
+
+
+def test_sync_sidebar_reasoning_effort():
+    from plugin.chatbot.config_ui_helpers import sync_sidebar_reasoning_effort
+
+    ctrl = MagicMock()
+    ctrl.getText.return_value = "med"
+
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com/v1"), \
+         patch("plugin.framework.config.get_reasoning_effort_for_endpoint", return_value=""), \
+         patch("plugin.framework.config.set_reasoning_effort_for_endpoint") as mock_set:
+        sync_sidebar_reasoning_effort(ctrl)
+        mock_set.assert_called_once_with("https://api.openai.com/v1", "medium")
+
+    # Selecting 'def' clears the slot
+    ctrl.getText.return_value = "def"
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com/v1"), \
+         patch("plugin.framework.config.get_reasoning_effort_for_endpoint", return_value="medium"), \
+         patch("plugin.framework.config.set_reasoning_effort_for_endpoint") as mock_set:
+        sync_sidebar_reasoning_effort(ctrl)
+        mock_set.assert_called_once_with("https://api.openai.com/v1", "")
+
+    # Selecting unchanged does not re-save
+    ctrl.getText.return_value = "hi"
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com/v1"), \
+         patch("plugin.framework.config.get_reasoning_effort_for_endpoint", return_value="high"), \
+         patch("plugin.framework.config.set_reasoning_effort_for_endpoint") as mock_set:
+        sync_sidebar_reasoning_effort(ctrl)
+        mock_set.assert_not_called()
+
+

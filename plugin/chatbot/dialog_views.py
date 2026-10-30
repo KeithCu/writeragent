@@ -672,15 +672,6 @@ class ProviderStarterListener(BaseActionListener):
                 set_control_text(ak_ctrl, get_api_key_for_endpoint(self._endpoint_url))
                 if hasattr(ak_ctrl, "setFocus"):
                     ak_ctrl.setFocus()
-            re_ctrl = get_optional(self._dlg, "reasoning_effort")
-            if re_ctrl:
-                from plugin.framework.config import get_reasoning_effort_for_endpoint
-                from plugin.chatbot.settings_dialog import reasoning_effort_display
-                display_label = reasoning_effort_display(get_reasoning_effort_for_endpoint(self._endpoint_url))
-                if hasattr(re_ctrl, "setText"):
-                    re_ctrl.setText(display_label)
-                elif hasattr(re_ctrl, "selectItem"):
-                    re_ctrl.selectItem(display_label, True)
         if self._signup_url:
             open_system_url(self._ctx, self._signup_url)
 
@@ -1180,7 +1171,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     post_to_main_thread: Callable[..., Any]
     run_in_background: Callable[..., Any]
     get_api_key_for_endpoint: Callable[..., Any]
-    get_reasoning_effort_for_endpoint: Callable[..., Any]
     populate_combobox_with_lru: Callable[..., Any]
     populate_image_model_selector: Callable[..., Any]
     endpoint_from_selector_text: Callable[..., Any]
@@ -1203,7 +1193,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     def __init__(self, dialog: Any, context: Any, combo_ctrl: Any) -> None:
         from plugin.framework.queue_executor import post_to_main_thread
         from plugin.framework.worker_pool import run_in_background
-        from plugin.framework.config import get_api_key_for_endpoint, get_reasoning_effort_for_endpoint
+        from plugin.framework.config import get_api_key_for_endpoint
         from plugin.chatbot.config_ui_helpers import (
             populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text,
         )
@@ -1234,7 +1224,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self.post_to_main_thread = post_to_main_thread
         self.run_in_background = run_in_background
         self.get_api_key_for_endpoint = get_api_key_for_endpoint
-        self.get_reasoning_effort_for_endpoint = get_reasoning_effort_for_endpoint
         self.populate_combobox_with_lru = populate_combobox_with_lru
         self.populate_image_model_selector = populate_image_model_selector
         self.endpoint_from_selector_text = endpoint_from_selector_text
@@ -1515,21 +1504,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             finally:
                 self._syncing_api_key = False
             self._user_edited_key = False
-        re_ctrl = get_optional(self._dlg, "reasoning_effort")
-        if re_ctrl is not None:
-            from plugin.chatbot.settings_dialog import reasoning_effort_display, reasoning_effort_options
-            from plugin.chatbot.settings_fields import stored_select_value
-
-            current_raw = re_ctrl.getText() if hasattr(re_ctrl, "getText") else (re_ctrl.getSelectedItem() if hasattr(re_ctrl, "getSelectedItem") else "")
-            current_canonical = str(stored_select_value(current_raw, reasoning_effort_options()) or "")
-            prev_canonical = str(self.get_reasoning_effort_for_endpoint(previous) or "") if previous else ""
-            if force or not current_canonical or current_canonical == prev_canonical:
-                target_effort = self.get_reasoning_effort_for_endpoint(resolved)
-                display_label = reasoning_effort_display(target_effort)
-                if hasattr(re_ctrl, "setText"):
-                    re_ctrl.setText(display_label)
-                elif hasattr(re_ctrl, "selectItem"):
-                    re_ctrl.selectItem(display_label, True)
         self._synced_endpoint = resolved
 
     def _tts_model_id_for_voice_fetch(self) -> str:

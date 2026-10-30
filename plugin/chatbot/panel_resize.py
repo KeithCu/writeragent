@@ -68,6 +68,7 @@ _BOTTOM_CLUSTER = frozenset({
     "chat_mode_selector",
     "model_label",
     "model_selector",
+    "reasoning_effort_selector",
     "image_model_selector",
     "base_size_label",
     "base_size_input",
@@ -172,6 +173,7 @@ def compute_chat_panel_layout(
         layouts["backend_indicator"] = ControlRect(ind_x, iy, ind_w, ih)
     _share_button_row(layouts, snapshot, width, right_margin)
     _fit_base_size_row(layouts, snapshot, width, right_margin, (preferred or {}).get("base_size_input"))
+    _fit_model_selector_row(layouts, snapshot, width, right_margin)
     label_pref = (preferred or {}).get("query_label")
     if label_pref and label_pref[0] > 0:
         _place_voice_checkbox_after_label(layouts, snapshot, width, right_margin, label_pref[0])
@@ -244,6 +246,36 @@ def _fit_base_size_row(
     aw = (width - right_margin) - ax
     if aw >= 20:
         layouts["aspect_ratio_selector"] = ControlRect(ax, aspect.y, aw, aspect.height)
+
+
+def _fit_model_selector_row(
+    layouts: dict[str, ControlRect],
+    snapshot: dict[str, tuple[int, int, int, int]],
+    width: int,
+    right_margin: int,
+) -> None:
+    """Split the model row between model_selector and reasoning_effort dropdown."""
+    ms = layouts.get("model_selector")
+    re = layouts.get("reasoning_effort_selector")
+    if ms is None or re is None:
+        return
+    re_name = "reasoning_effort_selector"
+    re_w = snapshot.get(re_name, (0, 0, re.width, 0))[2]
+    col_right = width - right_margin
+    gap = 3
+    if re_name in snapshot and "model_selector" in snapshot:
+        snap_re_x = snapshot[re_name][0]
+        snap_ms_x = snapshot["model_selector"][0]
+        snap_ms_w = snapshot["model_selector"][2]
+        calc_gap = snap_re_x - (snap_ms_x + snap_ms_w)
+        if calc_gap > 0:
+            gap = calc_gap
+    re_x = col_right - re_w
+    if re_x < ms.x + 20:
+        re_x = ms.x + 20
+    mw = max(20, re_x - gap - ms.x)
+    layouts["model_selector"] = ControlRect(ms.x, ms.y, mw, ms.height)
+    layouts[re_name] = ControlRect(re_x, ms.y, re_w, ms.height)
 
 
 def _place_voice_checkbox_after_label(

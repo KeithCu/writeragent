@@ -501,3 +501,98 @@ def get_signup_url_for_endpoint(endpoint: str) -> str | None:
             return signup_url
     return None
 
+
+REASONING_EFFORT_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("def", ""),
+    ("lo", "low"),
+    ("med", "medium"),
+    ("hi", "high"),
+    ("xhi", "xhigh"),
+    ("max", "max"),
+)
+
+REASONING_EFFORT_DISPLAY_LABELS: tuple[str, ...] = tuple(disp for disp, _val in REASONING_EFFORT_OPTIONS)
+REASONING_EFFORT_DISPLAY_TO_VALUE: dict[str, str] = dict(REASONING_EFFORT_OPTIONS)
+REASONING_EFFORT_VALUE_TO_DISPLAY: dict[str, str] = {val: disp for disp, val in REASONING_EFFORT_OPTIONS}
+REASONING_EFFORT_VALUE_TO_DISPLAY[""] = "def"
+REASONING_EFFORT_VALUE_TO_DISPLAY["(default)"] = "def"
+
+
+def reasoning_effort_to_display(effort: str | None) -> str:
+    """Map stored effort level ('', 'low', 'medium', 'high', 'xhigh', 'max') to short display label ('def', 'lo', ...)."""
+    return REASONING_EFFORT_VALUE_TO_DISPLAY.get((effort or "").strip(), "def")
+
+
+def display_to_reasoning_effort(label: str | None) -> str:
+    """Map short display label ('def', 'lo', ...) back to stored effort level ('', 'low', ...)."""
+    return REASONING_EFFORT_DISPLAY_TO_VALUE.get((label or "").strip(), "")
+
+
+def set_reasoning_effort_selector_value(ctrl: Any, label: str) -> None:
+    if ctrl is None:
+        return
+    if hasattr(ctrl, "setText"):
+        ctrl.setText(label)
+    if hasattr(ctrl, "selectItem"):
+        ctrl.selectItem(label, True)
+    elif hasattr(ctrl, "selectItemPos") and hasattr(ctrl, "getItems"):
+        items = list(ctrl.getItems())
+        if label in items:
+            ctrl.selectItemPos(items.index(label), True)
+
+
+def get_reasoning_effort_selector_value(ctrl: Any) -> str:
+    if ctrl is None:
+        return "def"
+    if hasattr(ctrl, "getText"):
+        txt = ctrl.getText()
+        if txt:
+            return str(txt).strip()
+    if hasattr(ctrl, "getSelectedItem"):
+        sel = ctrl.getSelectedItem()
+        if sel:
+            return str(sel).strip()
+    return "def"
+
+
+def populate_reasoning_effort_selector(ctrl: Any, endpoint: str | None = None) -> None:
+    """Populate reasoning effort selector items ('def', 'lo', ...) and select the current endpoint's saved level."""
+    if ctrl is None:
+        return
+    model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
+    if model is not None and hasattr(model, "StringItemList"):
+        if getattr(model, "StringItemList", None) != REASONING_EFFORT_DISPLAY_LABELS:
+            model.StringItemList = REASONING_EFFORT_DISPLAY_LABELS
+    if hasattr(ctrl, "setStringItemList"):
+        ctrl.setStringItemList(REASONING_EFFORT_DISPLAY_LABELS)
+    if hasattr(ctrl, "getItemCount") and hasattr(ctrl, "removeItems") and hasattr(ctrl, "addItems"):
+        if ctrl.getItemCount() != len(REASONING_EFFORT_DISPLAY_LABELS):
+            count = ctrl.getItemCount()
+            if count:
+                ctrl.removeItems(0, count)
+            ctrl.addItems(REASONING_EFFORT_DISPLAY_LABELS, 0)
+    elif hasattr(ctrl, "addItem") and not hasattr(ctrl, "addItems"):
+        if hasattr(ctrl, "getItemCount") and ctrl.getItemCount() != len(REASONING_EFFORT_DISPLAY_LABELS):
+            for item in REASONING_EFFORT_DISPLAY_LABELS:
+                ctrl.addItem(item, 0)
+
+    from plugin.framework.config import get_current_endpoint, get_reasoning_effort_for_endpoint
+
+    target_endpoint = endpoint if endpoint is not None else get_current_endpoint()
+    stored_effort = get_reasoning_effort_for_endpoint(target_endpoint)
+    display_label = reasoning_effort_to_display(stored_effort)
+    set_reasoning_effort_selector_value(ctrl, display_label)
+
+
+def sync_sidebar_reasoning_effort(ctrl: Any) -> None:
+    """Read the sidebar reasoning effort selector and persist changes for the current endpoint."""
+    if ctrl is None:
+        return
+    from plugin.framework.config import get_current_endpoint, get_reasoning_effort_for_endpoint, set_reasoning_effort_for_endpoint
+
+    endpoint = get_current_endpoint()
+    display_val = get_reasoning_effort_selector_value(ctrl)
+    effort_val = display_to_reasoning_effort(display_val)
+    current_stored = get_reasoning_effort_for_endpoint(endpoint)
+    if effort_val != current_stored:
+        set_reasoning_effort_for_endpoint(endpoint, effort_val)

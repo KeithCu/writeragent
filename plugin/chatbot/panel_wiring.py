@@ -72,6 +72,7 @@ def make_toggle_image_ui(panel: Any, controls: dict[str, Any]) -> Callable[[bool
     def toggle_image_ui(is_image: bool) -> None:
         set_control_visible(controls.get("model_label"), not is_image)
         set_control_visible(controls.get("model_selector"), not is_image)
+        set_control_visible(controls.get("reasoning_effort_selector"), not is_image)
         set_control_visible(controls.get("image_model_selector"), is_image)
         set_control_visible(controls.get("aspect_ratio_selector"), is_image)
         set_control_visible(controls.get("base_size_input"), is_image)
@@ -219,6 +220,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
         "chk_voice": get_optional("chk_voice"),
         "image_model_selector": get_optional("image_model_selector"),
         "model_selector": get_optional("model_selector"),
+        "reasoning_effort_selector": get_optional("reasoning_effort_selector"),
         "model_label": get_optional("model_label"),
         "status": get_optional("status"),
         "chat_mode_selector": get_optional("chat_mode_selector"),
@@ -286,7 +288,11 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
         log.exception("Config instructions read failed")
 
     try:
-        self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
+        self._wire_model_selectors(
+            controls["model_selector"],
+            controls["image_model_selector"],
+            controls.get("reasoning_effort_selector"),
+        )
     except Exception as e:
         # Model selector wiring is its own try so a failure here still
         # wires the chat mode UI.

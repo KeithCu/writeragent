@@ -570,7 +570,6 @@ def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
         patch("plugin.chatbot.settings_dialog.get_image_model", return_value="dummy_image"),
         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="default"),
         patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value="secret"),
-        patch("plugin.chatbot.settings_dialog.get_reasoning_effort_for_endpoint", return_value=""),
         patch("plugin.chatbot.settings_fields.get_config", return_value=""),
         patch("plugin.chatbot.settings_fields.call_options_provider", return_value=[{"label": "Stub", "value": "stub"}]),
     ):
@@ -776,35 +775,6 @@ def test_standalone_numeric_field_step_and_bounds(tmp_path: Path) -> None:
     assert stepped.get(f"{{{_DLG_NS}}}value-max") == "100"
     assert stepped.get(f"{{{_DLG_NS}}}value-step") == "5"
     assert stepped.get(f"{{{_DLG_NS}}}decimal-accuracy") == "0"
-
-
-def test_reasoning_effort_row_matches_temperature(tmp_path: Path) -> None:
-    xdl_path, content = _generate_settings_xdl(tmp_path)
-    root = ET.parse(xdl_path).getroot()
-    assert "<dlg:listbox" not in content
-
-    label_el = root.find(f".//*[@{{{_DLG_NS}}}id='label_reasoning_effort']")
-    assert label_el is not None
-    assert label_el.tag == f"{{{_DLG_NS}}}text"
-    assert label_el.get(f"{{{_DLG_NS}}}page") == "1"
-    assert label_el.get(f"{{{_DLG_NS}}}left") == "300"
-    assert label_el.get(f"{{{_DLG_NS}}}top") == "90"
-    assert label_el.get(f"{{{_DLG_NS}}}width") == "43"
-    assert label_el.get(f"{{{_DLG_NS}}}height") == "10"
-
-    menu_el = root.find(f".//*[@{{{_DLG_NS}}}id='reasoning_effort']")
-    assert menu_el is not None
-    assert menu_el.tag == f"{{{_DLG_NS}}}menulist"
-    assert menu_el.get(f"{{{_DLG_NS}}}page") == "1"
-    assert menu_el.get(f"{{{_DLG_NS}}}left") == "345"
-    assert menu_el.get(f"{{{_DLG_NS}}}top") == "88"
-    assert menu_el.get(f"{{{_DLG_NS}}}width") == "85"
-    assert menu_el.get(f"{{{_DLG_NS}}}height") == "14"
-
-    temp_label = root.find(f".//*[@{{{_DLG_NS}}}id='label_temperature']")
-    temp_ctrl = root.find(f".//*[@{{{_DLG_NS}}}id='temperature']")
-    assert temp_label is not None and temp_label.get(f"{{{_DLG_NS}}}top") == "90"
-    assert temp_ctrl is not None and temp_ctrl.get(f"{{{_DLG_NS}}}top") == "88"
 
 
 
