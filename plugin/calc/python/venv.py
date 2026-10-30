@@ -106,6 +106,15 @@ def _venv_schema_and_description(doc_type: str | None) -> tuple[str, dict[str, A
     return desc, params
 
 
+def _unlink_quiet(paths: list[str]) -> None:
+    """Best-effort delete. Paths not passed here stay the caller's."""
+    for path in paths:
+        try:
+            os.unlink(path)
+        except OSError:
+            log.debug("run_venv_python_script: temp image cleanup failed for %s", path, exc_info=True)
+
+
 class RunVenvPythonScript(ToolCalcPythonBase):
     """Registered once; visible in Writer/Calc/Draw specialized ``domain=python`` via ``specialized_cross_cutting``."""
 
@@ -191,11 +200,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     for img in images:
                         img_paths.append(write_image_payload_to_temp(img))
                 except Exception:
-                    for p in img_paths:
-                        try:
-                            os.unlink(p)
-                        except OSError:
-                            log.debug("run_venv_python_script: temp image cleanup failed for %s", p, exc_info=True)
+                    _unlink_quiet(img_paths)
                     raise
                 out: dict[str, Any] = {"status": "ok", "message": f"{len(images)} plot(s) generated"}
                 stdout_val = res.get("stdout")
@@ -205,12 +210,9 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 if stripped_result is not None:
                     out["result"] = stripped_result
 
-                out["image_paths"] = img_paths
-                if len(img_paths) == 1:
-                    out["image_path"] = img_paths[0]
-                else:
-                    out["image_path"] = img_paths
-
+                shown = img_paths
+                inserted = 0
+                failure: Exception | None = None
                 if ctx.doc_type == "calc":
                     from plugin.calc.python.image_egress import insert_image_result_on_sheet
                     from plugin.framework.queue_executor import execute_on_main_thread
@@ -219,8 +221,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     # main-thread call returns. Omitting doc= makes egress
                     # use getCurrentComponent (the front window), and a
                     # silent return was treated as success.
-                    inserted = 0
-                    failure: Exception | None = None
                     for i, (img, path) in enumerate(zip(images, img_paths, strict=True)):
                         try:
                             execute_on_main_thread(
@@ -240,18 +240,13 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     # Only embedded plots lose their temp file; a path is handed back
                     # when its plot was not inserted. Partial failure used to keep
                     # every file, including the embedded bitmaps.
-                    for p in img_paths[:inserted]:
-                        try:
-                            os.unlink(p)
-                        except OSError:
-                            log.debug("run_venv_python_script: temp image cleanup failed for %s", p, exc_info=True)
-                    remaining = img_paths[inserted:]
-                    if remaining:
-                        out["image_paths"] = remaining
-                        out["image_path"] = remaining[0] if len(remaining) == 1 else remaining
-                    else:
-                        out.pop("image_path", None)
-                        out.pop("image_paths", None)
+                    _unlink_quiet(img_paths[:inserted])
+                    shown = img_paths[inserted:]
+
+                if shown:
+                    out["image_paths"] = shown
+                    out["image_path"] = shown[0] if len(shown) == 1 else shown
+                if ctx.doc_type == "calc":
                     if failure is not None and inserted == 0:
                         out["status"] = "error"
                         out["image_inserted"] = False
