@@ -206,6 +206,7 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         warning = f"{warning} {g2p_warning}".strip() if warning else g2p_warning
     g2p = "misaki" if phonemes else "espeak"
 
+    detail = {"warning": warning, "g2p": g2p}
     try:
         if phonemes:
             samples, rate = kokoro.create(
@@ -221,20 +222,10 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         except TypeError:
             empty = True
         if empty:
-            return {
-                "status": "error",
-                "error": "Kokoro returned no audio samples",
-                "warning": warning,
-                "g2p": g2p,
-            }
+            return {"status": "error", "error": "Kokoro returned no audio samples", **detail}
         sf.write(out_path, samples, rate)
     except Exception as exc:
-        return {
-            "status": "error",
-            "error": f"Kokoro synthesis failed: {exc}",
-            "warning": warning,
-            "g2p": g2p,
-        }
+        return {"status": "error", "error": f"Kokoro synthesis failed: {exc}", **detail}
 
     result: dict[str, Any] = {"status": "ok", "path": out_path, "g2p": g2p}
     if warning:

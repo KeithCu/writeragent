@@ -64,17 +64,12 @@ _SEEN_WARNINGS_MAX = 32
 WORKER_CANCELLED = "WORKER_CANCELLED"
 
 
-def _extension_root() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
-
-
 def _child_env() -> dict[str, str]:
     """Scrub secrets and LibreOffice PYTHONPATH, then point at the extension."""
     env = scrub_subprocess_env(dict(os.environ))
-    root = _extension_root()
     # scrub_subprocess_env strips PYTHONPATH on purpose (LO's bundled stdlib
     # breaks venv imports). Put it back as only the extension root.
-    env["PYTHONPATH"] = root
+    env["PYTHONPATH"] = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
     return env
 
 
@@ -241,26 +236,22 @@ class _KokoroWorker:
         self._managed.abandon()
         return True
 
+    def signal(self) -> None:
+        """Signal the child process directly without waiting or closing stdin.
 
-def _signal_kokoro_child(worker: Any) -> None:
-    """Signal the child process directly without waiting or closing stdin.
-
-    What was wrong: Stop thread closed managed.stdin while execute could be in
-    write_packed_frame_with_timeout / os.write on a captured fd.
-    How it happened: the closed fd number can be reused by a later open before
-    that loop finishes, causing writes to corrupt unrelated files.
-    Why this change fixes it: signal only (SIGKILL on POSIX, terminate on
-    Windows); the job thread unblocks on EPIPE/EOF and leaves the pipe; kill
-    still does not close pipes.
-    """
-    managed = getattr(worker, "_managed", None)
-    if managed is None:
-        return
-    proc = getattr(managed, "popen", None)
-    if proc is None:
-        return
-    action = proc.terminate if sys.platform == "win32" else proc.kill
-    best_effort(action, "Kokoro child signal failed")
+        What was wrong: Stop thread closed managed.stdin while execute could be in
+        write_packed_frame_with_timeout / os.write on a captured fd.
+        How it happened: the closed fd number can be reused by a later open before
+        that loop finishes, causing writes to corrupt unrelated files.
+        Why this change fixes it: signal only (SIGKILL on POSIX, terminate on
+        Windows); the job thread unblocks on EPIPE/EOF and leaves the pipe; kill
+        still does not close pipes.
+        """
+        proc = self._managed.popen
+        if proc is None:
+            return
+        action = proc.terminate if sys.platform == "win32" else proc.kill
+        best_effort(action, "Kokoro child signal failed")
 
 
 class KokoroProcessPool:
@@ -351,7 +342,6 @@ class KokoroProcessPool:
                 if self._shutdown:
                     return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
                 self._exec_token = token
-                self._last_active = time.monotonic()
                 existing = self._worker
                 # A dead slot is not warm. kill() has already dropped a child it
                 # could not reap, so is_alive() is false and this job may spawn.
@@ -494,7 +484,7 @@ class KokoroProcessPool:
         if worker is not None:
             log.info("Cancelling in-flight Kokoro synthesis")
             worker.request_shutdown()
-            _signal_kokoro_child(worker)
+            worker.signal()
             # close() waits up to 3 seconds and then up to 1 second on the
             # stderr drain; stop_speech runs on the UI thread and already reaps
             # Piper and the players in the background. The signal is synchronous
@@ -540,13 +530,11 @@ class KokoroProcessPool:
             # does not fall through to a one-shot Kokoro clip.
             self._exec_token = None
         if worker is not None:
-            worker.request_shutdown()
-            worker.kill()
+            self._retire_worker(worker)
 
 
 _POOL: KokoroProcessPool | None = None
 _POOL_LOCK = threading.Lock()
-_POOL_PYTHON: str | None = None
 _POOL_CONFIG_VENV: str | None = None
 
 
@@ -562,7 +550,7 @@ def resolve_kokoro_python() -> str | None:
 
 def get_kokoro_pool() -> KokoroProcessPool | None:
     """Lazy singleton. None when no venv Python is configured."""
-    global _POOL, _POOL_PYTHON, _POOL_CONFIG_VENV
+    global _POOL, _POOL_CONFIG_VENV
     from plugin.framework.config import get_config_str
 
     venv_str = get_config_str("scripting.python_venv_path").strip()
@@ -571,27 +559,24 @@ def get_kokoro_pool() -> KokoroProcessPool | None:
         if venv_str and _POOL is not None and _POOL_CONFIG_VENV == venv_str:
             return _POOL
         py = resolve_venv_python(venv_str) if venv_str else None
-        if _POOL is not None and _POOL_PYTHON != py:
+        if _POOL is not None and _POOL.python_executable != py:
             _POOL.shutdown()
             _POOL = None
         if not py:
-            _POOL_PYTHON = None
             _POOL_CONFIG_VENV = None
             return None
         if _POOL is None:
             _POOL = KokoroProcessPool(py)
-            _POOL_PYTHON = py
         _POOL_CONFIG_VENV = venv_str
         return _POOL
 
 
 def shutdown_kokoro_pool() -> None:
     """Tests and interpreter shutdown. Safe to call when the pool was never used."""
-    global _POOL, _POOL_PYTHON, _POOL_CONFIG_VENV
+    global _POOL, _POOL_CONFIG_VENV
     with _POOL_LOCK:
         pool = _POOL
         _POOL = None
-        _POOL_PYTHON = None
         _POOL_CONFIG_VENV = None
     if pool is not None:
         pool.shutdown()
