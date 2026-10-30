@@ -488,7 +488,7 @@ class SlashPopupController:
         self._popup_floater: Any = None
         # Dialog-local -> overlay host offset from _overlay_offset.
         self._ask_origin: tuple[int, int] | None = None
-        self._row_px = _POPUP_ROW_PX
+        self._row_px: int = _POPUP_ROW_PX
         self.control: Any = None
         self._frame_handler: Any = None
         self._frame_controller: Any = None
