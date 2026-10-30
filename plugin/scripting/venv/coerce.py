@@ -12,7 +12,6 @@ explicit via ``header_row``; string→number/date guessing is opt-in via
 
 from __future__ import annotations
 
-import logging
 import math
 import warnings
 import re
@@ -51,8 +50,6 @@ _NUMBER = r"([\d,]+(?:\.\d+)?)"
 _CURRENCY_CHARS = r"[$€£¥₹]"
 _PERCENT_RE = re.compile(rf"^\s*{_SIGN}\s*{_NUMBER}\s*%\s*$")
 _NUMERIC_RE = re.compile(rf"^\s*{_SIGN}\s*{_CURRENCY_CHARS}*\s*{_SIGN}\s*{_NUMBER}\s*$")
-
-log = logging.getLogger(__name__)
 
 # --- Coercion & CoerceResult ---
 
@@ -226,18 +223,6 @@ def _normalize_input_grid(data: Any) -> list[list[Any]]:
     if isinstance(data, (int, float, str, bool)):
         return [[data]]
     raise ValueError(f"Cannot normalize input of type {type(data).__name__} to 2D grid")
-
-
-def _is_pandas_dataframe(data: Any) -> bool:
-    """Detect a pandas DataFrame by walking MRO without importing pandas."""
-    if data is None:
-        return False
-    for cls in type(data).__mro__:
-        if cls.__name__ == "DataFrame":
-            mod = getattr(cls, "__module__", "") or ""
-            if mod == "pandas" or mod.startswith("pandas."):
-                return True
-    return False
 
 
 _DATE_NAME_TOKENS = frozenset({
@@ -672,10 +657,7 @@ def coerce_str_list(value: Any, name: str = "value") -> list[str] | None:
             # str(None) is the column name "None", which then raised UNKNOWN_COLUMN.
             if item is None:
                 continue
-            if not isinstance(item, str):
-                s = str(item).strip()
-            else:
-                s = item.strip()
+            s = item.strip() if isinstance(item, str) else str(item).strip()
             if s:
                 result.append(s)
         return result
@@ -797,7 +779,7 @@ def grid_to_dataframe(
     """
     import pandas as pd
 
-    if _is_pandas_dataframe(data):
+    if isinstance(data, pd.DataFrame):
         df = data.copy()
         df = _coerce_column_types(
             df,
@@ -875,15 +857,11 @@ def coerce_to_dataframe(
     )
 
 
-def _json_frame(df: Any) -> Any:
-    # where(..., None) on a float column stores NaN again, so decomposition edges
-    # became the JSON token NaN and Calc error cells.
-    return df.astype(object).where(df.notna(), None)
-
-
 def table_from_df(df: Any, *, name: str, max_rows: int = 50) -> dict[str, Any]:
     limited = df.head(max_rows)
-    obj_df = _json_frame(limited)
+    # where(..., None) on a float column stores NaN again, so decomposition edges
+    # became the JSON token NaN and Calc error cells.
+    obj_df = limited.astype(object).where(limited.notna(), None)
     return {
         "name": name,
         "columns": [str(c) for c in limited.columns],
@@ -891,8 +869,3 @@ def table_from_df(df: Any, *, name: str, max_rows: int = 50) -> dict[str, Any]:
         "truncated": len(df) > max_rows,
         "total_rows": int(len(df)),
     }
-
-
-def records_from_df(df: Any, *, max_rows: int = 50) -> list[dict[str, Any]]:
-    limited = df.head(max_rows)
-    return _json_frame(limited).to_dict(orient="records")

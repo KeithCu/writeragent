@@ -162,19 +162,6 @@ def test_table_from_df_nan_is_none():
     assert dumped == "[[1.0], [null], [3.0]]"
 
 
-def test_records_from_df_nan_is_none():
-    import json
-    import numpy as np
-    import pandas as pd
-    from plugin.scripting.venv.coerce import records_from_df
-
-    df = pd.DataFrame({"a": [1.0, np.nan, 3.0]})
-    records = records_from_df(df)
-    assert records == [{"a": 1.0}, {"a": None}, {"a": 3.0}]
-    dumped = json.dumps(records, allow_nan=False)
-    assert dumped == '[{"a": 1.0}, {"a": null}, {"a": 3.0}]'
-
-
 def test_numeric_columns_string_is_one_name():
     import pandas as pd
     from plugin.scripting.venv.coerce import numeric_columns
