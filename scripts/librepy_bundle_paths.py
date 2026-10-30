@@ -165,6 +165,8 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/ast_stmt_edit.py",
     "plugin/framework/client/__init__.py",
     "plugin/framework/client/errors.py",
+    # errors.py does ``from .responses_shim import responses_failed_message``.
+    "plugin/framework/client/responses_shim.py",
     "plugin/framework/client/requests.py",
     # sync_request is a URL adapter over LlmHttpTransport (stop, timeout, retry, redaction).
     "plugin/framework/client/http_transport.py",

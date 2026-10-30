@@ -87,6 +87,8 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/client/request_controls.py",
     # requests.py does ``from .errors import _format_http_error_response``.
     "plugin/framework/client/errors.py",
+    # errors.py does ``from .responses_shim import responses_failed_message``.
+    "plugin/framework/client/responses_shim.py",
     "plugin/framework/client/ssl_helpers.py",
     "plugin/framework/client/provider_detection.py",
     "plugin/chatbot/dialogs.py",
