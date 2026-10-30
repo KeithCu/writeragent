@@ -90,7 +90,7 @@ def test_get_sheet_summary_keeps_normal_names():
 def test_create_sheet_description_and_ok_mentions_no_cells_copied():
     from plugin.calc.base import ToolCalcSheetBase
     from plugin.calc.sheets import CreateSheet
-    from plugin.framework.prompts import get_sheets_create_completion_instruction
+    from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 
     desc = CreateSheet.description
     assert "no cells copied" in desc
@@ -113,7 +113,7 @@ def test_create_sheet_description_and_ok_mentions_no_cells_copied():
 
     assert result["status"] == "ok"
     assert "no cells copied" in result["message"]
-    assert result["instruction"] == get_sheets_create_completion_instruction()
+    assert result["instruction"] == SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
     sheets.insertNewByName.assert_called_once_with("Q1 Actuals", 1)
 
 

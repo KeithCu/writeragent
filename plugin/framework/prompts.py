@@ -82,11 +82,6 @@ def get_research_completion_instruction(doc_type: str | None = None) -> str:
 SHEETS_CREATED_NOT_POPULATED_INSTRUCTION = "If sheets were created, they are not populated (tab exists; no cells copied). Do write_formula_range onto the new tab(s) with source to copy a block, or with values."
 
 
-def get_sheets_create_completion_instruction() -> str:
-    """Return next-step instruction after specialized sheets create so the outer can populate."""
-    return SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
-
-
 def _reports_empty_sheet_create(payload: dict[str, Any]) -> bool:
     """True when a specialized finish/result already says a new empty tab exists."""
     blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer"))
@@ -241,7 +236,6 @@ Prioritize what reduces future user steering."""
 # Populated on first prompt assembly (import_policy pulls smolagents).
 # ``_venv_policy_ready`` flips only after every dependent global is assigned.
 # Checking the compact string alone let a second eval worker return early.
-_VENV_IMPORT_POLICY_COMPACT = ""
 _VENV_IMPORT_POLICY_FULL = ""
 _venv_policy_lock = threading.Lock()
 _venv_policy_ready = False
@@ -551,8 +545,6 @@ def _build_writer_chat_system_prompt_template() -> str:
 DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = _build_writer_chat_system_prompt_template()
 
 
-DEFAULT_WRITER_GREETING = "AI: I can edit or translate your document instantly with professional formatting and color. Try me!"
-
 # ---------------------------------------------------------------------------
 # Calc
 # ---------------------------------------------------------------------------
@@ -607,9 +599,6 @@ CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
 )
 
 
-# Alias of CALC_FORMULA_SYNTAX after late init (spreadsheet-import Phase 6). Not the =PROMPT() default.
-CALC_PYTHON_FORMULA_LLM_HINT = ""
-
 # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]).
 CALC_PYTHON_DATA_SHAPE_LLM_HINT = "`data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows → TypeError int+list)."
 
@@ -619,9 +608,6 @@ CALC_FORMULA_SYNTAX = ""
 
 # DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE is built in _init_venv_import_policy_strings() (needs import policy).
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
-
-
-DEFAULT_CALC_GREETING = "AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 
 
 def _build_calc_chat_system_prompt_template() -> str:
@@ -880,8 +866,6 @@ WRITE:
 )
 
 
-DEFAULT_DRAW_GREETING = "AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!"
-
 # ---------------------------------------------------------------------------
 # Assembly (dispatch + late init)
 # ---------------------------------------------------------------------------
@@ -1122,7 +1106,6 @@ def get_greeting_for_document(model: Any) -> str:
     English literals must sit inside _() so xgettext extracts them into
     writeragent.pot. ``_(DEFAULT_*_GREETING)`` alone is invisible to
     extract-strings, so JA/ES UI kept showing English welcome text.
-    Constants above stay the English source for tests / equality checks.
     """
     from plugin.framework.i18n import _
     from plugin.doc.doc_type import is_calc, is_draw
@@ -1375,14 +1358,13 @@ def _ensure_venv_import_policy_strings() -> None:
 
 def _init_venv_import_policy_strings() -> None:
     """Late init: import_policy pulls smolagents; constants must be fully loaded first."""
-    global _VENV_IMPORT_POLICY_COMPACT, _VENV_IMPORT_POLICY_FULL
+    global _VENV_IMPORT_POLICY_FULL
     global PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
-    global CALC_FORMULA_SYNTAX, DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, CALC_PYTHON_FORMULA_LLM_HINT
+    global CALC_FORMULA_SYNTAX, DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
 
     from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
 
     compact = format_venv_import_policy_for_prompt(compact=True)
-    _VENV_IMPORT_POLICY_COMPACT = compact
     _VENV_IMPORT_POLICY_FULL = format_venv_import_policy_for_prompt(compact=False)
     PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = compact + " "
     CALC_FORMULA_SYNTAX = f"""FORMULA SYNTAX: LibreOffice formulas use semicolon (;) between arguments, not comma.
@@ -1394,7 +1376,4 @@ Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
 - Example: =PY("result = np.sum(data)"; Orders.A1:H500).
 - For tables with headers, use data.to_pandas() instead of pd.DataFrame(data) so row 0 becomes column headers rather than synthetic numeric columns (0..N).
 - {CALC_PYTHON_DATA_SHAPE_LLM_HINT}"""
-    # Alias of CALC_FORMULA_SYNTAX only. Spreadsheet-import LLM fallback is a
-    # low-priority prototype — not a second prompt and not scheduled work.
-    CALC_PYTHON_FORMULA_LLM_HINT = CALC_FORMULA_SYNTAX
     DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = _build_calc_chat_system_prompt_template()

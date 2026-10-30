@@ -19,7 +19,6 @@ from plugin.calc.prompt_function import (
     execute_prompt_addin,
 )
 from plugin.framework.errors import NetworkError
-from plugin.framework.prompts import CALC_PYTHON_FORMULA_LLM_HINT
 
 
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
@@ -43,7 +42,6 @@ def test_prompt_default_system_is_plain_cell_prompt(mock_get_config_int, mock_ge
     messages = mock_run.call_args[0][2]
     assert messages[0]["role"] == "system"
     assert messages[0]["content"] == CALC_PROMPT_CELL_SYSTEM_PROMPT
-    assert messages[0]["content"] != CALC_PYTHON_FORMULA_LLM_HINT
     assert mock_run.call_args.kwargs.get("pump_idle") is False
     assert mock_client_cls.call_args.kwargs.get("register_with_send") is False
     assert mock_run.call_args.kwargs.get("prepend_dev_build_system_prefix") is False

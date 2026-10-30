@@ -726,7 +726,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
     """Outer hop payload gets web-research-style `instruction` after create_sheet."""
     from plugin.calc.sheets import CreateSheet
     from plugin.contrib.smolagents.memory import ToolCall
-    from plugin.framework.prompts import get_sheets_create_completion_instruction
+    from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -762,7 +762,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
         result = gateway.execute_safe(ctx, domain="sheets", task="Create a sheet named Q1 Actuals")
 
     assert result["status"] == "ok"
-    assert result["instruction"] == get_sheets_create_completion_instruction()
+    assert result["instruction"] == SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
     assert "write_formula_range" in result["instruction"]
     assert "not populated" in result["instruction"]
 
