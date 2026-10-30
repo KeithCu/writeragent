@@ -41,8 +41,6 @@ def unregister_live_panel(uid: str, panel: Any) -> None:
 
     Removes the uid key only when no live panel for it remains.
     """
-    if not uid:
-        return
     refs = [r for r in _live_refs(uid) if r() is not None and r() is not panel]
     if refs:
         _PANELS[uid] = refs
@@ -52,8 +50,6 @@ def unregister_live_panel(uid: str, panel: Any) -> None:
 
 def get_live_panel(uid: str) -> Any | None:
     """Return the most recently registered live panel for *uid*, or None."""
-    if not uid:
-        return None
     for panel_ref in reversed(_live_refs(uid)):
         panel = panel_ref()
         if panel is not None:
