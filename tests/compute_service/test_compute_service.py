@@ -2126,7 +2126,7 @@ class TestSessionResetHttp:
         finally:
             shutdown_vision_pool()
 
-    @pytest.mark.parametrize("meta_bytes", [b'{"id":[1e999]}', b'{"id":{"n":1e999}}', b'{"id":[1]}'])
+    @pytest.mark.parametrize("meta_bytes", [b'{"id":[1e999]}', b'{"id":{"n":1e999}}'])
     def test_vision_nested_nonfinite_id_is_400(self, meta_bytes: bytes) -> None:
         from compute_service.vision import shutdown_vision_pool
 
@@ -2831,6 +2831,43 @@ def test_expect_100_continue_before_body() -> None:
             rest += chunk
         assert b'"ok"' in rest
         assert seen.get("code") == "result = 1"
+    finally:
+        if sock is not None:
+            sock.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_expect_100_oversized_body_gets_413_without_continue() -> None:
+    """Regression: an oversized Content-Length gets 413 at once, never 100 Continue."""
+    from compute_service.server import WSGIDualStackServer
+
+    port = get_free_port()
+    settings = ComputeSettings(host="127.0.0.1", port=port, workers=1)
+
+    def execute_fn(**_kwargs):
+        raise AssertionError("oversized body must not run")
+
+    server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
+    server.max_body_bytes = settings.max_body_bytes
+    server.set_app(create_wsgi_app(settings, execute_fn=execute_fn))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    time.sleep(0.15)
+    sock: socket.socket | None = None
+    try:
+        sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        request = (f"POST /v1/execute HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {settings.max_body_bytes + 1}\r\nExpect: 100-continue\r\n\r\n").encode()
+        sock.sendall(request)
+        sock.settimeout(2)
+        response = b""
+        while b"Request body too large" not in response:
+            chunk = sock.recv(4096)
+            assert chunk, response
+            response += chunk
+        assert response.startswith(b"HTTP/1.1 413")
+        assert b" 100 " not in response
     finally:
         if sock is not None:
             sock.close()

@@ -817,7 +817,15 @@ def _load_parts(
     content_type = environ.get("CONTENT_TYPE") or ""
     try:
         parts = parse(raw_body, content_type)
-    except ExecuteRequestError:
+    except ExecuteRequestError as exc:
+        # Bugfix: what was wrong: every parse error became "Invalid JSON" (or
+        # the multipart form), so {"id": [1]} or a forbidden meta key hid the
+        # field the client got wrong.
+        # How it happened: this handler dropped the exception message.
+        # Why this change fixes it: field checks raise with a code and their
+        # message is returned; malformed bodies still get the generic text.
+        if exc.code is not None:
+            return None, _error(start_response, "400 Bad Request", str(exc), code=exc.code)
         err = multipart_error if is_multipart_content_type(content_type) else other_error
         return None, _error(start_response, "400 Bad Request", err)
     return parts, None
@@ -1122,6 +1130,7 @@ def run_server(settings: ComputeSettings) -> None:
         except OSError as exc:
             print(f"Failed to bind {settings.host}:{settings.port}: {exc}", file=sys.stderr)
             raise
+        server.max_body_bytes = settings.max_body_bytes
         server.set_app(create_wsgi_app(settings))
 
         shutdown_signals_received = 0

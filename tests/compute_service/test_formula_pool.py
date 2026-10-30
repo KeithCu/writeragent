@@ -1843,8 +1843,8 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
-    def test_reaper_drops_stale_sessions_older_than_idle_ttl(self) -> None:
-        """Stale session rows expire on idle_worker_ttl_sec; fresh stale and live rows stay."""
+    def test_reaper_keeps_stale_sessions_older_than_idle_ttl(self) -> None:
+        """The reaper never expires stale rows, so each still reports session_reset (README: no marker TTL)."""
         pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=60)
         try:
             worker = pool.workers[0]
@@ -1863,7 +1863,7 @@ class TestFormulaHttpEndpoint:
             from compute_service.formula_pool import _Session
             with pool._cond:
                 # Stale row older than idle_worker_ttl_sec
-                pool._sessions["stale-old"] = _Session(worker=worker, child=dead_child, last_used=old_time, stale_since=old_time)
+                pool._sessions["stale-old"] = _Session(worker=worker, child=dead_child, last_used=old_time)
                 # Stale row newer than idle_worker_ttl_sec
                 pool._sessions["stale-fresh"] = _Session(worker=worker, child=dead_child, last_used=fresh_time)
                 # Live row older than idle_worker_ttl_sec (live rows unaffected)
@@ -1872,19 +1872,19 @@ class TestFormulaHttpEndpoint:
             pool._evict_idle_workers()
 
             with pool._cond:
-                assert "stale-old" not in pool._sessions
+                assert "stale-old" in pool._sessions
                 assert "stale-fresh" in pool._sessions
                 assert "live-old" in pool._sessions
 
-            # Next call on the fresh stale row still reports session_reset
-            res = pool.execute(code="result = 42", session_id="stale-fresh", mode="shared")
+            # Next call on the old stale row still reports session_reset
+            res = pool.execute(code="result = 42", session_id="stale-old", mode="shared")
             assert res.get("status") == "ok"
             assert res.get("session_reset") is True
         finally:
             pool.shutdown()
 
     def test_idle_evicted_session_preserves_session_reset_across_reaper_passes(self) -> None:
-        """A session whose worker was idle-evicted preserves its stale row across multiple reaper passes until TTL."""
+        """A session whose worker was idle-evicted preserves its stale row across multiple reaper passes."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0.2)
         try:
             sid = "idle-evict-reaper-test"
@@ -1920,8 +1920,8 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
-    def test_stale_session_row_dropped_after_ttl_elapses(self) -> None:
-        """A stale session row is popped only after idle_worker_ttl_sec elapses since it became stale."""
+    def test_stale_session_row_reports_reset_after_ttl_elapses(self) -> None:
+        """Regression: a stale row outlives idle_worker_ttl_sec, so a late sticky call still reports session_reset."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0.2)
         try:
             sid = "stale-ttl-expiry-test"
@@ -1944,7 +1944,11 @@ class TestFormulaHttpEndpoint:
             time.sleep(0.3)
             pool._evict_idle_workers()
             with pool._cond:
-                assert sid not in pool._sessions
+                assert sid in pool._sessions
+
+            r2 = pool.execute(code="result = 2", session_id=sid, mode="shared")
+            assert r2.get("status") == "ok"
+            assert r2.get("session_reset") is True
         finally:
             pool.shutdown()
 
@@ -2158,6 +2162,30 @@ def test_idle_ttl_zero_or_none_does_not_start_reaper() -> None:
         assert _idle_reaper_idents() - before == set()
     finally:
         pool_none.shutdown()
+
+
+def test_run_execution_alarm_keeps_full_remaining_second(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: a 2 s budget must arm a 2 s child alarm, not int() floor it to 1 s."""
+    from compute_service.worker_base import BaseProcessWorker, Deadline
+    from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    seen: dict[str, Any] = {}
+
+    def _capture(payload: dict[str, Any], timeout_sec: float, *, req_id: Any = None) -> dict[str, Any]:
+        seen["alarm"] = payload["timeout_sec"]
+        seen["host"] = timeout_sec
+        return {"status": "ok", "result": 1, "id": req_id}
+
+    worker.execute = _capture  # type: ignore[method-assign]
+    pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0)
+    try:
+        pool._run_execution(worker, {}, Deadline(2.0), "t", False)
+        assert seen["alarm"] == 2
+        assert seen["host"] == 2 + HOST_IPC_READ_GRACE_SEC
+    finally:
+        pool.shutdown()
 
 
 def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.MonkeyPatch) -> None:

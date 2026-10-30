@@ -21,6 +21,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -49,12 +50,19 @@ class _Session:
     ``child`` is the live process that owned the namespace. Identity replaces
     the old pid: a respawn installs a different ``Child`` even when the kernel
     has not exited.
+
+    Bugfix: what was wrong: a stale row was dropped once it had been stale
+    for ``idle_worker_ttl_sec``, so a sticky call after one or two reaper
+    passes got a fresh namespace without ``session_reset``.
+    How it happened: the reaper also expired stale rows, a marker TTL the
+    README says does not exist.
+    Why this change fixes it: stale rows now stay until a sticky call or a
+    reset consumes them, so a lost kernel is always reported once.
     """
 
     worker: BaseProcessWorker
     child: object | None
     last_used: float = field(default_factory=time.monotonic)
-    stale_since: float | None = None
 
 
 @dataclass
@@ -144,32 +152,6 @@ class FormulaProcessPool(BaseProcessPool):
             and s.child is getattr(s.worker, "child", None)
             and self._session_child_live(s.child)
         )
-
-    def _expire_stale_sessions_unlocked(self) -> None:
-        """Drop stale session rows that have been stale for longer than idle_worker_ttl_sec.
-
-        A session row is stale when its child is no longer that slot's live child.
-        Stale rows are kept so the next call reports session_reset, but must expire
-        on idle_worker_ttl_sec so they do not accumulate indefinitely.
-        Live rows are unaffected. Caller holds self._cond.
-        """
-        ttl = self.idle_worker_ttl_sec
-        if ttl is None or ttl <= 0:
-            return
-        now = time.monotonic()
-        for sid, s in list(self._sessions.items()):
-            if not self._is_session_live(s):
-                if s.stale_since is None:
-                    s.stale_since = now
-                elif now - s.stale_since >= ttl:
-                    self._sessions.pop(sid, None)
-            else:
-                s.stale_since = None
-
-    def _evict_idle_workers(self) -> None:
-        with self._cond:
-            self._expire_stale_sessions_unlocked()
-        super()._evict_idle_workers()
 
     def _drop_session(self, session_id: str, *, only_if_worker: BaseProcessWorker | None = None) -> None:
         """Drop *session_id* from the active map.
@@ -378,11 +360,18 @@ class FormulaProcessPool(BaseProcessPool):
             return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
         if run_for < MIN_REQUEST_SEC:
             run_for = MIN_REQUEST_SEC
-        child_alarm = int(run_for)
+        # Bugfix: what was wrong: int(run_for) floored the budget, so a
+        # 2000 ms request got a 1 s alarm and the 30 s default got 29 s.
+        # How it happened: usable() is already a little under the request
+        # timeout when the lease is granted, and int() drops the fraction.
+        # Why this change fixes it: ceil keeps the full remaining second, the
+        # same rounding the sandbox uses, and the host wait is measured from
+        # that alarm so the alarm still fires before the host read gives up.
+        child_alarm = math.ceil(run_for)
         payload["timeout_sec"] = child_alarm
         if expect_namespace:
             payload["expect_namespace"] = True
-        host_timeout = run_for + HOST_IPC_READ_GRACE_SEC
+        host_timeout = child_alarm + HOST_IPC_READ_GRACE_SEC
         res = leased.execute(payload, timeout_sec=host_timeout, req_id=req_id)
         created = bool(res.get("namespace_created")) if isinstance(res, dict) else False
         if expect_namespace and created and isinstance(res, dict):
@@ -445,17 +434,11 @@ class FormulaProcessPool(BaseProcessPool):
                         sess.worker = leased
                         sess.child = leased.child
                         sess.last_used = now
-                        if leased.child is None:
-                            if sess.stale_since is None:
-                                sess.stale_since = now
-                        else:
-                            sess.stale_since = None
                     else:
                         self._sessions[session_id] = _Session(
                             worker=leased,
                             child=leased.child,
                             last_used=now,
-                            stale_since=now if leased.child is None else None,
                         )
         finally:
             self.release_worker(leased)
