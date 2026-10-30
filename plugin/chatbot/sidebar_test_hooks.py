@@ -2474,8 +2474,10 @@ class _UrpSlashHost:
     response_control: Any
     clear_listener: Any
     _stop: Any
+    ctx: Any
 
-    def __init__(self, query: Any, response: Any, clear: Any, stop: Any) -> None:
+    def __init__(self, query: Any, response: Any, clear: Any, stop: Any, ctx: Any = None) -> None:
+        self.ctx = ctx  # overlay position probe (SlashPopupController)
         self.query_control = query
         self.response_control = response
         self.slash_popup: Any = None
@@ -2533,7 +2535,7 @@ def _urp_slash_controller() -> Any:
     from plugin.chatbot.slash_popup import SlashPopupController
 
     response = controls.get("response_rich") or controls.get("response")
-    host = _UrpSlashHost(query, response, controls.get("clear"), controls.get("stop"))
+    host = _UrpSlashHost(query, response, controls.get("clear"), controls.get("stop"), ctx)
     popup = SlashPopupController(ctrl, host, query)
     host.slash_popup = popup
     _URP_SLASH_POPUP = popup

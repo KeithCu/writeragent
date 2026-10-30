@@ -616,6 +616,7 @@ class _Win:
         self.parent = parent
         self.toolkit: Any = None
         self.min_row_px: int | None = None
+        self.origin: Any = None
         self.pos: list[tuple] = []
         self.disposed = False
 
@@ -659,6 +660,10 @@ class _Ctl:
 
     def getPosSize(self):
         return self._rect
+
+    def getAccessibleContext(self):
+        # UnoControl keeps XAccessible on LibreOffice 26.2; peers do not.
+        return self._peer.getAccessibleContext()
 
 
 def _overlay_parts(monkeypatch, host_xy, ask_xy=(1010, 951)):
@@ -754,3 +759,49 @@ def test_toolkit_key_handler_not_registered_when_slash_disabled(monkeypatch):
     query = SimpleNamespace(getPeer=lambda: peer, getText=lambda: "")
     SlashPopupController(_ListBox(), MagicMock(), query)
     toolkit.addKeyHandler.assert_not_called()
+
+
+class _ProbeCtl:
+    """UnoControlFixedText stand-in: accessible at its peer parent's origin."""
+
+    def __init__(self, made):
+        self.made = made
+        self.parent = None
+        self.disposed = False
+        made.append(self)
+
+    def setModel(self, _model):
+        pass
+
+    def createPeer(self, _toolkit, parent):
+        self.parent = parent
+
+    def setPosSize(self, *_args):
+        pass
+
+    def getAccessibleContext(self):
+        assert self.parent is not None
+        return _Acc(self.parent.origin)
+
+    def dispose(self):
+        self.disposed = True
+
+
+def test_overlay_offset_without_peer_accessibility(monkeypatch):
+    # CI 40978901270 (LibreOffice 26.2): toolkit peers have no
+    # getAccessibleContext, so the host origin came back None and the popup
+    # never opened. A UnoControl inside the host still reports it.
+    tk, ask, dialog = _overlay_parts(monkeypatch, host_xy=None)
+    made: list = []
+
+    def create(name, _ctx):
+        return _ProbeCtl(made) if name.endswith("FixedText") else object()
+
+    ctx = SimpleNamespace(getServiceManager=lambda: SimpleNamespace(createInstanceWithContext=create))
+    host = _Win(None)
+    host.origin = (10, 51)
+    host.toolkit = tk
+    from plugin.chatbot.slash_popup import _overlay_offset
+
+    assert _overlay_offset(host, ask, _R(10, 851, 400, 60), ctx) == (1010 - 10 - 10, 951 - 51 - 851)
+    assert len(made) == 1 and made[0].parent is host and made[0].disposed

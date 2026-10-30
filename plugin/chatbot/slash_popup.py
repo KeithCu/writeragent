@@ -249,7 +249,28 @@ def _location_on_screen(obj: Any) -> tuple[int, int] | None:
     return int(x), int(y)
 
 
-def _overlay_offset(host: Any, ask_peer: Any, qr: Any) -> tuple[int, int] | None:
+def _host_origin(host: Any, ctx: Any) -> tuple[int, int] | None:
+    """Screen origin of the overlay host.
+
+    LibreOffice 26.2 dropped XAccessible from toolkit peers, so the host
+    itself has no accessible location there. A UnoControl still has one:
+    put a 1px fixed text at the host's (0, 0), read it, dispose it.
+    """
+    origin = _location_on_screen(host)
+    if origin is not None or ctx is None:
+        return origin
+    smgr = ctx.getServiceManager()
+    probe = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlFixedText", ctx)
+    probe.setModel(smgr.createInstanceWithContext("com.sun.star.awt.UnoControlFixedTextModel", ctx))
+    try:
+        probe.createPeer(host.getToolkit(), host)
+        probe.setPosSize(0, 0, 1, 1, _POS_SIZE_FLAGS)
+        return _location_on_screen(probe)
+    finally:
+        probe.dispose()
+
+
+def _overlay_offset(host: Any, ask: Any, qr: Any, ctx: Any = None) -> tuple[int, int] | None:
     """Add to dialog-local coords to get the host's ``setPosSize`` coords.
 
     The floatingwindow host is an overlap window of the document frame, so
@@ -258,13 +279,13 @@ def _overlay_offset(host: Any, ask_peer: Any, qr: Any) -> tuple[int, int] | None
     VCL's accessible screen location, so the difference holds even where
     absolute screen coordinates are not real (Wayland).
     """
-    origin = _location_on_screen(host)
-    ask = _location_on_screen(ask_peer)
-    if origin is None or ask is None:
+    origin = uno_probe(lambda: _host_origin(host, ctx), None)
+    ask_xy = _location_on_screen(ask)
+    if origin is None or ask_xy is None:
         return None
     return (
-        ask[0] - origin[0] - int(getattr(qr, "X", 0) or 0),
-        ask[1] - origin[1] - int(getattr(qr, "Y", 0) or 0),
+        ask_xy[0] - origin[0] - int(getattr(qr, "X", 0) or 0),
+        ask_xy[1] - origin[1] - int(getattr(qr, "Y", 0) or 0),
     )
 
 
@@ -415,7 +436,9 @@ def _create_ask_peer_listbox(
     except Exception:
         _ovlog("createWindow listbox FAILED", exc_info=True)
         win = None
-    offset = _overlay_offset(host, ask_peer, qr) if win is not None else None
+    # Ask control, not its peer: controls stay accessible on LibreOffice 26.2.
+    ctx = getattr(send_listener, "ctx", None)
+    offset = _overlay_offset(host, query_control, qr, ctx) if win is not None else None
     if win is None or offset is None:
         log.warning("slash popup: overlay list or its position unavailable")
         for obj in (win, host):
