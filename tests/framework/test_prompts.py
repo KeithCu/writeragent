@@ -11,9 +11,6 @@ from plugin.framework.errors import ConfigError
 from plugin.framework.prompts import (
     CALC_CORE_DIRECTIVES,
     CHAT_RESPONSE_FORMAT,
-    DEFAULT_CALC_GREETING,
-    DEFAULT_DRAW_GREETING,
-    DEFAULT_WRITER_GREETING,
     DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
     DELEGATION_USER_FILE_DATA_HINT,
     DRAW_CORE_DIRECTIVES,
@@ -39,21 +36,21 @@ from plugin.framework.prompts import (
 def test_get_greeting_for_document_writer():
     model = MagicMock()
     model.supportsService.return_value = False
-    assert get_greeting_for_document(model) == DEFAULT_WRITER_GREETING
+    assert get_greeting_for_document(model) == "AI: I can edit or translate your document instantly with professional formatting and color. Try me!"
 
 def test_get_greeting_for_document_calc():
     model = MagicMock()
     def supportsService(service):
         return service == "com.sun.star.sheet.SpreadsheetDocument"
     model.supportsService.side_effect = supportsService
-    assert get_greeting_for_document(model) == DEFAULT_CALC_GREETING
+    assert get_greeting_for_document(model) == "AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 
 def test_get_greeting_for_document_draw():
     model = MagicMock()
     def supportsService(service):
         return service in ("com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument")
     model.supportsService.side_effect = supportsService
-    assert get_greeting_for_document(model) == DEFAULT_DRAW_GREETING
+    assert get_greeting_for_document(model) == "AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!"
 
 def test_get_chat_response_format_instructions_plain_when_rich_disabled():
     from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions
@@ -506,7 +503,7 @@ def test_calc_formula_syntax_sheet_dot_not_excel_bang():
     from plugin.framework.prompts import _ensure_venv_import_policy_strings
 
     _ensure_venv_import_policy_strings()
-    from plugin.framework.prompts import CALC_FORMULA_SYNTAX, CALC_PYTHON_FORMULA_LLM_HINT
+    from plugin.framework.prompts import CALC_FORMULA_SYNTAX
 
     assert "never Excel bang" in CALC_FORMULA_SYNTAX
     assert "Orders.A1:H500" in CALC_FORMULA_SYNTAX
@@ -514,7 +511,6 @@ def test_calc_formula_syntax_sheet_dot_not_excel_bang():
     assert "=PY(\"result = …\"; Orders.A1:H500)" in CALC_FORMULA_SYNTAX
     assert "always 2D" in CALC_FORMULA_SYNTAX
     assert "not builtin sum" in CALC_FORMULA_SYNTAX
-    assert CALC_PYTHON_FORMULA_LLM_HINT is CALC_FORMULA_SYNTAX
 
 
 def test_calc_cell_links_use_calc_dot():
@@ -666,11 +662,9 @@ def test_sheets_create_completion_instruction_is_create_not_populate():
         SHEETS_CREATED_NOT_POPULATED_INSTRUCTION,
         attach_sheets_create_completion_instruction,
         first_instruction_from_tool_results,
-        get_sheets_create_completion_instruction,
     )
 
-    inst = get_sheets_create_completion_instruction()
-    assert inst == SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
+    inst = SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
     assert "not populated" in inst
     assert "write_formula_range" in inst
     assert "source" in inst
@@ -830,11 +824,10 @@ def test_profile_fence_inside_memory_does_not_close_the_block():
 
 
 def test_calc_prompt_late_init_waits_until_template_is_assigned():
-    """A published compact string must not skip Calc template init."""
+    """_venv_policy_ready controls late init of Calc template."""
     import plugin.framework.prompts as prompts
 
     prompts._venv_policy_ready = False
-    prompts._VENV_IMPORT_POLICY_COMPACT = "already-published"
     prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
     prompts._ensure_venv_import_policy_strings()
     assert "FORMULA SYNTAX" in prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
@@ -845,7 +838,6 @@ def test_concurrent_calc_prompt_init_sees_full_template():
     import plugin.framework.prompts as prompts
 
     prompts._venv_policy_ready = False
-    prompts._VENV_IMPORT_POLICY_COMPACT = ""
     prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
     barrier = threading.Barrier(4)
     results: list[bool] = []

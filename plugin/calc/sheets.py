@@ -27,7 +27,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import is_real_disposal
-from plugin.framework.prompts import get_sheets_create_completion_instruction
+from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -141,7 +141,7 @@ class CreateSheet(ToolCalcSheetBase):
                 f"New sheet named '{sheet_name}' created; no cells copied. "
                 f"Not activated: qualify writes with the sheet name (e.g. '{sheet_name}'.A1)."
             ),
-            "instruction": get_sheets_create_completion_instruction(),
+            "instruction": SHEETS_CREATED_NOT_POPULATED_INSTRUCTION,
         }
 
 
