@@ -57,7 +57,6 @@ class ProviderConfig:
     """Describes a simple API-key based provider."""
 
     id: str
-    name: str
     # Header style controls how the API key is attached:
     # - "bearer"   -> Authorization: Bearer <key> (key required)
     # - "x-api-key" -> x-api-key: <key> (key required)
@@ -71,37 +70,34 @@ class ProviderConfig:
 
 
 PROVIDERS: dict[str, ProviderConfig] = {
-    "openrouter": ProviderConfig(id="openrouter", name="OpenRouter", header_style="bearer", model_id_style="slug", extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE}),
-    "together": ProviderConfig(id="together", name="Together AI", header_style="bearer", model_id_style="slug"),
-    "mistral": ProviderConfig(id="mistral", name="Mistral", header_style="bearer"),
-    "openai": ProviderConfig(id="openai", name="OpenAI", header_style="bearer"),
-    "deepseek": ProviderConfig(id="deepseek", name="DeepSeek", header_style="bearer"),
-    "groq": ProviderConfig(id="groq", name="Groq", header_style="bearer"),
-    "cerebras": ProviderConfig(id="cerebras", name="Cerebras", header_style="bearer"),
-    "perplexity": ProviderConfig(id="perplexity", name="Perplexity", header_style="bearer"),
-    "xai": ProviderConfig(id="xai", name="X.ai (Grok)", header_style="bearer"),
-    "anthropic": ProviderConfig(id="anthropic", name="Anthropic Claude", header_style="x-api-key", extra_headers={"anthropic-version": "2023-06-01"}),
+    "openrouter": ProviderConfig(id="openrouter", header_style="bearer", model_id_style="slug", extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE}),
+    "together": ProviderConfig(id="together", header_style="bearer", model_id_style="slug"),
+    "mistral": ProviderConfig(id="mistral", header_style="bearer"),
+    "openai": ProviderConfig(id="openai", header_style="bearer"),
+    "deepseek": ProviderConfig(id="deepseek", header_style="bearer"),
+    "groq": ProviderConfig(id="groq", header_style="bearer"),
+    "cerebras": ProviderConfig(id="cerebras", header_style="bearer"),
+    "perplexity": ProviderConfig(id="perplexity", header_style="bearer"),
+    "xai": ProviderConfig(id="xai", header_style="bearer"),
+    "anthropic": ProviderConfig(id="anthropic", header_style="x-api-key", extra_headers={"anthropic-version": "2023-06-01"}),
     "google": ProviderConfig(
         id="google",
-        name="Google Gemini",
         # Google's official OpenAI-compatible endpoint (/v1beta/openai) requires
         # standard "Authorization: Bearer ***" headers.
         header_style="bearer",
     ),
-    "ollama": ProviderConfig(id="ollama", name="Ollama", header_style="none"),
+    "ollama": ProviderConfig(id="ollama", header_style="none"),
     # Local LM Studio accepts an empty key the way Ollama does. A key, when
     # set, still becomes Authorization: Bearer via build_auth_headers fallback.
-    "lmstudio": ProviderConfig(id="lmstudio", name="LM Studio", header_style="none"),
-    "zai": ProviderConfig(id="zai", name="Z.ai", header_style="bearer"),
-    "nvidia": ProviderConfig(id="nvidia", name="NVIDIA NIM", header_style="bearer"),
+    "lmstudio": ProviderConfig(id="lmstudio", header_style="none"),
+    "zai": ProviderConfig(id="zai", header_style="bearer"),
+    "nvidia": ProviderConfig(id="nvidia", header_style="bearer"),
     # Fallback for endpoints we don't recognize explicitly.
-    "custom": ProviderConfig(id="custom", name="Custom", header_style="bearer"),
+    "custom": ProviderConfig(id="custom", header_style="bearer"),
 }
 
 
-# Endpoint strings are unbounded. CrossHair uses a finite endpoint enum
-# (hit / miss / empty); pytest keeps charset+len.
-_URL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._:/")
+# Endpoint strings are unbounded. CrossHair uses a finite endpoint enum.
 _DEAL_RESOLVE_ENDPOINTS = frozenset(("", "api.openai.com", "localhost:11434", "openrouter.ai"))
 _PROVIDER_HINTS = frozenset(PROVIDERS)
 

@@ -73,14 +73,6 @@ HttpObserve = Callable[[Any, str, str, Any], str]
 HttpSender = Callable[..., http.client.HTTPResponse]
 
 
-def _response_header(response: Any, name: str) -> str:
-    getter = getattr(response, "getheader", None)
-    if not callable(getter):
-        return ""
-    value = getter(name)
-    return value.strip() if isinstance(value, str) else ""
-
-
 def parse_strict_json(raw: Any) -> Any:
     """Parse provider bytes with ``json.loads`` only.
 
@@ -120,18 +112,6 @@ class HttpResult:
         self.parsed = parsed
 
 
-def _response_content_type(response: Any) -> str:
-    getter = getattr(response, "getheader", None)
-    if not callable(getter):
-        return ""
-    value = getter("Content-Type")
-    return value if isinstance(value, str) else ""
-
-
-def _response_bytes(response: Any) -> bytes:
-    return response.read()
-
-
 class LlmHttpTransport:
     """Own persistent chat HTTP connections plus pacing, jittered retries, per-host cooldown, and local TLS fallback."""
 
@@ -166,18 +146,11 @@ class LlmHttpTransport:
         port = http_security._explicit_port(parsed) or (443 if scheme == "https" else 80)
         return scheme, host, port
 
-    def _openrouter_for_pacing(self) -> bool:
+    def pacing_key_for_model(self, model: str | None = None) -> str:
+        _, host, port = self._endpoint_parts()
         endpoint = self._redirect_origin if self._redirect_origin else self._endpoint_getter()
         explicit = bool(self._openrouter_getter()) if self._openrouter_getter is not None else False
-        return is_openrouter_endpoint(endpoint, explicit_is_openrouter=explicit)
-
-    def _pacing_parts(self) -> tuple[str, int, bool]:
-        _, host, port = self._endpoint_parts()
-        return host, port, self._openrouter_for_pacing()
-
-    def pacing_key_for_model(self, model: str | None = None) -> str:
-        host, port, openrouter = self._pacing_parts()
-        return pacing_key(host, model, port=port, openrouter=openrouter)
+        return pacing_key(host, model, port=port, openrouter=is_openrouter_endpoint(endpoint, explicit_is_openrouter=explicit))
 
     def _absolute_url(self, path: str) -> str:
         scheme, host, port = self._endpoint_parts()
@@ -274,9 +247,7 @@ class LlmHttpTransport:
         _stale_resend: bool = True,
     ) -> http.client.HTTPResponse:
         """Send one request on the persistent connection and return its response."""
-        parts = self._pacing_parts()
-        model = request_model_from_body(body)
-        key = pacing_key(parts[0], model, port=parts[1], openrouter=parts[2])
+        key = self.pacing_key_for_model(request_model_from_body(body))
         if not wait_host_gap(key, stop_checker, status_callback):
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
         conn = self.get_connection()
@@ -400,7 +371,7 @@ class LlmHttpTransport:
         Reads the error body once. ``observe_http_error`` is the chat 500
         diagnostic hook; catalog and speech omit it and still get redaction.
         """
-        err_body = _response_bytes(response).decode("utf-8", errors="replace")
+        err_body = response.read().decode("utf-8", errors="replace")
         wire_secrets = http_security.collect_secrets(secrets, http_security.secrets_from_target(path))
         if observe_http_error is not None:
             message = observe_http_error(response, err_body, path, request_body)
@@ -413,14 +384,11 @@ class LlmHttpTransport:
         self.close()
         status = int(response.status)
         model = request_model_from_body(request_body)
-        retry_after = None
-        getter = getattr(response, "getheader", None)
-        if callable(getter):
-            header = getter("Retry-After")
-            retry_after = parse_retry_after(header if isinstance(header, str) else None)
-            if retry_after is None:
-                header_ms = getter("retry-after-ms")
-                retry_after = parse_retry_after_ms(header_ms if isinstance(header_ms, str) else None)
+        header = response.getheader("Retry-After")
+        retry_after = parse_retry_after(header if isinstance(header, str) else None)
+        if retry_after is None:
+            header_ms = response.getheader("retry-after-ms")
+            retry_after = parse_retry_after_ms(header_ms if isinstance(header_ms, str) else None)
         details: dict[str, Any] = {"url": safe_target, "status": status}
         if retry_after_exceeds_cap(retry_after):
             assert retry_after is not None
@@ -494,9 +462,17 @@ class LlmHttpTransport:
                         # rewrites method/body, then loops. The retry budget is
                         # for 429/503, not for a redirect the server asked for.
                         current_url = self._absolute_url(path)
-                        hop = http_security._apply_redirect(method, body, wire_headers, current_url, status, _response_header(response, "Location"))
+                        location = response.getheader("Location")
+                        hop = http_security._apply_redirect(
+                            method,
+                            body,
+                            wire_headers,
+                            current_url,
+                            status,
+                            location.strip() if isinstance(location, str) else "",
+                        )
                         if hop is not None:
-                            _response_bytes(response)
+                            response.read()
                             new_method, new_body, new_headers, new_origin, new_path, cross_origin = hop
                             if cross_origin:
                                 self._redirect_origin = new_origin
@@ -535,12 +511,18 @@ class LlmHttpTransport:
                     if max_bytes is not None:
                         raw = self._read_bounded_response(response, max_bytes=max_bytes, stop_checker=stop_checker)
                     else:
-                        raw = _response_bytes(response)
+                        raw = response.read()
                     body_in_hand = True
                     if after_read is not None:
                         after_read(response)
                     parsed = parse_strict_json(raw) if parse_json else None
-                    return HttpResult(status=status, body=raw, content_type=_response_content_type(response), parsed=parsed)
+                    raw_ct = response.getheader("Content-Type")
+                    return HttpResult(
+                        status=status,
+                        body=raw,
+                        content_type=raw_ct if isinstance(raw_ct, str) else "",
+                        parsed=parsed,
+                    )
                 except NetworkError:
                     raise
                 except CONNECTION_ERRORS as exc:
@@ -610,16 +592,14 @@ class LlmHttpTransport:
         stop_checker: Callable[[], bool] | None = None,
     ) -> bytes:
         # Check Content-Length first when provided by server
-        getter = getattr(response, "getheader", None)
-        if callable(getter):
-            cl = getter("Content-Length")
-            if cl is not None:
-                try:
-                    if int(str(cl)) > max_bytes:
-                        self.close()
-                        raise NetworkError(f"HTTP response exceeded {max_bytes} bytes", code="HTTP_ERROR")
-                except ValueError:
-                    pass
+        cl = response.getheader("Content-Length")
+        if cl is not None:
+            try:
+                if int(str(cl)) > max_bytes:
+                    self.close()
+                    raise NetworkError(f"HTTP response exceeded {max_bytes} bytes", code="HTTP_ERROR")
+            except ValueError:
+                pass
 
         # 1s socket timeout during chunked read allows checking stop_checker
         sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
