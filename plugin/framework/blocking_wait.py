@@ -120,7 +120,6 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
             toolkit = get_toolkit(ctx)
         except Exception as e:
             log.warning("run_blocking_in_thread: Failed to create toolkit, waiting without pump. %s", e)
-            toolkit = None
 
     pump_vcl = pump_idle and toolkit is not None
     pump = (lambda: pump_ui_idle(toolkit)) if pump_vcl else pump_main_thread_work_queue
