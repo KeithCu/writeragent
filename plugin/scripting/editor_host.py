@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from typing import IO, Any, Callable, cast
@@ -38,7 +39,6 @@ from plugin.scripting.editor_errors import (
 from plugin.scripting.editor_ipc import (
     PARENT_TO_CHILD_TYPES,
     message_type,
-    new_session_id,
     session_id_of,
     stamp_session,
     target_from_load,
@@ -1194,7 +1194,7 @@ def _register_load_session(
             # One visible buffer: switching targets ends the previous session.
             _PERSISTENT_EDITOR.end_session(focused.session_id, call_closed=True)
         state = EditorSessionState(
-            session_id=new_session_id(),
+            session_id=uuid.uuid4().hex,
             mode=mode,
             target=target,
             on_save=on_save,
@@ -1328,7 +1328,6 @@ def launch_monaco_editor(
             # set_active_session(None) does not kill the child. The next open
             # saw is_running and skipped wait_for_ready.
             terminate_persistent_editor()
-            set_active_session(None)
             msg = failure_message(_("The Python editor window did not start."), detail=detail)
             return _launch_fail(msg, "Python editor did not start")
 
@@ -1360,7 +1359,6 @@ def launch_monaco_editor(
         # Same as the ready-timeout path: a live child with no session makes
         # the next open skip the webview probe.
         terminate_persistent_editor()
-        set_active_session(None)
         msg = failure_message(_("Could not talk to the Python editor."), detail=ipc_detail)
         return _launch_fail(msg, "Python editor IPC failed")
 
