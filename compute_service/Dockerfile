@@ -18,7 +18,8 @@ RUN pip install --no-cache-dir --only-binary=:all: --target=/app/pkgs \
     "tabulate==0.10.0" \
     "xlrd==2.0.2" \
     "thefuzz==0.22.1" "rapidfuzz==3.14.6" \
-    "beautifulsoup4==4.15.0" "soupsieve==3.0.4"
+    "beautifulsoup4==4.15.0" "soupsieve==3.0.4" \
+    "scikit-learn==1.9.1" "joblib==1.6.0" "threadpoolctl==3.7.0"
 
 FROM python:3.12-slim AS bundle
 WORKDIR /src
