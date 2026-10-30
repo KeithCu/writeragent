@@ -21,21 +21,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 from wsgiref.simple_server import ServerHandler, WSGIRequestHandler, WSGIServer
 
+from plugin.framework.http_server import DualStackThreadPoolHTTPServer
+
 if TYPE_CHECKING:
     from compute_service.config import ComputeSettings
 
 log = logging.getLogger("compute_service")
-
-__all__ = [
-    "DeadlineRequestHandler",
-    "DualStackThreadPoolHTTPServer",
-    "ListenerBudget",
-    "WSGIDualStackServer",
-    "listener_budget",
-    "listener_thread_count",
-    "service_listener_threads",
-    "sticky_listener_slots",
-]
 
 # Bound the post-accept drain. Matches README 30s termination grace.
 _HTTP_DRAIN_SEC = 30.0
@@ -60,66 +51,40 @@ def listener_thread_count(max_threads: int | None) -> int:
     """
     if max_threads is None:
         return 16
-    return max(8, (max_threads or 2) + 4)
+    return max(8, max_threads + 4)
 
 
-@dataclass(frozen=True)
-class ListenerBudget:
-    """Accept-pool size and the sticky spare taken from that same total.
+def _listener_budget(settings: ComputeSettings) -> tuple[int, int]:
+    """Return ``(listeners, sticky)`` from one formula.
 
-    ``listeners`` is ``max(listener_thread_count(settings.threads), needed)``
-    where ``needed`` is formula workers, plus ``max(1, ocr_workers)`` vision
-    permits, plus one sticky slot per formula worker, plus two threads that
-    are not given a permit. ``sticky`` is what remains after the isolated
-    workers, the vision permits, and those two. Admitted work cannot fill
-    every listener, so ``GET /health`` is not stuck behind a permit. A header
-    or body read still occupies its listener before that permit. When the
-    historical floor wins, sticky is larger than the worker count (default:
-    8 listeners and 3 sticky slots).
-    """
-
-    listeners: int
-    sticky: int
-    vision_permits: int
-
-
-def listener_budget(settings: ComputeSettings) -> ListenerBudget:
-    """The one derivation of listener count and sticky spare.
-
-    ``service_listener_threads`` and ``sticky_listener_slots`` both read this
-    so the accept pool and the sticky cap cannot be edited apart.
+    ``listeners`` is ``max(listener_thread_count(settings.threads), needed)``.
+    ``needed`` is formula workers, plus ``max(1, ocr_workers)`` vision permits,
+    plus one sticky slot per formula worker, plus two threads that are not
+    given a permit. ``sticky`` is what remains after the isolated workers, the
+    vision permits, and those two. Admitted work cannot fill every listener,
+    so ``GET /health`` is not stuck behind a permit. A header or body read
+    still occupies its listener before that permit. When the historical floor
+    wins, sticky is larger than the worker count (default: 8 listeners and 3
+    sticky slots). ``settings.threads`` plus four left one spare once vision
+    and the two unpermitted threads were counted, so a second sticky workbook
+    got 503 while other workers were idle.
     """
     vision_permits = max(1, settings.ocr_workers)
     sticky_floor = max(1, settings.workers)
     needed = settings.workers + vision_permits + sticky_floor + 2
     listeners = max(listener_thread_count(settings.threads), needed)
     spare = listeners - 2 - settings.workers - vision_permits
-    return ListenerBudget(listeners=listeners, sticky=max(1, spare), vision_permits=vision_permits)
+    return listeners, max(1, spare)
 
 
 def service_listener_threads(settings: ComputeSettings) -> int:
-    """Accept-pool size for one running compute service.
-
-    ``settings.threads`` is formula workers plus OCR workers. That count plus
-    four left one spare once vision and the two unpermitted threads were
-    counted, so a second sticky workbook got 503 while other workers were
-    idle. One sticky slot per formula worker, the vision permit (present even
-    when OCR is off), and two threads with no permit. Those two are not held
-    back during a header or body read. Small pools stay on the historical
-    floor from ``listener_thread_count``.
-    """
-    return listener_budget(settings).listeners
+    """Accept-pool size for one running compute service."""
+    return _listener_budget(settings)[0]
 
 
 def sticky_listener_slots(settings: ComputeSettings) -> int:
-    """How many sticky execute / session-reset requests may hold a listener.
-
-    Isolated execute holds at most ``settings.workers`` threads and vision
-    holds ``max(1, ocr_workers)``. Two listeners are not given a permit, so
-    ``GET /health`` is not stuck behind admitted work. A header or body read
-    still occupies its listener before that permit.
-    """
-    return listener_budget(settings).sticky
+    """How many sticky execute / session-reset requests may hold a listener."""
+    return _listener_budget(settings)[1]
 
 
 def _accept_clock(accept_time: Any) -> float:
@@ -147,8 +112,6 @@ def _request_deadline(accept_time: Any, timeout_sec: float) -> float:  # pyright
 # =============================================================================
 # HTTP Server Plumbing
 # =============================================================================
-
-from plugin.framework.http_server import DualStackThreadPoolHTTPServer
 
 
 @dataclass
@@ -237,38 +200,35 @@ class DeadlineRequestHandler(WSGIRequestHandler):
 
     def setup(self) -> None:
         server = cast("Any", self.server)
-        if getattr(server, "park_idle_connections", False):
-            self.connection = self.request
-            state: ConnState | None = None
-            if hasattr(server, "_conn_states"):
-                state = server._conn_states.get(self.connection)
-                if state is None:
-                    rfile = self.connection.makefile("rb", -1)
-                    state = ConnState(sock=self.connection, client_address=self.client_address, rfile=rfile)
-                    server._conn_states[self.connection] = state
-                else:
-                    state.close_connection = False
-                    state.disposition = "close"
-            self.rfile = state.rfile if state is not None else self.connection.makefile("rb", -1)
-            self.wfile = self.connection.makefile("wb", self.wbufsize)
+        self.connection = self.request
+        state = server._conn_states.get(self.connection)
+        if state is None:
+            rfile = self.connection.makefile("rb", -1)
+            state = ConnState(sock=self.connection, client_address=self.client_address, rfile=rfile)
+            server._conn_states[self.connection] = state
         else:
-            super().setup()
+            state.close_connection = False
+            state.disposition = "close"
+        self.rfile = state.rfile
+        self.wfile = self.connection.makefile("wb", self.wbufsize)
         try:
             self.connection.settimeout(_REQUEST_READ_TIMEOUT_SEC)
         except Exception:
             pass
 
     def finish(self) -> None:
-        server = cast("Any", self.server)
-        if getattr(server, "park_idle_connections", False):
-            if not self.wfile.closed:
-                try:
-                    self.wfile.flush()
-                except socket.error:
-                    pass
-            self.wfile.close()
-        else:
-            super().finish()
+        if not self.wfile.closed:
+            try:
+                self.wfile.flush()
+            except socket.error:
+                pass
+        self.wfile.close()
+
+    def _mark_close(self, state: ConnState | None, reason: str) -> None:
+        self.close_connection = True
+        if state is not None:
+            state.close_reason = reason
+            state.close_connection = True
 
     def handle(self) -> None:
         """Read the request line and headers under one deadline, then run the app.
@@ -280,30 +240,21 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         self._install_header_deadline()
         header_timed_out = False
         server = cast("Any", self.server)
-        state: ConnState | None = getattr(server, "_conn_states", {}).get(self.connection) if hasattr(server, "_conn_states") else None
+        state: ConnState | None = getattr(server, "_conn_states", {}).get(self.connection)
         try:
             self.raw_requestline = self.rfile.readline(65537)
             if not self.raw_requestline:
-                self.close_connection = True
-                if state is not None:
-                    state.close_reason = "eof"
-                    state.close_connection = True
+                self._mark_close(state, "eof")
                 return
             if len(self.raw_requestline) > 65536:
                 self.requestline = ""
                 self.request_version = ""
                 self.command = ""
-                self.close_connection = True
-                if state is not None:
-                    state.close_reason = "error"
-                    state.close_connection = True
+                self._mark_close(state, "error")
                 self.send_error(414)
                 return
             if not self.parse_request():
-                self.close_connection = True
-                if state is not None:
-                    state.close_reason = "error"
-                    state.close_connection = True
+                self._mark_close(state, "error")
                 return
         except TimeoutError:
             # Sent after finally. The patched readinto is still installed
@@ -312,10 +263,7 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         finally:
             self._clear_header_deadline()
         if header_timed_out:
-            self.close_connection = True
-            if state is not None:
-                state.close_reason = "error"
-                state.close_connection = True
+            self._mark_close(state, "error")
             self._send_header_timeout()
             return
 
@@ -330,17 +278,11 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         try:
             handler.run(cast("Any", self.server).get_app())
         except Exception:
-            self.close_connection = True
-            if state is not None:
-                state.close_reason = "error"
-                state.close_connection = True
+            self._mark_close(state, "error")
             raise
 
         if environ.get("compute.close_connection"):
-            self.close_connection = True
-            if state is not None:
-                state.close_reason = "undrained"
-                state.close_connection = True
+            self._mark_close(state, "undrained")
         elif self.close_connection:
             if state is not None:
                 if state.close_reason not in ("undrained", "error", "eof"):

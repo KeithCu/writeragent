@@ -201,10 +201,6 @@ class ComputeSettings:
     def auth_required(self) -> bool:
         return bool(self.api_key)
 
-    @property
-    def is_loopback_bind(self) -> bool:
-        return self.host in LOOPBACK_HOSTS
-
     def validate(self) -> None:
         if not (1 <= self.port <= 65535):
             raise ConfigError(f"Invalid port: {self.port}")
@@ -239,7 +235,7 @@ class ComputeSettings:
             raise ConfigError(f"Invalid log_level: {self.log_level!r} (must be one of {sorted(VALID_LOG_LEVELS)})")
         # Loopback with no key stays open for local dev. Any other bind
         # must have a key, or the process listens with auth off.
-        if not self.is_loopback_bind and not self.api_key:
+        if self.host not in LOOPBACK_HOSTS and not self.api_key:
             raise ConfigError("Refusing to listen on a non-loopback address without an API key. Set PYTHON_COMPUTE_API_KEY or an api_key_file.")
 
 
@@ -366,13 +362,35 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
 # Only constructor fields are accepted. Non-init names such as 'threads'
 # are unknown keys, not a TypeError inside ComputeSettings(**values).
 _FIELD_NAMES = frozenset(f.name for f in fields(ComputeSettings) if f.init)
-_SECTION_KEYS = frozenset({"listen", "auth", "limits", "ocr", "logging"})
-_TOP_LEVEL_KEYS = _FIELD_NAMES | _SECTION_KEYS
-_LISTEN_KEYS = frozenset({"host", "port"})
+# Order is the ConfigError priority. logging applies "level" before "log_level"
+# so an explicit log_level wins when both are set.
+_SECTION_FIELDS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    ("listen", (("host", "host"), ("port", "port"))),
+    ("auth", (("api_key_file", "api_key_file"),)),
+    (
+        "limits",
+        (
+            ("max_body_bytes", "max_body_bytes"),
+            ("default_timeout_sec", "default_timeout_sec"),
+            ("max_timeout_sec", "max_timeout_sec"),
+            ("workers", "workers"),
+            ("worker_max_tasks", "worker_max_tasks"),
+            ("idle_worker_ttl_sec", "idle_worker_ttl_sec"),
+            ("max_code_chars", "max_code_chars"),
+        ),
+    ),
+    (
+        "ocr",
+        (
+            ("workers", "ocr_workers"),
+            ("timeout_sec", "ocr_timeout_sec"),
+            ("max_tasks", "ocr_max_tasks"),
+            ("allow_paths", "ocr_allow_paths"),
+        ),
+    ),
+    ("logging", (("level", "log_level"), ("log_level", "log_level"))),
+)
 _AUTH_KEYS = frozenset({"api_key", "api_key_file"})
-_LIMIT_KEYS = frozenset({"max_body_bytes", "default_timeout_sec", "max_timeout_sec", "workers", "worker_max_tasks", "idle_worker_ttl_sec", "max_code_chars"})
-_OCR_KEYS = frozenset({"workers", "timeout_sec", "max_tasks", "allow_paths"})
-_LOGGING_KEYS = frozenset({"log_level", "level"})
 
 _INT_FIELDS = frozenset(f.name for f in fields(ComputeSettings) if f.type is int or f.type == "int")
 _FLOAT_FIELDS = frozenset(f.name for f in fields(ComputeSettings) if f.type is float or f.type == "float")
@@ -402,59 +420,29 @@ def _reject_unknown_keys(section: Mapping[str, Any], allowed: frozenset[str], la
 
 
 def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
-    """Accept flat keys or nested ``listen`` / ``auth`` / ``limits`` / ``ocr`` sections."""
-    _reject_unknown_keys(raw, _TOP_LEVEL_KEYS, "config")
+    """Accept flat keys or nested ``listen`` / ``auth`` / ``limits`` / ``ocr`` / ``logging`` sections."""
+    _reject_unknown_keys(raw, _FIELD_NAMES | frozenset(label for label, _pairs in _SECTION_FIELDS), "config")
     out: dict[str, Any] = {}
-    listen = raw.get("listen")
-    if isinstance(listen, Mapping):
-        _reject_unknown_keys(listen, _LISTEN_KEYS, "listen")
-        if "host" in listen:
-            out["host"] = listen["host"]
-        if "port" in listen:
-            out["port"] = listen["port"]
-    elif listen is not None:
-        raise ConfigError("listen must be a JSON object")
-    # Refuse a raw api_key in the file. Auth comes from a key file or
-    # PYTHON_COMPUTE_API_KEY, so the process cannot start with auth off.
-    auth = raw.get("auth")
-    if "api_key" in raw or (isinstance(auth, Mapping) and "api_key" in auth):
-        raise ConfigError("Do not put api_key in the JSON config. Set PYTHON_COMPUTE_API_KEY or auth.api_key_file.")
-    if isinstance(auth, Mapping):
-        _reject_unknown_keys(auth, _AUTH_KEYS, "auth")
-        if "api_key_file" in auth:
-            out["api_key_file"] = auth["api_key_file"]
-    elif auth is not None:
-        raise ConfigError("auth must be a JSON object")
-    limits = raw.get("limits")
-    if isinstance(limits, Mapping):
-        _reject_unknown_keys(limits, _LIMIT_KEYS, "limits")
-        for key in _LIMIT_KEYS:
-            if key in limits:
-                out[key] = limits[key]
-    elif limits is not None:
-        raise ConfigError("limits must be a JSON object")
-    ocr_cfg = raw.get("ocr")
-    if isinstance(ocr_cfg, Mapping):
-        _reject_unknown_keys(ocr_cfg, _OCR_KEYS, "ocr")
-        for ocr_key, out_key in (("workers", "ocr_workers"), ("timeout_sec", "ocr_timeout_sec"), ("max_tasks", "ocr_max_tasks"), ("allow_paths", "ocr_allow_paths")):
-            if ocr_key in ocr_cfg:
-                out[out_key] = ocr_cfg[ocr_key]
-    elif ocr_cfg is not None:
-        raise ConfigError("ocr must be a JSON object")
-    logging_cfg = raw.get("logging")
-    if isinstance(logging_cfg, Mapping):
-        _reject_unknown_keys(logging_cfg, _LOGGING_KEYS, "logging")
-        if "log_level" in logging_cfg:
-            out["log_level"] = logging_cfg["log_level"]
-        elif "level" in logging_cfg:
-            out["log_level"] = logging_cfg["level"]
-    elif logging_cfg is not None:
-        raise ConfigError("logging must be a JSON object")
-
+    for label, pairs in _SECTION_FIELDS:
+        if label == "auth":
+            auth = raw.get("auth")
+            if "api_key" in raw or (isinstance(auth, Mapping) and "api_key" in auth):
+                raise ConfigError("Do not put api_key in the JSON config. Set PYTHON_COMPUTE_API_KEY or auth.api_key_file.")
+            allowed = _AUTH_KEYS
+        else:
+            allowed = frozenset(src for src, _dst in pairs)
+        section = raw.get(label)
+        if section is None:
+            continue
+        if not isinstance(section, Mapping):
+            raise ConfigError(f"{label} must be a JSON object")
+        _reject_unknown_keys(section, allowed, label)
+        for src, dst in pairs:
+            if src in section:
+                out[dst] = section[src]
     for key in _FIELD_NAMES:
         if key in raw and key not in out:
             out[key] = raw[key]
-
     return out
 
 
@@ -517,9 +505,6 @@ def load_settings(
     for float_field in _FLOAT_FIELDS:
         if float_field in values:
             values[float_field] = _as_float(values[float_field], field=float_field)
-
-    if "ocr_allow_paths" in values:
-        values["ocr_allow_paths"] = _as_path_tuple(values["ocr_allow_paths"])
 
     if "host" in values:
         if not values["host"]:
