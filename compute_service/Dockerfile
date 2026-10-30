@@ -16,7 +16,8 @@ RUN pip install --no-cache-dir --only-binary=:all: --target=/app/pkgs \
     "Pillow==13.0.0" "sympy==1.14.0" "pint==0.26.2" \
     "statsmodels==0.15.0" "seaborn==0.13.2" "openpyxl==3.1.5" "networkx==3.7" \
     "tabulate==0.10.0" \
-    "xlrd==2.0.2"
+    "xlrd==2.0.2" \
+    "thefuzz==0.22.1" "rapidfuzz==3.14.6"
 
 FROM python:3.12-slim AS bundle
 WORKDIR /src
