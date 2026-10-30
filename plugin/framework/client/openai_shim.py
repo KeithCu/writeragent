@@ -180,9 +180,7 @@ class OllamaShim(BaseProviderShim):
         img = response_data.get("image")
         if isinstance(img, str) and img:
             return [img]
-        if "data" in response_data:
-            return super().parse_image_responses(response_data)
-        return []
+        return super().parse_image_responses(response_data)
 
 
 class OpenRouterShim(BaseProviderShim):

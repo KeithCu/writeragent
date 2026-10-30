@@ -184,29 +184,23 @@ def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | No
 # Named UI / tool values → OpenRouter / Gemini aspect_ratio strings.
 _NAMED_ASPECT_RATIOS: dict[str, str] = {
     "square": "1:1",
-    "1:1": "1:1",
     "landscape_16_9": "16:9",
     "landscape_16:9": "16:9",
-    "16:9": "16:9",
     "portrait_9_16": "9:16",
     "portrait_9:16": "9:16",
-    "9:16": "9:16",
     "landscape_3_2": "3:2",
     "landscape_3:2": "3:2",
-    "3:2": "3:2",
     "portrait_2_3": "2:3",
     "portrait_2:3": "2:3",
-    "2:3": "2:3",
-    "4:3": "4:3",
-    "3:4": "3:4",
-    "21:9": "21:9",
-    "4:5": "4:5",
-    "5:4": "5:4",
 }
 
 # Closest-match table for WxH. min() picks the nearest ratio, so order
 # matters only when two ratios are exactly the same distance.
 _PIXEL_ASPECT_RATIOS: tuple[tuple[str, float], ...] = (("1:1", 1.0), ("16:9", 16 / 9), ("9:16", 9 / 16), ("4:3", 4 / 3), ("3:4", 3 / 4), ("3:2", 1.5), ("2:3", 2 / 3), ("21:9", 21 / 9), ("4:5", 4 / 5), ("5:4", 5 / 4))
+
+# Named wire strings ("16:9", "4:3", …) match the pixel-table labels.
+# image_generate sends those with no width/height; they must return themselves.
+_ASPECT_RATIO_LABELS: frozenset[str] = frozenset(label for label, _ratio in _PIXEL_ASPECT_RATIOS)
 
 
 def canonical_aspect_ratio(width: int | None = None, height: int | None = None, named: str | None = None) -> str | None:
@@ -220,6 +214,8 @@ def canonical_aspect_ratio(width: int | None = None, height: int | None = None, 
     """
     if named:
         key = str(named).strip().lower().replace(" ", "_").replace("(", "").replace(")", "")
+        if key in _ASPECT_RATIO_LABELS:
+            return key
         mapped = _NAMED_ASPECT_RATIOS.get(key)
         if mapped:
             return mapped
@@ -309,6 +305,18 @@ def inline_image_mime(image_url: str | None = None, source_image: str | None = N
         if mime:
             return mime
     return "image/png"
+
+
+def _dict_parts(content: Any) -> list[dict[str, Any]]:
+    """Content blocks that are dicts. Null, a string, or a non-dict part is skipped.
+
+    Calling ``.get`` on sync ``content: null`` or a non-dict part raises
+    TypeError / AttributeError. The Google image path already treats null
+    content as no blocks.
+    """
+    if not isinstance(content, list):
+        return []
+    return [part for part in content if isinstance(part, dict)]
 
 
 class BaseProviderShim:
@@ -537,12 +545,9 @@ class BaseProviderShim:
         # caller passing a list used to raise AttributeError on ``.get``.
         if not isinstance(response_data, dict):
             return []
-        items = response_data.get("data", [])
         # A null or non-object entry used to raise AttributeError on .get.
-        if not isinstance(items, list):
-            return []
         out = []
-        for it in items:
-            if isinstance(it, dict) and (b64 := it.get("b64_json")):
+        for it in _dict_parts(response_data.get("data")):
+            if b64 := it.get("b64_json"):
                 out.append(b64)
         return out
