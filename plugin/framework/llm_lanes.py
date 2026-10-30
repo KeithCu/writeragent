@@ -18,9 +18,7 @@ from typing import TYPE_CHECKING, Callable
 
 from plugin.framework.errors import BlockingWaitStopped
 from plugin.framework.i18n import _
-# One-way: send_cancellation must not import this module. The moved functions
-# look up get_current_send_cancellation in this module's globals; the function
-# object still reads send_cancellation's ContextVar via its own __globals__.
+# One-way import: send_cancellation must not import this module (cycle). Call its getter; the ContextVar stays in that module.
 from plugin.framework.send_cancellation import get_current_send_cancellation
 
 if TYPE_CHECKING:
@@ -51,7 +49,6 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
         timeout = float(get_config_int("request_timeout") or 60)
 
     deadline = time.monotonic() + timeout
-    acquired = False
     notified_status = False
 
     while True:
@@ -60,17 +57,13 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
             raise BlockingWaitStopped("stopped")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            break
+            log.warning("llm_request_lane timed out after %ss waiting for LLM lock", timeout)
+            raise TimeoutError("Timed out waiting for LLM request lane lock after %ss" % timeout)
         if _LLM_REQUEST_LOCK.acquire(timeout=min(_LLM_LANE_POLL_SEC, remaining)):
-            acquired = True
             break
         if not notified_status and status_callback is not None:
             status_callback(_("Waiting for another document's reply..."))
             notified_status = True
-
-    if not acquired:
-        log.warning("llm_request_lane timed out after %ss waiting for LLM lock", timeout)
-        raise TimeoutError("Timed out waiting for LLM request lane lock after %ss" % timeout)
 
     try:
         # Bugfix: the resume status_callback ran after acquire and before this
@@ -93,8 +86,7 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
     Callers resolve the limit (Writer ``grammar_max_in_flight(ctx)``) and pass it in —
     this module must not import ``plugin.writer``.
     """
-    limit = max_in_flight
-    if limit <= 1:
+    if max_in_flight <= 1:
         # Intentional: share the global LLM lane so grammar yields to chat.
         # Local models (llama.cpp, Ollama) can only serve one request at a
         # time; concurrent calls would queue at the server or OOM the GPU.
@@ -109,7 +101,7 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
         # that took the slot before this waiter reacquired). The advertised
         # bound is one deadline from entry. A wakeup that finds a free slot
         # still takes it.
-        while _GRAMMAR_INFLIGHT_COUNT >= limit:
+        while _GRAMMAR_INFLIGHT_COUNT >= max_in_flight:
             remaining = deadline - time.monotonic()
             if remaining <= 0 or not _GRAMMAR_INFLIGHT_CV.wait(timeout=remaining):
                 log.warning("grammar_llm_request_gate timed out after %ss waiting for slot", timeout)
