@@ -44,7 +44,6 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
 
     fields: dict[str, Any] = {}
     data_json: bytes | None = None
-    has_session_id = False
     i = _skip_ws(buf, i)
     if i < len(buf) and buf[i] == 0x7D:  # empty object
         i = _skip_ws(buf, i + 1)
@@ -79,10 +78,7 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
             # both appear (last ``data`` still wins). Goes away with peel.
             if data_json is None:
                 data_json = _coerce_data_json_field(value_slice)
-        elif key == "session_id":
-            has_session_id = True
-            fields[key] = _loads_small(value_slice)
-        elif key in ("id", "code", "mode", "timeout_ms", "init_script"):
+        elif key in ("id", "code", "mode", "timeout_ms", "init_script", "session_id"):
             fields[key] = _loads_small(value_slice)
 
         i = _skip_ws(buf, i)
@@ -108,7 +104,7 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
     if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
         raise ExecuteRequestError("timeout_ms must be a scalar")
 
-    return ExecuteRequestParts(req_id=req_id, code=fields.get("code"), mode=fields.get("mode"), timeout_ms=timeout_ms, init_script=fields.get("init_script"), data_json=data_json, has_session_id=has_session_id)
+    return ExecuteRequestParts(req_id=req_id, code=fields.get("code"), mode=fields.get("mode"), timeout_ms=timeout_ms, init_script=fields.get("init_script"), data_json=data_json, has_session_id="session_id" in fields)
 
 
 def _coerce_data_json_field(value_slice: bytes) -> bytes:

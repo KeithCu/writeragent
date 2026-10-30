@@ -529,13 +529,7 @@ def parse_multipart_vision(body: bytes, content_type: str) -> VisionRequestParts
 
 
 def parse_execute_request(body: bytes, content_type: str | None) -> ExecuteRequestParts:
-    """MIME dispatch: multipart (long-term) vs JSON-object peel (transitional).
-
-    Multipart ingress is significantly faster than JSON peel:
-    1.74x - 1.85x faster on tabular workloads (~517 RPS vs ~280 RPS) and
-    ~25% - 27% faster on formula workloads (~571 RPS vs ~450 RPS) by eliminating
-    JSON-escaping of code and character-by-character JSON envelope scanning.
-    """
+    """MIME dispatch: multipart (long-term) vs JSON-object peel (transitional)."""
     if is_multipart_content_type(content_type):
         return parse_multipart_execute(body, content_type or "")
     # Transitional Collabora contract. Keep until kit ships multipart;
@@ -543,11 +537,3 @@ def parse_execute_request(body: bytes, content_type: str | None) -> ExecuteReque
     from compute_service.json_peel import peel_execute_request
 
     return peel_execute_request(body)
-
-
-def __getattr__(name: str) -> Any:
-    if name == "peel_execute_request":
-        from compute_service.json_peel import peel_execute_request
-
-        return peel_execute_request
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
