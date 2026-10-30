@@ -89,6 +89,7 @@ import time
 from typing import Any, Callable, Dict, TypeVar
 
 _T = TypeVar("_T", int, float)
+_S = TypeVar("_S")
 
 from plugin.framework.errors import ConfigError, ConfigValidationError, safe_call
 from plugin.framework.event_bus import get_event_bus
@@ -218,10 +219,6 @@ def user_config_dir() -> str | None:
     return os.path.dirname(p) if p else None
 
 
-def _config_backup_path(config_file_path: str) -> str:
-    return config_file_path + CONFIG_BACKUP_SUFFIX
-
-
 def _backup_config_file(config_file_path: str, *, reason: str = "invalid-json") -> str | None:
     """Copy the raw config file before repair or other destructive handling."""
     # What was wrong: Every parse failure created a new timestamped .bak file,
@@ -240,33 +237,25 @@ def _backup_config_file(config_file_path: str, *, reason: str = "invalid-json") 
     except OSError:
         return None
 
-    backup_path = _config_backup_path(config_file_path)
+    backup_path = config_file_path + CONFIG_BACKUP_SUFFIX
     backup_dir = os.path.dirname(backup_path) or "."
     backup_base = os.path.basename(backup_path)
-
-    # Candidates: unsuffixed backup path, then stamped entries in the same directory.
-    if os.path.exists(backup_path):
-        try:
-            with open(backup_path, "rb") as f:
-                if f.read() == src_bytes:
-                    return backup_path
-        except OSError:
-            pass
-
     try:
         entries = os.listdir(backup_dir)
     except OSError:
         entries = []
-
-    stamped_candidates = sorted(e for e in entries if e.startswith(backup_base + "."))
-    for name in stamped_candidates:
-        cand_path = os.path.join(backup_dir, name)
+    candidates = [backup_path]
+    candidates.extend(
+        os.path.join(backup_dir, name)
+        for name in sorted(entry for entry in entries if entry.startswith(backup_base + "."))
+    )
+    for cand_path in candidates:
         try:
             with open(cand_path, "rb") as f:
                 if f.read() == src_bytes:
                     return cand_path
         except OSError:
-            pass
+            continue
 
     dest_path = backup_path
     if os.path.exists(backup_path):
@@ -298,10 +287,6 @@ def _strip_config_comment_header(text: str) -> str:
 
 def parse_config_json_text(text: str) -> dict[str, Any] | None:
     """Parse writeragent.json text, ignoring the optional ``//`` schema header."""
-    return _try_parse_config_dict(text)
-
-
-def _try_parse_config_dict(text: str) -> dict[str, Any] | None:
     try:
         data = json.loads(_strip_config_comment_header(text))
     except json.JSONDecodeError:
@@ -366,8 +351,7 @@ def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
         body = json.dumps(data, indent=4)
     except (TypeError, ValueError) as e:
         raise ConfigError(f"Config value is not JSON-serializable: {e}", code="CONFIG_SAVE_ERROR") from e
-    if not body.endswith("\n"):
-        body += "\n"
+    body += "\n"
     content = CONFIG_SCHEMA_COMMENT + body
     atomic_write_text(config_file_path, content, prefix=".writeragent-", fsync=True)
 
@@ -391,7 +375,7 @@ def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, pers
     except OSError as e:
         raise ConfigError(f"Failed to read config: {e}", code="CONFIG_READ_ERROR", details={"path": config_file_path}) from e
 
-    data = _try_parse_config_dict(text)
+    data = parse_config_json_text(text)
     if data is not None:
         return data
 
@@ -494,15 +478,10 @@ def get_config(key: str) -> Any:
     """Get a config value by key. JSON overrides; when key is missing, use schema default then central fallback."""
     config_data = _get_validated_config_dict()
     assert isinstance(config_data, dict)
-
-    if key in config_data:
-        return _copy_config_value(config_data[key])
-
-    for dotted in _config_schema._dotted_fallback_keys(key):
-        if dotted in config_data:
-            return _copy_config_value(config_data[dotted])
-
-    return _copy_config_value(_config_schema._resolve_default(key))
+    raw = _raw_config_value_for_key(config_data, key)
+    if raw is _config_schema._MISSING_VALUE:
+        raw = _config_schema._resolve_default(key)
+    return _copy_config_value(raw)
 
 
 def _required_number(key: str, parse: Callable[[Any], _T], kind: str) -> _T:
@@ -533,11 +512,7 @@ def get_config_str(key: str) -> str:
     missing key.
     """
     v = get_config(key)
-    if v is None:
-        return ""
-    if isinstance(v, str):
-        return v
-    return str(v)
+    return "" if v is None else str(v)
 
 
 def get_config_bool(key: str) -> bool:
@@ -565,22 +540,26 @@ def _log_unknown_config_key_once(key: str) -> None:
     log.warning("Unknown config key %r (CONFIG_KEY_NOT_FOUND); using fallback", key)
 
 
+def _read_config_or_default(key: str, read: Callable[[str], _S], parse: Callable[[Any], _S], zero: _S) -> _S:
+    try:
+        return read(key)
+    except ConfigError as exc:
+        if exc.code == "CONFIG_KEY_NOT_FOUND":
+            _log_unknown_config_key_once(key)
+            return zero
+        try:
+            return parse(_config_schema._resolve_default(key))
+        except ConfigError:
+            _log_unknown_config_key_once(key)
+            return zero
+
+
 def get_config_bool_safe(key: str) -> bool:
     """Boolean config, or the schema default when the stored value is a ConfigError.
 
     Unknown keys log once and return False. Other exceptions propagate.
     """
-    try:
-        return get_config_bool(key)
-    except ConfigError as exc:
-        if exc.code == "CONFIG_KEY_NOT_FOUND":
-            _log_unknown_config_key_once(key)
-            return False
-        try:
-            return _config_schema.as_bool(_config_schema._resolve_default(key))
-        except ConfigError:
-            _log_unknown_config_key_once(key)
-            return False
+    return _read_config_or_default(key, get_config_bool, _config_schema.as_bool, False)
 
 
 def get_config_int_safe(key: str) -> int:
@@ -589,17 +568,7 @@ def get_config_int_safe(key: str) -> int:
     Unknown keys log once and return 0. A non-integer stored value uses the
     schema default. Other exceptions propagate.
     """
-    try:
-        return get_config_int(key)
-    except ConfigError as exc:
-        if exc.code == "CONFIG_KEY_NOT_FOUND":
-            _log_unknown_config_key_once(key)
-            return 0
-        try:
-            return _config_schema.parse_int_robust(_config_schema._resolve_default(key))
-        except ConfigError:
-            _log_unknown_config_key_once(key)
-            return 0
+    return _read_config_or_default(key, get_config_int, _config_schema.parse_int_robust, 0)
 
 
 def get_config_float(key: str) -> float:
@@ -870,7 +839,6 @@ class ConfigStore:
         *,
         event_key: str | None = None,
         batch: bool = False,
-        emit: bool = True,
     ) -> bool:
         """Patch *updates* into *path*. Return True when the file changed.
 
@@ -880,10 +848,7 @@ class ConfigStore:
         """
         pending: _PendingConfigEvent | None = None
         with _config_write_lock:
-            if os.path.exists(path):
-                loaded = _load_config_dict(path, allow_repair=True, persist_repair=False, fail_on_unrepairable=True)
-            else:
-                loaded = {}
+            loaded = _load_config_dict(path, allow_repair=True, persist_repair=False, fail_on_unrepairable=True)
             # Shallow copy: staging pops and replaces keys. *loaded* stays
             # the bytes we read so an unchanged file is not rewritten.
             staged = dict(loaded)
@@ -905,13 +870,12 @@ class ConfigStore:
             except OSError as e:
                 log.exception("Error writing to %s", path)
                 raise ConfigError(f"Failed to save config: {e}", code="CONFIG_SAVE_ERROR") from e
-            if emit:
-                pending = _event_for_changes(effective, event_key=event_key, batch=batch)
+            pending = _event_for_changes(effective, event_key=event_key, batch=batch)
         if pending is not None:
             _emit_pending(pending)
         return True
 
-    def remove(self, path: str, key: str, *, emit: bool = True, event_key: str | None = None) -> bool:
+    def remove(self, path: str, key: str, *, event_key: str | None = None) -> bool:
         """Drop *key* and its aliases. Leave every other key as it was read."""
         if not path or not os.path.exists(path):
             return False
@@ -921,9 +885,6 @@ class ConfigStore:
                 loaded = _load_config_dict(path, allow_repair=True, persist_repair=False, fail_on_unrepairable=True)
             except ConfigError:
                 log.exception("remove_config skipped: config file could not be parsed")
-                return False
-            except OSError:
-                log.exception("remove_config skipped: config file could not be read")
                 return False
             old_value = _value_for_update(loaded, key)
             aliases = _alias_keys_for_write(key, honor_keep_flat=False)
@@ -955,8 +916,7 @@ class ConfigStore:
             except OSError as e:
                 log.exception("Error writing to %s", path)
                 raise ConfigError(f"Failed to remove config key: {e}", code="CONFIG_SAVE_ERROR") from e
-            if emit:
-                pending = _PendingConfigEvent(event_key or key, (key,), None, old_value, False)
+            pending = _PendingConfigEvent(event_key or key, (key,), None, old_value, False)
         if pending is not None:
             _emit_pending(pending)
         return True
