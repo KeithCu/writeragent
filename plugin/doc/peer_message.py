@@ -103,11 +103,6 @@ _listener_queues: WeakKeyDictionary[Any, deque[PeerPendingTurn]] = WeakKeyDictio
 _global_fifo: deque[tuple[weakref.ref[Any], PeerPendingTurn]] = deque()
 
 
-def is_v1_peer_model(model: Any) -> bool:
-    """True for Writer / Calc / Draw / Impress."""
-    return get_document_type(model) != DocumentType.UNKNOWN
-
-
 def v1_peer_type_label(model: Any) -> str | None:
     """``writer`` / ``calc`` / ``draw`` / ``impress``, or None if unsupported."""
     dt = get_document_type(model)
@@ -305,7 +300,7 @@ def resolve_peer_target(
     if self_doc is not None and (not self_uid or not peer_uid) and uno_same(self_doc, model):
         return None, "PEER_SELF", "Cannot send a peer message to the same document."
 
-    if not is_v1_peer_model(model):
+    if v1_peer_type_label(model) is None:
         return None, "PEER_UNSUPPORTED", "Target is not a Writer, Calc, Draw, or Impress document."
     return model, None, ""
 

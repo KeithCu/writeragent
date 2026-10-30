@@ -27,7 +27,6 @@ from plugin.doc.peer_message import (
     format_peer_catalog,
     _peer_not_chat_mode,
     identity_from_doc,
-    is_v1_peer_model,
     kick_pending_peer_starts,
     list_v1_peers,
     listener_queue_len,
@@ -154,12 +153,10 @@ def test_impress_is_distinct_v1_peer_not_draw():
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
     )
-    assert is_v1_peer_model(impress) is True
     assert v1_peer_type_label(impress) == "impress"
 
     draw = MagicMock()
     draw.supportsService.side_effect = lambda s: s == "com.sun.star.drawing.DrawingDocument"
-    assert is_v1_peer_model(draw) is True
     assert v1_peer_type_label(draw) == "draw"
 
 
