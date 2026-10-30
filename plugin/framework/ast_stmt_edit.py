@@ -101,17 +101,13 @@ def _cut_same_line_span(raw: str, start: int, end: int) -> str:
 
 
 def _get_container(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> list[ast.stmt] | None:
-    """Suite list (``body`` / ``orelse`` / ``finalbody`` / except body) containing *node*."""
+    """Suite (``body`` / ``orelse`` / ``finalbody``, including ExceptHandler and match_case)."""
     # crosshair: off
-    parent = parent_map.get(node)
-    if not parent:
-        return None
-    # body also covers ExceptHandler and match_case.
+    parent = parent_map[node]
     for attr in ("body", "orelse", "finalbody"):
-        if hasattr(parent, attr):
-            container = getattr(parent, attr)
-            if isinstance(container, list) and node in container:
-                return container
+        container = getattr(parent, attr, None)
+        if isinstance(container, list) and node in container:
+            return container
     return None
 
 
@@ -133,11 +129,10 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
 
     # Exact AST lines. splitlines() also breaks on \x0c, \x0b, U+2028, U+2029
     # (see line_starts_exact), which shifts AST line numbers and deletes the
-    # wrong line. line_starts_exact splits only on \r\n, \r, \n.
-    _starts = line_starts_exact(src)
-    lines = [src[start:end] for start, end in zip(_starts, _starts[1:] + [len(src)])]
-    if lines and not lines[-1]:
-        lines.pop()  # trailing newline: match splitlines(), which has no empty last element
+    # wrong line. Splits only on \r\n, \r, \n. ``if a < b`` drops the empty
+    # trailing slice so the list matches splitlines().
+    starts = line_starts_exact(src)
+    lines = [src[a:b] for a, b in zip(starts, starts[1:] + [len(src)]) if a < b]
     remove_set = set(nodes_to_remove)
     replacements: dict[int, str] = {}
     to_delete: set[int] = set()
@@ -176,12 +171,7 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
         else:
             end_col = node.end_col_offset
             # ``print(1); keep()`` shares a line. Deleting the whole line drops keep().
-            if (
-                start_line == end_line
-                and end_col is not None
-                and first_idx not in to_delete
-                and first_idx not in replacements
-            ):
+            if start_line == end_line and end_col is not None:
                 raw = lines[first_idx]
                 prefix = raw[:node.col_offset]
                 suffix = raw[end_col:]
