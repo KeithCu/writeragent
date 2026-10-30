@@ -500,17 +500,18 @@ def _parse_meta_object(meta_bytes: bytes, forbidden_keys: tuple[str, ...] | froz
         raise ExecuteRequestError("meta part must be a JSON object")
     for key in forbidden_keys:
         if key in obj:
-            raise ExecuteRequestError(f"meta part must not include a {key!r} field")
+            raise ExecuteRequestError(f"meta part must not include a {key!r} field", code="INVALID_REQUEST")
     req_id = obj.get("id")
-    if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
-        raise ExecuteRequestError("id must be a scalar")
     timeout_ms = obj.get("timeout_ms")
-    if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
-        raise ExecuteRequestError("timeout_ms must be a scalar")
     # 1e9999 survives parse_constant (that hook only sees NaN / Infinity
     # tokens) and becomes inf. Echoing it as id crashed allow_nan=False.
+    # Checked before the field checks so it stays a body (JSON) error.
     _reject_nonfinite_number(req_id)
     _reject_nonfinite_number(timeout_ms)
+    if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
+        raise ExecuteRequestError("id must be a scalar", code="INVALID_REQUEST")
+    if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
+        raise ExecuteRequestError("timeout_ms must be a scalar", code="INVALID_REQUEST")
     return obj
 
 

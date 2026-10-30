@@ -21,6 +21,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -378,11 +379,12 @@ class FormulaProcessPool(BaseProcessPool):
             return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
         if run_for < MIN_REQUEST_SEC:
             run_for = MIN_REQUEST_SEC
-        child_alarm = int(run_for)
+        # ceil, not int: int() turned a 2000 ms budget into a 1 s alarm.
+        child_alarm = math.ceil(run_for)
         payload["timeout_sec"] = child_alarm
         if expect_namespace:
             payload["expect_namespace"] = True
-        host_timeout = run_for + HOST_IPC_READ_GRACE_SEC
+        host_timeout = child_alarm + HOST_IPC_READ_GRACE_SEC
         res = leased.execute(payload, timeout_sec=host_timeout, req_id=req_id)
         created = bool(res.get("namespace_created")) if isinstance(res, dict) else False
         if expect_namespace and created and isinstance(res, dict):

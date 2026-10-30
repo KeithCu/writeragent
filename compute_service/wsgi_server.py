@@ -289,6 +289,22 @@ class DeadlineRequestHandler(WSGIRequestHandler):
                     state.close_reason = "close"
                 state.close_connection = True
 
+    def handle_expect_100(self) -> bool:
+        """Answer an oversized ``Expect: 100-continue`` body with 413, not 100 Continue."""
+        limit = getattr(self.server, "max_body_bytes", None)
+        raw_len = self.headers.get("Content-Length", "")
+        if limit is None or not raw_len.isdigit() or int(raw_len) <= limit:
+            return super().handle_expect_100()
+        body = b'{"status": "error", "error": "Request body too large"}'
+        self.send_response(413, "Payload Too Large")
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+        return False
+
     def _send_header_timeout(self) -> None:
         """Answer a header-read deadline with the same 408 the body path sends.
 
@@ -403,6 +419,7 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
     """Dual-stack thread-pooled WSGI server with idle connection parking."""
 
     park_idle_connections: bool = True
+    max_body_bytes: int | None = None
 
     server_name: str
     server_port: int

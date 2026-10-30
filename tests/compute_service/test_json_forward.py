@@ -642,6 +642,25 @@ class TestHttpBlobForward:
         assert payload["error"] == "Missing 'code' string parameter."
         assert payload["id"] == "c1"
 
+    def test_field_validation_error_is_not_invalid_json(self) -> None:
+        """Regression: a bad field reports its own message, not the generic body error."""
+
+        def execute_fn(**_kwargs):
+            raise AssertionError("invalid fields must not lease a worker")
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        status, out = _wsgi_post(app, b'{"id":[1],"code":"result = 1"}')
+        assert status.startswith("400")
+        assert json.loads(out)["error"] == "id must be a scalar"
+        content_type, body = _manual_multipart([("meta", b'{"timeout_ms":"5"}'), ("code", b"result = 1")])
+        status, out = _wsgi_post(app, body, content_type=content_type)
+        assert status.startswith("400")
+        assert json.loads(out)["error"] == "timeout_ms must be a scalar"
+        # A malformed body keeps the generic message.
+        status, out = _wsgi_post(app, b'{"code":')
+        assert status.startswith("400")
+        assert json.loads(out)["error"] == "Invalid JSON"
+
     def test_missing_meta_part_is_400(self) -> None:
         def execute_fn(**_kwargs):
             raise AssertionError("missing meta must not lease a worker")

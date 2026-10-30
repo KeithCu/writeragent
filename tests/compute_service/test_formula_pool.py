@@ -2160,6 +2160,30 @@ def test_idle_ttl_zero_or_none_does_not_start_reaper() -> None:
         pool_none.shutdown()
 
 
+def test_run_execution_alarm_keeps_full_remaining_second(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: a 2 s budget must arm a 2 s child alarm, not int() floor it to 1 s."""
+    from compute_service.worker_base import BaseProcessWorker, Deadline
+    from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    seen: dict[str, Any] = {}
+
+    def _capture(payload: dict[str, Any], timeout_sec: float, *, req_id: Any = None) -> dict[str, Any]:
+        seen["alarm"] = payload["timeout_sec"]
+        seen["host"] = timeout_sec
+        return {"status": "ok", "result": 1, "id": req_id}
+
+    worker.execute = _capture  # type: ignore[method-assign]
+    pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0)
+    try:
+        pool._run_execution(worker, {}, Deadline(2.0), "t", False)
+        assert seen["alarm"] == 2
+        assert seen["host"] == 2 + HOST_IPC_READ_GRACE_SEC
+    finally:
+        pool.shutdown()
+
+
 def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.MonkeyPatch) -> None:
     """A result_json that is not JSON is a RESULT_DECODE_ERROR dict, and the child stays up.
 
