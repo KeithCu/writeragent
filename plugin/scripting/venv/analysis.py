@@ -73,6 +73,18 @@ def _markdown_table(columns: list[str], rows: list[list[Any]]) -> str:
     return "\n".join([header, sep, *body])
 
 
+def _table(name: str, columns: list[Any], rows: list[list[Any]]) -> dict[str, Any]:
+    # Plain rows only. truncated is always false. The empty outlier table
+    # must keep columns=[], which _table_from_df would not do.
+    return {
+        "name": name,
+        "columns": columns,
+        "rows": rows,
+        "truncated": False,
+        "total_rows": len(rows),
+    }
+
+
 def _coerce_columns(value: Any, name: str, helper: str) -> list[str] | None | dict[str, Any]:
     # A string column list was previously iterated as characters (e.g.
     # metrics="Sales" -> S, a, l, e, s; agg="mean" -> tuple of letters).
@@ -172,13 +184,7 @@ def _format_cells_result(name: str, formatted: Any) -> dict[str, Any]:
     return _ok_result(
         name,
         metrics={"count": len(cells)},
-        tables=[{
-            "name": "formatted",
-            "columns": ["value"],
-            "rows": [[c] for c in cells],
-            "truncated": False,
-            "total_rows": len(cells),
-        }],
+        tables=[_table("formatted", ["value"], [[c] for c in cells])],
     )
 
 
@@ -480,7 +486,7 @@ def detect_outliers(
 
     outlier_rows = df.loc[mask].copy()
     outlier_rows["_outlier"] = True
-    table = _table_from_df(outlier_rows, name="outliers") if not outlier_rows.empty else {"name": "outliers", "columns": [], "rows": [], "truncated": False, "total_rows": 0}
+    table = _table_from_df(outlier_rows, name="outliers") if not outlier_rows.empty else _table("outliers", [], [])
     outlier_count = int(np.asarray(mask, dtype=bool).sum())
     if method_name == "isolation_forest":
         flags = [f"{outlier_count} outlier rows (isolation_forest)"] if outlier_count > 0 else []
@@ -546,7 +552,7 @@ class QuickStats:
             rows.append([f"Avg {col}", round(float(series.mean()), 4)])
             rows.append([f"Min {col}", round(float(series.min()), 4)])
             rows.append([f"Max {col}", round(float(series.max()), 4)])
-        table = {"name": "quick_stats", "columns": columns, "rows": rows, "truncated": False, "total_rows": len(rows)}
+        table = _table("quick_stats", columns, rows)
         return _ok_result(
             "quick_stats",
             metrics={"record_count": record_count, "numeric_columns": numeric_columns},
@@ -674,6 +680,12 @@ def _normalize_aggfunc(
     key_columns: list[str] | None,
 ) -> tuple[str | list[str] | dict[str, str], None] | tuple[None, dict[str, Any]]:
     allowed_str = ", ".join(sorted(_AGG_FUNCS))
+    if isinstance(aggfunc, (list, dict)) and not aggfunc:
+        return None, _error_result(
+            "INVALID_PARAM",
+            f"aggfunc must name at least one aggregation, got {aggfunc!r}",
+            helper=helper,
+        )
     # None is not a str, list, or dict; the final return is the same INVALID_PARAM
     if isinstance(aggfunc, str):
         name = _agg_name(aggfunc, helper=helper, allowed_str=allowed_str)
@@ -682,12 +694,6 @@ def _normalize_aggfunc(
         return name, None
 
     if isinstance(aggfunc, list):
-        if not aggfunc:
-            return None, _error_result(
-                "INVALID_PARAM",
-                f"aggfunc must name at least one aggregation, got {aggfunc!r}",
-                helper=helper,
-            )
         normalized_list: list[str] = []
         for item in aggfunc:
             name = _agg_name(item, helper=helper, allowed_str=allowed_str)
@@ -697,12 +703,6 @@ def _normalize_aggfunc(
         return normalized_list, None
 
     if isinstance(aggfunc, dict):
-        if not aggfunc:
-            return None, _error_result(
-                "INVALID_PARAM",
-                f"aggfunc must name at least one aggregation, got {aggfunc!r}",
-                helper=helper,
-            )
         if key_columns is None:
             return None, _error_result(
                 "INVALID_PARAM",
@@ -1105,13 +1105,11 @@ def run_regression(
         "method": "statsmodels_ols",
     }
 
-    coef_table = {
-        "name": "coefficients",
-        "columns": ["term", "coefficient", "std_err", "p_value", "ci_low", "ci_high"],
-        "rows": coef_rows,
-        "truncated": False,
-        "total_rows": len(coef_rows),
-    }
+    coef_table = _table(
+        "coefficients",
+        ["term", "coefficient", "std_err", "p_value", "ci_low", "ci_high"],
+        coef_rows,
+    )
     return _ok_result(
         "run_regression",
         metrics=metrics,
@@ -1209,13 +1207,7 @@ def cluster_numeric(
     if scaler is not None:
         centers = scaler.inverse_transform(centers)
     centroid_rows = [[int(i), *[round(float(v), 6) for v in row]] for i, row in enumerate(centers)]
-    centroid_table = {
-        "name": "centroids",
-        "columns": ["cluster", *numeric_cols],
-        "rows": centroid_rows,
-        "truncated": False,
-        "total_rows": len(centroid_rows),
-    }
+    centroid_table = _table("centroids", ["cluster", *numeric_cols], centroid_rows)
     labels_df = pd.DataFrame({"row": [str(idx) for idx in sample.index], "cluster": [int(label) for label in labels]})
     labels_table = _table_from_df(labels_df, name="labels", max_rows=DATA_TABLE_ROWS)
 
