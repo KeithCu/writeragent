@@ -83,22 +83,15 @@ class _ReusableBurstTimer:
     again. ``cancel`` clears the deadline without leaving the thread.
     """
 
-    _interval: float
-    _owner: weakref.ReferenceType["BatchingStreamQueue"]
-    _cv: threading.Condition
-    _deadline: float | None
-    _started: bool
-    _stopped: bool
-
     def __init__(self, owner: "BatchingStreamQueue", interval: float) -> None:
-        self._interval = interval
+        self._interval: float = interval
         # Weak so a finished send can drop the batcher. The thread would
         # otherwise keep it alive through the flush callback.
-        self._owner = weakref.ref(owner)
-        self._cv = threading.Condition()
-        self._deadline = None
-        self._started = False
-        self._stopped = False
+        self._owner: weakref.ReferenceType[BatchingStreamQueue] = weakref.ref(owner)
+        self._cv: threading.Condition = threading.Condition()
+        self._deadline: float | None = None
+        self._started: bool = False
+        self._stopped: bool = False
 
     def arm(self) -> None:
         """Start the interval if idle. A live deadline is left alone."""
@@ -180,36 +173,16 @@ class BatchingStreamQueue:
       `_drain_batch`); this class does not wait on that timeout.
     - `put` is for one producer thread. The lock makes one boundary `put` atomic
       with its flush; a second producer is not the supported use.
-
-    Typical usage:
-        raw_q = queue.Queue()
-        batched = BatchingStreamQueue(raw_q, batch_interval=1.0)
-        ...
-        # pass batched.content_cb() as append_callback to the LLM client
-        # or to any code that used to do lambda t: q.put((CHUNK, t))
-        ...
-        # before a boundary:
-        #   batched.flush()
-        #   raw_q.put((StreamQueueKind.STREAM_DONE, response))
-        # (or simply do batched.put((StreamQueueKind.STREAM_DONE, response))
-        #  which does the flush for you)
     """
 
-    _raw: queue.Queue[Any]
-    _interval: float
-    _lock: threading.Lock
-    _timer: _ReusableBurstTimer
-    _dropped: bool
-
     def __init__(self, raw_q: queue.Queue[Any], batch_interval: float) -> None:
-        self._raw = raw_q
-        self._interval = batch_interval
+        self._raw: queue.Queue[Any] = raw_q
         # Contiguous runs in arrival order. Emitting every CHUNK buffer before
         # every THINKING buffer showed the reply before [Thinking].
         self._runs: list[tuple[StreamQueueKind, list[str]]] = []
-        self._lock = threading.Lock()
-        self._dropped = False
-        self._timer = _ReusableBurstTimer(self, self._interval)
+        self._lock: threading.Lock = threading.Lock()
+        self._dropped: bool = False
+        self._timer: _ReusableBurstTimer = _ReusableBurstTimer(self, batch_interval)
 
     def __del__(self) -> None:
         # The timer thread holds only a weakref, and only while flushing.
@@ -220,18 +193,6 @@ class BatchingStreamQueue:
         except Exception:
             return
 
-    def _cancel_timer(self) -> None:
-        # Clear the deadline only. Dropping the timer object used to force
-        # the next burst to construct a new threading.Timer.
-        self._timer.cancel()
-
-    def _schedule_timer(self) -> None:
-        # One deadline per burst. The first CHUNK and the first THINKING each
-        # called this, and cancel-then-restart moved the 250 ms mark when the
-        # other kind arrived. Leave an armed deadline alone. Caller holds _lock.
-        # The thread itself is created once and reused.
-        self._timer.arm()
-
     def _append_display_locked(self, kind: StreamQueueKind, data: str) -> None:
         """Append one display fragment. Caller holds lock. Arms the burst timer once."""
         is_first = not self._runs
@@ -240,7 +201,9 @@ class BatchingStreamQueue:
         else:
             self._runs.append((kind, [data]))
         if is_first:
-            self._schedule_timer()
+            # Caller holds _lock. arm() leaves a live deadline alone, so a
+            # later THINKING does not move this burst's deadline.
+            self._timer.arm()
 
     def _emit_pending_locked(self) -> None:
         """Emit each contiguous display run, in arrival order. Caller holds lock."""
@@ -249,7 +212,7 @@ class BatchingStreamQueue:
         # makes emit atomic wrt _runs.
         runs = self._runs
         self._runs = []
-        self._cancel_timer()
+        self._timer.cancel()
         for kind, parts in runs:
             try:
                 self._raw.put((kind, "".join(parts)))
@@ -257,15 +220,7 @@ class BatchingStreamQueue:
                 log.exception("BatchingStreamQueue emit run failed")
 
     def put(self, item: Any) -> None:
-        """Put an item. CHUNK/THINKING are batched; everything else forces a flush first.
-
-        Batching rule (the "every 250 ms max, or when done" contract):
-        - The *first* delta that makes a buffer go from empty → non-empty arms
-          a one-shot timer for exactly self._interval from *that instant*.
-        - Later deltas in the same burst just append; they do not move the deadline.
-        - The timer firing, an explicit flush(), or any boundary control item
-          causes the accumulated text (one joined string per kind) to be emitted.
-        """
+        """Batch CHUNK/THINKING. Any other item flushes those runs first."""
         # Fast path for the two display kinds.
         # Bugfix: StreamQueueKind is a str enum, so "chunk" == StreamQueueKind.CHUNK
         # evaluated to True. Bare string tags were batched into display runs instead of
@@ -314,7 +269,7 @@ class BatchingStreamQueue:
         with self._lock:
             self._dropped = True
             self._runs.clear()
-            self._cancel_timer()
+            self._timer.cancel()
 
     # Convenience factories so existing lambda sites become one-liners
     def content_cb(self) -> Callable[[str], None]:

@@ -143,13 +143,13 @@ class TestBatchingStreamQueueTimerRace:
         timer_calls = []
         barrier = threading.Barrier(2)  # synchronise both threads to maximise the race window
 
-        original_schedule = batcher._schedule_timer
+        original_arm = batcher._timer.arm
 
-        def counting_schedule():
+        def counting_arm():
             timer_calls.append(1)
-            original_schedule()
+            original_arm()
 
-        batcher._schedule_timer = counting_schedule
+        batcher._timer.arm = counting_arm
 
         def producer():
             barrier.wait()  # both threads release simultaneously
@@ -166,7 +166,7 @@ class TestBatchingStreamQueueTimerRace:
         batcher.flush()
 
         assert len(timer_calls) == 1, (
-            f"_schedule_timer was called {len(timer_calls)} times; expected exactly 1. "
+            f"arm was called {len(timer_calls)} times; expected exactly 1. "
             "The timer deadline was reset by a concurrent producer."
         )
 
@@ -177,13 +177,13 @@ class TestBatchingStreamQueueTimerRace:
 
         timer_calls = []
         barrier = threading.Barrier(2)
-        original_schedule = batcher._schedule_timer
+        original_arm = batcher._timer.arm
 
-        def counting_schedule():
+        def counting_arm():
             timer_calls.append(1)
-            original_schedule()
+            original_arm()
 
-        batcher._schedule_timer = counting_schedule
+        batcher._timer.arm = counting_arm
 
         def producer():
             barrier.wait()
@@ -199,7 +199,7 @@ class TestBatchingStreamQueueTimerRace:
         batcher.flush()
 
         assert len(timer_calls) == 1, (
-            f"_schedule_timer was called {len(timer_calls)} times on THINKING path; expected 1."
+            f"arm was called {len(timer_calls)} times on THINKING path; expected 1."
         )
 
 
