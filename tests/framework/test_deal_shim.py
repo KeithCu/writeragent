@@ -37,12 +37,10 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_URL,
     DEAL_MAX_XL_EXPR,
     UNDER_CROSSHAIR,
-    _CROSSHAIR_OVERRIDES,
     _noop_contract,
     _profile,
     ascii_bounded,
     deal,
-    deal_maxima,
     inverse_ensure,
     str_bounded,
 )
@@ -87,60 +85,27 @@ def test_str_bounded_allows_unicode() -> None:
 def test_deal_shim_constants_match_pytest_profile() -> None:
     """Unset env / pytest binds the wide product-faithful table."""
     assert os.environ.get(CROSSHAIR_ENV) != "1"
-    wide = deal_maxima(crosshair=False)
-    assert DEAL_MAX_COL_LETTERS == wide.col_letters == 3
-    assert DEAL_MAX_COL_INDEX == wide.col_index == 26 + 26**2 + 26**3 - 1 == 18277
-    assert DEAL_MAX_CELL_REF == wide.cell_ref == 256
-    assert DEAL_MAX_TOKEN == wide.token == 64
-    assert DEAL_MAX_XL_EXPR == wide.xl_expr == 64
-    assert DEAL_MAX_ORIGIN == wide.origin == 256
-    assert DEAL_MAX_URL == wide.url == 256
-    assert DEAL_MAX_PATH == wide.path == 256
-    assert DEAL_MAX_ARGV == wide.argv == 4096
-    assert DEAL_MAX_CMD_ARGS == wide.cmd_args == 32
-    assert DEAL_MAX_SOURCE == wide.source == 8192
-    assert DEAL_MAX_MSGID == wide.msgid == 1024
-    assert DEAL_MAX_ROW_INDEX == wide.row_index == 1_048_575
-    assert DEAL_MAX_PLACEHOLDER_INDEX == wide.placeholder_index == 64
-    assert DEAL_MAX_SHAPE_RANK == wide.shape_rank == 4
-    assert DEAL_MAX_SHAPE_DIM == wide.shape_dim == 256
-    assert DEAL_MAX_RETRY == wide.retry == 8
-    assert DEAL_MAX_BACKOFF == wide.backoff == 300.0
-    assert DEAL_MAX_BACKOFF_FACTOR == wide.backoff_factor == 10.0
-    assert DEAL_MAX_HTML_CHUNK == wide.html_chunk == 4096
+    assert DEAL_MAX_COL_LETTERS == 3
+    assert DEAL_MAX_COL_INDEX == 26 + 26**2 + 26**3 - 1 == 18277
+    assert DEAL_MAX_CELL_REF == 256
+    assert DEAL_MAX_TOKEN == 64
+    assert DEAL_MAX_XL_EXPR == 64
+    assert DEAL_MAX_ORIGIN == 256
+    assert DEAL_MAX_URL == 256
+    assert DEAL_MAX_PATH == 256
+    assert DEAL_MAX_ARGV == 4096
+    assert DEAL_MAX_CMD_ARGS == 32
+    assert DEAL_MAX_SOURCE == 8192
+    assert DEAL_MAX_MSGID == 1024
+    assert DEAL_MAX_ROW_INDEX == 1_048_575
+    assert DEAL_MAX_PLACEHOLDER_INDEX == 64
+    assert DEAL_MAX_SHAPE_RANK == 4
+    assert DEAL_MAX_SHAPE_DIM == 256
+    assert DEAL_MAX_RETRY == 8
+    assert DEAL_MAX_BACKOFF == 300.0
+    assert DEAL_MAX_BACKOFF_FACTOR == 10.0
+    assert DEAL_MAX_HTML_CHUNK == 4096
     assert inverse_ensure is deal.ensure
-
-
-def test_deal_maxima_crosshair_profile_stays_tiny() -> None:
-    """Short table cannot drift; pair col_letters with col_index on both sides."""
-    short = deal_maxima(crosshair=True)
-    assert short.col_letters == 1
-    assert short.col_index == 25
-    assert short.cell_ref == 4
-    assert short.row_index == 20
-    assert short.argv == 32
-    assert short.cmd_args == 4
-    assert short.shape_dim == 4
-    assert short.shape_rank == 2
-    assert short.placeholder_index == 4
-    assert short.source == 16
-    assert short.msgid == 1024
-    assert short.path == 32
-    assert short.token == 16
-    assert short.xl_expr == 32
-    assert short.html_chunk == 16
-    assert short.origin == 32
-    assert short.url == 32
-    assert short.retry == 8
-    assert short.backoff == 300.0
-    assert short.backoff_factor == 10.0
-
-
-def test_crosshair_overrides_match_differing_fields() -> None:
-    wide = deal_maxima(crosshair=False)
-    short = deal_maxima(crosshair=True)
-    differing = {f for f in wide._fields if getattr(wide, f) != getattr(short, f)}
-    assert set(_CROSSHAIR_OVERRIDES.keys()) == differing
 
 
 def test_noop_contract() -> None:
@@ -184,15 +149,47 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
         import os
         os.environ["WRITERAGENT_CROSSHAIR"] = "1"
         from plugin.framework.deal_shim import (
+            DEAL_MAX_ARGV,
+            DEAL_MAX_BACKOFF,
+            DEAL_MAX_BACKOFF_FACTOR,
+            DEAL_MAX_CELL_REF,
+            DEAL_MAX_CMD_ARGS,
+            DEAL_MAX_COL_INDEX,
+            DEAL_MAX_COL_LETTERS,
             DEAL_MAX_HTML_CHUNK,
             DEAL_MAX_MSGID,
             DEAL_MAX_ORIGIN,
+            DEAL_MAX_PATH,
+            DEAL_MAX_PLACEHOLDER_INDEX,
+            DEAL_MAX_RETRY,
+            DEAL_MAX_ROW_INDEX,
+            DEAL_MAX_SHAPE_DIM,
+            DEAL_MAX_SHAPE_RANK,
+            DEAL_MAX_SOURCE,
+            DEAL_MAX_TOKEN,
             DEAL_MAX_URL,
+            DEAL_MAX_XL_EXPR,
             inverse_ensure,
         )
+        assert DEAL_MAX_COL_LETTERS == 1, DEAL_MAX_COL_LETTERS
+        assert DEAL_MAX_COL_INDEX == 25, DEAL_MAX_COL_INDEX
+        assert DEAL_MAX_CELL_REF == 4, DEAL_MAX_CELL_REF
+        assert DEAL_MAX_ROW_INDEX == 20, DEAL_MAX_ROW_INDEX
+        assert DEAL_MAX_ARGV == 32, DEAL_MAX_ARGV
+        assert DEAL_MAX_CMD_ARGS == 4, DEAL_MAX_CMD_ARGS
+        assert DEAL_MAX_SHAPE_DIM == 4, DEAL_MAX_SHAPE_DIM
+        assert DEAL_MAX_SHAPE_RANK == 2, DEAL_MAX_SHAPE_RANK
+        assert DEAL_MAX_PLACEHOLDER_INDEX == 4, DEAL_MAX_PLACEHOLDER_INDEX
+        assert DEAL_MAX_SOURCE == 16, DEAL_MAX_SOURCE
         assert DEAL_MAX_MSGID == 1024, DEAL_MAX_MSGID
+        assert DEAL_MAX_PATH == 32, DEAL_MAX_PATH
+        assert DEAL_MAX_TOKEN == 16, DEAL_MAX_TOKEN
+        assert DEAL_MAX_XL_EXPR == 32, DEAL_MAX_XL_EXPR
         assert DEAL_MAX_ORIGIN == 32, DEAL_MAX_ORIGIN
         assert DEAL_MAX_URL == 32, DEAL_MAX_URL
+        assert DEAL_MAX_RETRY == 8, DEAL_MAX_RETRY
+        assert DEAL_MAX_BACKOFF == 300.0, DEAL_MAX_BACKOFF
+        assert DEAL_MAX_BACKOFF_FACTOR == 10.0, DEAL_MAX_BACKOFF_FACTOR
         assert DEAL_MAX_HTML_CHUNK == 16, DEAL_MAX_HTML_CHUNK
         def _f(x):
             return x + 1
@@ -326,7 +323,7 @@ def test_cover_all_and_check_all_main_set_crosshair_env(tmp_path, monkeypatch) -
 
 
 def test_cover_all_workers_bind_short_deal_table(monkeypatch) -> None:
-    """Cover-all pool workers must see deal_maxima(crosshair=True), not pytest's wide table.
+    """Cover-all pool workers must see the short CrossHair bind, not pytest's wide table.
 
     Spawn (not fork): pytest has already imported deal_shim with the wide bind;
     fork would copy that. Cover-all's initializer + worker_deal_maxima set
@@ -344,12 +341,9 @@ def test_cover_all_workers_bind_short_deal_table(monkeypatch) -> None:
     monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
     assert CROSSHAIR_DEAL_ENV == CROSSHAIR_ENV == "WRITERAGENT_CROSSHAIR"
     assert os.environ.get(CROSSHAIR_ENV) != "1"
-    wide = deal_maxima(crosshair=False)
-    short = deal_maxima(crosshair=True)
-    assert DEAL_MAX_COL_INDEX == wide.col_index == 18277
-    assert DEAL_MAX_ROW_INDEX == wide.row_index == 1_048_575
-    assert DEAL_MAX_CELL_REF == wide.cell_ref == 256
-    assert (short.col_index, short.row_index, short.cell_ref) == (25, 20, 4)
+    assert DEAL_MAX_COL_INDEX == 18277
+    assert DEAL_MAX_ROW_INDEX == 1_048_575
+    assert DEAL_MAX_CELL_REF == 256
 
     ctx = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(
