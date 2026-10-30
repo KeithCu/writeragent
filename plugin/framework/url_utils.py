@@ -70,29 +70,20 @@ def host_matches(host: str, *domains: str) -> bool:
     return any(h == domain or h.endswith("." + domain) for domain in domains)
 
 
-def _is_zai_host(url: Any) -> bool:
-    """True when URL targets Z.ai (general or coding-plan API)."""
-    return host_matches(get_url_hostname(url), "z.ai")
-
-
-def _is_google_host(url: Any) -> bool:
-    """True when URL targets Google Gemini API (generativelanguage.googleapis.com)."""
-    return host_matches(get_url_hostname(url), "generativelanguage.googleapis.com")
-
-
 @deal.pre(lambda url, is_openwebui=False: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str) and result.startswith("/"))
 def get_api_version_suffix(url: Any, is_openwebui: bool = False) -> str:
     """Return the API version suffix (e.g. '/v1', '/v4', '/api/paas/v4') for a given endpoint URL."""
     if is_openwebui:
         return "/api"
+    host = get_url_hostname(url)
     # Z.ai: bare host uses general OpenAI base (/api/paas/v4); deeper paths append /v4 only.
-    if _is_zai_host(url):
+    if host_matches(host, "z.ai"):
         if not get_url_path(url).rstrip("/"):
             return "/api/paas/v4"
         return "/v4"
     # Google Gemini: OpenAI-compatible API base is /v1beta/openai
-    if _is_google_host(url):
+    if host_matches(host, "generativelanguage.googleapis.com"):
         return "/v1beta/openai"
     return "/v1"
 
@@ -112,13 +103,15 @@ def normalize_endpoint_url(url: Any, is_openwebui: bool = False) -> str:
     suffixes: tuple[str, ...]
     if is_openwebui:
         suffixes = ("/api/v1", "/api", "/v1")
-    elif _is_google_host(url):
-        suffixes = ("/v1beta/openai", "/v1beta", "/v1")
     else:
-        suffixes = (get_api_version_suffix(url, is_openwebui=False),)
-        if _is_zai_host(url):
-            suffixes += ("/v4",)
-        suffixes += ("/v1",)
+        host = get_url_hostname(url)
+        if host_matches(host, "generativelanguage.googleapis.com"):
+            suffixes = ("/v1beta/openai", "/v1beta", "/v1")
+        else:
+            suffixes = (get_api_version_suffix(url, is_openwebui=False),)
+            if host_matches(host, "z.ai"):
+                suffixes += ("/v4",)
+            suffixes += ("/v1",)
     for suffix in suffixes:
         if url.lower().endswith(suffix):
             return url[: -len(suffix)]
@@ -141,24 +134,14 @@ def _parse(url: Any) -> urllib.parse.ParseResult:
 @deal.post(lambda result: isinstance(result, str))
 def get_url_hostname(url: Any) -> str:
     """Return hostname from URL safely."""
-    try:
-        return _parse(url).hostname or ""
-    except (ValueError, TypeError, AttributeError):
-        # ParseResult.hostname raises ValueError for invalid ports.
-        return ""
+    return _parse(url).hostname or ""
 
 
 @deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_domain(url: Any) -> str:
     """Return 'example.com' from 'https://api.example.com/v1'."""
-    host = get_url_hostname(url)
-    if not host:
-        return ""
-    parts = host.split(".")
-    if len(parts) >= 2:
-        return ".".join(parts[-2:])
-    return host
+    return ".".join(get_url_hostname(url).split(".")[-2:])
 
 
 @deal.pre(lambda url: _deal_url_ok(url))

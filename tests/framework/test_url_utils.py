@@ -1,8 +1,8 @@
 from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 from plugin.framework.url_utils import (
-    _is_zai_host,
     dispatch_command_from_url,
     get_api_version_suffix,
+    get_url_domain,
     get_url_hostname,
     get_url_path,
     get_url_path_and_query,
@@ -54,11 +54,13 @@ class TestNormalizeEndpointUrl():
         suffix = get_api_version_suffix(stored)
         assert stored + suffix + "/chat/completions" == "https://api.z.ai/api/paas/v4/chat/completions"
 
-    def test_is_zai_host_uses_hostname_not_path(self):
-        assert _is_zai_host("https://api.z.ai/v1") is True
-        assert _is_zai_host("https://z.ai/api") is True
-        assert _is_zai_host("https://evil.example/z.ai") is False
-        assert _is_zai_host("https://notz.ai/") is False
+    def test_zai_match_uses_hostname_not_path(self):
+        # Non-empty path: /v4, not the bare-host /api/paas/v4.
+        assert get_api_version_suffix("https://api.z.ai/v1") == "/v4"
+        assert get_api_version_suffix("https://z.ai/api") == "/v4"
+        # Path text and a lookalike label are not z.ai.
+        assert get_api_version_suffix("https://evil.example/z.ai") == "/v1"
+        assert get_api_version_suffix("https://notz.ai/") == "/v1"
 
     def test_openwebui_normalization(self):
         # /api is stripped when is_openwebui is True (re-appended as get_api_version_suffix)
@@ -206,8 +208,19 @@ class TestUrlAccessors:
         assert get_url_hostname("https://example.com:8080/foo") == "example.com"
         assert get_url_hostname("https://[::1]:8080/foo") == "::1"
         assert get_url_hostname("https://[::1") == ""
+        assert get_url_hostname("https://example.com:abc/foo") == "example.com"
+        assert get_url_hostname("https://example.com:99999/foo") == "example.com"
         assert get_url_hostname("not a url") == ""
         assert get_url_hostname(None) == ""
+
+    def test_get_url_domain(self):
+        assert get_url_domain("https://api.example.com/v1") == "example.com"
+        assert get_url_domain("http://localhost/x") == "localhost"
+        assert get_url_domain("https://[::1]/") == "::1"
+        assert get_url_domain("") == ""
+        assert get_url_domain(None) == ""
+        # Last two labels. IPv4 stays "3.4" so the visit status line does not change.
+        assert get_url_domain("https://1.2.3.4/x") == "3.4"
 
     def test_get_url_path(self):
         assert get_url_path("https://example.com/foo/bar?q=1") == "/foo/bar"
