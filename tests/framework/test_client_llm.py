@@ -197,10 +197,25 @@ def test_headers_none_api_key_matches_empty_string():
 
 @pytest.mark.parametrize(
     "model",
-    ["o3", "o1-preview", "o4-mini-2025-04-16", "gpt-5-mini", "gpt-5.1", "gpt-5-codex", "openai/o3", "ft:gpt-5-mini:org:name:id", "ft:gpt-5-mini:org/team:name:id", "openai/ft:gpt-5-mini:org:name:id"],
+    [
+        "o3",
+        "o1-preview",
+        "o4-mini-2025-04-16",
+        "gpt-5-mini",
+        "gpt-5.1",
+        "gpt-5-codex",
+        "gpt-6",
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "ft:gpt-6-mini:org:name:id",
+        "openai/o3",
+        "ft:gpt-5-mini:org:name:id",
+        "ft:gpt-5-mini:org/team:name:id",
+        "openai/ft:gpt-5-mini:org:name:id",
+    ],
 )
 def test_openai_reasoning_models_send_max_completion_tokens(model):
-    """o-series and gpt-5 on api.openai.com reject max_tokens and non-default temperature."""
+    """o-series and gpt-5/6 on api.openai.com reject max_tokens and non-default temperature."""
     client = LlmClient(
         {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": model, "temperature": 0.7},
         MockContext(),
@@ -214,7 +229,16 @@ def test_openai_reasoning_models_send_max_completion_tokens(model):
 
 @pytest.mark.parametrize(
     "model",
-    ["gpt-5-chat-latest", "openai/gpt-5-chat-latest", "ft:gpt-5-chat-latest:org:name:id", "gpt-5.1-chat-latest", "gpt-5.2-chat-latest", "gpt-5.3-chat-latest", "openai/gpt-5.1-chat-latest"],
+    [
+        "gpt-5-chat-latest",
+        "openai/gpt-5-chat-latest",
+        "ft:gpt-5-chat-latest:org:name:id",
+        "gpt-5.1-chat-latest",
+        "gpt-5.2-chat-latest",
+        "gpt-5.3-chat-latest",
+        "gpt-6-chat-latest",
+        "openai/gpt-5.1-chat-latest",
+    ],
 )
 def test_gpt5_chat_latest_keeps_max_tokens_and_temperature(model):
     """ChatGPT gpt-5* snapshots accept max_tokens and temperature. startswith('gpt-5-chat') missed gpt-5.1-chat-latest."""
@@ -1455,7 +1479,16 @@ def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
         data = json.loads(body)
         assert "Date line." in data["system"]
         assert "Extra instructions." in data["system"]
-        assert data["output_config"] == {"effort": "low"}
+        assert "output_config" not in data
+
+        client.config["model"] = "claude-sonnet-5"
+        _m, _p, body5, _h = client.make_chat_request(
+            messages,
+            max_tokens=50,
+            chat_extra={"reasoning": {"effort": "minimal"}},
+        )
+        data5 = json.loads(body5)
+        assert data5["output_config"] == {"effort": "low"}
 
 
 def test_tool_call_schema_checked_before_openai_and_anthropic_shims(client):

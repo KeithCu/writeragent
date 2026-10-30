@@ -20,6 +20,202 @@ from plugin.framework.url_utils import get_url_path_and_query
 # module imports this package's registry at load time).
 OPENROUTER_CHAT_EXTRA_BLOCKLIST: frozenset[str] = frozenset({"messages", "tools", "tool_choice", "stream"})
 
+OUR_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+# Grammar chat_extra only. Not a sidebar value. Means "lowest documented value".
+LOWEST_SENTINEL = "minimal"
+
+
+def _bare_model_id(model: str | None) -> str:
+    name = str(model or "").strip().lower()
+    if "/" in name:
+        name = name.rsplit("/", 1)[-1]
+    if name.startswith("models/"):
+        name = name[len("models/") :]
+    return name
+
+
+def _sendable_efforts(provider: str | None, model: str | None) -> tuple[str, ...] | None:
+    """Ascending values this provider/model may be sent. None = send no field."""
+    prov = str(provider or "").strip().lower()
+    if prov == "openrouter":
+        return ("minimal", "low", "medium", "high", "xhigh", "max")
+
+    if prov == "openai":
+        from .openai_shim import _openai_model_base, _openai_reasoning_model
+
+        if not _openai_reasoning_model(model):
+            return None
+        base = _openai_model_base(model)
+        if base.startswith(("gpt-6", "gpt-5.6")):
+            return ("minimal", "low", "medium", "high", "xhigh", "max")
+        if base.startswith("gpt-5.5"):
+            return ("minimal", "low", "medium", "high", "xhigh")
+        return ("minimal", "low", "medium", "high")
+
+    if prov == "anthropic":
+        bare = _bare_model_id(model)
+        if bare.startswith(("claude-opus-4-6", "claude-sonnet-4-6")):
+            return ("low", "medium", "high", "max")
+        if "mythos" in bare and "preview" in bare:
+            return ("low", "medium", "high", "max")
+        if bare.startswith("claude-opus-4-5"):
+            return ("low", "medium", "high")
+        if bare.startswith(
+            (
+                "claude-opus-4-7",
+                "claude-opus-4-8",
+                "claude-opus-5",
+                "claude-sonnet-5",
+                "claude-haiku-5",
+                "claude-fable",
+                "claude-mythos",
+            )
+        ):
+            return OUR_EFFORTS
+        return None
+
+    if prov == "google":
+        return ("low", "medium", "high")
+
+    if prov == "xai":
+        return ("low", "medium", "high", "xhigh")
+
+    if prov == "deepseek":
+        return OUR_EFFORTS
+
+    if prov == "mistral":
+        bare = _bare_model_id(model)
+        if bare.startswith("mistral-large-4"):
+            return ("low", "medium", "high")
+        if bare.startswith(("mistral-small-2603", "mistral-medium-3-5")):
+            return ("none", "high")
+        if bare.startswith("zai-glm"):
+            return ("low", "high", "max")
+        return None
+
+    if prov == "groq":
+        bare = _bare_model_id(model)
+        if "muse-spark" in bare:
+            return ("low", "medium", "high", "xhigh")
+        if "gpt-oss" in bare or "qwen3" in bare:
+            return ("low", "medium", "high")
+        return None
+
+    if prov == "ollama":
+        return OUR_EFFORTS
+
+    # lmstudio, together, cerebras, perplexity, zai, nvidia, custom, and any unrecognized key
+    return ("low", "medium", "high")
+
+
+def _place_effort(provider: str | None, value: str) -> dict[str, Any]:
+    prov = str(provider or "").strip().lower()
+    if prov == "openrouter":
+        return {"reasoning": {"effort": value}}
+    if prov == "anthropic":
+        return {"output_config": {"effort": value}}
+    return {"reasoning_effort": value}
+
+
+def effort_payload(provider: str | None, model: str | None, level: str | None) -> dict[str, Any]:
+    """Fragment to merge into the chat JSON body. {} sends no effort field."""
+    if not isinstance(level, str):
+        return {}
+    req = level.strip().lower()
+    if not req or req == "default":
+        return {}
+    if req != LOWEST_SENTINEL and req not in OUR_EFFORTS:
+        return {}
+
+    sendable = _sendable_efforts(provider, model)
+    if not sendable:
+        return {}
+
+    if req == LOWEST_SENTINEL:
+        return _place_effort(provider, sendable[0])
+
+    if req in sendable:
+        return _place_effort(provider, req)
+
+    req_idx = OUR_EFFORTS.index(req)
+    chosen: str | None = None
+    for s in reversed(sendable):
+        if s in OUR_EFFORTS:
+            if OUR_EFFORTS.index(s) < req_idx:
+                chosen = s
+                break
+        elif s in ("none", "minimal"):
+            chosen = s
+            break
+
+    if chosen is None:
+        return {}
+    return _place_effort(provider, chosen)
+
+
+def next_lower_effort_body(provider: str | None, body: bytes | str) -> bytes | None:
+    """Return new JSON request body with stepped-down effort on HTTP 400, or None."""
+    try:
+        raw_str = body.decode("utf-8") if isinstance(body, bytes) else str(body)
+        data = json.loads(raw_str)
+        if not isinstance(data, dict):
+            return None
+    except Exception:
+        return None
+
+    model = data.get("model")
+    sendable = _sendable_efforts(provider, model)
+
+    sent_val: str | None = None
+    field_kind: str | None = None
+
+    out_cfg = data.get("output_config")
+    if isinstance(out_cfg, dict) and isinstance(out_cfg.get("effort"), str):
+        sent_val = out_cfg["effort"]
+        field_kind = "output_config"
+    else:
+        rsn = data.get("reasoning")
+        if isinstance(rsn, dict) and isinstance(rsn.get("effort"), str):
+            sent_val = rsn["effort"]
+            field_kind = "reasoning"
+        elif isinstance(data.get("reasoning_effort"), str):
+            sent_val = data["reasoning_effort"]
+            field_kind = "reasoning_effort"
+
+    if sent_val is None or field_kind is None:
+        return None
+
+    next_val: str | None = None
+    if sendable and sent_val in sendable:
+        idx = sendable.index(sent_val)
+        if idx > 0:
+            next_val = sendable[idx - 1]
+
+    if next_val is not None:
+        if field_kind == "output_config":
+            data["output_config"]["effort"] = next_val
+        elif field_kind == "reasoning":
+            data["reasoning"]["effort"] = next_val
+        elif field_kind == "reasoning_effort":
+            data["reasoning_effort"] = next_val
+    else:
+        if field_kind == "output_config":
+            data["output_config"].pop("effort", None)
+            if not data["output_config"]:
+                data.pop("output_config", None)
+        elif field_kind == "reasoning":
+            data["reasoning"].pop("effort", None)
+            if not data["reasoning"]:
+                data.pop("reasoning", None)
+        elif field_kind == "reasoning_effort":
+            data.pop("reasoning_effort", None)
+
+    new_bytes = json.dumps(data).encode("utf-8")
+    old_bytes = body if isinstance(body, bytes) else body.encode("utf-8")
+    if new_bytes == old_bytes:
+        return None
+    return new_bytes
+
 
 def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | None) -> None:
     """Merge *extra* into *base* in place. Skips blocklisted keys; recurses into dict values."""
@@ -170,9 +366,29 @@ class BaseProviderShim:
     """Base provider shim implementing standard OpenAI-compatible API format by default."""
 
     client: Any
+    _effort_provider: str | None = None
 
     def __init__(self, client: Any) -> None:
         self.client = client
+
+    def _reasoning_provider(self) -> str:
+        if self._openrouter_chat():
+            return "openrouter"
+        if self._effort_provider:
+            return self._effort_provider
+        get_provider = getattr(self.client, "_get_provider", None)
+        if callable(get_provider):
+            res = get_provider()
+            if isinstance(res, str) and res:
+                return res
+        get_endpoint = getattr(self.client, "_endpoint", None)
+        if callable(get_endpoint):
+            from .provider_detection import get_provider_from_endpoint
+
+            ep = get_endpoint()
+            if isinstance(ep, str):
+                return get_provider_from_endpoint(ep) or "custom"
+        return "custom"
 
     def _endpoint_reasoning_effort(self) -> str:
         config = getattr(self.client, "config", None)
@@ -182,6 +398,15 @@ class BaseProviderShim:
         if not isinstance(raw, str):
             return ""
         return raw.strip()
+
+    def _requested_effort_level(self, chat_extra: dict[str, Any] | None) -> str:
+        if isinstance(chat_extra, dict):
+            reasoning = chat_extra.get("reasoning")
+            if isinstance(reasoning, dict):
+                raw_effort = reasoning.get("effort")
+                if isinstance(raw_effort, str) and raw_effort.strip():
+                    return raw_effort.strip()
+        return self._endpoint_reasoning_effort()
 
     def _openrouter_chat(self) -> bool:
         config = getattr(self.client, "config", None)
@@ -221,28 +446,29 @@ class BaseProviderShim:
             extra = self.client.config.get("openrouter_chat_extra")
             if isinstance(extra, dict) and extra:
                 merge_openrouter_chat_extra(data, extra)
-        effort = self._endpoint_reasoning_effort()
-        if effort:
-            if openrouter:
+
+        # Bugfix: grammar's chat_extra was an OpenRouter reasoning object merged raw
+        # (or rewritten to reasoning_effort: "minimal" on non-OpenRouter), sending
+        # undocumented keys or values. The sidebar value was also copied verbatim,
+        # sending max to xAI/Gemini and xhigh to models whose ceiling is high.
+        # Now effort_payload maps or steps down per provider and model.
+        level = self._requested_effort_level(chat_extra)
+        if level:
+            fragment = effort_payload(self._reasoning_provider(), model_name, level)
+            if "reasoning" in fragment:
                 reasoning = data.get("reasoning")
                 if isinstance(reasoning, dict):
-                    reasoning["effort"] = effort
+                    reasoning["effort"] = fragment["reasoning"]["effort"]
                 else:
-                    data["reasoning"] = {"effort": effort}
-            else:
-                data["reasoning_effort"] = effort
+                    data["reasoning"] = dict(fragment["reasoning"])
+            elif "reasoning_effort" in fragment:
+                data["reasoning_effort"] = fragment["reasoning_effort"]
+                if not openrouter and "reasoning" in data:
+                    data.pop("reasoning", None)
         if isinstance(chat_extra, dict) and chat_extra:
-            # Grammar's chat_extra is the OpenRouter object {"reasoning": {"effort": "minimal"}}.
-            # Merging it unchanged put that object on every OpenAI-compatible host.
-            payload_extra = chat_extra
-            if not openrouter and "reasoning" in chat_extra:
-                payload_extra = dict(chat_extra)
-                reasoning = payload_extra.pop("reasoning")
-                if isinstance(reasoning, dict):
-                    raw_effort = reasoning.get("effort")
-                    if isinstance(raw_effort, str) and raw_effort.strip():
-                        payload_extra["reasoning_effort"] = raw_effort.strip()
-            merge_openrouter_chat_extra(data, payload_extra)
+            payload_extra = {k: v for k, v in chat_extra.items() if k != "reasoning"}
+            if payload_extra:
+                merge_openrouter_chat_extra(data, payload_extra)
         return data
 
     def build_chat_request(

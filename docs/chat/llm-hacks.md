@@ -77,7 +77,7 @@ Main chat: `LlmClient._run_streaming_loop` → `OpenAIShim.parse_response_chunk`
 **Other context:**
 
 - Ollama **native** `/api/chat` uses `message.thinking` ([Ollama thinking](https://docs.ollama.com/capabilities/thinking)); WriterAgent uses `/v1/chat/completions` only.
-- WriterAgent does not send Ollama `think: true` / `reasoning_effort` on chat requests today ([`OpenAIShim.build_chat_request`](../../plugin/framework/client/llm_client.py)); may matter if separated fields are never emitted.
+- A non-empty sidebar level is sent through `effort_payload` in `base_provider_shim.py` (`reasoning.effort` on OpenRouter, `output_config.effort` on Anthropic, top-level `reasoning_effort` elsewhere), and an empty level sends nothing.
 - **`chatbot.show_search_thinking`**: tool/web paths only, not main LLM stream ([`tool_loop.py`](../../plugin/chatbot/tool_loop.py)).
 
 ### Verification (one capture, same prompt/model)

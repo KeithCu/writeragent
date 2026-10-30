@@ -14,6 +14,8 @@ from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canoni
 class GrokShim(BaseProviderShim):
     """Shim for xAI Grok API (OpenAI-compatible chat, Imagine image generation)."""
 
+    _effort_provider: str | None = "xai"
+
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         ref = coerce_image_data_url(image_url, source_image)
         # Create stays on /images/generations. xAI edit is a different JSON

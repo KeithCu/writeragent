@@ -401,6 +401,25 @@ class LlmClient:
 
         return method, path, body, headers
 
+    def _effort_400_retry_body(self, exc: Exception, body: Any, stop_checker: Any = None) -> bytes | None:
+        """Return stepped-down chat body bytes on an effort-related HTTP 400, or None."""
+        if self._stopped or (stop_checker and stop_checker()):
+            return None
+        if not isinstance(exc, NetworkError):
+            return None
+        details = getattr(exc, "details", None)
+        if not isinstance(details, dict) or details.get("status") != 400:
+            return None
+        if "effort" not in str(exc).lower():
+            return None
+        from .base_provider_shim import next_lower_effort_body
+
+        new_body = next_lower_effort_body(self._get_provider(), body)
+        if new_body is None:
+            return None
+        log.warning("HTTP 400 rejected reasoning effort (%s); retrying with lower effort", exc)
+        return new_body
+
     def _exchange_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None, retry_log_message: str, on_retry: Any = None, wrap_unexpected: bool = False, failure_log: str = "JSON request failed") -> tuple[str, Any]:
         """One non-streaming JSON exchange with the shared retry budget.
 
@@ -628,6 +647,7 @@ class LlmClient:
         sends_left = RETRY_MAX_ATTEMPTS
         wait_index = 0
         emitted_any = False
+        effort_stepped = False
         while True:
             # on_delta writes role, usage, and a buffered "<think" prefix into
             # the caller's snapshot before any callback runs. emitted_any stays
@@ -913,6 +933,12 @@ class LlmClient:
                 if getattr(e, "code", None) == "STOPPED":
                     self._stopped = True
                     return "stop"
+                if not effort_stepped and not emitted_any:
+                    new_body = self._effort_400_retry_body(e, body, stop_checker=abort_checker)
+                    if new_body is not None:
+                        effort_stepped = True
+                        body = new_body
+                        continue
                 raise
             except Exception as e:
                 if isinstance(e, WriterAgentException) or is_disposed_exception(e):
@@ -1040,7 +1066,14 @@ class LlmClient:
                 except Exception as log_exc:
                     log.warning("Could not log redacted outgoing messages: %s", log_exc)
 
-            action, result = self._exchange_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection", on_retry=_log_outgoing_on_retry, wrap_unexpected=True, failure_log="request_with_tools failed")
+            try:
+                action, result = self._exchange_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection", on_retry=_log_outgoing_on_retry, wrap_unexpected=True, failure_log="request_with_tools failed")
+            except NetworkError as exc:
+                new_body = self._effort_400_retry_body(exc, body, stop_checker=stop_checker)
+                if new_body is None:
+                    raise
+                body = new_body
+                action, result = self._exchange_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection", on_retry=_log_outgoing_on_retry, wrap_unexpected=True, failure_log="request_with_tools failed")
             if action == "stop":
                 return stopped_result
 
