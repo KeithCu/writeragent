@@ -55,22 +55,18 @@ def unpack_restricted_pickle_frame(payload: bytes) -> Any:
         raise ValueError(str(exc)) from exc
 
 
-def set_pdeathsig(sig: int | None = None) -> bool:
+def set_pdeathsig() -> bool:
     """Set parent death signal on Linux via prctl so child worker terminates on hard host exit.
 
     Guarded so non-Linux platforms (macOS/Windows) safely return False without error.
-    Default signal is SIGKILL, looked up only on Linux.
+    SIGKILL is read only inside this Linux branch. Windows has no SIGKILL.
     """
     if sys.platform != "linux":
         return False
-    # Looked up here, not as a default argument. Defaults are evaluated at
-    # import on every platform, and Windows has no SIGKILL.
-    if sig is None:
-        sig = signal.SIGKILL
     try:
         import ctypes
 
-        res = ctypes.CDLL(None).prctl(1, ctypes.c_ulong(sig), 0, 0, 0)
+        res = ctypes.CDLL(None).prctl(1, ctypes.c_ulong(signal.SIGKILL), 0, 0, 0)
         return res == 0
     except Exception:
         return False
@@ -180,34 +176,31 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
         # error dict, _finish_release saw is_alive(), and the next lease got
         # WORKER_PIPE_BROKEN or WORKER_CRASHED. The "exiting" key tells the host
         # to recycle the slot; os._exit(1) runs only after the frame is written.
-        should_exit = False
-        if _lpe is not None and getattr(_lpe, "abandoned_timeout", False):
-            _lpe.abandoned_timeout = False
-            should_exit = True
-
+        should_exit = _lpe is not None and getattr(_lpe, "abandoned_timeout", False)
         if should_exit:
+            assert _lpe is not None
+            _lpe.abandoned_timeout = False
             res["exiting"] = True
 
         wrote = False
-        out = res
-        while True:
+        try:
+            write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
+            wrote = True
+        except IpcFrameError as exc:
+            out = {"id": req.get("id"), "status": "error", "code": "RESULT_TOO_LARGE", "error": f"Result exceeds maximum payload size: {exc}"}
+            if should_exit:
+                out["exiting"] = True
             try:
                 write_pickle_frame(stdout_bin, out, max_payload_bytes=max_payload_bytes)
                 wrote = True
-                break
-            except IpcFrameError as exc:
-                if out is not res:
-                    break
-                out = {"id": req.get("id"), "status": "error", "code": "RESULT_TOO_LARGE", "error": f"Result exceeds maximum payload size: {exc}"}
-                if should_exit:
-                    out["exiting"] = True
             except Exception:
-                break
+                pass
+        except Exception:
+            pass
 
         if not wrote:
             break
-
-        if should_exit and wrote:
+        if should_exit:
             os._exit(1)
 
     return 0

@@ -586,12 +586,8 @@ def test_set_pdeathsig() -> None:
     from compute_service.worker_base import set_pdeathsig
 
     if sys.platform != "linux":
-        # SIGKILL is Unix-only; reading it here raises AttributeError on Windows.
         assert set_pdeathsig() is False
     else:
-        import signal
-
-        assert set_pdeathsig(signal.SIGKILL) is True
         assert set_pdeathsig() is True
 
 
