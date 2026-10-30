@@ -154,21 +154,17 @@ def _path_settings_from_ctx(ctx: Any) -> Any | None:
     return ctx.getValueByName("/singletons/com.sun.star.util.thePathSettings")
 
 
-def _substitute_lo_path_variables(ctx: Any, raw: str) -> str:
-    """Expand LO path variables such as $(home) in a PathSettings value."""
-    text = str(raw).strip()
-    if not text:
-        return ""
-    if ctx is not None and hasattr(ctx, "getValueByName"):
-        subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
-        if subst is not None and hasattr(subst, "substituteVariables"):
-            return best_effort(lambda: str(subst.substituteVariables(text, True)).strip(), "_substitute_lo_path_variables failed", text)
-    return text
-
-
 def _resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
     """Normalize a PathSettings directory value to an existing absolute path."""
-    text = _substitute_lo_path_variables(ctx, raw)
+    text = str(raw).strip()
+    if text and ctx is not None and hasattr(ctx, "getValueByName"):
+        subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
+        if subst is not None and hasattr(subst, "substituteVariables"):
+            text = best_effort(
+                lambda: str(subst.substituteVariables(text, True)).strip(),
+                "_substitute_lo_path_variables failed",
+                text,
+            )
     if not text:
         return None
     if text.startswith("file://"):
@@ -285,8 +281,6 @@ def _scan_directory(
     max_entries: int,
     stop_checker: Callable[[], bool] | None = None,
 ) -> tuple[list[FileEntry], bool]:
-    entries: list[FileEntry] = []
-    truncated = False
     exclude_norm = _normalize_path(exclude_path) if exclude_path else None
     filter_lower = filter_substring.lower() if filter_substring else None
 
@@ -321,16 +315,18 @@ def _scan_directory(
             continue
         candidates.append((name, full, norm, st))
 
-    candidates.sort(key=lambda item: item[3].st_mtime, reverse=True)
-
-    for name, full, norm, st in candidates:
-        if len(entries) >= max_entries:
-            truncated = True
-            break
-        url = open_paths.get(norm) or path_to_file_url(full)
-        entries.append(
-            _make_entry(norm, name, url, st.st_mtime, st.st_size, is_open=norm in open_paths)
+    chosen, truncated = _cap_newest(candidates, max_entries, mtime_of=lambda item: item[3].st_mtime)
+    entries = [
+        _make_entry(
+            norm,
+            name,
+            open_paths.get(norm) or path_to_file_url(full),
+            st.st_mtime,
+            st.st_size,
+            is_open=norm in open_paths,
         )
+        for name, full, norm, st in chosen
+    ]
     return entries, truncated
 
 
@@ -340,8 +336,6 @@ def _entries_from_open_only(
     filter_substring: str | None,
     max_entries: int,
 ) -> tuple[list[FileEntry], bool]:
-    entries: list[FileEntry] = []
-    truncated = False
     filter_lower = filter_substring.lower() if filter_substring else None
     items: list[tuple[str, str, float, int]] = []
     for norm, url in open_paths.items():
@@ -350,22 +344,31 @@ def _entries_from_open_only(
             continue
         if filter_lower and filter_lower not in name.lower():
             continue
-        try:
-            st = os.stat(norm)
-        except OSError:
-            st_mtime, st_size = 0.0, 0
-        else:
-            st_mtime, st_size = st.st_mtime, st.st_size
-        items.append((norm, url, st_mtime, st_size))
-    items.sort(key=lambda x: x[2], reverse=True)
-    for norm, url, mtime, size in items:
-        if len(entries) >= max_entries:
-            truncated = True
-            break
-        entries.append(
-            _make_entry(norm, os.path.basename(norm), url, mtime, size, is_open=True)
-        )
+        mtime, size = _mtime_size_or_zero(norm)
+        items.append((norm, url, mtime, size))
+    chosen, truncated = _cap_newest(items, max_entries, mtime_of=lambda item: item[2])
+    entries = [
+        _make_entry(norm, os.path.basename(norm), url, mtime, size, is_open=True)
+        for norm, url, mtime, size in chosen
+    ]
     return entries, truncated
+
+
+def _mtime_size_or_zero(path: str) -> tuple[float, int]:
+    """os.stat mtime and size, or (0.0, 0) when the path cannot be stat'd."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return 0.0, 0
+    return st.st_mtime, st.st_size
+
+
+def _cap_newest(items: list[Any], max_entries: int, *, mtime_of: Callable[[Any], float]) -> tuple[list[Any], bool]:
+    """Stable newest-first slice. max_entries <= 0 keeps the old loop: no rows, truncated when any candidate existed."""
+    items.sort(key=mtime_of, reverse=True)
+    if max_entries <= 0:
+        return [], bool(items)
+    return items[:max_entries], len(items) > max_entries
 
 
 def _make_entry(
@@ -391,14 +394,7 @@ def _make_entry(
 def file_entry_for_path(path: str) -> FileEntry:
     """Build a FileEntry dict for a single file on disk."""
     norm = _normalize_path(path)
-    modified = 0.0
-    size_bytes = 0
-    try:
-        st = os.stat(norm)
-        modified = st.st_mtime
-        size_bytes = st.st_size
-    except OSError:
-        pass
+    modified, size_bytes = _mtime_size_or_zero(norm)
     return _make_entry(
         norm,
         os.path.basename(norm),

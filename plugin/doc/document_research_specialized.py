@@ -69,10 +69,11 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         log.warning("Inner document_research agent missing tools: %s", missing)
 
     tools_by_name = {t.name: t for t in domain_tools + finish_tools if t.name}
-    ordered = [tools_by_name[n] for n in allowlist if n in tools_by_name]
-    for t in finish_tools:
-        if t.name == "specialized_workflow_finished" and t not in ordered:
-            ordered.append(t)
+    ordered = [
+        tools_by_name[name]
+        for name in (*allowlist, "specialized_workflow_finished")
+        if name in tools_by_name
+    ]
 
     if not ordered:
         return {"status": "error", "message": "No read tools available for opened document"}
@@ -93,7 +94,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         if sc:
             sc(f"Read: {step.name}...")
 
-    final_ans = run_inner_tool_agent(
+    return run_inner_tool_agent(
         inner_ctx,
         smol_tools,
         instructions=instructions,
@@ -104,7 +105,6 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         error_prefix="Document research read agent failed",
         tool_call_handler=tool_call_handler,
     )
-    return final_ans
 
 
 class DelegateReadDocument(ToolBase):
