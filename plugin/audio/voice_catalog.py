@@ -47,8 +47,6 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
 
     piper_models: dict[str, PiperModel] = {}
     voice_catalogs: dict[str, list[dict[str, str]]] = {
-        "piper": [],
-        "kokoro": [],
         "openai": [],
         "system": [],
     }
@@ -98,13 +96,12 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
 
             if family == "piper":
                 piper_models[voice_id] = (entry["onnx"], entry["config"], entry["lang"], entry["label"])
-                voice_catalogs["piper"].append({"value": voice_id, "label": entry["label"]})
-            else:
+            elif family == "kokoro":
                 lang_raw = entry.get("lang")
                 lang = lang_raw if isinstance(lang_raw, str) and lang_raw else "en"
+                kokoro_items.append({"value": voice_id, "label": entry["label"], "lang": lang})
+            else:
                 voice_catalogs[family].append({"value": voice_id, "label": entry["label"]})
-                if family == "kokoro":
-                    kokoro_items.append({"value": voice_id, "label": entry["label"], "lang": lang})
             if short_name and family in ("piper", "kokoro"):
                 short_names[voice_id] = short_name
 

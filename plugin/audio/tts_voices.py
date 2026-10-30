@@ -44,7 +44,6 @@ __all__ = [
     "parse_tts_speed",
     "pick_voice_id",
     "resolve_voice_context",
-    "set_scoped_tts_voice",
     "settings_voice_options",
     "tts_test_sample",
     "voice_choice_to_id",
@@ -553,58 +552,36 @@ def get_scoped_tts_voice(
     family = context.family
     scoped_key = f"audio.tts_voice_{family}"
     val = config.get_config(scoped_key)
-    clean_scoped = clean_voice_name(val.strip()) if isinstance(val, str) and val.strip() else ""
+    clean_scoped = clean_voice_name(val) if isinstance(val, str) else ""
     general_voice = str(config.get_config("audio.tts_voice") or "").strip()
     clean_gen = clean_voice_name(general_voice)
 
     if context.source == "harvested":
         harvested_values = [opt["value"] for opt in context.rows]
-        if clean_scoped:
-            matched = match_voice_id(clean_scoped, harvested_values)
-            if matched is not None:
-                return matched
-        if clean_gen:
-            matched = match_voice_id(clean_gen, harvested_values)
+        for cand in (clean_scoped, clean_gen):
+            if not cand:
+                continue
+            matched = match_voice_id(cand, harvested_values)
             if matched is not None:
                 return matched
         return _preferred_harvested_voice(model, harvested_values)
 
     if context.editable and family in ("openrouter", "together"):
-        if clean_scoped and not _voice_belongs_to_other_family(clean_scoped, family):
-            return clean_scoped
-        if clean_gen and not _voice_belongs_to_other_family(clean_gen, family):
-            return clean_gen
+        for cand in (clean_scoped, clean_gen):
+            if cand and not _voice_belongs_to_other_family(cand, family):
+                return cand
         return ""
 
     # Catalog families
     valid_voices = {opt["value"] for opt in context.rows}
-    if clean_scoped:
-        canon_scoped = canonical_voice_id(family, clean_scoped)
-        if canon_scoped in valid_voices or _looks_like_path(canon_scoped):
-            return canon_scoped
-    if clean_gen:
-        canon_gen = canonical_voice_id(family, clean_gen)
-        if canon_gen in valid_voices or _looks_like_path(canon_gen):
-            return canon_gen
+    for cand in (clean_scoped, clean_gen):
+        if not cand:
+            continue
+        canon = canonical_voice_id(family, cand)
+        if canon in valid_voices or _looks_like_path(canon):
+            return canon
 
     return get_default_voice_for_locale(family, locale)
-
-
-def set_scoped_tts_voice(
-    voice: str,
-    provider: str | None = None,
-    model: str | None = None,
-    endpoint: str | None = None,
-) -> None:
-    """Persist the voice selection for the given provider/model family."""
-    family = get_voice_family(provider, model, endpoint)
-    clean_v = canonical_voice_id(family, voice)
-    if not clean_v:
-        return
-    scoped_key = f"audio.tts_voice_{family}"
-    config.set_config(scoped_key, clean_v)
-    config.set_config("audio.tts_voice", clean_v)
-    log.info("Saved TTS voice '%s' (scoped to %s)", clean_v, scoped_key)
 
 
 def parse_tts_speed(val: Any) -> float:

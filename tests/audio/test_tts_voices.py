@@ -21,7 +21,6 @@ from plugin.audio.tts_voices import (
     parse_tts_speed,
     pick_voice_id,
     resolve_voice_context,
-    set_scoped_tts_voice,
     settings_voice_options,
     split_display_label,
     tts_test_sample,
@@ -33,7 +32,6 @@ from plugin.audio.voice_catalog import (
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
     LOCALE_TO_PIPER_DEFAULT,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
-    VOICE_CATALOGS,
     voice_short_name,
 )
 from plugin.framework.client import model_fetcher as cfg
@@ -131,18 +129,16 @@ def test_together_voice_options_read_the_cache_and_do_not_fetch():
 
 def test_scoped_tts_voice_persistence():
     store = {}
-    with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: store.get(k, d)), \
-         patch("plugin.framework.config.set_config", side_effect=lambda k, v: store.__setitem__(k, v)):
+    with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: store.get(k, d)):
         assert get_scoped_tts_voice("kokoro") == "af_sky"
-        set_scoped_tts_voice("af_sarah", "kokoro")
+        store["audio.tts_voice_kokoro"] = "af_sarah"
+        store["audio.tts_voice"] = "af_sarah"
         assert get_scoped_tts_voice("kokoro") == "af_sarah"
-        assert store.get("audio.tts_voice_kokoro") == "af_sarah"
-        assert store.get("audio.tts_voice") == "af_sarah"
 
         assert get_scoped_tts_voice("piper") == "en_US-lessac-medium"
-        set_scoped_tts_voice("en_US-amy-medium", "piper")
+        store["audio.tts_voice_piper"] = "en_US-amy-medium"
+        store["audio.tts_voice"] = "en_US-amy-medium"
         assert get_scoped_tts_voice("piper") == "en_US-amy-medium"
-        assert store.get("audio.tts_voice_piper") == "en_US-amy-medium"
 
         assert get_scoped_tts_voice("kokoro") == "af_sarah"
 
@@ -349,7 +345,6 @@ def test_voice_catalog_asset_drives_runtime_maps():
 
     piper_ids = [row["id"] for row in raw["piper"]["voices"]]
     assert list(_PIPER_VOICE_MODELS) == piper_ids
-    assert [item["value"] for item in VOICE_CATALOGS["piper"]] == piper_ids
     kokoro_ids = [row["id"] for row in raw["kokoro"]["voices"]]
     assert len(kokoro_ids) == 54
     assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == kokoro_ids
@@ -556,10 +551,8 @@ def test_together_non_kokoro_no_voices_is_editable_and_empty():
 
 
 def test_piper_locale_defaults_authoritative():
-    piper_voices = {opt["value"] for opt in VOICE_CATALOGS["piper"]}
     for loc, target_id in LOCALE_TO_PIPER_DEFAULT.items():
         assert target_id in _PIPER_VOICE_MODELS, f"{loc} -> {target_id} not in PIPER_VOICE_MODELS"
-        assert target_id in piper_voices, f"{loc} -> {target_id} not in piper.voices"
 
     # Patch a mapped id's label to male, but the JSON map value still wins over female scan
     de_voice = LOCALE_TO_PIPER_DEFAULT["de"]
