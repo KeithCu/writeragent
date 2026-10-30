@@ -353,7 +353,6 @@ class _JsonProbeSpec(NamedTuple):
     timeout_msgid: str
     fail_msgid: str
     keys: tuple[str, ...] | None = None
-    failure_key: str | None = None
 
 
 _JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
@@ -364,7 +363,6 @@ _JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
         timeout_msgid=N_("Audio probe timed out (sounddevice import failed or hung)."),
         fail_msgid=N_("Audio probe failed (see writeragent_debug.log)."),
         keys=_AUDIO_PACKAGE_KEYS,
-        failure_key="audio_probe_failure",
     ),
     "ui": _JsonProbeSpec(
         script=_UI_PROBE_SCRIPT,
@@ -373,7 +371,6 @@ _JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
         timeout_msgid=N_("UI / Monaco probe timed out."),
         fail_msgid=N_("UI / Monaco probe failed (see writeragent_debug.log)."),
         keys=_UI_PACKAGE_KEYS,
-        failure_key="ui_probe_failure",
     ),
     "nlp": _JsonProbeSpec(
         script=_NLP_PROBE_SCRIPT,
@@ -384,7 +381,6 @@ _JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
         ),
         fail_msgid=N_("Text/NLP probe failed (see writeragent_debug.log)."),
         keys=_NLP_PACKAGE_KEYS,
-        failure_key="nlp_probe_failure",
     ),
     "vision": _JsonProbeSpec(
         script=_VISION_PROBE_SCRIPT,
@@ -393,7 +389,6 @@ _JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
         timeout_msgid=N_("Vision probe timed out (Docling import can take 10–30s on first check)."),
         fail_msgid=N_("Vision probe failed (see writeragent_debug.log)."),
         keys=_VISION_PACKAGE_KEYS,
-        failure_key="vision_probe_failure",
     ),
     "vector_search": _JsonProbeSpec(
         script=_VECTOR_SEARCH_PROBE_SCRIPT,
@@ -404,7 +399,6 @@ _JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
         ),
         fail_msgid=N_("Vector Search probe failed (see writeragent_debug.log)."),
         keys=_VECTOR_SEARCH_PACKAGE_KEYS,
-        failure_key="vector_search_probe_failure",
     ),
     "duckdb": _JsonProbeSpec(
         script=_DUCKDB_PROBE_SCRIPT,
@@ -474,8 +468,7 @@ assert len(_SANDBOX_DATA_KEYS) == len(_SANDBOX_SELF_CHECK_GROUPS)
 _SANDBOX_PACKAGES_BY_KEY = dict(zip(_SANDBOX_DATA_KEYS, (pkgs for _, pkgs in _SANDBOX_SELF_CHECK_GROUPS)))
 
 # Display order includes NLP (probed via subprocess, not the sandbox worker loop).
-_SELF_CHECK_SANDBOX_GROUP_COUNT = len(_SANDBOX_SELF_CHECK_GROUPS)
-_SELF_CHECK_DISPLAY_GROUP_COUNT = _SELF_CHECK_SANDBOX_GROUP_COUNT + 1  # + Text / NLP
+_SELF_CHECK_DISPLAY_GROUP_COUNT = len(_SANDBOX_SELF_CHECK_GROUPS) + 1  # + Text / NLP
 
 _ALLOWED_PROBE_MODULES = frozenset(
     pkg for _title, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs if pkg not in _UI_PACKAGE_KEYS
@@ -642,9 +635,6 @@ def _collect_missing_probe_keys_for_display(
     completed_groups: int,
     partial_group_keys: tuple[str, ...] | None,
     partial_group_title: str | None,
-    include_vector_search: bool,
-    include_vision: bool,
-    include_audio: bool,
 ) -> list[str]:
     """Probe keys that appear under Missing in the rendered Test body (stable group order)."""
     packages = data.get("p", {})
@@ -675,15 +665,12 @@ def _collect_missing_probe_keys_for_display(
             if completed_groups >= _SELF_CHECK_DISPLAY_GROUP_COUNT:
                 _add(_missing_keys([k for k in keys if k not in _NLP_OPTIONAL_KEYS], packages))
         elif title == _("Vision Libraries"):
-            if include_vision:
-                if not vision_ocr_stack_ready(packages):
-                    _add([key for key in _VISION_OCR_PRIMARY_KEYS if packages.get(key) != "present"])
+            if not vision_ocr_stack_ready(packages):
+                _add([key for key in _VISION_OCR_PRIMARY_KEYS if packages.get(key) != "present"])
         elif title == _("Vector Search Libraries"):
-            if include_vector_search:
-                _add(_missing_keys(keys, packages))
+            _add(_missing_keys(keys, packages))
         elif title == _("Audio Recording & Speech"):
-            if include_audio:
-                _add(_missing_keys([k for k in keys if k not in _AUDIO_OPTIONAL_KEYS], packages))
+            _add(_missing_keys([k for k in keys if k not in _AUDIO_OPTIONAL_KEYS], packages))
     return missing
 
 
@@ -733,9 +720,6 @@ def _build_probe_display(
     partial_group_keys: tuple[str, ...] | None = None,
     partial_group_title: str | None = None,
     extra_lines_after_header: tuple[str, ...] | None = None,
-    include_vector_search: bool = False,
-    include_vision: bool = False,
-    include_audio: bool = False,
     include_install_footer: bool = False,
 ) -> str:
     """Rebuild the Settings → Python Test body in the legacy grouped Present/Missing format."""
@@ -770,36 +754,33 @@ def _build_probe_display(
                 if nlp_failure:
                     msg_lines.append(f"  {nlp_failure}")
         elif title == _("Vision Libraries"):
-            if include_vision:
-                msg_lines.extend(_format_vision_group_lines(title, keys, packages))
-                vision_failure = data.get("vision_probe_failure")
-                if vision_failure:
-                    msg_lines.append(f"  {vision_failure}")
+            msg_lines.extend(_format_vision_group_lines(title, keys, packages))
+            vision_failure = data.get("vision_probe_failure")
+            if vision_failure:
+                msg_lines.append(f"  {vision_failure}")
         elif title == _("Vector Search Libraries"):
-            if include_vector_search:
-                msg_lines.extend(_format_group_lines(title, keys, packages))
-                vector_search_failure = data.get("vector_search_probe_failure")
-                if vector_search_failure:
-                    msg_lines.append(f"  {vector_search_failure}")
+            msg_lines.extend(_format_group_lines(title, keys, packages))
+            vector_search_failure = data.get("vector_search_probe_failure")
+            if vector_search_failure:
+                msg_lines.append(f"  {vector_search_failure}")
         elif title == _("Audio Recording & Speech"):
-            if include_audio:
-                msg_lines.extend(_format_group_lines(title, keys, packages, optional_keys=_AUDIO_OPTIONAL_KEYS))
-                audio_failure = data.get("audio_probe_failure")
-                if audio_failure:
-                    msg_lines.append(f"  {audio_failure}")
-                elif sys.platform.startswith("linux") and packages.get("sounddevice") != "present":
-                    msg_lines.append(f"  {_audio_linux_portaudio_hint()}")
-                elif packages.get("sounddevice") == "present" and packages.get("input_device") != "present":
-                    msg_lines.append(f"  {_('No microphone input devices detected.')}")
-                tts_missing = [k for k in _TTS_OPTIONAL_KEYS if packages.get(k) != "present"]
-                if tts_missing and include_install_footer:
-                    msg_lines.append(f"  {_('Local TTS engines (optional):')} {_get_tts_install_cmd()}")
-                if (
-                    include_install_footer
-                    and "faster_whisper" in keys
-                    and packages.get("faster_whisper") != "present"
-                ):
-                    msg_lines.append(f"  {_('Local Whisper (optional):')} {_WHISPER_INSTALL_CMD}")
+            msg_lines.extend(_format_group_lines(title, keys, packages, optional_keys=_AUDIO_OPTIONAL_KEYS))
+            audio_failure = data.get("audio_probe_failure")
+            if audio_failure:
+                msg_lines.append(f"  {audio_failure}")
+            elif sys.platform.startswith("linux") and packages.get("sounddevice") != "present":
+                msg_lines.append(f"  {_audio_linux_portaudio_hint()}")
+            elif packages.get("sounddevice") == "present" and packages.get("input_device") != "present":
+                msg_lines.append(f"  {_('No microphone input devices detected.')}")
+            tts_missing = [k for k in _TTS_OPTIONAL_KEYS if packages.get(k) != "present"]
+            if tts_missing and include_install_footer:
+                msg_lines.append(f"  {_('Local TTS engines (optional):')} {_get_tts_install_cmd()}")
+            if (
+                include_install_footer
+                and "faster_whisper" in keys
+                and packages.get("faster_whisper") != "present"
+            ):
+                msg_lines.append(f"  {_('Local Whisper (optional):')} {_WHISPER_INSTALL_CMD}")
 
     probe_warnings = data.get("probe_warnings")
     if isinstance(probe_warnings, list):
@@ -814,9 +795,6 @@ def _build_probe_display(
             completed_groups=completed_groups,
             partial_group_keys=partial_group_keys,
             partial_group_title=partial_group_title,
-            include_vector_search=include_vector_search,
-            include_vision=include_vision,
-            include_audio=include_audio,
         )
         msg_lines.extend(_format_install_footer(missing_keys))
 
@@ -833,29 +811,8 @@ def _format_self_check_success(data: dict[str, Any]) -> str:  # pyright: ignore[
     return _build_probe_display(
         data,
         completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
-        include_vector_search=True,
-        include_vision=True,
-        include_audio=True,
         include_install_footer=True,
     )
-
-
-def _attach_probe_group(
-    data: dict[str, Any],
-    probes: dict[str, Any] | None,
-    failure: str | None,
-    *,
-    group: str,
-    keys: tuple[str, ...] | list[str],
-    failure_key: str,
-) -> None:
-    """Merge one out-of-worker probe into *data*. Shared by both self-check entry points."""
-    packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and probes:
-        packages.update(probes)
-    data[group] = list(keys)
-    if failure:
-        data[failure_key] = failure
 
 
 def _attach_external_probes(
@@ -865,7 +822,7 @@ def _attach_external_probes(
 ) -> None:
     """Audio, UI, NLP, vision, or vector probe. Not the warm =PY() worker."""
     spec = _JSON_PROBE_SPECS[group]
-    assert spec.keys is not None and spec.failure_key is not None
+    assert spec.keys is not None
     if group == "vision":
         probes, failure = probe_vision_packages(
             python_exe,
@@ -877,19 +834,12 @@ def _attach_external_probes(
             group,
             timeout=float(spec.timeout_sec),
         )
-    _attach_probe_group(
-        data,
-        probes,
-        failure,
-        group=group,
-        keys=spec.keys,
-        failure_key=spec.failure_key,
-    )
-
-
-def _emit_status(on_status: Callable[[str], None] | None, text: str) -> None:
-    if on_status is not None:
-        on_status(text)
+    packages = data.setdefault("p", {})
+    if isinstance(packages, dict) and probes:
+        packages.update(probes)
+    data[group] = list(spec.keys)
+    if failure:
+        data[f"{group}_probe_failure"] = failure
 
 
 def run_venv_self_check_with_progress(
@@ -934,15 +884,11 @@ def run_venv_self_check_with_progress(
         # not this path: execute() returns a status dict, and the
         # status != "ok" branch records a warning and continues.
         # The returned message stays msg.
-        if shown:
-            body = shown[-1] + "\n\n" + msg
-        else:
-            body = msg
+        body = (shown[-1] + "\n\n" + msg) if shown else msg
         _show(body)
         return False, msg
 
-    def _status(text: str) -> None:
-        _emit_status(on_status, text)
+    report_status = on_status if on_status is not None else lambda text: None
 
     def _refresh(
         data: dict[str, Any],
@@ -950,9 +896,6 @@ def run_venv_self_check_with_progress(
         completed_groups: int = 0,
         partial_group_keys: tuple[str, ...] | None = None,
         partial_group_title: str | None = None,
-        include_vector_search: bool = False,
-        include_vision: bool = False,
-        include_audio: bool = False,
     ) -> None:
         _show(
             _build_probe_display(
@@ -961,18 +904,10 @@ def run_venv_self_check_with_progress(
                 partial_group_keys=partial_group_keys,
                 partial_group_title=partial_group_title,
                 extra_lines_after_header=extra_lines_after_header,
-                include_vector_search=include_vector_search,
-                include_vision=include_vision,
-                include_audio=include_audio,
             )
         )
 
-    def _record_probe_warning(data: dict[str, Any], pkg: str, message: str) -> None:
-        warnings = data.setdefault("probe_warnings", [])
-        if isinstance(warnings, list):
-            warnings.append(f"{pkg}: {message}")
-
-    _status(_("Starting Python worker..."))
+    report_status(_("Starting Python worker..."))
     from plugin.framework.constants import WORKER_POOL_DIAGNOSTICS
 
     manager = PythonWorkerManager.get(
@@ -981,7 +916,7 @@ def run_venv_self_check_with_progress(
         pool=WORKER_POOL_DIAGNOSTICS,
     )
 
-    _status(_("Reading Python version..."))
+    report_status(_("Reading Python version..."))
     response = manager.execute(_VERSION_PROBE_SCRIPT, timeout_sec=per_pkg_timeout)
 
     if response.get("status") != "ok":
@@ -1004,28 +939,30 @@ def run_venv_self_check_with_progress(
         data[key] = list(_SANDBOX_PACKAGES_BY_KEY[key])
 
     if include_audio:
-        _status(_("Audio & Speech: checking sounddevice, TTS, and local Whisper..."))
+        report_status(_("Audio & Speech: checking sounddevice, TTS, and local Whisper..."))
         _attach_external_probes(python_exe, data, "audio")
-        _refresh(data, include_audio=True)
+        _refresh(data)
 
     for group_index, (group_title, packages) in enumerate(_SANDBOX_SELF_CHECK_GROUPS):
         if group_title == "UI / Monaco Libraries":
             # Qt/WebEngine in the warm worker would stay loaded for later =PY() cells.
-            _status(_("UI / Monaco Libraries: checking outside the script worker..."))
+            report_status(_("UI / Monaco Libraries: checking outside the script worker..."))
             _attach_external_probes(python_exe, data, "ui")
-            _refresh(data, completed_groups=group_index + 1, include_audio=include_audio)
+            _refresh(data, completed_groups=group_index + 1)
             continue
         checked: list[str] = []
         packages_seen = data["p"]
         for pkg in packages:
-            _status(f"{group_title}: {pkg}")
+            report_status(f"{group_title}: {pkg}")
             # sympy and matplotlib are listed in more than one group.
             if pkg not in packages_seen:
                 pkg_resp = manager.execute(_package_probe_script(pkg), timeout_sec=per_pkg_timeout)
                 if pkg_resp.get("status") != "ok":
                     msg = str(pkg_resp.get("message", "Unknown error"))
                     log.warning("Package probe failed for %s: %s", pkg, msg)
-                    _record_probe_warning(data, pkg, msg)
+                    warnings = data.setdefault("probe_warnings", [])
+                    if isinstance(warnings, list):
+                        warnings.append(f"{pkg}: {msg}")
                     data["p"][pkg] = None
                 else:
                     present = pkg_resp.get("result") == "present"
@@ -1036,42 +973,33 @@ def run_venv_self_check_with_progress(
                 completed_groups=group_index,
                 partial_group_keys=tuple(checked),
                 partial_group_title=_(group_title),
-                include_audio=include_audio,
             )
         if group_title == "Data Engineering Libraries":
             _merge_duckdb_probe(python_exe, data, timeout=float(per_pkg_timeout))
-        _refresh(data, completed_groups=group_index + 1, include_audio=include_audio)
+        _refresh(data, completed_groups=group_index + 1)
 
-    _status(_("Text / NLP Libraries: loading (first run may take a while)..."))
+    report_status(_("Text / NLP Libraries: loading (first run may take a while)..."))
     _attach_external_probes(python_exe, data, "nlp")
-    _refresh(data, completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT, include_audio=include_audio)
+    _refresh(data, completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT)
 
-    _status(_("Vision Libraries: loading (first run may take a while)..."))
+    report_status(_("Vision Libraries: loading (first run may take a while)..."))
     _attach_external_probes(python_exe, data, "vision")
     _refresh(
         data,
         completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
-        include_vision=True,
-        include_audio=include_audio,
     )
 
     if include_vector_search:
-        _status(_("Vector Search Libraries: loading (first run may take a while)..."))
+        report_status(_("Vector Search Libraries: loading (first run may take a while)..."))
         _attach_external_probes(python_exe, data, "vector_search")
         _refresh(
             data,
             completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
-            include_vector_search=True,
-            include_vision=True,
-            include_audio=include_audio,
         )
 
     final_msg = _build_probe_display(
         data,
         completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
-        include_vector_search=include_vector_search,
-        include_vision=True,
-        include_audio=include_audio,
         include_install_footer=True,
         extra_lines_after_header=extra_lines_after_header,
     )
@@ -1089,12 +1017,11 @@ def probe_venv_path_with_progress(
     include_audio: bool = True,
 ) -> tuple[bool, str]:
     """Resolve *venv_dir* and run a self-check, refreshing the legacy grouped view."""
-    def _status(text: str) -> None:
-        _emit_status(on_status, text)
+    report_status = on_status if on_status is not None else lambda text: None
 
     is_blank = not venv_dir or not str(venv_dir).strip()
     if is_blank:
-        _status(_("Using LibreOffice process Python..."))
+        report_status(_("Using LibreOffice process Python..."))
         exe = resolve_libreoffice_python()
         if not exe:
             msg = _("No process interpreter: sys.executable is missing, not a file, or not executable. Set a venv path in Settings → Python, or fix the LibreOffice install.")
@@ -1103,7 +1030,7 @@ def probe_venv_path_with_progress(
     else:
         stripped = str(venv_dir).strip()
         expanded = os.path.expanduser(os.path.expandvars(stripped))
-        _status(_("Resolving venv Python..."))
+        report_status(_("Resolving venv Python..."))
         exe = resolve_venv_python(stripped)
         if not exe:
             if os.path.isfile(expanded):
@@ -1118,7 +1045,7 @@ def probe_venv_path_with_progress(
                 msg = _("Path not found: {0}").format(expanded)
             on_display(msg)
             return False, msg
-        _status(f"{_('Using')} {exe}")
+        report_status(f"{_('Using')} {exe}")
 
     ok, msg = run_venv_self_check_with_progress(
         exe,
