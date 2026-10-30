@@ -12,7 +12,7 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from .base_provider_shim import BaseProviderShim, coerce_raw_b64, inline_image_mime
+from .base_provider_shim import BaseProviderShim, coerce_raw_b64, effort_payload, inline_image_mime
 
 log = logging.getLogger(__name__)
 
@@ -342,6 +342,8 @@ def _thinking_text(content_parts: list[dict[str, Any]]) -> str | None:
 class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
 
+    _effort_provider: str | None = "anthropic"
+
     def _tool_delta(self, block_index: Any, *, arguments: str, indexes: dict[int, int], tool_id: Any = None, name: str | None = None) -> dict[str, Any] | None:
         """One streamed tool-call fragment. ``arguments`` is a piece, not the final object.
 
@@ -392,21 +394,10 @@ class AnthropicShim(BaseProviderShim):
             converted_tools = [tool_def for tool_def in (_anthropic_tool_def(t) for t in tools) if tool_def]
             if converted_tools:
                 data["tools"] = converted_tools
-        # Grammar sends {"reasoning": {"effort": "minimal"}}. /v1/messages rejects that
-        # object. chat_extra wins over the endpoint setting. Only "minimal" is rewritten.
-        effort = None
-        if isinstance(chat_extra, dict):
-            reasoning = chat_extra.get("reasoning")
-            if isinstance(reasoning, dict):
-                raw_effort = reasoning.get("effort")
-                if isinstance(raw_effort, str) and raw_effort.strip():
-                    effort = raw_effort.strip()
-        if not effort:
-            effort = self._endpoint_reasoning_effort() or None
-        if effort == "minimal":
-            effort = "low"
-        if effort:
-            data["output_config"] = {"effort": effort}
+        # Bugfix: previously any non-empty string (e.g. "turbo") was written to
+        # output_config.effort. effort_payload sends only Anthropic's effort words;
+        # a model that rejects one gets the 400 retry in llm_client.
+        data.update(effort_payload("anthropic", self._requested_effort_level(chat_extra)))
 
         return self._post(url, data)
 

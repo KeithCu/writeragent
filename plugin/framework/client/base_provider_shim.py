@@ -20,6 +20,104 @@ from plugin.framework.url_utils import get_url_path_and_query
 # module imports this package's registry at load time).
 OPENROUTER_CHAT_EXTRA_BLOCKLIST: frozenset[str] = frozenset({"messages", "tools", "tool_choice", "stream"})
 
+OUR_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+# Grammar chat_extra only. Not a sidebar value. Means "lowest documented value".
+LOWEST_SENTINEL = "minimal"
+
+
+# Ascending effort words each provider's current API accepts, per its docs.
+# Per provider, not per model: a model that rejects a value gets HTTP 400 and
+# effort_retry_bodies walks to the next value. Unlisted providers (custom,
+# LM Studio, DeepSeek, Groq, Ollama, ...) get our levels unchanged.
+# https://platform.claude.com/docs/en/build-with-claude/effort
+# https://ai.google.dev/gemini-api/docs/openai (Gemini 4 Argon / 3.8 Flash reject minimal)
+# https://docs.mistral.ai/studio/conversations/reasoning ("none" turns thinking off)
+_PROVIDER_EFFORTS: dict[str, tuple[str, ...]] = {
+    "openrouter": ("minimal", "low", "medium", "high", "xhigh", "max"),
+    "openai": ("minimal", "low", "medium", "high", "xhigh", "max"),
+    "anthropic": ("low", "medium", "high", "xhigh", "max"),
+    "google": ("low", "medium", "high"),
+    "xai": ("low", "medium", "high", "xhigh"),
+    "mistral": ("none", "low", "medium", "high", "max"),
+}
+# Values that turn thinking off. Sent only for LOWEST_SENTINEL.
+_THINKING_OFF: frozenset[str] = frozenset({"none", "minimal"})
+_RANK: tuple[str, ...] = ("none", LOWEST_SENTINEL, *OUR_EFFORTS)
+
+
+def _provider_efforts(provider: str | None) -> tuple[str, ...]:
+    return _PROVIDER_EFFORTS.get(str(provider or "").strip().lower(), OUR_EFFORTS)
+
+
+def _effort_order(vocab: tuple[str, ...], req: str) -> list[str]:
+    """Values to try for *req*: itself, then lower levels, then higher ones.
+
+    Lower skips thinking-off values unless *req* is one, so a rejected
+    low/medium moves up to a level that still thinks instead of turning it off.
+    """
+    rank = _RANK.index(req)
+    lower = [v for v in reversed(vocab) if _RANK.index(v) < rank and (req in _THINKING_OFF or v not in _THINKING_OFF)]
+    higher = [v for v in vocab if _RANK.index(v) > rank]
+    return ([req] if req in vocab else []) + lower + higher
+
+
+def _place_effort(provider: str | None, value: str) -> dict[str, Any]:
+    prov = str(provider or "").strip().lower()
+    if prov == "openrouter":
+        return {"reasoning": {"effort": value}}
+    if prov == "anthropic":
+        return {"output_config": {"effort": value}}
+    return {"reasoning_effort": value}
+
+
+def effort_payload(provider: str | None, level: str | None) -> dict[str, Any]:
+    """Fragment to merge into the chat JSON body. {} sends no effort field."""
+    if not isinstance(level, str):
+        return {}
+    req = level.strip().lower()
+    if req != LOWEST_SENTINEL and req not in OUR_EFFORTS:
+        return {}
+    vocab = _provider_efforts(provider)
+    if req == LOWEST_SENTINEL:
+        return _place_effort(provider, vocab[0])
+    return _place_effort(provider, _effort_order(vocab, req)[0])
+
+
+def effort_retry_bodies(provider: str | None, body: bytes | str) -> list[bytes]:
+    """Bodies to try after HTTP 400 rejected the sent effort, in order; the last omits it."""
+    try:
+        data = json.loads(body.decode("utf-8") if isinstance(body, bytes) else str(body))
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+
+    holder: dict[str, Any] | None = None
+    key = "effort"
+    for name in ("output_config", "reasoning"):
+        obj = data.get(name)
+        if isinstance(obj, dict) and isinstance(obj.get("effort"), str):
+            holder = obj
+            break
+    if holder is None and isinstance(data.get("reasoning_effort"), str):
+        holder, key = data, "reasoning_effort"
+    if holder is None:
+        return []
+
+    sent = holder[key]
+    vocab = _provider_efforts(provider)
+    others = [v for v in _effort_order(vocab, sent) if v != sent] if sent in _RANK else []
+    out: list[bytes] = []
+    for value in others:
+        holder[key] = value
+        out.append(json.dumps(data).encode("utf-8"))
+    holder.pop(key)
+    for name in ("output_config", "reasoning"):
+        if data.get(name) == {}:
+            data.pop(name)
+    out.append(json.dumps(data).encode("utf-8"))
+    return out
+
 
 def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | None) -> None:
     """Merge *extra* into *base* in place. Skips blocklisted keys; recurses into dict values."""
@@ -170,9 +268,29 @@ class BaseProviderShim:
     """Base provider shim implementing standard OpenAI-compatible API format by default."""
 
     client: Any
+    _effort_provider: str | None = None
 
     def __init__(self, client: Any) -> None:
         self.client = client
+
+    def _reasoning_provider(self) -> str:
+        if self._openrouter_chat():
+            return "openrouter"
+        if self._effort_provider:
+            return self._effort_provider
+        get_provider = getattr(self.client, "_get_provider", None)
+        if callable(get_provider):
+            res = get_provider()
+            if isinstance(res, str) and res:
+                return res
+        get_endpoint = getattr(self.client, "_endpoint", None)
+        if callable(get_endpoint):
+            from .provider_detection import get_provider_from_endpoint
+
+            ep = get_endpoint()
+            if isinstance(ep, str):
+                return get_provider_from_endpoint(ep) or "custom"
+        return "custom"
 
     def _endpoint_reasoning_effort(self) -> str:
         config = getattr(self.client, "config", None)
@@ -182,6 +300,15 @@ class BaseProviderShim:
         if not isinstance(raw, str):
             return ""
         return raw.strip()
+
+    def _requested_effort_level(self, chat_extra: dict[str, Any] | None) -> str:
+        if isinstance(chat_extra, dict):
+            reasoning = chat_extra.get("reasoning")
+            if isinstance(reasoning, dict):
+                raw_effort = reasoning.get("effort")
+                if isinstance(raw_effort, str) and raw_effort.strip():
+                    return raw_effort.strip()
+        return self._endpoint_reasoning_effort()
 
     def _openrouter_chat(self) -> bool:
         config = getattr(self.client, "config", None)
@@ -221,28 +348,29 @@ class BaseProviderShim:
             extra = self.client.config.get("openrouter_chat_extra")
             if isinstance(extra, dict) and extra:
                 merge_openrouter_chat_extra(data, extra)
-        effort = self._endpoint_reasoning_effort()
-        if effort:
-            if openrouter:
+
+        # Bugfix: grammar's chat_extra was an OpenRouter reasoning object merged raw
+        # (or rewritten to reasoning_effort: "minimal" on non-OpenRouter), sending
+        # undocumented keys or values. The sidebar value was also copied verbatim,
+        # sending max to xAI/Gemini and xhigh to models whose ceiling is high.
+        # Now effort_payload maps per provider; a model that rejects it gets a 400 retry.
+        level = self._requested_effort_level(chat_extra)
+        if level:
+            fragment = effort_payload(self._reasoning_provider(), level)
+            if "reasoning" in fragment:
                 reasoning = data.get("reasoning")
                 if isinstance(reasoning, dict):
-                    reasoning["effort"] = effort
+                    reasoning["effort"] = fragment["reasoning"]["effort"]
                 else:
-                    data["reasoning"] = {"effort": effort}
-            else:
-                data["reasoning_effort"] = effort
+                    data["reasoning"] = dict(fragment["reasoning"])
+            elif "reasoning_effort" in fragment:
+                data["reasoning_effort"] = fragment["reasoning_effort"]
+                if not openrouter and "reasoning" in data:
+                    data.pop("reasoning", None)
         if isinstance(chat_extra, dict) and chat_extra:
-            # Grammar's chat_extra is the OpenRouter object {"reasoning": {"effort": "minimal"}}.
-            # Merging it unchanged put that object on every OpenAI-compatible host.
-            payload_extra = chat_extra
-            if not openrouter and "reasoning" in chat_extra:
-                payload_extra = dict(chat_extra)
-                reasoning = payload_extra.pop("reasoning")
-                if isinstance(reasoning, dict):
-                    raw_effort = reasoning.get("effort")
-                    if isinstance(raw_effort, str) and raw_effort.strip():
-                        payload_extra["reasoning_effort"] = raw_effort.strip()
-            merge_openrouter_chat_extra(data, payload_extra)
+            payload_extra = {k: v for k, v in chat_extra.items() if k != "reasoning"}
+            if payload_extra:
+                merge_openrouter_chat_extra(data, payload_extra)
         return data
 
     def build_chat_request(

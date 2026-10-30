@@ -62,6 +62,8 @@ def _gemini_image_size(model_id: str, width: int, height: int) -> str | None:
 class GoogleShim(BaseProviderShim):
     """Shim for Google Gemini: OpenAI-compatible for chat/tools, native REST for images."""
 
+    _effort_provider: str | None = "google"
+
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         endpoint = self.client._endpoint()
         key = self.client._resolve_auth().get("api_key", "")

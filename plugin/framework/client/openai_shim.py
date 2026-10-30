@@ -14,9 +14,9 @@ from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canoni
 from .google_shim import GoogleShim
 from .grok_shim import GrokShim
 
-# api.openai.com o-series and gpt-5 reject max_tokens. Dated snapshots
+# api.openai.com o-series and gpt-5/6 reject max_tokens. Dated snapshots
 # (o3-mini-2025-01-31, gpt-5-2025-08-07) and ft:gpt-5-... share the family prefix.
-_OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5")
+_OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt-6")
 # Chat Completions default. These models reject every other temperature.
 _OPENAI_DEFAULT_TEMPERATURE = 1
 
@@ -41,12 +41,12 @@ def _openai_reasoning_model(model_name: str | None) -> bool:
     if "/" in name:
         name = name.rsplit("/", 1)[-1]
     # ChatGPT snapshots (gpt-5-chat-latest, gpt-5.1-chat-latest,
-    # gpt-5.2-chat-latest) accept max_tokens and a non-default temperature.
-    # Their model pages do not list reasoning-token support; gpt-5.1 does.
+    # gpt-5.2-chat-latest, gpt-6-chat-latest) accept max_tokens and a non-default
+    # temperature. Their model pages do not list reasoning-token support; gpt-5.1 does.
     # startswith("gpt-5-chat") missed gpt-5.1-chat-latest, so that id was
     # rewritten and the user's temperature was dropped.
     # https://developers.openai.com/api/docs/models/gpt-5.1-chat-latest
-    if name.startswith("gpt-5") and "-chat" in name:
+    if name.startswith(("gpt-5", "gpt-6")) and "-chat" in name:
         return False
     return name.startswith(_OPENAI_REASONING_PREFIXES)
 
@@ -77,6 +77,8 @@ class OpenAIShim(BaseProviderShim):
     GPT Image models reject ``response_format``. ``dall-e-*`` create keeps the
     legacy body; ``dall-e-*`` edit raises.
     """
+
+    _effort_provider: str | None = "openai"
 
     def _chat_payload(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
@@ -145,6 +147,8 @@ class OpenAIShim(BaseProviderShim):
 class OllamaShim(BaseProviderShim):
     """Shim for Ollama specifically (handles native /api image endpoints if needed)."""
 
+    _effort_provider: str | None = "ollama"
+
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. Ollama /api/generate has no steps field.
         endpoint = self.client._endpoint()
@@ -183,6 +187,8 @@ class OllamaShim(BaseProviderShim):
 
 class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
+
+    _effort_provider: str | None = "openrouter"
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. OpenRouter /images has no steps field.
@@ -229,6 +235,8 @@ class OpenRouterShim(BaseProviderShim):
 
 class TogetherShim(BaseProviderShim):
     """Together Images API: Kontext uses image_url; other models use reference_images."""
+
+    _effort_provider: str | None = "together"
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         url = self._url("/images/generations")

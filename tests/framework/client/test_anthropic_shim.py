@@ -284,7 +284,7 @@ def test_stream_usage_is_normalized_without_summing():
     assert "prompt_tokens" not in end["usage"]
 
 
-def test_anthropic_passes_xhigh_and_unknown() -> None:
+def test_anthropic_passes_xhigh_and_omits_unknown() -> None:
     class DummyClientNoConfig:
         def _endpoint(self) -> str:
             return "http://test"
@@ -303,7 +303,7 @@ def test_anthropic_passes_xhigh_and_unknown() -> None:
         [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-3-7-sonnet-20250219", None,
         chat_extra={"reasoning": {"effort": "turbo"}}
     )
-    assert json.loads(body2).get("output_config") == {"effort": "turbo"}
+    assert "output_config" not in json.loads(body2)
 
 
 def test_anthropic_setting_when_chat_extra_absent() -> None:
