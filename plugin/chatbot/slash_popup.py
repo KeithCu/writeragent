@@ -148,7 +148,7 @@ def _log_slash_clip_neighbors(
     _ovdiag(rich_ctrl, "rich_text")
 
 # Feature flag: slash-command popup is currently disabled until stable.
-ENABLE_SLASH = True
+ENABLE_SLASH = False
 
 _POPUP_MAX_ROWS = 6
 _POPUP_ROW_PX = 14
