@@ -24,7 +24,6 @@ from .responses_shim import (
 )
 
 OPENROUTER_USE_RESPONSES = False
-_OPENROUTER_RESPONSES_EXCLUDE = ("gpt-oss",)
 
 # api.openai.com o-series and gpt-5/6 reject max_tokens. Dated snapshots
 # (o3-mini-2025-01-31, gpt-5-2025-08-07) and ft:gpt-5-... share the family prefix.
@@ -113,11 +112,6 @@ def _responses_request(
             if val:
                 data["reasoning"]["effort"] = val
     return shim._post(shim._url("/responses"), data)
-
-
-def _openrouter_responses_model(model_name: str | None) -> bool:
-    name = str(model_name or "").strip().lower()
-    return name.startswith("openai/") and not name[len("openai/"):].startswith(_OPENROUTER_RESPONSES_EXCLUDE)
 
 
 def _parse_responses_event(
@@ -283,7 +277,7 @@ class OpenRouterShim(BaseProviderShim):
     def build_chat_request(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> tuple[str, str, bytes, dict[str, str]]:
-        if OPENROUTER_USE_RESPONSES and tools and _openrouter_responses_model(model_name):
+        if OPENROUTER_USE_RESPONSES and tools and str(model_name or "").strip().lower().startswith("openai/"):
             return _responses_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
         return super().build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
 
