@@ -422,6 +422,36 @@ def test_routing_other_providers_stay_on_chat() -> None:
     assert path_grok.endswith("/chat/completions")
 
 
+@pytest.mark.parametrize(
+    ("flag", "model_name", "suffix"),
+    [
+        (False, "openai/gpt-5.4", "/chat/completions"),
+        (True, "openai/gpt-5.4", "/responses"),
+        (True, "OpenAI/gpt-6-astra", "/responses"),
+        (True, "anthropic/claude-sonnet-4", "/chat/completions"),
+        (True, "gpt-5.4", "/chat/completions"),
+    ],
+)
+def test_openrouter_responses_flag_routing(monkeypatch: pytest.MonkeyPatch, flag: bool, model_name: str, suffix: str) -> None:
+    from plugin.framework.client import openai_shim
+
+    monkeypatch.setattr(openai_shim, "OPENROUTER_USE_RESPONSES", flag)
+    tools = [{"type": "function", "function": {"name": "fn", "parameters": {}}}]
+    shim = OpenRouterShim(DummyClient(config={"is_openrouter": True}, provider="openrouter"))
+    _m, path, body, _h = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, tools, True, model_name, None
+    )
+    assert path.endswith(suffix)
+    data = json.loads(body)
+    assert ("input" in data) == (suffix == "/responses")
+    _m, path, _b, _h = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, True, model_name, None
+    )
+    assert path.endswith("/chat/completions")
+    content, *_rest = shim.parse_response_chunk({"type": "response.output_text.delta", "delta": "x"}, {})
+    assert content == ("x" if flag else "")
+
+
 def test_reasoning_details_stripped_for_chat_kept_for_responses() -> None:
     client = DummyClient()
     shim = OpenAIShim(client)

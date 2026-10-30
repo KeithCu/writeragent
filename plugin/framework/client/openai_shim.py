@@ -23,6 +23,8 @@ from .responses_shim import (
     uses_responses_api,
 )
 
+OPENROUTER_USE_RESPONSES = False
+
 # api.openai.com o-series and gpt-5/6 reject max_tokens. Dated snapshots
 # (o3-mini-2025-01-31, gpt-5-2025-08-07) and ft:gpt-5-... share the family prefix.
 _OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt-6")
@@ -92,6 +94,37 @@ def _without_reasoning_details(messages: list[dict[str, Any]]) -> list[dict[str,
     return out
 
 
+def _responses_request(
+    shim: BaseProviderShim, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None
+) -> tuple[str, str, bytes, dict[str, str]]:
+    data = responses_payload(
+        messages, max_tokens, temperature, tools, stream, model_name, response_format,
+        endpoint_effort=shim._endpoint_reasoning_effort(),
+        chat_extra=chat_extra if isinstance(chat_extra, dict) else None,
+    )
+    # If the effort-mapping function exists on HEAD, map data["reasoning"]["effort"]
+    # here and nowhere else. If it does not exist, leave the string.
+    if "reasoning" in data and isinstance(data["reasoning"], dict):
+        effort = data["reasoning"].get("effort")
+        if effort:
+            fragment = effort_payload(shim._reasoning_provider(), effort)
+            val = fragment.get("reasoning_effort") or (fragment.get("reasoning") or {}).get("effort")
+            if val:
+                data["reasoning"]["effort"] = val
+    return shim._post(shim._url("/responses"), data)
+
+
+def _parse_responses_event(
+    chunk: dict[str, Any], stream_state: dict[str, Any] | None
+) -> tuple[str, str | None, str | None, dict[str, Any]] | None:
+    event_type = chunk.get("type")
+    if not (isinstance(event_type, str) and event_type.startswith("response.")):
+        return None
+    if event_type == "response.failed":
+        raise NetworkError(responses_failed_message(chunk), code="STREAM_ERROR")
+    return parse_responses_chunk(chunk, stream_state, model_name=None)
+
+
 class OpenAIShim(BaseProviderShim):
     """Official ``api.openai.com`` chat and Images API.
 
@@ -128,21 +161,7 @@ class OpenAIShim(BaseProviderShim):
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> tuple[str, str, bytes, dict[str, str]]:
         if uses_responses_api(model_name, tools):
-            data = responses_payload(
-                messages, max_tokens, temperature, tools, stream, model_name, response_format,
-                endpoint_effort=self._endpoint_reasoning_effort(),
-                chat_extra=chat_extra if isinstance(chat_extra, dict) else None,
-            )
-            # If the effort-mapping function exists on HEAD, map data["reasoning"]["effort"]
-            # here and nowhere else. If it does not exist, leave the string.
-            if "reasoning" in data and isinstance(data["reasoning"], dict):
-                effort = data["reasoning"].get("effort")
-                if effort:
-                    fragment = effort_payload(self._reasoning_provider(), effort)
-                    val = fragment.get("reasoning_effort") or (fragment.get("reasoning") or {}).get("effort")
-                    if val:
-                        data["reasoning"]["effort"] = val
-            return self._post(self._url("/responses"), data)
+            return _responses_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
         return super().build_chat_request(
             _without_reasoning_details(messages), max_tokens, temperature, tools, stream,
             model_name, response_format, chat_extra,
@@ -151,11 +170,9 @@ class OpenAIShim(BaseProviderShim):
     def parse_response_chunk(
         self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None
     ) -> tuple[str, str | None, str | None, dict[str, Any]]:
-        event_type = chunk.get("type")
-        if isinstance(event_type, str) and event_type.startswith("response."):
-            if event_type == "response.failed":
-                raise NetworkError(responses_failed_message(chunk), code="STREAM_ERROR")
-            return parse_responses_chunk(chunk, stream_state, model_name=None)
+        parsed = _parse_responses_event(chunk, stream_state)
+        if parsed is not None:
+            return parsed
         return super().parse_response_chunk(chunk, stream_state)
 
     def parse_sync_response(
@@ -256,6 +273,28 @@ class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
 
     _effort_provider: str | None = "openrouter"
+
+    def build_chat_request(
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+    ) -> tuple[str, str, bytes, dict[str, str]]:
+        if OPENROUTER_USE_RESPONSES and tools and str(model_name or "").strip().lower().startswith("openai/"):
+            return _responses_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
+        return super().build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
+
+    def parse_response_chunk(
+        self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None
+    ) -> tuple[str, str | None, str | None, dict[str, Any]]:
+        parsed = _parse_responses_event(chunk, stream_state) if OPENROUTER_USE_RESPONSES else None
+        if parsed is not None:
+            return parsed
+        return super().parse_response_chunk(chunk, stream_state)
+
+    def parse_sync_response(
+        self, response_data: dict[str, Any]
+    ) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
+        if OPENROUTER_USE_RESPONSES and isinstance(response_data, dict) and is_responses_body(response_data):
+            return parse_responses_sync(response_data)
+        return super().parse_sync_response(response_data)
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. OpenRouter /images has no steps field.

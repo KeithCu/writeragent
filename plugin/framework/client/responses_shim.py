@@ -25,8 +25,9 @@
 # SOFTWARE.
 """Chat-completions history to the OpenAI Responses API, and the stream back.
 
-Used only by OpenAIShim for provider openai, gpt-6* models, when tools are
-present. The tool loop still sees chat deltas.
+Used by OpenAIShim for provider openai, gpt-6* models, and by OpenRouterShim
+for openai/* models when openai_shim.OPENROUTER_USE_RESPONSES is True, when
+tools are present. The tool loop still sees chat deltas.
 """
 
 from __future__ import annotations
