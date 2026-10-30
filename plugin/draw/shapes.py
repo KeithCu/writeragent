@@ -340,6 +340,14 @@ def _failed_prop(failed: list[str], name: str, exc: BaseException) -> None:
     failed.append(name)
 
 
+def _attempt(failed: list[str], name: str, fn: Any) -> None:
+    """One property set. Disposal still propagates from ``_failed_prop``."""
+    try:
+        fn()
+    except Exception as exc:
+        _failed_prop(failed, name, exc)
+
+
 def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     """Helper to apply rich formatting properties to a shape. Returns list of failed property names."""
     failed_props: list[str] = []
@@ -358,10 +366,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             _failed_prop(failed_props, "text", exc)
 
     if kwargs.get("name") and hasattr(shape, "Name"):
-        try:
-            shape.Name = str(kwargs["name"])
-        except Exception as exc:
-            _failed_prop(failed_props, "name", exc)
+        _attempt(failed_props, "name", lambda: setattr(shape, "Name", str(kwargs["name"])))
 
     # Background/Fill Color
     if kwargs.get("fill_color"):
@@ -379,11 +384,14 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             if color is None:
                 failed_props.append("fill_color")
             else:
-                try:
-                    prop = "LineColor" if "LineShape" in shape.getShapeType() else "FillColor"
-                    shape.setPropertyValue(prop, color)
-                except Exception as exc:
-                    _failed_prop(failed_props, "fill_color", exc)
+                _attempt(
+                    failed_props,
+                    "fill_color",
+                    lambda: shape.setPropertyValue(
+                        "LineColor" if "LineShape" in shape.getShapeType() else "FillColor",
+                        color,
+                    ),
+                )
 
     # Fill Style (solid, transparent, etc)
     if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
@@ -404,17 +412,11 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         if color is None:
             failed_props.append("line_color")
         else:
-            try:
-                shape.setPropertyValue("LineColor", color)
-            except Exception as exc:
-                _failed_prop(failed_props, "line_color", exc)
+            _attempt(failed_props, "line_color", lambda: shape.setPropertyValue("LineColor", color))
 
     # Line Width
     if kwargs.get("line_width") is not None and hasattr(shape, "LineWidth"):
-        try:
-            shape.setPropertyValue("LineWidth", int(kwargs["line_width"]))
-        except Exception as exc:
-            _failed_prop(failed_props, "line_width", exc)
+        _attempt(failed_props, "line_width", lambda: shape.setPropertyValue("LineWidth", int(kwargs["line_width"])))
 
     # Line Style (ensure border is visible when colored or sized)
     if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
@@ -437,11 +439,8 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
     # Rotation
     if kwargs.get("rotation_angle") is not None and hasattr(shape, "RotateAngle"):
-        try:
-            # Angle is in 100ths of a degree
-            shape.setPropertyValue("RotateAngle", int(kwargs["rotation_angle"] * 100))
-        except Exception as exc:
-            _failed_prop(failed_props, "rotation_angle", exc)
+        # Angle is in 100ths of a degree
+        _attempt(failed_props, "rotation_angle", lambda: shape.setPropertyValue("RotateAngle", int(kwargs["rotation_angle"] * 100)))
 
     return failed_props
 
@@ -523,9 +522,6 @@ class UpsertShape(_AnyDocumentShapeTool):
             return False, err or "Invalid arguments"
 
         action = kwargs.get("action")
-        if not action:
-            return False, "Missing required parameter: 'action' must be 'create' or 'edit'"
-
         if action == "create":
             required = ["shape_type", "x", "y", "width", "height"]
             for r in required:
@@ -534,8 +530,6 @@ class UpsertShape(_AnyDocumentShapeTool):
         elif action == "edit":
             if "index" not in kwargs and not str(kwargs.get("name") or "").strip():
                 return False, "Parameter 'index' or 'name' is required when action is 'edit'"
-        else:
-            return False, f"Unknown action: '{action}'. Must be 'create' or 'edit'"
 
         return True, None
 
