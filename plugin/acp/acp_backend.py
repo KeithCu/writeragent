@@ -175,7 +175,7 @@ def _cli_basename_matches(path: str, binary_name: str) -> bool:
     """True when ``path`` is this CLI, including Windows launcher suffixes.
 
     ``shutil.which`` on Windows returns ``hermes.exe``, ``hermes.cmd``, or
-    ``hermes.bat``. Comparing that basename to ``get_binary_name()``
+    ``hermes.bat``. Comparing that basename to ``binary_name``
     (``hermes``) fails, so ``default_extra_args`` (``("acp",)``) is never
     appended and the CLI starts interactive instead of ACP stdio. Match the
     stem when the suffix is one of those three, case-insensitively. Any other
@@ -408,7 +408,7 @@ class ACPBackend(AgentBackend):
         if path_setting:
             log.warning("ACP agent_backend.path is not a file (%s); searching PATH", path_setting)
 
-        key = (self.get_binary_name(), path_setting, args_str)
+        key = (self.binary_name, path_setting, args_str)
         cached_key = getattr(self, "_binary_cache_key", None)
         cached_val = getattr(self, "_binary_cache_val", None)
         if cached_key == key and cached_val is not None:
@@ -447,7 +447,7 @@ class ACPBackend(AgentBackend):
 
     def _binary_matches(self, path: str) -> bool:
         """True when ``path`` is this backend's CLI, including Windows launcher suffixes."""
-        if _cli_basename_matches(path, self.get_binary_name()):
+        if _cli_basename_matches(path, self.binary_name):
             return True
         name = os.path.basename(path).lower()
         return any(name.startswith(prefix) for prefix in self.binary_prefixes)
@@ -459,7 +459,7 @@ class ACPBackend(AgentBackend):
         nvm, Homebrew, and OpenCode installs live outside that. One list
         serves every backend: the file name is the discriminant.
         """
-        binary_name = self.get_binary_name()
+        binary_name = self.binary_name
         found = shutil.which(binary_name)
         if found:
             return found
@@ -467,12 +467,6 @@ class ACPBackend(AgentBackend):
             if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
                 return candidate
         return None
-
-    def get_binary_name(self) -> str:
-        """Return the binary name to search for (e.g., 'hermes')."""
-        if not self.binary_name:
-            raise NotImplementedError
-        return self.binary_name
 
     def get_env_vars(self) -> dict[str, str]:
         """Return environment variables to pass to subprocess."""
@@ -553,7 +547,7 @@ class ACPBackend(AgentBackend):
             if self._stop_requested:
                 return
             if not self._binary_path:
-                raise RuntimeError(f"{self.display_name} binary not found. Install {self.get_binary_name()} and ensure it's in PATH.")
+                raise RuntimeError(f"{self.display_name} binary not found. Install {self.binary_name} and ensure it's in PATH.")
 
             cmd_line = [self._binary_path]
             cmd_line.extend(self._extra_args)
@@ -768,10 +762,7 @@ class ACPBackend(AgentBackend):
                 continue
             item_type = item.get("type")
             if item_type == "text":
-                text = item.get("text", "")
-                # Match _queue_text_blocks and skip non-string text blocks.
-                if isinstance(text, str):
-                    queue.put((StreamQueueKind.CHUNK, text))
+                _queue_text_blocks(item, queue, StreamQueueKind.CHUNK)
             elif item_type == "tool_call":
                 queue.put((StreamQueueKind.TOOL_CALL, item))
             elif item_type == "tool_result":
@@ -984,7 +975,7 @@ class ACPBackend(AgentBackend):
                 try:
                     self._ensure_connection(stop_checker)
                 except Exception as e:
-                    self._report_failure(queue, format_error_payload(RuntimeError(f"Cannot start {self.display_name} ACP. Is {self.get_binary_name()} installed? Error: {e}")))
+                    self._report_failure(queue, format_error_payload(RuntimeError(f"Cannot start {self.display_name} ACP. Is {self.binary_name} installed? Error: {e}")))
                     return
 
                 if self._stop_requested:
