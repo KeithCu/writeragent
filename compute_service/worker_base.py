@@ -103,14 +103,11 @@ class PoolSingleton(Generic[_PoolT]):
                 if self._pool is not None:
                     return self._pool
                 self._building = True
-            created: _PoolT | None = None
             try:
                 created = factory()
                 with self._cv:
-                    if self._closed:
-                        closed = True
-                    else:
-                        closed = False
+                    closed = self._closed
+                    if not closed:
                         self._pool = created
                 if closed:
                     created.shutdown()
@@ -312,19 +309,6 @@ class BaseProcessPool:
         worker, _unused = self._idle.popitem(last=False)
         return worker
 
-    def _claim_cold_unlocked(self) -> BaseProcessWorker | None:
-        """Return a pool slot whose process has exited and nobody holds.
-
-        Caller holds self._cond. The slot is not idle: idle is only a
-        successful handshake or a consumed response frame.
-        """
-        for worker in self.workers:
-            if worker in self._idle or worker in self._leased:
-                continue
-            if not worker.is_alive():
-                return worker
-        return None
-
     def _lease(self, pick: Callable[[], BaseProcessWorker | None], timeout_sec: float) -> BaseProcessWorker | None:
         deadline = time.monotonic() + max(0.0, float(timeout_sec))
         while True:
@@ -349,9 +333,16 @@ class BaseProcessPool:
         """
         def _pick() -> BaseProcessWorker | None:
             claimed = self._pick_idle_worker()
-            if claimed is None:
-                claimed = self._claim_cold_unlocked()
-            return claimed
+            if claimed is not None:
+                return claimed
+            # Process has exited and nobody holds the slot. Idle is only a
+            # successful handshake or a consumed response frame.
+            for worker in self.workers:
+                if worker in self._idle or worker in self._leased:
+                    continue
+                if not worker.is_alive():
+                    return worker
+            return None
 
         return self._lease(_pick, timeout_sec)
 
