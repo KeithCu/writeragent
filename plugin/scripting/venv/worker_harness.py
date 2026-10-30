@@ -127,21 +127,21 @@ def _handle_trusted_action(
         # non-heartbeat path already assigns response["id"] after the dict exists.
         # Why this change: id is written after the spread, matching that path.
         # resp today is only status, result, message, and traceback.
-        frame = {**resp, "id": req_id, "frame_type": FRAME_RESULT}
         # Packing fails before any byte hits stdout, so the pipe is still in
         # sync. An oversized result is a small error frame. Letting
         # IpcFrameError escape after EXEC_STARTED ends the worker with no
         # terminal frame, and the host restarts it.
         try:
-            write_child_ipc_frame(stdout, frame)
+            write_result_frame(stdout, {**resp, "id": req_id})
         except IpcPayloadSizeError as exc:
-            err_payload = {
-                "id": req_id,
-                "status": "error",
-                "message": f"Result exceeds maximum payload size: {exc}",
-                "frame_type": FRAME_RESULT,
-            }
-            write_child_ipc_frame(stdout, err_payload)
+            write_result_frame(
+                stdout,
+                {
+                    "id": req_id,
+                    "status": "error",
+                    "message": f"Result exceeds maximum payload size: {exc}",
+                },
+            )
         return None
 
     return resp

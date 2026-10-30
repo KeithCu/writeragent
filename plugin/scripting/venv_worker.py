@@ -347,7 +347,6 @@ class _ExecRequest:
     init_session_id: str | None = None
     init_script_hash: str | None = None
     allow_heartbeat: bool = False
-    heartbeat_grace_sec: int | None = None
     on_heartbeat: Callable[[dict[str, Any]], None] | None = None
     on_worker_event: Callable[[dict[str, Any]], None] | None = None
     stop_checker: Callable[[], bool] | None = None
@@ -671,7 +670,7 @@ class PythonWorkerManager:
 
         while True:
             if req.allow_heartbeat:
-                grace = int(req.heartbeat_grace_sec if req.heartbeat_grace_sec is not None else EMBEDDINGS_HEARTBEAT_GRACE_S)
+                grace = int(EMBEDDINGS_HEARTBEAT_GRACE_S)
                 # Already unpickled. A second unpack of a multi-megabyte
                 # result frame was pure CPU on this path.
                 response = self._read_response_with_heartbeats(
@@ -903,7 +902,6 @@ class PythonWorkerManager:
         init_session_id: str | None = None,
         init_script_hash: str | None = None,
         allow_heartbeat: bool = False,
-        heartbeat_grace_sec: int | None = None,
         on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
         python_tool_domain: str | None = None,
         script_session_id: str | None = None,
@@ -938,7 +936,6 @@ class PythonWorkerManager:
                     init_session_id=init_session_id,
                     init_script_hash=init_script_hash,
                     allow_heartbeat=allow_heartbeat,
-                    heartbeat_grace_sec=heartbeat_grace_sec,
                     on_heartbeat=on_heartbeat,
                     python_tool_domain=python_tool_domain,
                     script_session_id=script_session_id,
@@ -1388,15 +1385,10 @@ def _resolve_worker_python(
     if venv_dir:
         exe = resolve_venv_python(venv_dir)
         if not exe:
-            if embeddings:
-                message = f"Embeddings venv not configured or invalid: {venv_dir!r}"
-            else:
-                message = f"No python executable found under configured venv: {venv_dir!r}"
-            return None, _worker_error("VENV_NOT_FOUND", message)
-        if embeddings:
-            log.debug("run_venv_code: using embeddings venv interpreter under %s", venv_dir)
-        else:
-            log.debug("run_venv_code: using venv interpreter under %s", venv_dir)
+            prefix = "Embeddings venv not configured or invalid" if embeddings else "No python executable found under configured venv"
+            return None, _worker_error("VENV_NOT_FOUND", f"{prefix}: {venv_dir!r}")
+        which = "embeddings venv" if embeddings else "venv"
+        log.debug("run_venv_code: using %s interpreter under %s", which, venv_dir)
         return exe, None
     exe = resolve_libreoffice_python()
     if not exe:
@@ -1442,7 +1434,6 @@ def run_code_in_user_venv(
     python_tool_domain: str | None = None,
     worker_pool: str = WORKER_POOL_DEFAULT,
     allow_heartbeat: bool = False,
-    heartbeat_grace_sec: int | None = None,
     on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
     action: str | None = None,
     stop_checker: Callable[[], bool] | None = None,
@@ -1500,7 +1491,6 @@ def run_code_in_user_venv(
         init_session_id=init_session_id,
         init_script_hash=init_script_hash,
         allow_heartbeat=allow_heartbeat,
-        heartbeat_grace_sec=heartbeat_grace_sec,
         on_heartbeat=on_heartbeat,
         action=action,
         python_tool_domain=python_tool_domain,
