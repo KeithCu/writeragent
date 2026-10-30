@@ -43,119 +43,43 @@ from __future__ import annotations
 
 import os
 from types import SimpleNamespace
-from typing import Any, NamedTuple
+from typing import Any
 
 # Import-time flag. CrossHair runners set this; pytest / make test do not.
 CROSSHAIR_ENV = "WRITERAGENT_CROSSHAIR"
 
 
-class DealMaxima(NamedTuple):
-    """Finite ``@deal.pre`` domains. Pytest is product-faithful; CrossHair is tiny."""
-
-    col_letters: int
-    col_index: int
-    cell_ref: int
-    row_index: int
-    argv: int
-    cmd_args: int
-    shape_dim: int
-    shape_rank: int
-    placeholder_index: int
-    source: int
-    msgid: int
-    path: int
-    token: int
-    xl_expr: int
-    origin: int
-    url: int
-    retry: int
-    backoff: float
-    backoff_factor: float
-    html_chunk: int
+# Import-time only. Never sniff sys.modules["crosshair"].
+UNDER_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
 
 
 def _max_col_index(n: int) -> int:
+    """0-based max column for names of 1..n letters (3 → 18277 / A–ZZZ, 1 → 25 / A–Z)."""
     return (26 ** (n + 1) - 51) // 25
 
 
-_PYTEST_MAXIMA = DealMaxima(
-    col_letters=3,
-    col_index=_max_col_index(3),  # 18277, A–ZZZ (not 26**3-1)
-    cell_ref=256,  # sheet-qualified ranges; was 32
-    row_index=1_048_575,  # Calc max 0-based row (1_048_576 rows)
-    argv=4096,  # wrap_command argv, including venv ``-c`` probes (~1–2k)
-    cmd_args=32,  # wrap_command list length
-    shape_dim=256,  # 100×100 pack tests fit; CrossHair uses 4
-    shape_rank=4,  # ndarray rank; grids are 2-D, pytest uses up to 4
-    placeholder_index=64,  # Excel %Pn% deps; f-string of the int
-    source=8192,  # real =PY() / Excel scripts; CrossHair stays 16
-    msgid=1024,  # gettext _(); longest shipped msgid is ~500 chars
-    path=256,  # filesystem paths (is_safe_workspace_path); not PATH_MAX
-    token=64,
-    xl_expr=64,  # DAG xl("%Pn%",headers=False); CrossHair uses 32
-    origin=256,  # CORS Origin; CrossHair uses 32
-    url=256,  # endpoint URLs; CrossHair uses 32
-    retry=8,
-    backoff=300.0,
-    backoff_factor=10.0,
-    html_chunk=4096,  # long tool-result HTML in debug; feed() / strip_html_tags slice to this (was 512)
-)
-
-_CROSSHAIR_OVERRIDES = {
-    "col_letters": 1,
-    "col_index": _max_col_index(1),  # 25, A–Z
-    "cell_ref": 4,
-    "row_index": 20,
-    "argv": 32,
-    "cmd_args": 4,
-    "shape_dim": 4,
-    "shape_rank": 2,
-    "placeholder_index": 4,
-    "source": 16,
-    "path": 32,
-    "token": 16,
-    "xl_expr": 32,
-    "origin": 32,
-    "url": 32,
-    "html_chunk": 16,
-}
-
-
-def deal_maxima(*, crosshair: bool) -> DealMaxima:
-    """Return the pytest (wide) or CrossHair (tiny) ``DEAL_MAX_*`` table.
-
-    Import-time only. Do not call from inside ``@deal.pre`` lambdas — CrossHair
-    would explore both branches. Pair ``col_letters`` with ``col_index``
-    (3 with 18277 / A–ZZZ, 1 with 25 / A–Z).
-    """
-    if crosshair:
-        return _PYTEST_MAXIMA._replace(**_CROSSHAIR_OVERRIDES)
-    return _PYTEST_MAXIMA
-
-
-# Import-time only. Same as DEAL_MAX_* table; never sniff sys.modules["crosshair"].
-UNDER_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
-_MAXIMA = deal_maxima(crosshair=UNDER_CROSSHAIR)
-DEAL_MAX_COL_LETTERS = _MAXIMA.col_letters
-DEAL_MAX_COL_INDEX = _MAXIMA.col_index
-DEAL_MAX_CELL_REF = _MAXIMA.cell_ref
-DEAL_MAX_ROW_INDEX = _MAXIMA.row_index
-DEAL_MAX_ARGV = _MAXIMA.argv
-DEAL_MAX_CMD_ARGS = _MAXIMA.cmd_args
-DEAL_MAX_SHAPE_DIM = _MAXIMA.shape_dim
-DEAL_MAX_SHAPE_RANK = _MAXIMA.shape_rank
-DEAL_MAX_PLACEHOLDER_INDEX = _MAXIMA.placeholder_index
-DEAL_MAX_SOURCE = _MAXIMA.source
-DEAL_MAX_MSGID = _MAXIMA.msgid
-DEAL_MAX_PATH = _MAXIMA.path
-DEAL_MAX_TOKEN = _MAXIMA.token
-DEAL_MAX_XL_EXPR = _MAXIMA.xl_expr
-DEAL_MAX_ORIGIN = _MAXIMA.origin
-DEAL_MAX_URL = _MAXIMA.url
-DEAL_MAX_RETRY = _MAXIMA.retry
-DEAL_MAX_BACKOFF = _MAXIMA.backoff
-DEAL_MAX_BACKOFF_FACTOR = _MAXIMA.backoff_factor
-DEAL_MAX_HTML_CHUNK = _MAXIMA.html_chunk
+# Finite @deal.pre domains, chosen once here. Pytest arm is product-faithful;
+# CrossHair arm is tiny. These are not production limits.
+DEAL_MAX_COL_LETTERS = 1 if UNDER_CROSSHAIR else 3
+DEAL_MAX_COL_INDEX = _max_col_index(DEAL_MAX_COL_LETTERS)  # 25 or 18277; not 26**n - 1
+DEAL_MAX_CELL_REF = 4 if UNDER_CROSSHAIR else 256  # sheet-qualified ranges; was 32
+DEAL_MAX_ROW_INDEX = 20 if UNDER_CROSSHAIR else 1_048_575  # Calc max 0-based row (1_048_576 rows)
+DEAL_MAX_ARGV = 32 if UNDER_CROSSHAIR else 4096  # wrap_command argv, including venv -c probes (~1–2k)
+DEAL_MAX_CMD_ARGS = 4 if UNDER_CROSSHAIR else 32  # wrap_command list length
+DEAL_MAX_SHAPE_DIM = 4 if UNDER_CROSSHAIR else 256  # 100×100 pack tests fit; CrossHair uses 4
+DEAL_MAX_SHAPE_RANK = 2 if UNDER_CROSSHAIR else 4  # ndarray rank; grids are 2-D, pytest uses up to 4
+DEAL_MAX_PLACEHOLDER_INDEX = 4 if UNDER_CROSSHAIR else 64  # Excel %Pn% deps; f-string of the int
+DEAL_MAX_SOURCE = 16 if UNDER_CROSSHAIR else 8192  # real =PY() / Excel scripts; CrossHair stays 16
+DEAL_MAX_MSGID = 1024  # gettext _(); longest shipped msgid is ~500 chars
+DEAL_MAX_PATH = 32 if UNDER_CROSSHAIR else 256  # filesystem paths (is_safe_workspace_path); not PATH_MAX
+DEAL_MAX_TOKEN = 16 if UNDER_CROSSHAIR else 64
+DEAL_MAX_XL_EXPR = 32 if UNDER_CROSSHAIR else 64  # DAG xl("%Pn%",headers=False); CrossHair uses 32
+DEAL_MAX_ORIGIN = 32 if UNDER_CROSSHAIR else 256  # CORS Origin; CrossHair uses 32
+DEAL_MAX_URL = 32 if UNDER_CROSSHAIR else 256  # endpoint URLs; CrossHair uses 32
+DEAL_MAX_RETRY = 8
+DEAL_MAX_BACKOFF = 300.0
+DEAL_MAX_BACKOFF_FACTOR = 10.0
+DEAL_MAX_HTML_CHUNK = 16 if UNDER_CROSSHAIR else 4096  # feed() / strip_html_tags slice to this (was 512)
 
 
 def ascii_bounded(s: object, max_len: int, min_len: int = 0) -> bool:
