@@ -277,7 +277,7 @@ class OpenRouterShim(BaseProviderShim):
     def build_chat_request(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> tuple[str, str, bytes, dict[str, str]]:
-        if OPENROUTER_USE_RESPONSES and tools and str(model_name or "").strip().lower().startswith("openai/"):
+        if OPENROUTER_USE_RESPONSES and str(model_name or "").strip().lower().startswith("openai/") and uses_responses_api(model_name, tools):
             return _responses_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
         return super().build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
 

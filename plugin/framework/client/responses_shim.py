@@ -26,7 +26,7 @@
 """Chat-completions history to the OpenAI Responses API, and the stream back.
 
 Used by OpenAIShim for provider openai, gpt-6* models, and by OpenRouterShim
-for openai/* models when openai_shim.OPENROUTER_USE_RESPONSES is True, when
+for openai/gpt-6* models when openai_shim.OPENROUTER_USE_RESPONSES is True, when
 tools are present. The tool loop still sees chat deltas.
 """
 

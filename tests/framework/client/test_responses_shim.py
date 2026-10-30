@@ -425,11 +425,13 @@ def test_routing_other_providers_stay_on_chat() -> None:
 @pytest.mark.parametrize(
     ("flag", "model_name", "suffix"),
     [
-        (False, "openai/gpt-5.4", "/chat/completions"),
-        (True, "openai/gpt-5.4", "/responses"),
+        (False, "openai/gpt-6-astra", "/chat/completions"),
+        (True, "openai/gpt-6-astra", "/responses"),
         (True, "OpenAI/gpt-6-astra", "/responses"),
+        (True, "openai/gpt-oss-20b", "/chat/completions"),
+        (True, "openai/gpt-5.4", "/chat/completions"),
         (True, "anthropic/claude-sonnet-4", "/chat/completions"),
-        (True, "gpt-5.4", "/chat/completions"),
+        (True, "gpt-6-astra", "/chat/completions"),
     ],
 )
 def test_openrouter_responses_flag_routing(monkeypatch: pytest.MonkeyPatch, flag: bool, model_name: str, suffix: str) -> None:
