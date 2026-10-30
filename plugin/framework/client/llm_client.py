@@ -170,6 +170,7 @@ def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | Non
 
 
 from .openai_shim import get_provider_shim_class
+from .base_provider_shim import accepted_effort_body, remember_accepted_effort
 
 
 class LlmClient:
@@ -652,6 +653,8 @@ class LlmClient:
         wait_index = 0
         emitted_any = False
         effort_pending: list[bytes] | None = None
+        first_body = body
+        body = accepted_effort_body(self._get_shim()._reasoning_provider(), self._endpoint(), body)
         while True:
             # on_delta writes role, usage, and a buffered "<think" prefix into
             # the caller's snapshot before any callback runs. emitted_any stays
@@ -677,6 +680,9 @@ class LlmClient:
                     return "stop"
                 if action == "retry":
                     continue
+                if effort_pending is not None:
+                    remember_accepted_effort(self._endpoint(), first_body, body)
+                    effort_pending = None
 
                 # Set only when the SSE loop finishes without an error or Stop.
                 # The finally block drains solely in that case.
@@ -1070,11 +1076,15 @@ class LlmClient:
                     log.warning("Could not log redacted outgoing messages: %s", log_exc)
 
             effort_pending: list[bytes] | None = None
+            first_body = body
+            body = accepted_effort_body(self._get_shim()._reasoning_provider(), self._endpoint(), body)
             while True:
                 try:
                     action, result = self._exchange_json(
                         method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection", on_retry=_log_outgoing_on_retry, wrap_unexpected=True, failure_log="request_with_tools failed"
                     )
+                    if action != "stop" and effort_pending is not None:
+                        remember_accepted_effort(self._endpoint(), first_body, body)
                     break
                 except NetworkError as exc:
                     effort_pending = self._effort_retries(exc, body, effort_pending, stop_checker=stop_checker)

@@ -1,8 +1,9 @@
 import json
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import pytest
 
+from plugin.framework.client import base_provider_shim
 from plugin.framework.client.base_provider_shim import (
     BaseProviderShim,
     effort_payload,
@@ -14,6 +15,13 @@ from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.openai_shim import OllamaShim, OpenAIShim, TogetherShim
 from plugin.framework.errors import NetworkError
 from tests.doc_stubs import MockContext
+
+
+@pytest.fixture(autouse=True)
+def _clear_accepted_effort() -> Any:
+    base_provider_shim._ACCEPTED_EFFORT.clear()
+    yield
+    base_provider_shim._ACCEPTED_EFFORT.clear()
 
 
 class DummyClient:
@@ -399,3 +407,77 @@ def test_400_retry_mistral_low_moves_up_to_high() -> None:
         assert res["content"] == "ok"
         sent = [json.loads(c[0][2]).get("reasoning_effort") for c in mock_exchange.call_args_list]
         assert sent == ["low", "medium", "high"]
+
+
+# --- Accepted effort memo ---
+
+
+def _mistral_client(model: str = "mistral-small-2603") -> LlmClient:
+    return LlmClient({"endpoint": "https://api.mistral.ai", "api_key": "k", "model": model, "reasoning_effort": "low"}, MockContext())
+
+
+_EFFORT_400 = NetworkError("HTTP Error 400: Invalid reasoning_effort for this model", code="HTTP_ERROR", details={"status": 400, "url": "/v1/chat/completions"})
+_OK = ("ok", {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
+
+
+def test_accepted_effort_remembered_sync() -> None:
+    client = _mistral_client()
+    with patch.object(client, "_exchange_json", side_effect=[_EFFORT_400, _EFFORT_400, _OK]) as first:
+        client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
+    assert [json.loads(c[0][2]).get("reasoning_effort") for c in first.call_args_list] == ["low", "medium", "high"]
+
+    # Same endpoint, model and level: the accepted value goes out first, one request.
+    with patch.object(client, "_exchange_json", side_effect=[_OK]) as second:
+        assert client.request_with_tools([{"role": "user", "content": "again"}], stream=False)["content"] == "ok"
+    assert second.call_count == 1
+    assert json.loads(second.call_args_list[0][0][2])["reasoning_effort"] == "high"
+
+    # Another model on the same endpoint starts from its own level.
+    other = _mistral_client("mistral-large-2604")
+    with patch.object(other, "_exchange_json", side_effect=[_OK]) as third:
+        other.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
+    assert json.loads(third.call_args_list[0][0][2])["reasoning_effort"] == "low"
+
+
+def test_accepted_no_effort_remembered() -> None:
+    client = _mistral_client()
+    # low, medium, high, max rejected; the body without effort works.
+    with patch.object(client, "_exchange_json", side_effect=[_EFFORT_400] * 4 + [_OK]) as first:
+        client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
+    assert first.call_count == 5
+    with patch.object(client, "_exchange_json", side_effect=[_OK]) as second:
+        client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
+    assert second.call_count == 1
+    assert "reasoning_effort" not in json.loads(second.call_args_list[0][0][2])
+
+
+def test_failed_dance_records_nothing() -> None:
+    client = _mistral_client()
+    with patch.object(client, "_exchange_json", side_effect=[_EFFORT_400] * 5):
+        with pytest.raises(NetworkError):
+            client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
+    assert base_provider_shim._ACCEPTED_EFFORT == {}
+
+
+def test_accepted_effort_remembered_streaming() -> None:
+    client = _mistral_client()
+    body = json.dumps({"model": "mistral-small-2603", "messages": [], "stream": True, "reasoning_effort": "low"}).encode("utf-8")
+
+    def ok_attempt() -> tuple[str, Any, int, int]:
+        response = MagicMock()
+        response.getheader.return_value = None
+        response.read.return_value = b""
+        lines = [b'data: {"choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}]}\n', b"data: [DONE]\n"]
+        response.__iter__ = lambda _self: iter(lines)
+        return "ok", response, 5, 0
+
+    with patch.object(client, "_send_http_attempt", side_effect=[_EFFORT_400, _EFFORT_400, ok_attempt()]) as first:
+        parts: list[str] = []
+        client._run_streaming_loop("POST", "/v1/chat/completions", body, {}, parts.append)
+    assert parts == ["ok"]
+    assert [json.loads(c[0][2]).get("reasoning_effort") for c in first.call_args_list] == ["low", "medium", "high"]
+
+    with patch.object(client, "_send_http_attempt", side_effect=[ok_attempt()]) as second:
+        client._run_streaming_loop("POST", "/v1/chat/completions", body, {}, lambda _t: None)
+    assert second.call_count == 1
+    assert json.loads(second.call_args_list[0][0][2])["reasoning_effort"] == "high"
