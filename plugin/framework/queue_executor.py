@@ -87,13 +87,10 @@ def _marshal_thread_tag(executor: "QueueExecutor | None" = None) -> str:
     from plugin.framework.thread_guard import get_background_task_name, on_main_thread
 
     cur = threading.current_thread()
-    main = threading.main_thread()
-    cur_name = getattr(cur, "name", repr(cur))
-    cur_ident = getattr(cur, "ident", "?")
-    py_main = cur is main
+    py_main = cur is threading.main_thread()
     ex = executor or default_executor
     qdepth = ex.pending_work_count()
-    return "thread=%r ident=%s py_main=%s logical_main=%s bg_task=%r agent_active=%s queue_depth=%s" % (cur_name, cur_ident, py_main, on_main_thread(), get_background_task_name(), is_agent_active(), qdepth)
+    return "thread=%r ident=%s py_main=%s logical_main=%s bg_task=%r agent_active=%s queue_depth=%s" % (cur.name, cur.ident, py_main, on_main_thread(), get_background_task_name(), is_agent_active(), qdepth)
 
 
 def _log_marshal(level: int, msg: str, *args: Any, executor: "QueueExecutor | None" = None) -> None:
@@ -115,8 +112,6 @@ def _log_marshal(level: int, msg: str, *args: Any, executor: "QueueExecutor | No
         log.warning(msg, *args, tag)
     elif level == logging.ERROR:
         log.error(msg, *args, tag)
-    else:
-        log.log(level, msg, *args, tag)
 
 
 def _fn_label(fn: Callable[..., Any]) -> str:
@@ -642,9 +637,7 @@ class QueueExecutor:
             _log_marshal(logging.DEBUG, "marshal route=inline_testing fn=%s %s", fn_label, executor=self)
             return fn(*args, **kwargs)
 
-        svc = None if _force_marshal_mode else self._get_async_callback()
-
-        if svc is None and not _force_marshal_mode:
+        if not _force_marshal_mode and self._get_async_callback() is None:
             # Off the main thread with no AsyncCallback. Running fn here touches
             # UNO on the caller. The logical-main path already returned above.
             # Log the refusal and raise it directly. Raising RuntimeError
@@ -689,8 +682,7 @@ class QueueExecutor:
             fn(*args, **kwargs)
             return
 
-        svc = None if _force_marshal_mode else self._get_async_callback()
-        if svc is None and not _force_marshal_mode:
+        if not _force_marshal_mode and self._get_async_callback() is None:
             if self._may_run_marshal_inline():
                 _log_marshal(logging.DEBUG, "marshal route=post_inline_logical_main fn=%s %s", fn_label, executor=self)
                 fn(*args, **kwargs)
