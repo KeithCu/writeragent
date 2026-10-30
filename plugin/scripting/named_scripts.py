@@ -30,8 +30,7 @@ log = logging.getLogger(__name__)
 from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
 
 _NAMED_SCRIPT_MAX_BYTES = 200_000
-_IDENT_NON_ALNUM = re.compile(r"[^0-9A-Za-z_]+")
-_IDENT_MULTI_US = re.compile(r"_+")
+_IDENT_NON_ALNUM = re.compile(r"[^0-9A-Za-z]+")
 
 # Bind-thread executor for this execute. The timeout pool copies context, and
 # self._executor is only for a lookup whose ContextVar was never set.
@@ -44,16 +43,13 @@ LIST_NAMED_PYTHON_SCRIPTS = "list_named_python_scripts"
 def python_identifier_from_script_name(name: str) -> str:
     """Turn a picker title into a Python identifier (tweak here, not call sites)."""
     raw = (name or "").strip()
-    ident = _IDENT_NON_ALNUM.sub("_", raw)
-    ident = _IDENT_MULTI_US.sub("_", ident).strip("_")
+    ident = _IDENT_NON_ALNUM.sub("_", raw).strip("_")
     if not ident:
         ident = "_script"
     if ident[0].isdigit():
         ident = f"_{ident}"
     if keyword.iskeyword(ident):
         ident = f"{ident}_"
-    if not ident.isidentifier():
-        ident = "_script"
     return ident
 
 
@@ -132,15 +128,15 @@ def _function_import_time_call_lines(node: ast.FunctionDef) -> list[int]:
     for kw_default in node.args.kw_defaults:
         _flag_line(lines, kw_default, effect=True)
     _flag_line(lines, node.returns, effect=True)
-    all_args = (
-        node.args.posonlyargs
-        + node.args.args
-        + node.args.kwonlyargs
-        + ([node.args.vararg] if node.args.vararg else [])
-        + ([node.args.kwarg] if node.args.kwarg else [])
-    )
-    for arg in all_args:
-        _flag_line(lines, arg.annotation, effect=True)
+    for arg in (
+        *node.args.posonlyargs,
+        *node.args.args,
+        *node.args.kwonlyargs,
+        node.args.vararg,
+        node.args.kwarg,
+    ):
+        if arg is not None:
+            _flag_line(lines, arg.annotation, effect=True)
     return lines
 
 
@@ -248,7 +244,7 @@ def extract_library_source(code: str) -> str:
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             keep.append(node)
         elif isinstance(node, ast.Assign):
-            if node.value is not None and all(_is_name_only_target(t) for t in node.targets):
+            if all(_is_name_only_target(t) for t in node.targets):
                 if _expr_has_load_time_effect(node.value):
                     _flag_line(dropped, node)
                 else:
