@@ -110,12 +110,7 @@ def control_snapshot(model: Any) -> dict[str, Any]:
             continue
         try:
             raw = getattr(model, attr)
-            if key == "state":
-                info[key] = int(raw)
-            elif key in ("items", "selected"):
-                info[key] = list(raw)
-            else:
-                info[key] = raw
+            info[key] = int(raw) if key == "state" else list(raw) if key in ("items", "selected") else raw
         except Exception as exc:
             if is_real_disposal(exc):
                 raise
@@ -223,15 +218,11 @@ def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) 
         geom = cand.get("geometry")
         if not text or not geom:
             continue
-        gap = _gap_left(geom, blank_g)
-        if gap is not None:
-            key = (0, gap)
-        else:
-            gap = _gap_above(geom, blank_g)
-            if gap is not None:
-                key = (1, gap)
-            else:
-                continue
+        left = _gap_left(geom, blank_g)
+        gap = left if left is not None else _gap_above(geom, blank_g)
+        if gap is None:
+            continue
+        key = (0 if left is not None else 1, gap)
         if best_key is None or key < best_key:
             best_key = key
             best_text = text
@@ -277,6 +268,17 @@ def _iter_children(xshapes: Any) -> Iterator[tuple[int, Any]]:
         yield i, shape
 
 
+def _is_group(shape: Any) -> bool:
+    """GroupShape test for the address walk. Re-raise disposal; any other getShapeType failure is not a group."""
+    try:
+        shape_type = shape.getShapeType()
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
+        return False
+    return "GroupShape" in str(shape_type)
+
+
 def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tuple[str, Any, Any]]:
     """Preorder (address, shape, parent). parent is the XShapes to remove from (page or GroupShape).
     Recurse only when "GroupShape" is in the shape type. Disposal from getCount / getByIndex
@@ -285,14 +287,7 @@ def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tupl
         addr = shape_path(base, i)
         yield addr, shape, xshapes
 
-        try:
-            shape_type = shape.getShapeType()
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            shape_type = ""
-
-        if "GroupShape" in str(shape_type):
+        if _is_group(shape):
             yield from iter_shape_addresses(shape, base=addr)
 
 
@@ -313,9 +308,7 @@ def find_shape_on_page(
             return None, None, None, "Invalid shape index: %s" % index
         if isinstance(index, int):
             seg_ints = [index]
-            raw_index_str = str(index)
         elif isinstance(index, str):
-            raw_index_str = index
             parts = index.split(".")
             if not parts or any(not p.isdigit() for p in parts):
                 return None, None, None, "Invalid shape index: %s" % index
@@ -326,43 +319,30 @@ def find_shape_on_page(
         curr: Any = page
         parent: Any = None
         for d, seg_idx in enumerate(seg_ints):
-            if d > 0:
-                try:
-                    curr_type = curr.getShapeType()
-                except Exception as exc:
-                    if is_disposed_exception(exc):
-                        raise
-                    curr_type = ""
-                if "GroupShape" not in str(curr_type):
-                    return None, None, None, "Invalid shape index: %s" % raw_index_str
+            if d > 0 and not _is_group(curr):
+                return None, None, None, "Invalid shape index: %s" % index
 
             try:
                 count = curr.getCount()
             except Exception as exc:
                 if is_disposed_exception(exc):
                     raise
-                return None, None, None, "Failed to find shape at index %s: %s" % (raw_index_str, exc)
+                return None, None, None, "Failed to find shape at index %s: %s" % (index, exc)
 
             if seg_idx < 0 or seg_idx >= count:
-                return None, None, None, "Invalid shape index: %s" % raw_index_str
+                return None, None, None, "Invalid shape index: %s" % index
 
             try:
                 child = curr.getByIndex(seg_idx)
             except Exception as exc:
                 if is_disposed_exception(exc):
                     raise
-                return None, None, None, "Failed to find shape at index %s: %s" % (raw_index_str, exc)
+                return None, None, None, "Failed to find shape at index %s: %s" % (index, exc)
 
             parent = curr
             curr = child
 
-        assert curr is not None
-        assert parent is not None
-
-        if len(seg_ints) == 1:
-            addr: int | str = seg_ints[0]
-        else:
-            addr = ".".join(str(s) for s in seg_ints)
+        addr: int | str = seg_ints[0] if len(seg_ints) == 1 else ".".join(str(s) for s in seg_ints)
         return addr, curr, parent, None
 
     wanted = (name or "").strip()
