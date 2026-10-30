@@ -53,13 +53,21 @@ def _xl_expr(index: int, header_mode: HeaderMode) -> str:
 
 
 def _data_header_modes(bindings: Sequence[BindingInfo]) -> list[HeaderMode]:
-    modes: list[HeaderMode] = []
-    if bindings:
-        for b in bindings:
-            if b.role == "ordering":
-                continue
-            modes.append(_as_header_mode(b.header_mode))
-    return modes
+    return [_as_header_mode(b.header_mode) for b in bindings if b.role != "ordering"]
+
+
+def _data_index(node: ast.AST, names: tuple[str, ...]) -> int | None:
+    if isinstance(node, ast.Name) and node.id in names:
+        return 0
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in names
+        and isinstance(node.slice, ast.Constant)
+        and isinstance(node.slice.value, int)
+    ):
+        return node.slice.value
+    return None
 
 
 def _collect_legacy_spans(
@@ -96,17 +104,7 @@ def _collect_legacy_spans(
                     and arg0.slice.upper is None
                     and arg0.slice.step is None
                 ):
-                    idx: int | None = None
-                    if isinstance(arg0.value, ast.Name) and arg0.value.id == "data":
-                        idx = 0
-                    elif (
-                        isinstance(arg0.value, ast.Subscript)
-                        and isinstance(arg0.value.value, ast.Name)
-                        and arg0.value.value.id == "data"
-                        and isinstance(arg0.value.slice, ast.Constant)
-                        and isinstance(arg0.value.slice.value, int)
-                    ):
-                        idx = arg0.value.slice.value
+                    idx = _data_index(arg0.value, ("data",))
 
                     kw = node.keywords[0]
                     if (
@@ -153,17 +151,7 @@ def _collect_legacy_spans(
 
                 if header_mode is not None:
                     target = func.value
-                    tp_idx: int | None = None
-                    if isinstance(target, ast.Name) and target.id in ("data", "ranges"):
-                        tp_idx = 0
-                    elif (
-                        isinstance(target, ast.Subscript)
-                        and isinstance(target.value, ast.Name)
-                        and target.value.id in ("data", "ranges")
-                        and isinstance(target.slice, ast.Constant)
-                        and isinstance(target.slice.value, int)
-                    ):
-                        tp_idx = target.slice.value
+                    tp_idx = _data_index(target, ("data", "ranges"))
 
                     if tp_idx is not None:
                         for descendant in ast.walk(node):
@@ -182,24 +170,21 @@ def _collect_legacy_spans(
         if id(node) in handled:
             continue
         if isinstance(node, ast.Subscript):
-            if isinstance(node.value, ast.Name) and node.value.id in ("data", "ranges"):
-                if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, int):
-                    sub_idx = node.slice.value
-                    handled.add(id(node))
-                    handled.add(id(node.value))
-                    if sub_idx >= len(deps):
-                        issues.append(f"{node.value.id}[{sub_idx}] with only {len(deps)} deps")
-                        fatal = True
-                    else:
-                        start, end = node_span(node, src, line_starts)
-                        if start >= 0 and end > start:
-                            hm: HeaderMode = modes[sub_idx] if sub_idx < len(modes) else "omit"
-                            spans.append((start, end, _xl_expr(sub_idx, hm)))
-                    continue
+            sub_idx = _data_index(node, ("data", "ranges"))
+            if sub_idx is not None and isinstance(node.value, ast.Name):
+                handled.add(id(node))
+                handled.add(id(node.value))
+                if sub_idx >= len(deps):
+                    issues.append(f"{node.value.id}[{sub_idx}] with only {len(deps)} deps")
+                    fatal = True
+                else:
+                    start, end = node_span(node, src, line_starts)
+                    if start >= 0 and end > start:
+                        hm: HeaderMode = modes[sub_idx] if sub_idx < len(modes) else "omit"
+                        spans.append((start, end, _xl_expr(sub_idx, hm)))
+                continue
 
         if isinstance(node, ast.Name) and node.id == "data" and isinstance(node.ctx, ast.Load):
-            if id(node) in handled:
-                continue
             # Tip: bare ``data`` is a CalcRange only for a single formula arg; with several args it is the ranges list.
             if len(deps) == 1:
                 handled.add(id(node))
@@ -356,11 +341,7 @@ def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: s
         ordering_args = []
 
     bindings_raw = meta.get("bindings")
-    bindings: list[BindingInfo] = []
-    if isinstance(bindings_raw, list):
-        for b in bindings_raw:
-            if isinstance(b, dict):
-                bindings.append(BindingInfo.from_dict(b))
+    bindings = [BindingInfo.from_dict(b) for b in bindings_raw if isinstance(b, dict)] if isinstance(bindings_raw, list) else []
 
     modes = _data_header_modes(bindings)
 
