@@ -233,6 +233,11 @@ def table_from_span_cells(
     if num_rows <= 0 or num_cols <= 0:
         return None
     grid: list[list[str]] = [["" for _ in range(num_cols)] for _ in range(num_rows)]
+    # Rectangular grid: kept body rows are min(num_rows - 1, MAX_TABLE_ROWS).
+    # Clip rowspan in this walk. Row 0 is the header, so a header span that
+    # covers every kept body row has rowspan last_kept + 1 (the test with
+    # MAX_TABLE_ROWS == 2 expects rowspan 3).
+    last_kept = min(num_rows - 1, MAX_TABLE_ROWS)
     spans: list[dict[str, int]] = []
     for cell in cells:
         row = _cell_int(cell, "start_row_offset_idx", "start_row", default=-1)
@@ -242,33 +247,20 @@ def table_from_span_cells(
         if row < 0 or col < 0 or row >= num_rows or col >= num_cols:
             continue
         grid[row][col] = _cell_text(cell)
-        if rowspan > 1 or colspan > 1:
-            spans.append({"row": row, "col": col, "rowspan": rowspan, "colspan": colspan})
-
-    columns = [str(c) for c in grid[0]]
-    data_rows = [[str(c) for c in row] for row in grid[1:]]
-    limited = data_rows[:MAX_TABLE_ROWS]
-    last_kept = len(limited)
-    kept_spans: list[dict[str, int]] = []
-    for span in spans:
-        row = span["row"]
-        if row < 0 or row > last_kept:
+        if row > last_kept:
             continue
-        rowspan = int(span["rowspan"])
-        colspan = int(span["colspan"])
         max_rowspan = last_kept - row + 1
         if rowspan > max_rowspan:
             rowspan = max_rowspan
         if rowspan <= 1 and colspan <= 1:
             continue
-        if rowspan != span["rowspan"]:
-            span = {**span, "rowspan": rowspan}
-        kept_spans.append(span)
+        spans.append({"row": row, "col": col, "rowspan": rowspan, "colspan": colspan})
+    data_rows = grid[1:]
     return {
         "name": name,
-        "columns": columns,
-        "rows": limited,
-        "spans": kept_spans,
+        "columns": list(grid[0]),
+        "rows": [list(row) for row in data_rows[:MAX_TABLE_ROWS]],
+        "spans": spans,
         "truncated": len(data_rows) > MAX_TABLE_ROWS,
         "total_rows": len(data_rows),
     }
