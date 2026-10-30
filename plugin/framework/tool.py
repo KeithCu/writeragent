@@ -521,8 +521,6 @@ def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services
     if tool.doc_types is not None:
         if doc_type and doc_type.lower() in {str(d).lower() for d in tool.doc_types}:
             return True
-        if tool.uno_services is None:
-            return False
 
     return False
 
@@ -864,7 +862,7 @@ class ToolRegistry:
             return 0.0
         return float(raw)
 
-    def _execute_with_timeout(self, func: Any, timeout: float, tool_name: str = "<unknown>", run_threaded: bool = True, **kwargs: Any) -> Any:
+    def _execute_with_timeout(self, func: Any, timeout: float, tool_name: str = "<unknown>", run_threaded: bool = True) -> Any:
         """Run *func* with an optional wall-clock timeout.
 
         If ``run_threaded`` is False, the timeout is ignored and the function runs inline.
@@ -878,7 +876,7 @@ class ToolRegistry:
         """
         # crosshair: off
         if timeout <= 0:
-            return func(**kwargs)
+            return func()
 
         if not run_threaded:
             # The timeout needs a thread, and execute hits this path on each
@@ -887,13 +885,13 @@ class ToolRegistry:
             if tool_name not in _sync_timeout_warned:
                 _sync_timeout_warned.add(tool_name)
                 log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
-            return func(**kwargs)
+            return func()
 
         result_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
 
         def worker() -> None:
             try:
-                result_queue.put(("success", func(**kwargs)))
+                result_queue.put(("success", func()))
             except Exception as e:
                 result_queue.put(("error", e))
             except BaseException as exc:
@@ -1050,17 +1048,14 @@ class ToolRegistry:
             def _run_tool() -> Any:
                 return runner(ctx, **kwargs)
 
-            def _invoke() -> Any:
-                return self._execute_with_timeout(_run_tool, timeout=timeout, tool_name=tool_name, run_threaded=run_threaded)
-
             if bypass_thread_guard or tool.is_async():
-                result = _invoke()
+                result = self._execute_with_timeout(_run_tool, timeout, tool_name, run_threaded)
             else:
                 # We let the marshal TimeoutError become TOOL_REGISTRY_ERROR, not a
                 # TOOL_TIMEOUT/cancel path, because QueueExecutor raises it only for
                 # work that never started (started work is waited out), so nothing
                 # lands late and a retry is safe.
-                result = execute_on_main_thread(_invoke)
+                result = execute_on_main_thread(lambda: self._execute_with_timeout(_run_tool, timeout, tool_name, run_threaded))
 
             # Ensure any returned dict with status='error' includes full context details
             if isinstance(result, dict) and result.get("status") == "error":

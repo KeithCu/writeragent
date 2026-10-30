@@ -31,7 +31,7 @@ import json
 from collections.abc import Sequence
 from typing import Any, TypeVar
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_bounded, deal
+from plugin.framework.deal_shim import deal
 
 
 _SCALAR_TYPES = frozenset({"integer", "number", "boolean", "string"})
@@ -268,40 +268,6 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
     return out
 
 
-@deal.pre(lambda types: isinstance(types, list))
-@deal.post(lambda result: isinstance(result, (str, list)))
-def _collapse_union_type(types: list[str]) -> str | list[str]:
-    """Keep every source type, including null. Drop duplicate names only.
-
-    Dedupe, and return one string only when a single name remains. The
-    provider schema must not be narrower than the source schema.
-    Collapsing any union other than one scalar plus ``null`` to a single
-    member, with ``array`` beating the rest, then adds ``null`` on that
-    survivor: ``["string", "number"]`` becomes ``["string", "null"]`` and
-    ``apply_document_content`` content ``["array", "string"]`` becomes
-    ``"array"``. ``validate`` accepts each listed member, and execute
-    accepts a bare string for that content field. Null on an optional
-    scalar is added later.
-    """
-    # crosshair: off
-    if not types:
-        return "string"
-    seen: list[str] = []
-    for one in types:
-        if one not in seen:
-            seen.append(one)
-    if len(seen) == 1:
-        return seen[0]
-    if len(seen) == len(types):
-        return types
-    return seen
-
-
-@deal.pre(lambda type_val: type_val is None or isinstance(type_val, str) or (isinstance(type_val, list) and len(type_val) <= DEAL_MAX_CMD_ARGS and all(isinstance(x, str) and ascii_bounded(x, DEAL_MAX_TOKEN) for x in type_val)))
-def _type_allows_null(type_val: Any) -> bool:
-    return isinstance(type_val, list) and "null" in type_val
-
-
 @deal.ensure(lambda prop_schema, result: not isinstance(prop_schema, dict) or isinstance(result, dict))
 def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any]:
     """Add null to optional scalar property types (strict providers reject bare null otherwise).
@@ -314,7 +280,7 @@ def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any
     if not isinstance(prop_schema, dict):
         return prop_schema
     type_val = prop_schema.get("type")
-    if type_val is None or _type_allows_null(type_val):
+    if type_val is None or (isinstance(type_val, list) and "null" in type_val):
         return prop_schema
     if isinstance(type_val, str) and type_val in _SCALAR_TYPES:
         scalar_types = [type_val]
@@ -349,8 +315,23 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     if len(params) == 0:
         return params
     params = copy.deepcopy(params)
+    # Dedupe only. One remaining name becomes a string. An empty list
+    # becomes "string". Do not collapse a real union to one member:
+    # ["string", "number"] must stay both, and ["array", "string"] must
+    # not become "array" (apply_document_content accepts either).
     if "type" in params and isinstance(params["type"], list):
-        params["type"] = _collapse_union_type(params["type"])
+        types = params["type"]
+        if not types:
+            params["type"] = "string"
+        else:
+            seen = []
+            for one in types:
+                if one not in seen:
+                    seen.append(one)
+            if len(seen) == 1:
+                params["type"] = seen[0]
+            elif len(seen) != len(types):
+                params["type"] = seen
     type_value = params.get("type")
     # Drop ``items`` only when ``type`` is present and does not include
     # ``array``. ``type != "array"`` is also true when ``type`` is missing
