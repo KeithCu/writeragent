@@ -41,7 +41,6 @@ FLAT_CSV_EXTS = (".csv", ".tsv")
 FLAT_PARQUET_EXTS = (".parquet",)
 FLAT_JSON_EXTS = (".json", ".jsonl", ".ndjson")
 FLAT_FILE_EXTS = FLAT_CSV_EXTS + FLAT_PARQUET_EXTS + FLAT_JSON_EXTS
-OFFICE_FILE_EXTS = (".xlsx", ".xls", ".ods")
 
 _READONLY_VIOLATION_MESSAGE = "SQL contains write, attach, or path escape"
 
@@ -102,11 +101,10 @@ def _flat_ext(path: str) -> str:
 def unsupported_flat_type_message(filename: str, ext: str) -> str:
     shown = ext or "(no extension)"
     direct = ", ".join(FLAT_FILE_EXTS)
-    office = ", ".join(OFFICE_FILE_EXTS)
     return (
         f"Unsupported folder file type {shown} for {filename!r}. "
         f"Direct DuckDB reads: {direct}. "
-        f"Spreadsheets ({office}) use the LibreOffice import path."
+        f"Spreadsheets (.xlsx, .xls, .ods) use the LibreOffice import path."
     )
 
 
@@ -195,28 +193,18 @@ def persistable_duckdb_session_id(session_id: str | None) -> str | None:
     return None
 
 
-def _sandbox_session_id() -> str | None:
+def _sandbox_context() -> tuple[str | None, str | None, bool]:
+    # ImportError: no sandbox (LibrePy omits this stack, or a cycle). Same defaults as the three wrappers.
+    # Do not cache the failure. A later call must be able to import.
     try:
-        from plugin.scripting.venv.venv_sandbox import current_sandbox_session_id
+        from plugin.scripting.venv.venv_sandbox import (
+            current_sandbox_scoped_dir,
+            current_sandbox_session_id,
+            sandbox_execute_active,
+        )
     except ImportError:
-        return None
-    return current_sandbox_session_id()
-
-
-def _sandbox_scoped_dir() -> str | None:
-    try:
-        from plugin.scripting.venv.venv_sandbox import current_sandbox_scoped_dir
-    except ImportError:
-        return None
-    return current_sandbox_scoped_dir()
-
-
-def _cell_sandbox_active() -> bool:
-    try:
-        from plugin.scripting.venv.venv_sandbox import sandbox_execute_active
-    except ImportError:
-        return False
-    return sandbox_execute_active()
+        return None, None, False
+    return current_sandbox_session_id(), current_sandbox_scoped_dir(), sandbox_execute_active()
 
 
 def resolve_duckdb_session_id(session_id: str | None = None) -> str | None:
@@ -225,13 +213,14 @@ def resolve_duckdb_session_id(session_id: str | None = None) -> str | None:
     Host callers (trusted SQL, tests) may name a workbook. A sandboxed cell
     must not: ``session_duckdb("calc:other")`` used to open that catalog.
     """
-    current = persistable_duckdb_session_id(_sandbox_session_id())
+    live_sid, _scoped, cell_active = _sandbox_context()
+    current = persistable_duckdb_session_id(live_sid)
     if session_id is None:
         return current
     requested = persistable_duckdb_session_id(session_id)
     # A foreign session id, or one that would skip the workbook catalog, is
     # ignored inside run_sandboxed_code. The cell session is used.
-    if _cell_sandbox_active() and requested != current:
+    if cell_active and requested != current:
         return current
     return requested
 
@@ -505,7 +494,11 @@ class GuardedDuckDBConnection:
     def confine_persist_folder(self, folder: str | None) -> None:
         if not self.__persist or self.__confined:
             return
-        chosen = folder if (isinstance(folder, str) and folder.strip()) else _sandbox_scoped_dir()
+        chosen: str | None
+        if isinstance(folder, str) and folder.strip():
+            chosen = folder
+        else:
+            _session, chosen, _active = _sandbox_context()
         if not (chosen and chosen.strip()):
             return
         if _duckdb_version_tuple() < (1, 3):
