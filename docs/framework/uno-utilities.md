@@ -86,7 +86,6 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `get_selection_range` | Writer `(start, end)` character offsets (cursor = equal ends). |
 | `get_selection_text` | Selected string for Writer / Calc / Draw; `None` if empty. |
 | `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
-| `get_full_writer_text` | Prefix of Writer body, hiding tracked deletions. |
 | `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text; returns 0 for non-Writer or on error) = the space of `get_document_content` `document_length` and `scope='range'`. |
 | `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). |
 | `_writer_char_count` / `_read_writer_text_slice` | Body length in cursor steps (paragraph breaks and pending deleted text count, as in `goRight` / `get_selection_range`); slice reads for chat excerpts. Not `CharacterCount`: that statistic leaves both out and recomputes after an edit (slower than the walk). |
