@@ -135,7 +135,7 @@ request shapes, why multipart exists, and the plan to retire peel.
   ```
 
 - **Session Reset on Lost Kernel (`session_reset: true`)**:
-  `session_reset` is set when this call's process had to create the namespace and the pool already had a row for that id (crash, idle eviction, recycle respawn). A brand-new id creates a namespace and does not set the flag. A call that never reaches the child leaves the row in place, so a later call that does run still sets the flag. There is no marker list and no marker TTL. Stale rows are not live sessions and do not pin recycle or idle-eviction. Idle eviction itself is unchanged from A: the worker dies, the rows stay stale, the next sticky call reports the flag:
+  `session_reset` is set when this call's process had to create the namespace and the pool already had a row for that id (crash, idle eviction, recycle respawn). A brand-new id creates a namespace and does not set the flag. A call that never reaches the child leaves the row in place, so a later call that does run still sets the flag. There is no marker list; a stale row is dropped once it has been stale for `idle_worker_ttl_sec`. Stale rows are not live sessions and do not pin recycle or idle-eviction. Idle eviction itself is unchanged from A: the worker dies, the rows stay stale, the next sticky call reports the flag:
   ```json
   {
     "id": "req-123",
