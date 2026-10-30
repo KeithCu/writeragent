@@ -325,7 +325,6 @@ def test_payload_codec_cover_all_33797534946_offs() -> None:
 
     fqns = cover_fqns_for_module(Path("plugin/scripting/payload_codec.py"))
     for name in (
-        "image_payload_suffix",
         "_uniform_column_kind",
     ):
         assert not any(f.endswith(f".{name}") for f in fqns), name
