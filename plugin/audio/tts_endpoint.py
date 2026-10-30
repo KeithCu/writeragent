@@ -227,18 +227,13 @@ def _post_audio_speech(
         )
         return result.body, result.content_type, int(result.status or 200), ""
     except NetworkError as exc:
-        code_raw = exc.details.get("status")
-        try:
-            code = int(code_raw) if code_raw is not None else 0
-        except (TypeError, ValueError):
-            code = 0
-        err_msg = str(exc)
+        code = exc.details.get("status") or 0
         if exc.code == "STOPPED":
             # Stop is code="STOPPED"; the transport logs it at debug, and a warning here reads as a failed POST.
             log.debug("TTS POST %s aborted by Stop", public_target(url))
         else:
-            log.warning("TTS POST %s failed (%s): %s", public_target(url), code, err_msg)
-        return None, "", code, err_msg
+            log.warning("TTS POST %s failed (%s): %s", public_target(url), code, exc)
+        return None, "", code, str(exc)
 
 
 def _default_endpoint_format() -> str:
@@ -305,9 +300,7 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
 
     eff_voice = _resolve_tts_voice(model, voice, endpoint_url=endpoint_url)
     fmt_key = _tts_format_key(endpoint_url, model)
-    response_format = cached_tts_response_format(fmt_key)
-    if response_format not in ("mp3", "pcm", "wav"):
-        response_format = _default_endpoint_format()
+    response_format = cached_tts_response_format(fmt_key) or _default_endpoint_format()
 
     headers = _speech_headers(endpoint_url, api_key)
 
@@ -359,21 +352,18 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
 
     # Sniff magic bytes first; then match Content-Type; fallback to requested format.
     ct = (content_type or "").lower()
-    sniffed = _sniff_audio_format(audio_bytes)
-    if sniffed in ("wav", "mp3"):
-        actual_format = sniffed
-    elif any(token in ct for token in ("audio/pcm", "audio/x-pcm", "audio/l16", "codec=pcm")):
-        actual_format = "pcm"
-    elif any(token in ct for token in ("audio/wav", "audio/x-wav", "audio/wave")):
-        actual_format = "wav"
-    elif "audio/mpeg" in ct or "audio/mp3" in ct:
-        actual_format = "mp3"
-    else:
-        actual_format = None
-    if actual_format is None:
-        actual_format = response_format
-    else:
+    actual_format = _sniff_audio_format(audio_bytes)
+    if not actual_format:
+        if any(token in ct for token in ("audio/pcm", "audio/x-pcm", "audio/l16", "codec=pcm")):
+            actual_format = "pcm"
+        elif any(token in ct for token in ("audio/wav", "audio/x-wav", "audio/wave")):
+            actual_format = "wav"
+        elif "audio/mpeg" in ct or "audio/mp3" in ct:
+            actual_format = "mp3"
+    if actual_format:
         remember_tts_response_format(fmt_key, actual_format)
+    else:
+        actual_format = response_format
     if actual_format == "pcm":
         audio_bytes = _pcm_s16le_to_wav(audio_bytes, _pcm_rate_from_content_type(content_type))
     elapsed_ms = int((time.monotonic() - t0) * 1000)
