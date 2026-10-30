@@ -8,9 +8,13 @@ WORKDIR /app
 # Pins are the known-good 3.12 binary set. deal is omitted: deal_shim stubs
 # a missing install, and the bundle strips @deal. Pillow is for a returned
 # PIL.Image and user `import PIL`. Figure capture defaults to SVG.
+# statsmodels and seaborn are two of Python in Excel's default imports;
+# openpyxl backs pandas read_excel/to_excel. See
+# docs/scripting/python-in-excel-packages.md.
 RUN pip install --no-cache-dir --only-binary=:all: --target=/app/pkgs \
     "numpy==2.4.6" "pandas==3.1.0" "scipy==1.17.1" "matplotlib==3.11.2" \
-    "Pillow==13.0.0" "sympy==1.14.0" "pint==0.26.2"
+    "Pillow==13.0.0" "sympy==1.14.0" "pint==0.26.2" \
+    "statsmodels==0.15.0" "seaborn==0.13.2" "openpyxl==3.1.5" "networkx==3.7"
 
 FROM python:3.12-slim AS bundle
 WORKDIR /src
