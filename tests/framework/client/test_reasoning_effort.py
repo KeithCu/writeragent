@@ -6,7 +6,7 @@ import pytest
 from plugin.framework.client.base_provider_shim import (
     BaseProviderShim,
     effort_payload,
-    next_lower_effort_body,
+    effort_retry_bodies,
 )
 from plugin.framework.client.google_shim import GoogleShim
 from plugin.framework.client.grok_shim import GrokShim
@@ -75,31 +75,22 @@ def test_other_host_top_level() -> None:
         assert data.get("reasoning_effort") == "xhigh"
         assert "reasoning" not in data
 
-    # Base (custom) and Together clamp to high
+    # Base (custom) and Together pass xhigh through; a 400 retry steps it down
     for shim_cls, model in [(BaseProviderShim, "test-model"), (TogetherShim, "meta-llama/Llama-3-70b")]:
         shim = shim_cls(DummyClient(config={"is_openrouter": False, "reasoning_effort": "xhigh"}))
         _method, _path, body, _headers = shim.build_chat_request(
             [{"role": "user", "content": "hi"}], 100, None, None, False, model, None
         )
         data = json.loads(body)
-        assert data.get("reasoning_effort") == "high"
+        assert data.get("reasoning_effort") == "xhigh"
         assert "reasoning" not in data
 
     # Google clamps to high
     shim_google = GoogleShim(DummyClient(config={"is_openrouter": False, "reasoning_effort": "xhigh"}))
     _method, _path, body_g, _headers = shim_google.build_chat_request(
-        [{"role": "user", "content": "hi"}], 100, None, None, False, "gemini-2.0-flash", None
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "gemini-4-argon", None
     )
     assert json.loads(body_g).get("reasoning_effort") == "high"
-
-    # OpenAI non-reasoning model (gpt-4o) omits effort
-    shim_openai = OpenAIShim(DummyClient(config={"is_openrouter": False, "reasoning_effort": "xhigh"}))
-    _method, _path, body_o, _headers = shim_openai.build_chat_request(
-        [{"role": "user", "content": "hi"}], 100, None, None, False, "gpt-4o", None
-    )
-    data_o = json.loads(body_o)
-    assert "reasoning_effort" not in data_o
-    assert "reasoning" not in data_o
 
 
 def test_openai_reasoning_model_keeps_effort_and_max_completion_tokens() -> None:
@@ -109,7 +100,7 @@ def test_openai_reasoning_model_keeps_effort_and_max_completion_tokens() -> None
         [{"role": "user", "content": "hi"}], 100, 0.2, None, False, "o3", None
     )
     data = json.loads(body)
-    assert data.get("reasoning_effort") == "high"
+    assert data.get("reasoning_effort") == "max"
     assert data.get("max_completion_tokens") == 100
     assert "max_tokens" not in data
     assert "temperature" not in data
@@ -216,166 +207,99 @@ def test_unknown_level_omitted() -> None:
 
 
 def test_effort_payload_passthrough() -> None:
-    assert effort_payload("openrouter", "any", "max") == {"reasoning": {"effort": "max"}}
-    assert effort_payload("openai", "gpt-6-astra", "max") == {"reasoning_effort": "max"}
-    assert effort_payload("openai", "gpt-5.5", "xhigh") == {"reasoning_effort": "xhigh"}
-    assert effort_payload("openai", "o3", "high") == {"reasoning_effort": "high"}
-    assert effort_payload("anthropic", "claude-opus-4-7", "xhigh") == {"output_config": {"effort": "xhigh"}}
-    assert effort_payload("anthropic", "claude-opus-4-6", "max") == {"output_config": {"effort": "max"}}
-    assert effort_payload("xai", "grok-4.7", "xhigh") == {"reasoning_effort": "xhigh"}
-    assert effort_payload("deepseek", "deepseek-v4-pro", "medium") == {"reasoning_effort": "medium"}
-    assert effort_payload("ollama", "gpt-oss", "xhigh") == {"reasoning_effort": "xhigh"}
-    assert effort_payload("groq", "meta-models/muse-spark-open", "xhigh") == {"reasoning_effort": "xhigh"}
+    for prov in ("openrouter", "openai", "anthropic", "custom", "lmstudio", "deepseek", "groq", "ollama", "together"):
+        frag = effort_payload(prov, "max")
+        assert "max" in json.dumps(frag), prov
+    assert effort_payload("openai", "xhigh") == {"reasoning_effort": "xhigh"}
+    assert effort_payload("anthropic", "xhigh") == {"output_config": {"effort": "xhigh"}}
+    assert effort_payload("xai", "xhigh") == {"reasoning_effort": "xhigh"}
+    assert effort_payload("mistral", "low") == {"reasoning_effort": "low"}
+    assert effort_payload("mistral", "medium") == {"reasoning_effort": "medium"}
+    assert effort_payload("mistral", "max") == {"reasoning_effort": "max"}
 
 
-def test_effort_payload_step_down_never_up() -> None:
-    # OpenAI
-    assert effort_payload("openai", "gpt-5.5", "max") == {"reasoning_effort": "xhigh"}
-    assert effort_payload("openai", "o3", "max") == {"reasoning_effort": "high"}
-    assert effort_payload("openai", "o3", "xhigh") == {"reasoning_effort": "high"}
-    assert effort_payload("openai", "gpt-5", "low") == {"reasoning_effort": "low"}
+def test_effort_payload_nearest_lower_word() -> None:
+    assert effort_payload("google", "xhigh") == {"reasoning_effort": "high"}
+    assert effort_payload("google", "max") == {"reasoning_effort": "high"}
+    assert effort_payload("xai", "max") == {"reasoning_effort": "xhigh"}
+    assert effort_payload("mistral", "xhigh") == {"reasoning_effort": "high"}
 
-    # Anthropic
-    assert effort_payload("anthropic", "claude-opus-4-6", "xhigh") == {"output_config": {"effort": "high"}}
-    assert effort_payload("anthropic", "claude-sonnet-4-6", "xhigh") == {"output_config": {"effort": "high"}}
-    assert effort_payload("anthropic", "claude-mythos-preview", "xhigh") == {"output_config": {"effort": "high"}}
-    assert effort_payload("anthropic", "claude-opus-4-5", "xhigh") == {"output_config": {"effort": "high"}}
-    assert effort_payload("anthropic", "claude-opus-4-5", "max") == {"output_config": {"effort": "high"}}
 
-    # Google
-    assert effort_payload("google", "gemini-4-argon", "xhigh") == {"reasoning_effort": "high"}
-    assert effort_payload("google", "gemini-4-argon", "max") == {"reasoning_effort": "high"}
-    assert effort_payload("google", "gemini-4-argon", "minimal") == {"reasoning_effort": "low"}
-
-    # xAI
-    assert effort_payload("xai", "grok-4.5", "max") == {"reasoning_effort": "xhigh"}
-
-    # Groq
-    assert effort_payload("groq", "openai/gpt-oss-120b", "max") == {"reasoning_effort": "high"}
-
-    # Mistral
-    assert effort_payload("mistral", "mistral-large-4", "xhigh") == {"reasoning_effort": "high"}
-    assert effort_payload("mistral", "mistral-small-2603", "low") == {"reasoning_effort": "none"}
-    assert effort_payload("mistral", "mistral-small-2603", "medium") == {"reasoning_effort": "none"}
-    assert effort_payload("mistral", "mistral-small-2603", "xhigh") == {"reasoning_effort": "high"}
-    assert effort_payload("mistral", "mistral-small-2603", "high") == {"reasoning_effort": "high"}
-    assert effort_payload("mistral", "mistral-medium-3-5", "medium") == {"reasoning_effort": "none"}
-    assert effort_payload("mistral", "zai-glm-5-3", "medium") == {"reasoning_effort": "low"}
-    assert effort_payload("mistral", "zai-glm-5-3", "xhigh") == {"reasoning_effort": "high"}
-    assert effort_payload("mistral", "zai-glm-5-3", "max") == {"reasoning_effort": "max"}
-
-    # Together, custom, lmstudio
-    assert effort_payload("together", "meta-llama/Llama-3-70b", "xhigh") == {"reasoning_effort": "high"}
-    assert effort_payload("custom", "whatever", "max") == {"reasoning_effort": "high"}
-    assert effort_payload("lmstudio", "gpt-oss", "max") == {"reasoning_effort": "high"}
+def test_g38f_and_argon_on_gemini() -> None:
+    # g38f = gemini-3.8-flash at medium; Argon = gemini-4-argon. Both accept low/medium/high
+    # and reject minimal. Neither can turn thinking off.
+    assert effort_payload("google", "medium") == {"reasoning_effort": "medium"}
+    assert effort_payload("google", "high") == {"reasoning_effort": "high"}
+    assert effort_payload("google", "minimal") == {"reasoning_effort": "low"}
+    for model in ("gemini-3.8-flash", "gemini-4-argon"):
+        shim = GoogleShim(DummyClient(config={"is_openrouter": False, "reasoning_effort": "medium"}))
+        _m, _p, body, _h = shim.build_chat_request([{"role": "user", "content": "hi"}], 100, None, None, False, model, None)
+        data = json.loads(body)
+        assert data["reasoning_effort"] == "medium"
+        assert "reasoning" not in data
 
 
 def test_effort_payload_omit() -> None:
-    # Blank, default, None, unknown words
-    for lvl in ["", "default", None, "   ", "turbo"]:
-        assert effort_payload("openrouter", "any-model", lvl) == {}
-
-    # Non-reasoning OpenAI
-    assert effort_payload("openai", "gpt-4o", "high") == {}
-    assert effort_payload("openai", "gpt-5-chat-latest", "high") == {}
-    assert effort_payload("openai", "gpt-4.1", "low") == {}
-    assert effort_payload("openai", "gpt-4o", "minimal") == {}
-
-    # Pre-4.5 Anthropic
-    assert effort_payload("anthropic", "claude-sonnet-4-5", "high") == {}
-    assert effort_payload("anthropic", "claude-3-7-sonnet-20250219", "xhigh") == {}
-    assert effort_payload("anthropic", "claude-3-7-sonnet-20250219", "minimal") == {}
-    assert effort_payload("anthropic", "claude-opus-4-7", "") == {}
-
-    # Unsupported Groq & Mistral
-    assert effort_payload("groq", "llama-3.3-70b", "low") == {}
-    assert effort_payload("mistral", "magistral-small", "high") == {}
+    for lvl in ["", "default", None, "   ", "turbo", 3]:
+        assert effort_payload("openrouter", lvl) == {}
+        assert effort_payload("anthropic", lvl) == {}
 
 
 def test_effort_payload_field_placement() -> None:
-    # Same level "high", assert exact field placement
-    assert effort_payload("openrouter", "any", "high") == {"reasoning": {"effort": "high"}}
-    assert effort_payload("anthropic", "claude-sonnet-5", "high") == {"output_config": {"effort": "high"}}
-    assert effort_payload("google", "gemini-4", "high") == {"reasoning_effort": "high"}
-    assert effort_payload("xai", "grok-4.7", "high") == {"reasoning_effort": "high"}
-    assert effort_payload("deepseek", "v3", "high") == {"reasoning_effort": "high"}
-    assert effort_payload("groq", "gpt-oss", "high") == {"reasoning_effort": "high"}
-    assert effort_payload("ollama", "qwen", "high") == {"reasoning_effort": "high"}
-    assert effort_payload("custom", "local", "high") == {"reasoning_effort": "high"}
+    assert effort_payload("openrouter", "high") == {"reasoning": {"effort": "high"}}
+    assert effort_payload("anthropic", "high") == {"output_config": {"effort": "high"}}
+    for prov in ("openai", "google", "xai", "mistral", "deepseek", "groq", "ollama", "custom"):
+        assert effort_payload(prov, "high") == {"reasoning_effort": "high"}, prov
 
 
 def test_effort_payload_grammar_sentinel() -> None:
-    assert effort_payload("openrouter", "m", "minimal") == {"reasoning": {"effort": "minimal"}}
-    assert effort_payload("openai", "gpt-6", "minimal") == {"reasoning_effort": "minimal"}
-    assert effort_payload("openai", "o3", "minimal") == {"reasoning_effort": "minimal"}
-    assert effort_payload("anthropic", "claude-opus-4-5", "minimal") == {"output_config": {"effort": "low"}}
-    assert effort_payload("xai", "grok-4.5", "minimal") == {"reasoning_effort": "low"}
-    assert effort_payload("google", "gemini-2.5", "minimal") == {"reasoning_effort": "low"}
-    assert effort_payload("deepseek", "v3", "minimal") == {"reasoning_effort": "low"}
-    assert effort_payload("ollama", "m", "minimal") == {"reasoning_effort": "low"}
-    assert effort_payload("groq", "gpt-oss", "minimal") == {"reasoning_effort": "low"}
-    assert effort_payload("custom", "m", "minimal") == {"reasoning_effort": "low"}
-    assert effort_payload("mistral", "mistral-small-2603", "minimal") == {"reasoning_effort": "none"}
-    assert effort_payload("mistral", "mistral-large-4", "minimal") == {"reasoning_effort": "low"}
-    assert effort_payload("groq", "llama-3.3-70b", "minimal") == {}
-    assert effort_payload("anthropic", "claude-sonnet-4-5", "minimal") == {}
+    assert effort_payload("openrouter", "minimal") == {"reasoning": {"effort": "minimal"}}
+    assert effort_payload("openai", "minimal") == {"reasoning_effort": "minimal"}
+    assert effort_payload("anthropic", "minimal") == {"output_config": {"effort": "low"}}
+    assert effort_payload("xai", "minimal") == {"reasoning_effort": "low"}
+    assert effort_payload("custom", "minimal") == {"reasoning_effort": "low"}
+    # Only the grammar sentinel turns Mistral thinking off.
+    assert effort_payload("mistral", "minimal") == {"reasoning_effort": "none"}
 
 
-def test_effort_payload_prefix_and_slash_ids() -> None:
-    assert effort_payload("openai", "openai/gpt-5.5", "max") == {"reasoning_effort": "xhigh"}
-    assert effort_payload("openai", "ft:gpt-6-mini:org:name:id", "max") == {"reasoning_effort": "max"}
-    assert effort_payload("groq", "meta-models/muse-spark-open", "max") == {"reasoning_effort": "xhigh"}
+# --- effort_retry_bodies unit tests ---
 
 
-# --- next_lower_effort_body unit tests ---
+def _efforts(provider: str, body: dict[str, Any]) -> list[Any]:
+    out = []
+    for raw in effort_retry_bodies(provider, json.dumps(body).encode("utf-8")):
+        data = json.loads(raw)
+        out.append(data.get("reasoning_effort") or (data.get("output_config") or {}).get("effort") or (data.get("reasoning") or {}).get("effort"))
+    return out
 
 
-def test_next_lower_effort_body() -> None:
-    # OpenAI o3: high -> medium -> minimal -> removed
-    b1 = json.dumps({"model": "o3", "reasoning_effort": "high"}).encode("utf-8")
-    b2 = next_lower_effort_body("openai", b1)
-    assert b2 is not None
-    assert json.loads(b2)["reasoning_effort"] == "medium"
+def test_retry_steps_down_then_up_then_drops() -> None:
+    assert _efforts("openai", {"model": "o3", "reasoning_effort": "high"}) == ["medium", "low", "xhigh", "max", None]
+    assert _efforts("anthropic", {"output_config": {"effort": "max"}}) == ["xhigh", "high", "medium", "low", None]
+    assert _efforts("google", {"reasoning_effort": "low"}) == ["medium", "high", None]
 
-    b3 = next_lower_effort_body("openai", b2)
-    assert b3 is not None
-    assert json.loads(b3)["reasoning_effort"] == "low"
 
-    b4 = next_lower_effort_body("openai", b3)
-    assert b4 is not None
-    assert json.loads(b4)["reasoning_effort"] == "minimal"
+def test_retry_never_turns_mistral_thinking_off() -> None:
+    # Mistral Small 4 / Medium 3.5 accept only none|high: a rejected low or medium moves up to high.
+    assert _efforts("mistral", {"reasoning_effort": "low"}) == ["medium", "high", "max", None]
+    assert _efforts("mistral", {"reasoning_effort": "medium"}) == ["low", "high", "max", None]
+    # Grammar's "none" is rejected by Mistral Large 4 and zai-glm-5-3; low is next.
+    assert _efforts("mistral", {"reasoning_effort": "none"})[0] == "low"
 
-    b5 = next_lower_effort_body("openai", b4)
-    assert b5 is not None
-    assert "reasoning_effort" not in json.loads(b5)
 
-    # Google gemini-4-argon: low -> removed
-    bg1 = json.dumps({"model": "gemini-4-argon", "reasoning_effort": "low"}).encode("utf-8")
-    bg2 = next_lower_effort_body("google", bg1)
-    assert bg2 is not None
-    assert "reasoning_effort" not in json.loads(bg2)
+def test_retry_body_shapes() -> None:
+    bodies = effort_retry_bodies("openrouter", json.dumps({"model": "x", "reasoning": {"effort": "high", "exclude": True}}))
+    first, last = json.loads(bodies[0]), json.loads(bodies[-1])
+    assert first["reasoning"] == {"effort": "medium", "exclude": True}
+    assert last["reasoning"] == {"exclude": True}
 
-    # OpenRouter: effort stepped in reasoning dict, exclude kept
-    bor1 = json.dumps({"model": "x", "reasoning": {"effort": "high", "exclude": True}}).encode("utf-8")
-    bor2 = next_lower_effort_body("openrouter", bor1)
-    assert bor2 is not None
-    data_or = json.loads(bor2)
-    assert data_or["reasoning"]["effort"] == "medium"
-    assert data_or["reasoning"]["exclude"] is True
+    last_a = json.loads(effort_retry_bodies("anthropic", json.dumps({"output_config": {"effort": "low"}}))[-1])
+    assert "output_config" not in last_a
 
-    # Anthropic: max -> high on claude-opus-4-6
-    ba1 = json.dumps({"model": "claude-opus-4-6", "output_config": {"effort": "max"}}).encode("utf-8")
-    ba2 = next_lower_effort_body("anthropic", ba1)
-    assert ba2 is not None
-    assert json.loads(ba2)["output_config"]["effort"] == "high"
-
-    # No effort field -> None
-    b_no_effort = json.dumps({"model": "o3", "messages": []}).encode("utf-8")
-    assert next_lower_effort_body("openai", b_no_effort) is None
-
-    # Already removed or non-JSON -> None
-    assert next_lower_effort_body("openai", b5) is None
-    assert next_lower_effort_body("openai", b"not-json") is None
+    # Unknown sent word: only the drop body.
+    assert _efforts("custom", {"reasoning_effort": "turbo"}) == [None]
+    assert effort_retry_bodies("openai", json.dumps({"model": "o3", "messages": []})) == []
+    assert effort_retry_bodies("openai", b"not-json") == []
 
 
 # --- HTTP 400 retry tests ---
@@ -420,7 +344,7 @@ def test_400_non_effort_does_not_retry() -> None:
         assert mock_exchange.call_count == 1
 
 
-def test_400_retry_fails_twice_and_raises() -> None:
+def test_400_retry_exhausts_then_raises() -> None:
     client = LlmClient(
         {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "o3", "reasoning_effort": "high"},
         MockContext(),
@@ -431,10 +355,12 @@ def test_400_retry_fails_twice_and_raises() -> None:
         details={"status": 400, "url": "/v1/chat/completions"},
     )
 
-    with patch.object(client, "_exchange_json", side_effect=[err_400, err_400]) as mock_exchange:
+    # high, then medium, low, xhigh, max, then no field: six sends, then raise.
+    with patch.object(client, "_exchange_json", side_effect=[err_400] * 6) as mock_exchange:
         with pytest.raises(NetworkError, match="reasoning_effort"):
             client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
-        assert mock_exchange.call_count == 2
+        assert mock_exchange.call_count == 6
+        assert "reasoning_effort" not in json.loads(mock_exchange.call_args_list[-1][0][2])
 
 
 def test_400_no_effort_field_in_body_does_not_retry() -> None:
@@ -453,3 +379,23 @@ def test_400_no_effort_field_in_body_does_not_retry() -> None:
         with pytest.raises(NetworkError, match="effort error"):
             client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
         assert mock_exchange.call_count == 1
+
+
+def test_400_retry_mistral_low_moves_up_to_high() -> None:
+    # Mistral Small 4 accepts none|high only: low and medium are rejected, high works.
+    client = LlmClient(
+        {"endpoint": "https://api.mistral.ai", "api_key": "k", "model": "mistral-small-2603", "reasoning_effort": "low"},
+        MockContext(),
+    )
+    err_400 = NetworkError(
+        "HTTP Error 400: Invalid reasoning_effort for this model",
+        code="HTTP_ERROR",
+        details={"status": 400, "url": "/v1/chat/completions"},
+    )
+    ok_response = ("ok", {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
+
+    with patch.object(client, "_exchange_json", side_effect=[err_400, err_400, ok_response]) as mock_exchange:
+        res = client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
+        assert res["content"] == "ok"
+        sent = [json.loads(c[0][2]).get("reasoning_effort") for c in mock_exchange.call_args_list]
+        assert sent == ["low", "medium", "high"]

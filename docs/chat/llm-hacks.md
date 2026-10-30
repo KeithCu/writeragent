@@ -77,7 +77,7 @@ Main chat: `LlmClient._run_streaming_loop` → `OpenAIShim.parse_response_chunk`
 **Other context:**
 
 - Ollama **native** `/api/chat` uses `message.thinking` ([Ollama thinking](https://docs.ollama.com/capabilities/thinking)); WriterAgent uses `/v1/chat/completions` only.
-- A non-empty sidebar level is sent through `effort_payload` in `base_provider_shim.py` (`reasoning.effort` on OpenRouter, `output_config.effort` on Anthropic, top-level `reasoning_effort` elsewhere), and an empty level sends nothing.
+- A non-empty sidebar level is sent through `effort_payload` in `base_provider_shim.py` (`reasoning.effort` on OpenRouter, `output_config.effort` on Anthropic, top-level `reasoning_effort` elsewhere), and an empty level sends nothing. Mapping is per provider, never per model: `_PROVIDER_EFFORTS` lists the effort words each provider's current API documents, and a level the provider lacks becomes the nearest lower word (Gemini `max` → `high`). Custom, LM Studio and other unlisted hosts get the level unchanged. When a model rejects the value (HTTP 400 mentioning "effort", before any output), `effort_retry_bodies` tries lower words, then higher ones, then no field. Only grammar's `minimal` may send a thinking-off word (Mistral `none`); a rejected `low` on Mistral Small 4 moves up to `high`, not down to `none`.
 - **`chatbot.show_search_thinking`**: tool/web paths only, not main LLM stream ([`tool_loop.py`](../../plugin/chatbot/tool_loop.py)).
 
 ### Verification (one capture, same prompt/model)

@@ -1479,16 +1479,7 @@ def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
         data = json.loads(body)
         assert "Date line." in data["system"]
         assert "Extra instructions." in data["system"]
-        assert "output_config" not in data
-
-        client.config["model"] = "claude-sonnet-5"
-        _m, _p, body5, _h = client.make_chat_request(
-            messages,
-            max_tokens=50,
-            chat_extra={"reasoning": {"effort": "minimal"}},
-        )
-        data5 = json.loads(body5)
-        assert data5["output_config"] == {"effort": "low"}
+        assert data["output_config"] == {"effort": "low"}
 
 
 def test_tool_call_schema_checked_before_openai_and_anthropic_shims(client):

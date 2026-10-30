@@ -30,13 +30,7 @@ def test_anthropic_shim_build_chat():
     )
     data = json.loads(body)
     assert data["temperature"] == 1.0  # clamped from 1.5
-    assert "output_config" not in data  # pre-4.5 omits effort
-
-    _m, _p, body_opus, _h = shim.build_chat_request(
-        messages, 100, 1.0, None, False, "claude-opus-4-5", None,
-        {"reasoning": {"effort": "minimal"}}
-    )
-    assert json.loads(body_opus).get("output_config") == {"effort": "low"}
+    assert data["output_config"] == {"effort": "low"}
 
     # dropped tools and orphan result
     messages2 = [
@@ -290,7 +284,7 @@ def test_stream_usage_is_normalized_without_summing():
     assert "prompt_tokens" not in end["usage"]
 
 
-def test_anthropic_effort_mapping_and_unknown() -> None:
+def test_anthropic_passes_xhigh_and_omits_unknown() -> None:
     class DummyClientNoConfig:
         def _endpoint(self) -> str:
             return "http://test"
@@ -303,31 +297,13 @@ def test_anthropic_effort_mapping_and_unknown() -> None:
         [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-3-7-sonnet-20250219", None,
         chat_extra={"reasoning": {"effort": "xhigh"}}
     )
-    assert "output_config" not in json.loads(body1)
+    assert json.loads(body1).get("output_config") == {"effort": "xhigh"}
 
     _m, _p, body2, _h = shim.build_chat_request(
         [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-3-7-sonnet-20250219", None,
         chat_extra={"reasoning": {"effort": "turbo"}}
     )
     assert "output_config" not in json.loads(body2)
-
-    _m, _p, body3, _h = shim.build_chat_request(
-        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-opus-4-7", None,
-        chat_extra={"reasoning": {"effort": "xhigh"}}
-    )
-    assert json.loads(body3).get("output_config") == {"effort": "xhigh"}
-
-    _m, _p, body4, _h = shim.build_chat_request(
-        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-opus-4-6", None,
-        chat_extra={"reasoning": {"effort": "xhigh"}}
-    )
-    assert json.loads(body4).get("output_config") == {"effort": "high"}
-
-    _m, _p, body5, _h = shim.build_chat_request(
-        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-opus-4-7", None,
-        chat_extra={"reasoning": {"effort": "turbo"}}
-    )
-    assert "output_config" not in json.loads(body5)
 
 
 def test_anthropic_setting_when_chat_extra_absent() -> None:
@@ -342,7 +318,7 @@ def test_anthropic_setting_when_chat_extra_absent() -> None:
 
     shim = AnthropicShim(DummyClientWithConfig())
     _m, _p, body, _h = shim.build_chat_request(
-        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-sonnet-5", None
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-3-7-sonnet-20250219", None
     )
     assert json.loads(body).get("output_config") == {"effort": "high"}
 
@@ -358,17 +334,11 @@ def test_anthropic_grammar_beats_setting() -> None:
             return {}
 
     shim = AnthropicShim(DummyClientWithConfig())
-    _m, _p, body_pre45, _h = shim.build_chat_request(
+    _m, _p, body, _h = shim.build_chat_request(
         [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-3-7-sonnet-20250219", None,
         chat_extra={"reasoning": {"effort": "minimal"}}
     )
-    assert "output_config" not in json.loads(body_pre45)
-
-    _m, _p, body_opus, _h = shim.build_chat_request(
-        [{"role": "user", "content": "hi"}], 100, None, None, False, "claude-opus-4-5", None,
-        chat_extra={"reasoning": {"effort": "minimal"}}
-    )
-    assert json.loads(body_opus).get("output_config") == {"effort": "low"}
+    assert json.loads(body).get("output_config") == {"effort": "low"}
 
 
 def test_anthropic_unset_omits_output_config() -> None:

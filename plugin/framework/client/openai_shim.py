@@ -21,11 +21,11 @@ _OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt-6")
 _OPENAI_DEFAULT_TEMPERATURE = 1
 
 
-def _openai_model_base(model_name: str | None) -> str:
-    """Extract bare model name after ft: and provider slashes."""
+def _openai_reasoning_model(model_name: str | None) -> bool:
+    """True for OpenAI model families that reject ``max_tokens``."""
     name = str(model_name or "").strip().lower()
     if not name:
-        return ""
+        return False
     # Fine-tune ids are ft:<base>:<org>:<suffix>:<id>. Splitting on '/' first
     # turned ft:gpt-5-mini:org/team:name:id into team:name:id, so the gpt-5
     # base kept max_tokens and api.openai.com returned 400. The base is the
@@ -40,14 +40,6 @@ def _openai_model_base(model_name: str | None) -> str:
             name = base
     if "/" in name:
         name = name.rsplit("/", 1)[-1]
-    return name
-
-
-def _openai_reasoning_model(model_name: str | None) -> bool:
-    """True for OpenAI model families that reject ``max_tokens``."""
-    name = _openai_model_base(model_name)
-    if not name:
-        return False
     # ChatGPT snapshots (gpt-5-chat-latest, gpt-5.1-chat-latest,
     # gpt-5.2-chat-latest, gpt-6-chat-latest) accept max_tokens and a non-default
     # temperature. Their model pages do not list reasoning-token support; gpt-5.1 does.

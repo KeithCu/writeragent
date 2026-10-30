@@ -25,87 +25,40 @@ OUR_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 LOWEST_SENTINEL = "minimal"
 
 
-def _bare_model_id(model: str | None) -> str:
-    name = str(model or "").strip().lower()
-    if "/" in name:
-        name = name.rsplit("/", 1)[-1]
-    if name.startswith("models/"):
-        name = name[len("models/") :]
-    return name
+# Ascending effort words each provider's current API accepts, per its docs.
+# Per provider, not per model: a model that rejects a value gets HTTP 400 and
+# effort_retry_bodies walks to the next value. Unlisted providers (custom,
+# LM Studio, DeepSeek, Groq, Ollama, ...) get our levels unchanged.
+# https://platform.claude.com/docs/en/build-with-claude/effort
+# https://ai.google.dev/gemini-api/docs/openai (Gemini 4 Argon / 3.8 Flash reject minimal)
+# https://docs.mistral.ai/studio/conversations/reasoning ("none" turns thinking off)
+_PROVIDER_EFFORTS: dict[str, tuple[str, ...]] = {
+    "openrouter": ("minimal", "low", "medium", "high", "xhigh", "max"),
+    "openai": ("minimal", "low", "medium", "high", "xhigh", "max"),
+    "anthropic": ("low", "medium", "high", "xhigh", "max"),
+    "google": ("low", "medium", "high"),
+    "xai": ("low", "medium", "high", "xhigh"),
+    "mistral": ("none", "low", "medium", "high", "max"),
+}
+# Values that turn thinking off. Sent only for LOWEST_SENTINEL.
+_THINKING_OFF: frozenset[str] = frozenset({"none", "minimal"})
+_RANK: tuple[str, ...] = ("none", LOWEST_SENTINEL, *OUR_EFFORTS)
 
 
-def _sendable_efforts(provider: str | None, model: str | None) -> tuple[str, ...] | None:
-    """Ascending values this provider/model may be sent. None = send no field."""
-    prov = str(provider or "").strip().lower()
-    if prov == "openrouter":
-        return ("minimal", "low", "medium", "high", "xhigh", "max")
+def _provider_efforts(provider: str | None) -> tuple[str, ...]:
+    return _PROVIDER_EFFORTS.get(str(provider or "").strip().lower(), OUR_EFFORTS)
 
-    if prov == "openai":
-        from .openai_shim import _openai_model_base, _openai_reasoning_model
 
-        if not _openai_reasoning_model(model):
-            return None
-        base = _openai_model_base(model)
-        if base.startswith(("gpt-6", "gpt-5.6")):
-            return ("minimal", "low", "medium", "high", "xhigh", "max")
-        if base.startswith("gpt-5.5"):
-            return ("minimal", "low", "medium", "high", "xhigh")
-        return ("minimal", "low", "medium", "high")
+def _effort_order(vocab: tuple[str, ...], req: str) -> list[str]:
+    """Values to try for *req*: itself, then lower levels, then higher ones.
 
-    if prov == "anthropic":
-        bare = _bare_model_id(model)
-        if bare.startswith(("claude-opus-4-6", "claude-sonnet-4-6")):
-            return ("low", "medium", "high", "max")
-        if "mythos" in bare and "preview" in bare:
-            return ("low", "medium", "high", "max")
-        if bare.startswith("claude-opus-4-5"):
-            return ("low", "medium", "high")
-        if bare.startswith(
-            (
-                "claude-opus-4-7",
-                "claude-opus-4-8",
-                "claude-opus-5",
-                "claude-sonnet-5",
-                "claude-haiku-5",
-                "claude-fable",
-                "claude-mythos",
-            )
-        ):
-            return OUR_EFFORTS
-        return None
-
-    if prov == "google":
-        return ("low", "medium", "high")
-
-    if prov == "xai":
-        return ("low", "medium", "high", "xhigh")
-
-    if prov == "deepseek":
-        return OUR_EFFORTS
-
-    if prov == "mistral":
-        bare = _bare_model_id(model)
-        if bare.startswith("mistral-large-4"):
-            return ("low", "medium", "high")
-        if bare.startswith(("mistral-small-2603", "mistral-medium-3-5")):
-            return ("none", "high")
-        if bare.startswith("zai-glm"):
-            return ("low", "high", "max")
-        return None
-
-    if prov == "groq":
-        bare = _bare_model_id(model)
-        if "muse-spark" in bare:
-            return ("low", "medium", "high", "xhigh")
-        if "gpt-oss" in bare or "qwen3" in bare:
-            return ("low", "medium", "high")
-        return None
-
-    if prov == "ollama":
-        return OUR_EFFORTS
-
-    # lmstudio, together, cerebras, perplexity, zai, nvidia, custom, and any unrecognized key
-    return ("low", "medium", "high")
+    Lower skips thinking-off values unless *req* is one, so a rejected
+    low/medium moves up to a level that still thinks instead of turning it off.
+    """
+    rank = _RANK.index(req)
+    lower = [v for v in reversed(vocab) if _RANK.index(v) < rank and (req in _THINKING_OFF or v not in _THINKING_OFF)]
+    higher = [v for v in vocab if _RANK.index(v) > rank]
+    return ([req] if req in vocab else []) + lower + higher
 
 
 def _place_effort(provider: str | None, value: str) -> dict[str, Any]:
@@ -117,104 +70,53 @@ def _place_effort(provider: str | None, value: str) -> dict[str, Any]:
     return {"reasoning_effort": value}
 
 
-def effort_payload(provider: str | None, model: str | None, level: str | None) -> dict[str, Any]:
+def effort_payload(provider: str | None, level: str | None) -> dict[str, Any]:
     """Fragment to merge into the chat JSON body. {} sends no effort field."""
     if not isinstance(level, str):
         return {}
     req = level.strip().lower()
-    if not req or req == "default":
-        return {}
     if req != LOWEST_SENTINEL and req not in OUR_EFFORTS:
         return {}
-
-    sendable = _sendable_efforts(provider, model)
-    if not sendable:
-        return {}
-
+    vocab = _provider_efforts(provider)
     if req == LOWEST_SENTINEL:
-        return _place_effort(provider, sendable[0])
-
-    if req in sendable:
-        return _place_effort(provider, req)
-
-    req_idx = OUR_EFFORTS.index(req)
-    chosen: str | None = None
-    for s in reversed(sendable):
-        if s in OUR_EFFORTS:
-            if OUR_EFFORTS.index(s) < req_idx:
-                chosen = s
-                break
-        elif s in ("none", "minimal"):
-            chosen = s
-            break
-
-    if chosen is None:
-        return {}
-    return _place_effort(provider, chosen)
+        return _place_effort(provider, vocab[0])
+    return _place_effort(provider, _effort_order(vocab, req)[0])
 
 
-def next_lower_effort_body(provider: str | None, body: bytes | str) -> bytes | None:
-    """Return new JSON request body with stepped-down effort on HTTP 400, or None."""
+def effort_retry_bodies(provider: str | None, body: bytes | str) -> list[bytes]:
+    """Bodies to try after HTTP 400 rejected the sent effort, in order; the last omits it."""
     try:
-        raw_str = body.decode("utf-8") if isinstance(body, bytes) else str(body)
-        data = json.loads(raw_str)
-        if not isinstance(data, dict):
-            return None
+        data = json.loads(body.decode("utf-8") if isinstance(body, bytes) else str(body))
     except Exception:
-        return None
+        return []
+    if not isinstance(data, dict):
+        return []
 
-    model = data.get("model")
-    sendable = _sendable_efforts(provider, model)
+    holder: dict[str, Any] | None = None
+    key = "effort"
+    for name in ("output_config", "reasoning"):
+        obj = data.get(name)
+        if isinstance(obj, dict) and isinstance(obj.get("effort"), str):
+            holder = obj
+            break
+    if holder is None and isinstance(data.get("reasoning_effort"), str):
+        holder, key = data, "reasoning_effort"
+    if holder is None:
+        return []
 
-    sent_val: str | None = None
-    field_kind: str | None = None
-
-    out_cfg = data.get("output_config")
-    if isinstance(out_cfg, dict) and isinstance(out_cfg.get("effort"), str):
-        sent_val = out_cfg["effort"]
-        field_kind = "output_config"
-    else:
-        rsn = data.get("reasoning")
-        if isinstance(rsn, dict) and isinstance(rsn.get("effort"), str):
-            sent_val = rsn["effort"]
-            field_kind = "reasoning"
-        elif isinstance(data.get("reasoning_effort"), str):
-            sent_val = data["reasoning_effort"]
-            field_kind = "reasoning_effort"
-
-    if sent_val is None or field_kind is None:
-        return None
-
-    next_val: str | None = None
-    if sendable and sent_val in sendable:
-        idx = sendable.index(sent_val)
-        if idx > 0:
-            next_val = sendable[idx - 1]
-
-    if next_val is not None:
-        if field_kind == "output_config":
-            data["output_config"]["effort"] = next_val
-        elif field_kind == "reasoning":
-            data["reasoning"]["effort"] = next_val
-        elif field_kind == "reasoning_effort":
-            data["reasoning_effort"] = next_val
-    else:
-        if field_kind == "output_config":
-            data["output_config"].pop("effort", None)
-            if not data["output_config"]:
-                data.pop("output_config", None)
-        elif field_kind == "reasoning":
-            data["reasoning"].pop("effort", None)
-            if not data["reasoning"]:
-                data.pop("reasoning", None)
-        elif field_kind == "reasoning_effort":
-            data.pop("reasoning_effort", None)
-
-    new_bytes = json.dumps(data).encode("utf-8")
-    old_bytes = body if isinstance(body, bytes) else body.encode("utf-8")
-    if new_bytes == old_bytes:
-        return None
-    return new_bytes
+    sent = holder[key]
+    vocab = _provider_efforts(provider)
+    others = [v for v in _effort_order(vocab, sent) if v != sent] if sent in _RANK else []
+    out: list[bytes] = []
+    for value in others:
+        holder[key] = value
+        out.append(json.dumps(data).encode("utf-8"))
+    holder.pop(key)
+    for name in ("output_config", "reasoning"):
+        if data.get(name) == {}:
+            data.pop(name)
+    out.append(json.dumps(data).encode("utf-8"))
+    return out
 
 
 def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | None) -> None:
@@ -451,10 +353,10 @@ class BaseProviderShim:
         # (or rewritten to reasoning_effort: "minimal" on non-OpenRouter), sending
         # undocumented keys or values. The sidebar value was also copied verbatim,
         # sending max to xAI/Gemini and xhigh to models whose ceiling is high.
-        # Now effort_payload maps or steps down per provider and model.
+        # Now effort_payload maps per provider; a model that rejects it gets a 400 retry.
         level = self._requested_effort_level(chat_extra)
         if level:
-            fragment = effort_payload(self._reasoning_provider(), model_name, level)
+            fragment = effort_payload(self._reasoning_provider(), level)
             if "reasoning" in fragment:
                 reasoning = data.get("reasoning")
                 if isinstance(reasoning, dict):

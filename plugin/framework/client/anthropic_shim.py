@@ -394,13 +394,10 @@ class AnthropicShim(BaseProviderShim):
             converted_tools = [tool_def for tool_def in (_anthropic_tool_def(t) for t in tools) if tool_def]
             if converted_tools:
                 data["tools"] = converted_tools
-        # Bugfix: previously any non-empty string was written to output_config.effort,
-        # sending xhigh to models lacking it and effort to pre-4.5 models lacking the
-        # parameter. "minimal" was also locally rewritten to "low" even for pre-4.5 models.
-        # Now effort_payload maps or omits per model.
-        level = self._requested_effort_level(chat_extra)
-        fragment = effort_payload("anthropic", model, level)
-        data.update(fragment)
+        # Bugfix: previously any non-empty string (e.g. "turbo") was written to
+        # output_config.effort. effort_payload sends only Anthropic's effort words;
+        # a model that rejects one gets the 400 retry in llm_client.
+        data.update(effort_payload("anthropic", self._requested_effort_level(chat_extra)))
 
         return self._post(url, data)
 
