@@ -72,7 +72,7 @@ def _order_by_date(df: Any) -> Any:
 
     MACD and RSI follow row order. A newest-first sheet used to be left as-is,
     so the path was reversed and the indicators were silently wrong. The date
-    text itself is not rewritten; a helper key is dropped after the sort.
+    text itself is not rewritten.
     """
     col = _date_column(df)
     if col is None:
@@ -88,15 +88,8 @@ def _order_by_date(df: Any) -> Any:
     # 1899-12-30 and handles strings/invalid cells, sorting string 2024-01-01, then
     # serial 45293, then invalid cells.
     parsed = parse_date_column(df[col])
-    if not bool(parsed.notna().any()):
-        return df
-    work = df.copy()
-    key = "_wa_date_order"
-    while key in work.columns:
-        key += "_"
-    work[key] = parsed
-    work = work.sort_values(key, kind="mergesort", na_position="last")
-    return work.drop(columns=[key])
+    order = parsed.reset_index(drop=True).sort_values(kind="mergesort", na_position="last").index
+    return df.iloc[order]
 
 
 def _stringify_datetimes(df: Any) -> None:
@@ -346,8 +339,7 @@ def portfolio_tearsheet(
             return _error_result("INVALID_DATA", "No valid numeric returns found.", helper="portfolio_tearsheet")
 
         # Drop NaT rows. A synthetic daily index is reported in the warning.
-        synthetic_dates = False
-        duplicate_dates = False
+        warnings: list[str] = []
         valid_mask = None if dates is None else dates.notna()
         if valid_mask is not None and valid_mask.any():
             returns = returns.loc[valid_mask]
@@ -358,11 +350,13 @@ def portfolio_tearsheet(
             # are averaged, same as the forecast time-series prep.
             returns = returns.sort_index(kind="mergesort")
             if not returns.index.is_unique:
-                duplicate_dates = True
                 returns = returns.groupby(level=0).mean()
+                warnings.append("Averaged duplicate dates.")
         else:
-            synthetic_dates = True
             returns.index = pd.date_range("2024-01-01", periods=len(returns), freq="D")
+            warnings.append(
+                "Calculated using synthetic daily calendar starting 2024-01-01 (no valid date column found)."
+            )
 
         metrics = qs.reports.metrics(returns, display=False)
         # What was wrong: a Series has .iloc but shape is (n,), so shape[1] raised
@@ -377,21 +371,10 @@ def portfolio_tearsheet(
         else:
             metrics_dict = metrics.to_dict()
 
-        warnings: list[str] = []
-        if synthetic_dates:
-            warnings.append(
-                "Calculated using synthetic daily calendar starting 2024-01-01 (no valid date column found)."
-            )
-        if duplicate_dates:
-            warnings.append("Averaged duplicate dates.")
-        extra: dict[str, Any] = {}
-        if warnings:
-            extra["warning"] = " ".join(warnings)
-
         return _ok_result(
             "portfolio_tearsheet",
             metrics=metrics_dict,
-            **extra,
+            **({"warning": " ".join(warnings)} if warnings else {}),
         )
     except Exception as e:
         log.exception("Error in portfolio_tearsheet")
@@ -462,13 +445,9 @@ def efficient_frontier(
         raw_bounds = params.get("weight_bounds")
         bounds: tuple[float | None, float | None] | None = None
         if raw_bounds is not None:
-            if not (isinstance(raw_bounds, (list, tuple)) and len(raw_bounds) == 2):
-                return _error_result(
-                    "INVALID_PARAMS",
-                    "weight_bounds must be a pair of finite numbers.",
-                    helper="efficient_frontier",
-                )
             try:
+                if not (isinstance(raw_bounds, (list, tuple)) and len(raw_bounds) == 2):
+                    raise ValueError
                 lo = None if raw_bounds[0] is None else float(raw_bounds[0])
                 hi = None if raw_bounds[1] is None else float(raw_bounds[1])
                 if any(bound is not None and not math.isfinite(bound) for bound in (lo, hi)):
@@ -489,13 +468,10 @@ def efficient_frontier(
         ef.max_sharpe(risk_free_rate=rfr)
         cleaned_weights = ef.clean_weights()
 
-        extra: dict[str, Any] = {}
-        if notes:
-            extra["warning"] = " ".join(notes)
         return _ok_result(
             "efficient_frontier",
             weights=cleaned_weights,
-            **extra,
+            **({"warning": " ".join(notes)} if notes else {}),
         )
     except Exception as e:
         log.exception("Error in efficient_frontier")
