@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-from collections.abc import Callable
 from typing import Any
 
 from plugin.scripting.sheet_layout import extract_sheet_layout
@@ -192,12 +191,6 @@ def _packet_parts(data: dict[str, Any]) -> tuple[dict[str, Any], Any, dict[str, 
     return spec, data.get("data_range"), context
 
 
-def _dispatch_spec_data(run_fn: Callable[..., Any], data: dict[str, Any]) -> Any:
-    """Adapter for ``run_*(spec, data_range, context)`` domain entry points."""
-    spec, data_range, context = _packet_parts(data)
-    return run_fn(spec, data_range, context)
-
-
 # Same seven domains as the spec rows in trusted_action_registry.
 # text, vision, sql, languagetool, vale, embedding, and langdetect do not fit.
 _SPEC_DOMAIN_RUNNERS: dict[str, tuple[str, str]] = {
@@ -218,7 +211,8 @@ def dispatch_spec_domain(data: dict[str, Any]) -> Any:
     assert target is not None, domain
     module_name, attr_name = target
     mod = importlib.import_module(module_name)
-    return _dispatch_spec_data(getattr(mod, attr_name), data)
+    spec, data_range, context = _packet_parts(data)
+    return getattr(mod, attr_name)(spec, data_range, context)
 
 
 def dispatch_text(data: dict[str, Any]) -> Any:
