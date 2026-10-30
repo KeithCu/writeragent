@@ -93,8 +93,7 @@ def _read_mcp_port(dlg: Any) -> int | None:
 
 def _read_tunnel_provider(dlg: Any) -> str:
     """Selected tunnel provider, defaulting to cloudflare."""
-    provider_ctrl = get_optional(dlg, "mcp__tunnel_provider")
-    provider = str(get_control_text(provider_ctrl) or "").strip().lower() if provider_ctrl else ""
+    provider = get_control_text(get_optional(dlg, "mcp__tunnel_provider")).strip().lower()
     return provider or "cloudflare"
 
 
@@ -111,8 +110,7 @@ class CopyMcpConfigListener(BaseActionListener):
     def on_action_performed(self, rEvent: Any) -> None:
         # Sync first so the copied text matches the current fields.
         sync_mcp_config_snippet(self._dlg)
-        snippet_ctrl = get_optional(self._dlg, "mcp__client_config_snippet")
-        text = get_control_text(snippet_ctrl) if snippet_ctrl else ""
+        text = get_control_text(get_optional(self._dlg, "mcp__client_config_snippet"))
         if not text:
             text = build_mcp_config_snippet(port=_read_mcp_port(self._dlg))
         if copy_to_clipboard(self._ctx, text):
