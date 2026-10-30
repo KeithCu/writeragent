@@ -105,7 +105,6 @@ def _writer_has_math_ole(model: Any) -> bool:
                 return True
     except Exception:
         log.debug("Failed checking Math OLE objects in Writer document", exc_info=True)
-        return False
     return False
 
 
@@ -394,8 +393,6 @@ def resolve_locator(model: Any, locator: str) -> dict[str, Any]:
     tree = _writer_tree_service()
     try:
         resolved = tree.resolve_writer_locator(model, loc_type, loc_value)
-    except ToolExecutionError:
-        raise
     # page:abc fails int() inside the resolver; the tool registry re-raises
     # ValueError as a programmer error, so this arm converts it.
     except ValueError as exc:
