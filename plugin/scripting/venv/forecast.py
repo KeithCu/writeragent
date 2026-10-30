@@ -145,7 +145,7 @@ def _weekday_daily(series: Any, step: Any) -> bool:
     days = float(step.total_seconds() / 86400.0)
     if not 0.5 <= days <= 1.5:
         return False
-    weekdays = {int(day) for day in series.index.dayofweek}
+    weekdays = {int(day) for day in series.index.day_of_week}
     return bool(weekdays) and weekdays.isdisjoint({5, 6})
 
 
