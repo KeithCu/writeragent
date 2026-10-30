@@ -55,7 +55,7 @@ log = logging.getLogger(__name__)
 # VERSION); CONFIG_DEFAULTS / CONFIG_SCHEMAS / DOTTED_FALLBACKS may be absent.
 # Importing those names together was an all-or-nothing trap: one missing
 # name raised ImportError, MODULES stayed [], and module.yaml keys never
-# reached ``_get_schema_default`` / ``get_config``. Empty fallback is only
+# reached ``CONFIG_DEFAULTS`` / ``get_config``. Empty fallback is only
 # for LibrePy-style trees that omit ``_manifest`` itself.
 try:
     from plugin._manifest import MODULES as _imported_modules
@@ -246,10 +246,6 @@ def parse_float_robust(val: Any) -> float:
             raise ValueError(f"Could not robustly parse float from {val!r}") from e
 
     raise ValueError(f"Could not robustly parse float from {val!r}")
-
-
-def _is_lru_list_config_key(key: str) -> bool:
-    return key.split("@", 1)[0] in _LRU_LIST_CONFIG_KEY_PREFIXES
 
 
 _DEFAULT_PYTHON_SCRIPTS = {
@@ -463,11 +459,6 @@ class WriterAgentConfig:
             self.endpoint = ""
 
         # Old shipped default was 70; values below 100 are treated as stale and upgraded.
-        if not isinstance(self.calc_prompt_max_tokens, int):
-            try:
-                self.calc_prompt_max_tokens = parse_int_robust(self.calc_prompt_max_tokens)
-            except ValueError:
-                self.calc_prompt_max_tokens = 4096
         if self.calc_prompt_max_tokens < 100:
             log.info("Upgrading calc_prompt_max_tokens from %s to 4096", self.calc_prompt_max_tokens)
             self.calc_prompt_max_tokens = 4096
@@ -769,20 +760,11 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
 # --- MODULES / manifest schema ---
 
 
-def _get_schema_default(key: str) -> Any:
-    """Return default for key from manifest schema. Supports flat and dotted keys."""
-    if key in CONFIG_DEFAULTS:
-        return CONFIG_DEFAULTS[key]
-    return None
-
-
 def _dotted_fallback_keys(key: str) -> Iterator[str]:  # pyright: ignore[reportUnusedFunction]  # called by config.py
     """Yield dotted key variants for key using manifest modules (e.g. extend_selection_max_tokens -> chatbot.extend_selection_max_tokens)."""
     if "." in key:
         return
-    if key in DOTTED_FALLBACKS:
-        for dotted in DOTTED_FALLBACKS[key]:
-            yield dotted
+    yield from DOTTED_FALLBACKS.get(key, ())
 
 
 # --- Default resolution ---
@@ -794,11 +776,11 @@ def _resolve_default(key: str) -> Any:
         tests_dir = os.path.join(get_plugin_dir(), "tests")
         return "DEBUG" if os.path.isdir(tests_dir) else "WARN"
 
-    val = _get_schema_default(key)
+    val = CONFIG_DEFAULTS.get(key)
     if val is not None:
         return val
 
-    if _is_lru_list_config_key(key):
+    if key.split("@", 1)[0] in _LRU_LIST_CONFIG_KEY_PREFIXES:
         return []
 
     safe_key = key.replace(".", "_")

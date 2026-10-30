@@ -26,7 +26,6 @@ from plugin.framework.config_schema import (
     parse_int_robust,
     set_endpoint_normalizer,
     set_manifest_modules,
-    _get_schema_default,
 )
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "plugin" / "framework" / "config_schema.py"
@@ -86,12 +85,12 @@ def test_module_yaml_defaults_bind_from_manifest_modules() -> None:
     from plugin.framework import config_schema as schema
 
     assert schema.MODULES, "empty MODULES; run make manifest"
-    assert _get_schema_default("scripting.python_max_data_cells") == 250000
-    assert _get_schema_default("scripting.python_venv_path") == ""
-    assert _get_schema_default("scripting.python_auto_spill") is True
-    assert _get_schema_default("scripting.python_geometric_recalc_order") is False
-    assert _get_schema_default("doc.agent_edit_review_mode") == "off"
-    assert _get_schema_default("chatbot.max_tool_rounds") == 15
+    assert schema.CONFIG_DEFAULTS.get("scripting.python_max_data_cells") == 250000
+    assert schema.CONFIG_DEFAULTS.get("scripting.python_venv_path") == ""
+    assert schema.CONFIG_DEFAULTS.get("scripting.python_auto_spill") is True
+    assert schema.CONFIG_DEFAULTS.get("scripting.python_geometric_recalc_order") is False
+    assert schema.CONFIG_DEFAULTS.get("doc.agent_edit_review_mode") == "off"
+    assert schema.CONFIG_DEFAULTS.get("chatbot.max_tool_rounds") == 15
     assert schema.CONFIG_DEFAULTS["scripting.python_max_data_cells"] == 250000
     assert isinstance(schema.MODULES, list) and len(schema.MODULES) > 0
 

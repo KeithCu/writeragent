@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.config_schema import _get_schema_default, as_bool
+from plugin.framework.config_schema import CONFIG_DEFAULTS, as_bool
 from plugin.framework.errors import ConfigError
 from plugin.framework.prompts import (
     CALC_CORE_DIRECTIVES,
@@ -104,7 +104,7 @@ def test_get_chat_system_prompt_allows_html_by_default_fallback():
     model = MagicMock()
     model.supportsService.return_value = False
 
-    rich_default = as_bool(_get_schema_default("rich_text_control_sidebar"))
+    rich_default = as_bool(CONFIG_DEFAULTS.get("rich_text_control_sidebar"))
 
     # When get_config_bool fails, get_config_bool_safe must fall back to the module.yaml default.
     with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("Invalid stored value", code="CONFIG_TYPE_ERROR")):
