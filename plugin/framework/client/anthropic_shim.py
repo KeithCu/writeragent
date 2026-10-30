@@ -12,7 +12,7 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from .base_provider_shim import BaseProviderShim, coerce_raw_b64, effort_payload, inline_image_mime
+from .base_provider_shim import BaseProviderShim, _dict_parts, coerce_raw_b64, effort_payload, inline_image_mime
 
 log = logging.getLogger(__name__)
 
@@ -77,18 +77,6 @@ def _anthropic_tool_def(tool: Any) -> dict[str, Any] | None:
         schema = {"type": "object", "properties": {}}
     description = src.get("description") or ""
     return {"name": name, "description": description, "input_schema": schema}
-
-
-def _dict_parts(content: Any) -> list[dict[str, Any]]:
-    """Content blocks that are dicts. Null, a string, or a non-dict part is skipped.
-
-    Calling ``.get`` on sync ``content: null`` or a non-dict part raises
-    TypeError / AttributeError. The Google image path already treats null
-    content as no blocks.
-    """
-    if not isinstance(content, list):
-        return []
-    return [part for part in content if isinstance(part, dict)]
 
 
 def _parse_tool_input(args: Any) -> dict[str, Any] | None:
