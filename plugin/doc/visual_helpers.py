@@ -120,12 +120,7 @@ def px_to_units(width_px: int | float, height_px: int | float) -> tuple[int, int
 GENERATED_IMAGE_MAX_DISPLAY_MM = 135
 
 
-def px_to_display_units(
-    width_px: int | float,
-    height_px: int | float,
-    *,
-    max_mm: int = GENERATED_IMAGE_MAX_DISPLAY_MM,
-) -> tuple[int, int]:
+def px_to_display_units(width_px: int | float, height_px: int | float) -> tuple[int, int]:
     """Convert 96-DPI pixels to 1/100 mm, then cap the longer edge.
 
     Generate resolution and on-page size are independent. Smaller images are
@@ -134,7 +129,7 @@ def px_to_display_units(
     width_units, height_units = px_to_units(width_px, height_px)
     if width_units <= 0 or height_units <= 0:
         return width_units, height_units
-    max_units = max(1, mm_to_unit(max_mm))
+    max_units = mm_to_unit(GENERATED_IMAGE_MAX_DISPLAY_MM)
     longer = max(width_units, height_units)
     if longer <= max_units:
         return width_units, height_units
@@ -163,10 +158,8 @@ def graphic_pixel_size(graphic: Any) -> tuple[int | None, int | None]:
     try:
         hmm = safe_get_property(graphic, "Size100thMM")
         if hmm is not None and (getattr(hmm, "Width", 0) > 0 or getattr(hmm, "Height", 0) > 0):
-            # 1 px = 2540 / 96 (1/100 mm). Use round so 1000 1/100mm is 38 px.
-            w = max(1, round(float(hmm.Width) * PX_PER_INCH / UNITS_PER_INCH))
-            h = max(1, round(float(hmm.Height) * PX_PER_INCH / UNITS_PER_INCH))
-            return w, h
+            # units_to_px rounds (1000 1/100 mm → 38 px) and applies minimum=1.
+            return units_to_px(float(hmm.Width), float(hmm.Height))
     except Exception as ex:
         if is_real_disposal(ex):
             raise
@@ -651,12 +644,6 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
                             item = GraphicEntry((name, shape))
                             item.sheet_index = sheet_idx
                             item.sheet_name = str(sheet_name) if sheet_name is not None else None
-                            try:
-                                shape._calc_sheet_index = sheet_idx
-                                if sheet_name is not None:
-                                    shape._calc_sheet_name = str(sheet_name)
-                            except (AttributeError, TypeError):
-                                pass
                             graphics.append(item)
                 return graphics
             except Exception as ex:
@@ -802,7 +789,7 @@ def get_graphic_object_by_name(
     for item in list_graphic_objects(doc, doc_type=doc_type):
         name = item[0]
         graphic = item[1]
-        s_idx = getattr(item, "sheet_index", getattr(graphic, "_calc_sheet_index", None))
+        s_idx = getattr(item, "sheet_index", None)
         if name == image_name:
             if sheet_index is not None:
                 if s_idx == sheet_index:
