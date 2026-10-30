@@ -28,7 +28,7 @@ jobs:
           platforms: all
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v3.4.1
+        uses: pypa/cibuildwheel@v4.3.5
         with:
           package-dir: native/writeragent_vec
 
