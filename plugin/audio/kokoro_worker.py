@@ -117,17 +117,6 @@ def run_kokoro_stdio_loop(
     return 0
 
 
-def _voice_names(kokoro: Any) -> Any:
-    return getattr(kokoro, "voices", ())
-
-
-def _has_voice(kokoro: Any, name: str) -> bool:
-    try:
-        return name in _voice_names(kokoro)
-    except TypeError:
-        return False
-
-
 def _fallback_voice(kokoro: Any, requested: str) -> str:
     """Choose a fallback voice if the requested voice is missing.
 
@@ -135,23 +124,21 @@ def _fallback_voice(kokoro: Any, requested: str) -> str:
     in the archive').
     How it happened: kokoro_onnx stores np.load of the voices pack (NpzFile);
     the tests used a list and a pack that still contained af_sky.
-    Why this change: next(iter(...)) is the NpzFile key walk (voices[0] raises KeyError).
+    Why this change: iterate the archive keys into a list and take the first
+    (voices[0] raises KeyError).
     """
+    voices = kokoro.voices
+    names = [str(name) for name in voices]
     family = requested[:1].lower()
     if family in KOKORO_VOICE_PREFIX_TO_LANG:
-        try:
-            for name in _voice_names(kokoro):
-                if str(name)[:1].lower() == family:
-                    return str(name)
-        except TypeError:
-            pass
-    if _has_voice(kokoro, "af_sky"):
+        for name in names:
+            if name[:1].lower() == family:
+                return name
+    if "af_sky" in voices:
         return "af_sky"
-    voices = _voice_names(kokoro)
-    try:
-        return str(next(iter(voices)))
-    except (StopIteration, TypeError):
-        return "af_sky"
+    if names:
+        return names[0]
+    return "af_sky"
 
 
 def _get_kokoro(model_path: str, voices_path: str) -> Any:
@@ -184,15 +171,11 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         return {"status": "error", "error": "voices_path is required"}
 
     voice = str(req.get("voice") or "af_sky")
-    raw_speed = req.get("speed")
-    if raw_speed is None:
+    # What was wrong: float(req.get("speed") or 1.0) mapped a real 0.0 to 1.0.
+    try:
+        speed = float(req.get("speed", 1.0))
+    except (TypeError, ValueError):
         speed = 1.0
-    else:
-        # What was wrong: float(req.get("speed") or 1.0) mapped a real 0.0 to 1.0.
-        try:
-            speed = float(raw_speed)
-        except (TypeError, ValueError):
-            speed = 1.0
 
     try:
         kokoro = _get_kokoro(model_path, voices_path)
@@ -206,7 +189,7 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         return {"status": "error", "error": f"Kokoro load failed: {exc}"}
 
     warning = ""
-    if not _has_voice(kokoro, voice):
+    if voice not in kokoro.voices:
         # Same substitution as the one-shot script in tts_service: a voices
         # file that lacks the requested id (English-only pack, custom path)
         # keeps speaking instead of failing the sentence.
