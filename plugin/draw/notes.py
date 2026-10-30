@@ -10,19 +10,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSpeakerNotesBase
-from plugin.draw.bridge import DrawBridge, find_notes_shape
+from plugin.draw.bridge import DrawBridge, find_notes_shape, resolve_page_and_bridge
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.framework.errors import uno_probe
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-
-
-def _slide(ctx: ToolContext, page_idx: int | None) -> tuple[int, Any]:
-    actual_idx = page_idx if page_idx is not None else ctx.active_page_index
-    if actual_idx is None:
-        actual_idx = DrawBridge(ctx.doc).get_active_page_index()
-    return actual_idx, DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
 
 
 def _write_notes(shape: Any, text: str, append: bool) -> None:
@@ -44,7 +37,8 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        actual_idx, page = _slide(ctx, kwargs.get("page"))
+        _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
+        page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
         notes_shape = find_notes_shape(uno_probe(lambda: page.getNotesPage(), None))
         notes_text = ""
         if notes_shape is not None:
@@ -69,7 +63,8 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
         text = kwargs["text"]
         append = kwargs.get("append", False)
 
-        actual_idx, page = _slide(ctx, kwargs.get("page"))
+        _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
+        page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
         notes_page = uno_probe(lambda: page.getNotesPage(), None)
         if notes_page is None:
             return self._tool_error(
