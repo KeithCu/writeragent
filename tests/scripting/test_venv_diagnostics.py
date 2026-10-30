@@ -241,7 +241,7 @@ def test_build_probe_display_linux_portaudio_hint_when_sounddevice_missing():
         "vector_search": [],
         "data_eng": [],
     }
-    msg = _build_probe_display(data, completed_groups=8, include_audio=True)
+    msg = _build_probe_display(data, completed_groups=8)
     if sys.platform.startswith("linux"):
         assert "PortAudio" in msg
     else:
@@ -268,7 +268,7 @@ def test_build_probe_display_omits_install_footer_while_progressive():
         "vector_search": [],
         "data_eng": [],
     }
-    msg = _build_probe_display(data, completed_groups=2, include_audio=True)
+    msg = _build_probe_display(data, completed_groups=2)
     assert "Scientific Libraries" in msg
     assert "Missing: scipy, sklearn" in msg
     assert "To install remaining packages:" not in msg
@@ -1425,7 +1425,7 @@ def test_build_probe_display_input_device_is_not_missing():
         "vision": [],
         "vector_search": [],
     }
-    msg = _build_probe_display(data, completed_groups=8, include_audio=True)
+    msg = _build_probe_display(data, completed_groups=8)
     assert "No microphone input devices detected." in msg
     assert "input_device" not in msg
 
