@@ -141,12 +141,24 @@ def test_doc_type_of_resolution() -> None:
     assert doc_type_of(_ServiceModel({_TEXT_SERVICE})) == "writer"
     assert doc_type_of(_ServiceModel({_CALC_SERVICE})) == "calc"
     assert doc_type_of(_ServiceModel({_DRAW_SERVICE})) == "draw"
+    assert doc_type_of(_ServiceModel({_IMPRESS_SERVICE})) == "draw"
+    assert doc_type_of(_ServiceModel({_IMPRESS_SERVICE, _DRAW_SERVICE})) == "draw"
 
     class BrokenDoc:
         def supportsService(self, name: str) -> bool:
             raise RuntimeError("bridge disconnected")
 
     assert doc_type_of(BrokenDoc()) == "writer"
+
+
+def test_doc_type_of_swallows_disposal() -> None:
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedDoc:
+        def supportsService(self, name: str) -> bool:
+            raise DocumentDisposedError("disposed")
+
+    assert doc_type_of(DisposedDoc()) == "writer"
 
 
 
