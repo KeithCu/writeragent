@@ -14,14 +14,11 @@ Derived from ``DANGEROUS_MODULES``, ``NETWORK_BLOCKED_MODULES``, and
 from __future__ import annotations
 
 from plugin.framework.constants import AUTO_IMPORTS
-from plugin.framework.deal_shim import deal
 from plugin.scripting.sandbox import (
     DANGEROUS_MODULES,
     FILE_BLOCKED_MODULES,
     NETWORK_BLOCKED_MODULES,
     _PROCESS_MODULES,
-    build_sandbox_policy,
-    policy_blocked_imports,
 )
 
 PYTHON_VENV_SANDBOX_CONTEXT_PREFIX = (
@@ -39,35 +36,21 @@ _ALLOW_ALL_NOTE = (
 )
 
 
-@deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
-def venv_blocked_modules() -> tuple[str, ...]:
-    """Default blocked modules from sandbox policy."""
-    return tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
-
-
-def _auto_import_alias(module_name: str, import_stmt: str) -> str:
-    marker = " as "
-    if marker in import_stmt:
-        return import_stmt.rsplit(marker, 1)[-1].strip()
-    return module_name
-
-
-def _auto_imports_prompt_lists() -> tuple[str, str]:
-    """Alias list and module list for LLM prose, derived from AUTO_IMPORTS."""
+def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
+    """Sandbox context prefix first, then import rules for LLM prompts."""
     aliases: list[str] = []
     modules: list[str] = []
     for module_name, import_stmt in AUTO_IMPORTS.items():
-        aliases.append(_auto_import_alias(module_name, import_stmt))
+        marker = " as "
+        if marker in import_stmt:
+            aliases.append(import_stmt.rsplit(marker, 1)[-1].strip())
+        else:
+            aliases.append(module_name)
         modules.append(module_name)
-    do_not = ", ".join(modules[:-1]) + f", or {modules[-1]}"
-    return ", ".join(aliases), do_not
-
-
-def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
-    """Sandbox context prefix first, then import rules for LLM prompts."""
-    aliases, do_not_import = _auto_imports_prompt_lists()
+    alias_list = ", ".join(aliases)
+    do_not_import = ", ".join(modules[:-1]) + f", or {modules[-1]}"
     auto_imports = (
-        f"Pre-imported (do not write import lines): {aliases}. "
+        f"Pre-imported (do not write import lines): {alias_list}. "
         "When =PY has data range args, xl(\"%Pn%\") is also injected (binding-only Excel bridge; not a live sheet read). "
         f"DO NOT import {do_not_import}. "
         "Prefer np/sp/pd/st and scipy over hand-rolled Python; use dt for dates, plt for charts."
@@ -108,6 +91,10 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
 
 
 
+_DRAW_PLOT_HINT = (
+    "PLOTS: plt.plot(...) or result=fig; then image_insert(image_path=<returned path>) on the slide/page."
+)
+
 _MATPLOTLIB_PLOT_HINTS: dict[str, str] = {
     "calc": (
         "PLOTS: plt.plot(...) or result=fig; chart inserts on the active sheet automatically. "
@@ -117,27 +104,18 @@ _MATPLOTLIB_PLOT_HINTS: dict[str, str] = {
         "PLOTS: plt.plot(...) or result=fig; then image_insert(image_path=<returned path>). "
         "Use document tools for text/data."
     ),
-    "draw": (
-        "PLOTS: plt.plot(...) or result=fig; then image_insert(image_path=<returned path>) on the slide/page."
-    ),
+    "draw": _DRAW_PLOT_HINT,
+    "impress": _DRAW_PLOT_HINT,
 }
-
-
-def _resolve_plot_hint_doc_type(*, doc_type: str | None = None, agent_label: str | None = None) -> str | None:
-    if agent_label:
-        label_map = {"Calc": "calc", "Writer": "writer", "Draw": "draw"}
-        doc_type = label_map.get(agent_label, doc_type)
-    if doc_type in ("impress",):
-        doc_type = "draw"
-    return doc_type
 
 
 def format_matplotlib_plot_hint(*, doc_type: str | None = None, agent_label: str | None = None) -> str:
     """Return a single-sentence plot egress hint for the active app, or \"\" if unknown."""
-    resolved = _resolve_plot_hint_doc_type(doc_type=doc_type, agent_label=agent_label)
-    if not resolved:
+    if agent_label:
+        doc_type = {"Calc": "calc", "Writer": "writer", "Draw": "draw"}.get(agent_label, doc_type)
+    if not doc_type:
         return ""
-    return _MATPLOTLIB_PLOT_HINTS.get(resolved, "")
+    return _MATPLOTLIB_PLOT_HINTS.get(doc_type, "")
 
 
 def format_units_helper_hint() -> str:

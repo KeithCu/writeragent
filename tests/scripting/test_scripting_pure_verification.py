@@ -14,8 +14,11 @@ from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_SHAPE_DIM, DEAL_M
 
 from plugin.scripting.import_policy import (
     PYTHON_VENV_SANDBOX_CONTEXT_PREFIX,
-    venv_blocked_modules,
     format_venv_import_policy_for_prompt,
+)
+from plugin.scripting.sandbox import (
+    build_sandbox_policy,
+    policy_blocked_imports,
 )
 from plugin.scripting.config_limits import (
     _bounds,
@@ -33,7 +36,7 @@ from plugin.scripting.venv.coerce import _dedupe_column_names
 
 
 def test_import_policy_contracts() -> None:
-    blocked = venv_blocked_modules()
+    blocked = tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
     assert isinstance(blocked, tuple)
     assert len(blocked) > 0
     assert "subprocess" in blocked
