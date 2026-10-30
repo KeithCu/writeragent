@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Mapping, final
+from typing import TYPE_CHECKING, Any, final
 
 if TYPE_CHECKING:
     from plugin.acp.base import AgentBackend
@@ -76,7 +76,6 @@ class GrokBackend(ACPBackend):
     display_name = "Grok Build"
     binary_name = "grok"
     default_extra_args = ("--no-auto-update", "agent", "stdio")
-    api_key_env_by_provider: Mapping[str, str] = {}
     binary_prefixes = ("grok",)
 
 
@@ -88,7 +87,6 @@ class OpenCodeBackend(ACPBackend):
     display_name = "OpenCode"
     binary_name = "opencode"
     default_extra_args = ("acp",)
-    api_key_env_by_provider: Mapping[str, str] = {}
 
 
 _ACP_BACKENDS: tuple[type[ACPBackend], ...] = (

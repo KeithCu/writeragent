@@ -71,7 +71,7 @@ def test_backend_spec_properties(cls):
     backend = cls()
     assert backend.backend_id == cls.backend_id
     assert backend.display_name == cls.display_name
-    assert backend.get_binary_name() == cls.binary_name
+    assert backend.binary_name == cls.binary_name
     assert tuple(backend.default_extra_args) == cls.default_extra_args
 
 

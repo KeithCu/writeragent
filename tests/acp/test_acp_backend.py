@@ -421,7 +421,7 @@ class TestBinaryDiscovery:
         monkeypatch.setattr("plugin.acp.acp_backend.os.path.expanduser", lambda path: str(home) if path == "~" else path)
         monkeypatch.setattr("plugin.acp.acp_backend.shutil.which", lambda binary_name: None)
         backend = _bare_backend()
-        backend.get_binary_name = lambda: name
+        backend.binary_name = name
         assert (backend._find_binary()) == (str(binary))
 
 
@@ -555,7 +555,7 @@ def _bare_backend():
     backend._send_lock = threading.Lock()
     backend._pending_permissions = {}
     backend.display_name = "Test"
-    backend.get_binary_name = lambda: "test-agent"
+    backend.binary_name = "test-agent"
     return backend
 
 
