@@ -25,7 +25,6 @@ from __future__ import annotations
 from plugin.framework.thread_guard import background
 import json
 import logging
-import math
 import queue
 import subprocess
 import threading
@@ -53,23 +52,17 @@ _BAD_ID = object()
 def _canonical_id(value: Any) -> Any:
     """Pending-map key for a JSON-RPC id, or ``_BAD_ID``.
 
-    This is applied only to responses (no ``method``).
-
-    ``bool`` subclasses ``int``, and ``True`` hashes equal to ``1``, so a JSON
-    ``true`` id would complete the in-flight integer request. A whole-number
-    float has the same hash: JSON ``1.0`` must become ``1`` or it collides
-    with request id ``1`` by accident and ``1.5`` would be stored as a float
-    key we never send.
+    Applied only to responses (no ``method``). ``bool`` subclasses ``int``,
+    and ``True`` hashes equal to ``1``, so a JSON ``true`` id would complete
+    the in-flight integer request. A whole-number float hashes the same way:
+    JSON ``1.0`` must become ``1``. ``1.5`` would be a float key we never
+    send. NaN and infinities fail ``is_integer()`` and take the same reject.
     """
     if value is None or isinstance(value, str):
         return value
-    if isinstance(value, bool):
-        return _BAD_ID
-    if isinstance(value, int):
+    if isinstance(value, int) and not isinstance(value, bool):
         return value
-    if isinstance(value, float):
-        if not math.isfinite(value) or not value.is_integer():
-            return _BAD_ID
+    if isinstance(value, float) and value.is_integer():
         return int(value)
     return _BAD_ID
 
