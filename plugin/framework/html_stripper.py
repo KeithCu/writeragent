@@ -28,7 +28,6 @@ from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK, deal, str_bounded
 # CrossHair uses 16. Public feed() / strip_html_tags have no whole-string
 # @deal.pre — they slice to DEAL_MAX_HTML_CHUNK so long _append_response
 # assistant/tool-result HTML cannot PreContract in debug OXTs.
-_DEAL_MAX_HTML_CHUNK = DEAL_MAX_HTML_CHUNK
 
 # Element text used to survive (``<script>alert(1)</script>`` → ``alert(1)``).
 # Drop the body until the matching close tag, not only the tag bytes.
@@ -90,6 +89,11 @@ class _Tag(NamedTuple):
     is_close: bool
     is_empty: bool
     is_real: bool
+
+
+def _is_tag_start(ch: str) -> bool:
+    """Character after ``<`` that can open a tag: a letter, ``/``, ``!``, or ``?``."""
+    return ch.isalpha() or ch in "/!?"
 
 
 def _parse_tag(buf: str) -> _Tag:
@@ -167,10 +171,8 @@ def escape_prose_angle_brackets(text: str) -> str:
                 out.append("&lt;" + buf[1:] + "&gt;")
         else:
             tag_buffer += char
-            if len(tag_buffer) == 2:
-                first_char = tag_buffer[1]
-                if not (first_char.isalpha() or first_char in ("/", "!", "?")):
-                    abort()
+            if len(tag_buffer) == 2 and not _is_tag_start(tag_buffer[1]):
+                abort()
             elif len(tag_buffer) > _TAG_BUFFER_LIMIT:
                 abort()
 
@@ -226,13 +228,11 @@ class StreamingHTMLStripper:
 
     def _push_tag_char(self, char: str, out: list[str], *, reject_bad_start: bool) -> None:
         self.tag_buffer += char
-        if reject_bad_start and len(self.tag_buffer) == 2:
-            first_char = self.tag_buffer[1]
+        if reject_bad_start and len(self.tag_buffer) == 2 and not _is_tag_start(self.tag_buffer[1]):
             # Second character must look like a tag. ``3 < 5`` stays text;
             # a space (or digit) after ``<`` is not the start of a tag.
-            if not (first_char.isalpha() or first_char in ("/", "!", "?")):
-                self._release_tag_buffer(out, force_emit=not bool(self._discard_until))
-                return
+            self._release_tag_buffer(out, force_emit=not bool(self._discard_until))
+            return
         if len(self.tag_buffer) > _TAG_BUFFER_LIMIT:
             # Never-closed '<' used to grow without bound. This cap is only
             # the tag buffer. Element body is bounded in _note_discarded_body.
@@ -257,11 +257,7 @@ class StreamingHTMLStripper:
                 self._discard_body = ""
                 return
             if not tag.is_real:
-                self._discard_body += buf + ">"
-                if len(self._discard_body) > _DISCARD_BODY_LIMIT or "\n\n" in self._discard_body:
-                    out.append(self._discard_body)
-                    self._discard_until = ""
-                    self._discard_body = ""
+                self._note_discarded_body(buf + ">", out)
             return
         if not tag.is_real:
             out.append(buf + ">")
@@ -269,7 +265,7 @@ class StreamingHTMLStripper:
         if tag.name in _DISCARD_ELEMENTS and not tag.is_close and not tag.is_empty:
             self._discard_until = tag.name
 
-    @deal.pre(lambda self, chunk: str_bounded(chunk, _DEAL_MAX_HTML_CHUNK))
+    @deal.pre(lambda self, chunk: str_bounded(chunk, DEAL_MAX_HTML_CHUNK))
     @deal.post(lambda result: isinstance(result, str))
     def _feed_chunk(self, chunk: str) -> str:
         """Process one deal-bounded slice. feed() slices so callers never trip this pre.
@@ -312,7 +308,7 @@ class StreamingHTMLStripper:
                 self._push_tag_char(char, out, reject_bad_start=True)
         return "".join(out)
 
-    def _note_discarded_body(self, char: str, out: list[str]) -> None:
+    def _note_discarded_body(self, text: str, out: list[str]) -> None:
         """Hold script/style body until the close tag, then drop it.
 
         Body characters are not deleted until ``</script>`` or ``</style>``.
@@ -322,7 +318,7 @@ class StreamingHTMLStripper:
         ``_DISCARD_BODY_LIMIT`` body characters means the close tag is not
         coming; show that text. A close tag inside the limit still drops it.
         """
-        self._discard_body += char
+        self._discard_body += text
         if len(self._discard_body) > _DISCARD_BODY_LIMIT or "\n\n" in self._discard_body:
             out.append(self._discard_body)
             self._discard_until = ""
@@ -335,13 +331,13 @@ class StreamingHTMLStripper:
         Holds back any potential HTML tags in a buffer until they are either confirmed
         (closed with '>') or rejected (invalid tag start, new '<', or size limit exceeded).
 
-        Slices to _DEAL_MAX_HTML_CHUNK like strip_html_tags so a single long
+        Slices to DEAL_MAX_HTML_CHUNK like strip_html_tags so a single long
         assistant append cannot trip debug @deal.pre on _feed_chunk.
         """
         # crosshair: off  # unbounded stream wrapper; deal bound lives on _feed_chunk.
         if not chunk:
             return ""
-        size = _DEAL_MAX_HTML_CHUNK
+        size = DEAL_MAX_HTML_CHUNK
         if len(chunk) <= size:
             raw = self._feed_chunk(chunk)
         else:
@@ -371,7 +367,6 @@ def text_has_real_html_tag(text: str) -> bool:
         return False
     stripper = StreamingHTMLStripper()
     stripper.feed(text)
-    stripper.finalize()
     return stripper.dropped_real_tag
 
 
@@ -380,8 +375,6 @@ def text_has_real_html_tag(text: str) -> bool:
 def strip_html_tags(text: str) -> str:
     """Synchronous utility to strip HTML tags from a complete string."""
     # crosshair: off  # wraps feed; whole-text @deal.pre removed — crashed long tool-result chat appends in debug.
-    if not text:
-        return ""
     # Plain text without markup or entities needs no stripping.
     if "<" not in text and "&" not in text:
         return text
@@ -429,9 +422,6 @@ def html_to_search_text(text: str) -> str:
     def flush_line_break() -> None:
         lines.append(collapsed())
 
-    def add_text(chunk: str) -> None:
-        parts.append(chunk)
-
     tag_buf = ""
     quote = ""
     discard_until = ""
@@ -445,7 +435,7 @@ def html_to_search_text(text: str) -> str:
             elif discard_until:
                 discard_body.append(char)
                 if len(discard_body) > _DISCARD_BODY_LIMIT or "\n\n" in "".join(discard_body):
-                    add_text("".join(discard_body))
+                    parts.append("".join(discard_body))
                     discard_until = ""
                     discard_body.clear()
             else:
@@ -455,13 +445,13 @@ def html_to_search_text(text: str) -> str:
                 quote = ""
             tag_buf += char
             if len(tag_buf) > _TAG_BUFFER_LIMIT:
-                add_text(tag_buf)
+                parts.append(tag_buf)
                 tag_buf = ""
         elif char in ('"', "'"):
             tag_buf += char
             quote = char
         elif char == "<":
-            add_text(tag_buf)
+            parts.append(tag_buf)
             tag_buf = "<"
             quote = ""
         elif char == ">":
@@ -476,7 +466,7 @@ def html_to_search_text(text: str) -> str:
                 else:
                     discard_body.append(buf_str + ">")
             elif not tag.is_real:
-                add_text(buf_str + ">")
+                parts.append(buf_str + ">")
             elif tag.name in _SEARCH_DISCARD_TAGS and not tag.is_close and not tag.is_empty:
                 discard_until = tag.name
                 discard_body.clear()
@@ -486,17 +476,15 @@ def html_to_search_text(text: str) -> str:
                 flush_block()
         else:
             tag_buf += char
-            if len(tag_buf) == 2:
-                fc = tag_buf[1]
-                if not (fc.isalpha() or fc in ("/", "!", "?")):
-                    add_text(tag_buf)
-                    tag_buf = ""
+            if len(tag_buf) == 2 and not _is_tag_start(tag_buf[1]):
+                parts.append(tag_buf)
+                tag_buf = ""
             elif len(tag_buf) > _TAG_BUFFER_LIMIT:
-                add_text(tag_buf)
+                parts.append(tag_buf)
                 tag_buf = ""
 
     if tag_buf:
-        add_text(tag_buf)
+        parts.append(tag_buf)
 
     flush_block()
     return _unescape_entities("\n".join(lines))
