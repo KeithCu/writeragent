@@ -740,18 +740,18 @@ def test_reasoning_effort_label_mapping():
         reasoning_effort_to_display,
     )
 
-    assert REASONING_EFFORT_DISPLAY_LABELS == ("def", "lo", "med", "hi", "xhi", "max")
+    assert REASONING_EFFORT_DISPLAY_LABELS == ("default", "lo", "med", "hi", "xhi", "max")
 
-    assert reasoning_effort_to_display("") == "def"
-    assert reasoning_effort_to_display(None) == "def"
-    assert reasoning_effort_to_display("(default)") == "def"
+    assert reasoning_effort_to_display("") == "default"
+    assert reasoning_effort_to_display(None) == "default"
+    assert reasoning_effort_to_display("(default)") == "default"
     assert reasoning_effort_to_display("low") == "lo"
     assert reasoning_effort_to_display("medium") == "med"
     assert reasoning_effort_to_display("high") == "hi"
     assert reasoning_effort_to_display("xhigh") == "xhi"
     assert reasoning_effort_to_display("max") == "max"
 
-    assert display_to_reasoning_effort("def") == ""
+    assert display_to_reasoning_effort("default") == ""
     assert display_to_reasoning_effort("lo") == "low"
     assert display_to_reasoning_effort("med") == "medium"
     assert display_to_reasoning_effort("hi") == "high"
@@ -792,8 +792,8 @@ def test_sync_sidebar_reasoning_effort():
         sync_sidebar_reasoning_effort(ctrl)
         mock_set.assert_called_once_with("https://api.openai.com/v1", "medium")
 
-    # Selecting 'def' clears the slot
-    ctrl.getText.return_value = "def"
+    # Selecting 'default' clears the slot
+    ctrl.getText.return_value = "default"
     with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com/v1"), \
          patch("plugin.framework.config.get_reasoning_effort_for_endpoint", return_value="medium"), \
          patch("plugin.framework.config.set_reasoning_effort_for_endpoint") as mock_set:
