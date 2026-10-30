@@ -144,21 +144,11 @@ def _install_timeout_context_pool() -> None:
     still runs until it returns; host IPC kill remains the stop for a call that never returns.
     """
     import contextvars
-    from concurrent.futures import ThreadPoolExecutor
-    from typing import TYPE_CHECKING
-
-    if TYPE_CHECKING:
-        from concurrent.futures import Future
+    from concurrent.futures import Future, ThreadPoolExecutor
 
     from plugin.contrib.smolagents import local_python_executor as lpe
 
-    current = lpe.ThreadPoolExecutor
-    if getattr(current, "_writeragent_copies_context", False):
-        return
-
     class _ContextThreadPoolExecutor(ThreadPoolExecutor):
-        _writeragent_copies_context: bool = True
-
         def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Future[Any]:
             ctx = contextvars.copy_context()
             return super().submit(ctx.run, fn, *args, **kwargs)
