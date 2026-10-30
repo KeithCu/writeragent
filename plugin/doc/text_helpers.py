@@ -91,7 +91,7 @@ def _writer_char_count(model: Any) -> int:
     ``ParagraphCount - 1`` puts the breaks back but not the deleted
     text, which the cursor still steps over. Callers treat this
     length as the end of the offset space, so the chat's [DOCUMENT
-    END] excerpt and get_full_writer_text drop the end of the
+    END] excerpt drops the end of the
     document, and a selection at the end comes back as (length,
     length). The statistic is not cheap either: after an edit it
     recomputes (253 ms on a 348k-char body; this walk took 55 ms).
@@ -644,17 +644,6 @@ def _read_writer_text_slice(model: Any, start_offset: int, length: int) -> str: 
         return ""
     # cursor.getString() concatenates tracked deletions as plain text; enumerate portions instead.
     return normalize_linebreaks(get_string_without_tracked_deletions(cursor))
-
-
-@main_thread_only
-def get_full_writer_text(model: Any, max_chars: int) -> str:
-    """Prefix of Writer body text, truncated. Hides tracked deletions."""
-    doc_len = _writer_char_count(model)
-    take = min(doc_len, max_chars)
-    excerpt = _read_writer_text_slice(model, 0, take)
-    if doc_len > max_chars:
-        excerpt += "\n\n[... document truncated ...]"
-    return excerpt
 
 
 @main_thread_only

@@ -10,7 +10,6 @@ from plugin.doc.text_helpers import (
     clone_text_range,
     find_heading_by_chapter_number,
     get_document_path,
-    get_full_writer_text,
     get_string_without_tracked_deletions,
     normalize_linebreaks,
 )
@@ -279,26 +278,6 @@ def test_visible_portions_truncated_out_when_cap_hit():
     assert exhausted == []
 
 
-def test_get_full_writer_text_truncates_and_reads_prefix():
-    with (
-        patch("plugin.doc.text_helpers._writer_char_count", return_value=20),
-        patch("plugin.doc.text_helpers._read_writer_text_slice", return_value="abcdefghij") as mock_read,
-    ):
-        out = get_full_writer_text(object(), max_chars=10)
-    mock_read.assert_called_once()
-    assert mock_read.call_args.args[1:] == (0, 10)
-    assert out.endswith("[... document truncated ...]")
-    assert out.startswith("abcdefghij")
-
-
-def test_get_full_writer_text_short_doc_has_no_truncation_note():
-    with (
-        patch("plugin.doc.text_helpers._writer_char_count", return_value=5),
-        patch("plugin.doc.text_helpers._read_writer_text_slice", return_value="hello"),
-    ):
-        assert get_full_writer_text(object(), max_chars=10) == "hello"
-
-
 def test_text_helpers_import_does_not_load_calc_analyzer():
     """LibrePy-style import: text_helpers must not pull SheetAnalyzer / CalcBridge."""
     import subprocess
@@ -387,7 +366,7 @@ class _WalkText:
 @pytest.mark.parametrize("n", [0, 5, 8192, 20001])
 def test_writer_char_count_walks_the_real_length_not_character_count(n):
     """CharacterCount leaves out paragraph breaks and tracked deletions (54 read as 53), so the
-    chat excerpt and get_full_writer_text lost the end of the document."""
+    chat excerpt lost the end of the document."""
     from types import SimpleNamespace
 
     from plugin.doc.text_helpers import _writer_char_count
