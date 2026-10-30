@@ -50,24 +50,14 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
     if type(acc) is not dict or type(delta) is not dict:
         raise TypeError("accumulate_delta requires plain dict acc and delta")
     for key, delta_value in delta.items():
-        if key not in acc:
+        # Missing key and explicit None take the delta as-is. `index` is an
+        # array slot and `type` is a discriminated-union tag (openai-python
+        # streaming/_deltas.py); both are overwritten, not concatenated.
+        if acc.get(key) is None or key in ("index", "type"):
             acc[key] = delta_value
             continue
 
         acc_value = acc[key]
-        if acc_value is None:
-            acc[key] = delta_value
-            continue
-
-        # the `index` property is used in arrays of objects so it should
-        # not be accumulated like other values e.g.
-        # [{'foo': 'bar', 'index': 0}]
-        #
-        # the same applies to `type` properties as they're used for
-        # discriminated unions
-        if key == "index" or key == "type":
-            acc[key] = delta_value
-            continue
 
         if isinstance(acc_value, str) and isinstance(delta_value, str):
             acc_value += delta_value
