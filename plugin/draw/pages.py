@@ -59,17 +59,9 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
     if count < 2:
         return ""
 
-    order: list[int] = []
-    if insert_at > 0:
-        order.append(insert_at - 1)
-    if insert_at + 1 < count:
-        order.append(insert_at + 1)
-    for i in range(count):
-        if i not in order:
-            order.append(i)
+    # False sorts first: previous, then next, then ascending. Out-of-range neighbors are not in range(count).
+    order = sorted(range(count), key=lambda i: (i != insert_at - 1, i != insert_at + 1, i))
     for ref_idx in order:
-        if ref_idx < 0 or ref_idx >= count:
-            continue
         try:
             ref = pages.getByIndex(ref_idx)
             if uno_same(ref, new_page):
@@ -119,10 +111,7 @@ class AddSlide(ToolBase):
         layout_name = None
         if is_impress:
             raw = kwargs.get("layout")
-            if raw is None or (isinstance(raw, str) and not raw.strip()):
-                layout_name = _DEFAULT_IMPRESS_LAYOUT
-            else:
-                layout_name = str(raw).strip().lower()
+            layout_name = _DEFAULT_IMPRESS_LAYOUT if raw is None or (isinstance(raw, str) and not raw.strip()) else str(raw).strip().lower()
             # Validate before insert so a bad name does not leave a stray page.
             if layout_id(layout_name) is None:
                 return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
