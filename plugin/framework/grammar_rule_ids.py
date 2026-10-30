@@ -120,49 +120,35 @@ def bcp47_to_uno_lang_country(bcp47: str) -> tuple[str, str]:
     return parts[0], parts[1] if len(parts) > 1 else ""
 
 
-def _build_locale_maps() -> tuple[dict[tuple[str, str], str], dict[str, str]]:
-    exact: dict[tuple[str, str], str] = {}
-    canon: dict[str, str] = {}
-    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
-        lang, country = bcp47_to_uno_lang_country(tag)
-        exact[(lang.lower(), country.upper())] = tag
-        canon.setdefault(lang.lower(), tag)
-    return exact, canon
+# First shipped tag per language wins. ``no`` is not a registry tag; Norwegian
+# Bokmål is the canonical fallback (same as the old default table).
+_CANON_BY_LANG_NO_REGION: dict[str, str] = {
+    tag.partition("-")[0]: tag for tag in reversed(GRAMMAR_REGISTRY_LOCALE_TAGS)
+}
+_CANON_BY_LANG_NO_REGION["no"] = "nb-NO"
 
-
-_EXACT_PAIR_TO_TAG, _CANON_BY_LANG_NO_REGION = _build_locale_maps()
-
-# Special country/dialect overrides for multi-region or alias languages
+# Special country/dialect overrides for multi-region or alias languages.
+# Checked after the exact registry tag and before the language canon, so
+# en/UK and zh/HK, zh/MO are not collapsed to en-US / zh-CN.
 _LANGUAGE_DIALECT_OVERRIDES: dict[tuple[str, str], str] = {
     ("en", "UK"): "en-GB",
     ("zh", "HK"): "zh-TW",
     ("zh", "MO"): "zh-TW",
 }
 
-_LANGUAGE_DEFAULT_FALLBACKS: dict[str, str] = {
-    "en": "en-US",
-    "zh": "zh-CN",
-    "pt": "pt-BR",
-    "nb": "nb-NO",
-    "no": "nb-NO",
-    "nn": "nn-NO",
-}
-
 
 def _normalize_lang_country(lang: str, country: str = "") -> str | None:
-    """Cascade: exact pair -> dialect override -> default fallback -> canon no region."""
+    """Cascade: exact registry tag -> dialect override -> canonical language."""
     lang_l = lang.strip().lower()
     if not lang_l:
         return None
     country_u = country.strip().upper()
+    tag = f"{lang_l}-{country_u}"
+    if tag in GRAMMAR_REGISTRY_LOCALES:
+        return tag
     key = (lang_l, country_u)
-
-    if key in _EXACT_PAIR_TO_TAG:
-        return _EXACT_PAIR_TO_TAG[key]
     if key in _LANGUAGE_DIALECT_OVERRIDES:
         return _LANGUAGE_DIALECT_OVERRIDES[key]
-    if lang_l in _LANGUAGE_DEFAULT_FALLBACKS:
-        return _LANGUAGE_DEFAULT_FALLBACKS[lang_l]
     return _CANON_BY_LANG_NO_REGION.get(lang_l)
 
 
