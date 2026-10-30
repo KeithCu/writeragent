@@ -50,14 +50,6 @@ class _Session:
     ``child`` is the live process that owned the namespace. Identity replaces
     the old pid: a respawn installs a different ``Child`` even when the kernel
     has not exited.
-
-    Bugfix: what was wrong: a stale row was dropped once it had been stale
-    for ``idle_worker_ttl_sec``, so a sticky call after one or two reaper
-    passes got a fresh namespace without ``session_reset``.
-    How it happened: the reaper also expired stale rows, a marker TTL the
-    README says does not exist.
-    Why this change fixes it: stale rows now stay until a sticky call or a
-    reset consumes them, so a lost kernel is always reported once.
     """
 
     worker: BaseProcessWorker
@@ -360,13 +352,7 @@ class FormulaProcessPool(BaseProcessPool):
             return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
         if run_for < MIN_REQUEST_SEC:
             run_for = MIN_REQUEST_SEC
-        # Bugfix: what was wrong: int(run_for) floored the budget, so a
-        # 2000 ms request got a 1 s alarm and the 30 s default got 29 s.
-        # How it happened: usable() is already a little under the request
-        # timeout when the lease is granted, and int() drops the fraction.
-        # Why this change fixes it: ceil keeps the full remaining second, the
-        # same rounding the sandbox uses, and the host wait is measured from
-        # that alarm so the alarm still fires before the host read gives up.
+        # ceil, not int: int() turned a 2000 ms budget into a 1 s alarm.
         child_alarm = math.ceil(run_for)
         payload["timeout_sec"] = child_alarm
         if expect_namespace:

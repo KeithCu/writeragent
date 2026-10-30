@@ -2126,7 +2126,7 @@ class TestSessionResetHttp:
         finally:
             shutdown_vision_pool()
 
-    @pytest.mark.parametrize("meta_bytes", [b'{"id":[1e999]}', b'{"id":{"n":1e999}}'])
+    @pytest.mark.parametrize("meta_bytes", [b'{"id":[1e999]}', b'{"id":{"n":1e999}}', b'{"id":[1]}'])
     def test_vision_nested_nonfinite_id_is_400(self, meta_bytes: bytes) -> None:
         from compute_service.vision import shutdown_vision_pool
 
@@ -2141,9 +2141,13 @@ class TestSessionResetHttp:
             )
             status, _headers, body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
             assert status.startswith("400")
-            assert body.get("error") == "Invalid multipart vision body"
+            if meta_bytes == b'{"id":[1]}':
+                assert body.get("error") == "id must be a scalar"
+                assert body.get("code") == "INVALID_REQUEST"
+            else:
+                assert body.get("error") == "Invalid multipart vision body"
+                assert "code" not in body
             assert "id" not in body
-            assert "code" not in body
         finally:
             shutdown_vision_pool()
 

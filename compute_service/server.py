@@ -818,12 +818,6 @@ def _load_parts(
     try:
         parts = parse(raw_body, content_type)
     except ExecuteRequestError as exc:
-        # Bugfix: what was wrong: every parse error became "Invalid JSON" (or
-        # the multipart form), so {"id": [1]} or a forbidden meta key hid the
-        # field the client got wrong.
-        # How it happened: this handler dropped the exception message.
-        # Why this change fixes it: field checks raise with a code and their
-        # message is returned; malformed bodies still get the generic text.
         if exc.code is not None:
             return None, _error(start_response, "400 Bad Request", str(exc), code=exc.code)
         err = multipart_error if is_multipart_content_type(content_type) else other_error

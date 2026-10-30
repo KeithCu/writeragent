@@ -290,16 +290,7 @@ class DeadlineRequestHandler(WSGIRequestHandler):
                 state.close_connection = True
 
     def handle_expect_100(self) -> bool:
-        """Refuse an oversized ``Expect: 100-continue`` body before it is sent.
-
-        Bugfix: what was wrong: a client announcing a body over
-        ``max_body_bytes`` got ``100 Continue`` and uploaded the whole body
-        before the 413.
-        How it happened: the stdlib handler answers 100 Continue while
-        parsing headers, before the app checks Content-Length.
-        Why this change fixes it: the size check runs here first, so the 413
-        goes out instead of 100 Continue and the body is never invited.
-        """
+        """Answer an oversized ``Expect: 100-continue`` body with 413, not 100 Continue."""
         limit = getattr(self.server, "max_body_bytes", None)
         raw_len = self.headers.get("Content-Length", "")
         if limit is None or not raw_len.isdigit() or int(raw_len) <= limit:
