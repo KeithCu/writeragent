@@ -9,6 +9,7 @@ from LLM-submitted code. See docs/images/recognition.md.
 """
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import Any
 
@@ -16,6 +17,7 @@ from plugin.vision.vision_common import (
     DEFAULT_VISION_INSERT_MODE,
     IMPLEMENTED_HELPERS,
     VISION_IMAGE_MAX_BYTES,
+    detect_vision_input_format,
     error_result,
     fallback_engine_enabled,
     resolve_engine,
@@ -26,31 +28,11 @@ log = logging.getLogger(__name__)
 __all__ = ["apply_structured_insert_html", "run_vision"]
 
 
-def _run_paddle_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[str, Any]:
-    from plugin.vision.venv import vision_paddle as paddle_backend
-
+def _run_backend(module_name: str, helper: str, image: Any, params: dict[str, Any]) -> dict[str, Any]:
+    mod = importlib.import_module(f"plugin.vision.venv.vision_{module_name}")
     if helper == "extract_text":
-        return paddle_backend.extract_text(image, params)
-    return paddle_backend.extract_structure(image, params)
-
-
-def _run_docling_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[str, Any]:
-    from plugin.vision.venv import vision_docling as docling_backend
-
-    if helper == "extract_text":
-        return docling_backend.extract_text(image, params)
-    return docling_backend.extract_structure(image, params)
-
-
-def _is_docling_fallback_candidate(code: str | None) -> bool:
-    """True for errors where falling back to PaddleOCR makes sense.
-
-    DOCLING_UNAVAILABLE: Docling package is missing/cannot import.
-    DOCLING_API_MISMATCH: Docling internals broke due to version mismatch (issue 587).
-    Note: OCR_BACKEND_UNAVAILABLE (e.g. user-configured rapidocr missing) and LAYOUT_MODEL_UNAVAILABLE
-    represent configuration issues for the requested engine/options and do not trigger fallback.
-    """
-    return code in ("DOCLING_UNAVAILABLE", "DOCLING_API_MISMATCH")
+        return mod.extract_text(image, params)
+    return mod.extract_structure(image, params)
 
 
 def _apply_paddle_fallback(
@@ -59,25 +41,25 @@ def _apply_paddle_fallback(
     image: Any,
     params: dict[str, Any],
 ) -> dict[str, Any]:
-    if docling_result.get("status") != "error":
-        return docling_result
-    from plugin.vision.vision_common import detect_vision_input_format
-
-    # Paddle decode is PNG/JPEG only. A PDF that Docling rejected must keep that
-    # error; decoding %PDF as an image only logs a second failure.
-    if detect_vision_input_format(image, params) == "pdf":
-        return docling_result
+    # PDF bytes stay on the Docling error: Paddle decode is PNG/JPEG only, and
+    # decoding %PDF as an image only logs a second failure.
+    # Fall back only for DOCLING_UNAVAILABLE (package missing) or
+    # DOCLING_API_MISMATCH (Docling version break, issue 587). Docling emits
+    # that code instead of matching brittle substrings ('get_engine_config' /
+    # 'LayoutModelConfig'). OCR_BACKEND_UNAVAILABLE (user-configured rapidocr
+    # missing) and LAYOUT_MODEL_UNAVAILABLE are configuration errors for the
+    # requested engine and must not fall back.
     code = docling_result.get("code")
-    # Docling emits DOCLING_API_MISMATCH instead of matching brittle substrings
-    # ('get_engine_config' / 'LayoutModelConfig'). Paddle fallback exceptions
-    # are caught and logged so the Docling error in docling_result is kept.
-    if not _is_docling_fallback_candidate(code):
-        return docling_result
-    if not fallback_engine_enabled(params):
+    if (
+        docling_result.get("status") != "error"
+        or code not in ("DOCLING_UNAVAILABLE", "DOCLING_API_MISMATCH")
+        or not fallback_engine_enabled(params)
+        or detect_vision_input_format(image, params) == "pdf"
+    ):
         return docling_result
 
     try:
-        paddle_result = _run_paddle_helper(helper, image, params)
+        paddle_result = _run_backend("paddle", helper, image, params)
     except Exception:
         log.exception("Paddle fallback helper %s failed", helper)
         return docling_result
@@ -85,12 +67,9 @@ def _apply_paddle_fallback(
     if paddle_result.get("status") != "ok":
         return docling_result
 
-    warnings = list(paddle_result.get("warnings") or [])
-    warnings.insert(0, f"{code or 'Docling unavailable'}; fell back to PaddleOCR.")
-    paddle_result["warnings"] = warnings
-    metrics = dict(paddle_result.get("metrics") or {})
-    metrics["fallback_from"] = "docling"
-    paddle_result["metrics"] = metrics
+    msg = f"{code or 'Docling unavailable'}; fell back to PaddleOCR."
+    paddle_result["warnings"] = [msg, *(paddle_result.get("warnings") or [])]
+    paddle_result["metrics"] = {**dict(paddle_result.get("metrics") or {}), "fallback_from": "docling"}
     return paddle_result
 
 
@@ -108,18 +87,15 @@ def _dispatch_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[st
         return error_result("INVALID_PARAMS", str(exc), helper=helper)
 
     if engine == "paddle":
-        return _run_paddle_helper(helper, image, params)
+        return _run_backend("paddle", helper, image, params)
 
-    result = _run_docling_helper(helper, image, params)
+    result = _run_backend("docling", helper, image, params)
     return _apply_paddle_fallback(result, helper, image, params)
 
 
 def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
     """When insert_mode=structured, replace html in the worker before LO insert (css-inline lives in venv)."""
-    if result.get("status") != "ok":
-        return result
-    mode = str(params.get("insert_mode") or DEFAULT_VISION_INSERT_MODE).strip().lower()
-    if mode != "structured":
+    if result.get("status") != "ok" or str(params.get("insert_mode") or DEFAULT_VISION_INSERT_MODE).strip().lower() != "structured":
         return result
     from plugin.vision.venv.vision_html_export import structured_html_from_vision_result
 
@@ -129,8 +105,7 @@ def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any])
     updated = dict(result)
     # Calc structured insert falls back to HTML when the cell grid is empty.
     # Overwriting html used to make that fallback the bbox fragment, not Docling.
-    if "html_docling" not in updated:
-        updated["html_docling"] = result.get("html")
+    updated.setdefault("html_docling", result.get("html"))
     updated["html"] = html
     return updated
 
