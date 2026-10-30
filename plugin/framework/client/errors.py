@@ -55,17 +55,12 @@ def local_model_overflow_message(context_window: int | None = None) -> str:
 
 def is_local_model_server_crash(text: Any) -> bool:
     """True for llama-server death / access violation / prompt-overflow 500 bodies."""
-    blob = str(text or "")
-    if not blob:
-        return False
-    lower = blob.lower()
-    if any(marker in lower for marker in _LLAMA_SERVER_CRASH_MARKERS):
-        return True
-    if "llama.cpp" in lower and "overflow" in lower:
-        return True
-    if "overflowed a" in lower and "context window" in lower:
-        return True
-    return False
+    lower = str(text or "").lower()
+    return (
+        any(marker in lower for marker in _LLAMA_SERVER_CRASH_MARKERS)
+        or ("llama.cpp" in lower and "overflow" in lower)
+        or ("overflowed a" in lower and "context window" in lower)
+    )
 
 
 def _format_http_error_response(status: int, reason: str, err_body: str, context_window: int | None = None) -> str:  # pyright: ignore[reportUnusedFunction]  # shared by llm client tests and modality helpers
@@ -122,38 +117,17 @@ def append_zai_unknown_model_hint(message: str, err_body: Any, path: Any, provid
 def is_audio_unsupported_error(e: Any) -> bool:
     """Try to determine if the error indicates that audio/modality is unsupported by the model."""
     msg = str(e).lower()
-
-    # Common error strings across providers
-    if "unsupported content type" in msg:
-        return True
-    if "unsupported modality" in msg:
-        return True
-    if "audio" in msg and ("not supported" in msg or "unsupported" in msg):
-        return True
-    if "modality" in msg and "not supported" in msg:
-        return True
-
-    # Specific API error bodies (passed via _format_http_error_response)
-    if "model" in msg and "cannot process" in msg and "audio" in msg:
-        return True
-    if "no endpoints found that support input audio" in msg:
-        return True
-    if "gpt-4" in msg and "audio" in msg:  # Some legacy GPT-4 might not have it
-        if "not support" in msg:
-            return True
-
-    return False
-
-
-def _error_http_status(err: Any) -> int | None:
-    if isinstance(err, dict):
-        details = err.get("details")
-    else:
-        details = getattr(err, "details", None)
-    status = details.get("status") if isinstance(details, dict) else None
-    if isinstance(status, int) and not isinstance(status, bool):
-        return status
-    return None
+    # Legacy GPT-4 text says "does not support audio": "not support" without
+    # "ed". The "not supported" / "unsupported" clause does not cover that.
+    return (
+        "unsupported content type" in msg
+        or "unsupported modality" in msg
+        or ("audio" in msg and ("not supported" in msg or "unsupported" in msg))
+        or ("modality" in msg and "not supported" in msg)
+        or ("model" in msg and "cannot process" in msg and "audio" in msg)
+        or "no endpoints found that support input audio" in msg
+        or ("gpt-4" in msg and "audio" in msg and "not support" in msg)
+    )
 
 
 def is_400_input_validation(err: Any) -> bool:
@@ -161,7 +135,9 @@ def is_400_input_validation(err: Any) -> bool:
     # Bugfix: "400" in str(err) is true for any payload whose text happens
     # to contain those digits, including a non-400 body. The HTTP status is
     # already on details["status"] from handle_http_status via format_error_payload.
-    if _error_http_status(err) != 400:
+    details = err.get("details") if isinstance(err, dict) else getattr(err, "details", None)
+    status = details.get("status") if isinstance(details, dict) else None
+    if not isinstance(status, int) or isinstance(status, bool) or status != 400:
         return False
     if isinstance(err, dict):
         msg = str(err.get("message") or "").lower()
