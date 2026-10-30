@@ -285,7 +285,7 @@ def test_sentence_pipeline_installs_misaki_once_per_reply(tmp_path):
         synthesized.append(sentence)
         path = tmp_path / f"{len(synthesized)}.wav"
         path.write_bytes(b"RIFF")
-        return tts._ReadyClip(str(path), sentence, 4, False)
+        return tts._ReadyClip(str(path), sentence, 4)
 
     generation = tts._begin_utterance()
     try:
@@ -409,7 +409,7 @@ def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
         path = tmp_path / f"{len(paths)}.wav"
         path.write_bytes(b"RIFF")
         paths.append(str(path))
-        return tts._ReadyClip(str(path), sentence, 4, False)
+        return tts._ReadyClip(str(path), sentence, 4)
 
     def play(path, generation=None):
         del path
@@ -444,7 +444,7 @@ def test_ready_queue_backpressure_stops_past_the_cap():
     def synth(sentence, provider, voice, speed, on_status, generation):
         del provider, voice, speed, on_status, generation
         started.append(sentence)
-        return tts._ReadyClip(None, sentence, 0, True)
+        return tts._ReadyClip(None, sentence, 0)
 
     def play(path, generation=None):
         del path, generation
@@ -505,7 +505,7 @@ def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
             hold_second.wait(2)
         path = tmp_path / f"{sentence[:1]}.wav"
         path.write_bytes(b"wav")
-        return tts._ReadyClip(str(path), sentence, 3, False)
+        return tts._ReadyClip(str(path), sentence, 3)
 
     def play(path, generation=None):
         played.append(path)
@@ -753,7 +753,7 @@ def test_sentence_pipeline_producer_crash_speaks_only_remaining(tmp_path):
             raise RuntimeError("boom")
         path = tmp_path / f"{len(calls)}.wav"
         path.write_bytes(b"RIFF")
-        return tts._ReadyClip(str(path), sentence, 4, False)
+        return tts._ReadyClip(str(path), sentence, 4)
 
     generation = tts._begin_utterance()
     try:
@@ -849,7 +849,14 @@ def test_run_synth_to_temp_returns_a_path_only_for_a_nonempty_file(tmp_path):
 
     with patch("plugin.audio.tts_service._run_synth", return_value=(0, "", "warn")), \
          patch("plugin.audio.tts_service._release_temp") as release:
-        assert _run_synth_to_temp(str(wav), ["cmd"], None, label="T") == (str(wav), "warn")
+        assert _run_synth_to_temp(str(wav), ["cmd"], None, label="T") == (str(wav), "")
+    release.assert_not_called()
+
+    with patch("plugin.audio.tts_service._run_synth", return_value=(0, '{"g2p": "espeak"}', "")), \
+         patch("plugin.audio.tts_service._release_temp") as release:
+        assert _run_synth_to_temp(
+            str(wav), ["cmd"], None, label="T", capture_stdout=True
+        ) == (str(wav), '{"g2p": "espeak"}')
     release.assert_not_called()
 
 
@@ -916,7 +923,7 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path):
         started.append(sentence)
         path = tmp_path / f"{len(started)}.wav"
         path.write_bytes(b"R")
-        return tts._ReadyClip(str(path), sentence, 1, False)
+        return tts._ReadyClip(str(path), sentence, 1)
 
     def play(path, generation=None):
         del path, generation

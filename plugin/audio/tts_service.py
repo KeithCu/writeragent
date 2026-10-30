@@ -17,7 +17,7 @@ import sys
 import tempfile
 import threading
 from collections import deque
-from typing import Any, Callable, ClassVar, cast
+from typing import Any, Callable, NamedTuple, cast
 
 from plugin.audio.kokoro_g2p import (
     G2P_FAILED_MARK,
@@ -57,19 +57,6 @@ from plugin.framework.i18n import _, get_active_locale
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.worker_pool import run_in_background
 
-# Wrappers so tests can patch get_config on this module without replacing
-# plugin.framework.config for every other caller.
-def get_config(*args: Any, **kwargs: Any) -> Any:
-    return config.get_config(*args, **kwargs)
-
-__all__ = [
-    "clean_text_for_speech",
-    "is_speaking",
-    "sentences_for_speech",
-    "speak_text_async",
-    "stop_speech",
-    "_release_temp",
-]
 
 log = logging.getLogger(__name__)
 
@@ -118,20 +105,15 @@ SPEECH_READY_MAX_CLIPS = 6
 SPEECH_READY_MAX_BYTES = 32 * 1024 * 1024
 
 
-class _ReadyClip:
-    """One synthesized sentence waiting to play, in utterance order."""
+class _ReadyClip(NamedTuple):
+    """One synthesized sentence waiting to play, in utterance order.
 
-    __slots__: ClassVar[tuple[str, ...]] = ("path", "text", "nbytes", "speak_system")
+    path is None when this sentence is spoken with the OS voice.
+    """
+
     path: str | None
     text: str
     nbytes: int
-    speak_system: bool
-
-    def __init__(self, path: str | None, text: str, nbytes: int, speak_system: bool) -> None:
-        self.path = path
-        self.text = text
-        self.nbytes = nbytes
-        self.speak_system = speak_system
 
 
 class _ReadyQueue:
@@ -140,8 +122,7 @@ class _ReadyQueue:
     max_clips: int
     max_bytes: int
     _lock: threading.Lock
-    _not_empty: threading.Condition
-    _not_full: threading.Condition
+    _cv: threading.Condition
     _clips: deque[_ReadyClip]
     _closed: bool
     _bytes: int
@@ -150,8 +131,7 @@ class _ReadyQueue:
         self.max_clips = max(2, max_clips)
         self.max_bytes = max(1024 * 1024, max_bytes)
         self._lock = threading.Lock()
-        self._not_empty = threading.Condition(self._lock)
-        self._not_full = threading.Condition(self._lock)
+        self._cv = threading.Condition(self._lock)
         self._clips = deque()
         self._closed = False
         self._bytes = 0
@@ -166,10 +146,10 @@ class _ReadyQueue:
                     break
                 if len(self._clips) < self.max_clips and (self._bytes + clip.nbytes) <= self.max_bytes:
                     break
-                self._not_full.wait(timeout=0.1)
+                self._cv.wait(timeout=0.1)
             self._clips.append(clip)
             self._bytes += clip.nbytes
-            self._not_empty.notify()
+            self._cv.notify_all()
             return True
 
     def get(self, generation: int) -> _ReadyClip | None:
@@ -181,18 +161,17 @@ class _ReadyQueue:
                 if self._clips:
                     clip = self._clips.popleft()
                     self._bytes = max(0, self._bytes - clip.nbytes)
-                    self._not_full.notify()
+                    self._cv.notify_all()
                     return clip
                 if self._closed:
                     return None
-                self._not_empty.wait(timeout=0.1)
+                self._cv.wait(timeout=0.1)
 
     def close(self) -> None:
         """Mark that no more clips will be produced for this utterance."""
         with self._lock:
             self._closed = True
-            self._not_empty.notify_all()
-            self._not_full.notify_all()
+            self._cv.notify_all()
 
     def drain(self) -> list[str]:
         """Drop unplayed clips and return their file paths so Stop can unlink them."""
@@ -201,17 +180,14 @@ class _ReadyQueue:
             paths: list[str] = [clip.path for clip in self._clips if clip.path]
             self._clips.clear()
             self._bytes = 0
-            self._not_empty.notify_all()
-            self._not_full.notify_all()
+            self._cv.notify_all()
             return paths
 
 
 def _playback_blocked_locked(generation: int | None) -> bool:
     if generation is None:
         return bool(_speech_active and _speech_cancelled.is_set())
-    if generation != _speech_generation:
-        return True
-    return False
+    return generation != _speech_generation
 
 
 def _playback_blocked(generation: int | None) -> bool:
@@ -521,7 +497,7 @@ def _clear_speech_proc(proc: subprocess.Popen[Any] | None, slot: str) -> None:
 
 def sentence_speak_enabled() -> bool:
     """True when audio.tts_sentence_mode is active."""
-    val = get_config("audio.tts_sentence_mode")
+    val = config.get_config("audio.tts_sentence_mode")
     if val is None:
         return True
     from plugin.framework.config_schema import as_bool
@@ -543,6 +519,7 @@ def _speech_locale_key() -> str:
 def sentences_for_speech(text: str, ctx: Any) -> list[str]:
     """Split text into sentences using the BreakIterator sentence splitter."""
     locale_key = _speech_locale_key()
+    pairs: list[tuple[int, str]] = []
     try:
         from plugin.writer.locale.grammar_proofread_text import (
             merge_dialogue_sentences,
@@ -552,8 +529,6 @@ def sentences_for_speech(text: str, ctx: Any) -> list[str]:
         pairs = merge_dialogue_sentences(split_into_sentences(ctx, locale_key, text))
     except Exception:
         log.exception("TTS sentence split failed; speaking the reply as one clip")
-        stripped = text.strip()
-        return [stripped] if stripped else []
     spoken: list[str] = []
     for _offset, chunk in pairs:
         piece = chunk.strip()
@@ -589,17 +564,15 @@ def _get_player_candidates(file_path: str) -> list[tuple[str, list[str], dict[st
         order = ["ffplay", "mpv", "pw-play", "paplay", "aplay", "mpg123"]
 
     candidates: list[tuple[str, list[str], dict[str, str] | None]] = []
+    flags = {
+        "ffplay": ["-nodisp", "-autoexit", "-loglevel", "quiet"],
+        "mpv": ["--no-video"],
+        "mpg123": ["-q"],
+    }
     for player in order:
         if not shutil.which(player):
             continue
-        if player == "ffplay":
-            cmd = ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", file_path]
-        elif player == "mpv":
-            cmd = ["mpv", "--no-video", file_path]
-        elif player == "mpg123":
-            cmd = ["mpg123", "-q", file_path]
-        else:
-            cmd = [player, file_path]
+        cmd = [player, *flags.get(player, []), file_path]
         candidates.append((player, cmd, None))
     return candidates
 
@@ -660,8 +633,6 @@ def _chunk_text(text: str, max_chunk: int = 4000) -> list[str]:
         if piece:
             chunks.append(piece)
         remaining = remaining[split_idx:].strip()
-        if not remaining:
-            break
     if remaining:
         chunks.append(remaining)
     return chunks
@@ -781,7 +752,7 @@ def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) 
                 slot="play",
                 stdin=subprocess.PIPE if stdin_input is not None else None,
                 env=env,
-                text=True if stdin_input is not None else False,
+                text=stdin_input is not None,
                 encoding="utf-8" if stdin_input is not None else None,
                 errors="replace" if stdin_input is not None else None,
             )
@@ -954,26 +925,33 @@ def _run_synth_to_temp(
     stdin_text: str | None = None,
     timeout: float | None = None,
     missing_hint: str | None = None,
+    capture_stdout: bool = False,
 ) -> tuple[str | None, str]:
-    """Run a synth command into *tmp_wav*; return (path, stderr).
+    """Run a synth command into *tmp_wav*; return (path, stdout).
 
-    path is None on failure and the temp is released. stderr is returned
-    only for an exit-0 run (Kokoro uses it for the G2P fallback notice).
+    path is None on failure and the temp is released. stdout is returned
+    only for an exit-0 run with non-empty audio, otherwise "".
     """
     ok = False
     try:
-        result = _run_synth(cmd, generation, stdin_text=stdin_text, timeout=timeout)
+        result = _run_synth(
+            cmd,
+            generation,
+            stdin_text=stdin_text,
+            timeout=timeout,
+            capture_stdout=capture_stdout,
+        )
         if result is None:
             return None, ""
-        code, _stdout, stderr = result
+        code, stdout, stderr = result
         if code != 0:
             log.warning("%s failed (code %d): %s", label, code, stderr.strip())
             return None, ""
         if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
             ok = True
-            return tmp_wav, stderr
+            return tmp_wav, stdout
         log.warning("%s produced empty audio", label)
-        return None, stderr
+        return None, ""
     except FileNotFoundError as exc:
         if missing_hint:
             log.warning(missing_hint)
@@ -1077,26 +1055,18 @@ def _kokoro_oneshot_to_file(
     lang = kokoro_g2p_lang(text, voice)
     worker_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kokoro_worker.py")
     cmd = [py_exe, worker_py, "--once", "-", voice, str(speed), tmp_wav, model_path, voices_path, lang]
-    ok = False
+    wav_path, stdout = _run_synth_to_temp(
+        tmp_wav,
+        cmd,
+        generation,
+        label="Venv Kokoro",
+        stdin_text=text,
+        timeout=_kokoro_synth_timeout(text),
+        capture_stdout=True,
+    )
+    if wav_path is None:
+        return None
     try:
-        synth_res = _run_synth(
-            cmd,
-            generation,
-            stdin_text=text,
-            timeout=_kokoro_synth_timeout(text),
-            capture_stdout=True,
-        )
-        if synth_res is None:
-            return None
-        code, stdout, stderr = synth_res
-        if code != 0:
-            log.warning("Venv Kokoro failed (code %d): %s", code, stderr.strip())
-            return None
-
-        if not (os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0):
-            log.warning("Venv Kokoro produced empty audio")
-            return None
-
         g2p: str | None = None
         warning = ""
         out_str = stdout.strip()
@@ -1110,21 +1080,14 @@ def _kokoro_oneshot_to_file(
                         warning = data["warning"]
             except Exception:
                 log.debug("Kokoro once stdout was not JSON: %s", out_str)
-
         if warning.strip():
             log.warning("Kokoro: %s", warning.strip())
-
-        if warning.strip() or (misaki_ready is False and g2p != "misaki"):
-            _notify_kokoro_g2p_fallback(warning, misaki_ready, on_status, g2p=g2p)
-
-        ok = True
-        return tmp_wav
+        _notify_kokoro_g2p_fallback(warning, misaki_ready, on_status, g2p=g2p)
     except Exception as exc:
         log.warning("Venv Kokoro execution error: %s", exc)
+        _release_temp(wav_path)
         return None
-    finally:
-        if not ok:
-            _release_temp(tmp_wav)
+    return wav_path
 
 
 def _kokoro_cli_to_file(
@@ -1150,7 +1113,7 @@ def _kokoro_cli_to_file(
     if tmp_wav is None:
         return None
     cmd = [cand_cli, "--voice", voice, "--speed", str(speed), "--output", tmp_wav, text]
-    wav_path, _stderr = _run_synth_to_temp(
+    wav_path, _stdout = _run_synth_to_temp(
         tmp_wav, cmd, generation, label="Kokoro CLI", timeout=_kokoro_synth_timeout(text),
     )
     return wav_path
@@ -1285,15 +1248,13 @@ def _piper_audio_file(
     if tmp_wav is None:
         return None
     length_scale = round(1.0 / max(0.2, min(5.0, speed)), 2)
-    if piper_bin:
-        cmd = [piper_bin, "--model", model_file, "--length_scale", str(length_scale), "--output_file", tmp_wav]
-    else:
-        cmd = [py_exe, "-m", "piper", "--model", model_file, "--length_scale", str(length_scale), "--output_file", tmp_wav]
+    head = [piper_bin] if piper_bin else [py_exe, "-m", "piper"]
+    cmd = head + ["--model", model_file, "--length_scale", str(length_scale), "--output_file", tmp_wav]
 
     # Generous scaled timeout based on character count
     timeout = max(30.0, min(600.0, 30.0 + len(text) * 0.2))
 
-    wav_path, _stderr = _run_synth_to_temp(
+    wav_path, _stdout = _run_synth_to_temp(
         tmp_wav,
         cmd,
         generation,
@@ -1352,9 +1313,9 @@ def _synthesize_sentence_clip(
         _release_temp(path)
         return None
     if path and os.path.isfile(path) and os.path.getsize(path) > 0:
-        return _ReadyClip(path, sentence, os.path.getsize(path), False)
+        return _ReadyClip(path, sentence, os.path.getsize(path))
     _release_temp(path)
-    return _ReadyClip(None, sentence, 0, True)
+    return _ReadyClip(None, sentence, 0)
 
 
 def _play_ready_queue(
@@ -1380,12 +1341,11 @@ def _play_ready_queue(
                     played = _play_audio_file(clip.path, generation=playback_generation)
                     if played is False and not _playback_blocked(playback_generation):
                         _speak_system(clip.text, speed=speed, generation=playback_generation)
-                elif clip.speak_system and not _playback_blocked(playback_generation):
+                elif not _playback_blocked(playback_generation):
                     _speak_system(clip.text, speed=speed, generation=playback_generation)
             finally:
                 _release_temp(clip.path)
     finally:
-        ready.close()
         for path in ready.drain():
             _unlink_quiet(path)
         with _speech_lock:
@@ -1446,7 +1406,7 @@ def _run_sentence_pipeline(
             log.exception("Prefetch thread failed")
             rest = sentences[done:]
             if rest and not _playback_blocked(generation):
-                ready.put(_ReadyClip(None, " ".join(rest), 0, True), generation)
+                ready.put(_ReadyClip(None, " ".join(rest), 0), generation)
         finally:
             ready.close()
 
@@ -1546,7 +1506,7 @@ def _speak_endpoint(
                     remaining = chunks[index:]
                     if not _playback_blocked(generation):
                         ready.put(
-                            _ReadyClip(None, " ".join(remaining), 0, True),
+                            _ReadyClip(None, " ".join(remaining), 0),
                             eff_gen,
                         )
 
@@ -1565,7 +1525,7 @@ def _speak_endpoint(
                     _release_temp(tmp_path)
                     _bail_remaining(index, notify=True)
                     return
-                if not ready.put(_ReadyClip(tmp_path, chunk, len(clip.audio), False), eff_gen):
+                if not ready.put(_ReadyClip(tmp_path, chunk, len(clip.audio)), eff_gen):
                     _release_temp(tmp_path)
                     return
         except Exception:
@@ -1590,7 +1550,7 @@ def speak_text_async(
     enabled: bool | None = None,
 ) -> None:
     """Synthesize and speak text in a background thread."""
-    tts_on = bool(get_config("audio.tts_enabled")) if enabled is None else bool(enabled)
+    tts_on = bool(config.get_config("audio.tts_enabled")) if enabled is None else bool(enabled)
     if not tts_on:
         log.debug("speak_text_async: TTS is disabled (audio.tts_enabled=False)")
         return
@@ -1600,7 +1560,7 @@ def speak_text_async(
         log.debug("speak_text_async: No speakable text after cleaning")
         return
 
-    active_provider = provider if provider else str(get_config("audio.tts_provider") or "system")
+    active_provider = provider if provider else str(config.get_config("audio.tts_provider") or "system")
     sentences: list[str] | None = None
     if (
         sentence_speak_enabled()
@@ -1627,10 +1587,8 @@ def speak_text_async(
             # Captured before the worker. The sentence list was split for this
             # provider; reading config again could speak a different one.
             provider_code = clean_provider_name(active_provider)
-            speed_val = (
-                parse_tts_speed(speed)
-                if speed is not None
-                else parse_tts_speed(get_config("audio.tts_speed"))
+            speed_val = parse_tts_speed(
+                speed if speed is not None else config.get_config("audio.tts_speed")
             )
             model_name = model.strip() if isinstance(model, str) else ""
             if provider_code == "endpoint" and not model_name:
@@ -1652,7 +1610,7 @@ def speak_text_async(
                 generation,
             )
 
-            if sentences is not None and uses_sentence_by_sentence(provider_code):
+            if sentences is not None:
                 _run_sentence_pipeline(
                     sentences,
                     provider_code,
