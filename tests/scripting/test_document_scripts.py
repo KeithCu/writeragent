@@ -741,9 +741,7 @@ def test_resolve_vision_script_picker_entry():
 
 def test_build_scripts_list_excludes_text_analytics_section_for_writer():
     doc = MagicMock()
-    with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.scripting.text_analytics.supports_text_analytics_manual", return_value=True
-    ):
+    with patch("plugin.framework.config.get_config", return_value={}):
         msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
     assert "text" not in section_ids
@@ -751,8 +749,7 @@ def test_build_scripts_list_excludes_text_analytics_section_for_writer():
 
 def test_build_xdl_script_picker_excludes_text_analytics_for_writer():
     doc = MagicMock()
-    with patch("plugin.scripting.text_analytics.supports_text_analytics_manual", return_value=True):
-        items, merged, origin_map = build_xdl_script_picker_state(doc, {})
+    items, merged, origin_map = build_xdl_script_picker_state(doc, {})
     text_items = [name for name in items if name.startswith("[Text] ")]
     assert text_items == []
     assert not any(origin == "text" for origin in origin_map.values())

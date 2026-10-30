@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 import importlib.metadata
 import importlib.util
 import re
@@ -535,17 +536,13 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     result["key_phrases"] = _extract_key_phrases(doc)
 
     # --- Linguistic profile (always useful) ---
-    pos_counts: dict[str, int] = {}
-    for token in doc:
-        if token.is_punct or token.is_space:
-            continue
-        # What was wrong: models like xx_ent_wiki_sm leave token.pos_ empty, adding "" to pos_proportions.
-        # How it happened: pos_ was added to counts without checking whether it was non-empty.
-        # Why this change: skip empty pos tags.
-        pos = token.pos_
-        if not pos:
-            continue
-        pos_counts[pos] = pos_counts.get(pos, 0) + 1
+    # What was wrong: models like xx_ent_wiki_sm leave token.pos_ empty, adding "" to pos_proportions.
+    # How it happened: pos_ was added to counts without checking whether it was non-empty.
+    # Why this change: skip empty pos tags.
+    pos_counts = Counter(
+        token.pos_ for token in doc
+        if token.pos_ and not (token.is_punct or token.is_space)
+    )
 
     total = sum(pos_counts.values()) or 1
     pos_props = {k: round(v / total, 4) for k, v in pos_counts.items()}
