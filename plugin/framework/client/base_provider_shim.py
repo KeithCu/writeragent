@@ -83,26 +83,32 @@ def effort_payload(provider: str | None, level: str | None) -> dict[str, Any]:
     return _place_effort(provider, _effort_order(vocab, req)[0])
 
 
-def effort_retry_bodies(provider: str | None, body: bytes | str) -> list[bytes]:
-    """Bodies to try after HTTP 400 rejected the sent effort, in order; the last omits it."""
+def _effort_holder(body: bytes | str) -> tuple[dict[str, Any], dict[str, Any], str] | None:
+    """(parsed body, dict holding the effort, its key), or None when no effort is sent."""
+    raw = body.decode("utf-8") if isinstance(body, bytes) else str(body)
+    if "effort" not in raw:
+        return None
     try:
-        data = json.loads(body.decode("utf-8") if isinstance(body, bytes) else str(body))
+        data = json.loads(raw)
     except Exception:
-        return []
+        return None
     if not isinstance(data, dict):
-        return []
-
-    holder: dict[str, Any] | None = None
-    key = "effort"
+        return None
     for name in ("output_config", "reasoning"):
         obj = data.get(name)
         if isinstance(obj, dict) and isinstance(obj.get("effort"), str):
-            holder = obj
-            break
-    if holder is None and isinstance(data.get("reasoning_effort"), str):
-        holder, key = data, "reasoning_effort"
-    if holder is None:
+            return data, obj, "effort"
+    if isinstance(data.get("reasoning_effort"), str):
+        return data, data, "reasoning_effort"
+    return None
+
+
+def effort_retry_bodies(provider: str | None, body: bytes | str) -> list[bytes]:
+    """Bodies to try after HTTP 400 rejected the sent effort, in order; the last omits it."""
+    found = _effort_holder(body)
+    if found is None:
         return []
+    data, holder, key = found
 
     sent = holder[key]
     vocab = _provider_efforts(provider)
@@ -117,6 +123,47 @@ def effort_retry_bodies(provider: str | None, body: bytes | str) -> list[bytes]:
             data.pop(name)
     out.append(json.dumps(data).encode("utf-8"))
     return out
+
+
+# (endpoint, model, effort first sent) -> effort a retry got accepted, or None
+# when only the body without effort worked. Process lifetime only, so a later
+# request skips the 400s; a LibreOffice restart forgets it.
+_ACCEPTED_EFFORT: dict[tuple[str, str, str], str | None] = {}
+_ACCEPTED_EFFORT_MAX = 64
+
+
+def _effort_key(endpoint: str, body: bytes | str) -> tuple[str, str, str] | None:
+    found = _effort_holder(body)
+    if found is None:
+        return None
+    data, holder, key = found
+    return (endpoint, str(data.get("model") or ""), holder[key])
+
+
+def accepted_effort_body(provider: str | None, endpoint: str, body: bytes | str) -> bytes | str:
+    """*body* with the effort a retry earlier found accepted for this endpoint and model."""
+    if not _ACCEPTED_EFFORT:
+        return body
+    key = _effort_key(endpoint, body)
+    if key is None or key not in _ACCEPTED_EFFORT:
+        return body
+    want = _ACCEPTED_EFFORT[key]
+    for retry in effort_retry_bodies(provider, body):
+        found = _effort_holder(retry)
+        if (found[1][found[2]] if found else None) == want:
+            return retry
+    return body
+
+
+def remember_accepted_effort(endpoint: str, first_body: bytes | str, body: bytes | str) -> None:
+    """Record that *body* succeeded after *first_body*'s effort got HTTP 400."""
+    key = _effort_key(endpoint, first_body)
+    if key is None:
+        return
+    found = _effort_holder(body)
+    if key not in _ACCEPTED_EFFORT and len(_ACCEPTED_EFFORT) >= _ACCEPTED_EFFORT_MAX:
+        _ACCEPTED_EFFORT.pop(next(iter(_ACCEPTED_EFFORT)), None)
+    _ACCEPTED_EFFORT[key] = found[1][found[2]] if found else None
 
 
 def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | None) -> None:
