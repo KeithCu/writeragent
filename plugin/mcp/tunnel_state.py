@@ -20,7 +20,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from enum import Enum, auto
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from plugin.framework.deal_shim import DEAL_MAX_BACKOFF, DEAL_MAX_BACKOFF_FACTOR, DEAL_MAX_RETRY, deal
 from plugin.framework.service import BaseState, FsmTransition
@@ -182,31 +182,27 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
     """Pure transition function for the MCP tunnel lifecycle and reconnection."""
     # event.data is dict[str, Any] (tokens, URLs); Hypothesis covers transitions.
     # crosshair: off
-    effects: List[Any] = []
+    # Captured before any replace. START overwrites provider and port on
+    # TunnelState before effects run; post_stop must still see these.
+    terminate = TerminateProcessEffect(provider=state.provider, port=state.port)
 
     if event.kind == TunnelEventKind.START_REQUESTED:
         port = _event_int(event.data, "port", state.port)
         provider = str(event.data.get("provider", state.provider)).strip().lower()
         provider_token = str(event.data.get("provider_token", ""))
         max_retries = _event_int(event.data, "max_retries", state.max_retries)
-
         # Cancel any previous timer / process if re-starting.
         # START_REQUESTED overwrites state.port before effects run. The effect
         # must carry the pre-transition port, or post_stop reads the new port
         # and runs `funnel <newport> off`.
-        effects.append(CancelRetryTimerEffect())
-        effects.append(TerminateProcessEffect(provider=state.provider, port=state.port))
-
-        effects.append(StartProcessEffect(port=port, provider=provider, provider_token=provider_token))
         new_state = dataclasses.replace(state, status=TunnelStatus.STARTING, port=port, provider=provider, provider_token=provider_token, public_url=None, retry_count=0, max_retries=max_retries, last_error=None, desired_running=True, connected_at=None)
-        return FsmTransition(new_state, effects)
+        return FsmTransition(new_state, [CancelRetryTimerEffect(), terminate, StartProcessEffect(port=port, provider=provider, provider_token=provider_token)])
 
     elif event.kind == TunnelEventKind.URL_ACQUIRED:
         url = str(event.data.get("url", "")).strip()
-        effects.append(NotifyUrlAcquiredEffect(provider=state.provider, url=url))
         # Keep retry_count: a tunnel that connects then exits at once must still run out of retries.
         new_state = dataclasses.replace(state, status=TunnelStatus.CONNECTED, public_url=url, last_error=None, connected_at=_event_float(event.data, "now"))
-        return FsmTransition(new_state, effects)
+        return FsmTransition(new_state, [NotifyUrlAcquiredEffect(provider=state.provider, url=url)])
 
     elif event.kind == TunnelEventKind.PROCESS_EXITED:
         rc = event.data.get("rc", 0)
@@ -220,50 +216,38 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
         # If user stopped the tunnel, ignore unexpected exit handling
         if not state.desired_running:
             new_state = dataclasses.replace(state, status=TunnelStatus.STOPPED, public_url=None)
-            return FsmTransition(new_state, effects)
+            return FsmTransition(new_state, [])
 
-        # Fatal errors: auth error or binary missing — do not retry.
-        # Same reset as retry exhaustion: the CLI may already have installed
-        # a Funnel/serve rule before the line we treat as auth failure.
-        if auth_error:
-            effects.append(TerminateProcessEffect(provider=state.provider, port=state.port))
-            new_state = dataclasses.replace(state, status=TunnelStatus.FAILED, public_url=None, last_error=auth_error, desired_running=False)
-            return FsmTransition(new_state, effects)
+        # Auth/binary failure and retry exhaustion both fail closed.
+        # Funnel/serve may already be installed before the auth-failure line.
+        # Exhaustion is the same reset: the process is already dead (_on_exit
+        # cleared it) but tailscaled keeps forwarding the local MCP port.
+        # Name the provider and port that owned the session.
+        if auth_error or state.retry_count >= state.max_retries:
+            if auth_error:
+                last_error = auth_error
+            else:
+                last_error = "tunnel disconnected; failed to reconnect after %s attempts (code %s)" % (state.max_retries, rc)
+            new_state = dataclasses.replace(state, status=TunnelStatus.FAILED, public_url=None, last_error=last_error, desired_running=False)
+            return FsmTransition(new_state, [terminate])
 
         # Non-auth process drop: check if retries remain
-        if state.retry_count < state.max_retries:
-            attempt = state.retry_count + 1
-            delay = compute_backoff_delay(state.retry_count)
-            effects.append(ScheduleRetryTimerEffect(delay_seconds=delay, attempt=attempt, max_retries=state.max_retries))
-            reason = "connection dropped (code %s)" % rc if had_url else "tunnel process exited (code %s)" % rc
-            err_msg = "%s; reconnecting (attempt %s/%s in %.1fs)…" % (reason, attempt, state.max_retries, delay)
-            new_state = dataclasses.replace(state, status=TunnelStatus.RECONNECTING, public_url=None, retry_count=attempt, last_error=err_msg)
-            return FsmTransition(new_state, effects)
-        else:
-            # Retry exhaustion is FAILED, but Tailscale funnel/serve config
-            # lives on tailscaled. Without TerminateProcessEffect (START and
-            # STOP already emit it) that config keeps forwarding the local
-            # MCP port after desired_running is false. The process is already
-            # dead — _on_exit cleared it before this event. Name the provider
-            # that owned the session, same as stop. The effect handler resets
-            # even when the subprocess is gone.
-            err_msg = "tunnel disconnected; failed to reconnect after %s attempts (code %s)" % (state.max_retries, rc)
-            effects.append(TerminateProcessEffect(provider=state.provider, port=state.port))
-            new_state = dataclasses.replace(state, status=TunnelStatus.FAILED, public_url=None, last_error=err_msg, desired_running=False)
-            return FsmTransition(new_state, effects)
+        attempt = state.retry_count + 1
+        delay = compute_backoff_delay(state.retry_count)
+        reason = "connection dropped (code %s)" % rc if had_url else "tunnel process exited (code %s)" % rc
+        err_msg = "%s; reconnecting (attempt %s/%s in %.1fs)…" % (reason, attempt, state.max_retries, delay)
+        new_state = dataclasses.replace(state, status=TunnelStatus.RECONNECTING, public_url=None, retry_count=attempt, last_error=err_msg)
+        return FsmTransition(new_state, [ScheduleRetryTimerEffect(delay_seconds=delay, attempt=attempt, max_retries=state.max_retries)])
 
     elif event.kind == TunnelEventKind.RETRY_TIMER_EXPIRED:
         if not state.desired_running:
             new_state = dataclasses.replace(state, status=TunnelStatus.STOPPED)
-            return FsmTransition(new_state, effects)
-        effects.append(StartProcessEffect(port=state.port, provider=state.provider, provider_token=state.provider_token))
+            return FsmTransition(new_state, [])
         new_state = dataclasses.replace(state, status=TunnelStatus.STARTING)
-        return FsmTransition(new_state, effects)
+        return FsmTransition(new_state, [StartProcessEffect(port=state.port, provider=state.provider, provider_token=state.provider_token)])
 
     elif event.kind == TunnelEventKind.STOP_REQUESTED:
-        effects.append(CancelRetryTimerEffect())
-        effects.append(TerminateProcessEffect(provider=state.provider, port=state.port))
         new_state = dataclasses.replace(state, status=TunnelStatus.STOPPED, public_url=None, retry_count=0, last_error=None, desired_running=False, connected_at=None)
-        return FsmTransition(new_state, effects)
+        return FsmTransition(new_state, [CancelRetryTimerEffect(), terminate])
 
-    return FsmTransition(state, effects)
+    return FsmTransition(state, [])
