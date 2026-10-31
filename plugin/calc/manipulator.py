@@ -631,7 +631,7 @@ class CellManipulator:
             return _CellWrite(value[1:], "", "forced_text", None, None)
 
         stripped = value.strip()
-        # Duration is WriterAgent arithmetic (isodate); Calc's formatter does not parse PT….
+        # Duration is WriterAgent arithmetic; Calc's formatter does not parse PT….
         if match_iso_duration(stripped) and elapsed_format_key is not None:
             try:
                 serial = duration_serial_from_iso(stripped)
