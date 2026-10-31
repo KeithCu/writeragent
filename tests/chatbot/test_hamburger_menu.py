@@ -5,7 +5,7 @@
 """Tests for the hamburger popup menu."""
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, create_autospec, patch
 
 from plugin.chatbot.hamburger_menu import show_hamburger_menu
 from plugin.notebook.cell_registry import NotebookDocState, new_code_cell_entry
@@ -32,7 +32,7 @@ class TestHamburgerMenu:
         button_ctrl.getPeer.return_value = MagicMock()
 
         frame = MagicMock()
-        mock_handler = MagicMock()
+        mock_handler = create_autospec(lambda frame=None: None)
 
         with patch("plugin.chatbot.hamburger_menu.get_action_handler", return_value=mock_handler) as mock_get_handler:
             with patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True), patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False), patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False):
