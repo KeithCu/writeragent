@@ -55,17 +55,13 @@ def _solver_impl_name(solver_obj: Any) -> str:
 
 def _impl_name_is_java_nlp_headless_unsafe(impl_name: str) -> bool:
     """True for nlpsolver DEPS/SCO engines that need a UI frame (DEPSSolverImpl omits 'NLPSolver')."""
-    if not impl_name:
-        return False
-    n = impl_name
-    return "NLPSolver" in n or "DEPSSolver" in n or "SCOSolver" in n or "EvolutionarySolver" in n or "BaseEvolutionary" in n
+    return any(tok in impl_name for tok in ("NLPSolver", "DEPSSolver", "SCOSolver", "EvolutionarySolver", "BaseEvolutionary"))
 
 
 def _user_requested_java_nlp_engine(engine_name: str | None) -> bool:
     if not engine_name or engine_name == "com.sun.star.sheet.Solver":
         return False
-    en = engine_name
-    return "NLPSolver" in en or "DEPS" in en or "SCO" in en
+    return any(tok in engine_name for tok in ("NLPSolver", "DEPS", "SCO"))
 
 
 def _should_reject_solver_for_headless(engine_name: str | None, solver: Any) -> bool:
@@ -198,25 +194,23 @@ class SolverTool(ToolBaseDummy):
             solver = None
             selected_engine_label: str | None = None
 
-            # 1. User-specified concrete engine (not the generic Solver service name)
-            if engine_name and engine_name != "com.sun.star.sheet.Solver":
-                solver = uno_probe(lambda: smgr.createInstanceWithContext(engine_name, ctx.ctx), None)
-                if solver and _should_reject_solver_for_headless(engine_name, solver):
-                    solver = None
-                if solver:
-                    selected_engine_label = engine_name
+            def _try_solver_service(svc: str) -> bool:
+                nonlocal solver, selected_engine_label
+                instance = uno_probe(lambda: smgr.createInstanceWithContext(svc, ctx.ctx), None)
+                if not instance or _should_reject_solver_for_headless(engine_name, instance):
+                    return False
+                solver = instance
+                selected_engine_label = svc
+                return True
 
-            # 2. Prefer native / non-dialog solvers when using the default service name
+            # User-named engine, then native solvers. Enumeration stays between
+            # this list and the generic Solver service (Java NLP dialog engines).
+            if engine_name and engine_name != "com.sun.star.sheet.Solver":
+                _try_solver_service(engine_name)
             if not solver:
                 for svc in _PREFERRED_SOLVER_SERVICES:
-                    s = uno_probe(lambda: smgr.createInstanceWithContext(svc, ctx.ctx), None)
-                    if not s:
-                        continue
-                    if _should_reject_solver_for_headless(engine_name, s):
-                        continue
-                    solver = s
-                    selected_engine_label = svc
-                    break
+                    if _try_solver_service(svc):
+                        break
 
             # 3. Enumerate implementations (loop skips DEPS/NLPSolver; _priority sorts CoinMP/Lpsolve ahead of other selectable engines)
             if not solver:
@@ -231,9 +225,7 @@ class SolverTool(ToolBaseDummy):
                                 impls.append(el)
 
                         def _priority(factory: Any) -> int:
-                            name = ""
-                            if hasattr(factory, "getImplementationName"):
-                                name = factory.getImplementationName()
+                            name = _solver_impl_name(factory)
                             if "CoinMP" in name or "Lpsolve" in name:
                                 return 0
                             return 1
@@ -241,7 +233,7 @@ class SolverTool(ToolBaseDummy):
                         impls.sort(key=_priority)
 
                         for el in impls:
-                            impl_name = el.getImplementationName() if hasattr(el, "getImplementationName") else "unknown"
+                            impl_name = _solver_impl_name(el)
                             if _impl_name_is_java_nlp_headless_unsafe(impl_name):
                                 continue
                             s = uno_probe(lambda: el.createInstanceWithContext(ctx.ctx), None)
@@ -251,12 +243,9 @@ class SolverTool(ToolBaseDummy):
                             selected_engine_label = f"enumeration:{impl_name}"
                             break
 
-            # 4. Last ditch fallback to generic name
+            # Last ditch: generic service, only after enumeration skipped Java NLP engines.
             if not solver:
-                g = uno_probe(lambda: smgr.createInstanceWithContext("com.sun.star.sheet.Solver", ctx.ctx), None)
-                if g and not _should_reject_solver_for_headless(engine_name, g):
-                    solver = g
-                    selected_engine_label = "com.sun.star.sheet.Solver"
+                _try_solver_service("com.sun.star.sheet.Solver")
 
             if not solver:
                 return self._tool_error("No Solver engine available in this LibreOffice installation")
