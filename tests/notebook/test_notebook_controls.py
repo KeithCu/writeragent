@@ -12,7 +12,6 @@ from plugin.notebook.notebook_controls import (
     NotebookFormRunListener,
     ensure_form_design_mode_off,
     form_run_listeners,
-    get_control_view_for_model,
     prune_dead_listeners,
     wire_all_notebook_run_buttons,
 )
@@ -151,26 +150,6 @@ def test_ensure_form_design_mode_off_with_controller():
     ensure_form_design_mode_off(doc)
     assert doc.ApplyFormDesignMode is False
     controller.setFormDesignMode.assert_called_once_with(False)
-
-def test_get_control_view_uses_gettypebyname_for_xcontrolaccess():
-    doc = MagicMock()
-    controller = MagicMock()
-    doc.getCurrentController.return_value = controller
-    controller.getControl.return_value = None
-    model = MagicMock()
-    view = MagicMock()
-    access = MagicMock()
-    access.getControl.return_value = view
-
-    type_mock = MagicMock()
-    with patch("plugin.notebook.notebook_controls.uno.getTypeByName", return_value=type_mock) as get_type:
-        controller.queryInterface.return_value = access
-        result = get_control_view_for_model(doc, model)
-    assert result is view
-    get_type.assert_called_with("com.sun.star.view.XControlAccess")
-    controller.queryInterface.assert_called_once_with(type_mock)
-    access.getControl.assert_called_once_with(model)
-
 
 def test_notebook_run_button_listener_resolve_doc_order():
     ctx = MagicMock()
@@ -334,7 +313,6 @@ def test_wire_all_attaches_one_form_listener_without_getcontrol():
 
     with (
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-        patch("plugin.notebook.notebook_controls.get_control_view_for_model") as get_view,
         patch("plugin.notebook.notebook_runner.flush_ui_idle") as flush_idle,
     ):
         first = wire_all_notebook_run_buttons(ctx, doc)
@@ -342,7 +320,6 @@ def test_wire_all_attaches_one_form_listener_without_getcontrol():
     assert first == 1
     assert second == 1
     flush_idle.assert_not_called()
-    get_view.assert_not_called()
     run_ctrl.addActionListener.assert_called_once()
     container.addContainerListener.assert_called_once()
     form_lis = [lis for lis in notebook_controls._listener_refs if isinstance(lis, NotebookFormRunListener)]
