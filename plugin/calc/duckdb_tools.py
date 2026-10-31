@@ -33,8 +33,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("writeragent.calc.duckdb")
 
-OFFICE_EXTS = EXCEL_EXTENSIONS + (".ods",)
-
 class QueryFolderSqlTool(ToolCalcPythonSqlBase):
     """Run read-only SQL (DuckDB) over folder files and/or live Calc table sources.
 
@@ -104,13 +102,14 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
             return self._tool_error("sql is required")
 
         files_raw = kwargs.get("files") or []
-        files: list[str] | dict[str, str]
+        # files can be a list of basenames (legacy) or a dict of SQL name -> spec.
+        file_pairs: list[tuple[str | None, str]]
         if isinstance(files_raw, (list, tuple)):
-            files = [str(x) for x in files_raw if str(x).strip()]
+            file_pairs = [(None, str(x)) for x in files_raw if str(x).strip()]
         elif isinstance(files_raw, dict):
-            files = {str(k): str(v) for k, v in files_raw.items() if str(v).strip()}
+            file_pairs = [(str(k), str(v)) for k, v in files_raw.items() if str(v).strip()]
         else:
-            files = []
+            file_pairs = []
 
         data_range = str(kwargs.get("data_range") or "").strip() or None
         headers = bool(kwargs.get("headers", True))
@@ -154,9 +153,6 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
 
             # Separate direct DuckDB-readable files from office files that need LO import.
             # Support "file.xlsx" or "file.xlsx#SheetName" syntax for sheets.
-            # files can be list (legacy) or dict for named (Phase C)
-            file_pairs = files.items() if isinstance(files, dict) else [(None, f) for f in files]
-
             for name_hint, fspec in file_pairs:
                 spec = str(fspec).strip()
                 file_spec = parse_table_source_spec({"file": spec}, default_headers=headers)
@@ -173,7 +169,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                     # Used to append the basename to direct_files so DuckDB failed
                     # later with a generic IO / missing-FROM error.
                     raise ToolExecutionError(f"Folder file {bn!r} was not found under the document folder", code="MISSING_FILE")
-                if ext in OFFICE_EXTS:
+                if ext in EXCEL_EXTENSIONS + (".ods",):
                     # Office files that exist must preload or fail loud. A silent
                     # (None, None) skip used to append the basename to direct_files
                     # so SQL ran without the table and looked like a missing FROM.
