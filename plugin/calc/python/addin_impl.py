@@ -11,6 +11,7 @@ files only bootstrap ``sys.path`` and register this class. Implementation name s
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 from typing import Any
 
@@ -37,13 +38,7 @@ _PYTHON_SPEC = CalcFunctionSpec(
     description="Executes Python code in the configured venv and returns the result.",
     arg_descriptions=_PYTHON_ARGS,
 )
-_PY_SPEC = CalcFunctionSpec(
-    display_name="PY",
-    programmatic_name="py",
-    description="Executes Python code in the configured venv and returns the result.",
-    arg_descriptions=_PYTHON_ARGS,
-)
-PYTHON_FUNCTION_SPECS = (_PY_SPEC, _PYTHON_SPEC)
+_PY_SPEC = replace(_PYTHON_SPEC, display_name="PY", programmatic_name="py")
 # Returned when LibreOffice passes no calling document. Never guess one.
 MISSING_CALLER_ERROR = "Error: no calling document"
 
@@ -72,7 +67,7 @@ class PythonFunction(CalcAddInBase, _XPythonFunctionBase):  # pyright: ignore[re
 
     def __init__(self, ctx: Any) -> None:
         log.debug("=== PythonFunction.__init__ ===")
-        super().__init__(ctx, PYTHON_FUNCTION_SPECS)
+        super().__init__(ctx, (_PY_SPEC, _PYTHON_SPEC))
 
     def python(self, caller: Any, code: str, data: Any = None) -> Any:
         # *caller* is LibreOffice's hidden SC_ADDINARG_CALLER argument (the
