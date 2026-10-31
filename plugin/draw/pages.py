@@ -78,7 +78,6 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
             if is_real_disposal(exc):
                 raise
             log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
-            continue
     return ""
 
 
@@ -105,10 +104,9 @@ class AddSlide(ToolBase):
         page_idx = kwargs.get("page")
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
-        is_impress = _is_impress_doc(ctx.doc)
 
-        layout_name = None
-        if is_impress:
+        layout_name: str | None = None
+        if _is_impress_doc(ctx.doc):
             raw = kwargs.get("layout")
             layout_name = _DEFAULT_IMPRESS_LAYOUT if raw is None or (isinstance(raw, str) and not raw.strip()) else str(raw).strip().lower()
             # Validate before insert so a bad name does not leave a stray page.
@@ -131,11 +129,10 @@ class AddSlide(ToolBase):
             # has a designed master (M1′). Copy the neighbor slide's MasterPage.
             # Pass the landed index: page=0 used to claim insert_at=0 while the
             # new page sat at 1, so the "neighbor" was the new page itself.
-            if is_impress:
+            if layout_name is not None:
                 inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
                 if inherited:
                     result["master"] = inherited
-            if is_impress and layout_name is not None:
                 result["placeholders_hint"] = "call list_placeholders on this page"
                 # blank/none are AUTOLAYOUT_NONE (20). insertNewByIndex already
                 # leaves that id with 0 shapes; assigning it keeps the page empty.
@@ -251,8 +248,7 @@ class ReadSlideText(ToolBase):
             try:
                 txt = shape.getString()
                 if txt and txt.strip():
-                    entry = {"index": i, "text": txt, "shape_name": shape.Name}
-                    texts.append(entry)
+                    texts.append({"index": i, "text": txt, "shape_name": shape.Name})
             except Exception as exc:
                 if is_disposed_exception(exc):
                     raise
