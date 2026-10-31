@@ -634,8 +634,8 @@ class ImageList(ToolWriterImageBase):
 
                     entry = {"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "title": title, "description": description, "paragraph_index": paragraph_index}
                     if is_calc:
-                        s_idx = getattr(item, "sheet_index", getattr(graphic, "_calc_sheet_index", None))
-                        s_name = getattr(item, "sheet_name", getattr(graphic, "_calc_sheet_name", None))
+                        s_idx = getattr(item, "sheet_index", None)
+                        s_name = getattr(item, "sheet_name", None)
                         if s_idx is not None:
                             entry["sheet_index"] = s_idx
                         if s_name is not None:
