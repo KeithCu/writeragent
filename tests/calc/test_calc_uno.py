@@ -54,7 +54,7 @@ CALC_MENU_INTEGRATION_MODULES: tuple[str, ...] = (
 )
 
 
-def _run_calc_menu_aggregated(ctx: Any, doc_model: Any, module_names: tuple[str, ...]) -> tuple[int, int, list[str]]:
+def _run_calc_menu_aggregated(ctx: Any, module_names: tuple[str, ...]) -> tuple[int, int, list[str]]:
     from plugin.testing_runner import run_module_suite
 
     total_p = 0
@@ -63,7 +63,7 @@ def _run_calc_menu_aggregated(ctx: Any, doc_model: Any, module_names: tuple[str,
     for dotted in module_names:
         sub = importlib.import_module(dotted)
         short = dotted.rsplit(".", 1)[-1]
-        p, f, log = run_module_suite(ctx, sub, f"calc.menu.{short}", doc_model)
+        p, f, log = run_module_suite(ctx, sub, f"calc.menu.{short}")
         total_p += int(p or 0)
         total_f += int(f or 0)
         lines.append(f"--- {dotted} ({p} passed, {f} failed) ---")
@@ -71,11 +71,11 @@ def _run_calc_menu_aggregated(ctx: Any, doc_model: Any, module_names: tuple[str,
     return total_p, total_f, lines
 
 
-def run_calc_tests(ctx: Any, doc_model: Any) -> tuple[int, int, list[str]]:
+def run_calc_tests(ctx: Any) -> tuple[int, int, list[str]]:
     """Native runner fallback for ``calc.tests`` (debug menu)."""
-    return _run_calc_menu_aggregated(ctx, doc_model, CALC_MENU_UNIT_MODULES)
+    return _run_calc_menu_aggregated(ctx, CALC_MENU_UNIT_MODULES)
 
 
-def run_integration_tests(ctx: Any, doc_model: Any) -> tuple[int, int, list[str]]:
+def run_integration_tests(ctx: Any) -> tuple[int, int, list[str]]:
     """Native runner fallback for ``calc.integration_tests`` (debug menu)."""
-    return _run_calc_menu_aggregated(ctx, doc_model, CALC_MENU_INTEGRATION_MODULES)
+    return _run_calc_menu_aggregated(ctx, CALC_MENU_INTEGRATION_MODULES)
