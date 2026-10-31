@@ -14,7 +14,7 @@ module reads the template ZIP at list time:
    graphic → ``graphic chrome``.
 4. If the thumbnail is missing or undecodable, scrape ``#RRGGBB`` from
    ``styles.xml`` + ``Pictures/*.svg``, stopping once
-   ``_MAX_XML_SAMPLES`` hits are kept (and after ``_MAX_XML_SVG_MEMBERS``
+   ``_MAX_SAMPLED_PIXELS`` hits are kept (and after ``_MAX_XML_SVG_MEMBERS``
    SVGs). Empty ``look`` rather than inventing.
 
 Stdlib PNG decode (not Pillow): LibreOffice's Python typically has no PIL.
@@ -55,7 +55,6 @@ _MAX_DECODED_PIXELS = 1024 * 1024
 # four such SVGs and under a thousand hex hits; past this budget, more
 # input does not improve mood or accent bins. Listing stops there.
 _MAX_XML_SVG_MEMBERS = 8
-_MAX_XML_SAMPLES = _MAX_SAMPLED_PIXELS
 
 _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 _HEX_RE = re.compile(rb"#([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?")
@@ -64,7 +63,8 @@ _IMAGE_EXT = (".svg", ".png", ".jpg", ".jpeg", ".gif", ".wmf", ".emf", ".tif", "
 
 # Hue wheel bins in degrees (colorsys h * 360). Red wraps past 330.
 _HUE_BINS: tuple[tuple[float, str], ...] = ((15.0, "red"), (45.0, "orange"), (70.0, "yellow"), (160.0, "green"), (200.0, "teal"), (255.0, "blue"), (290.0, "purple"), (330.0, "pink"), (361.0, "red"))
-_SAMPLES_PER_PIXEL = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+# Values are (samples per pixel, allowed bit depths). Types 2, 4, and 6 are 8-bit only.
+_PNG_COLOR = {0: (1, (1, 2, 4, 8)), 2: (3, (8,)), 3: (1, (1, 2, 4, 8)), 4: (2, (8,)), 6: (4, (8,))}
 
 # Rec. 709 luminance. Threshold chosen so Metropolis (~90) and Piano (~103)
 # stay dark while mid-tone blueprint thumbs (~126) stay light.
@@ -129,16 +129,16 @@ def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int,
 
     ``list_designs`` / ``apply_design`` run this on the main thread, including
     user-writable template dirs. A per-member byte cap does not limit how many
-    SVGs are opened; stop once ``_MAX_XML_SAMPLES`` hits are kept.
+    SVGs are opened; stop once ``_MAX_SAMPLED_PIXELS`` hits are kept.
     """
     svgs = [n for n in names if (norm := _norm_zip_name(n)).startswith("pictures/") and norm.endswith(".svg")][:_MAX_XML_SVG_MEMBERS]
     samples: list[tuple[int, int, int]] = []
     for name in ("styles.xml", *svgs):
-        if len(samples) >= _MAX_XML_SAMPLES:
+        if len(samples) >= _MAX_SAMPLED_PIXELS:
             break
         blob = _read_member(zf, name)
         if blob:
-            samples.extend(_hex_colors(blob, _MAX_XML_SAMPLES - len(samples)))
+            samples.extend(_hex_colors(blob, _MAX_SAMPLED_PIXELS - len(samples)))
     return samples
 
 
@@ -247,15 +247,10 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
         return None
     if interlace != 0:
         return None
-    if color_type not in _SAMPLES_PER_PIXEL:
+    spec = _PNG_COLOR.get(color_type)
+    if spec is None or bit_depth not in spec[1] or (color_type == 3 and not palette):
         return None
-    if bit_depth not in (1, 2, 4, 8):
-        return None
-    if color_type in (2, 4, 6) and bit_depth != 8:
-        return None
-    if color_type == 3 and not palette:
-        return None
-    spp = _SAMPLES_PER_PIXEL[color_type]
+    spp = spec[0]
     row_bytes = 1 + (width * bit_depth * spp + 7) // 8
     expected = height * row_bytes
     if expected > _MAX_RAW_PNG:
@@ -273,8 +268,9 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
         base = y * row_bytes
         filt = raw[base]
         row = bytearray(raw[base + 1 : base + row_bytes])
-        if not _recon_scanline(filt, row, prior, bpp):
+        if filt > 4:
             return None
+        _recon_scanline(filt, row, prior, bpp)
         prior = bytes(row)
         unpacked = _unpack_row(row, width, bit_depth, color_type, palette, trans)
         if unpacked is None:
@@ -284,31 +280,24 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
     return pixels[:_MAX_SAMPLED_PIXELS]
 
 
-def _recon_scanline(filt: int, row: bytearray, prior: bytes, bpp: int) -> bool:
+def _recon_scanline(filt: int, row: bytearray, prior: bytes, bpp: int) -> None:
     n = len(row)
-    if filt == 0:
-        return True
     if filt == 1:
         for i in range(bpp, n):
             row[i] = (row[i] + row[i - bpp]) & 255
-        return True
-    if filt == 2:
+    elif filt == 2:
         for i in range(n):
             row[i] = (row[i] + prior[i]) & 255
-        return True
-    if filt == 3:
+    elif filt == 3:
         for i in range(n):
             left = row[i - bpp] if i >= bpp else 0
             row[i] = (row[i] + ((left + prior[i]) >> 1)) & 255
-        return True
-    if filt == 4:
+    elif filt == 4:
         for i in range(n):
             left = row[i - bpp] if i >= bpp else 0
             up = prior[i]
             ul = prior[i - bpp] if i >= bpp else 0
             row[i] = (row[i] + _paeth(left, up, ul)) & 255
-        return True
-    return False
 
 
 def _paeth(a: int, b: int, c: int) -> int:
