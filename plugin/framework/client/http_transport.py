@@ -365,11 +365,9 @@ class LlmHttpTransport:
         self.close()
         status = int(response.status)
         model = request_model_from_body(request_body)
-        header = response.getheader("Retry-After")
-        retry_after = parse_retry_after(header if isinstance(header, str) else None)
+        retry_after = parse_retry_after(response.getheader("Retry-After"))
         if retry_after is None:
-            header_ms = response.getheader("retry-after-ms")
-            retry_after = parse_retry_after_ms(header_ms if isinstance(header_ms, str) else None)
+            retry_after = parse_retry_after_ms(response.getheader("retry-after-ms"))
         details: dict[str, Any] = {"url": safe_target, "status": status}
         if retry_after_exceeds_cap(retry_after):
             assert retry_after is not None
@@ -442,14 +440,13 @@ class LlmHttpTransport:
                         # rewrites method/body, then loops. The retry budget is
                         # for 429/503, not for a redirect the server asked for.
                         current_url = self._absolute_url(path)
-                        location = response.getheader("Location")
                         hop = http_security._apply_redirect(
                             method,
                             body,
                             wire_headers,
                             current_url,
                             status,
-                            location.strip() if isinstance(location, str) else "",
+                            (response.getheader("Location") or "").strip(),
                         )
                         if hop is not None:
                             response.read()
@@ -495,11 +492,10 @@ class LlmHttpTransport:
                     if after_read is not None:
                         after_read(response)
                     parsed = parse_strict_json(raw) if parse_json else None
-                    raw_ct = response.getheader("Content-Type")
                     return HttpResult(
                         status=status,
                         body=raw,
-                        content_type=raw_ct if isinstance(raw_ct, str) else "",
+                        content_type=response.getheader("Content-Type") or "",
                         parsed=parsed,
                     )
                 except NetworkError:

@@ -24,19 +24,16 @@ from plugin.framework.errors import NetworkError
 _SECRET_HEADER_NAMES = frozenset({"authorization", "x-api-key", "api-key", "x-goog-api-key", "cookie", "proxy-authorization"})
 # Query keys that carry credentials. ``output_modalities`` is not one of these.
 _SECRET_QUERY_KEYS = frozenset({"api_key", "apikey", "api-key", "key", "token", "access_token"})
-# A one-character key would punch holes through ordinary error text ("k", "1").
-_MIN_SECRET_LEN = 4
 # urllib followed these. 304/300 are not automatic hops.
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
-# Browsers and urllib turn these into GET and drop the body. 307/308 keep both.
-_REDIRECT_SWITCH_TO_GET = frozenset({301, 302, 303})
 
 
 def redact_secrets(text: str, secrets: list[str] | None) -> str:
     """Replace credential strings with ``<redacted>``. Longer values first."""
     if not text or not secrets:
         return text
-    ordered = sorted({secret for secret in secrets if secret and len(secret) >= _MIN_SECRET_LEN}, key=len, reverse=True)
+    # A one-character key would punch holes through ordinary error text ("k", "1").
+    ordered = sorted({secret for secret in secrets if secret and len(secret) >= 4}, key=len, reverse=True)
     for secret in ordered:
         text = text.replace(secret, "<redacted>")
     return text
@@ -44,20 +41,14 @@ def redact_secrets(text: str, secrets: list[str] | None) -> str:
 
 def secrets_from_headers(headers: dict[str, str] | None) -> list[str]:
     """Bearer tokens and API-key header values that must not appear in errors."""
-    if not headers:
-        return []
     secrets: list[str] = []
-    for key, value in headers.items():
-        if not value:
-            continue
+    for key, value in (headers or {}).items():
         low = str(key).lower()
-        if low not in _SECRET_HEADER_NAMES:
+        if not value or low not in _SECRET_HEADER_NAMES:
             continue
-        if low == "authorization":
-            parts = str(value).split(None, 1)
-            token = parts[1].strip() if len(parts) == 2 else str(value).strip()
-        else:
-            token = str(value).strip()
+        raw = str(value).strip()
+        parts = raw.split(None, 1)
+        token = parts[1].strip() if low == "authorization" and len(parts) == 2 else raw
         if token and token not in secrets:
             secrets.append(token)
     return secrets
@@ -193,13 +184,14 @@ def _apply_redirect(  # pyright: ignore[reportUnusedFunction]
     scheme = (parsed.scheme or "").lower()
     if scheme not in ("http", "https"):
         return None
-    if not _bracket_ipv6_host(parsed.hostname or ""):
+    if not parsed.hostname:
         return None
     origin, path = origin_and_path(joined)
     new_method = method
     new_body = body
     new_headers = dict(headers)
-    if status in _REDIRECT_SWITCH_TO_GET and method.upper() not in ("GET", "HEAD"):
+    # Browsers and urllib turn these into GET and drop the body. 307/308 keep both.
+    if status in (301, 302, 303) and method.upper() not in ("GET", "HEAD"):
         new_method = "GET"
         new_body = None
         new_headers = {key: value for key, value in new_headers.items() if key.lower() not in ("content-length", "content-type")}
