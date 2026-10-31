@@ -119,60 +119,39 @@ def _fn_label(fn: Callable[..., Any]) -> str:
 
 
 class _WorkItem:
-    __slots__: ClassVar[tuple[str, ...]] = ("id", "fn", "args", "kwargs", "blocking", "event", "result", "exception", "cancelled", "_claimed", "scope")
-    id: str
-    fn: Any
-    args: Any
-    kwargs: Any
-    blocking: bool
-    event: threading.Event | None
-    cancelled: bool
-    _claimed: bool
-    scope: SendCancellation | None
+    __slots__: ClassVar[tuple[str, ...]] = ("id", "fn", "args", "kwargs", "event", "result", "exception", "cancelled", "_claimed", "scope")
 
     def __init__(self, item_id: str, fn: Any, args: Any, kwargs: Any, blocking: bool = True, scope: SendCancellation | None = None) -> None:
-        self.id = item_id
-        self.fn = fn
-        self.args = args
-        self.kwargs = kwargs
-        self.blocking = blocking
-        self.event = threading.Event() if blocking else None
+        self.id: str = item_id
+        self.fn: Any = fn
+        self.args: Any = args
+        self.kwargs: Any = kwargs
+        self.event: threading.Event | None = threading.Event() if blocking else None
         self.result: Any = None
         self.exception: BaseException | None = None
-        self.cancelled = False
-        self._claimed = False
-        self.scope = scope
+        self.cancelled: bool = False
+        self._claimed: bool = False
+        self.scope: SendCancellation | None = scope
 
 
 class QueueExecutor:
     """Execute functions on main thread using queue system."""
 
-    _ctx: Any | None
-    _async_callback_service: Any
-    _callback_instance: Any
-    _init_lock: threading.Lock
-    _claim_lock: threading.Lock
-    _pending_lock: threading.Condition
-    _initialized: bool
-    _logged_missing_ctx: bool
-    _logged_async_callback_failure: bool
-    _order_lock: threading.RLock
-
     def __init__(self, ctx: Any | None = None) -> None:
         from plugin.framework.thread_guard import _unwrap_uno
 
-        self._ctx = _unwrap_uno(ctx) if ctx is not None else None
+        self._ctx: Any | None = _unwrap_uno(ctx) if ctx is not None else None
         self._work_queue: queue.Queue[Any] = queue.Queue()
-        self._async_callback_service = None
-        self._callback_instance = None
-        self._init_lock = threading.Lock()
-        self._claim_lock = threading.Lock()
-        self._initialized = False
-        self._logged_missing_ctx = False
-        self._logged_async_callback_failure = False
+        self._async_callback_service: Any = None
+        self._callback_instance: Any = None
+        self._init_lock: threading.Lock = threading.Lock()
+        self._claim_lock: threading.Lock = threading.Lock()
+        self._initialized: bool = False
+        self._logged_missing_ctx: bool = False
+        self._logged_async_callback_failure: bool = False
         self._pending_posts: list[tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any], SendCancellation | None]] = []
-        self._pending_lock = threading.Condition()
-        self._order_lock = threading.RLock()
+        self._pending_lock: threading.Condition = threading.Condition()
+        self._order_lock: threading.RLock = threading.RLock()
 
     def set_context(self, ctx: Any) -> None:
         """Update or set the UNO component context (e.g. at bootstrap)."""
@@ -240,14 +219,8 @@ class QueueExecutor:
         from another thread used to land between them, ahead of older posts.
         The poke happens after the lock is released.
 
-        The failed item and the tail go back in front of anything appended
-        after the notify, which keeps FIFO order. Swapping the list to
-        ``[]`` before the loop drops posts if ``_enqueue_work`` raises
-        partway: they are neither queued nor pending. The failed item and the
-        tail are put back in front of anything appended after notify_all; the
-        error is logged; the function returns; callers still enqueue their
-        own work; a later flush retries the tail. Items that did enqueue are
-        poked after the lock drops.
+        A partial failure puts the failed item and the tail back in front
+        of posts appended after notify_all.
         """
         enqueued = 0
         with self._order_lock:
@@ -330,7 +303,6 @@ class QueueExecutor:
                 from plugin.framework.uno_context import get_service_manager
 
                 smgr = _unwrap_uno(get_service_manager(ctx_any))
-                assert smgr is not None, "ServiceManager unavailable on UNO context"
                 self._async_callback_service = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.AsyncCallback", ctx_any)
                 if self._async_callback_service is None:
                     raise RuntimeError("createInstance com.sun.star.awt.AsyncCallback returned None")
@@ -371,7 +343,7 @@ class QueueExecutor:
     def _abandon_unstarted(self, item: _WorkItem) -> None:
         """Mark an item that has not entered ``fn`` and wake a blocking waiter."""
         item.cancelled = True
-        if item.blocking and item.event and not item.event.is_set():
+        if item.event is not None and not item.event.is_set():
             item.exception = SendCancelled()
             item.event.set()
 
@@ -414,29 +386,26 @@ class QueueExecutor:
             log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, _fn_label(item.fn))
             # A timed-out head used to return here and leave the next item
             # queued until some later poke. Wake the main thread now.
-            if not self._work_queue.empty():
-                self._poke_main_thread()
-            return
-
-        # The item is claimed: anything that raises from here must reach the
-        # ``finally`` that sets the event. ``_fn_label`` and the start log used
-        # to run before ``try``, so a raise there left the waiter parked.
-        fn_label = "<fn>"
-        try:
-            fn_label = _fn_label(item.fn)
-            _log_marshal(logging.DEBUG, "process_queue start fn=%s %s", fn_label, executor=self)
-            item.result = item.fn(*item.args, **item.kwargs)
-        except BaseException as exc:
-            # Store KeyboardInterrupt/SystemExit too so the waiter re-raises
-            # instead of seeing result=None while the exception hits VCL.
-            # Non-blocking posts have no waiter, so the exception used to vanish.
-            item.exception = exc
-            if not item.blocking:
-                log.exception("QueueExecutor: non-blocking main-thread work failed (%s)", fn_label)
-        finally:
-            if item.blocking and item.event:
-                item.event.set()
-            _log_marshal(logging.DEBUG, "process_queue done fn=%s %s", fn_label, executor=self)
+        else:
+            # The item is claimed: anything that raises from here must reach the
+            # ``finally`` that sets the event. ``_fn_label`` and the start log used
+            # to run before ``try``, so a raise there left the waiter parked.
+            fn_label = "<fn>"
+            try:
+                fn_label = _fn_label(item.fn)
+                _log_marshal(logging.DEBUG, "process_queue start fn=%s %s", fn_label, executor=self)
+                item.result = item.fn(*item.args, **item.kwargs)
+            except BaseException as exc:
+                # Store KeyboardInterrupt/SystemExit too so the waiter re-raises
+                # instead of seeing result=None while the exception hits VCL.
+                # Non-blocking posts have no waiter, so the exception used to vanish.
+                item.exception = exc
+                if item.event is None:
+                    log.exception("QueueExecutor: non-blocking main-thread work failed (%s)", fn_label)
+            finally:
+                if item.event is not None:
+                    item.event.set()
+                _log_marshal(logging.DEBUG, "process_queue done fn=%s %s", fn_label, executor=self)
 
         # Re-poke if more items waiting
         if not self._work_queue.empty():
@@ -523,8 +492,9 @@ class QueueExecutor:
             self._poke_main_thread()
         return item
 
-    def _wait_for_result(self, item: Any, timeout: float) -> Any:
+    def _wait_for_result(self, item: _WorkItem, timeout: float) -> Any:
         """Wait for and return result from main thread."""
+        assert item.event is not None
         if not item.event.wait(timeout):
             # Atomically cancel only if process_queue hasn't already claimed
             # this item for execution. Without _claim_lock there was a window
@@ -540,15 +510,11 @@ class QueueExecutor:
             # claimed item that still raises TimeoutError is already inside
             # fn() on the UI thread; the caller treats that as "did not
             # happen", and a retry applies the document change twice.
-            keep_waiting = False
-            finished = False
             with self._claim_lock:
-                finished = item.event is not None and item.event.is_set()
+                finished = item.event.is_set()
                 if not finished and not item._claimed:
                     item.cancelled = True
-                elif not finished:
-                    keep_waiting = True
-            if keep_waiting and item.event is not None:
+            if not finished and item._claimed:
                 # Claimed marshal has no second timeout (retry would double-apply).
                 # The main-thread call may still be mutating the document, so the
                 # caller waits it out instead of abandoning it with an unknown
@@ -572,8 +538,6 @@ class QueueExecutor:
             elif not finished:
                 raise TimeoutError("Main-thread execution of %s timed out after %ss" % (_fn_label(item.fn), timeout))
 
-        # The redundant `if item.cancelled and item.exception` branch has been
-        # removed: the unconditional check below covers it entirely.
         if item.exception is not None:
             raise item.exception
 
@@ -609,7 +573,7 @@ class QueueExecutor:
         Raises TimeoutError if the main thread doesn't process the item in time.
         Re-raises any exception thrown by *fn*.
         """
-        from plugin.framework.thread_guard import get_background_task_name, in_sync_host_dispatch, on_main_thread
+        from plugin.framework.thread_guard import get_background_task_name, in_sync_host_dispatch
 
         fn_label = _fn_label(fn)
         bg_task = get_background_task_name()
@@ -622,11 +586,6 @@ class QueueExecutor:
             msg = "marshal refused: execute_on_main_thread called from synchronous host dispatch context (deadlock hazard #402, fn=%s)" % fn_label
             _log_marshal(logging.ERROR, "%s %s", msg, executor=self)
             raise RuntimeError(msg)
-
-        if bg_task:
-            _log_marshal(logging.DEBUG, "marshal route=force_enqueue (background task %r) fn=%s %s", bg_task, fn_label, executor=self)
-        elif on_main_thread():
-            _log_marshal(logging.DEBUG, "marshal route=force_enqueue (logical main but not Python MainThread) fn=%s %s", fn_label, executor=self)
 
         # WRITERAGENT_TESTING inlines execute on any non-background thread,
         # including Dummy-N. post() enqueues when AsyncCallback exists and the
@@ -809,14 +768,10 @@ def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor |
         return
 
     ex = executor or default_executor
-    processed = 0
     for _unused in range(max_items):
         if ex.pending_work_count() == 0:
             break
         ex.process_queue()
-        processed += 1
-    if processed:
-        _log_marshal(logging.DEBUG, "pump_main_thread_work_queue processed=%d %s", processed, executor=ex)
 
 
 def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecutor | None = None) -> None:
