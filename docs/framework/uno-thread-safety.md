@@ -246,7 +246,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 `check_disposed` is a **null** alias of `check_not_none` (Semgrep still matches the old name). Live disposal is `DisposedException` / `is_disposed_exception` / `safe_uno_call`. `_wrap_uno` also wraps one level of Python `list`/`tuple` elements and dict **values** when `GUARD_ON`.
 
 ### Intentionally Unwrapped Boundaries (By Design)
-- `QueueExecutor._get_async_callback`: Unwraps `self._ctx` before creating `com.sun.star.awt.AsyncCallback` so worker bootstrap does not fire Layer A while `_init_lock` is held. Does not call `get_ctx()` (decorated) from that worker path.
+- `QueueExecutor._get_async_callback`: Stored context is unwrapped by `__init__` and `set_context`, and this method unwraps the service manager before creating `com.sun.star.awt.AsyncCallback` so worker bootstrap does not fire Layer A while `_init_lock` is held. Does not call `get_ctx()` (decorated) from that worker path.
 - `main.py` Menu-Icon `GraphicProvider`: Runs exclusively on the main UI thread during extension load; does not leak document model references.
 
 ---

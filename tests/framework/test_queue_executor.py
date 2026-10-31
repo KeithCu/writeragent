@@ -71,7 +71,7 @@ def test_work_item():
 
     def func(x):
         return (x * 2)
-    item = _WorkItem('id', func, (5,), {})
+    item = _WorkItem(func, (5,), {})
     assert (item.fn is func)
     assert (item.args == (5,))
     assert (not item.event.is_set())
@@ -166,8 +166,7 @@ def reset_mt_globals():
     default_executor._initialized = False
     default_executor._async_callback_service = None
     default_executor._callback_instance = None
-    default_executor._logged_missing_ctx = False
-    default_executor._logged_async_callback_failure = False
+    default_executor._logged_callback_problem = False
     with default_executor._init_lock:
         pass
     while (not default_executor._work_queue.empty()):
@@ -180,8 +179,7 @@ def reset_mt_globals():
     default_executor._initialized = False
     default_executor._async_callback_service = None
     default_executor._callback_instance = None
-    default_executor._logged_missing_ctx = False
-    default_executor._logged_async_callback_failure = False
+    default_executor._logged_callback_problem = False
 
 def test_async_callback_failure_is_not_sticky():
     """A failed createInstance must not latch marshaling off until the context changes."""
@@ -387,7 +385,7 @@ def test_make_callback_instance_notify(monkeypatch):
 
         def dummy_fn(x):
             return (x * 2)
-        item = _WorkItem('id1', dummy_fn, (10,), {})
+        item = _WorkItem(dummy_fn, (10,), {})
         default_executor._work_queue.put(item)
         with patch.object(default_executor, '_poke_main_thread') as mock_poke:
             instance.notify(None)
@@ -398,9 +396,9 @@ def test_make_callback_instance_notify(monkeypatch):
 
         def dummy_fn_exc():
             raise ValueError('test error')
-        item2 = _WorkItem('id2', dummy_fn_exc, (), {})
+        item2 = _WorkItem(dummy_fn_exc, (), {})
         default_executor._work_queue.put(item2)
-        item3 = _WorkItem('id3', (lambda : 1), (), {})
+        item3 = _WorkItem((lambda : 1), (), {})
         default_executor._work_queue.put(item3)
         with patch.object(default_executor, '_poke_main_thread') as mock_poke:
             instance.notify(None)
@@ -417,7 +415,7 @@ def test_poke_vcl():
     default_executor._async_callback_service.addCallback.assert_called_with(default_executor._callback_instance, None)
     default_executor._async_callback_service.addCallback.reset_mock()
     default_executor._async_callback_service.addCallback.side_effect = Exception('error')
-    with patch('plugin.framework.queue_executor.log.warning') as mock_warn:
+    with patch('plugin.framework.queue_executor.log.log') as mock_warn:
         default_executor._poke_main_thread()
         mock_warn.assert_called_once()
     default_executor._async_callback_service.addCallback.assert_called_once_with(default_executor._callback_instance, None)
@@ -746,7 +744,7 @@ class TestWorkItemClaimLockTimeoutRace:
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem
 
         qe = QueueExecutor()
-        item = _WorkItem("test-id", lambda: None, (), {}, blocking=True)
+        item = _WorkItem(lambda: None, (), {}, blocking=True)
         # Simulate _wait_for_result timing out: event never fired.
         assert not item.event.wait(0)  # immediate timeout
         with qe._claim_lock:
@@ -762,7 +760,7 @@ class TestWorkItemClaimLockTimeoutRace:
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem
 
         qe = QueueExecutor()
-        item = _WorkItem("test-id", lambda: None, (), {}, blocking=True)
+        item = _WorkItem(lambda: None, (), {}, blocking=True)
         # Simulate main thread claiming before timeout fires.
         with qe._claim_lock:
             item._claimed = True
@@ -781,7 +779,7 @@ class TestWorkItemClaimLockTimeoutRace:
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem
 
         qe = QueueExecutor()
-        item = _WorkItem("race", lambda: None, (), {}, blocking=True)
+        item = _WorkItem(lambda: None, (), {}, blocking=True)
 
         def wait(timeout=None):
             item.result = "done"
@@ -798,7 +796,7 @@ class TestWorkItemClaimLockTimeoutRace:
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem
 
         qe = QueueExecutor()
-        item = _WorkItem("inflight", lambda: None, (), {}, blocking=True)
+        item = _WorkItem(lambda: None, (), {}, blocking=True)
         item._claimed = True
         calls = {"n": 0}
 
@@ -817,11 +815,10 @@ class TestWorkItemClaimLockTimeoutRace:
     def test_process_queue_skips_cancelled_item_via_claim_lock(self):
         # Verify process_queue respects item.cancelled when set before claiming.
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem
-        import uuid
 
         executed = []
         fn = lambda: executed.append(True)  # noqa: E731
-        item = _WorkItem(str(uuid.uuid4()), fn, (), {}, blocking=True)
+        item = _WorkItem(fn, (), {}, blocking=True)
         item.cancelled = True  # pre-cancel as the timeout path would do
 
         qe = QueueExecutor()
@@ -837,11 +834,10 @@ class TestWorkItemClaimLockTimeoutRace:
         # still skip it because the scope is cancelled.
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem
         from plugin.framework.send_cancellation import SendCancellation, SendCancelled
-        import uuid
 
         executed = []
         scope = SendCancellation()
-        item = _WorkItem(str(uuid.uuid4()), lambda: executed.append(True), (), {}, blocking=True, scope=scope)
+        item = _WorkItem(lambda: executed.append(True), (), {}, blocking=True, scope=scope)
         qe = QueueExecutor()
         qe._work_queue.put(item)
         pulled = qe._work_queue.get_nowait()
@@ -857,11 +853,10 @@ class TestWorkItemClaimLockTimeoutRace:
     def test_process_queue_runs_when_scope_is_active(self):
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem
         from plugin.framework.send_cancellation import SendCancellation
-        import uuid
 
         executed = []
         scope = SendCancellation()
-        item = _WorkItem(str(uuid.uuid4()), lambda: executed.append(True), (), {}, blocking=True, scope=scope)
+        item = _WorkItem(lambda: executed.append(True), (), {}, blocking=True, scope=scope)
         qe = QueueExecutor()
         qe._work_queue.put(item)
         qe.process_queue()
@@ -870,12 +865,11 @@ class TestWorkItemClaimLockTimeoutRace:
     def test_process_queue_logs_nonblocking_exception(self):
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem
         from unittest.mock import patch
-        import uuid
 
         def fn():
             raise RuntimeError("ui failed")
 
-        item = _WorkItem(str(uuid.uuid4()), fn, (), {}, blocking=False)
+        item = _WorkItem(fn, (), {}, blocking=False)
         qe = QueueExecutor()
         qe._work_queue.put(item)
         with patch("plugin.framework.queue_executor.log") as mock_log:
@@ -885,7 +879,6 @@ class TestWorkItemClaimLockTimeoutRace:
 
     def test_process_queue_stores_baseexception(self):
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem
-        import uuid
 
         class Boom(BaseException):
             pass
@@ -893,7 +886,7 @@ class TestWorkItemClaimLockTimeoutRace:
         def fn():
             raise Boom("hard")
 
-        item = _WorkItem(str(uuid.uuid4()), fn, (), {}, blocking=True)
+        item = _WorkItem(fn, (), {}, blocking=True)
         qe = QueueExecutor()
         qe._work_queue.put(item)
         qe.process_queue()
@@ -965,7 +958,7 @@ def test_cancel_drain_excludes_concurrent_enqueue():
 
     gap: queue.Queue = GapQueue()
     qe._work_queue = gap
-    pre = _WorkItem("pre-cancel", lambda: None, (), {}, blocking=True)
+    pre = _WorkItem(lambda: None, (), {}, blocking=True)
     # Seed before counting puts from the racing enqueue.
     queue.Queue.put(gap, pre)
     errors: list[BaseException] = []
@@ -1012,7 +1005,7 @@ def test_cancel_after_claim_does_not_run():
     qe = QueueExecutor()
     scope = SendCancellation()
     ran: list[int] = []
-    item = _WorkItem("late", lambda: ran.append(1), (), {}, blocking=False, scope=scope)
+    item = _WorkItem(lambda: ran.append(1), (), {}, blocking=False, scope=scope)
     qe._work_queue.put(item)
 
     class _CancelOnFirstExit:
@@ -1048,9 +1041,9 @@ def test_cancel_reput_pokes_kept_work():
     qe._poke_main_thread = lambda: pokes.append("poke")  # type: ignore[method-assign]
     keep_scope = SendCancellation()
     cancel_scope = SendCancellation()
-    kept = _WorkItem("kept", lambda: None, (), {}, blocking=False, scope=keep_scope)
-    unscoped = _WorkItem("unscoped", lambda: None, (), {}, blocking=False, scope=None)
-    doomed = _WorkItem("doomed", lambda: None, (), {}, blocking=False, scope=cancel_scope)
+    kept = _WorkItem(lambda: None, (), {}, blocking=False, scope=keep_scope)
+    unscoped = _WorkItem(lambda: None, (), {}, blocking=False, scope=None)
+    doomed = _WorkItem(lambda: None, (), {}, blocking=False, scope=cancel_scope)
     qe._work_queue.put(kept)
     qe._work_queue.put(unscoped)
     qe._work_queue.put(doomed)
@@ -1094,8 +1087,8 @@ def test_scoped_cancel_requeues_survivors_ahead_of_concurrent_enqueue():
 
     gap: queue.Queue = GapQueue()
     qe._work_queue = gap
-    survivor = _WorkItem("kept", lambda: None, (), {}, blocking=False, scope=keep_scope)
-    doomed = _WorkItem("doomed", lambda: None, (), {}, blocking=False, scope=cancel_scope)
+    survivor = _WorkItem(lambda: None, (), {}, blocking=False, scope=keep_scope)
+    doomed = _WorkItem(lambda: None, (), {}, blocking=False, scope=cancel_scope)
     queue.Queue.put(gap, survivor)
     queue.Queue.put(gap, doomed)
     errors: list[BaseException] = []
@@ -1311,7 +1304,7 @@ def test_wait_for_result_timeout_uses_qualname():
     assert ".<locals>." not in fn.__name__
 
     qe = QueueExecutor()
-    item = _WorkItem("item-1", fn, (), {}, blocking=True)
+    item = _WorkItem(fn, (), {}, blocking=True)
     item._claimed = False
 
     with patch.object(item.event, "wait", return_value=False):
@@ -1339,7 +1332,7 @@ def test_execute_accepts_and_passes_bound_scope() -> None:
          patch.object(executor, '_enqueue_work') as mock_enqueue:
 
          # Mock enqueue to return a minimal WorkItem
-         mock_item = mt._WorkItem("id", lambda: None, (), {}, True, scope)
+         mock_item = mt._WorkItem(lambda: None, (), {}, True, scope)
          mock_enqueue.return_value = mock_item
 
          # Note: _force_marshal_mode=True guarantees we don't return inline
@@ -1395,17 +1388,13 @@ def test_set_context_resets_diagnostic_log_flags():
     from plugin.framework.queue_executor import QueueExecutor
 
     qe = QueueExecutor()
-    qe._logged_missing_ctx = True
-    qe._logged_async_callback_failure = True
+    qe._logged_callback_problem = True
     first = object()
     qe.set_context(first)
-    assert qe._logged_missing_ctx is False
-    assert qe._logged_async_callback_failure is False
-    qe._logged_missing_ctx = True
-    qe._logged_async_callback_failure = True
+    assert qe._logged_callback_problem is False
+    qe._logged_callback_problem = True
     qe.set_context(first)
-    assert qe._logged_missing_ctx is True
-    assert qe._logged_async_callback_failure is True
+    assert qe._logged_callback_problem is True
 
 
 def test_set_context_wakes_pending_posts():
@@ -1443,12 +1432,10 @@ def test_process_queue_claim_gap_raises():
     """An exception between claim and fn() must not leave the waiter blocked forever."""
     from plugin.framework.queue_executor import QueueExecutor, _WorkItem
     from unittest.mock import patch
-    import uuid
-
     qe = QueueExecutor()
     def my_fn(): pass
 
-    item = _WorkItem(str(uuid.uuid4()), my_fn, (), {}, blocking=True)
+    item = _WorkItem(my_fn, (), {}, blocking=True)
     qe._work_queue.put(item)
 
     with patch("plugin.framework.queue_executor._fn_label", side_effect=ValueError("label error")):
@@ -1464,7 +1451,7 @@ def test_wait_for_result_shutting_down_raises():
     from unittest.mock import patch
 
     qe = QueueExecutor()
-    item = _WorkItem("id1", lambda: None, (), {}, blocking=True)
+    item = _WorkItem(lambda: None, (), {}, blocking=True)
     item._claimed = True # Simulate that process_queue claimed it
 
     # Initially, wait for timeout fails, entering keep_waiting.
@@ -1484,7 +1471,7 @@ def test_wait_for_result_claimed_item_keeps_waiting_past_slices():
     from unittest.mock import patch
 
     qe = QueueExecutor()
-    item = _WorkItem("id2", lambda: None, (), {}, blocking=True)
+    item = _WorkItem(lambda: None, (), {}, blocking=True)
     item._claimed = True
 
     def finish_later():

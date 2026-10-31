@@ -42,7 +42,6 @@ import queue
 import sys
 import threading
 import time
-import uuid
 from typing import Any, Callable, ClassVar, cast
 
 from plugin.framework.send_cancellation import (
@@ -104,14 +103,8 @@ def _log_marshal(level: int, msg: str, *args: Any, executor: "QueueExecutor | No
     """
     if not log.isEnabledFor(level):
         return
-    # Named methods, not Logger.log: tests patch log.warning / log.debug.
     tag = _marshal_thread_tag(executor)
-    if level == logging.DEBUG:
-        log.debug(msg, *args, tag)
-    elif level == logging.WARNING:
-        log.warning(msg, *args, tag)
-    elif level == logging.ERROR:
-        log.error(msg, *args, tag)
+    log.log(level, msg, *args, tag)
 
 
 def _fn_label(fn: Callable[..., Any]) -> str:
@@ -119,10 +112,9 @@ def _fn_label(fn: Callable[..., Any]) -> str:
 
 
 class _WorkItem:
-    __slots__: ClassVar[tuple[str, ...]] = ("id", "fn", "args", "kwargs", "event", "result", "exception", "cancelled", "_claimed", "scope")
+    __slots__: ClassVar[tuple[str, ...]] = ("fn", "args", "kwargs", "event", "result", "exception", "cancelled", "_claimed", "scope")
 
-    def __init__(self, item_id: str, fn: Any, args: Any, kwargs: Any, blocking: bool = True, scope: SendCancellation | None = None) -> None:
-        self.id: str = item_id
+    def __init__(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, scope: SendCancellation | None = None) -> None:
         self.fn: Any = fn
         self.args: Any = args
         self.kwargs: Any = kwargs
@@ -147,8 +139,7 @@ class QueueExecutor:
         self._init_lock: threading.Lock = threading.Lock()
         self._claim_lock: threading.Lock = threading.Lock()
         self._initialized: bool = False
-        self._logged_missing_ctx: bool = False
-        self._logged_async_callback_failure: bool = False
+        self._logged_callback_problem: bool = False
         self._pending_posts: list[tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any], SendCancellation | None]] = []
         self._pending_lock: threading.Condition = threading.Condition()
         self._order_lock: threading.RLock = threading.RLock()
@@ -171,8 +162,7 @@ class QueueExecutor:
                 self._initialized = False
                 self._async_callback_service = None
                 self._callback_instance = None
-                self._logged_missing_ctx = False
-                self._logged_async_callback_failure = False
+                self._logged_callback_problem = False
         # Posts queued before AsyncCallback existed used to sit until the next
         # marshal created it. When any are waiting, create the callback now and
         # flush them. _get_async_callback takes _init_lock; call it only after
@@ -281,10 +271,10 @@ class QueueExecutor:
                 # uno.getComponentContext() can return a different context and
                 # cause AsyncCallback to be created in the wrong context — silently
                 # making execute() pokes no-ops. Missing ctx is logged, not probed.
-                # Unwrap before any UNO getattr (see the note above this method).
+                # self._ctx is already raw from __init__ and set_context; the service manager is unwrapped below.
                 from plugin.framework.thread_guard import _unwrap_uno
 
-                ctx = _unwrap_uno(self._ctx)
+                ctx = self._ctx
                 # get_ctx() is @main_thread_only. This runs on the first worker
                 # post/execute; calling it here raises, the except swallows it,
                 # and we would fall through to a wrong context. Bootstrap
@@ -294,16 +284,15 @@ class QueueExecutor:
                     # Do not latch _initialized. A post before set_context used
                     # to fail the assert below and then refuse every later marshal
                     # until the context object identity changed.
-                    if not self._logged_missing_ctx:
+                    if not self._logged_callback_problem:
                         log.warning("QueueExecutor has no component context; call set_context() from bootstrap on the main thread")
-                        self._logged_missing_ctx = True
+                        self._logged_callback_problem = True
                     return None
 
-                ctx_any = cast("Any", ctx)
                 from plugin.framework.uno_context import get_service_manager
 
-                smgr = _unwrap_uno(get_service_manager(ctx_any))
-                self._async_callback_service = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.AsyncCallback", ctx_any)
+                smgr = _unwrap_uno(get_service_manager(ctx))
+                self._async_callback_service = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.AsyncCallback", ctx)
                 if self._async_callback_service is None:
                     raise RuntimeError("createInstance com.sun.star.awt.AsyncCallback returned None")
                 self._callback_instance = self._make_callback_instance()
@@ -315,9 +304,9 @@ class QueueExecutor:
                 # a different context object. Leave the flag clear and retry.
                 self._async_callback_service = None
                 self._callback_instance = None
-                if not self._logged_async_callback_failure:
+                if not self._logged_callback_problem:
                     log.warning("AsyncCallback unavailable (%s); next marshal will retry", exc)
-                    self._logged_async_callback_failure = True
+                    self._logged_callback_problem = True
             return self._async_callback_service
 
     def _make_callback_instance(self) -> Any:
@@ -383,7 +372,7 @@ class QueueExecutor:
                     skipped = True
 
         if skipped:
-            log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, _fn_label(item.fn))
+            log.debug("QueueExecutor: skipping cancelled item %s (%s)", id(item), _fn_label(item.fn))
             # A timed-out head used to return here and leave the next item
             # queued until some later poke. Wake the main thread now.
         else:
@@ -478,8 +467,7 @@ class QueueExecutor:
         scope = _resolve_bound_scope(bound_scope)
         if scope is not None:
             scope.bind_executor(self)
-        item_id = str(uuid.uuid4())
-        item = _WorkItem(item_id, fn, args, kwargs, blocking, scope)
+        item = _WorkItem(fn, args, kwargs, blocking, scope)
         # ``_order_lock`` (re-entrant: a flush holds it) orders this put behind
         # a flush in progress. ``_claim_lock`` is the same lock as
         # ``cancel_pending_work``'s drain. Neither is held across the poke:
@@ -769,8 +757,6 @@ def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor |
 
     ex = executor or default_executor
     for _unused in range(max_items):
-        if ex.pending_work_count() == 0:
-            break
         ex.process_queue()
 
 
