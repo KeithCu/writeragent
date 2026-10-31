@@ -162,9 +162,8 @@ def _install_doc_event_listener(ctx: Any) -> None:
     with _lock:
         if _doc_listener is not None:
             return
-    listener = install_view_doc_listener(ctx, _register_controller, "python_editor_context_menu")
-    if listener is not None:
-        with _lock:
+        listener = install_view_doc_listener(ctx, _register_controller, "python_editor_context_menu")
+        if listener is not None:
             _doc_listener = listener
 
 

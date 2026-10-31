@@ -42,6 +42,7 @@ from plugin.framework.uno_listeners import (
     BaseTextListener,
     BaseTopWindowListener,
 )
+from plugin.scripting.editor_errors import exception_traceback, failure_message
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -161,12 +162,6 @@ class NativePythonCellEditorDialog:
         text = label if label.startswith(prefix) else f"{prefix} {label}"
         set_control_text(self._ctrl("StatusEdit"), text)
 
-    def _code_text(self) -> str:
-        return str(get_control_text(self._ctrl("CodeEdit")) or "")
-
-    def _data_text(self) -> str:
-        return get_control_text(self._ctrl("DataEdit")).strip()
-
     def _save(self) -> None:
         try:
             self._set_status(_("Saving…"))
@@ -176,9 +171,9 @@ class NativePythonCellEditorDialog:
                 self._doc,
                 self._cell,
                 parsed_parts=self._parsed_parts,
-                new_code=self._code_text(),
+                new_code=str(get_control_text(self._ctrl("CodeEdit")) or ""),
                 save_as_plain=save_as_plain,
-                data_binding_text=self._data_text(),
+                data_binding_text=get_control_text(self._ctrl("DataEdit")).strip(),
                 code_cell=self._code_cell if follow else None,
                 code_ref=self._code_ref if follow else None,
             )
@@ -190,33 +185,35 @@ class NativePythonCellEditorDialog:
         except Exception as exc:
             # Catch save errors directly in _save so retargeting and button clicks
             # both report the failure reason in status, and leave _dirty untouched.
-            from plugin.scripting.editor_errors import failure_message
-
             log.exception("Native Python cell editor save failed")
             self._set_status(failure_message(_("Could not save the cell."), detail=str(exc)))
 
-    def _open(self, initial_code: str) -> bool:
+    def _open(self, initial_code: str) -> None:
         try:
             dlg, load_detail = load_writeragent_dialog_detail("PythonCellEditorDialog", self._ctx)
             if dlg is None:
                 log.error("NativePythonCellEditorDialog: XDL load failed:\n%s", load_detail or "(no load detail captured)")
                 self._open_failure_detail = load_detail or _("PythonCellEditorDialog could not be loaded from the extension.")
                 self.close()
-                return False
+                return
             self._dlg = dlg
             self._apply_load(initial_code)
             self._wire_listeners(dlg)
             owner = self
 
+            def _on_toolkit_close(_source: Any) -> None:
+                # External dispose (e.g. toolkit shutdown) must clear the singleton so
+                # subsequent opens do not target a dead dialog. toolkit_teardown=True
+                # avoids calling dispose() again on an already disposing peer.
+                # windowClosing uses the same path: the toolkit already tore the peer down.
+                owner.close(toolkit_teardown=True)
+
             class _TopWindowListener(BaseTopWindowListener):
                 def on_window_closing(self, rEvent: Any) -> None:
-                    owner.close(toolkit_teardown=True)
+                    _on_toolkit_close(rEvent)
 
                 def on_disposing(self, Source: Any) -> None:
-                    # External dispose (e.g. toolkit shutdown) must clear the singleton so
-                    # subsequent opens do not target a dead dialog. toolkit_teardown=True
-                    # avoids calling dispose() again on an already disposing peer.
-                    owner.close(toolkit_teardown=True)
+                    _on_toolkit_close(Source)
 
             self._top_listener = _TopWindowListener()
             dlg.addTopWindowListener(self._top_listener)
@@ -224,14 +221,11 @@ class NativePythonCellEditorDialog:
             # Focus after visible: setFocus() before the modeless dialog is visible
             # does not take on some platforms.
             self._focus_code()
-            return True
         except Exception as exc:
-            from plugin.scripting.editor_errors import exception_traceback
-
             log.exception("NativePythonCellEditorDialog._open failed")
             self._open_failure_detail = exception_traceback(exc)
             self.close()
-            return False
+            return
 
     def _wire_listeners(self, dlg: Any) -> None:
         owner = self

@@ -33,7 +33,7 @@ def open_init_script_editor(ctx: Any) -> None:
         return
 
     exe, monaco_available = monaco_editor_available(ctx)
-    if not monaco_available:
+    if not monaco_available or exe is None:
         if get_config("scripting.force_internal_script_editor"):
             msgbox(ctx, title, _('The Monaco editor is disabled by "scripting.force_internal_script_editor" in writeragent.json.'), box_type=3)
             return
@@ -47,7 +47,6 @@ def open_init_script_editor(ctx: Any) -> None:
             msgbox_with_report(ctx, title, msg, box_type=3, reportable=True)
             return
 
-    assert exe is not None
     closed_message = _("The spreadsheet is no longer open. Reopen it and try again.")
     try:
         initial = get_calc_init_script(doc)
@@ -60,20 +59,19 @@ def open_init_script_editor(ctx: Any) -> None:
     def on_save(code: str, _save_as_plain: bool, _data_binding: str | None, action: str) -> dict[str, Any]:
         nonlocal initial
         new_code = code or ""
-        if new_code == initial:
-            return {"type": "saved", "ok": True, "status_ok_text": _("Initialization script saved.")}
-        try:
-            err = set_calc_init_script(doc, new_code)
-        except Exception as exc:
-            if not is_disposed_exception(exc):
-                raise
-            return {"type": "error", "message": closed_message}
-        if err is not None:
-            return {"type": "error", "message": err}
-        initial = new_code
-        from plugin.calc.python.function import clear_python_addin_cache
+        if new_code != initial:
+            try:
+                err = set_calc_init_script(doc, new_code)
+            except Exception as exc:
+                if not is_disposed_exception(exc):
+                    raise
+                return {"type": "error", "message": closed_message}
+            if err is not None:
+                return {"type": "error", "message": err}
+            initial = new_code
+            from plugin.calc.python.function import clear_python_addin_cache
 
-        clear_python_addin_cache()
+            clear_python_addin_cache()
         return {"type": "saved", "ok": True, "status_ok_text": _("Initialization script saved.")}
 
     load_msg: dict[str, Any] = {
