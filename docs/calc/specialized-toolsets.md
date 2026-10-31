@@ -121,7 +121,7 @@ WriterAgent's `write_formula_range` tool takes a different design approach than 
 | **Tables** | ✅ Implemented | `tables.py`: CreateTable, GetTableInfo, SetTableStyle | — |
 | **Shapes** | ✅ Implemented | `shapes.py`: Create/Edit/DeleteShape (shared with Writer/Draw) | — |
 | **Comments** | ✅ Implemented | `comments.py`: ListCellComments, AddCellComment, DeleteCellComment | Specialized tier. `list_cell_comments` returns the formatted string from `XSheetAnnotation.getDate()`; a DateTime struct is still formatted if a bridge returns one. |
-| **Forms** | ✅ Implemented | `forms.py`: FormCreate, FormGenerate, FormListControls, FormCreateControl, FormEditControl, FormDeleteControl (shared with Writer) | Specialized tier. Supports list box; control type table is `CONTROL_TYPE_MAP` in `plugin/draw/tree.py`. Calc label text is written only into an empty or text cell, so a formula or number in the active cell is left alone. `form_create` and `form_generate` return an error when a field fails. |
+| **Forms** | ✅ Implemented | `plugin/writer/specialized/forms.py`: FormCreate, FormGenerate, FormListControls, FormCreateControl, FormEditControl, FormDeleteControl (shared with Writer) | Specialized tier. Supports list box; control type table is `CONTROL_TYPE_MAP` in `plugin/draw/tree.py`. Calc label text is written only into an empty or text cell, so a formula or number in the active cell is left alone. `form_create` and `form_generate` return an error when a field fails. |
 
 ### 3.2 Future enhancements (roadmap)
 
