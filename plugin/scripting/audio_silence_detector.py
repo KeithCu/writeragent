@@ -60,7 +60,6 @@ class SilenceDetectorResult:
     """One chunk's classification plus the running speech and silence counters."""
 
     rms: float
-    peak: float
     is_speech: bool
     silence_ms: int
     speech_ms: int
@@ -83,22 +82,15 @@ def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
     return min(1.0, rms / 32768.0), min(1.0, peak / 32768.0)
 
 
-def _resolve_silence_stop_ms() -> int:
-    """Read chatbot.audio_silence_stop_ms (0 = manual Stop Rec only)."""
+def load_silence_detector_config() -> SilenceDetectorConfig:
+    """Build detector settings from writeragent.json. 0 = manual Stop Rec only."""
     from plugin.framework.config import get_config_dict
 
     raw = get_config_dict()
-    if "chatbot.audio_silence_stop_ms" not in raw:
-        return DEFAULT_SILENCE_STOP_MS
     try:
-        return max(0, int(raw["chatbot.audio_silence_stop_ms"]))
+        stop_ms = max(0, int(raw.get("chatbot.audio_silence_stop_ms", DEFAULT_SILENCE_STOP_MS)))
     except (TypeError, ValueError):
-        return DEFAULT_SILENCE_STOP_MS
-
-
-def load_silence_detector_config() -> SilenceDetectorConfig:
-    """Build detector settings from writeragent.json."""
-    stop_ms = _resolve_silence_stop_ms()
+        stop_ms = DEFAULT_SILENCE_STOP_MS
     if stop_ms == 0:
         log.info("audio VAD: auto-stop disabled (silence_stop_ms=0)")
     return SilenceDetectorConfig(silence_stop_ms=stop_ms)
@@ -148,13 +140,12 @@ class SilenceDetector:
     def _speech_threshold(self) -> float:
         return self._silence_threshold * SPEECH_HYSTERESIS_FACTOR
 
-    def _make_result(self, rms: float, peak: float, is_speech: bool) -> SilenceDetectorResult:
+    def _make_result(self, rms: float, is_speech: bool) -> SilenceDetectorResult:
         speech_ms = self._speech_ms
         silence_ms = self.silence_ms
         heard_speech = speech_ms >= MIN_SPEECH_MS
         return SilenceDetectorResult(
             rms=rms,
-            peak=peak,
             is_speech=is_speech,
             silence_ms=silence_ms,
             speech_ms=speech_ms,
@@ -165,26 +156,19 @@ class SilenceDetector:
     def process_chunk(self, pcm: bytes) -> SilenceDetectorResult:
         # crosshair: off
         if not self._config.enabled or len(pcm) < 2:
-            return self._make_result(0.0, 0.0, False)
+            return self._make_result(0.0, False)
         sample_count = len(pcm) // 2
 
         rms, peak = pcm_energy_int16(pcm)
         self._push_level(sample_count, rms)
 
-        # The old code froze the 0.003 floor on the first chunk at or above 0.0054,
-        # including ordinary room noise, so later noise was still speech and auto-stop
-        # never fired. This classifies only energy at or above LOUD_ONSET_RMS, or
-        # energy above the floor learned from quieter chunks, and it ignores runs
-        # shorter than SPEECH_ONSET_MS.
-        # Bugfix: a quieter chunk snapped _noise_ema down (a leading silent
-        # callback snaps it to 0) and _adapt_floor returned while is_speech was
-        # true, so the floor could not rise. Energy above the speech threshold
-        # (0.0054 at MIN_SILENCE_FLOOR), including amplitude-328 room noise,
-        # stayed speech and auto-stop never fired. A full STEADY_NOISE_MS window
-        # of similar RMS below LOUD_ONSET_RMS is ambient: _is_speech returns
-        # False and _adapt_floor snaps _noise_ema to that window's minimum.
-        # Hysteresis still covers a shorter dip, because the window still holds
-        # the louder audio.
+        # Speech is LOUD_ONSET_RMS, or energy above a floor learned from quieter
+        # chunks; runs shorter than SPEECH_ONSET_MS do not count. Freezing the
+        # 0.003 floor on the first chunk (>= 0.0054, including amplitude-328
+        # room noise) left later noise classified as speech, so auto-stop never
+        # fired. A STEADY_NOISE_MS window of similar sub-loud RMS is ambient:
+        # not speech, and the floor snaps to that window's minimum. A shorter
+        # dip stays speech because the window still holds the louder audio.
         steady, ambient_low = self._window_ambient()
         is_speech = self._is_speech(rms, peak, steady)
         self._adapt_floor(rms, is_speech, sample_count, steady, ambient_low)
@@ -218,7 +202,7 @@ class SilenceDetector:
             self._run_committed = False
             self._silence_samples += sample_count
 
-        result = self._make_result(rms, peak, is_speech)
+        result = self._make_result(rms, is_speech)
         if result.should_stop:
             log.info(
                 "audio VAD: auto-stop triggered (speech_ms=%d silence_ms=%d)",
@@ -273,9 +257,7 @@ class SilenceDetector:
     def _is_speech(self, rms: float, peak: float, steady: bool) -> bool:
         if rms >= LOUD_ONSET_RMS:
             return True
-        if steady:
-            return False
-        if self._noise_ema is None:
+        if steady or self._noise_ema is None:
             return False
         if rms >= self._speech_threshold:
             return True
