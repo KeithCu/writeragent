@@ -162,14 +162,8 @@ def normalize_origins_list(value: Any) -> list[str]:
         value = [value]
     elif not isinstance(value, list):
         return []
-    out: list[str] = []
-    for item in value:
-        if not isinstance(item, str):
-            continue
-        origin = normalize_cors_origin(item)
-        if origin and origin not in out:
-            out.append(origin)
-    return out
+    normalized = (normalize_cors_origin(item) for item in value if isinstance(item, str))
+    return list(dict.fromkeys(origin for origin in normalized if origin))
 
 
 @deal.pre(lambda origin: _deal_origin_ok(origin))

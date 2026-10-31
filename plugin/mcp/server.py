@@ -434,9 +434,8 @@ class HttpServer:
         self._running = True
         self._thread = run_in_background(self._run, daemon=True, name="http-server", dedicated=True)
 
-        scheme = "https" if self.use_ssl else "http"
-        url = "%s://%s:%s" % (scheme, self.host, self.port)
-        log.info("HTTP server ready — %s (%d routes)", url, self.route_registry.route_count)
+        status = self.get_status()
+        log.info("HTTP server ready — %s (%d routes)", status["url"], status["routes"])
 
     def stop(self) -> None:
         if not self._running:
