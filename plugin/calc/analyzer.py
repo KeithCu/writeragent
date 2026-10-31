@@ -70,7 +70,6 @@ def _header_text(val: Any) -> str | None:
 @dataclass(frozen=True)
 class _VisibleSheet:
     names: list[str]
-    target: str | None
     summary: dict[str, Any] | None
     active_is_visible: bool
     bridge: CalcBridge
@@ -96,7 +95,7 @@ def _resolve_visible_sheet(model: Any) -> _VisibleSheet:
         if target is not None
         else None
     )
-    return _VisibleSheet(names, target, summary, active_is_visible, bridge, active_name)
+    return _VisibleSheet(names, summary, active_is_visible, bridge, active_name)
 
 
 
@@ -207,11 +206,10 @@ def get_calc_context_for_chat(
         ctx_str = f"Spreadsheet Document: {model.getURL() or 'Untitled'}\n"
         ctx_str += f"Sheets: {vs.names}\n"
 
-        if vs.target is None:
+        summary = vs.summary
+        if summary is None:
             return truncate_chat_context(ctx_str + "No user-visible sheets.\n", max_context)
 
-        assert vs.summary is not None
-        summary = vs.summary
         if vs.active_is_visible:
             ctx_str += f"Active Sheet: {summary['sheet_name']}\n"
         else:
@@ -269,10 +267,9 @@ def get_full_calc_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CH
     """
     check_disposed(model, "Document Model")
     vs = _resolve_visible_sheet(model)
-    if vs.target is None:
-        return truncate_chat_context("No user-visible sheets.\n", max_chars)
-    assert vs.summary is not None
     summary = vs.summary
+    if summary is None:
+        return truncate_chat_context("No user-visible sheets.\n", max_chars)
     if vs.active_is_visible:
         text = f"Sheet: {summary['sheet_name']}\n"
     else:
