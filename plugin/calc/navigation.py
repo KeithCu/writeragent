@@ -33,8 +33,7 @@ class CellLinkSpanRegistry:
     _spans: dict[int, list[tuple[int, int, str]]] = field(default_factory=dict)
 
     def clear(self, control: Any) -> None:
-        if control is not None:
-            self._spans.pop(id(control), None)
+        self._spans.pop(id(control), None)
 
     def add(self, control: Any, start: int, end: int, address: str) -> None:
         if control is None or start >= end or not address:
@@ -57,8 +56,6 @@ class CellLinkSpanRegistry:
         that starts before the cut and ends inside the deleted tail, would
         otherwise resolve a click into text that is gone.
         """
-        if control is None:
-            return
         key = id(control)
         spans = self._spans.get(key)
         if not spans:
@@ -115,12 +112,10 @@ def drop_cell_link_spans_from(control: Any, start_len: int) -> None:
 
 def navigate_to_cell(doc: Any, _ctx: Any, address: str) -> bool:
     """Select *address* in the Calc document (PyUNO select, not sidebar dispatch)."""
-    target = normalize_cell_address(address)
-    resolved = _canonical_resolve_sheet_and_cell(doc, target) if target and doc is not None else None
+    resolved = _canonical_resolve_sheet_and_cell(doc, normalize_cell_address(address) or "")
     if not resolved:
         log.debug("navigate_to_cell: could not resolve %r", address)
         return False
-    assert doc is not None
     sheet, col, row = resolved
     try:
         controller = doc.getCurrentController()

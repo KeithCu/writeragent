@@ -57,13 +57,11 @@ def _sheet_name_error(doc: Any, name: Any, *, exclude: str | None = None) -> str
             return f"Sheet name cannot contain '{ch}'."
     if name.startswith("_"):
         return "Sheet names starting with '_' are reserved for internal sheets."
-    sheets = doc.getSheets()
-    target_lower = name.casefold()
-    exclude_lower = exclude.casefold() if exclude is not None else None
-    for existing in sheets.getElementNames():
-        if exclude_lower is not None and existing.casefold() == exclude_lower:
-            continue
-        if existing.casefold() == target_lower:
+    target_cf = name.casefold()
+    exclude_cf = exclude.casefold() if exclude is not None else None
+    for existing in doc.getSheets().getElementNames():
+        folded = existing.casefold()
+        if folded == target_cf and folded != exclude_cf:
             return f"A sheet named '{existing}' already exists in the document."
     return None
 
@@ -224,20 +222,17 @@ class ProtectSheet(ToolCalcSheetBase):
         if should_protect == is_currently_protected:
             return {"status": "ok", "message": f"Sheet '{actual_name}' is already {state}."}
 
-        if should_protect:
-            try:
+        try:
+            if should_protect:
                 sheet.protect("")
-            except Exception as e:
-                if is_real_disposal(e):
-                    raise
-                return self._tool_error(f"Could not protect sheet '{actual_name}': {e}")
-        else:
-            try:
+            else:
                 sheet.unprotect("")
-            except Exception as e:
-                if is_real_disposal(e):
-                    raise
-                return self._tool_error(f"Sheet '{actual_name}' is password-protected; unprotect it in LibreOffice.")
+        except Exception as e:
+            if is_real_disposal(e):
+                raise
+            if should_protect:
+                return self._tool_error(f"Could not protect sheet '{actual_name}': {e}")
+            return self._tool_error(f"Sheet '{actual_name}' is password-protected; unprotect it in LibreOffice.")
 
         if sheet.isProtected() == is_currently_protected:
             return self._tool_error(f"Failed to set sheet '{actual_name}' to {state}.")

@@ -25,6 +25,8 @@ def test_execute_and_insert_viz_skips_fast_path(mock_venv, mock_run, mock_insert
     doc.getCurrentController.return_value.getSelection.return_value = None
 
     with (
+        # MagicMock doc has no int range address; read_range is not under test here.
+        patch("plugin.calc.inspector.CellInspector.read_range", return_value=[]),
         patch("plugin.scripting.python_runner.is_writer", return_value=False),
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
     ):
