@@ -212,7 +212,7 @@ Shared across Writer / Calc / Draw / Impress image and shape tools. **Not** inse
 
 `mm_to_unit` / `mm_to_units` round to the nearest 1/100 mm (`int(round(mm * 100))`); they used to truncate with `int(mm) * 100`, so 12.7 mm became 12 mm. `px_to_units`, `units_to_px`, and `graphic_pixel_size` share `UNITS_PER_INCH = 2540` / `PX_PER_INCH = 96` and round in both directions, so a px → unit → px round trip is stable (it used to lose 1 px: `units_to_px(px_to_units(10))` was 9). `has_uno_property`, `safe_set_property`, `safe_try_method`, `graphic_from_object`, and `graphic_objects_in_selection` raise `DocumentDisposedError` for a closed document and keep their `False` / `None` / `[]` result for ordinary UNO failures; `selected_graphic_object` stays a probe that returns `None`.
 
-`image_tools.get_type_doc`, `_has_uno_property`, `_safe_set_property`, `_mm_to_units`, `_selection_graphic_object` are **already** one-line delegates into this module.
+`image_tools.get_type_doc`, `_has_uno_property`, `_safe_set_property`, `_selection_graphic_object` are **already** one-line delegates into this module.
 
 ### 1.10 UNO error wrappers
 
@@ -430,7 +430,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 | Wrapper | Target |
 |---------|--------|
 | `DocumentService.get_active_document` / `resolve_document_by_url` / `is_*` | `uno_context` / `doc_type` |
-| `image_tools.get_type_doc` / `_has_uno_property` / `_safe_set_property` / `_mm_to_units` | `visual_helpers` |
+| `image_tools.get_type_doc` / `_has_uno_property` / `_safe_set_property` | `visual_helpers` |
 | `list_open_documents` tool | `get_open_documents` |
 
 ### 3.4 Overlapping but **not** identical (document before unifying)
