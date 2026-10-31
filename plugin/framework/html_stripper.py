@@ -210,14 +210,6 @@ class StreamingHTMLStripper:
         self._entity_tail = ""
         self.dropped_real_tag = False
 
-    def _unescape_emitted(self, raw: str, *, hold_tail: bool) -> str:
-        combined = self._entity_tail + raw
-        if hold_tail:
-            ready, self._entity_tail = _split_incomplete_entity(combined)
-        else:
-            ready, self._entity_tail = combined, ""
-        return _unescape_entities(ready)
-
     def _release_tag_buffer(self, out: list[str], *, force_emit: bool) -> None:
         """Stop buffering a tag. Emit unless we are discarding element text."""
         if (force_emit or not self._discard_until) and self.tag_buffer:
@@ -225,17 +217,13 @@ class StreamingHTMLStripper:
         self.tag_buffer = ""
         self._quote = ""
 
-    def _push_tag_char(self, char: str, out: list[str], *, reject_bad_start: bool) -> None:
+    def _push_tag_char(self, char: str, out: list[str]) -> None:
         self.tag_buffer += char
-        if reject_bad_start and len(self.tag_buffer) == 2 and not _is_tag_start(self.tag_buffer[1]):
-            # Second character must look like a tag. ``3 < 5`` stays text;
-            # a space (or digit) after ``<`` is not the start of a tag.
-            self._release_tag_buffer(out, force_emit=not bool(self._discard_until))
+        if not _tag_rejected(self.tag_buffer):
             return
-        if len(self.tag_buffer) > _TAG_BUFFER_LIMIT:
-            # Never-closed '<' used to grow without bound. This cap is only
-            # the tag buffer. Element body is bounded in _note_discarded_body.
-            self._release_tag_buffer(out, force_emit=True)
+        # ``3 < 5`` is not a tag: emit it only when not inside script/style.
+        # An unclosed ``<`` past _TAG_BUFFER_LIMIT always emits. Body cap is separate.
+        self._release_tag_buffer(out, force_emit=len(self.tag_buffer) > _TAG_BUFFER_LIMIT)
 
     def _end_tag(self, out: list[str]) -> None:
         """Drop a completed real tag. Prose in angle brackets is text.
@@ -287,9 +275,9 @@ class StreamingHTMLStripper:
                 # ``<img alt="a>b" src="x">`` leaked ``b" src="x">``.
                 if char == self._quote:
                     self._quote = ""
-                self._push_tag_char(char, out, reject_bad_start=False)
+                self._push_tag_char(char, out)
             elif char in ('"', "'"):
-                self._push_tag_char(char, out, reject_bad_start=True)
+                self._push_tag_char(char, out)
                 if self.tag_buffer:
                     self._quote = char
             elif char == "<":
@@ -301,7 +289,7 @@ class StreamingHTMLStripper:
             elif char == ">":
                 self._end_tag(out)
             else:
-                self._push_tag_char(char, out, reject_bad_start=True)
+                self._push_tag_char(char, out)
         return "".join(out)
 
     def _note_discarded_body(self, text: str, out: list[str]) -> None:
@@ -335,7 +323,8 @@ class StreamingHTMLStripper:
             return ""
         size = DEAL_MAX_HTML_CHUNK
         raw = "".join(self._feed_chunk(chunk[i : i + size]) for i in range(0, len(chunk), size))
-        return self._unescape_emitted(raw, hold_tail=True)
+        ready, self._entity_tail = _split_incomplete_entity(self._entity_tail + raw)
+        return _unescape_entities(ready)
 
     @deal.post(lambda result: isinstance(result, str))
     def finalize(self) -> str:
@@ -347,7 +336,9 @@ class StreamingHTMLStripper:
         self._quote = ""
         self._discard_until = ""
         self._discard_body = ""
-        return self._unescape_emitted(held, hold_tail=False)
+        emitted = _unescape_entities(self._entity_tail + held)
+        self._entity_tail = ""
+        return emitted
 
 
 def text_has_real_html_tag(text: str) -> bool:
