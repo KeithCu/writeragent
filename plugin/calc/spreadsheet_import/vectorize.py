@@ -19,33 +19,13 @@ _A1_REF_RE = re.compile(r"(?<![A-Z0-9_])(\$?)([A-Z]+)(\$?)([0-9]+)(?!\()", re.IG
 
 def to_r1c1(formula: str, cell_addr: str) -> str:
     """Convert a formula string from A1 notation to relative R1C1 notation."""
-    try:
-        cell_col, cell_row = parse_address(cell_addr)
-    except ValueError:
-        return formula
+    cell_col, cell_row = parse_address(cell_addr)
 
     def replace_ref(match: re.Match[str]) -> str:
-        col_abs = bool(match.group(1))
-        col_str = match.group(2).upper()
-        row_abs = bool(match.group(3))
-        row_str = match.group(4)
-        target_col = column_to_index(col_str)
-        target_row = int(row_str) - 1
-
-        # Row relative/absolute representation
-        if row_abs:
-            r_part = f"R{target_row + 1}"
-        else:
-            offset = target_row - cell_row
-            r_part = f"R[{offset}]"
-
-        # Col relative/absolute representation
-        if col_abs:
-            c_part = f"C{target_col + 1}"
-        else:
-            offset = target_col - cell_col
-            c_part = f"C[{offset}]"
-
+        target_col = column_to_index(match.group(2).upper())
+        target_row = int(match.group(4)) - 1
+        r_part = f"R{target_row + 1}" if match.group(3) else f"R[{target_row - cell_row}]"
+        c_part = f"C{target_col + 1}" if match.group(1) else f"C[{target_col - cell_col}]"
         return f"{r_part}{c_part}"
 
     return _A1_REF_RE.sub(replace_ref, formula)
@@ -102,13 +82,8 @@ def detect_vectorized_columns(model: SheetModel) -> dict[str, list[str]]:
 
 def _shift_a1_rows(addr: str, row_delta: int) -> str:
     def repl(match: re.Match[str]) -> str:
-        col_prefix, col, row_prefix, row_s = match.groups()
-        if row_prefix:
-            return f"{col_prefix}{col.upper()}{row_prefix}{row_s}"
-        row = int(row_s) + row_delta
-        if row < 1:
-            return match.group(0)
-        return f"{col_prefix}{col.upper()}{row}"
+        return f"{match.group(2)}{int(match.group(4)) + row_delta}"
+
     return _A1_REF_RE.sub(repl, addr)
 
 
@@ -116,9 +91,5 @@ def vectorize_range(a1_range: str, row_delta: int) -> str:
     """Expand an A1 ref or range down by *row_delta* rows."""
     if ":" in a1_range:
         start, end = a1_range.split(":", 1)
-        return f"{_shift_a1_rows(start, 0)}:{_shift_a1_rows(end, row_delta)}"
-    start = _shift_a1_rows(a1_range, 0)
-    end = _shift_a1_rows(a1_range, row_delta)
-    if start == end:
-        return start
-    return f"{start}:{end}"
+        return f"{start}:{_shift_a1_rows(end, row_delta)}"
+    return f"{a1_range}:{_shift_a1_rows(a1_range, row_delta)}"

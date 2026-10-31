@@ -91,7 +91,6 @@ def _emit_operand(node: OperandNode) -> str:
     if node.tsubtype == "error":
         raise TranslationError("PARSE_ERROR", "error literal")
     # Logical tokens are TRUE/FALSE. Any other logical value stays False.
-    # The same spelling on a non-text, non-error token is the old second check.
     if node.tsubtype == "logical" or upper in ("TRUE", "FALSE"):
         return "True" if upper == "TRUE" else "False"
     try:
@@ -207,8 +206,6 @@ def _fold_if(pairs: list[str], default: str, cond_of: Callable[[str], str]) -> s
 
 
 def _emit_switch(args: list[str]) -> str:
-    if len(args) < 2:
-        raise TranslationError("UNSUPPORTED_ARITY", "SWITCH arity")
     expr = args[0]
     pairs = args[1:]
     if len(pairs) % 2 == 1:
@@ -219,19 +216,16 @@ def _emit_switch(args: list[str]) -> str:
 
 
 def _emit_ifs(args: list[str]) -> str:
-    if len(args) < 2 or len(args) % 2 != 0:
+    if len(args) % 2 != 0:
         raise TranslationError("UNSUPPORTED_ARITY", "IFS arity")
     return _fold_if(args, "None", lambda cond: cond)
 
 
 def _emit_function(node: FunctionNode, state: _CodegenState) -> str:
     name = str(node.tvalue).upper().replace("_XLFN.", "")
-    axis = {"ROW": 0, "COLUMN": 1}.get(name)
-    if axis is not None:
-        return _emit_row_col(axis, node, state)
-    axis = {"ROWS": 0, "COLUMNS": 1}.get(name)
-    if axis is not None:
-        return _emit_dim_count(axis, node, state)
+    spec = {"ROW": (_emit_row_col, 0), "COLUMN": (_emit_row_col, 1), "ROWS": (_emit_dim_count, 0), "COLUMNS": (_emit_dim_count, 1)}.get(name)
+    if spec is not None:
+        return spec[0](spec[1], node, state)
     args = [_emit_expr(arg, state) for arg in (node.args or [])]
     emitted = _P1_FUNCTION_EMITTERS.get(name)
     if emitted is None:
@@ -240,8 +234,6 @@ def _emit_function(node: FunctionNode, state: _CodegenState) -> str:
 
 
 def _emit_aggregate(args: list[str]) -> str:
-    if len(args) < 3:
-        _bad_arity("aggregate", ">=3", len(args))
     try:
         fn = int(args[0])
     except (ValueError, TypeError):
@@ -251,29 +243,24 @@ def _emit_aggregate(args: list[str]) -> str:
     return f"calc.aggregate({', '.join(args)})"
 
 
-def _emit_if(args: list[str]) -> str:
-    # Excel and Calc return FALSE when IF's condition is false and the else
-    # branch is omitted. Requiring three arguments reports a legal
-    # IF(cond; val) as PARSE_ERROR.
-    if len(args) == 2:
-        return f"({args[1]} if {args[0]} else False)"
-    if len(args) == 3:
-        return f"({args[1]} if {args[0]} else {args[2]})"
-    raise TranslationError("UNSUPPORTED_ARITY", "IF expects 2 or 3 arguments")
-
-
-def _bad_arity(name: str, expected: int | str, got: int) -> str:
-    raise TranslationError("UNSUPPORTED_ARITY", f"{name} expects {expected} args, got {got}")
-
-
 def _arity(name: str, lo: int, hi: int | None, build: Callable[[list[str]], str]) -> Callable[[list[str]], str]:
     def emitter(args: list[str]) -> str:
         if len(args) < lo or (hi is not None and len(args) > hi):
             expected: int | str = lo if hi == lo else (f">={lo}" if hi is None else f"{lo}-{hi}")
-            _bad_arity(name, expected, len(args))
+            raise TranslationError("UNSUPPORTED_ARITY", f"{name} expects {expected} args, got {len(args)}")
         return build(args)
 
     return emitter
+
+
+def _round_like(fn: str, half: str) -> Callable[[list[str]], str]:
+    def build(a: list[str]) -> str:
+        if len(a) == 1:
+            return f"(np.sign({a[0]}) * np.{fn}(np.abs({a[0]}){half}))"
+        scale = f"10.0**np.asarray({a[1]}, dtype=np.int64)"
+        return f"(np.sign({a[0]}) * np.{fn}(np.abs({a[0]}) * {scale}{half}) / {scale})"
+
+    return build
 
 
 def _exact(name: str, n: int, template: str) -> Callable[[list[str]], str]:
@@ -330,7 +317,7 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     # becomes (1/np.log(a)/np.log(b)).
     "MOD": _exact("MOD", 2, "({0} % {1})"),
     "POWER": _exact("POWER", 2, "({0} ** {1})"),
-    "ROUND": _arity("ROUND", 1, 2, lambda a: f"(np.sign({a[0]}) * np.floor(np.abs({a[0]}) * 10.0**np.asarray({a[1]}, dtype=np.int64) + 0.5) / 10.0**np.asarray({a[1]}, dtype=np.int64))" if len(a) > 1 else f"(np.sign({a[0]}) * np.floor(np.abs({a[0]}) + 0.5))"),
+    "ROUND": _arity("ROUND", 1, 2, _round_like("floor", " + 0.5")),
     "SIN": _exact("SIN", 1, "np.sin({0})"),
     "COS": _exact("COS", 1, "np.cos({0})"),
     "TAN": _exact("TAN", 1, "np.tan({0})"),
@@ -338,9 +325,11 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "TRUE": lambda _a: "True",
     "FALSE": lambda _a: "False",
     "PI": lambda _a: "math.pi",
-    "IF": _emit_if,
-    "IFS": _emit_ifs,
-    "SWITCH": _emit_switch,
+    # Omitted IF else-branch is FALSE in Excel and Calc. A 3-arg minimum
+    # used to report a legal IF(cond; val) as a parse failure.
+    "IF": _arity("IF", 2, 3, lambda a: f"({a[1]} if {a[0]} else False)" if len(a) == 2 else f"({a[1]} if {a[0]} else {a[2]})"),
+    "IFS": _arity("IFS", 2, None, _emit_ifs),
+    "SWITCH": _arity("SWITCH", 2, None, _emit_switch),
     "AND": _arity("AND", 1, None, lambda a: f"all([{', '.join(a)}])"),
     "OR": _arity("OR", 1, None, lambda a: f"any([{', '.join(a)}])"),
     # Text (P2)
@@ -446,8 +435,8 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "LOOKUP": _calc("lookup", 2, 3),
     "MEDIAN": _at_least_one("MEDIAN", "np.median({0})"),
     "COUNTBLANK": _exact("COUNTBLANK", 1, "sum(1 for x in np.asarray({0}).ravel() if x is None or x == '')"),
-    "ROUNDUP": _arity("ROUNDUP", 1, 2, lambda a: f"(np.sign({a[0]}) * np.ceil(np.abs({a[0]}) * 10.0**np.asarray({a[1]}, dtype=np.int64)) / 10.0**np.asarray({a[1]}, dtype=np.int64))" if len(a) > 1 else f"(np.sign({a[0]}) * np.ceil(np.abs({a[0]})))"),
-    "ROUNDDOWN": _arity("ROUNDDOWN", 1, 2, lambda a: f"(np.sign({a[0]}) * np.floor(np.abs({a[0]}) * 10.0**np.asarray({a[1]}, dtype=np.int64)) / 10.0**np.asarray({a[1]}, dtype=np.int64))" if len(a) > 1 else f"(np.sign({a[0]}) * np.floor(np.abs({a[0]})))"),
+    "ROUNDUP": _arity("ROUNDUP", 1, 2, _round_like("ceil", "")),
+    "ROUNDDOWN": _arity("ROUNDDOWN", 1, 2, _round_like("floor", "")),
     "CEILING": _arity("CEILING", 1, 2, lambda a: f"np.ceil({a[0]})" if len(a) == 1 else f"(np.ceil({a[0]} / {a[1]}) * {a[1]})"),
     "FLOOR": _arity("FLOOR", 1, 2, lambda a: f"np.floor({a[0]})" if len(a) == 1 else f"(np.floor({a[0]} / {a[1]}) * {a[1]})"),
     "LOG": _arity("LOG", 1, 2, lambda a: f"(np.log({a[0]}) / np.log({a[1]}))" if len(a) > 1 else f"np.log10({a[0]})"),
@@ -522,7 +511,7 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "YIELDDISC": _calc("yielddisc", 4, 5),
     "YIELDMAT": _calc("yieldmat", 5, 6),
     "NA": lambda _a: "calc.na()",
-    "AGGREGATE": _emit_aggregate,
+    "AGGREGATE": _arity("AGGREGATE", 3, None, _emit_aggregate),
     "BASE": _calc("base", 2, 3),
     "DECIMAL": _calc("decimal", 2, 2),
     "MULTINOMIAL": _calc("multinomial", 1),

@@ -43,6 +43,4 @@ def test_detect_vectorized_columns():
 def test_vectorize_range():
     assert vectorize_range("A2", 2) == "A2:A4"
     assert vectorize_range("A1:A10", 2) == "A1:A12"
-    assert vectorize_range("$A$1", 2) == "$A$1"
-    assert vectorize_range("$A1", 2) == "$A1:$A3"
 

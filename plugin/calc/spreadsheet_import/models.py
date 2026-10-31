@@ -30,12 +30,11 @@ class CellRecord:
 
 @dataclass
 class SheetModel:
-    """Ingested sheet: classified cells plus dependency ordering."""
+    """Ingested sheet: classified cells plus circular groups."""
 
     sheet_name: str
     used_range: str
     cells: dict[str, CellRecord]
-    formula_order: list[str] = field(default_factory=list)
     circular_groups: list[list[str]] = field(default_factory=list)
 
 
