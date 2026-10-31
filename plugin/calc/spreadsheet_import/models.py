@@ -84,8 +84,8 @@ class ConversionReport:
     pass_through: list[str] = field(default_factory=list)
 
     def formula_total(self) -> int:
-        """Distinct formula-like cells considered; a cell with a reason is counted once."""
-        return len(set(self.converted) | set(self.pass_through) | {todo.address for todo in self.skipped})
+        """len(converted) + len(pass_through); skipped addresses are already in pass_through."""
+        return len(self.converted) + len(self.pass_through)
 
     def conversion_rate(self) -> float:
         total = self.formula_total()

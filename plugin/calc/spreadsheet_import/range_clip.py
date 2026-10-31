@@ -25,12 +25,6 @@ def _split_axis(address: str) -> tuple[str, str, str] | None:
     return None
 
 
-def _quote_sheet_reference(name: str, was_quoted: bool) -> str:
-    if was_quoted or not name.isidentifier():
-        return "'" + name.replace("'", "''") + "'"
-    return name
-
-
 def clip_workbook_data_ranges(ranges: list[str], *, sheet_bounds: dict[str, tuple[int, int]] | None, current_sheet: str | None = None) -> list[str]:
     """Clip ``SHEET.F:F`` style refs to ``SHEET.F1:F{used_row}`` when bounds are known."""
     bounds = {str(key).upper(): value for key, value in (sheet_bounds or {}).items()}
@@ -53,7 +47,7 @@ def _clip_one_range(range_ref: str, sheet_bounds: dict[str, tuple[int, int]], *,
 
     if sheet:
         was_quoted = text.startswith(("'", "$'"))
-        quoted_name = _quote_sheet_reference(sheet, was_quoted)
+        quoted_name = "'" + sheet.replace("'", "''") + "'" if was_quoted or not sheet.isidentifier() else sheet
         sep = "." if text[:text.rfind(address)].rstrip().endswith(".") else "!"
         prefix = f"{quoted_name}{sep}"
     else:
