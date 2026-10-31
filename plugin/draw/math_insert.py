@@ -57,8 +57,6 @@ def _content_size_hmm(sz: Any, map_unit: int = _MAP_ONE_100TH_MM) -> tuple[int, 
     if spec is None:
         return None
     num, den = spec
-    if den == 1:
-        return w * num, h * num
     return round(w * num / den), round(h * num / den)
 
 
@@ -76,9 +74,14 @@ def _read_shape_property(shape: Any, name: str) -> Any:
     return None
 
 
-def _embedded_object_visual_hmm(shape: Any) -> tuple[int, int] | None:
-    """``XVisualObject`` size from the ``EmbeddedObject`` property.
+def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
+    """Best-effort formula box in 1/100 mm, or None when UNO has no size.
 
+    ``VisibleArea`` is already 1/100 mm. ``SvxOle2Shape``
+    ``OWN_ATTR_OLE_VISAREA`` (``svx/source/unodraw/unoshap4.cxx``) converts
+    ``GetOrigObjSize`` with ``Map100thMM``.
+
+    ``XVisualObject`` size from the ``EmbeddedObject`` property.
     ``getEmbeddedObject()`` is Writer ``TextEmbeddedObject``. Draw
     ``OLE2Shape`` does not implement it, so the call returns None
     and ``insert_math`` falls back to the length heuristic (clipped
@@ -88,6 +91,9 @@ def _embedded_object_visual_hmm(shape: Any) -> tuple[int, int] | None:
     ``SmDocShell::GetSize()`` as the vis-area
     (``SmModel::_setPropertyValues``).
     """
+    wh = _content_size_hmm(_read_shape_property(shape, "VisibleArea"))
+    if wh is not None:
+        return wh
     try:
         emb = _read_shape_property(shape, "EmbeddedObject")
         if emb is None:
@@ -99,9 +105,8 @@ def _embedded_object_visual_hmm(shape: Any) -> tuple[int, int] | None:
             vo = emb.queryInterface(uno.getTypeByName("com.sun.star.embed.XVisualObject"))
         if vo is None or not hasattr(vo, "getVisualAreaSize"):
             return None
-        aspect = _ASPECT_CONTENT
-        sz = vo.getVisualAreaSize(aspect)
-        map_unit = vo.getMapUnit(aspect)
+        sz = vo.getVisualAreaSize(_ASPECT_CONTENT)
+        map_unit = vo.getMapUnit(_ASPECT_CONTENT)
         out = _content_size_hmm(sz, map_unit)
         if out is None:
             log.debug("math_insert: unsupported embed map_unit=%s size=%sx%s", map_unit, getattr(sz, "Width", "?"), getattr(sz, "Height", "?"))
@@ -109,19 +114,6 @@ def _embedded_object_visual_hmm(shape: Any) -> tuple[int, int] | None:
     except Exception:
         log.debug("math_insert: getVisualAreaSize path failed", exc_info=True)
     return None
-
-
-def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
-    """Best-effort formula box in 1/100 mm, or None when UNO has no size.
-
-    ``VisibleArea`` is already 1/100 mm. ``SvxOle2Shape``
-    ``OWN_ATTR_OLE_VISAREA`` (``svx/source/unodraw/unoshap4.cxx``) converts
-    ``GetOrigObjSize`` with ``Map100thMM``.
-    """
-    wh = _content_size_hmm(_read_shape_property(shape, "VisibleArea"))
-    if wh is not None:
-        return wh
-    return _embedded_object_visual_hmm(shape)
 
 
 def _heuristic_size_hmm(formula: str) -> tuple[int, int]:
@@ -164,8 +156,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
         uno_ctx = getattr(ctx, "ctx", None) or ctx
 
         if formula_type == "latex":
-            display_block = bool(_DISPLAY_BLOCK_RE.search(formula))
-            res = convert_latex_to_starmath(uno_ctx, formula, display_block=display_block)
+            res = convert_latex_to_starmath(uno_ctx, formula, display_block=bool(_DISPLAY_BLOCK_RE.search(formula)))
         elif formula_type == "mathml":
             res = convert_mathml_to_starmath(uno_ctx, formula)
         else:
@@ -196,14 +187,11 @@ class InsertMathDraw(ToolDrawSpecialBase):
                 raise RuntimeError("Math OLE model is not available on this build.")
             model.Formula = res.starmath
 
-            wh = _try_ole_shape_content_size_hmm(shape)
             # A real formula can be narrower than the minimum box (a stacked
             # fraction is ~499 x 2069 hmm). Discarding that pair because one
             # side is under the floor replaced it with the length heuristic,
             # which clips the height and overshoots the width. Clamp below.
-            if wh is None:
-                wh = _heuristic_size_hmm(res.starmath or formula)
-            w, h = wh
+            w, h = _try_ole_shape_content_size_hmm(shape) or _heuristic_size_hmm(res.starmath or formula)
             w = max(_MIN_W_HMM, min(_MAX_W_HMM, w))
             h = max(_MIN_H_HMM, min(_MAX_H_HMM, h))
             shape.setSize(Size(w, h))
