@@ -77,7 +77,7 @@ def _is_calc_doc(doc: Any) -> bool:
         return False
 
 
-def _xlsx_doc_path(doc: Any, *, must_exist: bool = False) -> tuple[str, Path] | None:
+def _xlsx_doc_path(doc: Any) -> Path | None:
     from plugin.doc.text_helpers import get_document_path
 
     path_str = get_document_path(doc)
@@ -86,9 +86,7 @@ def _xlsx_doc_path(doc: Any, *, must_exist: bool = False) -> tuple[str, Path] | 
     path = Path(path_str)
     if path.suffix.lower() != ".xlsx":
         return None
-    if must_exist and not path.is_file():
-        return None
-    return path_str, path
+    return path
 
 
 def has_excel_python_xlsx(path: str | Path) -> bool:
@@ -148,15 +146,14 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
     if not _is_calc_doc(doc):
         return False
 
-    resolved = _xlsx_doc_path(doc)
-    if resolved is None:
+    path = _xlsx_doc_path(doc)
+    if path is None:
         return False
-    path_str, path = resolved
 
     if not has_excel_python_xlsx(path):
         return False
 
-    with _busy_path(path_str) as acquired:
+    with _busy_path(str(path)) as acquired:
         if not acquired:
             return False
         try:
@@ -190,17 +187,16 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
             return False
 
 
-def _save_fail_message(path: Path, detail: str) -> str:
-    from plugin.framework.i18n import _
-
-    return _("Could not write Microsoft Excel Python package parts for:\n{0}\n\nThe file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n\n{1}").format(path, detail)
-
-
 def _show_save_failure(ctx: Any, path: Path, detail: str) -> None:
     from plugin.chatbot.dialogs import msgbox
+    from plugin.framework.i18n import _
     from plugin.framework.uno_context import product_display_name
 
-    msgbox(ctx, product_display_name(ctx), _save_fail_message(path, detail), box_type=2)
+    msg = _(
+        "Could not write Microsoft Excel Python package parts for:\n{0}\n\n"
+        "The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n\n{1}"
+    ).format(path, detail)
+    msgbox(ctx, product_display_name(ctx), msg, box_type=2)
 
 
 def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
@@ -208,12 +204,11 @@ def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
     if not _is_calc_doc(doc):
         return False
 
-    resolved = _xlsx_doc_path(doc, must_exist=True)
-    if resolved is None:
+    path = _xlsx_doc_path(doc)
+    if path is None or not path.is_file():
         return False
-    path_str, path = resolved
 
-    with _busy_path(path_str) as acquired:
+    with _busy_path(str(path)) as acquired:
         if not acquired:
             return False
         try:
@@ -259,22 +254,21 @@ def _doc_from_event(event: Any) -> Any | None:
     # Factory ``OnNew`` / ``OnCreate`` for a hidden ``scalc`` often has Source=doc
     # but getCurrentController() throws — do not skip ``_is_calc_doc(source)``.
     try:
-        controller = getattr(event, "ViewController", None)
-        if controller is not None and hasattr(controller, "getModel"):
+        controller = event.ViewController
+        if controller is not None:
             return controller.getModel()
     except Exception:  # noqa: S110 - disposed ViewController; probe falls through to Source
         pass
-    source = None
     try:
-        source = getattr(event, "Source", None)
+        source = event.Source
     except Exception:
         source = None
     if source is not None and _is_calc_doc(source):
         return source
     try:
-        if source is not None and hasattr(source, "getCurrentController"):
+        if source is not None:
             ctrl = source.getCurrentController()
-            if ctrl is not None and hasattr(ctrl, "getModel"):
+            if ctrl is not None:
                 return ctrl.getModel()
     except Exception:  # noqa: S110 - getCurrentController throws on hidden factory OnNew; probe falls through
         pass

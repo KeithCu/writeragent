@@ -70,14 +70,8 @@ def code_sheet_name_for(source_sheet: str) -> str:
 
 
 def normalize_bank_a1(cell: str) -> str:
-    """Strip ``$`` / sheet prefix; return uppercase A1 (``H4``)."""
+    """Strip ``$``; return uppercase A1 (``H4``)."""
     raw = (cell or "").replace("$", "").strip()
-    if "!" in raw:
-        raw = raw.split("!", 1)[1]
-    if "." in raw and not _RE_A1.match(raw):
-        left, _unused, right = raw.partition(".")
-        if right and _RE_A1.match(right) and not _RE_A1.match(left):
-            raw = right
     m = _RE_A1.match(raw)
     if not m:
         raise ValueError(f"invalid bank A1 address: {cell!r}")
