@@ -41,16 +41,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.path.suffix.lower() != ".xlsx":
                 print("--write-xlsx requires an .xlsx source (package shell)", file=sys.stderr)
                 return 2
-            if args.direction == "dag":
-                write_dag_formulas_xlsx(args.path, report, args.write_xlsx)
-            else:
-                write_excel_python_xlsx(args.path, report, args.write_xlsx)
+            write = write_dag_formulas_xlsx if args.direction == "dag" else write_excel_python_xlsx
+            write(args.path, report, args.write_xlsx)
+            print(f"wrote {args.write_xlsx}", file=sys.stderr)
     except (OSError, zipfile.BadZipFile, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-
-    if args.write_xlsx:
-        print(f"wrote {args.write_xlsx}", file=sys.stderr)
 
     if args.report:
         print(f"wrote {args.report}", file=sys.stderr)

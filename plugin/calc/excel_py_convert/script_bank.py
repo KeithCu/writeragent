@@ -87,15 +87,10 @@ def resolve_bank_cell_reference(
     Shares bank reference pattern matching and A1 address normalization between
     offline OOXML extraction and live UNO Calc snapshotting.
     """
-    m = BANK_REF_RE.match((code or "").strip())
+    m = BANK_REF_RE.match(code.strip())
     if not m:
         return None
-    sheet = m.group(1)
-    try:
-        a1 = normalize_bank_a1(m.group(2))
-    except ValueError:
-        return None
-    return lookup_fn(sheet, a1)
+    return lookup_fn(m.group(1), normalize_bank_a1(m.group(2)))
 
 
 def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) -> str:
@@ -192,28 +187,12 @@ def collect_safety_warnings(code: str) -> list[str]:
         warnings.append(f"source is not parseable: {exc}")
         return warnings
 
-    try:
-        from plugin.scripting.sandbox import build_sandbox_policy, import_authorized, policy_blocked_imports
+    from plugin.scripting.sandbox import build_sandbox_policy, import_authorized, policy_blocked_imports
 
-        blocked = policy_blocked_imports(build_sandbox_policy())
+    blocked = policy_blocked_imports(build_sandbox_policy())
 
-        def is_blocked(name: str) -> bool:
-            return not import_authorized(name, (), blocked)
-    except Exception:
-        _FALLBACK_BLOCKED = (
-            "subprocess",
-            "socket",
-            "shutil",
-            "tempfile",
-            "sqlite3",
-            "pickle",
-            "importlib",
-            "ctypes",
-        )
-
-        def is_blocked(name: str) -> bool:
-            root = (name or "").split(".", 1)[0]
-            return root in _FALLBACK_BLOCKED
+    def is_blocked(name: str) -> bool:
+        return not import_authorized(name, (), blocked)
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

@@ -23,17 +23,6 @@ log = logging.getLogger(__name__)
 # Udprop: per-cell JSON so auto-save can restore return_type / data_args / excel_deps.
 EXCEL_PY_DAG_META_PROP = "ExcelPyDagMeta"
 
-__all__ = [
-    "EXCEL_PY_DAG_META_PROP",
-    "cell_meta_key",
-    "convert_path",
-    "convert_to_dag",
-    "convert_to_excel",
-    "dag_report_to_meta_payload",
-    "load_dag_meta_from_doc",
-    "store_dag_meta_on_doc",
-]
-
 
 def convert_to_dag(path: str | Path, *, best_effort: bool = False) -> ConversionReport:
     """Excel XLSX or JSON fixture → DAG-style conversion report."""

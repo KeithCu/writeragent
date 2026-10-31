@@ -98,11 +98,8 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
                 formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_formula(resolved)}"{parts.data_suffix}'
             else:
                 formula_out = canonical
-            cell_meta: dict[str, Any] = {}
             stored = meta_map.get(cell_meta_key(sheet_name, a1))
-            if isinstance(stored, dict):
-                cell_meta = dict(stored)
-            triples.append((sheet_name, a1, formula_out, cell_meta))
+            triples.append((sheet_name, a1, formula_out, dict(stored) if isinstance(stored, dict) else {}))
         if scan_limit_reached:
             break
 

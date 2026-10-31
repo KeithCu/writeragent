@@ -37,7 +37,6 @@ _SAVE_DONE_EVENTS = frozenset({"OnSaveDone", "OnSaveAsDone", "OnSaveToDone"})
 # Factory ``private:factory/scalc`` fires OnNew, not OnLoadFinished. Geometric
 # strip state and the unload listener are set up on these events too.
 _GEOMETRIC_OPEN_EVENTS = frozenset({"OnLoadFinished", "OnNew", "OnLoad", "OnCreate"})
-_ISSUE_LOG_LIMIT = 5
 
 
 def _geometric_open_job(ctx: Any, doc: Any) -> None:
@@ -77,7 +76,9 @@ def _is_calc_doc(doc: Any) -> bool:
         return False
 
 
-def _xlsx_doc_path(doc: Any) -> Path | None:
+def _calc_xlsx_path(doc: Any) -> Path | None:
+    if not _is_calc_doc(doc):
+        return None
     from plugin.doc.text_helpers import get_document_path
 
     path_str = get_document_path(doc)
@@ -135,18 +136,14 @@ def _busy_path(path_str: str):
 def _issue_summary(report: Any) -> str:
     """Semicolon-joined first few issues (cell issues when the report has none)."""
     issues = list(report.issues) or [f"{c.sheet}!{c.cell}: {', '.join(c.issues)}" for c in report.cells if c.issues]
-    if not issues:
-        return ""
-    shown = "; ".join(issues[:_ISSUE_LOG_LIMIT])
-    return f"{shown} (+{len(issues) - _ISSUE_LOG_LIMIT} more)" if len(issues) > _ISSUE_LOG_LIMIT else shown
+    shown = "; ".join(issues[:5])
+    extra = len(issues) - 5
+    return f"{shown} (+{extra} more)" if extra > 0 else shown
 
 
 def maybe_convert_excel_py_document(doc: Any) -> bool:
     """If *doc* is an Excel-PY ``.xlsx``, convert to DAG ``=PY``. Return True if converted."""
-    if not _is_calc_doc(doc):
-        return False
-
-    path = _xlsx_doc_path(doc)
+    path = _calc_xlsx_path(doc)
     if path is None:
         return False
 
@@ -201,10 +198,7 @@ def _show_save_failure(ctx: Any, path: Path, detail: str) -> None:
 
 def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
     """After LO stores a Calc ``.xlsx``, rewrite disk to native Excel PY. Return True if patched."""
-    if not _is_calc_doc(doc):
-        return False
-
-    path = _xlsx_doc_path(doc)
+    path = _calc_xlsx_path(doc)
     if path is None or not path.is_file():
         return False
 
