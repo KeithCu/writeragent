@@ -55,11 +55,6 @@ def cache_key(abs_path: str, mtime_ns: int, size: int) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def ods_cache_dir(source_path: str) -> Path:
-    """``writeragent_ods_cache/`` beside the scoped folder that holds *source_path*."""
-    return Path(normalize_source_path(source_path)).parent / ODS_CACHE_DIRNAME
-
-
 class OdsCacheEntry(NamedTuple):
     ods: Path
     meta: Path
@@ -75,7 +70,7 @@ def cache_entry(source_path: str) -> OdsCacheEntry | None:
     except OSError:
         return None
     key = cache_key(abs_path, mtime_ns, size)
-    folder = ods_cache_dir(source_path)
+    folder = Path(abs_path).parent / ODS_CACHE_DIRNAME
     return OdsCacheEntry(folder / f"{key}.ods", folder / f"{key}.meta.json", abs_path, mtime_ns, size)
 
 

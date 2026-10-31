@@ -20,7 +20,6 @@ from plugin.calc.ods_cache import (
     lookup_cached_ods,
     meta_matches_source,
     normalize_source_path,
-    ods_cache_dir,
     source_stat,
     write_sidecar_meta,
 )
@@ -100,11 +99,6 @@ def test_ods_source_never_looks_up_cache(tmp_path: Path):
     assert not (tmp_path / ODS_CACHE_DIRNAME).exists()
 
 
-def test_ods_cache_dir_is_beside_source_folder(tmp_path: Path):
-    xlsx = _write_xlsx(tmp_path / "budget.xlsx")
-    assert os.path.normcase(str(ods_cache_dir(str(xlsx)))) == os.path.normcase(str(tmp_path / ODS_CACHE_DIRNAME))
-
-
 def test_write_sidecar_meta_is_atomic(tmp_path: Path):
     meta_path = tmp_path / "test.meta.json"
     write_sidecar_meta(meta_path, "/abs/file.xlsx", 1000, 200)
@@ -123,7 +117,11 @@ def test_normalize_source_path_resolves_symlink(tmp_path: Path):
     except (OSError, NotImplementedError):
         pytest.skip("symlinks unavailable")
     assert normalize_source_path(str(alias)) == normalize_source_path(str(budget))
-    assert ods_cache_dir(str(alias)) == ods_cache_dir(str(budget))
+    alias_entry = cache_entry(str(alias))
+    budget_entry = cache_entry(str(budget))
+    assert alias_entry is not None and budget_entry is not None
+    assert alias_entry.ods == budget_entry.ods
+    assert alias_entry.ods.parent == Path(normalize_source_path(str(budget))).parent / ODS_CACHE_DIRNAME
     _seed_cache(budget)
     assert lookup_cached_ods(str(alias)) is not None
 
