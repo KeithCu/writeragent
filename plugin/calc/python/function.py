@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import datetime
 import hashlib
 import logging
@@ -17,7 +17,7 @@ import re
 import struct
 import threading
 import time
-from typing import Any, ClassVar, Iterator, cast
+from typing import Any, Iterator, cast
 
 from plugin.framework.uno_listeners import BaseModifyListener
 
@@ -33,7 +33,7 @@ from plugin.calc.datetime_wire import (
     should_preserve_temporal_format,
     time_day_fraction,
 )
-from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc
+from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc, search_sheet_for_formula
 from plugin.calc.python.image_egress import insert_image_result_on_sheet
 from plugin.framework.errors import best_effort, format_error_message, uno_probe
 from plugin.framework.i18n import _
@@ -264,16 +264,11 @@ def _flat_result_equal(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
     if len(left) != len(right):
         return False
     for val_left, val_right in zip(left, right):
-        if isinstance(val_left, float) and isinstance(val_right, float):
-            if not math.isfinite(val_left) or not math.isfinite(val_right):
-                if struct.pack("d", val_left) != struct.pack("d", val_right):
-                    return False
-            else:
-                if val_left != val_right:
-                    return False
-        else:
-            if val_left != val_right:
+        if isinstance(val_left, float) and isinstance(val_right, float) and not (math.isfinite(val_left) and math.isfinite(val_right)):
+            if struct.pack("d", val_left) != struct.pack("d", val_right):
                 return False
+        elif val_left != val_right:
+            return False
     return True
 
 
@@ -484,20 +479,14 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     return (doc_url, sheet_name, sid, code, origin)
 
 
+@dataclass(eq=False, slots=True)
 class WorkerResultSession:
     """Caches one worker list result across multiple =PY() calls in a recalc pass."""
 
-    __slots__: ClassVar[tuple[str, ...]] = ("raw", "flat", "next_index", "timestamp")
     raw: Any
     flat: tuple[Any, ...]
-    next_index: int
-    timestamp: float
-
-    def __init__(self, raw: Any, flat: list[Any], timestamp: float | None = None) -> None:
-        self.raw = raw
-        self.flat = tuple(flat)
-        self.next_index = 0
-        self.timestamp = time.monotonic() if timestamp is None else timestamp
+    next_index: int = 0
+    timestamp: float = field(default_factory=time.monotonic)
 
 
 def _worker_data_token(worker_data: Any) -> str:
@@ -557,7 +546,7 @@ def _expire_matrix_sessions_locked(now: float) -> None:
 
 def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any = None, doc: Any | None = None, data_token: str | None = None) -> float | str | bool:
     """Return one Calc scalar per invocation when the worker produced a list."""
-    flat: list[Any] = [py_addin_cell_value(v) for v in flatten_result_values(result)]
+    flat: tuple[Any, ...] = tuple(py_addin_cell_value(v) for v in flatten_result_values(result))
     if not flat:
         return ""
     tid = threading.get_ident()
@@ -572,7 +561,7 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
     with _MATRIX_SCALAR_SESSIONS_LOCK:
         _expire_matrix_sessions_locked(now)
         state = _MATRIX_SCALAR_SESSIONS.get(key)
-        if state is None or not _flat_result_equal(state.flat, tuple(flat)):
+        if state is None or not _flat_result_equal(state.flat, flat):
             state = WorkerResultSession(result, flat, timestamp=now)
             _MATRIX_SCALAR_SESSIONS[key] = state
         state.timestamp = now
@@ -757,10 +746,6 @@ class CalcSpillModifyListener(BaseModifyListener):
                 doc = _get_calc_doc(self.ctx)
 
             from plugin.calc.python.cell_discovery import is_py_formula_text
-            from plugin.calc.python.formula_locator_cache import (
-                is_matching_py_formula,
-                search_sheet_for_formula,
-            )
 
             # Bugfix: What was wrong: When rows/columns were inserted, formula cells shifted to new coordinates,
             # causing modified() to see a mismatch at (fcol, frow) and clear all spilled cells.
@@ -983,10 +968,7 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
         # bool is an int. to_calc_compatible maps it to 1.0/0.0 and OverflowError to decimal text.
         return to_calc_compatible(val), {"is_temporal": False, "is_empty": False}
     if isinstance(val, float):
-        try:
-            return float(val), {"is_temporal": False, "is_empty": False}
-        except OverflowError:
-            return str(val), {"is_temporal": False, "is_empty": False}
+        return float(val), {"is_temporal": False, "is_empty": False}
 
     if isinstance(val, datetime.datetime):
         dt = val.replace(tzinfo=None) if val.tzinfo is not None else val
@@ -1055,17 +1037,12 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
         if cat is not None:
             try:
                 if cat == "date":
-                    d = datetime.date.fromisoformat(stripped)
-                    serial = datetime_serial(d, null_dt)
-                    return serial, {"is_temporal": True, "input_category": "date", "serial": serial, "is_empty": False}
+                    parsed: datetime.date | datetime.datetime | datetime.time = datetime.date.fromisoformat(stripped)
                 elif cat == "datetime":
-                    dt = datetime.datetime.fromisoformat(stripped.replace(" ", "T"))
-                    serial = datetime_serial(dt, null_dt)
-                    return serial, {"is_temporal": True, "input_category": "datetime", "serial": serial, "is_empty": False}
-                elif cat == "time":
-                    t = datetime.time.fromisoformat(stripped)
-                    serial = time_day_fraction(t)
-                    return serial, {"is_temporal": True, "input_category": "time", "serial": serial, "is_empty": False}
+                    parsed = datetime.datetime.fromisoformat(stripped.replace(" ", "T"))
+                else:
+                    parsed = datetime.time.fromisoformat(stripped)
+                return _coerce_spill_value(parsed, null_dt)
             except ValueError:
                 pass
         return val, {"is_temporal": False, "is_empty": False}
