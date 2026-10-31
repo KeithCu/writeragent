@@ -21,11 +21,10 @@ _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "spreadsheet_
 
 
 def test_classify_empty():
-    cell_type, value, formula, error = classify_cell(None, "")
+    cell_type, value, formula = classify_cell(None, "")
     assert cell_type == "empty"
     assert value is None
     assert formula is None
-    assert error is None
 
 
 @pytest.mark.parametrize(
@@ -36,13 +35,13 @@ def test_classify_empty():
     ],
 )
 def test_classify_constant_number(value_2, expected):
-    cell_type, value, formula, _ = classify_cell(value_2, "")
+    cell_type, value, formula = classify_cell(value_2, "")
     assert cell_type == "constant"
     assert value == expected
     assert formula is None
 
 def test_classify_sum_formula():
-    cell_type, value, formula, _ = classify_cell(10.0, "=SUM(A1:A3)")
+    cell_type, value, formula = classify_cell(10.0, "=SUM(A1:A3)")
     assert cell_type == "formula"
     assert value == 10.0
     assert formula == "=SUM(A1:A3)"
@@ -58,28 +57,25 @@ def test_classify_sum_formula():
     ],
 )
 def test_classify_py_formula(value, value_2, expected, expected_2):
-    cell_type, _, formula, _ = classify_cell(value, value_2)
+    cell_type, unused_val, formula = classify_cell(value, value_2)
     assert cell_type == expected
     assert formula == expected_2
 
 def test_classify_error_display():
-    cell_type, value, formula, error = classify_cell("#DIV/0!", "=A1/0")
+    cell_type, value, formula = classify_cell("#DIV/0!", "=A1/0")
     assert cell_type == "error"
     assert value == "#DIV/0!"
     assert formula == "=A1/0"
-    assert error == "#DIV/0!"
 
-    cell_type, value, formula, error = classify_cell("Err:519", "=A1")
+    cell_type, value, formula = classify_cell("Err:519", "=A1")
     assert cell_type == "error"
     assert value == "Err:519"
     assert formula == "=A1"
-    assert error == "Err:519"
 
-    cell_type, value, formula, error = classify_cell("hello", "=A1")
+    cell_type, value, formula = classify_cell("hello", "=A1")
     assert cell_type == "formula"
     assert value == "hello"
     assert formula == "=A1"
-    assert error is None
 
 
 def test_ingest_precedents_extraction_and_scope():

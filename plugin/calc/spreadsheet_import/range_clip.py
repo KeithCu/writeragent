@@ -33,9 +33,7 @@ def _quote_sheet_reference(name: str, was_quoted: bool) -> str:
 
 def clip_workbook_data_ranges(ranges: list[str], *, sheet_bounds: dict[str, tuple[int, int]] | None, current_sheet: str | None = None) -> list[str]:
     """Clip ``SHEET.F:F`` style refs to ``SHEET.F1:F{used_row}`` when bounds are known."""
-    if not sheet_bounds:
-        return list(ranges)
-    bounds = {str(key).upper(): value for key, value in sheet_bounds.items()}
+    bounds = {str(key).upper(): value for key, value in (sheet_bounds or {}).items()}
     return [_clip_one_range(r, bounds, current_sheet=current_sheet) for r in ranges]
 
 

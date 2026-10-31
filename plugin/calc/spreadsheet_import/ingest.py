@@ -22,13 +22,12 @@ from plugin.calc.spreadsheet_import.models import CellRecord, CellType, SheetMod
 _PROMPT_HEAD_RE = re.compile(r"^=\s*PROMPT\s*\(", re.IGNORECASE)
 
 
-def classify_cell(raw_val: Any, raw_formula: str) -> tuple[CellType, Any, str | None, str | None]:
+def classify_cell(raw_val: Any, raw_formula: str) -> tuple[CellType, Any, str | None]:
     """Classify one cell from bulk ``getDataArray`` / ``getFormulaArray`` entries.
 
-    Returns ``(type, value, formula, error_code)``.
+    Returns ``(type, value, formula)``.
     """
     formula: str | None = None
-    error_code: str | None = None
 
     raw_text = str(raw_formula) if raw_formula else ""
     if raw_text.startswith("=") or (raw_text.startswith("{") and raw_text.endswith("}")):
@@ -37,22 +36,21 @@ def classify_cell(raw_val: Any, raw_formula: str) -> tuple[CellType, Any, str | 
 
         # Array formulas keep ``{=…}`` wrapper; normalize strips braces.
         if formula.startswith("{") and formula.endswith("}"):
-            return "array_formula", value, formula, None
+            return "array_formula", value, formula
 
         normalized = normalize_formula_string(formula)
         if is_py_formula_text(formula):
-            return "py_formula", value, formula, None
+            return "py_formula", value, formula
         if _PROMPT_HEAD_RE.match(normalized):
-            return "prompt", value, formula, None
+            return "prompt", value, formula
 
-        error_code = is_calc_error_display(value)
-        if error_code is not None:
-            return "error", value, formula, error_code
-        return "formula", value, formula, None
+        if is_calc_error_display(value) is not None:
+            return "error", value, formula
+        return "formula", value, formula
 
     if raw_val is not None and raw_val != "":
-        return "constant", raw_val, None, None
-    return "empty", None, None, None
+        return "constant", raw_val, None
+    return "empty", None, None
 
 
 def ingest_from_arrays(*, sheet_name: str, start_col: int, start_row: int, data_array: Sequence[Sequence[Any]], formula_array: Sequence[Sequence[str]]) -> SheetModel:
@@ -77,8 +75,8 @@ def ingest_from_arrays(*, sheet_name: str, start_col: int, start_row: int, data_
         for col_idx, (raw_val, raw_formula) in enumerate(zip(data_row, formula_row, strict=True)):
             abs_col = start_col + col_idx
             address = format_address(abs_col, abs_row)
-            cell_type, value, formula, error_code = classify_cell(raw_val, raw_formula)
-            cells[address] = CellRecord(address=address, type=cell_type, value=value, formula=formula, number_format=None, precedents=[], error_code=error_code)
+            cell_type, value, formula = classify_cell(raw_val, raw_formula)
+            cells[address] = CellRecord(address=address, type=cell_type, value=value, formula=formula, number_format=None)
 
     scope = frozenset(cells)
     for cell in cells.values():
