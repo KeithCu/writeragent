@@ -14,7 +14,6 @@ from plugin.scripting.audio_silence_detector import (
     STEADY_NOISE_MS,
     SilenceDetector,
     SilenceDetectorConfig,
-    _resolve_silence_stop_ms,
     load_silence_detector_config,
     pcm_energy_int16,
 )
@@ -150,7 +149,9 @@ def test_should_emit_silence_progress_throttles_updates():
 )
 def test_resolve_silence_stop_ms_prefers_chatbot_key(value, expected):
     with patch("plugin.framework.config.get_config_dict", return_value={"chatbot.audio_silence_stop_ms": value}):
-        assert _resolve_silence_stop_ms() == expected
+        cfg = load_silence_detector_config()
+        assert cfg.silence_stop_ms == expected
+        assert cfg.enabled is (expected > 0)
 
 
 def test_resolve_silence_stop_ms_ignores_legacy_flat_key():
@@ -158,7 +159,7 @@ def test_resolve_silence_stop_ms_ignores_legacy_flat_key():
         "plugin.framework.config.get_config_dict",
         return_value={"audio_silence_stop_ms": 1500},
     ):
-        assert _resolve_silence_stop_ms() == DEFAULT_SILENCE_STOP_MS
+        assert load_silence_detector_config().silence_stop_ms == DEFAULT_SILENCE_STOP_MS
 
 def test_five_second_fixture_has_long_pause_then_auto_stop_after_speech():
     """5s MP3 is leading silence + phrase (speech at the tail). Auto-stop needs
@@ -199,14 +200,7 @@ def test_five_second_fixture_has_long_pause_then_auto_stop_after_speech():
 
 def test_resolve_silence_stop_ms_default_when_unset():
     with patch("plugin.framework.config.get_config_dict", return_value={}):
-        assert _resolve_silence_stop_ms() == DEFAULT_SILENCE_STOP_MS
-
-
-def test_load_silence_detector_config_wraps_resolve():
-    with patch("plugin.scripting.audio_silence_detector._resolve_silence_stop_ms", return_value=3000):
-        cfg = load_silence_detector_config()
-    assert cfg.silence_stop_ms == 3000
-    assert cfg.enabled is True
+        assert load_silence_detector_config().silence_stop_ms == DEFAULT_SILENCE_STOP_MS
 
 
 def test_audio_record_main_uses_silence_stop_ms_only(tmp_path):
