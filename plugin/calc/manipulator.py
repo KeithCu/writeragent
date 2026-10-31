@@ -280,9 +280,7 @@ class CellManipulator:
     def _resolve_range_sheet(self, range_str: str) -> tuple[Any, Any, Any]:
         cell_range = self.bridge.resolve_range_or_address(range_str)
         addr = _uno_range_address(cell_range)
-        if hasattr(cell_range, "_mock_children") and "getSpreadsheet" not in cell_range._mock_children:
-            return cell_range, addr, self.bridge.doc.getSheets().getByIndex(addr.Sheet)
-        return cell_range, addr, cell_range.getSpreadsheet()
+        return cell_range, addr, self.bridge.doc.getSheets().getByIndex(addr.Sheet)
 
     # ── Internal helpers ───────────────────────────────────────────────
 
@@ -405,9 +403,6 @@ class CellManipulator:
                 target.setPropertyValue("IsTextWrapped", wrap_text)
             if border_color is not None:
                 self._apply_borders(target, border_color)
-            if number_format:
-                self._set_number_format(target, number_format)
-            log.info("%s %s style updated.", "Range" if is_range else "Cell", address_or_range.upper())
             if number_format:
                 self._set_number_format(target, number_format)
             log.info("%s %s style updated.", "Range" if is_range else "Cell", address_or_range.upper())
@@ -797,7 +792,8 @@ class CellManipulator:
                 self.clear_range(range_str)
                 return f"Range {range_str} cleared."
 
-            _cell_range, addr, sheet = self._resolve_range_sheet(range_str)
+            cell_range = self.bridge.resolve_range_or_address(range_str)
+            addr = _uno_range_address(cell_range)
             start = (addr.StartColumn, addr.StartRow)
             end = (addr.EndColumn, addr.EndRow)
 
@@ -822,7 +818,10 @@ class CellManipulator:
             # Detect top-level array functions and enter setArrayFormula
             # instead of fill-down. =SUM(FILTER()) stays scalar.
             if not literal_text and not data_text and _requests_array_formula(formula_or_values, array):
+                sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
                 return self._write_array_formula(sheet, formula_or_values, start, end, premeasured_array_size=premeasured_array_size)
+
+            sheet = cell_range.getSpreadsheet()
 
             if isinstance(formula_or_values, (list, tuple)):
                 if len(formula_or_values) > 0 and isinstance(formula_or_values[0], (list, tuple)):
