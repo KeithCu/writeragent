@@ -252,14 +252,11 @@ class TextAnalyticsDialog:
                 res_ctrl.getModel().Text = _("The document was closed.")
                 return
 
-            too_short = not text or (isinstance(text, str) and len(text.strip()) < 20)
-            if too_short:
-                nothing_selected = scope == "selection" and (
-                    not text or (isinstance(text, str) and not text.strip())
-                )
+            stripped = text.strip() if isinstance(text, str) else text
+            if not stripped or (isinstance(text, str) and len(stripped) < 20):
                 res_ctrl.getModel().Text = (
                     _("Nothing is selected.")
-                    if nothing_selected
+                    if scope == "selection" and not stripped
                     else _("Not enough text in the chosen scope.")
                 )
                 return
@@ -268,8 +265,6 @@ class TextAnalyticsDialog:
             res_ctrl.getModel().Text = _("Analyzing...")
 
         self._set_busy(True)
-
-        owner = self
 
         # Bugfix: worker blocking UI thread
         # What was wrong: worker RPC executed synchronously on the main VCL thread, freezing the UI.
@@ -290,35 +285,24 @@ class TextAnalyticsDialog:
                 log.exception("Text analytics worker call failed")
                 err = e
 
-            owner._deliver_compute_result(helper, res, err)
+            apply = partial(self._apply_compute_result, helper, res, err)
+            # a raised post_to_main_thread used to return after a log, so _busy stayed true and the compute buttons stayed disabled until the dialog was closed. post raises TimeoutError when AsyncCallback is missing and the pending list is full; a flush of older pending posts logs and leaves that tail queued, and it does not raise, so this closure is still enqueued when AsyncCallback exists. execute_on_main_thread is the retry that still runs _apply_compute_result on a live main thread. The flag clear is only for when that marshal also refuses, and it does not touch UNO.
+            try:
+                post_to_main_thread(apply)
+                return
+            except Exception:
+                log.exception("Failed to post text analytics compute result to main thread")
+            try:
+                execute_on_main_thread(apply, timeout=5.0)
+            except Exception:
+                log.exception("text analytics: could not deliver result on the main thread")
+                self._busy = False
 
         try:
             run_in_background(_worker, name="text-analytics-dialog", dedicated=True)
         except Exception as e:
             log.exception("Failed to schedule text analytics background worker")
             self._apply_compute_result(helper, None, e)
-
-    def _deliver_compute_result(
-        self,
-        helper: str,
-        result: dict[str, Any] | None,
-        error: Exception | None,
-    ) -> None:
-        def _post() -> None:
-            self._apply_compute_result(helper, result, error)
-
-        # a raised post_to_main_thread used to return after a log, so _busy stayed true and the compute buttons stayed disabled until the dialog was closed. post raises TimeoutError when AsyncCallback is missing and the pending list is full; a flush of older pending posts logs and leaves that tail queued, and it does not raise, so this closure is still enqueued when AsyncCallback exists. execute_on_main_thread is the retry that still runs _apply_compute_result on a live main thread. The flag clear is only for when that marshal also refuses, and it does not touch UNO.
-        try:
-            post_to_main_thread(_post)
-            return
-        except Exception:
-            log.exception("Failed to post text analytics compute result to main thread")
-
-        try:
-            execute_on_main_thread(_post, timeout=5.0)
-        except Exception:
-            log.exception("text analytics: could not deliver result on the main thread")
-            self._busy = False
 
     def _apply_compute_result(
         self,
@@ -467,8 +451,7 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
         models = data.get("models") or []
         if models:
             lines.append(f"  Installed Models ({len(models)}):")
-            for m in models:
-                lines.append(f"    - {m}")
+            lines.extend(f"    - {m}" for m in models)
         else:
             lines.append("  No models detected/loaded.")
 
