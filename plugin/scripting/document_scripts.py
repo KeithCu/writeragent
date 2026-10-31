@@ -99,14 +99,6 @@ def is_document_readonly_for_scripts(doc: Any) -> bool:
     return False
 
 
-def _envelope_to_json(scripts: dict[str, str]) -> str:
-    return json.dumps(
-        {"version": _ENVELOPE_VERSION, "scripts": scripts},
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
-
-
 def _fail_unreadable(message: str, *args: object, exc_info: bool = False) -> tuple[dict[str, str], DocumentScriptError]:
     log.warning(message, *args, exc_info=exc_info)
     return {}, DocumentScriptError(
@@ -169,26 +161,23 @@ def get_document_scripts(doc: Any) -> dict[str, str]:
     return scripts
 
 
-def _encoded_envelope(scripts: dict[str, str]) -> tuple[str, DocumentScriptError | None]:
-    payload = _envelope_to_json(scripts)
-    nbytes = len(payload.encode("utf-8"))
-    if nbytes > _MAX_DOCUMENT_SCRIPTS_BYTES:
-        return payload, DocumentScriptError(
-            _("Document scripts are too large to store in the document ({0} bytes).").format(nbytes),
-            DocumentScriptErrorCode.TOO_LARGE,
-        )
-    return payload, None
-
-
 def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptError | None:
     if doc is None:
         return DocumentScriptError(
             _("No document is open to save scripts."),
             DocumentScriptErrorCode.NO_DOCUMENT,
         )
-    payload, err = _encoded_envelope(scripts)
-    if err:
-        return err
+    payload = json.dumps(
+        {"version": _ENVELOPE_VERSION, "scripts": scripts},
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    nbytes = len(payload.encode("utf-8"))
+    if nbytes > _MAX_DOCUMENT_SCRIPTS_BYTES:
+        return DocumentScriptError(
+            _("Document scripts are too large to store in the document ({0} bytes).").format(nbytes),
+            DocumentScriptErrorCode.TOO_LARGE,
+        )
     if is_document_readonly_for_scripts(doc):
         # The previous sentence claimed a My Scripts write that only two
         # callers perform. Save As, New, and Monaco attach show this string
@@ -384,9 +373,7 @@ def delete_document_script(doc: Any, name: str) -> DocumentScriptError | None:
     # but deleting the storage name used to pop the entry and wipe the
     # workbook init script. attach_document_script already rejects this name.
     if is_calc_init_script_name(name):
-        err = new_script_name_error(name, attach=True)
-        assert err is not None
-        return err
+        return new_script_name_error(name, attach=True)
     loaded, err = _load_document_script_map(doc)
     if err:
         return err
@@ -527,10 +514,7 @@ def resolve_run_script_selection(
         if display in merged_scripts:
             last_name = display
     if not last_name or last_name not in merged_scripts:
-        if names:
-            last_name = names[0]
-        else:
-            last_name = ""
+        last_name = names[0] if names else ""
         if last_name:
             config.set_config(name_config_key, last_name)
     selected_code = merged_scripts.get(last_name, "")
@@ -665,9 +649,7 @@ def save_user_script(name: str, code: str) -> DocumentScriptError | None:
     # Why this change fixes it: attach_document_script already returns RESERVED_NAME.
     # Returning that error writes nothing and gives the picker a translated sentence.
     if is_reserved_script_name(name):
-        err = new_script_name_error(name, attach=False)
-        assert err is not None
-        return err
+        return new_script_name_error(name, attach=False)
     scripts = get_user_scripts()
     scripts[name] = code
     config.set_config("saved_python_scripts", scripts)

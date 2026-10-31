@@ -320,11 +320,10 @@ def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
         # evaluate_function_def previously wrote each def into custom_tools.
         # Defs now stay in state, but the defensive copy of custom_tools is kept
         # so library code cannot mutate the executor's tool dict.
-        shared_tools = executor.custom_tools if isinstance(executor.custom_tools, dict) else {}
         evaluate_python_code(
             extracted,
             static_tools=executor.static_tools or {},
-            custom_tools=dict(shared_tools),
+            custom_tools=dict(executor.custom_tools or {}),
             state=state,
             authorized_imports=executor.authorized_imports,
             max_print_outputs_length=executor.max_print_outputs_length,
