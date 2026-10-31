@@ -14,6 +14,8 @@ import re
 import sys
 from typing import Any
 
+from plugin.vision.venv.vision_layout_html import html_from_layout_blocks
+
 log = logging.getLogger(__name__)
 
 # Docling inlines h2-h6 with color/margins only; StarWriter needs explicit size/weight.
@@ -157,9 +159,7 @@ def _latex_to_math_element(inner: str, *, display_block: bool, convert_fn: Any) 
     except Exception as exc:
         log.debug("latex2mathml convert failed: %s", exc, exc_info=True)
         return None
-    if not isinstance(mathml, str) or not mathml.strip():
-        return None
-    text = mathml.strip()
+    text = mathml.strip() if isinstance(mathml, str) else ""
     if not text.lower().startswith("<math"):
         return None
     return text
@@ -274,10 +274,6 @@ def convert_latex_delimiters_to_mathml(html: str) -> str:
     return "".join(parts)
 
 
-def _header_row_to_th(row_html: str) -> str:
-    return re.sub(r"(</?)td\b", r"\1th", row_html, flags=re.IGNORECASE)
-
-
 def _promote_first_header_row(inner: str) -> str:
     """Move the first ``<th>`` row into ``<thead>`` so Writer can repeat header rows.
 
@@ -291,7 +287,7 @@ def _promote_first_header_row(inner: str) -> str:
     first = tr_match.group(0)
     if not re.search(r"<th\b", first, flags=re.IGNORECASE):
         return inner
-    first = _header_row_to_th(first)
+    first = re.sub(r"(</?)td\b", r"\1th", first, flags=re.IGNORECASE)
     before = inner[: tr_match.start()]
     after = inner[tr_match.end() :]
 
@@ -387,13 +383,12 @@ def prepare_html_for_lo_import(html: str) -> str:
             f"Install in your Settings → Python venv: {sys.executable} -m pip install css-inline"
         ) from exc
 
-    stripped = (html or "").strip()
-    if not stripped:
+    if not (html or "").strip():
         return html or ""
     # css_inline.inline() loads remote stylesheets by default. Pass
     # CSSInliner(load_remote_stylesheets=False) so export does not fetch them.
     inliner = css_inline.CSSInliner(load_remote_stylesheets=False)
-    inlined = inliner.inline(stripped)
+    inlined = inliner.inline((html or "").strip())
     with_headings = augment_lo_heading_styles(inlined)
     with_body = augment_lo_body_paragraph_styles(with_headings)
     with_math = convert_latex_delimiters_to_mathml(with_body)
@@ -530,13 +525,8 @@ def _tables_to_html(tables: list[dict[str, Any]] | None) -> list[str]:
 
 def structured_html_from_vision_result(result: dict[str, Any]) -> str:
     """Build bbox layout HTML from blocks/regions; must run in the user venv (needs css-inline)."""
-    from plugin.vision.venv.vision_layout_html import html_from_layout_blocks
-
     body = html_from_layout_blocks(_blocks_from_vision_result(result))
-    table_parts = _tables_to_html(result.get("tables"))
-    if table_parts:
-        tables_str = "\n".join(table_parts)
-        body = f"{body}\n{tables_str}" if body else tables_str
+    body = "\n".join(part for part in (body, *_tables_to_html(result.get("tables"))) if part)
     if not body.strip():
         return ""
     return prepare_html_for_lo_import(_wrap_html_fragment(body))
