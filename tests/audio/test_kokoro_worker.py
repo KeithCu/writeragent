@@ -100,8 +100,8 @@ def test_handle_kokoro_job_missing_voice_cross_language_recomputes_lang(tmp_path
     seen: list[dict] = []
     _install_voice_kokoro(monkeypatch, ["af_bella", "af_sky"], seen)
     monkeypatch.setattr(
-        "plugin.audio.kokoro_g2p.misaki_phonemes",
-        lambda text, lang: f"WRONG_JA:{lang}:{text}",
+        "plugin.audio.kokoro_g2p._get_misaki_g2p",
+        lambda lang: (lambda text: (f"WRONG_JA:{lang}:{text}", None)),
     )
     out = tmp_path / "ja_to_en.wav"
     result = kokoro_worker.handle_kokoro_job(
@@ -128,8 +128,8 @@ def test_handle_kokoro_job_missing_voice_prefers_same_family(tmp_path, monkeypat
     seen: list[dict] = []
     _install_voice_kokoro(monkeypatch, ["af_sky", "jf_gong"], seen)
     monkeypatch.setattr(
-        "plugin.audio.kokoro_g2p.misaki_phonemes",
-        lambda text, lang: f"PH:{lang}:{text}",
+        "plugin.audio.kokoro_g2p._get_misaki_g2p",
+        lambda lang: (lambda text: (f"PH:{lang}:{text}", None)),
     )
     out = tmp_path / "ja_same_family.wav"
     result = kokoro_worker.handle_kokoro_job(
@@ -154,8 +154,8 @@ def test_handle_kokoro_job_missing_voice_first_archive_voice_recomputes_lang(tmp
     seen: list[dict] = []
     _install_voice_kokoro(monkeypatch, ["ef_dora"], seen)
     monkeypatch.setattr(
-        "plugin.audio.kokoro_g2p.misaki_phonemes",
-        lambda text, lang: f"PH:{lang}:{text}",
+        "plugin.audio.kokoro_g2p._get_misaki_g2p",
+        lambda lang: (lambda text: (f"PH:{lang}:{text}", None)),
     )
     out = tmp_path / "fr_to_es.wav"
     result = kokoro_worker.handle_kokoro_job(
@@ -180,8 +180,8 @@ def test_handle_kokoro_job_missing_voice_french_same_family(tmp_path, monkeypatc
     seen: list[dict] = []
     _install_voice_kokoro(monkeypatch, ["ef_dora", "fm_siwis"], seen)
     monkeypatch.setattr(
-        "plugin.audio.kokoro_g2p.misaki_phonemes",
-        lambda text, lang: f"PH:{lang}:{text}",
+        "plugin.audio.kokoro_g2p._get_misaki_g2p",
+        lambda lang: (lambda text: (f"PH:{lang}:{text}", None)),
     )
     out = tmp_path / "fr_family.wav"
     result = kokoro_worker.handle_kokoro_job(
@@ -299,12 +299,12 @@ def _install_voice_kokoro(monkeypatch, voices: list[str], seen: list[dict]):
     monkeypatch.setitem(sys.modules, "soundfile", soundfile)
 
 
-def test_handle_kokoro_job_japanese_uses_misaki_phonemes(tmp_path, monkeypatch):
+def test_handle_kokoro_job_japanese_uses_misaki(tmp_path, monkeypatch):
     seen: list[dict] = []
     _install_voice_kokoro(monkeypatch, ["jf_alpha", "af_bella"], seen)
     monkeypatch.setattr(
-        "plugin.audio.kokoro_g2p.misaki_phonemes",
-        lambda text, lang: f"PH:{lang}:{text}",
+        "plugin.audio.kokoro_g2p._get_misaki_g2p",
+        lambda lang: (lambda text: (f"PH:{lang}:{text}", None)),
     )
     out = tmp_path / "ja.wav"
     result = kokoro_worker.handle_kokoro_job(
@@ -330,7 +330,7 @@ def test_handle_kokoro_job_japanese_uses_misaki_phonemes(tmp_path, monkeypatch):
 def test_handle_kokoro_job_empty_misaki_falls_back_to_espeak(tmp_path, monkeypatch):
     seen: list[dict] = []
     _install_voice_kokoro(monkeypatch, ["jf_alpha"], seen)
-    monkeypatch.setattr("plugin.audio.kokoro_g2p.misaki_phonemes", lambda text, lang: "")
+    monkeypatch.setattr("plugin.audio.kokoro_g2p._get_misaki_g2p", lambda lang: (lambda text: ("", None)))
     out = tmp_path / "ja.wav"
     result = kokoro_worker.handle_kokoro_job(
         {
@@ -355,10 +355,10 @@ def test_handle_kokoro_job_misaki_exception_falls_back_to_espeak(tmp_path, monke
     seen: list[dict] = []
     _install_voice_kokoro(monkeypatch, ["jf_alpha"], seen)
 
-    def raise_err(text, lang):
+    def raise_err(lang):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("plugin.audio.kokoro_g2p.misaki_phonemes", raise_err)
+    monkeypatch.setattr("plugin.audio.kokoro_g2p._get_misaki_g2p", raise_err)
     out = tmp_path / "ja_err.wav"
     result = kokoro_worker.handle_kokoro_job(
         {

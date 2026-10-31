@@ -170,21 +170,6 @@ def kokoro_lang_uses_misaki(lang: str) -> bool:
     return lang in _LANG_SPECS
 
 
-def misaki_phonemes(text: str, lang: str) -> str:
-    """Phonemes for ``lang``. Empty when this voice stays on espeak-ng.
-
-    Only the venv Kokoro worker may call this: the import of misaki happens
-    here, and LibreOffice's Python must not take that dependency. A successful
-    construct is reused for that ``lang`` until the process exits. English is
-    not cached and does not import misaki.
-    """
-    if lang not in _LANG_SPECS:
-        return ""
-    g2p = _get_misaki_g2p(lang)
-    phonemes, _tokens = g2p(text)
-    return phonemes if isinstance(phonemes, str) else ""
-
-
 def misaki_frontend(text: str, lang: str) -> tuple[str, str]:
     """Return ``(phonemes, warning)``. Empty phonemes means espeak-ng.
 
@@ -194,7 +179,9 @@ def misaki_frontend(text: str, lang: str) -> tuple[str, str]:
     if not kokoro_lang_uses_misaki(lang):
         return "", ""
     try:
-        phonemes = misaki_phonemes(text, lang)
+        phonemes, _tokens = _get_misaki_g2p(lang)(text)
+        if not isinstance(phonemes, str):
+            phonemes = ""
     except Exception as exc:
         return "", g2p_fallback_warning(lang, exc)
     if phonemes.strip():
@@ -252,12 +239,13 @@ def _run_checked(
     what: str,
     level: int,
     run_cmd: RunCmd,
-    log_when_empty: bool,
 ) -> bool:
     completed = run_cmd(cmd, timeout)
     if completed is None or completed.returncode != 0:
         detail = "" if completed is None else (completed.stderr or completed.stdout or "").strip()
-        if detail or log_when_empty:
+        # INFO (the probe) logs only when the child wrote something.
+        # WARNING (install, unidic) logs even when the output is empty.
+        if detail or level >= logging.WARNING:
             log.log(level, "%s: %s", what, detail[-2000:])
         return False
     return True
@@ -274,7 +262,6 @@ def _venv_probe_ok(
         what=f"Kokoro phonemizer probe ({lang}) failed",
         level=logging.INFO,
         run_cmd=run_cmd,
-        log_when_empty=False,
     )
 
 
@@ -295,7 +282,6 @@ def _pip_install(
         what="Kokoro phonemizer install failed",
         level=logging.WARNING,
         run_cmd=run_cmd,
-        log_when_empty=True,
     )
 
 
@@ -323,44 +309,34 @@ def ensure_kokoro_misaki(
     if spec is None:
         return True
 
-    def remember() -> bool:
+    ok = _venv_probe_ok(py_exe, lang, run_cmd=run_cmd)
+    if not ok:
+        if _cancelled(cancelled):
+            return None
+        _emit(on_status, _("Installing Kokoro phonemizer…"))
+        if _pip_install(py_exe, spec.packages, run_cmd=run_cmd):
+            if _cancelled(cancelled):
+                return None
+            ok = _venv_probe_ok(py_exe, lang, run_cmd=run_cmd)
+            if not ok and spec.needs_unidic:
+                # fugashi's default dictionary is not in the wheel. Without this download,
+                # JAG2P() raises and Japanese falls back to espeak ("chinese letter").
+                _emit(on_status, _("Downloading Japanese phonemizer dictionary…"))
+                ok = _run_checked(
+                    [py_exe, "-m", "unidic", "download"],
+                    _UNIDIC_TIMEOUT_SEC,
+                    what="Japanese phonemizer dictionary download failed",
+                    level=logging.WARNING,
+                    run_cmd=run_cmd,
+                ) and _venv_probe_ok(py_exe, lang, run_cmd=run_cmd)
+    if ok:
         with _probe_ok_lock:
             _probe_ok_keys.add((py_exe, lang))
         return True
-
-    def fail() -> bool:
-        _emit(
-            on_status,
-            _("Couldn't install the Kokoro phonemizer; this language may be misread. Install with: {0}").format(
-                kokoro_misaki_install_hint(lang)
-            ),
-        )
-        return False
-
-    if _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
-        return remember()
-    if _cancelled(cancelled):
-        return None
-
-    _emit(on_status, _("Installing Kokoro phonemizer…"))
-    if not _pip_install(py_exe, spec.packages, run_cmd=run_cmd):
-        return fail()
-    if _cancelled(cancelled):
-        return None
-    if _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
-        return remember()
-
-    # fugashi's default dictionary is not in the wheel. Without this download,
-    # JAG2P() raises and Japanese falls back to espeak ("chinese letter").
-    if spec.needs_unidic:
-        _emit(on_status, _("Downloading Japanese phonemizer dictionary…"))
-        if _run_checked(
-            [py_exe, "-m", "unidic", "download"],
-            _UNIDIC_TIMEOUT_SEC,
-            what="Japanese phonemizer dictionary download failed",
-            level=logging.WARNING,
-            run_cmd=run_cmd,
-            log_when_empty=True,
-        ) and _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
-            return remember()
-    return fail()
+    _emit(
+        on_status,
+        _("Couldn't install the Kokoro phonemizer; this language may be misread. Install with: {0}").format(
+            kokoro_misaki_install_hint(lang)
+        ),
+    )
+    return False
