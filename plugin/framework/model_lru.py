@@ -38,15 +38,13 @@ def lru_config_key(lru_key: str, endpoint: str) -> str:
     return f"{lru_key}@{endpoint}" if endpoint else lru_key
 
 
-def next_lru_list(current: Any, val: Any, max_items: int) -> list[str] | None:
+def next_lru_list(current: Any, val: Any) -> list[str] | None:
     """LRU list after prepending *val*, or None when that would not be a write.
 
     Blank values are not entries. A value that is already the first item is
     not a write. *current* may be a non-list (a missing key read as something
-    else); that still becomes a one-item list, matching the old
-    ``update_lru_history`` compare.
+    else); that still becomes a one-item list.
     """
-    assert max_items >= 1, max_items
     val_str = "" if val is None else str(val).strip()
     if not val_str:
         return None
@@ -56,12 +54,10 @@ def next_lru_list(current: Any, val: Any, max_items: int) -> list[str] | None:
     # config:changed for a list the UI already shows first.
     if lru and lru[0] == val_str:
         return None
-    new_lru = [val_str] + [x for x in dict.fromkeys(lru) if x != val_str]
-    new_lru = new_lru[:max_items]
-    return new_lru
+    return ([val_str] + [x for x in dict.fromkeys(lru) if x != val_str])[:LRU_MAX_ITEMS]
 
 
-def update_lru_history(val: Any, lru_key: str, endpoint: str, max_items: int = LRU_MAX_ITEMS) -> None:
+def update_lru_history(val: Any, lru_key: str, endpoint: str) -> None:
     """Prepend *val* to an endpoint-scoped LRU list in writeragent.json.
 
     No write when the value is blank or already the first item. Settings OK
@@ -69,7 +65,7 @@ def update_lru_history(val: Any, lru_key: str, endpoint: str, max_items: int = L
     ``next_lru_list`` into the same ``set_configs`` as the field change.
     """
     scoped_key = lru_config_key(lru_key, endpoint)
-    new_lru = next_lru_list(get_config(scoped_key), val, max_items)
+    new_lru = next_lru_list(get_config(scoped_key), val)
     if new_lru is None:
         return
     set_config(scoped_key, new_lru)
