@@ -28,8 +28,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("writeragent.framework.queue_executor")
 
 _LLM_REQUEST_LOCK = threading.Lock()
-_GRAMMAR_INFLIGHT_LOCK = threading.Lock()
-_GRAMMAR_INFLIGHT_CV = threading.Condition(_GRAMMAR_INFLIGHT_LOCK)
+_GRAMMAR_INFLIGHT_CV = threading.Condition(threading.Lock())
 _GRAMMAR_INFLIGHT_COUNT = 0
 
 # Stop is checked between acquires. Cap each acquire by the time left so a
@@ -66,12 +65,10 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
             notified_status = True
 
     try:
-        # Bugfix: the resume status_callback ran after acquire and before this
-        # try. A raise skipped _LLM_REQUEST_LOCK.release(), and every later
-        # llm_request_lane wait (chat, grammar limit 1, compaction) timed out
-        # for the rest of the process. The callback stays inside the hold so
-        # another request cannot pass it; finally still releases on that raise,
-        # and the with-body does not run.
+        # Bugfix: the resume callback ran after acquire and before this try, so a
+        # raise skipped release() and every later lane wait (chat, grammar limit 1,
+        # compaction) timed out for the process. Keep it inside the hold so another
+        # request cannot pass it; finally still releases, and the with-body does not run.
         if notified_status and status_callback is not None:
             status_callback(resume_status or "")
         yield
@@ -96,11 +93,9 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
     global _GRAMMAR_INFLIGHT_COUNT
     deadline = time.monotonic() + timeout
     with _GRAMMAR_INFLIGHT_CV:
-        # Bugfix: wait(timeout=timeout) restarted the full timeout whenever
-        # a wakeup still saw a full gate (spurious wake, or a new caller
-        # that took the slot before this waiter reacquired). The advertised
-        # bound is one deadline from entry. A wakeup that finds a free slot
-        # still takes it.
+        # Bugfix: wait(timeout=timeout) restarted the full timeout whenever a wakeup
+        # still saw a full gate (spurious wake, or a new caller took the slot before
+        # reacquire). One deadline from entry; a wakeup that finds a free slot still takes it.
         while _GRAMMAR_INFLIGHT_COUNT >= max_in_flight:
             remaining = deadline - time.monotonic()
             if remaining <= 0 or not _GRAMMAR_INFLIGHT_CV.wait(timeout=remaining):
@@ -111,7 +106,7 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
         yield
     finally:
         with _GRAMMAR_INFLIGHT_CV:
-            _GRAMMAR_INFLIGHT_COUNT = max(0, _GRAMMAR_INFLIGHT_COUNT - 1)
+            _GRAMMAR_INFLIGHT_COUNT -= 1
             # One release frees one slot, so wake one waiter. notify_all() woke
             # every waiter; the extras rechecked the count and slept again.
             # CPython's condition deque is FIFO, so the oldest waiter runs.

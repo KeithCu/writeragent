@@ -42,10 +42,10 @@ def test_llm_request_lane_serializes_callers() -> None:
 
 @pytest.fixture(autouse=True)
 def _reset_grammar_inflight_count() -> None:
-    with lc._GRAMMAR_INFLIGHT_LOCK:
+    with lc._GRAMMAR_INFLIGHT_CV:
         lc._GRAMMAR_INFLIGHT_COUNT = 0
     yield
-    with lc._GRAMMAR_INFLIGHT_LOCK:
+    with lc._GRAMMAR_INFLIGHT_CV:
         lc._GRAMMAR_INFLIGHT_COUNT = 0
 
 
@@ -248,10 +248,10 @@ def test_llm_request_lane_resume_callback_raise_releases_lock() -> None:
 
 
 def test_grammar_llm_request_gate_timeout_when_full() -> None:
-    from plugin.framework.llm_lanes import grammar_llm_request_gate, _GRAMMAR_INFLIGHT_LOCK
+    from plugin.framework.llm_lanes import grammar_llm_request_gate, _GRAMMAR_INFLIGHT_CV
     import plugin.framework.llm_lanes as lc
 
-    with _GRAMMAR_INFLIGHT_LOCK:
+    with _GRAMMAR_INFLIGHT_CV:
         assert lc._GRAMMAR_INFLIGHT_COUNT == 0
         lc._GRAMMAR_INFLIGHT_COUNT = 2
     try:
@@ -261,18 +261,18 @@ def test_grammar_llm_request_gate_timeout_when_full() -> None:
                 pass
         elapsed = time.monotonic() - t0
         assert 0.15 <= elapsed < 0.8
-        with _GRAMMAR_INFLIGHT_LOCK:
+        with _GRAMMAR_INFLIGHT_CV:
             assert lc._GRAMMAR_INFLIGHT_COUNT == 2
     finally:
-        with _GRAMMAR_INFLIGHT_LOCK:
+        with _GRAMMAR_INFLIGHT_CV:
             lc._GRAMMAR_INFLIGHT_COUNT = 0
 
 
 def test_grammar_llm_request_gate_wakeup_does_not_restart_timeout() -> None:
-    from plugin.framework.llm_lanes import grammar_llm_request_gate, _GRAMMAR_INFLIGHT_LOCK, _GRAMMAR_INFLIGHT_CV
+    from plugin.framework.llm_lanes import grammar_llm_request_gate, _GRAMMAR_INFLIGHT_CV
     import plugin.framework.llm_lanes as lc
 
-    with _GRAMMAR_INFLIGHT_LOCK:
+    with _GRAMMAR_INFLIGHT_CV:
         assert lc._GRAMMAR_INFLIGHT_COUNT == 0
         lc._GRAMMAR_INFLIGHT_COUNT = 2
     recorded_timeouts: list[float] = []
@@ -295,7 +295,7 @@ def test_grammar_llm_request_gate_wakeup_does_not_restart_timeout() -> None:
         assert recorded_timeouts[0] > 0.45
         assert recorded_timeouts[1] < 0.40
     finally:
-        with _GRAMMAR_INFLIGHT_LOCK:
+        with _GRAMMAR_INFLIGHT_CV:
             lc._GRAMMAR_INFLIGHT_COUNT = 0
 
 
