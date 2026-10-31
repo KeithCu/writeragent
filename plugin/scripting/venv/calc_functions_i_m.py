@@ -129,15 +129,10 @@ def ifna(f: Callable[[], Any], alt: Any) -> Any:
 
 def is_na_value(value: Any) -> bool:
     """True for float or numpy NaN, or a stripped #N/A token."""
-    if isinstance(value, float) and math.isnan(value):
+    if isinstance(value, (float, np.floating)) and math.isnan(value):
         return True
     if isinstance(value, str) and value.strip().upper() == "#N/A":
         return True
-    try:
-        if isinstance(value, np.floating) and np.isnan(value):
-            return True
-    except ImportError:
-        pass
     return False
 
 
@@ -209,9 +204,7 @@ def _im_float(fn: Callable[[complex], float]) -> Callable[[Any], float]:
         # _is_calc_error(inf) is false. String IM functions still catch
         # inside _im_unary and return "#VALUE!".
         result = float(fn(_parse_complex(inumber)[0]))
-        if not math.isfinite(result):
-            return float("nan")
-        return result
+        return result if math.isfinite(result) else float("nan")
 
     return wrapper
 
@@ -683,12 +676,7 @@ def _regression_inputs(
             data_x = data_x.T
     if data_x.shape[0] != len(data_y):
         raise ValueError
-    if "const" in kwargs:
-        raw_const = kwargs["const"]
-    elif len(args) > 2:
-        raw_const = args[2]
-    else:
-        raw_const = True
+    raw_const = kwargs.get("const", args[2] if len(args) > 2 else True)
     return data_y, data_x, _as_bool_flag(raw_const)
 
 
@@ -772,9 +760,7 @@ def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
 
 def _lookup_number(val: Any) -> float | None:
     """Numeric LOOKUP key. A bool is 0 or 1. Text and blanks are not numbers."""
-    if isinstance(val, (bool, np.bool_)):
-        return float(val)
-    if isinstance(val, (int, float, np.integer, np.floating)):
+    if isinstance(val, (bool, np.bool_, int, float, np.integer, np.floating)):
         try:
             number = float(val)
         except (ValueError, TypeError, OverflowError):
@@ -827,20 +813,14 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
             return "#VALUE!"
         result = result_arr.ravel()
     query_num = _lookup_number(lookup_val)
-    if query_num is not None:
-        def _matches(value: Any) -> bool:
+
+    def _matches(value: Any) -> bool:
+        if query_num is not None:
             cell = _lookup_number(value)
             return cell is not None and cell <= query_num
-    else:
-        query_text = lookup_val.casefold() if isinstance(lookup_val, str) and lookup_val != "" else None
-
-        def _matches(value: Any) -> bool:
-            return (
-                query_text is not None
-                and isinstance(value, str)
-                and value != ""
-                and value.casefold() <= query_text
-            )
+        if isinstance(lookup_val, str) and lookup_val != "" and isinstance(value, str) and value != "":
+            return value.casefold() <= lookup_val.casefold()
+        return False
     best_idx = None
     for i, value in enumerate(vec):
         if _matches(value):
@@ -861,21 +841,17 @@ def maxa(*args: Any) -> float:
     return _a_extreme(args, np.max)
 
 
-def _trim_matrix(matrix: np.ndarray) -> np.ndarray:
-    """Keep the first block of a 3-d list. det/inv/matmul used to do this inline."""
-    if matrix.ndim > 2:
-        return matrix[0]
-    return matrix
-
-
 def _as_matrix(value: Any, *, numeric: bool) -> np.ndarray:
     """2-D array. A scalar is 1×1. A flat list is a row.
 
     Sheet ranges are already 2-D. ``MMULT`` of two 1-D lists used to be a
     dot product; ``ScMatMult`` rejects 1×n times 1×n. ``ScMatDet`` of a
-    1×1 matrix is that element, so ``MDETERM(5)`` is 5.
+    1×1 matrix is that element, so ``MDETERM(5)`` is 5. ndim > 2 keeps
+    the first block; det/inv/matmul used to peel that inline.
     """
-    matrix = _trim_matrix(np.asarray(value, dtype=float if numeric else None))
+    matrix = np.asarray(value, dtype=float if numeric else None)
+    if matrix.ndim > 2:
+        matrix = matrix[0]
     if matrix.ndim == 0:
         return matrix.reshape(1, 1)
     if matrix.ndim == 1:
@@ -982,14 +958,11 @@ def mround(number: Any, multiple: Any) -> float:
 
 def mtrans(matrix: Any) -> Any:
     try:
-        m = _trim_matrix(np.asarray(matrix))
-        # A scalar stays a scalar. np.transpose of a 1-D array does nothing,
-        # so a flat row never became a column. ScMatTrans swaps the axes.
-        if m.ndim == 0:
-            return m.tolist()
-        if m.ndim == 1:
-            m = m.reshape(1, -1)
-        return np.transpose(m).tolist()
+        raw = np.asarray(matrix)
+        # A scalar stays a scalar. _as_matrix would turn it into 1×1.
+        if raw.ndim == 0:
+            return raw.tolist()
+        return _as_matrix(matrix, numeric=False).T.tolist()
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
 
