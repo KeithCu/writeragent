@@ -217,7 +217,7 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
             f_idx = int(field) - 1
         except (ValueError, TypeError, OverflowError):
             f_idx = -1
-    elif field is not None and field != "":
+    elif field is not None:
         f_name = header_label(field).upper()
         if f_name in header_index:
             f_idx = header_index[f_name]
