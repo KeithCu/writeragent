@@ -82,25 +82,6 @@ def get_research_completion_instruction(doc_type: str | None = None) -> str:
 SHEETS_CREATED_NOT_POPULATED_INSTRUCTION = "If sheets were created, they are not populated (tab exists; no cells copied). Do write_formula_range onto the new tab(s) with source to copy a block, or with values."
 
 
-def _reports_empty_sheet_create(payload: dict[str, Any]) -> bool:
-    """True when a specialized finish/result already says a new empty tab exists."""
-    blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer"))
-    lower = blob.lower()
-    return "no cells copied" in lower or "new sheet named" in lower
-
-
-def first_instruction_from_tool_results(results: list[Any] | tuple[Any, ...] | None) -> str | None:
-    """First non-empty ``instruction`` string from inner specialized tool results."""
-    if not results:
-        return None
-    for result in results:
-        if isinstance(result, dict):
-            inst = result.get("instruction")
-            if isinstance(inst, str) and inst.strip():
-                return inst
-    return None
-
-
 def attach_sheets_create_completion_instruction(payload: dict[str, Any], *, create_sheet_ran: bool = False, tool_results: list[Any] | tuple[Any, ...] | None = None) -> dict[str, Any]:
     """Attach create≠populate ``instruction`` on the payload the outer reads.
 
@@ -113,9 +94,18 @@ def attach_sheets_create_completion_instruction(payload: dict[str, Any], *, crea
     existing = payload.get("instruction")
     if isinstance(existing, str) and existing.strip():
         return payload
-    inst = first_instruction_from_tool_results(tool_results)
-    if inst is None and (create_sheet_ran or _reports_empty_sheet_create(payload)):
-        inst = SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
+    inst: str | None = None
+    if tool_results:
+        for result in tool_results:
+            if isinstance(result, dict):
+                raw = result.get("instruction")
+                if isinstance(raw, str) and raw.strip():
+                    inst = raw
+                    break
+    if inst is None:
+        blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer")).lower()
+        if create_sheet_ran or "no cells copied" in blob or "new sheet named" in blob:
+            inst = SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
     if not inst:
         return payload
     out = dict(payload)
@@ -236,10 +226,8 @@ Prioritize what reduces future user steering."""
 # Populated on first prompt assembly (import_policy pulls smolagents).
 # ``_venv_policy_ready`` flips only after every dependent global is assigned.
 # Checking the compact string alone let a second eval worker return early.
-_VENV_IMPORT_POLICY_FULL = ""
 _venv_policy_lock = threading.Lock()
 _venv_policy_ready = False
-_venv_policy_owner: int | None = None
 
 PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = ""
 
@@ -282,9 +270,12 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         )
     else:
         data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
-    _ensure_venv_import_policy_strings()
-    policy = _VENV_IMPORT_POLICY_FULL
-    from plugin.scripting.import_policy import format_matplotlib_plot_hint, format_units_helper_hint
+    from plugin.scripting.import_policy import (
+        format_matplotlib_plot_hint,
+        format_units_helper_hint,
+        format_venv_import_policy_for_prompt,
+    )
+    policy = format_venv_import_policy_for_prompt(compact=False)
 
     plot_hint = format_matplotlib_plot_hint(agent_label=agent_label)
     plot_suffix = f" {plot_hint}" if plot_hint else ""
@@ -612,7 +603,6 @@ DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
 
 def _build_calc_chat_system_prompt_template() -> str:
     """Assemble Calc main-chat system prompt (needs CALC_FORMULA_SYNTAX from late init)."""
-    _ensure_venv_import_policy_strings()
     return f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
 Do not explain, do the operation directly using tools. Perform as many steps as needed in one turn when possible.
 
@@ -704,14 +694,22 @@ PEER_OUTER_DELIVERY_STILL_REQUIRED = (
     'Peer delivery still required: you MUST Do domain="document_research" to deliver via send_peer_result. Why: finishing a nested specialize (ranges/sheets/charts/…) or research without send_peer_result is not peer delivery; Ready here leaves the asking peer waiting.'
 )
 
-PEER_WORK_ENVELOPE_PREFIX = "[Peer work from:"
-
-
 def looks_like_peer_work_envelope(text: str | None) -> bool:
     """True when *text* is (or starts as) a [Peer work from:…] turn envelope."""
     if not text:
         return False
-    return str(text).lstrip().startswith(PEER_WORK_ENVELOPE_PREFIX)
+    return str(text).lstrip().startswith("[Peer work from:")
+
+
+def _append_peer_note(payload: dict[str, Any], text: str) -> dict[str, Any]:
+    """Copy payload and append *text* to message, and to result when it is non-empty."""
+    out = dict(payload)
+    message = str(out.get("message") or "")
+    out["message"] = (message + " " + text).strip()
+    result = str(out.get("result") or "")
+    if result:
+        out["result"] = result + "\n" + text
+    return out
 
 
 def annotate_outer_peer_wait(payload: dict[str, Any], *, peer_send_invoked: bool = False) -> dict[str, Any]:
@@ -727,13 +725,7 @@ def annotate_outer_peer_wait(payload: dict[str, Any], *, peer_send_invoked: bool
         return payload
     if PEER_OUTER_IDLE_AFTER_SEND in blob:
         return payload
-    out = dict(payload)
-    message = str(out.get("message") or "")
-    out["message"] = (message + " " + PEER_OUTER_IDLE_AFTER_SEND).strip()
-    result = str(out.get("result") or "")
-    if result:
-        out["result"] = result + "\n" + PEER_OUTER_IDLE_AFTER_SEND
-    return out
+    return _append_peer_note(payload, PEER_OUTER_IDLE_AFTER_SEND)
 
 
 def annotate_outer_peer_delivery_pending(payload: dict[str, Any]) -> dict[str, Any]:
@@ -748,12 +740,7 @@ def annotate_outer_peer_delivery_pending(payload: dict[str, Any]) -> dict[str, A
     blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer", "instruction"))
     if PEER_OUTER_DELIVERY_STILL_REQUIRED in blob:
         return payload
-    out = dict(payload)
-    message = str(out.get("message") or "")
-    out["message"] = (message + " " + PEER_OUTER_DELIVERY_STILL_REQUIRED).strip()
-    result = str(out.get("result") or "")
-    if result:
-        out["result"] = result + "\n" + PEER_OUTER_DELIVERY_STILL_REQUIRED
+    out = _append_peer_note(payload, PEER_OUTER_DELIVERY_STILL_REQUIRED)
     existing = out.get("instruction")
     if isinstance(existing, str) and existing.strip():
         out["instruction"] = (existing.rstrip() + " " + PEER_OUTER_DELIVERY_STILL_REQUIRED).strip()
@@ -889,12 +876,9 @@ def format_peer_outer_delegate_hint(model: Any) -> str:
 def _peer_block_on_main_thread(build: Any, fail_log: str) -> str:
     """Run a peer-catalog prompt builder on the UI thread. Empty string on failure."""
     try:
-        from plugin.framework.queue_executor import execute_on_main_thread
-        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import run_on_main
 
-        if on_main_thread():
-            return build()
-        return execute_on_main_thread(build)
+        return run_on_main(build)
     except Exception:
         logging.getLogger(__name__).exception(fail_log)
         return ""
@@ -1043,19 +1027,6 @@ def _specialized_delegation_template_for_label(agent_label: str) -> str:
     return WRITER_SPECIALIZED_DELEGATION_TEMPLATE
 
 
-def get_specialized_delegation_for_model(model: Any, ctx: Any = None) -> str:
-    """Specialized-delegation block for chat system prompt (same text as MCP delegate tool hint)."""
-    from plugin.doc.doc_type import is_calc, is_draw
-
-    if is_calc(model):
-        label = "Calc"
-    elif is_draw(model):
-        label = "Draw"
-    else:
-        label = "Writer"
-    return get_specialized_delegation_tool_hint(_special_base(label), label, ctx=ctx)
-
-
 def format_specialized_domains_description(special_base_class: Any, *, agent_label: str | None = None, ctx: Any = None) -> str:
     """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
     domains = _get_specialized_domains_str(special_base_class, agent_label=agent_label, ctx=ctx)
@@ -1144,7 +1115,7 @@ def tts_short_answers_prompt_suffix() -> str:
         return ""
     if not get_config_bool_safe("audio.tts_enabled"):
         return ""
-    return TTS_SHORT_ANSWERS_INSTRUCTION + "\n\n" + TTS_SHORT_ANSWERS_REMINDER
+    return "\n\n" + TTS_SHORT_ANSWERS_INSTRUCTION + "\n\n" + TTS_SHORT_ANSWERS_REMINDER
 
 
 def _fill_chat_role_template(template: str, delegation: str, core_directives: str) -> str:
@@ -1268,14 +1239,7 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
     delegation = get_specialized_delegation_tool_hint(_special_base(agent), agent, ctx=ctx)
 
     base = _assemble_chat_prompt(asm, delegation, ctx)
-    base = _append_additional_instructions(base, additional_instructions)
-    short_answers = tts_short_answers_prompt_suffix()
-    if short_answers:
-        base += "\n\n" + short_answers
-    return base
-
-
-_INJECTED_BLOB_TRUNCATION_MARKER = "[truncated]"
+    return _append_additional_instructions(base, additional_instructions) + tts_short_answers_prompt_suffix()
 
 
 def _cap_injected_prompt_blob(text: str) -> str:
@@ -1288,7 +1252,7 @@ def _cap_injected_prompt_blob(text: str) -> str:
     body = text.strip()
     if len(body) <= CHAT_DOCUMENT_CONTEXT_MAX_CHARS:
         return body
-    return body[:CHAT_DOCUMENT_CONTEXT_MAX_CHARS].rstrip() + "\n" + _INJECTED_BLOB_TRUNCATION_MARKER
+    return body[:CHAT_DOCUMENT_CONTEXT_MAX_CHARS].rstrip() + "\n" + "[truncated]"
 
 
 def get_chat_system_prompt_for_document(model: Any, additional_instructions: str = "", ctx: Any = None) -> str:
@@ -1297,14 +1261,14 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
     Callers must pass the document that is being chatted about."""
     from plugin.doc.doc_type import is_calc, is_draw
 
-    delegation = get_specialized_delegation_for_model(model, ctx=ctx)
     if is_calc(model):
-        asm = "calc"
+        agent = "Calc"
     elif is_draw(model):
-        asm = "draw"
+        agent = "Draw"
     else:
-        asm = "writer"
-    base = _assemble_chat_prompt(asm, delegation, ctx)
+        agent = "Writer"
+    delegation = get_specialized_delegation_tool_hint(_special_base(agent), agent, ctx=ctx)
+    base = _assemble_chat_prompt(agent.lower(), delegation, ctx)
 
     vision_directive = get_vision_core_directive(model, ctx)
     if vision_directive:
@@ -1321,13 +1285,8 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
         # and writing/brainstorming/deep research sub-agents (librarian excluded).
         base += format_humanizer_guidance_prompt_block()
 
-    base = _append_additional_instructions(base, additional_instructions)
-
     # After custom instructions so those stay intact and the reminder is last.
-    short_answers = tts_short_answers_prompt_suffix()
-    if short_answers:
-        base += "\n\n" + short_answers
-    return base
+    return _append_additional_instructions(base, additional_instructions) + tts_short_answers_prompt_suffix()
 
 
 def _ensure_venv_import_policy_strings() -> None:
@@ -1336,36 +1295,26 @@ def _ensure_venv_import_policy_strings() -> None:
     Other threads wait until init returns. ``_init`` assigns the compact
     string before ``DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE``, and eval
     workers call ``get_chat_system_prompt_for_kind`` concurrently, so a
-    non-empty string is not "ready". Same-thread re-entry is allowed because
-    ``_build_calc_chat_system_prompt_template`` calls back here while the
-    lock is held.
+    non-empty string is not "ready".
     """
-    global _venv_policy_ready, _venv_policy_owner
+    global _venv_policy_ready
     if _venv_policy_ready:
         return
-    if _venv_policy_owner == threading.get_ident():
-        return
     with _venv_policy_lock:
-        if _venv_policy_ready or _venv_policy_owner == threading.get_ident():
+        if _venv_policy_ready:
             return
-        _venv_policy_owner = threading.get_ident()
-        try:
-            _init_venv_import_policy_strings()
-            _venv_policy_ready = True
-        finally:
-            _venv_policy_owner = None
+        _init_venv_import_policy_strings()
+        _venv_policy_ready = True
 
 
 def _init_venv_import_policy_strings() -> None:
     """Late init: import_policy pulls smolagents; constants must be fully loaded first."""
-    global _VENV_IMPORT_POLICY_FULL
     global PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
     global CALC_FORMULA_SYNTAX, DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
 
     from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
 
     compact = format_venv_import_policy_for_prompt(compact=True)
-    _VENV_IMPORT_POLICY_FULL = format_venv_import_policy_for_prompt(compact=False)
     PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = compact + " "
     CALC_FORMULA_SYNTAX = f"""FORMULA SYNTAX: LibreOffice formulas use semicolon (;) between arguments, not comma.
 Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
