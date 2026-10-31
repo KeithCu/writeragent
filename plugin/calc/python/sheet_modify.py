@@ -75,10 +75,7 @@ def _doc_identity(doc: Any) -> str:
         return ""
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-    key = uno_probe(lambda: _lifecycle_key(doc), "")
-    if key:
-        return str(key)
-    return _doc_url_of(doc)
+    return str(uno_probe(lambda: _lifecycle_key(doc), "") or "")
 
 
 def _owning_calc_doc(sheet: Any) -> Any | None:
@@ -146,7 +143,6 @@ def cancel_pending_sheet_timers(identity: str) -> None:
         timer.cancel()
 
 
-
 def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
     """Debounce: cancel the sheet's pending timer, start a new 0.1s UI-thread pass.
 
@@ -157,11 +153,7 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
         return
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
-    lifecycle_key = ""
-    if doc is not None:
-        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
-
-        lifecycle_key = str(uno_probe(lambda: _lifecycle_key(doc), "") or "")
+    lifecycle_key = _doc_identity(doc)
     identity = lifecycle_key or url
     key = (identity, name)
     _cancel_pending(key)
@@ -195,7 +187,7 @@ def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url
     """Cancel debounce and run the pass on this thread. Tests only."""
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
-    identity = _doc_identity(doc) or url
+    identity = _doc_identity(doc) or _doc_url_of(doc) or url
     _cancel_pending((identity, name))
     run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name)
 
@@ -281,18 +273,20 @@ def migrate_sheet_rename(
         log.exception("migrate_sheet_rename: failed to migrate geometric records")
 
 
+def _skip_sheet_modify() -> bool:
+    from plugin.calc.python.geometric_recalc import is_geometric_repairing
+    from plugin.framework.thread_guard import on_main_thread
+
+    return (not on_main_thread()) or is_sheet_modify_dispatching() or is_geometric_repairing()
+
+
 def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
     """UI-thread jobs after the shared debounce. Spill and geometric stay separate.
 
     Spill: ``CalcSpillModifyListener.modified`` (``SPILL_REGISTRY`` walk only).
     Geometric: own ``discover_python_cells_on_sheet`` via ``reconcile_geometric_sheet``.
     """
-    from plugin.calc.python.geometric_recalc import is_geometric_repairing
-    from plugin.framework.thread_guard import on_main_thread
-
-    if not on_main_thread():
-        return
-    if is_sheet_modify_dispatching() or is_geometric_repairing():
+    if _skip_sheet_modify():
         return
     if sheet is None:
         return
@@ -323,7 +317,6 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
             log.exception("Error in geometric sheet modify pass (%s)", name)
 
 
-
 def dispatch_sheet_modified(
     ctx: Any,
     doc_key: str,
@@ -332,12 +325,9 @@ def dispatch_sheet_modified(
     doc: Any = None,
 ) -> None:
     """Shared ``modified`` entry. Debounces; does not walk ``SPILL_REGISTRY``."""
-    from plugin.calc.python.geometric_recalc import is_geometric_repairing
     from plugin.framework.thread_guard import on_main_thread
 
-    if not on_main_thread():
-        return
-    if is_sheet_modify_dispatching() or is_geometric_repairing():
+    if not on_main_thread() or _skip_sheet_modify():
         return
     sheet = getattr(event, "Source", None)
     if sheet is None:

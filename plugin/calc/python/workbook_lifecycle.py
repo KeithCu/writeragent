@@ -25,6 +25,7 @@ from typing import Any
 
 from plugin.framework.errors import best_effort
 from plugin.framework.thread_guard import _unwrap_uno
+from plugin.framework.uno_context import _read_runtime_uid
 from plugin.framework.uno_listeners import _HAVE_UNO as _HAVE_UNO_DOC_EVENTS
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from plugin.scripting.session_manager import calc_workbook_base_session_id
@@ -138,8 +139,6 @@ def _lifecycle_key(doc: Any) -> str:
     A RuntimeUID read still replaces that fallback.
     """
     # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute and accepted non-strings. _read_runtime_uid walks method, attribute, then property, and keeps only str or int, with no thread check.
-    from plugin.framework.uno_context import _read_runtime_uid
-
     uid = _read_runtime_uid(doc)
     if uid:
         _remember_doc_lifecycle_key(doc, uid)
@@ -245,7 +244,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         """Retry resetting a worker session that returned WORKER_REENTRY."""
         # do_retry sleeps up to 5s, so run it on a dedicated background
         # worker. On the shared pool that sleep starves other tasks.
-        last_res: Any = None
+        res: Any = None
         for _attempt in range(10):
             time.sleep(0.5)
             # Check after the sleep: a reopen can register during it.
@@ -253,15 +252,29 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 log.debug("python_workbook_lifecycle: %s reopened; dropping reset retry", sid)
                 return
             try:
-                last_res = reset_python_session(self._ctx, sid)
-                if _is_reentry(last_res):
-                    continue
-                break
+                res = reset_python_session(self._ctx, sid)
             except Exception:
                 log.debug("python_workbook_lifecycle: retry reset raised", exc_info=True)
                 break
-        if _is_reentry(last_res):
+            if not _is_reentry(res):
+                return
+        if _is_reentry(res):
             log.warning("python_workbook_lifecycle: session %s still WORKER_REENTRY after retry timeout", sid)
+
+    def _reset_one(self, sid: str) -> None:
+        res = reset_python_session(self._ctx, sid)
+        if _is_reentry(res):
+            from plugin.framework.worker_pool import run_in_background
+
+            # A sleeping background job uses dedicated=True (AGENTS.md).
+            # The retry aborts if a new listener appears for the same session (reopen).
+            run_in_background(
+                lambda: self._retry_reset(sid),
+                name="reset_python_session_retry",
+                dedicated=True,
+            )
+        elif isinstance(res, dict) and res.get("status") != "ok":
+            log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
 
     def _reset_sessions(self, session_ids: tuple[str, ...]) -> None:
         # OnUnload must finish a live reset before it returns. A background
@@ -270,25 +283,8 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         # so this thread waits only for in-place IPC on a worker that already
         # exists (_ensure_running does not call _start_child in that case).
         for sid in session_ids:
-            if not sid:
-                continue
-
-            def _do_reset(s: str = sid) -> None:
-                res = reset_python_session(self._ctx, s)
-                if _is_reentry(res):
-                    from plugin.framework.worker_pool import run_in_background
-
-                    # A sleeping background job uses dedicated=True (AGENTS.md).
-                    # The retry aborts if a new listener appears for the same session (reopen).
-                    run_in_background(
-                        lambda: self._retry_reset(s),
-                        name="reset_python_session_retry",
-                        dedicated=True,
-                    )
-                elif isinstance(res, dict) and res.get("status") != "ok":
-                    log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", s, res.get("message"))
-
-            best_effort(_do_reset, "python_workbook_lifecycle: reset on unload")
+            if sid:
+                best_effort(lambda: self._reset_one(sid), "python_workbook_lifecycle: reset on unload")
 
     def _release_calc_state(self, session_ids: tuple[str, ...], doc_urls: tuple[str, ...], lifecycle_key: str) -> None:
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
@@ -374,8 +370,6 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
         ensure_calc_workbook_unload_resets_python(ctx, doc)
         return
     # Writer/Draw key. Must not record a Calc session id. Same RuntimeUID ladder as _lifecycle_key.
-    from plugin.framework.uno_context import _read_runtime_uid
-
     uid = _read_runtime_uid(doc)
     key = f"py:{uid or session_id}"
     _register(doc, key, lambda: _CalcPythonUnloadListener(ctx, session_id, key, calc_cleanup=False), lambda existing: existing.note_session(session_id))
