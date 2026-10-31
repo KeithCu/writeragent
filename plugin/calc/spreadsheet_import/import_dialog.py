@@ -14,7 +14,7 @@ from plugin.framework.uno_context import get_desktop
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, run_dialog_with_listeners
 from plugin.calc.address_utils import parse_range_string, parse_address
-from plugin.calc.spreadsheet_import.ingest import ingest_sheet
+from plugin.calc.spreadsheet_import.ingest import _used_range_address, ingest_sheet
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, enrich_number_formats
 from plugin.calc.spreadsheet_import.verify import verify_converted_cells
@@ -93,8 +93,6 @@ def run_sheet_conversion(
     sheet_bounds: dict[str, tuple[int, int]] = {}
 
     def _collect_bounds() -> None:
-        from plugin.calc.spreadsheet_import.ingest import _used_range_address
-
         sheets = doc.getSheets()
         for i in range(sheets.getCount()):
             sh = sheets.getByIndex(i)
@@ -104,7 +102,7 @@ def run_sheet_conversion(
     best_effort(_collect_bounds, "collect workbook sheet bounds")
 
     # 2. Translate and Build Converted Output Model
-    output, report = build_converted_output_model(model, vectorize=vectorize, sheet_bounds=sheet_bounds or None)
+    output, report = build_converted_output_model(model, vectorize=vectorize, sheet_bounds=sheet_bounds)
 
     # 3. Resolve Target Sheet
     if output_mode == "new_sheet":
@@ -126,8 +124,7 @@ def run_sheet_conversion(
     if verify:
         doc.calculateAll()
         actual_values = fetch_actual_values(target_sheet, report.converted)
-        verify_res = verify_converted_cells(model, output, report, actual_values=actual_values)
-        failed_verifications = [item.to_dict() for item in verify_res.failed]
+        failed_verifications = [item.to_dict() for item in verify_converted_cells(model, output, report, actual_values=actual_values)]
 
     status = "partial" if failed_verifications else "ok"
     return {

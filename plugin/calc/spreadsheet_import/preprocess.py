@@ -31,8 +31,8 @@ _deal_lo_formula_ok = _deal_lo_formula_ok_crosshair if _PREPROCESS_CROSSHAIR els
 # What was wrong: only "..." was tracked, so a ';' in a quoted sheet name
 # ('My;Sheet'.A1) or an array constant ({1;2|3;4}) was rewritten to ','.
 # Why this fixes it: single-quoted names and {...} are copied verbatim.
-def _scan_quotes(s: str, replace_semi: str | None) -> str | None:
-    out: list[str] | None = None if replace_semi is None else []
+def _scan_quotes(s: str) -> str:
+    out: list[str] = []
     i = 0
     quote = ""  # open text literal or quoted sheet name
     depth = 0  # inside {...}: ';' is the array column separator
@@ -53,25 +53,21 @@ def _scan_quotes(s: str, replace_semi: str | None) -> str | None:
             depth -= 1
             step = 1
         elif ch == ";" and depth == 0:
-            if replace_semi is None:
-                return None
-            if out is not None:
-                out.append(replace_semi)
+            out.append(",")
             i += 1
             continue
         else:
             step = 1
-        if out is not None:
-            out.append(s[i : i + step])
+        out.append(s[i : i + step])
         i += step
-    return s if out is None else "".join(out)
+    return "".join(out)
 
 
 @deal.pre(lambda s: _deal_lo_formula_ok(s))
 @deal.post(lambda result: isinstance(result, bool))
 def _no_unquoted_semicolon(s: str) -> bool:
     """True when every ``;`` in *s* is inside a text literal, a quoted sheet name, or an array constant (or none exist)."""
-    return _scan_quotes(s, None) is not None
+    return _scan_quotes(s) == s
 
 
 # Two nested ensures (curly-quote scan + _no_unquoted_semicolon) skip
@@ -90,5 +86,4 @@ def normalize_lo_formula_for_parse(formula: str) -> str:
     raw = normalize_formula_string(formula)
     if not raw:
         return raw
-    res = _scan_quotes(raw, ",")
-    return res if res is not None else raw
+    return _scan_quotes(raw)

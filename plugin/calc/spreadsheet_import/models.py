@@ -26,7 +26,6 @@ class CellRecord:
     formula: str | None
     number_format: int | None  # UNO NumberFormat key; None in bulk ingest path
     precedents: list[str] = field(default_factory=list)
-    error_code: str | None = None
 
 
 @dataclass
@@ -123,13 +122,6 @@ class VerifyMismatch:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-@dataclass
-class VerifyResult:
-    passed: list[str] = field(default_factory=list)
-    failed: list[VerifyMismatch] = field(default_factory=list)
-    skipped: list[str] = field(default_factory=list)
 
 
 @dataclass

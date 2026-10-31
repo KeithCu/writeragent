@@ -129,7 +129,6 @@ _.CommentScanTasks  # class: plugin/writer/specialized/comments.py:510
 _.CommentWorkflowGet  # class: plugin/writer/specialized/comments.py:529
 _.CommentWorkflowSet  # class: plugin/writer/specialized/comments.py:540
 _.Constraints  # attribute: plugin/calc/analysis.py:271
-_.ConvertSpreadsheetToPython  # class: plugin/calc/spreadsheet_import/import_tool.py:17
 _.CreateDiagram  # class: plugin/draw/shapes.py:935
 _.CreatePivotTable  # class: plugin/calc/pivot.py:126
 _.CreateSheet  # class: plugin/calc/sheets.py:78

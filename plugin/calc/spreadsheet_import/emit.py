@@ -122,9 +122,8 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
         if addr in circular:
             _pass_through(addr, record, "CIRCULAR_REF")
             continue
-        # prompt/array/py are not formula|error; they must be handled above.
         # circular_groups contain only formula-like addresses (graph.py).
-        if record.type in ("empty", "constant") or record.type not in ("formula", "error") or not record.formula:
+        if record.type in ("empty", "constant") or not record.formula:
             cells[addr] = output_cell_from_record(record)
             continue
 
