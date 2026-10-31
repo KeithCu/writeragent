@@ -95,9 +95,7 @@ def parse_helper_script_header(
         params = json.loads(raw)
     except Exception:
         params = {}
-    if not isinstance(params, dict):
-        params = {}
-    return HelperScriptMeta(helper=helper, params=params)
+    return HelperScriptMeta(helper=helper, params=params if isinstance(params, dict) else {})
 
 
 _UNRESOLVED: Any = object()
@@ -352,12 +350,6 @@ def _python_literal(val: Any) -> str:
     identifier is injected only for the data argument in
     build_helper_script_template.
     """
-    if isinstance(val, (list, tuple)):
-        items = ", ".join(_python_literal(item) for item in val)
-        return f"[{items}]" if isinstance(val, list) else f"({items}{',' if len(val) == 1 else ''})"
-    if isinstance(val, dict):
-        parts = [f"{_python_literal(k)}: {_python_literal(v)}" for k, v in val.items()]
-        return "{" + ", ".join(parts) + "}"
     return repr(val)
 
 

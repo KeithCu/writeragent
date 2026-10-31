@@ -56,7 +56,7 @@ Aligned with [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoff
 **Explicit exclusions** (do not register menus, trusted domains, or probe groups for these in a core OXT):
 
 - Embeddings — `plugin/embeddings/`, `WORKER_POOL_EMBEDDINGS`, `embeddings_*` / `embedding` / `langdetect` trusted domains
-- DuckDB — `plugin/scripting/venv/duckdb_sql.py`, `SCRIPT_ORIGIN_SQL`, `domain=sql`
+- DuckDB — `plugin/scripting/venv/duckdb_sql.py`, picker origin `sql`, `domain=sql`
 - Spreadsheet import — `plugin/calc/spreadsheet_import/` (proposed), `calc.convert_spreadsheet_to_python`
 - Calc-parity `xl` helpers — **not in LibrePy today**; see [Calc-parity `xl` helpers (deferred)](#calc-parity-xl-helpers-deferred-from-librepy) below.
 
