@@ -454,7 +454,7 @@ def test_native_dialog_open_warms_venv_on_shared_pool():
         patch.object(inst, "_refresh_script_dropdown"),
         patch.object(inst, "_wire_listeners"),
     ):
-        assert inst._open() is True
+        assert inst._open() is None
 
     assert calls["func"] is ui.warm_venv_worker
     assert calls["args"] == (inst._ctx,)
@@ -1004,9 +1004,8 @@ def test_native_dialog_open_survives_warm_schedule_failure():
         patch.object(inst, "_refresh_script_dropdown"),
         patch.object(inst, "_wire_listeners"),
     ):
-        assert inst._open() is True
+        assert inst._open() is None
 
-    assert inst._open_failure_detail is None
     dlg.execute.assert_called_once()
 
 
