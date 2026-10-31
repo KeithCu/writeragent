@@ -98,11 +98,6 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
     return acc
 
 
-def _arguments_string(fn: dict[str, Any]) -> str:
-    args = fn.get("arguments")
-    return "" if args is None else str(args)
-
-
 def coalesce_split_tool_calls(tool_calls: object) -> list[Any]:
     """Merge provider stream-split phantom tool_calls into the prior real call.
 
@@ -139,7 +134,9 @@ def coalesce_split_tool_calls(tool_calls: object) -> list[Any]:
         if not kept:
             continue
         prev_fn = kept[-1]["function"]
-        prev_fn["arguments"] = _arguments_string(prev_fn) + _arguments_string(fn)
+        prev_args = prev_fn.get("arguments")
+        new_args = fn.get("arguments")
+        prev_fn["arguments"] = ("" if prev_args is None else str(prev_args)) + ("" if new_args is None else str(new_args))
     for i, tc in enumerate(kept):
         tc["index"] = i
     return kept
