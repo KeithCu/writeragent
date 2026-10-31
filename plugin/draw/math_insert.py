@@ -75,20 +75,14 @@ def _read_shape_property(shape: Any, name: str) -> Any:
 
 
 def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
-    """Best-effort formula box in 1/100 mm, or None when UNO has no size.
+    """Formula box in 1/100 mm, or None when UNO has no positive size.
 
-    ``VisibleArea`` is already 1/100 mm. ``SvxOle2Shape``
-    ``OWN_ATTR_OLE_VISAREA`` (``svx/source/unodraw/unoshap4.cxx``) converts
-    ``GetOrigObjSize`` with ``Map100thMM``.
-
-    ``XVisualObject`` size from the ``EmbeddedObject`` property.
-    ``getEmbeddedObject()`` is Writer ``TextEmbeddedObject``. Draw
-    ``OLE2Shape`` does not implement it, so the call returns None
-    and ``insert_math`` falls back to the length heuristic (clipped
-    or oversized). The embed is the readonly ``EmbeddedObject``
-    property (``svx/source/unodraw/unoprov.cxx``,
-    ``OWN_ATTR_OLE_EMBEDDED_OBJECT``). Setting ``Formula`` stores
-    ``SmDocShell::GetSize()`` as the vis-area
+    Draw ``OLE2Shape`` has no ``getEmbeddedObject()`` (Writer
+    ``TextEmbeddedObject``); that returns None and the length heuristic clips.
+    ``VisibleArea`` is already 1/100 mm (``svx/source/unodraw/unoshap4.cxx``,
+    ``OWN_ATTR_OLE_VISAREA`` / ``Map100thMM``). Otherwise read ``EmbeddedObject``
+    (``svx/source/unodraw/unoprov.cxx``, ``OWN_ATTR_OLE_EMBEDDED_OBJECT``).
+    Setting ``Formula`` stores ``SmDocShell::GetSize()`` as that vis-area
     (``SmModel::_setPropertyValues``).
     """
     wh = _content_size_hmm(_read_shape_property(shape, "VisibleArea"))
@@ -98,19 +92,15 @@ def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
         emb = _read_shape_property(shape, "EmbeddedObject")
         if emb is None:
             return None
-        vo = emb
-        if not hasattr(vo, "getVisualAreaSize"):
+        if not hasattr(emb, "getVisualAreaSize"):
             import uno
 
-            vo = emb.queryInterface(uno.getTypeByName("com.sun.star.embed.XVisualObject"))
-        if vo is None or not hasattr(vo, "getVisualAreaSize"):
-            return None
-        sz = vo.getVisualAreaSize(_ASPECT_CONTENT)
-        map_unit = vo.getMapUnit(_ASPECT_CONTENT)
-        out = _content_size_hmm(sz, map_unit)
-        if out is None:
-            log.debug("math_insert: unsupported embed map_unit=%s size=%sx%s", map_unit, getattr(sz, "Width", "?"), getattr(sz, "Height", "?"))
-        return out
+            emb = emb.queryInterface(uno.getTypeByName("com.sun.star.embed.XVisualObject"))
+            if emb is None or not hasattr(emb, "getVisualAreaSize"):
+                return None
+        sz = emb.getVisualAreaSize(_ASPECT_CONTENT)
+        map_unit = emb.getMapUnit(_ASPECT_CONTENT)
+        return _content_size_hmm(sz, map_unit)
     except Exception:
         log.debug("math_insert: getVisualAreaSize path failed", exc_info=True)
     return None
