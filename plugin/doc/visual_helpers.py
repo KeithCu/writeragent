@@ -12,6 +12,7 @@ Px ↔ 1/100 mm conversion rounds in both directions (`UNITS_PER_INCH` / `PX_PER
 
 from __future__ import annotations
 
+from functools import cmp_to_key
 import logging
 import re
 from typing import Any
@@ -64,9 +65,7 @@ def anchor_type_index(raw: Any) -> int | None:
     name = getattr(raw, "value", None)
     if not isinstance(name, str):
         name = raw
-    if isinstance(name, str):
-        return _ANCHOR_TYPE_INDEX.get(name)
-    return None
+    return _ANCHOR_TYPE_INDEX.get(name) if isinstance(name, str) else None
 
 
 def get_visual_doc_type(doc: Any) -> str:
@@ -432,8 +431,6 @@ def _sort_graphics_by_anchor(text: Any, pairs: list[tuple[str, Any]]) -> list[tu
         # compareRegionStarts(A,B): 1 if A before B → A should sort first → negative cmp.
         return uno_read(lambda: -int(text.compareRegionStarts(a_start, b_start)), 0)
 
-    from functools import cmp_to_key
-
     return sorted(pairs, key=cmp_to_key(_cmp))
 
 
@@ -787,8 +784,7 @@ def get_graphic_object_by_name(
         return None
     matches: list[tuple[Any, int | None]] = []
     for item in list_graphic_objects(doc, doc_type=doc_type):
-        name = item[0]
-        graphic = item[1]
+        name, graphic = item[0], item[1]
         s_idx = getattr(item, "sheet_index", None)
         if name == image_name:
             if sheet_index is not None:
@@ -796,19 +792,16 @@ def get_graphic_object_by_name(
                     return graphic
             else:
                 matches.append((graphic, s_idx))
-    if sheet_index is not None:
-        return None
     if len(matches) == 1:
         return matches[0][0]
-    if len(matches) > 1:
-        sheet_indices = [idx for _g, idx in matches if idx is not None]
-        sheets_info = f" (sheets {sheet_indices})" if sheet_indices else ""
-        err = AmbiguousGraphicNameError(
-            f"Several shapes named '{image_name}'{sheets_info}; specify sheet_index.",
-            sheet_indices=sheet_indices,
-        )
-        raise err
-    return None
+    if len(matches) < 2:
+        return None
+    sheet_indices = [idx for _g, idx in matches if idx is not None]
+    sheets_info = f" (sheets {sheet_indices})" if sheet_indices else ""
+    raise AmbiguousGraphicNameError(
+        f"Several shapes named '{image_name}'{sheets_info}; specify sheet_index.",
+        sheet_indices=sheet_indices,
+    )
 
 
 def graphic_from_object(obj: Any) -> Any | None:
@@ -819,8 +812,7 @@ def graphic_from_object(obj: Any) -> Any | None:
     if graphic is not None:
         return graphic
     try:
-        graphic = obj.Graphic
-        return graphic if graphic is not None else None
+        return obj.Graphic
     except Exception as ex:
         reraise_if_disposed(ex)
         log.debug("graphic_from_object missing Graphic: %s", ex)
