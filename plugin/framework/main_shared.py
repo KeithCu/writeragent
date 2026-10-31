@@ -16,10 +16,53 @@ LLM worker.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar, cast
+
+import unohelper
+from com.sun.star.frame import DispatchDescriptor, XDispatch, XDispatchProvider
+from com.sun.star.lang import XInitialization, XServiceInfo
+
+from plugin.framework.url_utils import matches_extension_dispatch_url
 
 _ACTION_HANDLERS: dict[str, Callable[..., Any]] = {}
 log = logging.getLogger(__name__)
+
+
+class ExtensionProtocolHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitialization, XServiceInfo):
+    EXTENSION_ID: ClassVar[str]
+    IMPL_NAME: ClassVar[str]
+    SERVICE_NAMES: ClassVar[tuple[str, ...]] = ("com.sun.star.frame.ProtocolHandler",)
+    ctx: Any
+
+    def __init__(self, ctx: Any) -> None:
+        self.ctx = ctx
+
+    def initialize(self, aArguments: Any) -> None:
+        pass
+
+    def getImplementationName(self) -> str:
+        return self.IMPL_NAME
+
+    def supportsService(self, ServiceName: str) -> bool:
+        return ServiceName in self.SERVICE_NAMES
+
+    def getSupportedServiceNames(self) -> tuple[str, ...]:
+        return self.SERVICE_NAMES
+
+    def queryDispatch(self, URL: Any, TargetFrameName: str, SearchFlags: int) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
+        if matches_extension_dispatch_url(URL, self.EXTENSION_ID):
+            return cast("XDispatch", self)
+        return cast("XDispatch", cast("object", None))
+
+    def queryDispatches(self, Requests: tuple[DispatchDescriptor, ...]) -> tuple[XDispatch, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
+        return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in Requests)
+
+    def addStatusListener(self, Control: Any, URL: Any) -> None:
+        pass
+
+    def removeStatusListener(self, Control: Any, URL: Any) -> None:
+        pass
+
 
 _TESTS_AVAILABLE: bool | None = None
 

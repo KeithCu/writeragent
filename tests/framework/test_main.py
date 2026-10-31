@@ -712,17 +712,17 @@ def test_icon_apply_signature_and_icons_unchanged():
     }
     stamp = main._icon_apply_signature(cmds, 16)
 
-    assert main._icons_unchanged(cmds, 16, stamp) is True
+    assert (main._icon_apply_signature(cmds, 16) == stamp) is True
 
     # Changed prefix -> False
     cmds_changed_prefix = {
         ".uno:Cmd1": ("writer", "prefix_c"),
         ".uno:Cmd2": ("calc", "prefix_b"),
     }
-    assert main._icons_unchanged(cmds_changed_prefix, 16, stamp) is False
+    assert (main._icon_apply_signature(cmds_changed_prefix, 16) == stamp) is False
 
     # Changed pixel size -> False
-    assert main._icons_unchanged(cmds, 24, stamp) is False
+    assert (main._icon_apply_signature(cmds, 24) == stamp) is False
 
 
 def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
@@ -861,10 +861,10 @@ def test_main_bootstrap_job_trigger_extend_selection_none_model():
     job = main.MainBootstrapJob(MagicMock())
     with (
         patch("plugin.main.get_active_document", return_value=None),
-        patch.object(job, "_handle_selection_actions") as mock_sel,
+        patch("plugin.chatbot.selection.do_selection_action_for_document") as mock_action,
     ):
         job.trigger("ExtendSelection")
-        mock_sel.assert_not_called()
+        mock_action.assert_not_called()
 
 
 # --- Bug 10 tests: TestTypes removed from framework actions ---

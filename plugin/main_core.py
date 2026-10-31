@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar
 
 _ext_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ext_root not in sys.path:
@@ -26,8 +26,6 @@ ensure_plugin_on_path(
 )
 
 import unohelper
-from com.sun.star.frame import DispatchDescriptor, XDispatch, XDispatchProvider
-from com.sun.star.lang import XInitialization, XServiceInfo
 from com.sun.star.task import XJob, XJobExecutor
 
 if TYPE_CHECKING:
@@ -35,8 +33,9 @@ if TYPE_CHECKING:
 
 from plugin.framework.logging import init_logging, log as wa_log, log_exception
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
+from plugin.framework.thread_guard import on_python_main_thread
 from plugin.framework.uno_context import get_ctx, set_fallback_ctx, set_package_extension_id
-from plugin.framework.url_utils import dispatch_command_from_url, matches_extension_dispatch_url
+from plugin.framework.url_utils import dispatch_command_from_url
 
 EXTENSION_ID = EXTENSION_ID_LIBREPY
 
@@ -45,10 +44,12 @@ _initialized = False
 _bootstrapping = False
 
 from plugin.framework.main_shared import (
+    ExtensionProtocolHandler,
     register_action_handler,
     get_action_handler,
     open_dialog_safely,
     register_common_handlers,
+    report_action_failure,
 )
 
 def _register_librepy_handlers() -> None:
@@ -65,7 +66,6 @@ def bootstrap(ctx: Any | None = None) -> None:
     global _initialized, _bootstrapping
     if _initialized:
         return
-    from plugin.framework.thread_guard import on_python_main_thread
 
     # A status-listener Dummy upcall is allowed to touch UNO, and it must not enter bootstrap.
     if not on_python_main_thread():
@@ -126,15 +126,6 @@ def bootstrap(ctx: Any | None = None) -> None:
         _bootstrapping = False
 
 
-def _schedule_update_check(ctx: Any) -> None:
-    try:
-        from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
-
-        schedule_extension_update_check_once(ctx, EXTENSION_ID)
-    except Exception as e:
-        log.warning("extension update check schedule failed: %s", e)
-
-
 def _run_startup(ctx: Any) -> None:
     try:
         init_logging(ctx)
@@ -142,7 +133,9 @@ def _run_startup(ctx: Any) -> None:
         log.exception("LibrePy init_logging failed")
     try:
         bootstrap(ctx)
-        _schedule_update_check(ctx)
+        from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
+
+        schedule_extension_update_check_once(ctx, EXTENSION_ID)
     except Exception as e:
         log.exception("LibrePy bootstrap failed: %s", e)
 
@@ -154,8 +147,6 @@ def _dispatch_command(command: str, ctx: Any | None = None) -> None:
         try:
             handler()
         except Exception as e:
-            from plugin.framework.main_shared import report_action_failure
-
             report_action_failure(command, e)
         return
     log.warning("Unhandled LibrePy command: %s", command)
@@ -173,40 +164,14 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
 
     def trigger(self, Event: str) -> None:
         _run_startup(self.ctx)
-        args = Event
-        if args and "." in args:
-            cmd = args[7:] if args.startswith("plugin.") else args
+        if Event and "." in Event:
+            cmd = Event[7:] if Event.startswith("plugin.") else Event
             _dispatch_command(cmd, self.ctx)
 
 
-class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitialization, XServiceInfo):
+class DispatchHandler(ExtensionProtocolHandler):
+    EXTENSION_ID: ClassVar[str] = EXTENSION_ID
     IMPL_NAME: ClassVar[str] = f"{EXTENSION_ID}.DispatchHandler"
-    SERVICE_NAMES: ClassVar[tuple[str, ...]] = ("com.sun.star.frame.ProtocolHandler",)
-    ctx: Any
-
-    def __init__(self, ctx: Any) -> None:
-        self.ctx = ctx
-
-    def initialize(self, aArguments: Any) -> None:
-        pass
-
-    def getImplementationName(self) -> str:
-        return self.IMPL_NAME
-
-    def supportsService(self, ServiceName: str) -> bool:
-        return ServiceName in self.SERVICE_NAMES
-
-    def getSupportedServiceNames(self) -> tuple[str, ...]:
-        return self.SERVICE_NAMES
-
-    def queryDispatch(self, URL: UnoURL, TargetFrameName: str, SearchFlags: int) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
-        if matches_extension_dispatch_url(URL, EXTENSION_ID):
-            return cast("XDispatch", self)
-        # UNO allows null dispatch; stub types reject None → cast via object.
-        return cast("XDispatch", cast("object", None))
-
-    def queryDispatches(self, Requests: tuple[DispatchDescriptor, ...]) -> tuple[XDispatch, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in Requests)
 
     def dispatch(self, URL: UnoURL, Arguments: Any) -> None:
         command = dispatch_command_from_url(URL)
@@ -222,17 +187,10 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
         except Exception as e:
             log_exception(e, context="LibrePy dispatch")
             try:
-                from plugin.framework.main_shared import report_action_failure
-
                 report_action_failure(command, e)
             except Exception:
                 log.exception("LibrePy dispatch error report failed")
 
-    def addStatusListener(self, Control: Any, URL: UnoURL) -> None:
-        pass
-
-    def removeStatusListener(self, Control: Any, URL: UnoURL) -> None:
-        pass
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
