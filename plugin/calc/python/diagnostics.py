@@ -116,12 +116,11 @@ class PythonDiagnosticsStore:
             best_effort(lambda: cb(entry), "diagnostic listener failed")
         return entry
 
-    def list_entries(self, workbook_key: str, *, filt: DiagnosticFilter = "all", newest_first: bool = True) -> list[DiagnosticEntry]:
+    def list_entries(self, workbook_key: str, *, filt: DiagnosticFilter = "all") -> list[DiagnosticEntry]:
         key = (workbook_key or "unknown").strip() or "unknown"
         with self._lock:
             bucket = list(self._by_workbook.get(key, ()))
-        if newest_first:
-            bucket.reverse()
+        bucket.reverse()
         return [e for e in bucket if e.matches_filter(filt)]
 
     def latest_for_code(self, workbook_key: str, code: str) -> DiagnosticEntry | None:
@@ -134,7 +133,7 @@ class PythonDiagnosticsStore:
         needle = (code or "")[:_CODE_SNIPPET_MAX]
         if not needle:
             return None
-        for entry in self.list_entries(workbook_key, filt="all", newest_first=True):
+        for entry in self.list_entries(workbook_key):
             if entry.code == needle:
                 return entry
         return None
