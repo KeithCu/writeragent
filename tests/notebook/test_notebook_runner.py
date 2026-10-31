@@ -930,8 +930,7 @@ def test_apply_run_result_missing_bookmark_does_not_append_at_end():
     doc.getText.return_value = text
     with (
         patch("plugin.notebook.notebook_runner._reanchor_output_bookmark", return_value=None),
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=None),
-        patch("plugin.notebook.notebook_runner._find_cell_output_heading_end", return_value=None),
+        patch("plugin.notebook.notebook_runner._cell_end_range", return_value=None),
         patch("plugin.notebook.notebook_runner._insert_stdout_paragraph") as insert,
     ):
         apply_run_result(doc, cell, {"status": "ok", "stdout": "dumped\n", "result": None})
