@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 from plugin.framework.config import (
     CONFIG_BACKUP_SUFFIX,
     CONFIG_SCHEMA_COMMENT,
-    CONFIG_SCHEMA_DOC_URL,
     _resolve_config_path_from_ctx,
     get_api_key_for_endpoint,
     set_api_key_for_endpoint,
@@ -197,7 +196,7 @@ class TestConfigSyncFileIO:
 
         def mock_config_path():
             return self.config_path
-        self.path_patcher = patch('plugin.framework.config._config_path', side_effect=mock_config_path)
+        self.path_patcher = patch('plugin.framework.config.get_config_file_path', side_effect=mock_config_path)
         self.path_patcher.start()
 
     def teardown_method(self):
@@ -1241,9 +1240,9 @@ class TestConfigSyncFileIO:
         with open(self.config_path, 'r', encoding='utf-8') as f:
             text = f.read()
         assert (text.startswith('//'))
-        assert (CONFIG_SCHEMA_DOC_URL) in (text)
-        assert ("/blob/master/") in (CONFIG_SCHEMA_DOC_URL)
-        assert ("/blob/main/") not in (CONFIG_SCHEMA_DOC_URL)
+        assert "https://github.com/KeithCu/writeragent/blob/master/docs/writeragent-config-schema.md" in text
+        assert "/blob/master/" in CONFIG_SCHEMA_COMMENT
+        assert "/blob/main/" not in CONFIG_SCHEMA_COMMENT
 
     def test_parse_config_json_text_strips_schema_comment(self):
         raw = CONFIG_SCHEMA_COMMENT + '{\n    "text_model": "custom-model"\n}\n'
@@ -1574,7 +1573,7 @@ class TestRobustNumericParsing:
 
 def test_get_config_before_init_warns_once(caplog):
     reset_config_for_tests()
-    with patch("plugin.framework.config._config_path", side_effect=ConfigError("no path", code="CONFIG_PATH_ERROR")):
+    with patch("plugin.framework.config.get_config_file_path", side_effect=ConfigError("no path", code="CONFIG_PATH_ERROR")):
         with caplog.at_level(logging.WARNING):
             assert get_config("text_model") == ""
             assert get_config("text_model") == ""
@@ -1587,7 +1586,7 @@ def test_get_config_before_init_warns_once(caplog):
 
 
 def test_set_config_raises_when_path_empty():
-    with patch("plugin.framework.config._config_path", return_value=""):
+    with patch("plugin.framework.config.get_config_file_path", return_value=""):
         with pytest.raises(ConfigError) as exc:
             set_config("text_model", "x")
     assert exc.value.code == "CONFIG_PATH_ERROR"
@@ -1596,7 +1595,7 @@ def test_set_config_raises_when_path_empty():
 def test_remove_config_raises_when_path_unresolved():
     from plugin.framework.config import remove_config
 
-    with patch("plugin.framework.config._config_path", side_effect=ConfigError("no path", code="CONFIG_DIR_ERROR")):
+    with patch("plugin.framework.config.get_config_file_path", side_effect=ConfigError("no path", code="CONFIG_DIR_ERROR")):
         with pytest.raises(ConfigError):
             remove_config("text_model")
 

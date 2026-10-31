@@ -141,7 +141,7 @@ def test_sync_sidebar_text_model_writes_model_and_lru_once(tmp_path):
     ctrl.getText.return_value = "new-model"
     try:
         with (
-            patch("plugin.framework.config._config_path", return_value=str(path)),
+            patch("plugin.framework.config.get_config_file_path", return_value=str(path)),
             patch.object(get_event_bus(), "emit") as emit,
             patch("plugin.framework.config._write_config_file", wraps=real_write) as write,
             patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=endpoint),
