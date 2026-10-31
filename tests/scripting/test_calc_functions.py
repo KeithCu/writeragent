@@ -507,11 +507,14 @@ def test_unicode():
 def test_besseli():
     import scipy.special
     assert math.isclose(calc.besseli(1.5, 1), scipy.special.iv(1, 1.5))
+    assert math.isclose(calc.besseli(0.0, 1), scipy.special.iv(1, 0.0))
     assert math.isnan(calc.besseli(1.5, -1))
+    assert math.isnan(calc.besseli("invalid", 1))
 
 def test_besselj():
     import scipy.special
     assert math.isclose(calc.besselj(1.5, 1), scipy.special.jv(1, 1.5))
+    assert math.isclose(calc.besselj(0.0, 1), scipy.special.jv(1, 0.0))
     assert math.isnan(calc.besselj(1.5, -1))
 
 
