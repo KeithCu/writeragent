@@ -54,10 +54,8 @@ def extract_code_from_py_formula(formula: str) -> str | None:
 
 
 def _code_strings_match(extracted: str | None, code_str: str) -> bool:
-    if extracted is None or not code_str:
+    if extracted is None:
         return False
-    if extracted == code_str:
-        return True
     ext_norm = extracted.replace("\r\n", "\n").strip()
     code_norm = code_str.replace("\r\n", "\n").strip()
     return ext_norm == code_norm
@@ -73,15 +71,12 @@ def _resolve_ref_cell(sheet: Any, doc: Any | None, code_ref: str) -> Any | None:
             return None
         col, row = parse_address(bare)
         target_sheet = sheet
-        if sheet_prefix:
-            if hasattr(sheet, "getName") and sheet.getName() == sheet_prefix:
-                target_sheet = sheet
-            elif doc is not None and hasattr(doc, "getSheets"):
-                sheets = doc.getSheets()
-                target_sheet = uno_probe(lambda: sheets.getByName(sheet_prefix), None) if hasattr(sheets, "getByName") else None
-                if target_sheet is None:
-                    return None
-            else:
+        if sheet_prefix and sheet.getName() != sheet_prefix:
+            if doc is None:
+                return None
+            sheets = doc.getSheets()
+            target_sheet = uno_probe(lambda: sheets.getByName(sheet_prefix), None)
+            if target_sheet is None:
                 return None
         return target_sheet.getCellByPosition(col, row)
     except Exception:
@@ -114,26 +109,22 @@ def iter_range_formula_texts(sheet: Any, cell_range: Any, *, skip_cell_errors: b
     Fallback getFormula() errors propagate unless skip_cell_errors."""
     addr = cell_range.getRangeAddress()
     formula_matrix = uno_probe(cell_range.getFormulaArray, None) if hasattr(cell_range, "getFormulaArray") else None
-
-    def _gen() -> Iterator[tuple[int, int, str]]:
-        if isinstance(formula_matrix, (list, tuple)) and len(formula_matrix) > 0:
-            for r_idx, row_formulas in enumerate(formula_matrix):
-                row = addr.StartRow + r_idx
-                for c_idx, formula in enumerate(row_formulas):
-                    yield (row, addr.StartColumn + c_idx, str(formula or ""))
-        else:
-            for row in range(addr.StartRow, addr.EndRow + 1):
-                for col in range(addr.StartColumn, addr.EndColumn + 1):
-                    try:
-                        cell = sheet.getCellByPosition(col, row)
-                        formula = str(cell.getFormula() or "")
-                    except Exception:
-                        if skip_cell_errors:
-                            continue
-                        raise
-                    yield (row, col, formula)
-
-    return _gen()
+    if isinstance(formula_matrix, (list, tuple)) and len(formula_matrix) > 0:
+        for r_idx, row_formulas in enumerate(formula_matrix):
+            row = addr.StartRow + r_idx
+            for c_idx, formula in enumerate(row_formulas):
+                yield (row, addr.StartColumn + c_idx, str(formula or ""))
+    else:
+        for row in range(addr.StartRow, addr.EndRow + 1):
+            for col in range(addr.StartColumn, addr.EndColumn + 1):
+                try:
+                    cell = sheet.getCellByPosition(col, row)
+                    formula = str(cell.getFormula() or "")
+                except Exception:
+                    if skip_cell_errors:
+                        continue
+                    raise
+                yield (row, col, formula)
 
 
 def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | None:
@@ -145,26 +136,15 @@ def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | Non
     from being treated as an array formula.
     """
     def _probe() -> tuple[int, int] | None:
-        if not hasattr(sheet, "createCursorByRange") or not hasattr(sheet, "getCellRangeByPosition"):
-            return None
         cursor = sheet.createCursorByRange(sheet.getCellRangeByPosition(col, row, col, row))
-        if not hasattr(cursor, "collapseToCurrentArray"):
-            return None
         cursor.collapseToCurrentArray()
         addr = cursor.getRangeAddress()
-        start_col = getattr(addr, "StartColumn", None)
-        end_col = getattr(addr, "EndColumn", None)
-        start_row = getattr(addr, "StartRow", None)
-        end_row = getattr(addr, "EndRow", None)
-        if start_col is None or end_col is None or start_row is None or end_row is None:
+        if addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow:
             return None
-        if start_col == end_col and start_row == end_row:
+        rng = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+        if not rng.getArrayFormula():
             return None
-        rng = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
-        get_arr = getattr(rng, "getArrayFormula", None)
-        if not get_arr or not get_arr():
-            return None
-        return (start_row, start_col)
+        return (addr.StartRow, addr.StartColumn)
 
     return uno_probe(_probe, None)
 
@@ -191,34 +171,19 @@ def _collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None
     count = formula_cells.getCount() if hasattr(formula_cells, "getCount") else 0
     for i in range(count):
         cell_range = formula_cells.getByIndex(i)
-        raw_hits: list[tuple[Any, int, int]] = []
+        hits: list[tuple[int, int]] = []
         for r, c, formula_str in iter_range_formula_texts(sheet, cell_range):
-            upper = formula_str.upper()
-            if "PY" not in upper:
-                continue
             if is_matching_py_formula(formula_str, code_str, sheet=sheet, doc=doc):
-                cell = sheet.getCellByPosition(c, r)
-                raw_hits.append((cell, r, c))
-
-        if len(raw_hits) <= 1:
-            found.extend(raw_hits)
+                hits.append((r, c))
+        if len(hits) <= 1:
+            found.extend((sheet.getCellByPosition(c, r), r, c) for r, c in hits)
             continue
-
-        seen_array_origins: set[tuple[int, int]] = set()
-        for cell, r, c in raw_hits:
-            origin = _array_block_origin(sheet, c, r)
-            if origin is not None:
-                if origin not in seen_array_origins:
-                    seen_array_origins.add(origin)
-                    origin_r, origin_c = origin
-                    origin_cell = cell if (origin_r == r and origin_c == c) else sheet.getCellByPosition(origin_c, origin_r)
-                    found.append((origin_cell, origin_r, origin_c))
-            else:
-                found.append((cell, r, c))
+        origins = list(dict.fromkeys(_array_block_origin(sheet, c, r) or (r, c) for r, c in hits))
+        found.extend((sheet.getCellByPosition(c, r), r, c) for r, c in origins)
     return found
 
 
-def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str) -> _Location | None:
+def locate_formula_cell_in_doc(doc: Any, code_str: str) -> _Location | None:
     """Find unique (sheet, cell, (row, col)) for this Python formula in *doc*.
 
     Returns None when zero or two+ origins match: XAddIn has no calling cell, so
@@ -234,30 +199,24 @@ def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str) -> _Location |
 
     collected: list[_Location] = []
     seen: set[tuple[str, int, int]] = set()
-
-    def _add(sheet: Any, cell: Any, row: int, col: int) -> None:
-        name = sheet.getName() if hasattr(sheet, "getName") else ""
-        key = (name, row, col)
-        if key in seen:
-            return
-        seen.add(key)
-        collected.append((sheet, cell, (row, col)))
-
-    res: _Location | None = None
     sheets = doc.getSheets() if hasattr(doc, "getSheets") else None
     if sheets is not None:
         count = sheets.getCount() if hasattr(sheets, "getCount") else 0
         for i in range(count):
             sheet = sheets.getByIndex(i)
+            sheet_name = sheet.getName() if hasattr(sheet, "getName") else ""
             for cell, r, c in _collect_matching_formula_origins(sheet, code_str, doc=doc):
-                _add(sheet, cell, r, c)
+                key = (sheet_name, r, c)
+                if key in seen:
+                    continue
+                seen.add(key)
+                collected.append((sheet, cell, (r, c)))
                 if len(collected) > 1:
-                    if memo is not None and cache_key is not None:
-                        memo[cache_key] = None
-                    return None
+                    break
+            if len(collected) > 1:
+                break
 
-    if len(collected) == 1:
-        res = collected[0]
+    res = collected[0] if len(collected) == 1 else None
     if memo is not None and cache_key is not None:
         memo[cache_key] = res
     return res

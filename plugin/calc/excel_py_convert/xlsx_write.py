@@ -67,7 +67,7 @@ _INVALID_XML_CHARS_RE = re.compile(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\U000
 
 def _xlsx_formula_for_cell(cell: ConvertedCell) -> str:
     """Render a comma-separated OOXML ``=PY`` formula (script bank ref, no Calc sanitizer)."""
-    return formula_for_converted_cell(cell, separator=",", excel_escape=True)
+    return formula_for_converted_cell(cell, separator=",")
 
 
 def _unshare_groups_touching(ws_root: ET.Element, sheet_title: str, write_addrs: set[str]) -> None:

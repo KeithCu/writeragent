@@ -171,7 +171,7 @@ def _located_image_cell(ctx: Any, doc: Any, code: str | None) -> tuple[Any, Any,
     try:
         from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
 
-        return locate_formula_cell_in_doc(ctx, doc, code)
+        return locate_formula_cell_in_doc(doc, code)
     except Exception:
         return None
 

@@ -472,7 +472,7 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
             url_val = getattr(target, "getURL", lambda: "")()
             doc_url = url_val if isinstance(url_val, str) else ""
             sid = workbook_session_id(ctx, doc=target) or ""
-            located = locate_formula_cell_in_doc(ctx, target, code)
+            located = locate_formula_cell_in_doc(target, code)
             if located is not None:
                 sheet, _cell, coord = located
                 name_val = getattr(sheet, "getName", lambda: "")()
@@ -1353,7 +1353,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     neighbor write should proceed, or ``None`` when the origin is not unique.
     The identity is ``_spill_registry_doc_key``: RuntimeUID, else the file URL, else the lifecycle id. An empty identity returns None.
     """
-    located = locate_formula_cell_in_doc(ctx, target_doc, code)
+    located = locate_formula_cell_in_doc(target_doc, code)
     if located is None:
         return None
     doc_key = _spill_registry_doc_key(target_doc)
@@ -1490,7 +1490,7 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                         # Bugfix: What was wrong: UI selection check ran before formula locator; if user had selected multiple cells elsewhere on the sheet, single-cell =PY() was mistakenly treated as a matrix formula.
                         # How it happened: _selection_is_multi_cell was checked first to "avoid locator scan".
                         # Why this change fixes it: We locate the actual formula cell first and check _cell_is_matrix; selection is only checked as fallback when locator returns None.
-                        located = locate_formula_cell_in_doc(ctx, doc, code)
+                        located = locate_formula_cell_in_doc(doc, code)
                         if located is not None:
                             sheet, cell, _coord = located
                             is_matrix = _cell_is_matrix(sheet, cell)
