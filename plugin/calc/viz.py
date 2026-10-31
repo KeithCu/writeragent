@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
-from plugin.scripting.viz import HELPER_NAMES, insert_viz_result_into_doc
+from plugin.scripting.viz import HELPER_NAMES, insert_viz_result_into_doc, run_trusted_viz
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -53,7 +53,6 @@ class PlotDataTool(ToolBaseDummy):
         if getattr(ctx, "active_domain", None) == "analysis" and data is not None:
             return self._tool_error("analysis domain requires data_range (A1 address string) only for plot_data.")
 
-        from plugin.scripting.viz import run_trusted_viz
         from plugin.scripting.payload_codec import extract_image_payload, write_image_payload_to_temp
 
         try:

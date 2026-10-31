@@ -395,7 +395,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 
 1. Add [`plugin/calc/forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py):
    - predicate is `helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(task_hint))`
-   - `build_viz_request(forecast_result, forecast_params) -> ("time_series_plot", {...})` — merge history from `data_range` with forecast table rows; map `forecast`/`lower`/`upper` columns.
+   - `run_auto_plot_after_forecast` merges history with the forecast table and calls `time_series_plot`, taking `value_col` / `lower` / `upper` from the merged header.
    - Reuse `task_hint_implies_plot` from [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py) (import, do not duplicate regex).
 2. In [`ForecastDataTool.execute`](../../plugin/calc/forecast.py): after successful run + optional `output_range` write, mirror [`AnalyzeDataTool`](../../plugin/calc/analysis.py) lines 476–512 (`run_auto_plot_after_forecast`, `insert_viz_result_into_doc`).
 3. Add `auto_plot: bool` to `forecast_data` parameters (default `false` to match conservative Phase 0; or `true` to match `analyze_data` — **pick `false`** unless product wants parity).
@@ -404,7 +404,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 
 | File | Coverage |
 |------|----------|
-| [`tests/calc/test_forecast_auto_plot.py`](../../tests/calc/test_forecast_auto_plot.py) | `build_viz_request` mapping; mock viz insert |
+| [`tests/calc/test_forecast_auto_plot.py`](../../tests/calc/test_forecast_auto_plot.py) | merged-header params asserted on `run_trusted_viz`; mock viz insert |
 | [`tests/calc/test_forecast_data.py`](../../tests/calc/test_forecast_data.py) | `auto_plot=true` calls viz path (mocked) |
 
 ##### Work item 4 — Optional Prophet (stretch / end of Phase 1)

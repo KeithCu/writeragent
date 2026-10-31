@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.forecast import ForecastDataTool
-from plugin.calc.forecast_auto_plot import build_viz_request, merge_forecast_plot_data, run_auto_plot_after_forecast, should_auto_plot
+from plugin.calc.forecast_auto_plot import merge_forecast_plot_data, run_auto_plot_after_forecast
 from plugin.calc.viz_auto_plot import task_hint_implies_plot
 from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE
 
@@ -28,35 +28,6 @@ def calc_ctx():
 def test_forecast_task_hint_implies_plot_reused():
     assert task_hint_implies_plot("plot forecast with bands") is True
     assert task_hint_implies_plot("monthly forecast") is False
-
-
-def test_should_auto_plot_forecast_helper():
-    assert should_auto_plot(helper="forecast_time_series", auto_plot=True, task_hint=None) is True
-    assert should_auto_plot(helper="decompose_time_series", auto_plot=True, task_hint="plot") is False
-
-
-def test_build_viz_request_forecast():
-    req = build_viz_request(
-        forecast_result={
-            "status": "ok",
-            "tables": [
-                {
-                    "name": "forecast",
-                    "columns": ["date", "forecast", "lower", "upper"],
-                    "rows": [["2025-01-01", 120.0, 115.0, 125.0]],
-                }
-            ],
-        },
-        forecast_params={"date_col": "Date", "value_col": "Value"},
-    )
-    assert req is not None
-    helper, params = req
-    assert helper == "time_series_plot"
-    assert params["date_col"] == "date"
-    assert params["value_col"] == "Value"
-    assert params["forecast_col"] == "forecast"
-    assert params["lower_col"] == "lower"
-    assert params["upper_col"] == "upper"
 
 
 def test_merge_forecast_plot_data():
@@ -235,6 +206,14 @@ def test_auto_plot_reads_sheet_on_main_and_passes_doc():
     def viz(*_args, **kwargs):
         assert not inside["flag"], "run_trusted_viz must stay off the sheet-read hop"
         assert kwargs["data"][0] == ["date", "Value", "forecast", "lower", "upper"]
+        assert kwargs["helper"] == "time_series_plot"
+        assert kwargs["params"] == {
+            "date_col": "date",
+            "value_col": "Value",
+            "forecast_col": "forecast",
+            "lower_col": "lower",
+            "upper_col": "upper",
+        }
         assert str(kwargs["data"][1][0]).startswith("2024-01-01")
         return {"status": "ok", "helper": "time_series_plot"}
 

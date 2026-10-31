@@ -73,11 +73,11 @@ class ForecastDataTool(ToolBaseDummy):
 
         if result.get("status") == "ok" and ctx.doc_type == "calc":
             auto_plot = bool(kwargs.get("auto_plot", False))
-            from plugin.calc.forecast_auto_plot import run_auto_plot_after_forecast, should_auto_plot
-            from plugin.calc.viz_auto_plot import apply_auto_plot_result
+            from plugin.calc.forecast_auto_plot import run_auto_plot_after_forecast
+            from plugin.calc.viz_auto_plot import apply_auto_plot_result, task_hint_implies_plot
 
             plot_result = None
-            if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
+            if helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(task_hint)):
                 # Call run_auto_plot_after_forecast on this worker. It
                 # marshals the sheet read itself. Wrapping it in
                 # execute_on_main_thread runs the matplotlib IPC on the UI
