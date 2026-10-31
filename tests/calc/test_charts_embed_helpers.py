@@ -33,7 +33,6 @@ from plugin.calc.charts import (
     _lookup_chart,
     _normalize_clsid_value,
     _unique_chart_name,
-    _writer_embed_is_chart,
     supportsService,
 )
 
@@ -57,7 +56,7 @@ def test_is_chart_clsid_rejects_empty():
 def test_writer_embed_is_chart_by_clsid():
     o = MagicMock()
     o.CLSID = CHART_CLSID
-    assert _writer_embed_is_chart(o) is True
+    assert _is_chart_host(o, is_embed=True) is True
 
 
 def test_writer_embed_is_chart_by_diagram():
@@ -67,7 +66,7 @@ def test_writer_embed_is_chart_by_diagram():
     chart_doc = MagicMock()
     chart_doc.getDiagram.return_value = diagram
     o.getEmbeddedObject.return_value = chart_doc
-    assert _writer_embed_is_chart(o) is True
+    assert _is_chart_host(o, is_embed=True) is True
 
 
 class _DisposedException(Exception):
@@ -194,7 +193,7 @@ def test_normalize_clsid_value_uno_byte_sequence():
     assert _is_chart_clsid(str(raw)) is False
     host = MagicMock()
     host.CLSID = raw
-    assert _writer_embed_is_chart(host) is True
+    assert _is_chart_host(host, is_embed=True) is True
 
 
 def test_axis_title_shape_string_missing_property_is_not_success():
@@ -609,7 +608,7 @@ def test_list_charts_writer_draw_page_error_keeps_embedded_chart():
 
     with (
         patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")),
-        patch("plugin.calc.charts._writer_embed_is_chart", return_value=True),
+        patch("plugin.calc.charts._is_chart_host", return_value=True),
         patch("plugin.calc.charts._chart_document_from_host", return_value=None),
     ):
         result = ListCharts().execute(ctx)
@@ -877,7 +876,7 @@ def test_predicate_disposal_propagates():
     chart_doc.getDiagram.side_effect = DisposedException("gone")
     embed_host.getEmbeddedObject.return_value = chart_doc
     with pytest.raises(DisposedException):
-        _writer_embed_is_chart(embed_host)
+        _is_chart_host(embed_host, is_embed=True)
 
 
 def test_unique_chart_names_unit():

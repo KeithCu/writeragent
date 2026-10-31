@@ -23,6 +23,7 @@ from native test assertions rather than the factory CLSID).
 """
 from __future__ import annotations
 
+import copy
 import logging
 import math
 import time
@@ -73,7 +74,7 @@ def supportsService(obj: Any, service_name: str) -> bool:
         return False
 
 
-def _doc_kind(doc: Any) -> Literal["draw"] | None:
+def _is_draw_doc(doc: Any) -> bool:
     """Draw or Impress. DrawingDocument is probed first, then PresentationDocument.
 
     Both orders accept a live Draw doc and a live Impress doc (Impress supports
@@ -81,11 +82,9 @@ def _doc_kind(doc: Any) -> Literal["draw"] | None:
     call either way. UpsertChart used to probe Presentation first; the branch
     taken is the same.
     """
-    if supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(
+    return supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(
         doc, "com.sun.star.presentation.PresentationDocument"
-    ):
-        return "draw"
-    return None
+    )
 
 
 log = logging.getLogger("writeragent.calc")
@@ -109,28 +108,21 @@ RECOGNIZED_CHART_CLSIDS: frozenset[str] = frozenset({
 })
 
 
-def _byte_sequence_payload(clsid: Any) -> bytes | bytearray | None:
-    """Payload of a UNO ByteSequence, or None when *clsid* is not one.
+def _normalize_clsid_value(clsid: Any) -> str:
+    """Coerce UNO CLSID (string, ByteSequence, etc.) to a comparable string.
 
     ``uno.ByteSequence`` is not ``bytes``. Unwrap ``.value`` (some bridges
     use ``.Value``) before the bytes/string checks, or ``str(seq)`` is
     ``<ByteSequence instance ...>`` and chart embeds disappear from
     list/get/delete/resolve.
     """
+    if clsid is None:
+        return ""
     for attr in ("Value", "value"):
         payload = getattr(clsid, attr, None)
         if isinstance(payload, (bytes, bytearray)):
-            return payload
-    return None
-
-
-def _normalize_clsid_value(clsid: Any) -> str:
-    """Coerce UNO CLSID (string, ByteSequence, etc.) to a comparable string."""
-    if clsid is None:
-        return ""
-    payload = _byte_sequence_payload(clsid)
-    if payload is not None:
-        clsid = payload
+            clsid = payload
+            break
     if isinstance(clsid, str):
         return clsid
     if isinstance(clsid, (bytes, bytearray)):
@@ -174,11 +166,6 @@ def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
                 raise
             pass
     return False
-
-
-def _writer_embed_is_chart(host: Any) -> bool:
-    """True for Writer TextEmbeddedObject charts: CLSID match or embedded chart model."""
-    return _is_chart_host(host, is_embed=True)
 
 
 def _is_chart_shape(shape: Any, shape_type: str | None | Exception) -> bool:
@@ -256,12 +243,8 @@ def _strip_chart_schema_for_doc_type(properties: dict[str, Any], doc_type: str |
             properties.pop("position", None)
 
 
-def _chart_parameters(base_schema: dict[str, Any] | None, doc_type: str | None) -> dict[str, Any] | None:
+def _chart_parameters(base_schema: dict[str, Any], doc_type: str | None) -> dict[str, Any]:
     """Return a deep copy of *base_schema* stripped for *doc_type*."""
-    if not base_schema or "properties" not in base_schema:
-        return base_schema
-    import copy
-
     params = copy.deepcopy(base_schema)
     properties = cast("dict[str, Any]", params["properties"])
     _strip_chart_schema_for_doc_type(properties, doc_type)
@@ -803,6 +786,13 @@ def _chart_list_failure(doc: Any, exc: Exception, errors: list[dict[str, Any]], 
     errors.append({**where, "message": _format_chart_exception_msg(exc)})
 
 
+def _chart_container_failure(tool: Any, doc: Any, exc: Exception) -> dict[str, Any]:
+    # Real disposal propagates even when the document probe still answers.
+    if is_tool_document_disposed(exc, doc):
+        raise exc
+    return tool._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
+
+
 def _get_all_calc_chart_names(doc: Any) -> set[str]:
     """Return a set of all chart names existing across all sheets in a Calc document."""
     names: set[str] = set()
@@ -941,7 +931,7 @@ def _lookup_chart(
             objects = doc.getEmbeddedObjects()
             if objects.hasByName(name):
                 obj = objects.getByName(name)
-                if _writer_embed_is_chart(obj):
+                if _is_chart_host(obj, is_embed=True):
                     return ChartLookup(ref=ChartRef(obj, objects, "writer_embed", None))
         except Exception as exc:
             if is_real_disposal(exc):
@@ -952,7 +942,7 @@ def _lookup_chart(
             if ref is not None:
                 return ChartLookup(ref=ref)
         return ChartLookup()
-    elif _doc_kind(doc) == "draw":
+    elif _is_draw_doc(doc):
         draw_pages = doc.getDrawPages()
         count = draw_pages.getCount()
         if page is not None:
@@ -1015,10 +1005,7 @@ class ListCharts(ToolBaseDummy):
                 sheets = doc.getSheets()
                 sheets_count = sheets.getCount()
             except Exception as exc:
-                # Tip: real disposal propagates even when the document probe still answers.
-                if is_tool_document_disposed(exc, doc):
-                    raise exc
-                return self._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
+                return _chart_container_failure(self, doc, exc)
             for i in range(sheets_count):
                 sheet_name = None
                 try:
@@ -1048,7 +1035,7 @@ class ListCharts(ToolBaseDummy):
                 for name in embed_names:
                     try:
                         obj = objects.getByName(name)
-                        if _writer_embed_is_chart(obj):
+                        if _is_chart_host(obj, is_embed=True):
                             result.append(self._get_summary(obj, name))
                             seen_names.add(name)
                     except Exception as exc:
@@ -1070,15 +1057,12 @@ class ListCharts(ToolBaseDummy):
             except Exception as exc:
                 _chart_list_failure(doc, exc, errors, source="draw_page")
 
-        elif _doc_kind(doc) == "draw":
+        elif _is_draw_doc(doc):
             try:
                 pages = doc.getDrawPages()
                 pages_count = pages.getCount()
             except Exception as exc:
-                # Tip: real disposal propagates even when the document probe still answers.
-                if is_tool_document_disposed(exc, doc):
-                    raise exc
-                return self._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
+                return _chart_container_failure(self, doc, exc)
             for i in range(pages_count):
                 try:
                     page = pages.getByIndex(i)
@@ -1166,24 +1150,16 @@ class GetChartInfo(ToolBaseDummy):
                     info["stacked"] = getattr(diagram, "Stacked", None)
                     info["percent"] = getattr(diagram, "Percent", None)
 
-                    if hasattr(diagram, "HasXAxisTitle") and diagram.HasXAxisTitle:
-                        try:
-                            xs = _axis_title_shape_string(diagram.getXAxisTitle(), None)
-                            if xs is not None:
-                                info["x_axis_title"] = xs
-                        except Exception as exc:
-                            if is_real_disposal(exc):
-                                raise
-                            pass
-                    if hasattr(diagram, "HasYAxisTitle") and diagram.HasYAxisTitle:
-                        try:
-                            ys = _axis_title_shape_string(diagram.getYAxisTitle(), None)
-                            if ys is not None:
-                                info["y_axis_title"] = ys
-                        except Exception as exc:
-                            if is_real_disposal(exc):
-                                raise
-                            pass
+                    for axis, key in (("X", "x_axis_title"), ("Y", "y_axis_title")):
+                        flag = f"Has{axis}AxisTitle"
+                        if hasattr(diagram, flag) and getattr(diagram, flag):
+                            try:
+                                text = _axis_title_shape_string(getattr(diagram, f"get{axis}AxisTitle")(), None)
+                                if text is not None:
+                                    info[key] = text
+                            except Exception as exc:
+                                if is_real_disposal(exc):
+                                    raise
 
         except Exception as e:
             if is_real_disposal(e):
@@ -1235,7 +1211,7 @@ class UpsertChart(ToolBaseDummy):
                     return self._create_calc_chart(ctx, rect, chart_service, **kwargs)
                 elif supportsService(doc, "com.sun.star.text.TextDocument"):
                     return self._create_writer_chart(ctx, rect, chart_service, **kwargs)
-                elif _doc_kind(doc) == "draw":
+                elif _is_draw_doc(doc):
                     return self._create_draw_chart(ctx, rect, chart_service, **kwargs)
                 return self._tool_error("Unsupported document type for chart creation.")
             except Exception as e:
@@ -1412,14 +1388,13 @@ class UpsertChart(ToolBaseDummy):
         # 1. Resolve cursor position
         try:
             pos = kwargs.get("position", "end")
+            cursor = None
             if pos == "cursor":
                 controller = doc.getCurrentController()
                 if hasattr(controller, "getViewCursor"):
                     vc = controller.getViewCursor()
                     cursor = text.createTextCursorByRange(vc.getStart())
-                else:
-                    cursor = text.createTextCursorByRange(text.getEnd())
-            else:
+            if cursor is None:
                 cursor = text.createTextCursorByRange(text.getEnd())
         except Exception as exc:
             # Bugfix: a closed document raises DisposedException while creating a Writer chart, and this
@@ -1440,8 +1415,7 @@ class UpsertChart(ToolBaseDummy):
         existing_names: set[str] = set()
         try:
             embeds = doc.getEmbeddedObjects()
-            if hasattr(embeds, "getElementNames"):
-                existing_names.update(embeds.getElementNames())
+            existing_names.update(embeds.getElementNames())
         except Exception as exc:
             if is_real_disposal(exc):
                 raise
@@ -1564,19 +1538,18 @@ class UpsertChart(ToolBaseDummy):
             return self._tool_error("Cannot access chart content.")
 
         # Force a refresh of the chart model using direct UNO calls on the chart document itself.
-        if chart_doc:
-            try:
-                # 1. Notify views of model changes (com.sun.star.util.XModifiable)
-                if hasattr(chart_doc, "setModified"):
-                    chart_doc.setModified(True)
-                    log.debug("Called chart_doc.setModified(True) to notify view listeners.")
+        try:
+            # 1. Notify views of model changes (com.sun.star.util.XModifiable)
+            if hasattr(chart_doc, "setModified"):
+                chart_doc.setModified(True)
+                log.debug("Called chart_doc.setModified(True) to notify view listeners.")
 
-                # 2. Trigger layout/calculations update (com.sun.star.util.XRefreshable)
-                if hasattr(chart_doc, "refresh"):
-                    chart_doc.refresh()
-                    log.debug("Called chart_doc.refresh() to update chart document.")
-            except Exception as e:
-                log.debug("Failed direct chart_doc model update: %s", e)
+            # 2. Trigger layout/calculations update (com.sun.star.util.XRefreshable)
+            if hasattr(chart_doc, "refresh"):
+                chart_doc.refresh()
+                log.debug("Called chart_doc.refresh() to update chart document.")
+        except Exception as e:
+            log.debug("Failed direct chart_doc model update: %s", e)
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         out: dict[str, Any] = {"status": "ok", "message": f"Chart '{actual_name}' inserted in Writer.", "name": actual_name}
@@ -1687,13 +1660,6 @@ class ManageCharts(ToolCalcChartBase):
     ``ToolRegistry`` keeps one instance per name (last module load wins). Writer/Draw
     set union ``uno_services`` so registration order does not drop other document types.
     Skinny list/info/upsert/delete classes are Dummy backends for this dispatcher.
-
-    Future (per-app tiers and a growing API, e.g. full 3D):
-    - Registry: store ``list[ToolBase]`` per name and resolve via ``supportsService`` instead of last-wins.
-    - Or ``get_tier(doc_type)`` on a single class if multi-bind is too heavy.
-    - Schema: ``get_parameters(doc_type)`` / ``get_description(doc_type)`` so Calc keeps ``data_range`` while
-      Writer/Draw omit it; add a 3D block (view angle, perspective, wall/floor) when UNO paths beyond ``is_3d`` exist.
-    - Sub-agent: richer ``required_core_tools`` or a domain preamble when the consolidated schema grows.
     """
 
     name: str | None = "manage_charts"
@@ -1717,7 +1683,7 @@ class ManageCharts(ToolCalcChartBase):
         return action not in ("list", "get_info")
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        return _chart_parameters(self.parameters, doc_type)
+        return _chart_parameters(cast("dict[str, Any]", self.parameters), doc_type)
 
     def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
         ok, err = super().validate(doc_type=doc_type, **kwargs)
