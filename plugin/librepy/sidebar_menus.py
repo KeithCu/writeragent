@@ -46,11 +46,6 @@ def _librepy_hamburger_specs() -> tuple[tuple[str, str, str | None, str], ...]:
 _graphic_cache: dict[tuple[str, str], Any] = {}
 
 
-def reset_menu_graphic_cache() -> None:
-    """Test hook: clear the loaded graphic cache."""
-    _graphic_cache.clear()
-
-
 def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
     """Load a PNG icon from extension assets/ as XGraphic."""
     try:
@@ -113,18 +108,12 @@ def invoke_action_handler(handler: Callable[..., Any] | None, frame: Any = None,
         return
     try:
         wants_frame = False
-        try:
-            sig = inspect.signature(handler)
-            for param in sig.parameters.values():
-                if param.kind == inspect.Parameter.VAR_POSITIONAL:
-                    wants_frame = frame is not None
+        sig = inspect.signature(handler)
+        for param in sig.parameters.values():
+            if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+                if param.name == "frame" or param.default is inspect.Parameter.empty:
+                    wants_frame = True
                     break
-                if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                    if param.name == "frame" or param.default is inspect.Parameter.empty:
-                        wants_frame = True
-                        break
-        except (TypeError, ValueError):
-            wants_frame = False
         if wants_frame:
             handler(frame)
         else:
@@ -153,9 +142,8 @@ def document_has_notebook_registry(doc: Any) -> bool:
         return False
 
 
-def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, handler_lookup: Callable[[str], Any] | None = None, doc: Any | None = None) -> list[tuple[str, str, str | None]]:
+def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, doc: Any | None = None) -> list[tuple[str, str, str | None]]:
     """Return (label, action, icon) rows that have a registered handler."""
-    lookup = handler_lookup or get_action_handler
     out: list[tuple[str, str, str | None]] = []
     for label, action, icon, when in _librepy_hamburger_specs():
         if when == "calc" and not is_calc_doc:
@@ -165,7 +153,7 @@ def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, handler
         if when == "notebook":
             if not is_writer_doc or not document_has_notebook_registry(doc):
                 continue
-        if lookup(action) is None:
+        if get_action_handler(action) is None:
             log.warning("LibrePy hamburger action %s has no registered handler; skipping", action)
             continue
         filename = None

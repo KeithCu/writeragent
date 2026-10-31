@@ -40,11 +40,11 @@ def _lookup(action: str):
 
 
 def test_calc_hamburger_includes_python_and_cell_not_search():
-    rows = librepy_hamburger_actions(
-        is_calc_doc=True,
-        is_writer_doc=False,
-        handler_lookup=_lookup,
-    )
+    with patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup):
+        rows = librepy_hamburger_actions(
+            is_calc_doc=True,
+            is_writer_doc=False,
+        )
     actions = [a for _label, a, _icon in rows]
     assert "scripting.run_python_dialog" in actions
     assert "scripting.edit_python_cell" in actions
@@ -66,12 +66,12 @@ def test_calc_hamburger_includes_python_and_cell_not_search():
 
 
 def test_writer_hamburger_without_notebook_registry_omits_run_actions():
-    rows = librepy_hamburger_actions(
-        is_calc_doc=False,
-        is_writer_doc=True,
-        handler_lookup=_lookup,
-        doc=object(),
-    )
+    with patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup):
+        rows = librepy_hamburger_actions(
+            is_calc_doc=False,
+            is_writer_doc=True,
+            doc=object(),
+        )
     actions = [a for _label, a, _icon in rows]
     assert "notebook.run_all" not in actions
     assert "notebook.run_from_here" not in actions
@@ -81,11 +81,13 @@ def test_writer_hamburger_without_notebook_registry_omits_run_actions():
 
 def test_writer_hamburger_includes_notebook_run_actions():
     state = NotebookDocState(code_cells=[new_code_cell_entry(0, None, "nb_cell_0_code")])
-    with patch("plugin.notebook.cell_registry.load_registry", return_value=state):
+    with (
+        patch("plugin.notebook.cell_registry.load_registry", return_value=state),
+        patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup),
+    ):
         rows = librepy_hamburger_actions(
             is_calc_doc=False,
             is_writer_doc=True,
-                handler_lookup=_lookup,
             doc=object(),
         )
     actions = [a for _label, a, _icon in rows]
@@ -96,11 +98,13 @@ def test_writer_hamburger_includes_notebook_run_actions():
 
 
 def test_writer_hamburger_omits_run_actions_when_registry_has_no_code_cells():
-    with patch("plugin.notebook.cell_registry.load_registry", return_value=NotebookDocState(code_cells=[])):
+    with (
+        patch("plugin.notebook.cell_registry.load_registry", return_value=NotebookDocState(code_cells=[])),
+        patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup),
+    ):
         rows = librepy_hamburger_actions(
             is_calc_doc=False,
             is_writer_doc=True,
-                handler_lookup=_lookup,
             doc=object(),
         )
     actions = [a for _label, a, _icon in rows]
@@ -111,11 +115,13 @@ def test_writer_hamburger_omits_run_actions_when_registry_has_no_code_cells():
 
 def test_calc_hamburger_omits_notebook_even_with_registry():
     state = NotebookDocState(code_cells=[new_code_cell_entry(0, None, "nb_cell_0_code")])
-    with patch("plugin.notebook.cell_registry.load_registry", return_value=state):
+    with (
+        patch("plugin.notebook.cell_registry.load_registry", return_value=state),
+        patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup),
+    ):
         rows = librepy_hamburger_actions(
             is_calc_doc=True,
             is_writer_doc=False,
-                handler_lookup=_lookup,
             doc=object(),
         )
     actions = [a for _label, a, _icon in rows]
@@ -125,11 +131,11 @@ def test_calc_hamburger_omits_notebook_even_with_registry():
 
 
 def test_skips_unregistered_handlers():
-    rows = librepy_hamburger_actions(
-        is_calc_doc=True,
-        is_writer_doc=False,
-        handler_lookup=lambda _a: None,
-    )
+    with patch("plugin.librepy.sidebar_menus.get_action_handler", return_value=None):
+        rows = librepy_hamburger_actions(
+            is_calc_doc=True,
+            is_writer_doc=False,
+        )
     assert rows == []
 
 
@@ -280,9 +286,9 @@ def test_menu_icon_filesystem_paths_include_oxt_and_checkout_layouts():
 
 
 def test_load_menu_graphic_caching_and_reset():
-    from plugin.librepy.sidebar_menus import load_menu_graphic, reset_menu_graphic_cache
+    from plugin.librepy.sidebar_menus import _graphic_cache, load_menu_graphic
 
-    reset_menu_graphic_cache()
+    _graphic_cache.clear()
 
     ctx = MagicMock()
     smgr = MagicMock()
@@ -308,13 +314,13 @@ def test_load_menu_graphic_caching_and_reset():
         assert smgr.createInstanceWithContext.call_count == 1
 
         # 3. After reset, it calls createInstanceWithContext again
-        reset_menu_graphic_cache()
+        _graphic_cache.clear()
         res3 = load_menu_graphic(ctx, "gear_16.png")
         assert res3 is mock_graphic
         assert smgr.createInstanceWithContext.call_count == 2
 
         # 4. None result is not reused/cached
-        reset_menu_graphic_cache()
+        _graphic_cache.clear()
         gp.queryGraphic.return_value = None
         with patch("os.path.isfile", return_value=False):
             res_none = load_menu_graphic(ctx, "missing_16.png")
@@ -379,11 +385,11 @@ def test_missing_handler_warns_and_keeps_other_rows(caplog):
         return _lookup(action)
 
     with caplog.at_level(logging.WARNING):
-        rows = librepy_hamburger_actions(
-            is_calc_doc=True,
-            is_writer_doc=False,
-            handler_lookup=lookup,
-        )
+        with patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=lookup):
+            rows = librepy_hamburger_actions(
+                is_calc_doc=True,
+                is_writer_doc=False,
+            )
     actions = [a for _label, a, _icon in rows]
     assert "main.settings" not in actions
     assert "scripting.run_python_dialog" in actions
@@ -393,11 +399,13 @@ def test_missing_handler_warns_and_keeps_other_rows(caplog):
 
 def test_notebook_registry_failure_warns_and_keeps_other_items(caplog):
     with caplog.at_level(logging.WARNING):
-        with patch("plugin.notebook.cell_registry.load_registry", side_effect=RuntimeError("bad registry")):
+        with (
+            patch("plugin.notebook.cell_registry.load_registry", side_effect=RuntimeError("bad registry")),
+            patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup),
+        ):
             rows = librepy_hamburger_actions(
                 is_calc_doc=False,
                 is_writer_doc=True,
-                handler_lookup=_lookup,
                 doc=object(),
             )
     actions = [a for _label, a, _icon in rows]
