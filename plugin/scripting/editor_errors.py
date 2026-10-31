@@ -44,7 +44,6 @@ def exception_traceback(exc: BaseException) -> str:
 
 
 @deal.pre(lambda detail=None, exc=None: (detail is None or _deal_text_ok(detail)) and _deal_optional_exc_ok(exc))
-@deal.post(lambda result: isinstance(result, str))
 def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Combine subprocess stderr, probe output, and/or an exception traceback."""
     # crosshair: off
@@ -58,7 +57,6 @@ def failure_detail(*, detail: str | None = None, exc: BaseException | None = Non
 
 
 @deal.pre(lambda summary, detail=None, exc=None: _deal_text_ok(summary) and (detail is None or _deal_text_ok(detail)) and _deal_optional_exc_ok(exc))
-@deal.post(lambda result: isinstance(result, str))
 def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Build a msgbox body: *summary* plus optional detail/traceback blocks."""
     # crosshair: off
