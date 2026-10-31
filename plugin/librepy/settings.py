@@ -10,7 +10,7 @@ import logging
 from typing import Any, Callable
 
 from plugin.chatbot.dialogs import TabListener, get_optional, load_writeragent_dialog_detail, msgbox, set_control_text, set_control_visible
-from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control
+from plugin.chatbot.settings_fields import build_module_field_specs, populate_settings_control, read_settings_control
 from plugin.framework.errors import ConfigValidationError, suppress_disposed
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.i18n import N_, _
@@ -63,13 +63,6 @@ class _DownloadVecPackListener(BaseActionListener):
             title=N_("Cython Accelerator Download"),
             append_log=True,
         )
-
-
-def _scripting_field_specs() -> list[dict[str, Any]]:
-    """Build SettingsDialog field specs for scripting.* keys (no LLM settings imports)."""
-    from plugin.chatbot.settings_fields import build_module_field_specs
-
-    return build_module_field_specs("scripting", control_ids="prefixed", skip_librepy_exclude=True)
 
 
 def _configure_librepy_settings_chrome(dlg: Any) -> None:
@@ -127,7 +120,8 @@ def open_librepy_settings(ctx: Any) -> None:
             download_listener = _DownloadVecPackListener(ctx, dlg)
             download_btn.addActionListener(download_listener)
 
-        field_specs = _scripting_field_specs()
+        field_specs = build_module_field_specs("scripting", control_ids="prefixed", skip_librepy_exclude=True)
+        populated: list[tuple[Any, dict[str, Any]]] = []
         for field in field_specs:
             ctrl = get_optional(dlg, field["name"])
             if ctrl is None:
@@ -138,13 +132,11 @@ def open_librepy_settings(ctx: Any) -> None:
             except Exception:
                 log.exception("LibrePy settings: populate failed for %r", field["name"])
                 raise
+            populated.append((ctrl, field))
 
         while dlg.execute():
             result: dict[str, Any] = {}
-            for field in field_specs:
-                ctrl = get_optional(dlg, field["name"])
-                if ctrl is None:
-                    continue
+            for ctrl, field in populated:
                 result[field["name"]] = read_settings_control(ctrl, field)
             try:
                 apply_field_specs_result(ctx, result, field_specs)

@@ -408,7 +408,6 @@ _.reset_host_pacing_for_tests  # function: plugin/framework/client/request_contr
 _.reset_i18n  # function: plugin/framework/i18n.py:52
 _.reset_live_panels  # function: plugin/doc/live_panels.py:61
 _.reset_local_unverified_hosts_for_tests  # function: plugin/framework/client/request_controls.py:399
-_.reset_menu_graphic_cache  # function: plugin/librepy/sidebar_menus.py:49
 _.reset_package_extension_id_for_tests  # function: plugin/framework/uno_context.py:190
 _.reset_peer_queues  # function: plugin/doc/peer_message.py:384
 _.reset_sentry_state  # function: plugin/framework/async_drain_guard.py:241
