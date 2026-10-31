@@ -87,53 +87,31 @@ def _parameter_schema(tool: Any) -> tuple[str, dict[str, Any]] | None:
     name = src.get("name")
     if not isinstance(name, str) or not name:
         return None
-    params = src.get("parameters")
-    if not isinstance(params, dict):
-        params = src.get("input_schema")
-    if not isinstance(params, dict):
-        params = src.get("inputSchema")
-    if not isinstance(params, dict):
-        params = {}
+    params: dict[str, Any] = next(
+        (src[key] for key in ("parameters", "input_schema", "inputSchema") if isinstance(src.get(key), dict)),
+        {},
+    )
     return name, params
 
 
-def _merge_parameter_schemas(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
-    """Union ``properties`` so a later duplicate name cannot hide the earlier schema.
-
-    Keep every property key; the first spec wins for a repeated key. The
-    call is checked against every schema advertised for that name.
-    Last-wins keeps only the survivor, so an empty ``properties`` object on
-    the second entry erases the first entry's keys and a real argument
-    looks unknown.
-    """
-    if "properties" not in left and "properties" not in right:
-        return left
-    merged_props: dict[str, Any] = {}
-    for src in (left, right):
-        props = src.get("properties")
-        if isinstance(props, dict):
-            for key, spec in props.items():
-                if key not in merged_props:
-                    merged_props[key] = spec
-    out = dict(left)
-    out["properties"] = merged_props
-    if "type" not in out:
-        right_type = right.get("type")
-        out["type"] = right_type if isinstance(right_type, str) else "object"
-    return out
-
-
 def _schemas_by_tool_name(tools: Sequence[Any]) -> dict[str, dict[str, Any]]:
+    """Union ``properties`` per name. First spec wins on a repeated key.
+
+    A later empty ``properties`` object must not erase an earlier schema.
+    Only properties are stored: ``call_properties`` is the allow-list.
+    """
     schemas: dict[str, dict[str, Any]] = {}
     for tool in tools:
         parsed = _parameter_schema(tool)
         if parsed is None:
             continue
         name, params = parsed
-        if name in schemas:
-            schemas[name] = _merge_parameter_schemas(schemas[name], params)
-        else:
-            schemas[name] = params
+        bucket = schemas.setdefault(name, {"properties": {}})
+        incoming = params.get("properties")
+        if isinstance(incoming, dict):
+            props = bucket["properties"]
+            for key, spec in incoming.items():
+                props.setdefault(key, spec)
     return schemas
 
 
@@ -159,23 +137,18 @@ def _strip_call_arguments(schema: dict[str, Any], arguments: Any) -> Any:
     return json.dumps(stripped)
 
 
-def _normalize_one_outbound_call(call: Any, schemas: dict[str, dict[str, Any]]) -> Any:
+def _normalize_one_outbound_call(call: Any, schemas: dict[str, dict[str, Any]]) -> None:
     if not isinstance(call, dict):
-        return call
+        return
     fn = call.get("function")
     if not isinstance(fn, dict):
-        return call
+        return
     name = fn.get("name")
     if not isinstance(name, str) or name not in schemas:
-        return call
+        return
     new_args = _strip_call_arguments(schemas[name], fn.get("arguments"))
-    if new_args is fn.get("arguments"):
-        return call
-    new_fn = dict(fn)
-    new_fn["arguments"] = new_args
-    new_call = dict(call)
-    new_call["function"] = new_fn
-    return new_call
+    if new_args is not fn.get("arguments"):
+        fn["arguments"] = new_args
 
 
 def normalize_outbound_tool_calls(messages: _OutboundMessages, tools: Any) -> _OutboundMessages:
@@ -189,16 +162,14 @@ def normalize_outbound_tool_calls(messages: _OutboundMessages, tools: Any) -> _O
     ``list`` check and skip the allow-list. Strings are not sequences of
     messages or tools.
 
-    This assigns ``message["tool_calls"]`` on the dicts inside *messages*.
-    ``prepare_chat_messages`` deep-copies each message dict before
-    ``make_chat_request`` calls this, so the chat path is already a copy
-    and this helper does not copy again. A caller that skips
-    ``prepare_chat_messages`` must pass its own copy when it still needs
-    the original ``tool_calls``.
+    This writes ``function["arguments"]`` on the existing call dicts and
+    does not replace ``tool_calls``. ``prepare_chat_messages`` deep-copies
+    each message dict before ``make_chat_request`` calls this, so the chat
+    path is already a copy and this helper does not copy again. A caller
+    that skips ``prepare_chat_messages`` must pass its own copy when it
+    still needs the original ``tool_calls``.
     """
-    messages_ok = isinstance(messages, Sequence) and not isinstance(messages, (str, bytes))
-    tools_ok = isinstance(tools, Sequence) and not isinstance(tools, (str, bytes))
-    if not messages_ok or not tools_ok or not tools:
+    if not tools:
         return messages
     schemas = _schemas_by_tool_name(tools)
     if not schemas:
@@ -209,15 +180,8 @@ def normalize_outbound_tool_calls(messages: _OutboundMessages, tools: Any) -> _O
         calls = message.get("tool_calls")
         if not isinstance(calls, list):
             continue
-        replaced: list[Any] | None = None
-        for index, call in enumerate(calls):
-            updated = _normalize_one_outbound_call(call, schemas)
-            if updated is not call:
-                if replaced is None:
-                    replaced = list(calls)
-                replaced[index] = updated
-        if replaced is not None:
-            message["tool_calls"] = replaced
+        for call in calls:
+            _normalize_one_outbound_call(call, schemas)
     return messages
 
 
@@ -235,24 +199,20 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
     """
     if not isinstance(kwargs, dict):
         return kwargs
-    out = kwargs
-    range_schema = props.get("range") if isinstance(props, dict) else None
+    out = dict(kwargs)
+    range_schema = props.get("range")
     range_type = range_schema.get("type") if isinstance(range_schema, dict) else None
     if isinstance(out.get("range"), str) and _schema_type_includes_array(range_type):
-        out = dict(out)
         out["range"] = [out["range"]]
-    if isinstance(props, dict):
-        for k, v in out.items():
-            if isinstance(v, float) and v.is_integer():
-                prop = props.get(k)
-                if isinstance(prop, dict):
-                    t = prop.get("type")
-                    # _tool_arg_matches_type rejects 3.0 for "integer", so models sending
-                    # whole floats get VALIDATION_ERROR. 3.5 must still fail.
-                    if t == "integer" or (isinstance(t, list) and "integer" in t):
-                        if out is kwargs:
-                            out = dict(out)
-                        out[k] = int(v)
+    for k, v in out.items():
+        if isinstance(v, float) and v.is_integer():
+            prop = props.get(k)
+            if isinstance(prop, dict):
+                t = prop.get("type")
+                # _tool_arg_matches_type rejects 3.0 for "integer", so models sending
+                # whole floats get VALIDATION_ERROR. 3.5 must still fail.
+                if t == "integer" or (isinstance(t, list) and "integer" in t):
+                    out[k] = int(v)
 
     if tool_name == "write_formula_range":
         fov = out.get("values")
@@ -262,8 +222,6 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
         elif isinstance(fov, (int, float)) and not isinstance(fov, bool):
             coerced = str(fov)
         if coerced is not None:
-            if out is kwargs:
-                out = dict(out)
             out["values"] = coerced
     return out
 
@@ -279,15 +237,11 @@ def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any
     # crosshair: off
     if not isinstance(prop_schema, dict):
         return prop_schema
-    type_val = prop_schema.get("type")
-    if type_val is None or (isinstance(type_val, list) and "null" in type_val):
+    raw = prop_schema.get("type")
+    types = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else None
+    if not types or "null" in types or any(not isinstance(one, str) or one not in _SCALAR_TYPES for one in types):
         return prop_schema
-    if isinstance(type_val, str) and type_val in _SCALAR_TYPES:
-        scalar_types = [type_val]
-    elif isinstance(type_val, list) and type_val and all(isinstance(one, str) and one in _SCALAR_TYPES for one in type_val):
-        scalar_types = list(type_val)
-    else:
-        return prop_schema
+    scalar_types = list(types)
     out = copy.deepcopy(prop_schema)
     out["type"] = [*scalar_types, "null"]
     # Strict providers apply enum after type; JSON null must be in both.
@@ -314,7 +268,6 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
         return params
     if len(params) == 0:
         return params
-    params = copy.deepcopy(params)
     # Dedupe only. One remaining name becomes a string. An empty list
     # becomes "string". Do not collapse a real union to one member:
     # ["string", "number"] must stay both, and ["array", "string"] must
@@ -324,10 +277,7 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
         if not types:
             params["type"] = "string"
         else:
-            seen = []
-            for one in types:
-                if one not in seen:
-                    seen.append(one)
+            seen = list(dict.fromkeys(types))
             if len(seen) == 1:
                 params["type"] = seen[0]
             elif len(seen) != len(types):
@@ -449,18 +399,14 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
         if tool.name == "write_formula_range" and "values" in props:
             fov = props["values"]
             if isinstance(fov, dict):
-                fov = dict(fov)
                 fov["type"] = ["string", "array"]
                 fov["items"] = {"type": ["string", "number"]}
                 desc_bits = fov.get("description") or ""
                 if "Native JSON array" not in desc_bits:
                     fov["description"] = ((desc_bits + " " if desc_bits else "") + "Native JSON array of strings/numbers is accepted (same length as the range); a single string still fills the entire range.").strip()
-                props["values"] = fov
         # Execute already coerces a bare range string to [str]. Source schemas stay
         # array-only; widen MCP so a host may send the string execute already wraps.
         rn = props.get("range")
         if isinstance(rn, dict) and rn.get("type") == "array":
-            rn = dict(rn)
             rn["type"] = ["string", "array"]
-            props["range"] = rn
     return {"name": tool.name, "description": desc, "inputSchema": input_schema}
