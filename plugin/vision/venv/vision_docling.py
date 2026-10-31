@@ -9,7 +9,7 @@ import importlib
 import logging
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Literal
+from typing import Any
 
 from plugin.vision.venv.vision_html_export import prepare_html_for_lo_import
 from plugin.vision.vision_common import (
@@ -102,51 +102,37 @@ _converter_cache: dict[DoclingPipelineParams, Any] = {}
 def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
     """Build Docling OcrOptions for the requested backend, raising OcrBackendError on failure."""
     backend = norm.backend
-
     pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
-
     if backend == "auto":
         return None
-
-    if backend in ("rapidocr", "rapidocr_paddle", "rapidocr_onnx", "rapidocr_openvino", "rapidocr_torch"):
-        try:
-            rapid_cls = pipeline_options_mod.RapidOcrOptions
-            backend_map: dict[str, Literal["onnxruntime", "openvino", "paddle", "torch"]] = {
-                "rapidocr": "onnxruntime",
-                "rapidocr_paddle": "paddle",
-                "rapidocr_onnx": "onnxruntime",
-                "rapidocr_openvino": "openvino",
-                "rapidocr_torch": "torch",
-            }
-            return rapid_cls(
-                backend=backend_map[backend],
-                lang=[norm.lang],
-                text_score=float(norm.text_score),
-            )
-        except (ImportError, AttributeError) as exc:
-            raise OcrBackendError(f"OCR backend {backend!r} is not available: {exc}") from exc
-
-    simple = {
-        "easyocr": ("EasyOcrOptions", "EasyOCR backend is not available"),
-        "tesseract": ("TesseractOcrOptions", "Tesseract backend is not available"),
-    }.get(backend)
-    if simple is not None:
-        cls_name, message = simple
-        try:
-            return getattr(pipeline_options_mod, cls_name)(lang=[norm.lang])
-        except (ImportError, AttributeError) as exc:
-            raise OcrBackendError(f"{message}: {exc}") from exc
-
     if backend == "surya":
         try:
-            surya_mod = importlib.import_module("docling_surya")
-            return surya_mod.SuryaOcrOptions(lang=[norm.lang])
+            return importlib.import_module("docling_surya").SuryaOcrOptions(lang=[norm.lang])
         except ImportError as exc:
             raise OcrBackendError(
                 "Surya OCR backend is not installed. pip install docling-surya surya-ocr — or choose another ocr_backend."
             ) from exc
 
-    raise OcrBackendError(f"Unknown ocr_backend {backend!r}")
+    spec = {
+        "rapidocr": ("RapidOcrOptions", "onnxruntime", f"OCR backend {backend!r} is not available"),
+        "rapidocr_paddle": ("RapidOcrOptions", "paddle", f"OCR backend {backend!r} is not available"),
+        "rapidocr_onnx": ("RapidOcrOptions", "onnxruntime", f"OCR backend {backend!r} is not available"),
+        "rapidocr_openvino": ("RapidOcrOptions", "openvino", f"OCR backend {backend!r} is not available"),
+        "rapidocr_torch": ("RapidOcrOptions", "torch", f"OCR backend {backend!r} is not available"),
+        "easyocr": ("EasyOcrOptions", None, "EasyOCR backend is not available"),
+        "tesseract": ("TesseractOcrOptions", None, "Tesseract backend is not available"),
+    }.get(backend)
+    if spec is None:
+        raise OcrBackendError(f"Unknown ocr_backend {backend!r}")
+    cls_name, rapid_engine, unavailable = spec
+    kwargs: dict[str, Any] = {"lang": [norm.lang]}
+    if rapid_engine is not None:
+        kwargs["backend"] = rapid_engine
+        kwargs["text_score"] = norm.text_score
+    try:
+        return getattr(pipeline_options_mod, cls_name)(**kwargs)
+    except (ImportError, AttributeError) as exc:
+        raise OcrBackendError(f"{unavailable}: {exc}") from exc
 
 
 def _is_object_detection_layout(layout_opts: Any) -> bool:
@@ -499,12 +485,10 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
         )
     if isinstance(exc, OcrBackendError):
         return error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
-    if isinstance(exc, DoclingApiMismatchError):
+    if isinstance(exc, DoclingApiMismatchError) or (isinstance(exc, AttributeError) and "get_engine_config" in str(exc)):
         return error_result("DOCLING_API_MISMATCH", str(exc), helper=helper)
     if isinstance(exc, LayoutModelError):
         return error_result("LAYOUT_MODEL_UNAVAILABLE", str(exc), helper=helper)
-    if isinstance(exc, AttributeError) and "get_engine_config" in str(exc):
-        return error_result("DOCLING_API_MISMATCH", str(exc), helper=helper)
     if isinstance(exc, ValueError):
         return error_result("INVALID_PARAMS", str(exc), helper=helper)
     log.exception("Docling %s failed", helper)
@@ -514,23 +498,19 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
 def _run_docling_conversion(
     image: Any,
     params: dict[str, Any],
-    helper: str,
-) -> dict[str, Any] | tuple[str, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
-    try:
-        document = _convert_image_bytes(image, params)
-        html = export_docling_to_html(document)
-        regions, blocks, tables, text_parts = _map_docling_document(document)
-        return html, regions, blocks, tables, text_parts
-    except Exception as exc:
-        return _docling_error(exc, helper)
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    document = _convert_image_bytes(image, params)
+    html = export_docling_to_html(document)
+    regions, blocks, tables, text_parts = _map_docling_document(document)
+    return html, regions, blocks, tables, text_parts
 
 
 def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_text"
-    converted = _run_docling_conversion(image, params, helper)
-    if isinstance(converted, dict):
-        return converted
-    html, regions, _blocks, tables, text_parts = converted
+    try:
+        html, regions, _blocks, tables, text_parts = _run_docling_conversion(image, params)
+    except Exception as exc:
+        return _docling_error(exc, helper)
 
     # full_text includes every text part, tables included. Docling has no
     # mean_confidence, so that field is omitted.
@@ -539,10 +519,9 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     if not full_text:
         warnings.append("No text detected.")
 
-    line_count = len(regions) if regions else (0 if not full_text else len(full_text.splitlines()))
-
+    # No regions: count full_text lines ("".splitlines() is empty).
     metrics = _metrics_base(params, image)
-    metrics.update({"line_count": line_count, "table_count": len(tables)})
+    metrics.update({"line_count": len(regions) or len(full_text.splitlines()), "table_count": len(tables)})
 
     return ok_result(
         helper,
@@ -557,10 +536,10 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
 
 def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_structure"
-    converted = _run_docling_conversion(image, params, helper)
-    if isinstance(converted, dict):
-        return converted
-    html, _regions, blocks, tables, text_parts = converted
+    try:
+        html, _regions, blocks, tables, text_parts = _run_docling_conversion(image, params)
+    except Exception as exc:
+        return _docling_error(exc, helper)
 
     full_text = "\n".join(text_parts)
     warnings: list[str] = []
