@@ -481,24 +481,15 @@ def areas(r: Any) -> float:
     return 1.0
 
 
+# Full-width ASCII (U+FF01–U+FF5E) to ASCII, and ideographic space
+# U+3000 to a normal space. Half-width katakana is not converted.
+_ASC_TRANS = str.maketrans({0x3000: " ", **{cp: chr(cp - 0xFEE0) for cp in range(0xFF01, 0xFF5F)}})
+
+
 def asc(text: Any) -> str:
-    # Full-width ASCII (U+FF01–U+FF5E) to ASCII, and ideographic space
-    # U+3000 to a normal space. Half-width katakana is not converted.
     if text is None:
         return ""
-    s = str(text)
-    # Shift ASCII (Fullwidth is U+FF01 to U+FF5E) -> (U+0021 to U+007E)
-    # Fullwidth Space U+3000 -> U+0020
-    res = []
-    for ch in s:
-        code = ord(ch)
-        if 0xFF01 <= code <= 0xFF5E:
-            res.append(chr(code - 0xFEE0))
-        elif code == 0x3000:
-            res.append(" ")
-        else:
-            res.append(ch)
-    return "".join(res)
+    return str(text).translate(_ASC_TRANS)
 
 
 def avedev(*args: Any) -> float:
@@ -568,10 +559,10 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
         return "#NUM!"
 
 
-def _bessel_eval(scipy_fn: Any, x: Any, n: Any, *, positive_x: bool) -> float:
-    """Parse Bessel x and order. positive_x is the kn/yn rule (x > 0).
+def _bessel_call(name: str, x: Any, n: Any, *, positive_x: bool) -> float:
+    """One scipy.special Bessel, or NaN when scipy is missing or the input is illegal.
 
-    Type and scipy errors propagate to _bessel_call, which returns NaN.
+    A missing install is the same NaN as _npf_result, not a raised ImportError.
     """
     # What was wrong: BESSELK(1, -1) returned kn(1, 1) and BESSELY(1, -1)
     # returned a finite value. Both are illegal orders.
@@ -580,22 +571,14 @@ def _bessel_eval(scipy_fn: Any, x: Any, n: Any, *, positive_x: bool) -> float:
     # Why this stays: AnalysisAddIn::getBesselk and getBessely throw
     # IllegalArgumentException when nOrder < 0 or fNum <= 0. NaN is that
     # error here. iv/jv still allow x <= 0 (positive_x=False).
-    xv = float(x)
-    nv = int(float(n))
-    if nv < 0 or (positive_x and xv <= 0):
-        return float("nan")
-    return float(scipy_fn(nv, xv))
-
-
-def _bessel_call(name: str, x: Any, n: Any, *, positive_x: bool) -> float:
-    """One scipy.special Bessel, or NaN when scipy is missing or the input is illegal.
-
-    A missing install is the same NaN as _npf_result, not a raised ImportError.
-    """
     try:
         import scipy.special  # type: ignore[import-untyped]
 
-        return _bessel_eval(getattr(scipy.special, name), x, n, positive_x=positive_x)
+        xv = float(x)
+        nv = int(float(n))
+        if nv < 0 or (positive_x and xv <= 0):
+            return float("nan")
+        return float(getattr(scipy.special, name)(nv, xv))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
@@ -823,22 +806,18 @@ def code(s: Any) -> float:
     return float(ord(ss[0]))
 
 
-def _binom_float(n: int, k: int, *, reject_k_gt_n: bool) -> float:
+def _binom_float(n: int, k: int) -> float:
     """Binomial coefficient as a float, or NaN when the result is not finite.
 
-    math.comb(n, k) is 0 when k > n. ScCombin (interpr3.cxx) rejects that
-    for COMBIN. COMBINA still wants C(n+k-1, k); that coefficient is 0
-    when the bottom exceeds the top (COMBINA(0, 1)), so the caller turns
-    the rejection off.
+    math.comb(n, k) is 0 when k > n. ScCombin (interpr3.cxx) rejects that,
+    so this returns NaN.
 
     math.comb(1e9, 5e8) builds a giant int before float() raises. After
     folding k to min(k, n-k), C(n, k) >= C(2k, k), which no longer fits
     in float64 once k is about 515. lgamma rejects that case first.
     """
-    if n < 0 or k < 0:
+    if n < 0 or k < 0 or k > n:
         return float("nan")
-    if k > n:
-        return float("nan") if reject_k_gt_n else 0.0
     k = min(k, n - k)
     log_c = math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
     if not math.isfinite(log_c) or log_c > math.log(sys.float_info.max):
@@ -849,7 +828,7 @@ def _binom_float(n: int, k: int, *, reject_k_gt_n: bool) -> float:
 def combin(n: Any, k: Any) -> float:
     # ScCombin rejects k > n and any negative. math.comb(3, 5) is 0.
     # non-numeric arguments are left to the worker exception path. OverflowError (inf) is #NUM!; ValueError is #VALUE!.
-    return _binom_float(int(float(n)), int(float(k)), reject_k_gt_n=True)
+    return _binom_float(int(float(n)), int(float(k)))
 
 
 def combina(n: Any, k: Any) -> float:
@@ -861,9 +840,10 @@ def combina(n: Any, k: Any) -> float:
     ki = int(float(k))
     if ni < 0 or ki < 0:
         return float("nan")
-    if ni == 0 and ki == 0:
-        return 1.0
-    return _binom_float(ni + ki - 1, ki, reject_k_gt_n=False)
+    # COMBINA(0, 0) is 1. COMBINA(0, k) for k > 0 is 0; C(k - 1, k) is k > n.
+    if ni == 0:
+        return 1.0 if ki == 0 else 0.0
+    return _binom_float(ni + ki - 1, ki)
 
 
 def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
@@ -918,10 +898,10 @@ def countifs(*args: Any) -> float | str:
 
 def _get_coupon_dates(
     settlement: Any, maturity: Any, frequency: Any, basis: Any = 0
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float, float, int]:
     """Calculate previous and next coupon dates stepping backwards from maturity in calendar months.
 
-    Returns (prev_serial, curr_serial, days_in_period, num_coupons).
+    Returns (prev_serial, curr_serial, days_in_period, num_coupons, basis_code).
     """
     # Step back by calendar months from maturity. freq in (1, 2, 4), basis in
     # (0..4), settlement < maturity. A bad frequency (1e9) never terminates,
@@ -963,13 +943,12 @@ def _get_coupon_dates(
     else:
         days_in_per = float((curr - prev).days)
 
-    return p_ser, c_ser, days_in_per, float(k)
+    return p_ser, c_ser, days_in_per, float(k), b
 
 
 def _coupon_schedule(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> tuple[float, float, float, float, float, float]:
     """Compute coupon schedule: (p_ser, c_ser, days_in_per, k, a_days, dsc_days)."""
-    b = int(float(basis))
-    p_ser, c_ser, days_in_per, k = _get_coupon_dates(settlement, maturity, frequency, b)
+    p_ser, c_ser, days_in_per, k, b = _get_coupon_dates(settlement, maturity, frequency, basis)
     # _days_between truncates via _serial_to_date, same as the old date/serial round trip.
     a_days = float(_days_between(p_ser, settlement, b))
     dsc_days = float(_days_between(settlement, c_ser, b))
