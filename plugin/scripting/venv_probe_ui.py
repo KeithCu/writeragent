@@ -91,26 +91,25 @@ class VenvProbeProgressDialog:
             def on_status(text: str) -> None:
                 post_to_main_thread(lambda status=text: self.set_status(status))
 
+            def post_finish(success: bool, body: str | None, *, force_body: bool) -> None:
+                def ui() -> None:
+                    if force_body:
+                        self.set_display(body or "")
+                    elif not success and body and self._dlg is not None:
+                        log_ctrl = self._dlg.getControl("LogArea")
+                        if not get_control_text(log_ctrl).strip():
+                            self.set_display(body)
+                    self.finish(success_title if success else failure_title, success)
+
+                post_to_main_thread(ui)
+
             def work() -> None:
                 try:
                     ok, msg = probe_fn(on_display, on_status)
-
-                    def finish_ui() -> None:
-                        if not ok and msg and self._dlg is not None:
-                            log_ctrl = self._dlg.getControl("LogArea")
-                            if not get_control_text(log_ctrl).strip():
-                                self.set_display(msg)
-                        self.finish(success_title if ok else failure_title, ok)
-
-                    post_to_main_thread(finish_ui)
+                    post_finish(ok, msg, force_body=False)
                 except BaseException as exc:
                     log.exception("Scripting venv probe failed")
-
-                    def error_ui(exc: BaseException = exc) -> None:
-                        self.set_display(str(exc))
-                        self.finish(failure_title, False)
-
-                    post_to_main_thread(error_ui)
+                    post_finish(False, str(exc), force_body=True)
                     if not isinstance(exc, Exception):
                         raise
 
