@@ -84,10 +84,6 @@ def _error_with_tail(code: str, msg: str, tail: str, *, with_message: bool = Fal
 class _KokoroWorker:
     """Subprocess worker executing Kokoro jobs over stdio Pickle 5 framing."""
 
-    _ready_timeout_sec: float
-    _managed: ManagedSubprocess
-    _killed: bool
-
     def __init__(
         self,
         python_executable: str,
@@ -96,17 +92,16 @@ class _KokoroWorker:
         env: dict[str, str] | None = None,
         ready_timeout_sec: float = _SPAWN_READY_TIMEOUT_SEC,
     ) -> None:
-        self._ready_timeout_sec = ready_timeout_sec
-        self._managed = ManagedSubprocess(
+        self._ready_timeout_sec: float = ready_timeout_sec
+        self._managed: ManagedSubprocess = ManagedSubprocess(
             [python_executable, script_path],
             base_env=env,
-            command_wrapper=None,
             optimize_pipes=True,
             stderr_name="wa-kokoro",
             stderr_name_with_pid=True,
             label="Kokoro",
         )
-        self._killed = False
+        self._killed: bool = False
 
     def stderr_tail(self) -> str:
         text = self._managed.stderr_text()
@@ -124,12 +119,8 @@ class _KokoroWorker:
             self.kill()
             return
 
-        if self._killed:
-            self.kill()
-            return
-
         stdout = self._managed.stdout
-        if stdout is None:
+        if self._killed or stdout is None:
             self.kill()
             return
 
@@ -183,9 +174,6 @@ class _KokoroWorker:
 
         elapsed = time.monotonic() - start_time
         remaining = timeout_sec - elapsed
-        if remaining <= 0:
-            self.kill()
-            return _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {timeout_sec} seconds.", self.stderr_tail(), with_message=True)
 
         try:
             resp = read_pickle_frame(stdout, remaining, is_alive=self.is_alive, require_dict=True)
@@ -249,40 +237,28 @@ class _KokoroWorker:
 class KokoroProcessPool:
     """Single warm worker plus an idle reaper."""
 
-    python_executable: str
-    script_path: str
-    idle_worker_ttl_sec: float | None
-    job_timeout_sec: float
-    _lock: threading.Lock
-    _job_lock: threading.Lock
-    _shutdown: bool
-    _last_active: float
-    _reaper_stop: threading.Event
-    _seen_warnings: dict[str, None]
-
     def __init__(
         self,
         python_executable: str,
         *,
         script_path: str | None = None,
         idle_worker_ttl_sec: float | None = _DEFAULT_IDLE_TTL_SEC,
-        job_timeout_sec: float = _DEFAULT_JOB_TIMEOUT_SEC,
     ) -> None:
-        self.python_executable = python_executable
-        self.script_path = script_path or _SCRIPT_PATH
-        self.idle_worker_ttl_sec = idle_worker_ttl_sec
-        self.job_timeout_sec = job_timeout_sec
+        self.python_executable: str = python_executable
+        self.script_path: str = script_path or _SCRIPT_PATH
+        self.idle_worker_ttl_sec: float | None = idle_worker_ttl_sec
+        self.job_timeout_sec: float = _DEFAULT_JOB_TIMEOUT_SEC
         self._worker: _KokoroWorker | None = None
-        self._lock = threading.Lock()
-        self._job_lock = threading.Lock()
+        self._lock: threading.Lock = threading.Lock()
+        self._job_lock: threading.Lock = threading.Lock()
         # Identifies this execute() call. cancel() must not clear a newer
         # call's token, and the older call's finally must not clear the newer
         # one. In-flight means the token is not None.
         self._exec_token: object | None = None
-        self._shutdown = False
-        self._last_active = time.monotonic()
-        self._reaper_stop = threading.Event()
-        self._seen_warnings = {}
+        self._shutdown: bool = False
+        self._last_active: float = time.monotonic()
+        self._reaper_stop: threading.Event = threading.Event()
+        self._seen_warnings: dict[str, None] = {}
         if idle_worker_ttl_sec is not None and idle_worker_ttl_sec > 0:
             self._start_reaper()
 
@@ -352,8 +328,7 @@ class KokoroProcessPool:
 
                 if reuse:
                     if deadline.left() <= 0:
-                        msg = f"Execution exceeded maximum timeout of {eff_timeout} seconds."
-                        result = error_dict("EXECUTION_TIMEOUT", msg, message=msg)
+                        result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", "", with_message=True)
                         worker = None
                     else:
                         worker = existing
@@ -362,8 +337,7 @@ class KokoroProcessPool:
 
                 if worker is None and not result:
                     if deadline.left() < _MIN_SPAWN_REMAINING_SEC:
-                        msg = f"Execution exceeded maximum timeout of {eff_timeout} seconds."
-                        result = error_dict("EXECUTION_TIMEOUT", msg, message=msg)
+                        result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", "", with_message=True)
                     else:
                         ready_timeout = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
                         spawned = _KokoroWorker(
@@ -395,8 +369,6 @@ class KokoroProcessPool:
                                 # A handshake that could not reap has already dropped the
                                 # child, so is_alive() is false and this stays a failed spawn.
                                 failed = spawn_cancelled or not spawned.is_alive()
-                                if failed and self._worker is spawned:
-                                    self._worker = None
                             if failed:
                                 spawned.kill()
                                 if spawn_cancelled:
@@ -408,11 +380,7 @@ class KokoroProcessPool:
                             else:
                                 if deadline.left() <= 0:
                                     spawned.kill()
-                                    with self._lock:
-                                        if self._worker is spawned:
-                                            self._worker = None
-                                    msg = f"Execution exceeded maximum timeout of {eff_timeout} seconds."
-                                    result = error_dict("EXECUTION_TIMEOUT", msg, message=msg)
+                                    result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", "", with_message=True)
                                 else:
                                     worker = spawned
 
