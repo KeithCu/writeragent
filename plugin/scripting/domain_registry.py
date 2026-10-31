@@ -132,20 +132,20 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
 
     def format_ok(*, meta: Any, result: dict[str, Any], t0: float, row_count: Any = None, stdout: str | None = None) -> dict[str, Any]:
         helper = str(getattr(meta, "helper", "") or "") or str(result.get("helper") or w.id)
-        formatted_time = format_elapsed_time(time.perf_counter() - t0)
-        domain_label = w.display_label
 
         if w.format_ok_kind == "plot":
             title = str(result.get("title") or helper or "Plot")
             return plot_insert_ok_outcome(helper=helper, title=title, t0=t0, stdout=stdout, result=result)
         if w.format_ok_kind == "symbolic":
             latex = str(result.get("latex") or result.get("text") or helper or "")
-            return preview_insert_ok_outcome(domain_label=domain_label, helper=helper, preview_text=latex, t0=t0, stdout=stdout, result=result)
+            return preview_insert_ok_outcome(domain_label=w.display_label, helper=helper, preview_text=latex, t0=t0, stdout=stdout, result=result)
         if w.format_ok_kind == "units":
             from plugin.scripting.units import units_display_text
 
             formatted = units_display_text(result) or helper
-            return preview_insert_ok_outcome(domain_label=domain_label, helper=helper, preview_text=formatted, t0=t0, stdout=stdout, result=result)
+            return preview_insert_ok_outcome(domain_label=w.display_label, helper=helper, preview_text=formatted, t0=t0, stdout=stdout, result=result)
+
+        formatted_time = format_elapsed_time(time.perf_counter() - t0)
         if w.format_ok_kind == "vision":
             metrics_raw = result.get("metrics")
             metrics: dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
@@ -163,22 +163,15 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
                 status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(
                     helper=helper, time=formatted_time
                 )
-            return rps_ok_outcome(status_ok, result=result, stdout=stdout)
-        if w.format_ok_kind == "rows":
-            return rps_ok_outcome(
-                _("{domain} '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                    domain=domain_label, helper=helper, rows=row_count or 0, time=formatted_time
-                ),
-                result=result,
-                stdout=stdout,
+        elif w.format_ok_kind == "rows":
+            status_ok = _("{domain} '{helper}' completed. Wrote {rows} rows. (took {time})").format(
+                domain=w.display_label, helper=helper, rows=row_count or 0, time=formatted_time
             )
-        return rps_ok_outcome(
-            _("{domain} '{helper}' completed. (took {time})").format(
-                domain=domain_label, helper=helper, time=formatted_time
-            ),
-            result=result,
-            stdout=stdout,
-        )
+        else:
+            status_ok = _("{domain} '{helper}' completed. (took {time})").format(
+                domain=w.display_label, helper=helper, time=formatted_time
+            )
+        return rps_ok_outcome(status_ok, result=result, stdout=stdout)
 
     def is_result(value: Any) -> bool:
         try:
@@ -282,16 +275,6 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
 )
 
 
-_rps_by_id: dict[str, RpsDomainSpec] | None = None
-
-
-def _rps_specs_by_id() -> dict[str, RpsDomainSpec]:
-    global _rps_by_id
-    if _rps_by_id is None:
-        _rps_by_id = {wiring.id: build_rps_spec(wiring) for wiring in WIRING_TABLE}
-    return _rps_by_id
-
-
 # Post-venv is_result order differs slightly (symbolic before units, then plot special case, then vision, then calc domains)
 # We encode post-venv order as a separate sequence of domain ids.
 POST_VENV_DOMAIN_ORDER: tuple[str, ...] = (
@@ -309,10 +292,16 @@ POST_VENV_DOMAIN_ORDER: tuple[str, ...] = (
 )
 
 
+_post_venv_domains: list[RpsDomainSpec] | None = None
+
+
 def get_post_venv_domains() -> list[RpsDomainSpec]:
     """Domains that participate in post-venv result routing, in order."""
-    by_id = _rps_specs_by_id()
-    return [by_id[domain_id] for domain_id in POST_VENV_DOMAIN_ORDER]
+    global _post_venv_domains
+    if _post_venv_domains is None:
+        by_id = {wiring.id: build_rps_spec(wiring) for wiring in WIRING_TABLE}
+        _post_venv_domains = [by_id[domain_id] for domain_id in POST_VENV_DOMAIN_ORDER]
+    return _post_venv_domains
 
 
 # --- Picker domains (order in build_xdl_script_picker_state) ---
@@ -329,11 +318,12 @@ class PickerWiring:
     templates_ref: str  # "module.path:attr" returning dict[str, str]
 
     def supports(self, doc: Any) -> bool:
-        if self.supports_ref == "calc_only":
-            return doc is not None and is_calc(doc)
+        # None must not reach is_calc: @main_thread_only runs before the None return.
         if doc is None:
             return False
         try:
+            if self.supports_ref == "calc_only":
+                return is_calc(doc)
             return bool(_resolve_module_attr(self.supports_ref)(doc))
         except Exception:
             log.debug("script picker supports check failed for %s", self.supports_ref, exc_info=True)
@@ -425,19 +415,9 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
 RESERVED_SCRIPT_PREFIXES = (DOC_SCRIPT_DISPLAY_PREFIX, *(row.display_prefix for row in PICKER_WIRING))
 
 
-_picker_cache: list[PickerWiring] | None = None
-
-
-def get_picker_domains() -> list[PickerWiring]:
-    """Built-in helper sections for the script picker (lazy templates/supports).
-
-    Cached for the process. ``title_fn`` still calls ``_()`` on use,
-    so a later catalog load is not frozen into the cached rows.
-    """
-    global _picker_cache
-    if _picker_cache is None:
-        _picker_cache = list(PICKER_WIRING)
-    return _picker_cache
+def get_picker_domains() -> tuple[PickerWiring, ...]:
+    """Built-in helper sections for the script picker (lazy templates/supports)."""
+    return PICKER_WIRING
 
 
 def picker_display_name(prefix: str, name: str) -> str:
@@ -454,12 +434,7 @@ def domain_template_entries(doc: Any | None) -> list[tuple[Any, dict[str, str]]]
     """Return [(domain, {display_name: code})] for picker domains supporting *doc*."""
     results: list[tuple[Any, dict[str, str]]] = []
     for domain in get_picker_domains():
-        try:
-            if not domain.supports(doc):
-                continue
-        except Exception:
-            # Swallowed exception logged per AGENTS.md / cleanups
-            log.debug("domain %s supports() check failed", domain.origin, exc_info=True)
+        if not domain.supports(doc):
             continue
         try:
             templates = domain.templates()
