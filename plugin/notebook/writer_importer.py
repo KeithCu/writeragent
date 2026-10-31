@@ -83,6 +83,8 @@ _STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
 # Used only when Preformatted Text is not in the document. Stdout left as
 # Text Body is a cell boundary, so a re-run would keep the old paragraph.
 _STYLE_NOTEBOOK_OUT = "WriterAgent Notebook Output"
+
+_MD_BLOCK_PARA_STYLE = {"h1": _STYLE_MD_H1, "h2": _STYLE_MD_H2, "pre": _STYLE_BODY}
 _NOTEBOOK_IN_CHAR_HEIGHT = 9
 _NOTEBOOK_IN_MARGIN_TOP = 200
 _NOTEBOOK_IN_MARGIN_BOTTOM = 40
@@ -158,10 +160,7 @@ def _scroll_view_to_start(doc: Any) -> None:
     Use a text range, not ``jumpToFirstPage``: page jumps can force layout while locked.
     """
     def scroll() -> None:
-        controller = doc.getCurrentController()
-        if controller is None:
-            return
-        controller.getViewCursor().gotoRange(doc.getText().getStart(), False)
+        doc.getCurrentController().getViewCursor().gotoRange(doc.getText().getStart(), False)
         log.info("notebook import view_to_start")
 
     best_effort(scroll, "notebook import view_to_start failed")
@@ -241,10 +240,14 @@ def _set_prop_map(obj: Any, props: dict[str, Any], fail_fmt: str, *fail_args: An
             log.debug(fail_fmt, name, *fail_args, exc_info=True)
 
 
+def _locale_props(loc: Any) -> dict[str, Any]:
+    return {"CharLocale": loc, "CharLocaleAsian": loc, "CharLocaleComplex": loc}
+
+
 def _apply_no_spellcheck_for_import(doc: Any) -> None:
     """Notebook bodies are code/markdown — suppress spellcheck for imported content."""
     loc = _no_spellcheck_locale()
-    _set_prop_map(doc, {"CharLocale": loc, "CharLocaleAsian": loc, "CharLocaleComplex": loc}, "notebook import could not set document %s")
+    _set_prop_map(doc, _locale_props(loc), "notebook import could not set document %s")
     para_styles = _get_para_styles(doc)
     if para_styles is None:
         return
@@ -259,7 +262,7 @@ def _apply_no_spellcheck_for_import(doc: Any) -> None:
         except Exception:
             log.debug("notebook import could not open style %r", resolved, exc_info=True)
             continue
-        _set_prop_map(style, {"CharLocale": loc, "CharLocaleAsian": loc, "CharLocaleComplex": loc}, "notebook import could not set %s on %r", resolved)
+        _set_prop_map(style, _locale_props(loc), "notebook import could not set %s on %r", resolved)
 
 
 def _create_import_para_style(doc: Any, para_styles: Any, style_name: str, *, parent_style: str, property_updates: dict[str, Any]) -> bool:
@@ -312,9 +315,7 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
         "CharHeight": _NOTEBOOK_IN_CHAR_HEIGHT,
         "CharWeight": 150,
         "CharColor": _NOTEBOOK_IN_CHAR_COLOR,
-        "CharLocale": no_lang,
-        "CharLocaleAsian": no_lang,
-        "CharLocaleComplex": no_lang,
+        **_locale_props(no_lang),
     }
 
     _create_import_para_style(doc, para_styles, _STYLE_NOTEBOOK_IN, parent_style=parent_body, property_updates=property_updates)
@@ -354,9 +355,7 @@ def output_para_style(doc: Any) -> str | None:
         property_updates={
             "CharFontName": _CODE_FONT_NAME,
             "CharFontPitch": 1,
-            "CharLocale": no_lang,
-            "CharLocaleAsian": no_lang,
-            "CharLocaleComplex": no_lang,
+            **_locale_props(no_lang),
         },
     )
     return _resolve_para_style(doc, _STYLE_NOTEBOOK_OUT)
@@ -384,11 +383,25 @@ def _doc_body_nonempty(doc: Any) -> bool:
     return uno_read(nonempty, True)
 
 
+def _cursor_at_end(text: Any) -> Any:
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+    return cursor
+
+
+def _cursor_for_append(doc: Any, *, lead_break: bool) -> Any:
+    text = doc.getText()
+    cursor = _cursor_at_end(text)
+    if lead_break and _doc_body_nonempty(doc):
+        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        cursor.gotoEnd(False)
+    return cursor
+
+
 def _append_paragraph_break_at_end(doc: Any) -> None:
     """Insert a paragraph break at body end so following in-flow shapes are not in the previous para."""
     text = doc.getText()
-    cursor = text.createTextCursor()
-    cursor.gotoEnd(False)
+    cursor = _cursor_at_end(text)
     text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
 
 
@@ -404,8 +417,7 @@ def _unglue_last_paragraph(doc: Any) -> None:
     ran first, raised UnknownPropertyException and skipped the real unglue.
     """
     def unglue() -> None:
-        cursor = doc.getText().createTextCursor()
-        cursor.gotoEnd(False)
+        cursor = _cursor_at_end(doc.getText())
         cursor.setPropertyValue("ParaKeepTogether", False)
 
     best_effort(unglue, "notebook import unglue last paragraph failed")
@@ -416,8 +428,7 @@ def _style_control_paragraph(doc: Any) -> None:
 
     def _style() -> None:
         text = doc.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoEnd(False)
+        cursor = _cursor_at_end(text)
         body = _resolve_para_style(doc, "Text Body")
         if body:
             cursor.setPropertyValue("ParaStyleName", body)
@@ -430,16 +441,6 @@ def _style_control_paragraph(doc: Any) -> None:
     best_effort(_style, "notebook controls paragraph style failed")
 
 
-def _numbering_kind(name: str) -> str:
-    """``none`` / ``outline`` / ``list`` — Outline is heading chapter numbering."""
-    lowered = (name or "").strip().lower()
-    if not lowered:
-        return "none"
-    if "outline" in lowered:
-        return "outline"
-    return "list"
-
-
 def _copy_previous_outer_list(cursor: Any) -> bool:
     """Copy NumberingStyleName + NumberingRules from the nearest level-0 list para."""
     prev = uno_read(lambda: cursor.getText().createTextCursorByRange(cursor), None)
@@ -450,7 +451,8 @@ def _copy_previous_outer_list(cursor: Any) -> bool:
             if not prev.gotoPreviousParagraph(False):
                 return False
             style = str(prev.getPropertyValue("NumberingStyleName") or "")
-            if _numbering_kind(style) != "list":
+            lowered = style.strip().lower()
+            if not lowered or "outline" in lowered:
                 continue
             level = int(prev.getPropertyValue("NumberingLevel") or 0)
             if level != 0:
@@ -476,10 +478,10 @@ def _promote_para_to_outer_ol(cursor: Any, *, start: int) -> bool:
     restart at N.
     """
     style = uno_read(lambda: str(cursor.getPropertyValue("NumberingStyleName") or ""), "")
-    kind = _numbering_kind(style)
-    if kind == "outline":
+    lowered = style.strip().lower()
+    if "outline" in lowered:
         return False
-    if kind == "none" and not _copy_previous_outer_list(cursor):
+    if not lowered and not _copy_previous_outer_list(cursor):
         return False
     try:
         cursor.setPropertyValue("NumberingLevel", 0)
@@ -492,12 +494,7 @@ def _promote_para_to_outer_ol(cursor: Any, *, start: int) -> bool:
 
 
 def _last_nonempty_para_cursor(text: Any) -> Any | None:
-    def end_cursor() -> Any:
-        cursor = text.createTextCursor()
-        cursor.gotoEnd(False)
-        return cursor
-
-    cursor = uno_read(end_cursor, None)
+    cursor = uno_read(lambda: _cursor_at_end(text), None)
     if cursor is None:
         return None
     for _unused in range(16):
@@ -536,15 +533,15 @@ def _clear_para_numbering(cursor: Any) -> None:
 
 
 def _append_body_paragraph(doc: Any, content: str, para_style: str | None, *, lead_break: bool) -> None:
-    """Append one paragraph to the Writer body (end of document)."""
+    """Append one paragraph to the Writer body (end of document).
+
+    insertString keeps \n; Writer splits paragraphs only on \r
+    (SwUnoCursorHelper::DocInsertStringSplitCR).
+    """
     if not content and not para_style:
         return
     text = doc.getText()
-    cursor = text.createTextCursor()
-    cursor.gotoEnd(False)
-    if lead_break and _doc_body_nonempty(doc):
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        cursor.gotoEnd(False)
+    cursor = _cursor_for_append(doc, lead_break=lead_break)
     # Always: leftover empty list para must not infect h2/body.
     _clear_para_numbering(cursor)
     resolved = _resolve_para_style(doc, para_style)
@@ -556,23 +553,10 @@ def _append_body_paragraph(doc: Any, content: str, para_style: str | None, *, le
     text.insertString(cursor, content, False)
 
 
-def _append_body_text_block(doc: Any, block: str, para_style: str | None, *, lead_break: bool = True) -> None:
-    """Append one paragraph; internal newlines stay in the same block.
-
-    SwUnoCursorHelper::DocInsertStringSplitCR splits paragraphs only on \\r;
-    \\n is an in-paragraph line break.
-    """
-    display = _prepare_display_text(block)
-    if not display:
-        return
-    _append_body_paragraph(doc, display, para_style, lead_break=lead_break)
-
-
 def _trim_trailing_empty_paragraph(doc: Any) -> None:
     def trim() -> None:
         text = doc.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoEnd(False)
+        cursor = _cursor_at_end(text)
 
         para_rng = text.createTextCursorByRange(cursor)
         para_rng.gotoStartOfParagraph(False)
@@ -674,22 +658,8 @@ def _looks_like_html(text: str) -> bool:
     return bool(_HTML_TAG_RE.search(stripped.strip()))
 
 
-def _inline_backticks_to_html(text: str) -> str:
-    """Escape *text* and wrap `` `code` `` spans in ``<code>``."""
-    parts: list[str] = []
-    last = 0
-    for match in _INLINE_CODE_RE.finditer(text):
-        parts.append(html_lib.escape(text[last : match.start()]))
-        parts.append(f"<code>{html_lib.escape(match.group(1))}</code>")
-        last = match.end()
-    parts.append(html_lib.escape(text[last:]))
-    return "".join(parts)
-
-
 def _inline_markdown_to_html(text: str) -> str:
     """Escape *text* and wrap ``code``, **bold**, *italic*, and ``[text](url)`` as HTML."""
-    if not _BOLD_RE.search(text or "") and not _ITALIC_RE.search(text or "") and not _MD_IMAGE_RE.search(text or "") and not _MD_LINK_RE.search(text or ""):
-        return _inline_backticks_to_html(text)
     placeholders: list[str] = []
 
     def hold(html: str) -> str:
@@ -711,15 +681,11 @@ def _inline_markdown_to_html(text: str) -> str:
     def stash_code(match: re.Match[str]) -> str:
         return hold(f"<code>{html_lib.escape(match.group(1))}</code>")
 
-    def stash_bold(match: re.Match[str]) -> str:
-        inner = match.group(1) if match.group(1) is not None else match.group(2)
-        escaped_inner = escape_non_placeholders(inner or "")
-        return hold(f"<strong>{escaped_inner}</strong>")
-
-    def stash_italic(match: re.Match[str]) -> str:
-        inner = match.group(1) if match.group(1) is not None else match.group(2)
-        escaped_inner = escape_non_placeholders(inner or "")
-        return hold(f"<em>{escaped_inner}</em>")
+    def stash_tag(tag: str):
+        def repl(match: re.Match[str]) -> str:
+            inner = match.group(1) if match.group(1) is not None else match.group(2)
+            return hold(f"<{tag}>{escape_non_placeholders(inner or '')}</{tag}>")
+        return repl
 
     def stash_link(match: re.Match[str]) -> str:
         inner = match.group(1) or ""
@@ -730,8 +696,8 @@ def _inline_markdown_to_html(text: str) -> str:
         return hold(f'<a href="{href}">{escape_non_placeholders(inner)}</a>')
 
     work = _INLINE_CODE_RE.sub(stash_code, work)
-    work = _BOLD_RE.sub(stash_bold, work)
-    work = _ITALIC_RE.sub(stash_italic, work)
+    work = _BOLD_RE.sub(stash_tag("strong"), work)
+    work = _ITALIC_RE.sub(stash_tag("em"), work)
     work = _MD_LINK_RE.sub(stash_link, work)
     escaped = escape_non_placeholders(work)
 
@@ -747,15 +713,13 @@ def _inline_markdown_to_html(text: str) -> str:
 def _paragraph_needs_html(text: str) -> bool:
     if "`" in (text or ""):
         return True
-    if "**" in text or "__" in text:
-        return True
-    if _MD_IMAGE_RE.search(text):
-        return True
-    if _MD_LINK_RE.search(text):
-        return True
-    if _ITALIC_RE.search(text):
-        return True
-    return False
+    return bool(
+        "**" in text
+        or "__" in text
+        or _MD_IMAGE_RE.search(text)
+        or _MD_LINK_RE.search(text)
+        or _ITALIC_RE.search(text)
+    )
 
 
 def _md_indent_cols(prefix: str) -> int:
@@ -936,11 +900,7 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
 def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool, exit_list: bool = False) -> bool:
     """Insert an HTML fragment at the document end. Returns False on failure."""
     text = doc.getText()
-    cursor = text.createTextCursor()
-    cursor.gotoEnd(False)
-    if lead_break and _doc_body_nonempty(doc):
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        cursor.gotoEnd(False)
+    cursor = _cursor_for_append(doc, lead_break=lead_break)
     # List HTML: do not pre-clear leftover NumberingRules (a 1-item
     # ``<ol start="N">`` then imports as plain Text body). Do not leave
     # leftover nested-ul NumberingLevel=1 either — that is the same style
@@ -960,8 +920,7 @@ def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool, exit_list
             if target is not None:
                 _promote_para_to_outer_ol(target, start=ol_start)
         if exit_list:
-            end = text.createTextCursor()
-            end.gotoEnd(False)
+            end = _cursor_at_end(text)
             # Only the empty trailing para. Clearing the last <li> would
             # un-number Ask for help when insertDocumentFromURL left no extra para.
             if _cursor_para_is_empty(end):
@@ -994,15 +953,10 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
     for kind, payload in _iter_markdown_blocks(display):
         block_lead = lead_break if first else True
         first = False
-        if kind == "h1":
-            _append_body_paragraph(doc, str(payload), _STYLE_MD_H1, lead_break=block_lead)
-        elif kind == "h2":
-            _append_body_paragraph(doc, str(payload), _STYLE_MD_H2, lead_break=block_lead)
-        elif kind == "pre":
-            # Style must be Text Body, not Preformatted Text or HTML <pre>. _style_is_preformatted
-            # in notebook_runner treats preformatted styles as stdout, so clear_cell_output
-            # would delete the code block on cell re-run. Non-empty Text Body acts as a cell boundary.
-            _append_body_paragraph(doc, str(payload), _STYLE_BODY, lead_break=block_lead)
+        if kind in _MD_BLOCK_PARA_STYLE:
+            # pre must stay Text Body. notebook_runner treats a preformatted style as
+            # stdout, so clear_cell_output would delete the fence on re-run.
+            _append_body_paragraph(doc, str(payload), _MD_BLOCK_PARA_STYLE[kind], lead_break=block_lead)
         elif kind in ("ul", "ol"):
             html = _list_block_to_html(payload)
             if not _insert_html_at_body_end(doc, html, lead_break=block_lead, exit_list=True):
@@ -1137,8 +1091,6 @@ def _webp_pixel_size(raw: bytes) -> tuple[int, int] | None:
         elif tag == b"VP8 " and vp8 is None:
             vp8 = payload
         step = 8 + size + (size & 1)
-        if step < 8:
-            break
         offset += step
     if vp8l is not None and vp8l + 5 <= len(raw) and raw[vp8l] == 0x2F:
         bits = int.from_bytes(raw[vp8l + 1 : vp8l + 5], "little")
@@ -1243,11 +1195,6 @@ def _decode_notebook_image(b64_data: str) -> bytes | None:
         return None
 
 
-def _apply_notebook_image_flow(graphic: Any) -> None:
-    """AS_CHARACTER already in-flow; pin wrap off so plots do not float beside text."""
-    _set_prop_map(graphic, {"TextWrap": 0, "SurroundContour": False}, "notebook image wrap property %s not applied")
-
-
 def _insert_image_in_flow(
     doc: Any,
     *,
@@ -1278,8 +1225,7 @@ def _insert_image_in_flow(
         if text_cursor is not None:
             cursor = text_cursor
         else:
-            cursor = text.createTextCursor()
-            cursor.gotoEnd(False)
+            cursor = _cursor_at_end(text)
         t_add = time.monotonic()
         if ctx is not None:
             graphic = insert_image_at_locator(ctx, doc, tmp_path, width_mm=w_mm, height_mm=h_mm, title="Notebook output", description=mime, text_cursor=cursor)
@@ -1290,7 +1236,8 @@ def _insert_image_in_flow(
             _apply_graphic_properties(image, width=w_units, height=h_units, title="Notebook output", description=mime, anchor_type=AS_CHARACTER, inside="writer")
             text.insertTextContent(cursor, image, False)
             graphic = image
-        _apply_notebook_image_flow(graphic)
+        # AS_CHARACTER already in-flow; pin wrap off so plots do not float beside text.
+        _set_prop_map(graphic, {"TextWrap": 0, "SurroundContour": False}, "notebook image wrap property %s not applied")
         _log_shape_add(step="image", text_chars=len(raw), shape_h=h_units, shapes_before=images_before, create_ms=_mono_ms(t0), add_ms=_mono_ms(t_add))
         return True
     except Exception:
@@ -1328,19 +1275,14 @@ def _split_markdown_image_src(raw: str) -> str:
         end_idx = src.find(">")
         if end_idx != -1:
             return src[1:end_idx]
-    if src[0] in ('"', "'"):
-        closer = src[0]
-        end_idx = src.find(closer, 1)
+    if src[0] in "\"'":
+        end_idx = src.find(src[0], 1)
         if end_idx != -1:
             return src[1:end_idx]
-        token = src.split()[0].strip("\"'")
-        if token.startswith("<") and token.endswith(">"):
-            token = token[1:-1]
-        return token
-    token = src.split()[0]
+    token = src.split()[0].strip("\"'")
     if token.startswith("<") and token.endswith(">"):
         token = token[1:-1]
-    return token.strip("\"'")
+    return token
 
 
 def _file_url_to_local_path(src: str) -> str:
@@ -1359,8 +1301,8 @@ def _file_url_to_local_path(src: str) -> str:
         return _path_from_file_url(norm) or ""
 
 
-def _fetch_remote_image(url: str, *, timeout: float) -> str | None:
-    """Download a reachable http(s) image to a temp file; None when not reachable or budget exceeded."""
+def _fetch_remote_image(url: str, *, timeout: float) -> bytes | None:
+    """Download a reachable http(s) image; None when not reachable or budget exceeded."""
     from urllib.request import Request, urlopen
 
     t0 = time.monotonic()
@@ -1382,21 +1324,9 @@ def _fetch_remote_image(url: str, *, timeout: float) -> str | None:
                     return None
                 if time.monotonic() - t0 > timeout:
                     return None
-        if not chunks or total_bytes == 0:
+        if not chunks:
             return None
-        data = b"".join(chunks)
-        suffix = ".png"
-        lower = url.lower().split("?", 1)[0]
-        for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
-            if lower.endswith(ext):
-                suffix = ".jpg" if ext == ".jpeg" else ext
-                break
-        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-        try:
-            tmp.write(data)
-        finally:
-            tmp.close()
-        return tmp.name
+        return b"".join(chunks)
     except Exception:
         # TimeoutError and socket.timeout are already Exception. The previous
         # handler logged a different string and also returned None.
@@ -1404,8 +1334,16 @@ def _fetch_remote_image(url: str, *, timeout: float) -> str | None:
         return None
 
 
-def _resolve_markdown_image_path(src: str, notebook_dir: str | None, *, budget: _RemoteImageBudget | None = None) -> tuple[str, bool] | None:
-    """Return (path, is_temp) when *src* is a reachable image; None on miss."""
+def _read_image_capped(path: str) -> bytes | None:
+    with open(path, "rb") as fh:
+        raw = fh.read(_MAX_IMAGE_DECODE_BYTES + 1)
+    if not raw or len(raw) > _MAX_IMAGE_DECODE_BYTES:
+        return None
+    return raw
+
+
+def _resolve_markdown_image(src: str, notebook_dir: str | None, *, budget: _RemoteImageBudget | None = None) -> tuple[bytes, str] | None:
+    """Return (raw, hint) when *src* is a reachable image; None on miss."""
     from urllib.parse import unquote
 
     cleaned = _split_markdown_image_src(src)
@@ -1414,7 +1352,8 @@ def _resolve_markdown_image_path(src: str, notebook_dir: str | None, *, budget: 
     if cleaned.startswith("file:"):
         path = _file_url_to_local_path(cleaned)
         if os.path.isfile(path):
-            return (path, False)
+            raw = _read_image_capped(path)
+            return (raw, path) if raw is not None else None
         return None
     if cleaned.startswith("http://") or cleaned.startswith("https://"):
         if budget is not None:
@@ -1423,44 +1362,35 @@ def _resolve_markdown_image_path(src: str, notebook_dir: str | None, *, budget: 
                 return None
         else:
             timeout = float(_HTTP_IMAGE_TIMEOUT_SEC)
-        tmp = _fetch_remote_image(cleaned, timeout=timeout)
-        if tmp is not None:
-            return (tmp, True)
+        raw = _fetch_remote_image(cleaned, timeout=timeout)
+        if raw is not None:
+            return (raw, cleaned.split("?", 1)[0])
         return None
     unquoted = unquote(cleaned)
     if os.path.isfile(unquoted):
-        return (unquoted, False)
+        raw = _read_image_capped(unquoted)
+        return (raw, unquoted) if raw is not None else None
     if notebook_dir:
         joined = os.path.normpath(os.path.join(notebook_dir, unquoted))
         if os.path.isfile(joined):
-            return (joined, False)
+            raw = _read_image_capped(joined)
+            return (raw, joined) if raw is not None else None
     return None
 
 
 def _embed_markdown_image(doc: Any, src: str, notebook_dir: str | None, *, ctx: Any | None = None, budget: _RemoteImageBudget | None = None, field_w: int | None = None) -> bool:
-    resolved = _resolve_markdown_image_path(src, notebook_dir, budget=budget)
+    try:
+        resolved = _resolve_markdown_image(src, notebook_dir, budget=budget)
+    except Exception:
+        log.debug("notebook markdown image embed failed src=%s", src, exc_info=True)
+        return False
     if resolved is None:
         return False
-    path, is_temp = resolved
-    try:
-        with open(path, "rb") as fh:
-            raw = fh.read(_MAX_IMAGE_DECODE_BYTES + 1)
-        if not raw or len(raw) > _MAX_IMAGE_DECODE_BYTES:
-            return False
-        mime = _image_mime_from_bytes(raw, path)
-        if _doc_body_nonempty(doc):
-            _append_paragraph_break_at_end(doc)
-        return _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=0, ctx=ctx, field_w=field_w)
-    except Exception:
-        log.debug("notebook markdown image embed failed path=%s", path, exc_info=True)
-        return False
-    finally:
-        if is_temp:
-            try:
-                if os.path.exists(path):
-                    os.unlink(path)
-            except OSError:
-                pass
+    raw, hint = resolved
+    mime = _image_mime_from_bytes(raw, hint)
+    if _doc_body_nonempty(doc):
+        _append_paragraph_break_at_end(doc)
+    return _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=0, ctx=ctx, field_w=field_w)
 
 
 # ---------------------------------------------------------------------------
@@ -1588,11 +1518,7 @@ def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_coun
 def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[str, Any]:
     """Read *path* (.ipynb): body text for markdown/raw/outputs; in-flow field for code."""
     run_t0 = time.monotonic()
-    try:
-        file_size = os.path.getsize(path)
-    except OSError:
-        file_size = -1
-    log.info("notebook import start path=%s file_size_bytes=%d", path, file_size)
+    log.info("notebook import start path=%s", path)
 
     read_t0 = time.monotonic()
     nb = read_ipynb(path)
@@ -1668,7 +1594,6 @@ def _import_cells(
     first_cell = True
     n_cells = len(nb.cells)
     for idx, cell in enumerate(nb.cells):
-        cell_t0 = time.monotonic()
         stats["cells"] += 1
         cell_type = getattr(cell, "cell_type", "raw")
         source = _coerce_notebook_text(getattr(cell, "source", "") or "")
@@ -1721,7 +1646,9 @@ def _import_cells(
                 stats["outputs"] += n_text
                 for kind, payload in segments:
                     if kind == "text":
-                        _append_body_text_block(doc, payload, output_style, lead_break=True)
+                        display = _prepare_display_text(payload)
+                        if display:
+                            _append_body_paragraph(doc, display, output_style, lead_break=True)
                     else:
                         _append_paragraph_break_at_end(doc)
                         mime, b64 = payload
@@ -1735,7 +1662,9 @@ def _import_cells(
                             _append_body_paragraph(doc, "[image output omitted]", _STYLE_BODY, lead_break=False)
             else:
                 stats["raw"] += 1
-                _append_body_text_block(doc, source, _STYLE_BODY, lead_break=lead)
+                display = _prepare_display_text(source)
+                if display:
+                    _append_body_paragraph(doc, display, _STYLE_BODY, lead_break=lead)
         except Exception as exc:
             # One cell used to abort the import and skip the registry save.
             # A closed document still aborts: filter() returns False.
@@ -1748,6 +1677,5 @@ def _import_cells(
                 lead_break=True,
             )
 
-        log.debug("notebook import cell done index=%d cell_ms=%d controls=%d", idx, _mono_ms(cell_t0), stats["shapes"])
         if (idx + 1) % _PROGRESS_EVERY_N_CELLS == 0 or idx + 1 == n_cells:
             log.info("notebook import progress cell=%d/%d controls=%d elapsed_ms=%d", idx + 1, n_cells, stats["shapes"], _mono_ms(run_t0))
