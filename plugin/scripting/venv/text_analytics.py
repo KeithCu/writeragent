@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from functools import lru_cache
 import importlib.metadata
 import importlib.util
 import re
@@ -63,9 +64,7 @@ def _lang_prefix(lang: Any) -> str | None:
     return prefix or None
 
 
-_SENTIMENT_PIPELINE: dict[str, Any] = {}
-
-
+@lru_cache(maxsize=1)
 def _sentiment_pipeline(model: str) -> Any:
     """Load or retrieve the cached sentiment pipeline for *model*.
 
@@ -75,14 +74,9 @@ def _sentiment_pipeline(model: str) -> Any:
     # What was wrong: pipeline("sentiment-analysis", model=model) was called on every invocation, reloading heavy models.
     # How it happened: there was no cache holding the pipeline across calls within the warm worker.
     # Why this change: cache the last successfully loaded pipeline for that exact model string.
-    if model in _SENTIMENT_PIPELINE:
-        return _SENTIMENT_PIPELINE[model]
     from transformers import pipeline
 
-    pipe = pipeline("sentiment-analysis", model=model)
-    _SENTIMENT_PIPELINE.clear()
-    _SENTIMENT_PIPELINE[model] = pipe
-    return pipe
+    return pipeline("sentiment-analysis", model=model)
 
 
 def _model_candidates(lang: Any) -> list[str]:
@@ -630,6 +624,16 @@ def check_diagnostics(lang: Any = None) -> dict[str, Any]:
         }
 
 
+def _text_analytics_error(helper: str, message: str, result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "error",
+        "code": "TEXT_ANALYTICS_ERROR",
+        "helper": helper,
+        "message": message,
+        "result": result,
+    }
+
+
 def run_text_analytics(
     spec: dict[str, Any] | str,
     text: str | list[str] | None = None,
@@ -655,25 +659,21 @@ def run_text_analytics(
 
     # Preserve original list form for section-aware helpers (topics, sentiment).
     # Only join for helpers that expect a single string.
-    raw = text
-    if isinstance(text, list):
-        text = "\n\n".join(str(t) for t in text if t)
-
-    if not text or not str(text).strip():
+    is_list = isinstance(text, list)
+    flat = "\n\n".join(str(t) for t in text if t) if is_list else str(text or "")
+    if not flat.strip():
         return {"status": "ok", "result": {}, "note": "no text provided"}
-
-    text_s = str(text)
-    section_text = raw if isinstance(raw, list) else text_s
+    section_text = text if is_list else flat
     lang = params.get("lang") or (context or {}).get("lang")
 
     # For the minimal dialog we mainly use "full" or specific helpers.
     if helper in ("full", "analyze", "all"):
-        return analyze_text(text_s, lang=lang, context=context)
+        return analyze_text(flat, lang=lang, context=context)
 
     # Narrow helpers: run nlp(text) once and extract only the requested subset,
     # skipping the unneeded NER / noun-chunk / textdescriptives work.
     def _nlp_ok(extract: Any) -> dict[str, Any]:
-        nlp, doc, resolved_lang, truncated = _run_nlp_doc(text_s, lang, context)
+        nlp, doc, resolved_lang, truncated = _run_nlp_doc(flat, lang, context)
         res = extract(doc)
         res["meta"] = _extract_meta(nlp, doc, resolved_lang)
         if truncated:
@@ -697,13 +697,7 @@ def run_text_analytics(
         topic_data = _extract_topics(section_text, n_topics=params.get("n_topics", 4))
         # Normalize into the same result envelope the rest of the system expects.
         if topic_data.get("error") == "MISSING_PACKAGE":
-            return {
-                "status": "error",
-                "code": "TEXT_ANALYTICS_ERROR",
-                "helper": helper,
-                "message": "install scikit-learn for topics",
-                "result": topic_data,
-            }
+            return _text_analytics_error(helper, "install scikit-learn for topics", topic_data)
         # What was wrong: meta.n_topics was n_sections, the filtered row count,
         # so the dialog's meta line showed the section count.
         # How it happened: n_topics was computed as n_sections or len(topics),
@@ -732,13 +726,7 @@ def run_text_analytics(
         sent_data = _extract_sentiment(section_text, params=params)
         if sent_data.get("error"):
             # A missing model used to be status ok, so the runner reported success.
-            return {
-                "status": "error",
-                "code": "TEXT_ANALYTICS_ERROR",
-                "helper": helper,
-                "message": str(sent_data.get("error")),
-                "result": sent_data,
-            }
+            return _text_analytics_error(helper, str(sent_data.get("error")), sent_data)
         res = {
             "sentiment": sent_data.get("overall", {}),
             "meta": {"n_sections": sent_data.get("n_sections")}

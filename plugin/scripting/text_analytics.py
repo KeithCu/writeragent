@@ -358,19 +358,13 @@ def _result_payload(result: Any) -> dict[str, Any]:
 
 
 def text_analytics_payload_error(data: Any) -> str | None:
-    """Return error or note message from payload, checking top-level and inner result."""
+    """Return a top-level error or note from a payload dict."""
     if not isinstance(data, dict):
         return None
     for key in ("error", "note"):
         val = data.get(key)
         if val:
             return str(val)
-    res = data.get("result")
-    if isinstance(res, dict):
-        for key in ("error", "note"):
-            val = res.get(key)
-            if val:
-                return str(val)
     return None
 
 

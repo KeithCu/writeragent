@@ -143,17 +143,16 @@ class TextAnalyticsDialog:
 
     def _wire(self) -> None:
         assert self._dlg is not None
-        for btn_id, helper, uses_scope in _COMPUTE_BUTTONS:
-            ctrl = self._dlg.getControl(btn_id)
+        extra = (("BtnInsert", self._insert_report), ("BtnClose", self.close))
+        compute = (
+            (btn_id, partial(self._on_compute, helper, uses_scope))
+            for btn_id, helper, uses_scope in _COMPUTE_BUTTONS
+        )
+        buttons: tuple[tuple[str, Callable[[], None]], ...] = (*compute, *extra)
+        for control_id, handler in buttons:
+            ctrl = self._dlg.getControl(control_id)
             if ctrl is not None:
-                ctrl.addActionListener(_TextAnalyticsAction(partial(self._on_compute, helper, uses_scope)))
-
-        btn_insert = self._dlg.getControl("BtnInsert")
-        if btn_insert is not None:
-            btn_insert.addActionListener(_TextAnalyticsAction(self._insert_report))
-        btn_close = self._dlg.getControl("BtnClose")
-        if btn_close is not None:
-            btn_close.addActionListener(_TextAnalyticsAction(self.close))
+                ctrl.addActionListener(_TextAnalyticsAction(handler))
 
     def _on_compute(self, helper: str, scoped: bool) -> None:
         if scoped:
@@ -339,7 +338,6 @@ class TextAnalyticsDialog:
         if (
             isinstance(result, dict)
             and result.get("status") == "ok"
-            and helper not in ("diagnostics", "check")
             and text_analytics_payload_has_content(result)
         ):
             self._last_result = result
