@@ -448,7 +448,15 @@ def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
             except ValueError:
                 parsed_str = None
             if parsed_str is None or not pd.api.types.is_datetime64_any_dtype(parsed_str):
-                parsed_str = pd.to_datetime(str_slice, errors="coerce")
+                try:
+                    parsed_str = pd.to_datetime(str_slice, errors="coerce")
+                except ValueError:
+                    parsed_str = None
+            # Only offset-aware strings with different offsets ("+01:00" and "+05:00"):
+            # the plain fallback returns object on pandas 2 (.dt raised AttributeError)
+            # and raises ValueError on pandas 3. Convert every cell to UTC instead.
+            if parsed_str is None or not pd.api.types.is_datetime64_any_dtype(parsed_str):
+                parsed_str = pd.to_datetime(str_slice, errors="coerce", format="mixed", utc=True)
         if getattr(parsed_str.dt, "tz", None) is not None:
             parsed_str = parsed_str.dt.tz_localize(None)
         result.loc[not_num] = parsed_str.astype("datetime64[ns]")

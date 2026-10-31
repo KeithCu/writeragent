@@ -148,6 +148,38 @@ def test_parse_date_column_serial_year_iso_and_mixed():
     assert s_mixed_tz.dt.tz is None
 
 
+@pytest.mark.parametrize(
+    "values, expected",
+    [
+        (
+            ["2024-01-01T00:00:00+01:00", "2024-01-02T00:00:00+05:00"],
+            ["2023-12-31 23:00:00", "2024-01-01 19:00:00"],
+        ),
+        (
+            ["2024-01-01T00:00:00+01:00", None, "2024-01-02T00:00:00+05:00", "not-a-date"],
+            ["2023-12-31 23:00:00", None, "2024-01-01 19:00:00", None],
+        ),
+    ],
+)
+def test_parse_date_column_aware_strings_with_different_offsets(values, expected):
+    """Only offset-aware strings with different offsets convert to naive UTC.
+
+    pandas 2.3 returned object dtype (AttributeError on .dt) and pandas 3 raised
+    ValueError("Mixed timezones detected") before the utc=True fallback.
+    """
+    import pandas as pd
+    from plugin.scripting.venv.coerce import parse_date_column
+
+    out = parse_date_column(pd.Series(values, dtype=object))
+    assert str(out.dtype) == "datetime64[ns]"
+    assert out.dt.tz is None
+    for got, want in zip(out.tolist(), expected):
+        if want is None:
+            assert pd.isna(got)
+        else:
+            assert got == pd.Timestamp(want)
+
+
 def test_table_from_df_nan_is_none():
     import json
     import numpy as np
