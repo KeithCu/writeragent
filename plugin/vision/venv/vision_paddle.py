@@ -5,7 +5,6 @@
 """PaddleOCR / PP-Structure backend for trusted vision helpers."""
 from __future__ import annotations
 
-import html as html_module
 import importlib
 import io
 import logging
@@ -19,7 +18,7 @@ from plugin.vision.venv.vision_html_export import (
     _wrap_html_fragment,
     prepare_html_for_lo_import,
 )
-from plugin.vision.venv.vision_layout_html import _HEADING_TYPES
+from plugin.vision.venv.vision_layout_html import _block_to_html
 from plugin.vision.vision_common import (
     MAX_TABLE_ROWS,
     bbox_to_xywh,
@@ -235,7 +234,7 @@ def _parse_ocr_lines(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
 def html_from_paddle_regions(regions: list[dict[str, Any]]) -> str:
     """Minimal HTML from Paddle OCR line regions (reading order), css-inlined for LO."""
     blocks = _blocks_from_vision_result({"regions": regions})
-    parts = [f"<p>{html_module.escape(b['text'])}</p>" for b in blocks if b.get("text")]
+    parts = [fragment for block in blocks if (fragment := _block_to_html(block))]
     if not parts:
         return ""
     return prepare_html_for_lo_import(_wrap_html_fragment("\n".join(parts)))
@@ -741,12 +740,9 @@ def html_from_paddle_structure(
         # when ``text`` is non-empty so insert_mode=html shows one table.
         if block_type == "table" and (not text or "<table" in text.lower()):
             continue
-        if not text:
-            continue
-        if block_type in _HEADING_TYPES:
-            parts.append(f"<h2>{html_module.escape(text)}</h2>")
-        else:
-            parts.append(f"<p>{html_module.escape(text)}</p>")
+        fragment = _block_to_html(block)
+        if fragment:
+            parts.append(fragment)
 
     parts.extend(_tables_to_html(tables))
 
