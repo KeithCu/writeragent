@@ -84,6 +84,4 @@ def normalize_lo_formula_for_parse(formula: str) -> str:
     array column separator).
     """
     raw = normalize_formula_string(formula)
-    if not raw:
-        return raw
     return _scan_quotes(raw)

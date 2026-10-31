@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 from typing import Any
 
 from plugin.framework.errors import best_effort
@@ -126,11 +127,10 @@ def run_sheet_conversion(
     if verify:
         doc.calculateAll()
         actual_values = fetch_actual_values(target_sheet, report.converted)
-        failed_verifications = [item.to_dict() for item in verify_converted_cells(model, output, report, actual_values=actual_values)]
+        failed_verifications = [asdict(item) for item in verify_converted_cells(model, output, report, actual_values=actual_values)]
 
-    status = "partial" if failed_verifications else "ok"
     return {
-        "status": status,
+        "status": "partial" if failed_verifications else "ok",
         "report": report.to_dict(),
         "summary": report.summary(),
         "failed_verifications": failed_verifications,
@@ -183,7 +183,7 @@ def show_import_dialog(ctx: Any) -> None:
                     verify = _control_is_checked(dlg.getControl("OptVerify"))
                     preserve_formats = _control_is_checked(dlg.getControl("OptFormats"))
 
-                    res = run_sheet_conversion(
+                    _outcome = run_sheet_conversion(
                         doc,
                         source_sheet,
                         scope=scope,
@@ -192,7 +192,6 @@ def show_import_dialog(ctx: Any) -> None:
                         verify=verify,
                         preserve_formats=preserve_formats,
                     )
-                    _outcome = res
                     dlg.endDialog(1)
                 except Exception as e:
                     log.exception("Sheet conversion failed inside dialog")
