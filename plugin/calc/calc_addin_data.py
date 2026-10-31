@@ -77,15 +77,10 @@ def _is_legacy_single_column_range(items: list[Any]) -> bool:
     **scalar**. Two separate single-cell varargs look like ``(((1.0,),), ((2.0,),))``
     and must stay multi-range (inner value is itself a sequence).
     """
-    if len(items) <= 1:
-        return False
-    for item in items:
-        if not isinstance(item, (list, tuple)) or len(item) != 1:
-            return False
-        inner = item[0]
-        if isinstance(inner, (list, tuple)):
-            return False
-    return True
+    return len(items) > 1 and all(
+        isinstance(item, (list, tuple)) and len(item) == 1 and not isinstance(item[0], (list, tuple))
+        for item in items
+    )
 
 
 def split_python_addin_data_args(raw: Any) -> list[Any]:
@@ -100,10 +95,6 @@ def split_python_addin_data_args(raw: Any) -> list[Any]:
     if not _is_row_sequence(raw):
         return [raw]
     items = list(raw)
-    if not items:
-        return []
-    if len(items) == 1:
-        return [items[0]]
     if _is_legacy_single_column_range(items):
         return [raw]
     return items
@@ -139,14 +130,11 @@ def calc_addin_data_to_python(value: Any, true_strings: set[str] | None = None, 
     rows = list(value)
     if not rows:
         return []
-
-    first = rows[0]
-    if _is_row_sequence(first):
-        grid = [[_unwrap_cell(c, true_strings, false_strings) for c in row] for row in rows]
-        return ensure_rectangular_2d(grid)
-
-    # 1D sequence (single row range from Calc)
-    return [[_unwrap_cell(c, true_strings, false_strings) for c in rows]]
+    # A flat sequence is one Calc row. A sequence of sequences is already 2D.
+    if not _is_row_sequence(rows[0]):
+        rows = [rows]
+    grid = [[_unwrap_cell(c, true_strings, false_strings) for c in row] for row in rows]
+    return ensure_rectangular_2d(grid)
 
 
 def pack_calc_multi_data_for_wire(py_data: list[list[list[Any]]], *, force: ForceBinary = "auto", addresses: list[str | None] | None = None) -> Any:

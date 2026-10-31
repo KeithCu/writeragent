@@ -62,9 +62,7 @@ class PromptFunction(CalcAddInBase, _XPromptFunctionBase):  # pyright: ignore[re
         self._llm_client: LlmClient | None = None
 
     def prompt(self, message: str, systemPrompt: Any, model: Any, maxTokens: Any) -> str:
-        holder: list[LlmClient | None] = [self._llm_client]
-        result = execute_prompt_addin(self.ctx, message, systemPrompt, model, maxTokens, client_holder=holder)
-        self._llm_client = holder[0]
+        result, self._llm_client = execute_prompt_addin(self.ctx, message, systemPrompt, model, maxTokens, client=self._llm_client)
         return result
 
     def getImplementationName(self) -> str:

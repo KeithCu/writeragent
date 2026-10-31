@@ -26,6 +26,10 @@ _EMPTY_DIAGNOSTIC_MAX_LEN = 500
 _REASONING_EXCERPT_MAX = 200
 
 
+def _clip_diagnostic(text: str) -> str:
+    return text if len(text) <= _EMPTY_DIAGNOSTIC_MAX_LEN else text[: _EMPTY_DIAGNOSTIC_MAX_LEN - 1] + "…"
+
+
 def _format_empty_prompt_diagnostic(result: Mapping[str, Any], *, model: str) -> str:
     """Visible cell message when the provider returned no assistant text (never a silent blank)."""
     usage = result.get("usage")
@@ -53,9 +57,7 @@ def _format_empty_prompt_diagnostic(result: Mapping[str, Any], *, model: str) ->
                 excerpt = excerpt[:_REASONING_EXCERPT_MAX] + "…"
             msg += f" Reasoning excerpt: {excerpt}"
             break
-    if len(msg) > _EMPTY_DIAGNOSTIC_MAX_LEN:
-        msg = msg[: _EMPTY_DIAGNOSTIC_MAX_LEN - 1] + "…"
-    return msg
+    return _clip_diagnostic(msg)
 
 
 def _optional_text(value: Any) -> str:
@@ -77,8 +79,8 @@ def _optional_max_tokens(value: Any) -> int:
     return n if n >= 100 else default
 
 
-def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any, max_tokens: Any, *, client_holder: list[LlmClient | None]) -> str:
-    """Call the chat API for =PROMPT(); *client_holder* is a one-element list for reuse across recalcs."""
+def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any, max_tokens: Any, *, client: LlmClient | None) -> tuple[str, LlmClient | None]:
+    """Call the chat API for =PROMPT(); *client* is reused across recalcs and returned."""
     with background_if_dummy_thread("prompt_addin"):
         with sync_host_dispatch():
             # NOTE: We do not recommend HTML formatting in the system prompt for cell calculations
@@ -87,7 +89,7 @@ def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any,
             log.debug("=== PROMPT(%s) ===", message)
             try:
                 if not str(message or "").strip():
-                    return "Error: prompt is empty."
+                    return "Error: prompt is empty.", client
 
                 # An explicit empty system_prompt string means "no system message" (as before K032);
                 # None / numeric 0 (empty-cell value) fall back to the configured default.
@@ -110,10 +112,8 @@ def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any,
                     messages.append({"role": "system", "content": resolved_system})
                 messages.append({"role": "user", "content": message})
 
-                client = client_holder[0]
                 if client is None:
                     client = LlmClient(config, ctx, register_with_send=False)
-                    client_holder[0] = client
                 else:
                     client.config = config
                     # Bugfix: A reused client may have been stopped by sidebar Stop (if previously registered
@@ -136,19 +136,17 @@ def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any,
                 content = result.get("content")
                 text = "" if content is None else str(content)
                 if text.strip():
-                    return text
+                    return text, client
 
                 # Reasoning models can burn max_tokens on reasoning and return content:null;
                 # surface diagnostics so the cell is never a silent blank.
                 diagnostic = _format_empty_prompt_diagnostic(result, model=model_name)
                 log.warning("PROMPT empty response: finish_reason=%r model=%s", result.get("finish_reason"), result.get("model") or model_name)
-                return diagnostic
+                return diagnostic, client
             except Exception as e:
                 if isinstance(e, WriterAgentException):
                     log.warning("PROMPT function failed: %s", e)
                 else:
                     log.exception("PROMPT function execution failed")
                 text = format_error_for_display(e)
-                if len(text) > _EMPTY_DIAGNOSTIC_MAX_LEN:
-                    text = text[: _EMPTY_DIAGNOSTIC_MAX_LEN - 1] + "…"
-                return text
+                return _clip_diagnostic(text), client

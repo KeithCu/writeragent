@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from plugin.calc.calc_addin_data import calc_addin_data_to_python
-from plugin.calc.python.addin_impl import MISSING_CALLER_ERROR, PythonFunction
+from plugin.calc.python.addin_impl import PythonFunction
 
 
 def test_python_addin_caller_is_forwarded_as_doc():
@@ -39,9 +39,8 @@ def test_python_addin_missing_caller_returns_error_without_guessing():
         patch("plugin.calc.python.addin_impl.execute_python_addin") as mock_exec,
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx") as front_window,
     ):
-        assert func.python(None, "result = 1") == MISSING_CALLER_ERROR
-        assert func.py(None, "result = 1") == MISSING_CALLER_ERROR
-    assert MISSING_CALLER_ERROR == "Error: no calling document"
+        assert func.python(None, "result = 1") == "Error: no calling document"
+        assert func.py(None, "result = 1") == "Error: no calling document"
     mock_exec.assert_not_called()
     front_window.assert_not_called()
 

@@ -24,23 +24,20 @@ log = logging.getLogger(__name__)
 
 IMPL_NAME = "org.extension.writeragent.PythonFunction"
 
-_PYTHON_ARGS = (
-    "The Python code to execute. Assign output to 'result'.",
-    (
-        "Optional one or more ranges injected as data (one range: data is that CalcRange; "
-        "several: data is the ranges list — use data[i] or ranges[i]), or a single-cell "
-        "index for matrix formulas (e.g. ROW(A1)-ROW($A$1))."
-    ),
-)
 _PYTHON_SPEC = CalcFunctionSpec(
     display_name="PYTHON",
     programmatic_name="python",
     description="Executes Python code in the configured venv and returns the result.",
-    arg_descriptions=_PYTHON_ARGS,
+    arg_descriptions=(
+        "The Python code to execute. Assign output to 'result'.",
+        (
+            "Optional one or more ranges injected as data (one range: data is that CalcRange; "
+            "several: data is the ranges list — use data[i] or ranges[i]), or a single-cell "
+            "index for matrix formulas (e.g. ROW(A1)-ROW($A$1))."
+        ),
+    ),
 )
 _PY_SPEC = replace(_PYTHON_SPEC, display_name="PY", programmatic_name="py")
-# Returned when LibreOffice passes no calling document. Never guess one.
-MISSING_CALLER_ERROR = "Error: no calling document"
 
 try:
     from org.extension.writeragent.PythonFunction import (  # type: ignore
@@ -75,7 +72,7 @@ class PythonFunction(CalcAddInBase, _XPythonFunctionBase):  # pyright: ignore[re
         # whose cell is being calculated. It is the only document source.
         # Do not call UNO on it here; this can run off the main thread.
         if caller is None:
-            return MISSING_CALLER_ERROR
+            return "Error: no calling document"
         return execute_python_addin(self.ctx, code, data, self._true_strings, self._false_strings, doc=caller)
 
     def py(self, caller: Any, code: str, data: Any = None) -> Any:
