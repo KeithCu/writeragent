@@ -67,7 +67,7 @@ Listing tools return a consistent shape (TypedDict or dataclass in `plugin/doc/d
 
 Constants in [`plugin/doc/document_research.py`](../../plugin/doc/document_research.py), referenced by tests. `list_nearby_files` takes optional **`file_kind`**: `"documents"` (default) or `"images"` (mutually exclusive listing modes).
 
-**`file_kind=documents`** — `NEARBY_FILE_EXTENSIONS`: `.odt`, `.ott`, `.ods`, `.ots`, `.odp`, `.otp`, `.odg`, `.fodt`, `.fods`, `.fodp`
+**`file_kind=documents`** — `ALL_INDEXABLE_EXTENSIONS`: `.odt`, `.ott`, `.ods`, `.ots`, `.odp`, `.otp`, `.odg`, `.fodt`, `.fods`, `.fodp`
 
 **`file_kind=images`** — `NEARBY_IMAGE_EXTENSIONS`: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.svg` (discovery only; not readable via `delegate_read_document`)
 
@@ -344,7 +344,7 @@ flowchart LR
 
 **Outer sub-agent (`specialized_domain="document_research"`):**
 
-- [`ListNearbyFiles`](../../plugin/doc/document_research_tools.py) → [`list_nearby_files`](../../plugin/doc/document_research.py): `NEARBY_FILE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100).
+- [`ListNearbyFiles`](../../plugin/doc/document_research_tools.py) → [`list_nearby_files`](../../plugin/doc/document_research.py): `ALL_INDEXABLE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100).
 - [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): `path_or_name` + `task`; hidden+read-only open (or reuse open); spawns inner; returns `{ path, doc_type, result }`.
 - `specialized_workflow_finished` / final answer to main (same as other specialized domains).
 
@@ -356,7 +356,7 @@ flowchart LR
 
 **Library ([`plugin/doc/document_research.py`](../../plugin/doc/document_research.py)):**
 
-- `FileEntry`, `NEARBY_FILE_EXTENSIONS`, `get_document_directory`, `get_work_directory`, `resolve_listing_directory`, `list_nearby_files`, `resolve_path_or_name`, `open_document_for_read`, `guess_doc_type_from_path`.
+- `FileEntry`, `ALL_INDEXABLE_EXTENSIONS`, `get_document_directory`, `get_work_directory`, `resolve_listing_directory`, `list_nearby_files`, `resolve_path_or_name`, `open_document_for_read`, `guess_doc_type_from_path`.
 
 **Module wiring:** [`plugin/doc/common_module.py`](../../plugin/doc/common_module.py) `auto_discover` for `document_research_tools` and `document_research_specialized`. No new keys in [`module.yaml`](../../plugin/doc/module.yaml).
 
