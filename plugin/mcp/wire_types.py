@@ -46,15 +46,6 @@ class ParsedJsonRpcRequest:
     method: str
     params: dict[str, Any]
     req_id: int | str
-    raw: dict[str, Any]
-
-
-@dataclasses.dataclass(frozen=True)
-class JsonRpcParseError:
-    """Failed to parse an incoming JSON-RPC message."""
-
-    message: str
-    code: int = INVALID_REQUEST
 
 
 def _deal_jsonrpc_msg_ok_crosshair(msg: object) -> bool:
@@ -68,7 +59,6 @@ _deal_jsonrpc_msg_ok = _profile(_deal_jsonrpc_msg_ok_crosshair)
 
 def _jsonrpc_parts(msg: object) -> tuple[str, dict[str, Any], Any] | None:
     # Validate common JSON-RPC 2.0 structure for requests and notifications.
-    # The old notification check accepted methodless/non-string-method messages as 202.
     if not isinstance(msg, dict):
         return None
     raw = cast("dict[str, Any]", msg)
@@ -86,8 +76,8 @@ def _jsonrpc_parts(msg: object) -> tuple[str, dict[str, Any], Any] | None:
 
 
 @deal.pre(lambda msg: _deal_jsonrpc_msg_ok(msg))
-@deal.post(lambda result: isinstance(result, (ParsedJsonRpcRequest, JsonRpcParseError)))
-def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseError:
+@deal.post(lambda result: result is None or isinstance(result, ParsedJsonRpcRequest))
+def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | None:
     """Parse and validate a single JSON-RPC request object.
 
     Notifications (missing ``id`` or ``id`` is null) are not requests — callers should
@@ -95,16 +85,14 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseErr
     a missing or null id, and is_jsonrpc_notification uses the same validation.
     """
     # crosshair: off
-    # Do not sniff sys.modules["crosshair"] (deal_shim): if that module is
-    # loaded, the old branch returned JsonRpcParseError("mock") for every
-    # valid request.
+    # Do not sniff sys.modules["crosshair"] (deal_shim): that returned a parse error for every valid request.
     parts = _jsonrpc_parts(msg)
     if parts is None:
-        return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
+        return None
     method, params, req_id = parts
     if req_id is None or isinstance(req_id, bool) or not isinstance(req_id, (str, int)):
-        return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
-    return ParsedJsonRpcRequest(method=method, params=params, req_id=req_id, raw=cast("dict[str, Any]", msg))
+        return None
+    return ParsedJsonRpcRequest(method=method, params=params, req_id=req_id)
 
 
 @deal.post(lambda result: isinstance(result, bool))
@@ -144,26 +132,17 @@ def jsonrpc_failure(req_id: RequestId, code: int, message: str, data: Any | None
     return {"jsonrpc": "2.0", "id": req_id, "error": err}
 
 
-def _deal_initialize_client_version_ok_crosshair(client_protocol_version: object) -> bool:
-    return client_protocol_version is None or not isinstance(client_protocol_version, str) or str_bounded(client_protocol_version, DEAL_MAX_TOKEN)
-
-
-_deal_initialize_client_version_ok = _profile(_deal_initialize_client_version_ok_crosshair)
-
-
 @deal.pre(
-    lambda protocol_version, server_version, instructions, client_protocol_version=None: (
+    lambda protocol_version, server_version, instructions: (
         (not isinstance(protocol_version, str) or str_bounded(protocol_version, DEAL_MAX_TOKEN))
         and str_bounded(server_version, DEAL_MAX_TOKEN)
         and str_bounded(instructions, DEAL_MAX_SOURCE)
-        and _deal_initialize_client_version_ok(client_protocol_version)
     )
 )
 @deal.post(lambda result: isinstance(result, dict) and "protocolVersion" in result and "capabilities" in result)
-def initialize_result(*, protocol_version: str, server_version: str, instructions: str, client_protocol_version: str | None = None) -> dict[str, Any]:
-    negotiated = client_protocol_version if client_protocol_version is not None else protocol_version
+def initialize_result(*, protocol_version: str, server_version: str, instructions: str) -> dict[str, Any]:
     return {
-        "protocolVersion": negotiated,
+        "protocolVersion": protocol_version,
         "capabilities": {"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}},
         "serverInfo": {"name": "WriterAgent MCP", "version": server_version},
         "instructions": instructions,

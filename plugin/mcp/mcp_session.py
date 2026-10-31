@@ -28,17 +28,15 @@ from typing import Any
 import uuid
 
 from plugin.mcp import wire_types
-from plugin.mcp.cors import send_cors_headers
-from plugin.mcp.server import MCP_HTTP_MAX_BODY_BYTES, write_http_json
+from plugin.mcp.cors import _drain_request_body, send_cors_headers
+from plugin.mcp.server import write_http_json
 
 log = logging.getLogger("writeragent.mcp.protocol")
 
 
 def _get_request_session_id(handler: Any) -> str | None:
     value = handler.headers.get("Mcp-Session-Id")
-    if value:
-        return value.strip()
-    return None
+    return value.strip() if value else None
 
 
 def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -> None:
@@ -49,8 +47,6 @@ def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -
         handler.send_header("Mcp-Session-Id", session_id)
 
 
-# One session id for the whole soffice process, shared by every MCP client.
-# Minted on first successful initialize; never rotated; never cleared on DELETE.
 _mcp_session_id = None
 _mcp_session_lock = threading.Lock()
 _SESSION_EXPIRED_MSG = "Session expired (server restarted). Call initialize again."
@@ -76,26 +72,16 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:  # pyright: ig
     """
     incoming = _get_request_session_id(handler)
     current = _mcp_session_id
-    if incoming is None:
+    if incoming is None or incoming == current:
         return False
     if isinstance(msg, dict) and msg.get("method") == "initialize":
-        return False
-    if incoming == current:
         return False
     req_id = msg.get("id") if isinstance(msg, dict) else None
     log.info("[MCP] stale session id %r (current=%r) — 404", incoming, current)
     # Drain unread body and send Connection: close so the kernel does
     # not emit TCP RST on close, which manifests as Errno 104 on the client.
-    if msg is None and not getattr(handler, "_body_read", False):
-        raw_length = handler.headers.get("Content-Length") if hasattr(handler, "headers") and handler.headers else None
-        if raw_length:
-            try:
-                content_length = int(raw_length)
-                if 0 < content_length <= MCP_HTTP_MAX_BODY_BYTES:
-                    handler.rfile.read(content_length)
-                    setattr(handler, "_body_read", True)
-            except (TypeError, ValueError, OSError):
-                pass
+    if msg is None:
+        _drain_request_body(handler)
     handler.close_connection = True
 
     def _headers(h: Any) -> None:

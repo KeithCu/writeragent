@@ -166,7 +166,6 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
         err = AgentParsingError("Invalid negative Content-Length in HTTP request", details={"length": content_length})
         return None, (400, err)
     if content_length == 0:
-        setattr(handler, "_body_read", True)
         return {}, None
     if content_length > MCP_HTTP_MAX_BODY_BYTES:
         # A trusted Content-Length with no ceiling pins the worker on the
@@ -178,7 +177,6 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
         return None, (413, err)
     try:
         raw_bytes = handler.rfile.read(content_length)
-        setattr(handler, "_body_read", True)
     # Before Python 3.10 socket.timeout is a distinct class (same rule as http_server.handle_error).
     except (TimeoutError, socket.timeout):
         log.warning("Timed out reading HTTP body (%s bytes declared)", content_length)

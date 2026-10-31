@@ -53,7 +53,7 @@ There is **no** `/api/config` endpoint (removed — config is Settings / `writer
 
 **Code:** [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py), [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py), [`plugin/mcp/server.py`](../plugin/mcp/server.py) (`mcp_endpoint_url`).
 
-**Wire types:** MCP JSON-RPC message shapes live in [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py) — stdlib dataclass mirrors of the official [`mcp.types`](https://github.com/modelcontextprotocol/python-sdk) subset (initialize, tools/list, tools/call). The official Python SDK and Pydantic are **not** bundled; the HTTP server and routing remain custom. Today only SSE keepalive is sent. Client `initialize` `protocolVersion` is external input: on the pytest deal profile a long or odd value is copied into the result and does not raise `PreContractError`. CrossHair keeps the short token domain. Release OXTs strip `@deal`.
+**Wire types:** MCP JSON-RPC message shapes live in [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py) — stdlib dataclass mirrors of the official [`mcp.types`](https://github.com/modelcontextprotocol/python-sdk) subset (initialize, tools/list, tools/call). The official Python SDK and Pydantic are **not** bundled; the HTTP server and routing remain custom. Today only SSE keepalive is sent. `_mcp_initialize` filters to `_SUPPORTED_HTTP_PROTOCOL_VERSIONS` or else `MCP_PROTOCOL_VERSION`, and `initialize_result` copies that single `protocol_version`. Release OXTs strip `@deal`.
 
 **Document targeting:** `X-Document-URL` header on MCP requests (see below).
 
