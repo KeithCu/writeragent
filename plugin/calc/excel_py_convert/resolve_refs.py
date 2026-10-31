@@ -53,8 +53,6 @@ def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "")
     """Find an array/spill snapshot for *anchor* (bare or Sheet!A1)."""
     cleaned = anchor.strip()
     snaps = model.anchor_snapshots
-    if not snaps:
-        return None
 
     lower = {k.lower(): v for k, v in snaps.items()}
 

@@ -41,11 +41,7 @@ def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
         is_el = find_child(c, "is")
         if is_el is None:
             return ""
-        parts: list[str] = []
-        for el in is_el.iter():
-            if local_name(el.tag) == "t" and el.text:
-                parts.append(el.text)
-        return "".join(parts)
+        return "".join(el.text for el in is_el.iter() if local_name(el.tag) == "t" and isinstance(el.text, str) and el.text)
     v = find_child(c, "v")
     if v is None or v.text is None:
         return ""
