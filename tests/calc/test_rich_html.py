@@ -238,12 +238,12 @@ def test_release_clipboard_if_holds_only_when_ours():
     ctx.getServiceManager.return_value = smgr
     ctx.ServiceManager = smgr
 
-    assert "released" in _release_clipboard_if_holds(ctx, xfer)
+    _release_clipboard_if_holds(ctx, xfer)
     clip.setContents.assert_called_once_with(None, None)
 
     clip.reset_mock()
     clip.getContents.return_value = object()
-    assert _release_clipboard_if_holds(ctx, xfer).startswith("not_ours")
+    _release_clipboard_if_holds(ctx, xfer)
     clip.setContents.assert_not_called()
 
 

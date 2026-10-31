@@ -90,13 +90,10 @@ class ListCellComments(ToolCalcCommentBase):
         doc = ctx.doc
         sheet = resolve_sheet(doc, kwargs.get("sheet"))
         annotations = sheet.getAnnotations()
-        ordered = sorted(
-            (annotations.getByIndex(i) for i in range(annotations.getCount())),
-            key=lambda ann: (ann.getPosition().Row, ann.getPosition().Column),
-        )
+        positioned = [(ann.getPosition(), ann) for ann in (annotations.getByIndex(i) for i in range(annotations.getCount()))]
+        positioned.sort(key=lambda item: (item[0].Row, item[0].Column))
         comments = []
-        for ann in ordered:
-            pos = ann.getPosition()
+        for pos, ann in positioned:
             # Read text/date through the cell's own CellAnnotation (as the
             # write path does), not the XSheetAnnotations collection item,
             # whose getString()/getDate() come back empty in current LO.
@@ -141,13 +138,11 @@ class AddCellComment(ToolCalcCommentBase):
             return target
         sheet, col, row, cell_ref = target
 
-        cell = sheet.getCellByPosition(col, row)
-
         cell_ann, existing_text = _annotation_text(sheet, col, row)
         if existing_text:
             cell_ann.setString(text)
         else:
-            sheet.getAnnotations().insertNew(cell.getCellAddress(), text)
+            sheet.getAnnotations().insertNew(sheet.getCellByPosition(col, row).getCellAddress(), text)
 
         return {"status": "ok", "cell": cell_ref, "text": text, "sheet": sheet.getName()}
 
