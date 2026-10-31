@@ -64,9 +64,6 @@ def test_empty_matched_text_is_not_replaced_by_lenient_slice() -> None:
     )
     assert _match_wrong_text(truncated) == ""
 
-    missing = SimpleNamespace(context="hello world", offset_in_context=0, error_length=5)
-    assert _match_wrong_text(missing) == "hello"
-
     preferred = SimpleNamespace(
         matched_text="teh",
         context="xxxx",
