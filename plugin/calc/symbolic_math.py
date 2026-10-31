@@ -97,11 +97,8 @@ class SymbolicMathTool(ToolCalcPythonBase):
         if result.get("status") != "ok":
             return result
 
-        def _insert() -> None:
-            insert_symbolic_result_into_doc(ctx.ctx, ctx.doc, result, display_block=display_block)
-
         try:
-            execute_on_main_thread(_insert)
+            execute_on_main_thread(insert_symbolic_result_into_doc, ctx.ctx, ctx.doc, result, display_block=display_block)
             # What was wrong: out["math_inserted"] was unconditionally True, even
             # on Calc where tabular_egress writes cells instead of inserting a Math object.
             # Why this change fixes it: set math_inserted only when doc_type != "calc".
