@@ -502,7 +502,7 @@ def run_viz(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher for trusted viz helpers."""
-    res = resolve_spec_helper(spec, helper_names=HELPER_NAMES, missing_code="MISSING_HELPER")
+    res = resolve_spec_helper(spec, helper_names=HELPER_NAMES)
     if isinstance(res, dict):
         return res
     helper, spec_dict = res
