@@ -17,16 +17,15 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Cell manipulator — writing data and formatting LibreOffice Calc cells.
 
-Ported from core/calc_manipulator.py for the plugin framework.
 UNO imports are deferred to method bodies.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 import csv
 import io
 import logging
-import sys
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple, TypeGuard
 
 if TYPE_CHECKING:
@@ -90,16 +89,9 @@ def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, 
 
 def _coerce_array_flag(array: Any) -> bool | None:
     """Coerce optional array parameter (bool, 'true'/'false', or None) to bool | None."""
-    if array is None:
-        return None
-    if isinstance(array, bool):
-        return array
     if isinstance(array, str):
-        cleaned = array.strip().lower()
-        if cleaned == "true":
-            return True
-        if cleaned == "false":
-            return False
+        return {"true": True, "false": False}.get(array.strip().lower())
+    if array is None:
         return None
     return bool(array)
 
@@ -285,6 +277,13 @@ class CellManipulator:
         """
         self.bridge = bridge
 
+    def _resolve_range_sheet(self, range_str: str) -> tuple[Any, Any, Any]:
+        cell_range = self.bridge.resolve_range_or_address(range_str)
+        addr = _uno_range_address(cell_range)
+        if hasattr(cell_range, "_mock_children") and "getSpreadsheet" not in cell_range._mock_children:
+            return cell_range, addr, self.bridge.doc.getSheets().getByIndex(addr.Sheet)
+        return cell_range, addr, cell_range.getSpreadsheet()
+
     # ── Internal helpers ───────────────────────────────────────────────
 
     def _raise_if_intersects_array(self, sheet: Any, start_col: int, start_row: int, end_col: int, end_row: int, allow_contained: bool = False) -> None:
@@ -314,52 +313,13 @@ class CellManipulator:
                     existing = self._array_block(sheet, c, r)
                     if not existing:
                         continue
-                    if allow_contained:
-                        if existing.StartColumn >= start_col and existing.EndColumn <= end_col and existing.StartRow >= start_row and existing.EndRow <= end_row:
-                            contained.append(existing)
-                            continue
+                    if allow_contained and existing.StartColumn >= start_col and existing.EndColumn <= end_col and existing.StartRow >= start_row and existing.EndRow <= end_row:
+                        contained.append(existing)
+                        continue
 
                     cell_name = f"{index_to_column(c)}{r + 1}"
                     arr_name = format_range(existing.StartColumn, existing.StartRow, existing.EndColumn, existing.EndRow)
                     raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
-
-    def _apply_style_properties(self, obj: Any, bold: bool | None, italic: bool | None, bg_color: int | None, font_color: int | None, font_size: float | None, h_align: str | None, v_align: str | None, wrap_text: bool | None, border_color: int | None) -> None:
-        """Apply common style properties to a cell or range object."""
-        if bold is not None:
-            FW = sys.modules.get("com.sun.star.awt.FontWeight", None)
-            if FW is None:
-                BOLD, NORMAL = FontWeight.BOLD, FontWeight.NORMAL
-            else:
-                BOLD, NORMAL = getattr(FW, "BOLD"), getattr(FW, "NORMAL")
-            obj.setPropertyValue("CharWeight", BOLD if bold else NORMAL)
-
-        if italic is not None:
-            obj.setPropertyValue("CharPosture", ITALIC if italic else NONE)
-
-        if bg_color is not None:
-            obj.setPropertyValue("CellBackColor", bg_color)
-
-        if font_color is not None:
-            obj.setPropertyValue("CharColor", font_color)
-
-        if font_size is not None:
-            obj.setPropertyValue("CharHeight", font_size)
-
-        if h_align is not None:
-            align_map: dict[str, Any] = {"left": LEFT, "center": CENTER, "right": RIGHT, "justify": BLOCK, "standard": STANDARD}
-            if h_align.lower() in align_map:
-                obj.setPropertyValue("HoriJustify", align_map[h_align.lower()])
-
-        if v_align is not None:
-            align_map = {"top": TOP, "center": CENTER, "bottom": BOTTOM, "standard": STANDARD}
-            if v_align.lower() in align_map:
-                obj.setPropertyValue("VertJustify", align_map[v_align.lower()])
-
-        if wrap_text is not None:
-            obj.setPropertyValue("IsTextWrapped", wrap_text)
-
-        if border_color is not None:
-            self._apply_borders(obj, border_color)
 
     def _apply_borders(self, obj: Any, color: int) -> None:
         """Apply borders to a cell or range object."""
@@ -407,8 +367,6 @@ class CellManipulator:
     ) -> None:
         """Apply style to a cell or range.
 
-        Delegates to range-specific helpers when the target contains ``:``.
-
         Args:
             address_or_range: Cell address or range (e.g. "A1" or "A1:D10").
             bold: Bold flag.
@@ -425,7 +383,31 @@ class CellManipulator:
         try:
             is_range = ":" in address_or_range
             target = self.bridge.resolve_range_or_address(address_or_range) if is_range else self.bridge.get_cell_by_address(address_or_range)
-            self._apply_style_properties(target, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
+            if bold is not None:
+                target.setPropertyValue("CharWeight", FontWeight.BOLD if bold else FontWeight.NORMAL)
+            if italic is not None:
+                target.setPropertyValue("CharPosture", ITALIC if italic else NONE)
+            if bg_color is not None:
+                target.setPropertyValue("CellBackColor", bg_color)
+            if font_color is not None:
+                target.setPropertyValue("CharColor", font_color)
+            if font_size is not None:
+                target.setPropertyValue("CharHeight", font_size)
+            if h_align is not None:
+                align_map: dict[str, Any] = {"left": LEFT, "center": CENTER, "right": RIGHT, "justify": BLOCK, "standard": STANDARD}
+                if h_align.lower() in align_map:
+                    target.setPropertyValue("HoriJustify", align_map[h_align.lower()])
+            if v_align is not None:
+                align_map = {"top": TOP, "center": CENTER, "bottom": BOTTOM, "standard": STANDARD}
+                if v_align.lower() in align_map:
+                    target.setPropertyValue("VertJustify", align_map[v_align.lower()])
+            if wrap_text is not None:
+                target.setPropertyValue("IsTextWrapped", wrap_text)
+            if border_color is not None:
+                self._apply_borders(target, border_color)
+            if number_format:
+                self._set_number_format(target, number_format)
+            log.info("%s %s style updated.", "Range" if is_range else "Cell", address_or_range.upper())
             if number_format:
                 self._set_number_format(target, number_format)
             log.info("%s %s style updated.", "Range" if is_range else "Cell", address_or_range.upper())
@@ -470,11 +452,9 @@ class CellManipulator:
             range_str: Cell range (e.g. "A1:D10").
         """
         try:
-            cell_range = self.bridge.resolve_range_or_address(range_str)
+            cell_range, addr, sheet = self._resolve_range_sheet(range_str)
             # clearContents on part of an array formula silently does nothing, so
             # refuse with a clear message unless the range covers the whole array.
-            addr = _uno_range_address(cell_range)
-            sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
             self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=True)
             # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16 -> 23
             cell_range.clearContents(23)
@@ -662,7 +642,7 @@ class CellManipulator:
         except ValueError:
             return _CellWrite(value, "", "text", None, None)
 
-    def _find_column_temporal_templates(self, sheet: Any, formats: Any, columns_needing_templates: dict[int, str], scan_start_row: int, category_cache: dict[int, str | None], max_scan: int = 100) -> dict[int, int]:
+    def _find_column_temporal_templates(self, sheet: Any, formats: Any, columns_needing_templates: dict[int, str], scan_start_row: int, category_cache: dict[int, str | None]) -> dict[int, int]:
         """Find inherited NumberFormat keys by scanning upward in each column (P1).
 
         Args:
@@ -671,7 +651,6 @@ class CellManipulator:
             columns_needing_templates: {col_index: input_category} for columns needing template.
             scan_start_row: Row index to start scanning upward from (exclusive).
             category_cache: Shared key -> category cache (mutated in place).
-            max_scan: Maximum rows to scan upward.
 
         Returns:
             {col_index: inherited_format_key} for columns where a template was found.
@@ -684,7 +663,7 @@ class CellManipulator:
         format_code_cache: dict[int, object | None] = {}
         for col, input_category in columns_needing_templates.items():
             start_r = scan_start_row - 1
-            min_r = max(0, scan_start_row - max_scan)
+            min_r = max(0, scan_start_row - 100)
             for r in range(start_r, min_r - 1, -1):
                 # An unreadable cell reads as key 0 and is skipped like a General cell.
                 key = uno_probe(lambda: int(sheet.getCellByPosition(col, r).getPropertyValue("NumberFormat")), 0)
@@ -733,12 +712,10 @@ class CellManipulator:
         if not _requests_array_formula(formula_or_values, array):
             return None
 
-        cell_range = self.bridge.resolve_range_or_address(range_str)
-        addr = _uno_range_address(cell_range)
+        _cell_range, addr, sheet = self._resolve_range_sheet(range_str)
         start = (addr.StartColumn, addr.StartRow)
         end = (addr.EndColumn, addr.EndRow)
 
-        sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
         doc = self.bridge.doc
 
         was_modified = doc.isModified()
@@ -820,8 +797,7 @@ class CellManipulator:
                 self.clear_range(range_str)
                 return f"Range {range_str} cleared."
 
-            cell_range = self.bridge.resolve_range_or_address(range_str)
-            addr = _uno_range_address(cell_range)
+            _cell_range, addr, sheet = self._resolve_range_sheet(range_str)
             start = (addr.StartColumn, addr.StartRow)
             end = (addr.EndColumn, addr.EndRow)
 
@@ -846,13 +822,12 @@ class CellManipulator:
             # Detect top-level array functions and enter setArrayFormula
             # instead of fill-down. =SUM(FILTER()) stays scalar.
             if not literal_text and not data_text and _requests_array_formula(formula_or_values, array):
-                sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
                 return self._write_array_formula(sheet, formula_or_values, start, end, premeasured_array_size=premeasured_array_size)
 
             if isinstance(formula_or_values, (list, tuple)):
                 if len(formula_or_values) > 0 and isinstance(formula_or_values[0], (list, tuple)):
                     r_cnt = len(formula_or_values)
-                    c_cnt = len(formula_or_values[0]) if r_cnt > 0 else 0
+                    c_cnt = len(formula_or_values[0])
                     if not all(isinstance(r, (list, tuple)) and len(r) == c_cnt for r in formula_or_values):
                         raise CalcError(f"Array is {r_cnt}x{max(len(r) for r in formula_or_values)} but range is {num_rows}x{num_cols}.")
 
@@ -864,8 +839,6 @@ class CellManipulator:
                         total_cells = num_rows * num_cols
 
                         _check_write_cap(total_cells)
-
-                        sheet = cell_range.getSpreadsheet()
 
                         non_empty_count = 0
                         for r in range(start[1], end[1] + 1):
@@ -899,22 +872,14 @@ class CellManipulator:
             formats = doc.getNumberFormats()
             locale = self._resolve_document_locale(doc)
             std_key = formats.getStandardIndex(locale)
-            # Lazy setup: one pass over values for ISO date/time vs PT duration candidates.
-            needs_formatter = False
-            needs_duration = False
             # OCR grids must not be scanned as dates or numbers. literal_text
             # commits with setString below.
-            if not literal_text:
-                for v in values:
-                    if not isinstance(v, str) or v.startswith("=") or v.startswith("'"):
-                        continue
-                    stripped = v.strip()
-                    if not needs_formatter and match_iso_temporal(stripped):
-                        needs_formatter = True
-                    if not needs_duration and match_iso_duration(stripped):
-                        needs_duration = True
-                    if needs_formatter and needs_duration:
-                        break
+            if literal_text:
+                needs_formatter = needs_duration = False
+            else:
+                cands = [v.strip() for v in values if isinstance(v, str) and not v.startswith(("=", "'"))]
+                needs_formatter = any(match_iso_temporal(v) for v in cands)
+                needs_duration = any(match_iso_duration(v) for v in cands)
             formatter = self._make_number_formatter(doc) if needs_formatter else None
             elapsed_format_key = self._resolve_elapsed_format_key(formats, locale) if needs_duration else None
 
@@ -923,7 +888,10 @@ class CellManipulator:
             literal_text_cells: list[tuple[int, int, str]] = []
             # Per-cell meta in row-major order matching values
             cell_metas: list[_CellWrite] = []
-            counts = {"date": 0, "time": 0, "datetime": 0, "duration": 0, "text": 0, "formula": 0, "number": 0}
+            s29_snapshots: list[tuple[int, int, int]] = []  # col, row, key
+            dest_categories: dict[tuple[int, int], str | None] = {}
+            category_cache: dict[int, str | None] = {}
+            cols_needing: dict[int, str] = {}
 
             cell_idx = 0
             for row in range(start[1], end[1] + 1):
@@ -946,43 +914,32 @@ class CellManipulator:
                         data_val = ""
                     if formula:
                         formula_cells.append((col, row, formula))
-                        counts["formula"] += 1
-                    elif cell_write.kind == "temporal":
-                        cat = cell_write.input_category or "temporal"
-                        counts[cat] = counts.get(cat, 0) + 1
-                    elif cell_write.kind in ("text", "forced_text"):
-                        counts["text"] += 1
-                    elif cell_write.kind == "number":
-                        counts["number"] += 1
                     data_row.append(data_val)
                     cell_metas.append(cell_write)
+                    if cell_write.kind == "text" or cell_write.kind == "temporal":
+                        cell = sheet.getCellByPosition(col, row)
+                        key = uno_probe(lambda: int(cell.getPropertyValue("NumberFormat")), 0)
+                        if cell_write.kind == "text":
+                            s29_snapshots.append((col, row, key))
+                        if cell_write.kind == "temporal":
+                            if key not in category_cache:
+                                category_cache[key] = uno_probe(lambda: format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
+                            dest_cat = category_cache[key]
+                            dest_categories[(col, row)] = dest_cat
+                            if dest_cat is None and col not in cols_needing:
+                                cols_needing[col] = cell_write.input_category or ""
                     cell_idx += 1
                 data_array.append(data_row)
 
-            sheet = cell_range.getSpreadsheet()
             cell_range = sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1])
-
-            # Snapshot NumberFormat keys before setDataArray for ordinary text (S29) and
-            # for temporal cells (M1 destination category). Floats keep format through commit.
-            s29_snapshots: list[tuple[int, int, int]] = []  # col, row, key
-            dest_categories: dict[tuple[int, int], str | None] = {}
-            category_cache: dict[int, str | None] = {}
             any_temporal = any(m.kind == "temporal" for m in cell_metas)
-
-            cell_idx = 0
-            for row in range(start[1], end[1] + 1):
-                for col in range(start[0], end[0] + 1):
-                    meta = cell_metas[cell_idx]
-                    if meta.kind == "text" or (any_temporal and meta.kind == "temporal"):
-                        cell = sheet.getCellByPosition(col, row)
-                        key = uno_probe(lambda: int(cell.getPropertyValue("NumberFormat")), 0)
-                        if meta.kind == "text":
-                            s29_snapshots.append((col, row, key))
-                        if meta.kind == "temporal":
-                            if key not in category_cache:
-                                category_cache[key] = uno_probe(lambda: format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
-                            dest_categories[(col, row)] = category_cache[key]
-                    cell_idx += 1
+            counts = Counter(
+                (m.input_category or "temporal") if m.kind == "temporal"
+                else "text" if m.kind in ("text", "forced_text")
+                else m.kind
+                for m in cell_metas
+                if m.kind in ("temporal", "text", "forced_text", "number", "formula")
+            )
 
             # setDataArray undo does not clear previously-empty cells.
             # Above 2000 cells, speed wins over that undo quirk.
@@ -1016,17 +973,6 @@ class CellManipulator:
 
             format_warning = ""
             if any_temporal:
-                # P1: collect columns needing templates (temporal cells with non-temporal destination)
-                cols_needing: dict[int, str] = {}
-                cell_idx = 0
-                for row in range(start[1], end[1] + 1):
-                    for col in range(start[0], end[0] + 1):
-                        meta = cell_metas[cell_idx]
-                        if meta.kind == "temporal" and dest_categories.get((col, row)) is None:
-                            if col not in cols_needing:
-                                cols_needing[col] = meta.input_category or ""
-                        cell_idx += 1
-
                 column_templates: dict[int, int] = {}
                 if cols_needing:
                     column_templates = self._find_column_temporal_templates(sheet, formats, cols_needing, start[1], category_cache)
@@ -1039,16 +985,14 @@ class CellManipulator:
                     for col in range(start[0], end[0] + 1):
                         meta = cell_metas[cell_idx]
                         data_val = data_array[row - start[1]][col - start[0]]
-                        if meta.kind == "formula":
-                            row_dec.append(None)
-                        elif meta.kind == "temporal":
+                        if meta.kind == "temporal":
                             dest_cat = dest_categories.get((col, row))
                             if should_preserve_temporal_format(meta.input_category or "", float(data_val), dest_cat):
                                 row_dec.append(("preserve", None))
                             else:
                                 apply_key = column_templates.get(col, meta.detected_key)
                                 row_dec.append(("apply", apply_key))
-                        elif data_val == "" and meta.kind == "empty":
+                        elif meta.kind == "empty":
                             row_dec.append("empty")
                         else:
                             row_dec.append(None)
@@ -1069,7 +1013,7 @@ class CellManipulator:
 
             parts = []
             for name in ("date", "time", "datetime", "duration", "number", "text", "formula"):
-                n = counts.get(name, 0)
+                n = counts[name]
                 if n:
                     parts.append(f"{n} {name}" + ("s" if n != 1 and name != "text" else ""))
             detail = f" ({', '.join(parts)})" if parts else ""
@@ -1091,9 +1035,7 @@ class CellManipulator:
                 raise
             # Check if this cell intersects an array formula
             try:
-                cell_range = self.bridge.resolve_range_or_address(range_str)
-                addr = _uno_range_address(cell_range)
-                sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
+                _cell_range, addr, sheet = self._resolve_range_sheet(range_str)
                 self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=False)
             except CalcError:
                 raise
@@ -1260,9 +1202,8 @@ class CellManipulator:
 
         try:
             source_obj = self.bridge.resolve_range_or_address(source_str)
-            dest_obj = self.bridge.resolve_range_or_address(dest_str)
             source_ra = _uno_range_address(source_obj)
-            dest_ra = _uno_range_address(dest_obj)
+            _dest_obj, dest_ra, dest_sheet = self._resolve_range_sheet(dest_str)
             rows = int(source_ra.EndRow) - int(source_ra.StartRow) + 1
             cols = int(source_ra.EndColumn) - int(source_ra.StartColumn) + 1
 
@@ -1271,7 +1212,6 @@ class CellManipulator:
             dest_cell.Column = dest_ra.StartColumn
             dest_cell.Row = dest_ra.StartRow
 
-            dest_sheet = self.bridge.doc.getSheets().getByIndex(dest_ra.Sheet)
             dest_sheet.copyRange(dest_cell, source_ra)
 
             msg = f"Copied {rows}×{cols} from {source_str} onto {dest_str}."
