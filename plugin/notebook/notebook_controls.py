@@ -131,13 +131,6 @@ def _cap_from_style(style: Any | None) -> int:
     val = best_effort(_calc, "notebook controls cap from style failed")
     return val if val is not None else _MAX_FIELD_HEIGHT
 
-
-def _max_field_height_units(doc: Any | None) -> int:
-    """Cap AS_CHARACTER code fields at roughly the page body height."""
-    style = _page_style(doc)
-    return _cap_from_style(style)
-
-
 def _line_display_cols(line: str, *, max_cols: int | None = None) -> int:
     if line.endswith("\r"):
         line = line[:-1]
@@ -187,7 +180,7 @@ def _height_for_text(text: str, doc: Any | None = None, *, field_w: int | None =
     """Shape height in 1/100 mm so every source line is visible (no clipped last line)."""
     raw = _raw_height_for_text(text, doc, field_w=field_w, cap=cap)
     if cap is None:
-        cap = _max_field_height_units(doc)
+        cap = _cap_from_style(_page_style(doc))
     return max(_MIN_FIELD_HEIGHT, min(cap, raw))
 
 
@@ -299,7 +292,7 @@ def _insert_code_input_in_flow(  # pyright: ignore[reportUnusedFunction]
     if field_w is None:
         field_w = _text_area_width_units(doc)
     if cap is None:
-        cap = _max_field_height_units(doc)
+        cap = _cap_from_style(_page_style(doc))
 
     raw_h = _raw_height_for_text(source_text, field_w=field_w, cap=cap)
     h = max(_MIN_FIELD_HEIGHT, min(cap, raw_h))
@@ -517,13 +510,12 @@ class NotebookFormRunListener(BaseActionListener):
         self._ctx = ctx
         self._doc_key_val = _doc_key(doc)
         self._doc_url = str(uno_probe(lambda: doc.getURL(), "") or "")
-        from plugin.framework.uno_context import _read_runtime_uid
-
-        # Untitled Writer docs have an empty URL. Hidden native tests (and a
-        # notebook that is not Desktop.getCurrentComponent) then failed
-        # get_active_document; PyUNO wrappers usually cannot be weakref'd, so
-        # ▶ looked wired but actionPerformed returned "document gone".
-        self._runtime_uid = _read_runtime_uid(doc) or ""
+        # _doc_key already stored RuntimeUID in the uid: prefix. Untitled docs
+        # have an empty URL. Hidden native tests (and a notebook that is not
+        # Desktop.getCurrentComponent) then failed get_active_document; PyUNO
+        # wrappers usually cannot be weakref'd, so ▶ looked wired but
+        # actionPerformed returned "document gone".
+        self._runtime_uid = self._doc_key_val[4:] if self._doc_key_val.startswith("uid:") else ""
         import weakref
 
         self._doc_weak = uno_probe(lambda: weakref.ref(doc), None)
@@ -608,22 +600,19 @@ class NotebookFormContainerListener(BaseContainerListener):
         elem = getattr(Event, "Element", None)
         _attach_action_listener(elem, self._form_listener)
 
-    def on_element_removed(self, Event: Any) -> None:
-        elem = getattr(Event, "Element", None)
+    def _forget_attached_name(self, elem: Any, what: str) -> None:
         if elem is None:
             return
-        name = best_effort(lambda: _control_name(elem), "notebook controls: failed to read removed control name")
+        name = best_effort(lambda: _control_name(elem), what)
         if name:
             self._form_listener._attached_names.discard(name)
 
+    def on_element_removed(self, Event: Any) -> None:
+        self._forget_attached_name(getattr(Event, "Element", None), "notebook controls: failed to read removed control name")
+
     def on_element_replaced(self, Event: Any) -> None:
-        old_elem = getattr(Event, "ReplacedElement", None)
-        if old_elem is not None:
-            old_name = best_effort(lambda: _control_name(old_elem), "notebook controls: failed to read replaced control name")
-            if old_name:
-                self._form_listener._attached_names.discard(old_name)
-        new_elem = getattr(Event, "Element", None)
-        _attach_action_listener(new_elem, self._form_listener)
+        self._forget_attached_name(getattr(Event, "ReplacedElement", None), "notebook controls: failed to read replaced control name")
+        _attach_action_listener(getattr(Event, "Element", None), self._form_listener)
 
     def on_disposing(self, Source: Any) -> None:
         global _listener_refs
@@ -675,21 +664,16 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
         target_form = None
         for i in range(count):
             form = forms.getByIndex(i)
-            # check for elements with nb_run_ prefix
-            has_nb = False
             elem_count = getattr(form, "getCount", lambda: 0)()
             for j in range(elem_count):
-                elem = form.getByIndex(j)
-                name = getattr(elem, "Name", "")
+                name = getattr(form.getByIndex(j), "Name", "")
                 if name and name.startswith(_RUN_PREFIX):
-                    has_nb = True
+                    target_form = form
                     break
-            if has_nb:
-                target_form = form
+            if target_form is not None:
                 break
-
-        if target_form is None and count > 0:
-            target_form = forms.getByIndex(0)  # fallback
+        if target_form is None:
+            target_form = forms.getByIndex(0)
 
         if target_form is not None:
             fc = None
