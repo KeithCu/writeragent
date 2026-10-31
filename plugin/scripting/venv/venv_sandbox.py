@@ -912,7 +912,7 @@ def _serialize_result_impl(
             # a frame otherwise keeps numpy.bool_, np.int64, Decimal, and
             # Fraction, which the host unpickler rejects. At >= 100 cells
             # split_grid flatten already converts them.
-            # Doing this inside _cell_for_json would cover every small list,
+            # Doing this inside grid_from_nested_list would cover every small list,
             # but that helper is also host_pack_data for small grids.
             # _numpy_scalar_item().item() on datetime64 / timedelta64 is a
             # nanosecond or day int, not the ISO or fractional-day value

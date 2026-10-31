@@ -1751,7 +1751,7 @@ def test_invalidate_host_cython_accelerator_clears_globals_and_modules() -> None
 
     prev_2d = payload_codec.fast_flatten_grid_2d
     prev_1d = payload_codec.fast_flatten_grid_1d
-    prev_disabled = payload_codec._CYTHON_ACCELERATOR_DISABLED
+    prev_reason = payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON
     fake = types.ModuleType("writeragent_vec")
     fake.fast_flatten_grid_2d = object()
     sys.modules["writeragent_vec"] = fake
@@ -1760,19 +1760,19 @@ def test_invalidate_host_cython_accelerator_clears_globals_and_modules() -> None
     try:
         payload_codec.fast_flatten_grid_2d = object()
         payload_codec.fast_flatten_grid_1d = object()
-        payload_codec._CYTHON_ACCELERATOR_DISABLED = True
+        payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON = "not found"
 
         payload_codec.invalidate_host_cython_accelerator()
 
         assert payload_codec.fast_flatten_grid_2d is None
         assert payload_codec.fast_flatten_grid_1d is None
-        assert payload_codec._CYTHON_ACCELERATOR_DISABLED is False
+        assert payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON is None
         assert "writeragent_vec" not in sys.modules
         assert "writeragent_vec.pack" not in sys.modules
     finally:
         payload_codec.fast_flatten_grid_2d = prev_2d
         payload_codec.fast_flatten_grid_1d = prev_1d
-        payload_codec._CYTHON_ACCELERATOR_DISABLED = prev_disabled
+        payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON = prev_reason
         sys.modules.pop("writeragent_vec", None)
         sys.modules.pop("writeragent_vec.pack", None)
 
@@ -1782,18 +1782,18 @@ def test_host_cython_status_line_report_only_by_default() -> None:
     prev_loc = payload_codec._CYTHON_ACCELERATOR_LOCATION
     prev_reason = payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON
     try:
-        with patch.object(payload_codec, "reload_host_cython_accelerator") as mock_reload:
+        with patch.object(payload_codec, "load_cython_accelerator") as mock_load:
             payload_codec.fast_flatten_grid_2d = None
             payload_codec._CYTHON_ACCELERATOR_LOCATION = None
             payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON = None
             line = payload_codec.host_cython_status_line()
-            mock_reload.assert_not_called()
+            mock_load.assert_not_called()
             assert line == "Cython Accelerator: Inactive (Pure Python)"
 
             payload_codec.fast_flatten_grid_2d = object()
             payload_codec._CYTHON_ACCELERATOR_LOCATION = None
             assert payload_codec.host_cython_status_line(reload=True) == "Cython Accelerator: Active (Optimized)"
-            mock_reload.assert_called_once()
+            mock_load.assert_called_once()
     finally:
         payload_codec.fast_flatten_grid_2d = prev_2d
         payload_codec._CYTHON_ACCELERATOR_LOCATION = prev_loc
@@ -1831,7 +1831,7 @@ def test_host_pack_data_tuple_rows() -> None:
         from plugin.scripting import payload_codec
         orig_2d = payload_codec.fast_flatten_grid_2d
 
-        payload_codec._CYTHON_ACCELERATOR_DISABLED = False
+        payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON = None
         payload_codec.fast_flatten_grid_2d = None
         payload_codec.load_cython_accelerator()
 
@@ -1863,7 +1863,7 @@ def test_host_pack_data_numpy_str() -> None:
         assert type(str_map[1]) is str
 
         # accel test
-        payload_codec._CYTHON_ACCELERATOR_DISABLED = False
+        payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON = None
         payload_codec.fast_flatten_grid_2d = None
         payload_codec.load_cython_accelerator()
 
