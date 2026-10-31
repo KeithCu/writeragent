@@ -25,6 +25,7 @@ dedicated worker and abandons it. Details: docs/framework/threading.md.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import http.client
 import json
 import logging
@@ -82,34 +83,22 @@ def parse_strict_json(raw: Any) -> Any:
     envelopes and catalogs are not model text. A decode failure is
     ``BAD_RESPONSE``, not a reply.
     """
-    if isinstance(raw, (bytes, bytearray)):
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE") from exc
-    elif isinstance(raw, str):
-        text = raw
-    else:
-        raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE")
     try:
-        return json.loads(text)
-    except (json.JSONDecodeError, TypeError, ValueError, RecursionError) as exc:
+        if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode("utf-8")
+        return json.loads(raw)
+    except (ValueError, TypeError, RecursionError) as exc:
         raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE") from exc
 
 
+@dataclass(eq=False)
 class HttpResult:
     """Buffered HTTP result. ``parsed`` is set only for strict JSON."""
 
     status: int
     body: bytes
     content_type: str
-    parsed: Any
-
-    def __init__(self, status: int, body: bytes, content_type: str, parsed: Any = None) -> None:
-        self.status = status
-        self.body = body
-        self.content_type = content_type
-        self.parsed = parsed
+    parsed: Any = None
 
 
 class LlmHttpTransport:
@@ -160,9 +149,6 @@ class LlmHttpTransport:
         if not path.startswith("/"):
             path = "/" + path
         return origin + path
-
-    def current_host(self) -> str:
-        return self._endpoint_parts()[1]
 
     def get_connection(self) -> http.client.HTTPConnection | http.client.HTTPSConnection:
         """Get or create a persistent ``http.client`` connection."""
@@ -299,12 +285,6 @@ class LlmHttpTransport:
             self._drop_stopped_connection(conn)
             return self.send(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, _stale_resend=False)
 
-    def enable_local_ssl_fallback(self, err: Exception) -> bool:
-        enabled = enable_local_unverified(self.current_host(), err)
-        if enabled:
-            self.close()
-        return enabled
-
     def _connect_abortable(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection, stop_checker: Callable[[], bool] | None) -> None:
         """Connect without waiting out the read budget, and without ignoring Stop.
 
@@ -440,7 +420,6 @@ class LlmHttpTransport:
         self._redirect_origin = None
 
         sends_left = RETRY_MAX_ATTEMPTS
-        attempt = 0
         redirects_followed = 0
         model = request_model_from_body(body)
         try:
@@ -488,7 +467,6 @@ class LlmHttpTransport:
                             continue
                     if status != 200:
                         sends_left -= 1
-                        attempt += 1
                         attempt_charged = True
                         action = self.handle_http_status(
                             response,
@@ -498,7 +476,7 @@ class LlmHttpTransport:
                             emitted_any=False,
                             stop_checker=stop_checker,
                             status_callback=status_callback,
-                            attempt=attempt,
+                            attempt=RETRY_MAX_ATTEMPTS - sends_left,
                             secrets=wire_secrets,
                             observe_http_error=observe_http_error,
                         )
@@ -507,7 +485,7 @@ class LlmHttpTransport:
                         if on_retry is not None:
                             on_retry()
                         continue
-                    if attempt == 0:
+                    if sends_left == RETRY_MAX_ATTEMPTS:
                         clear_host_gap(self.pacing_key_for_model(model))
                     if max_bytes is not None:
                         raw = self._read_bounded_response(response, max_bytes=max_bytes, stop_checker=stop_checker)
@@ -536,7 +514,6 @@ class LlmHttpTransport:
                     # failed read, and the last try would never run.
                     if not attempt_charged:
                         sends_left -= 1
-                        attempt += 1
                     action = self.handle_connection_error(
                         exc,
                         path=http_security.public_target(path),
@@ -544,7 +521,7 @@ class LlmHttpTransport:
                         retry_log_message=retry_log_message,
                         stop_checker=stop_checker,
                         status_callback=status_callback,
-                        attempt=attempt,
+                        attempt=RETRY_MAX_ATTEMPTS - sends_left,
                         model=model,
                         secrets=wire_secrets,
                     )
@@ -566,15 +543,16 @@ class LlmHttpTransport:
             return "stop"
         log.error("Connection error, closing: %s" % http_security.redact_secrets(str(err), secrets))
         self.close()
-        if retries_left > 0 and self.enable_local_ssl_fallback(err):
+        if retries_left > 0 and enable_local_unverified(self._endpoint_parts()[1], err):
             # Immediate reopen: TLS mode just changed; do not add backoff.
+            self.close()
             return "retry"
 
         err_msg = http_security.redact_secrets(format_error_message(err), secrets)
         if retries_left > 0:
             log.warning(retry_log_message)
             delay = backoff_delay_sec(attempt=attempt)
-            # Store the backoff under pacing_key, not current_host() alone.
+            # Store the backoff under pacing_key, not the host alone.
             # An OpenRouter ``:free`` failure would otherwise slow paid traffic
             # on that host and leave ``:free`` unpaced. Chat already uses pacing_key.
             remember_host_gap(self.pacing_key_for_model(model), delay)

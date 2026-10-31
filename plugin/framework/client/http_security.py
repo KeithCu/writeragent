@@ -88,12 +88,9 @@ def secrets_from_target(url_or_path: str) -> list[str]:
 def collect_secrets(*groups: list[str] | None) -> list[str]:
     """Merge secret lists, dropping empties and duplicates."""
     found: list[str] = []
-    for group in groups:
-        if not group:
-            continue
-        for secret in group:
-            if secret and secret not in found:
-                found.append(secret)
+    for secret in (secret for group in groups if group for secret in group):
+        if secret and secret not in found:
+            found.append(secret)
     return found
 
 

@@ -25,19 +25,7 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ConfigError
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
-
-
-def reject_control_chars_in_api_key(api_key: str) -> str:
-    """Raise if *api_key* contains characters outside printable ASCII (CR/LF/controls/DEL/NBSP/smart quotes)."""
-    # What was wrong: Checking only ord(c) < 32 let DEL (\x7f), NBSP (\xa0),
-    # and unicode chars like smart quotes through. Smart quotes caused
-    # http.client putheader to fail with a confusing latin-1 UnicodeEncodeError.
-    # Why this fixes it: Enforce printable ASCII (33 to 126), disallowing interior
-    # spaces, DEL, and non-ASCII chars while code stays invalid_api_key.
-    if any(ord(c) < 33 or ord(c) > 126 for c in api_key):
-        raise AuthError("API key must be printable ASCII", code="invalid_api_key")
-    return api_key
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
 
 
 class AuthError(ConfigError):
@@ -97,33 +85,7 @@ PROVIDERS: dict[str, ProviderConfig] = {
 }
 
 
-# Endpoint strings are unbounded. CrossHair uses a finite endpoint enum.
-_DEAL_RESOLVE_ENDPOINTS = frozenset(("", "api.openai.com", "localhost:11434", "openrouter.ai"))
 _PROVIDER_HINTS = frozenset(PROVIDERS)
-
-
-def _deal_resolve_hint_ok_pytest(provider_hint: object) -> bool:
-    return provider_hint is None or (isinstance(provider_hint, str) and ascii_bounded(provider_hint, DEAL_MAX_TOKEN))
-
-
-def _deal_resolve_hint_ok_crosshair(provider_hint: object) -> bool:
-    return provider_hint is None or provider_hint in _PROVIDER_HINTS
-
-
-_deal_resolve_hint_ok = _deal_resolve_hint_ok_crosshair if UNDER_CROSSHAIR else _deal_resolve_hint_ok_pytest
-
-
-def _deal_resolve_endpoint_ok_pytest(endpoint: object) -> bool:
-    # IPv6 brackets, userinfo @, and query characters are real endpoints;
-    # the body does the parse (same as url_utils._deal_url_ok_pytest).
-    return True
-
-
-def _deal_resolve_endpoint_ok_crosshair(endpoint: object) -> bool:
-    return endpoint in _DEAL_RESOLVE_ENDPOINTS
-
-
-_deal_resolve_endpoint_ok = _deal_resolve_endpoint_ok_crosshair if UNDER_CROSSHAIR else _deal_resolve_endpoint_ok_pytest
 
 
 def _deal_provider_id_ok_pytest(provider_id: object) -> bool:
@@ -137,7 +99,6 @@ def _deal_provider_id_ok_crosshair(provider_id: object) -> bool:
 _deal_provider_id_ok = _deal_provider_id_ok_crosshair if UNDER_CROSSHAIR else _deal_provider_id_ok_pytest
 
 
-@deal.pre(lambda endpoint, provider_hint=None: _deal_resolve_endpoint_ok(endpoint) and _deal_resolve_hint_ok(provider_hint))
 def _resolve_provider_id(endpoint: str, provider_hint: str | None = None) -> str:
     """
     Map an endpoint URL + optional hint to a provider id from PROVIDERS.
@@ -221,8 +182,6 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     return {"provider": provider_cfg.id, "endpoint": endpoint, "api_key": api_key, "header_style": provider_cfg.header_style, "headers": dict(provider_cfg.extra_headers)}
 
 
-@deal.pre(lambda auth_info: isinstance(auth_info, dict))
-@deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
 def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     """
     Convert a resolved auth descriptor into concrete HTTP headers.
@@ -237,7 +196,13 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     style = str(auth_info.get("header_style") or "bearer").lower().strip()
     api_key = str(auth_info.get("api_key") or "").strip()
     if api_key:
-        api_key = reject_control_chars_in_api_key(api_key)
+        # What was wrong: Checking only ord(c) < 32 let DEL (\x7f), NBSP (\xa0),
+        # and unicode chars like smart quotes through. Smart quotes caused
+        # http.client putheader to fail with a confusing latin-1 UnicodeEncodeError.
+        # Why this fixes it: Enforce printable ASCII (33 to 126), disallowing interior
+        # spaces, DEL, and non-ASCII chars while code stays invalid_api_key.
+        if any(ord(c) < 33 or ord(c) > 126 for c in api_key):
+            raise AuthError("API key must be printable ASCII", code="invalid_api_key")
 
     if style == "bearer" and api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -246,16 +211,14 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     # style == "none" -> no auth header
 
     # Merge any provider-specific static headers (e.g., version pins).
-    # Plain dict only — isinstance(dict) is true for CrossHair AttrDict and .items() can crash.
     extra = auth_info.get("headers") or {}
-    if type(extra) is dict:
-        existing = {h.lower() for h in headers}
-        for k, v in extra.items():
-            # Do not overwrite explicitly set auth headers.
-            if str(k).lower() in existing:
-                continue
-            headers[str(k)] = str(v)
-            existing.add(str(k).lower())
+    existing = {h.lower() for h in headers}
+    for k, v in extra.items():
+        # Do not overwrite explicitly set auth headers.
+        if str(k).lower() in existing:
+            continue
+        headers[str(k)] = str(v)
+        existing.add(str(k).lower())
 
     # Legacy fallback for simple/manual endpoints: if an api_key exists and no
     # auth header was added (e.g. style='none' or unknown provider), add Bearer.
