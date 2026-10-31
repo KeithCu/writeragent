@@ -482,20 +482,6 @@ class ACPBackend(AgentBackend):
         log.info("%s binary not found", self.display_name)
         return False
 
-    def _startup_stopped(self, stop_checker: Any) -> bool:
-        """True when the post-start wait must leave before initialize.
-
-        A true ``stop_checker`` latches ``_stop_requested`` so ``send()``
-        takes the same ``_finish_stopped`` path it uses when Stop wins
-        before the prompt.
-        """
-        if self._stop_requested:
-            return True
-        if callable(stop_checker) and bool(stop_checker()):
-            self._stop_requested = True
-            return True
-        return False
-
     def _slot_lost_locked(self, conn: ACPConnection | None = None) -> bool:
         """Caller holds ``_state_lock``. Latch Stop when this conn is no longer the slot."""
         if self._closed or (conn is not None and self._conn is not conn):
@@ -545,7 +531,12 @@ class ACPBackend(AgentBackend):
                 return
 
             # Honor Stop before sending initialize; fail fast if child died during spawn.
-            if self._startup_stopped(stop_checker):
+            # Latch a true stop_checker onto _stop_requested so send() finishes Stopped.
+            # Call the checker once, and skip it when Stop already latched during spawn.
+            if self._stop_requested:
+                return
+            if callable(stop_checker) and bool(stop_checker()):
+                self._stop_requested = True
                 return
             if not conn.is_alive:
                 detail = conn.stderr_text().strip()
