@@ -24,6 +24,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -54,14 +55,9 @@ def _progress(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
-def _uno_progress_verbose() -> bool:
-    """Opt-in harness chatter. ``WRITERAGENT_CI_DEBUG=1`` (PR CI ``ci_debug``)."""
-    return os.environ.get("WRITERAGENT_CI_DEBUG") == "1"
-
-
 def _progress_verbose(msg: str) -> None:
-    """Bootstrap, recycle, soak, and pid dumps. Hidden unless CI debug is on."""
-    if _uno_progress_verbose():
+    """Bootstrap, recycle, soak, and pid dumps. Hidden unless ``WRITERAGENT_CI_DEBUG=1``."""
+    if os.environ.get("WRITERAGENT_CI_DEBUG") == "1":
         _progress(msg)
 
 
@@ -274,24 +270,9 @@ def soffice_exit_code() -> int | None:
     return proc.poll()
 
 
-def attach_soffice_proc(proc: Any) -> None:
-    """Keep the bootstrap Popen and drain its stderr (must be PIPE)."""
-    global _soffice_proc
-    _soffice_proc = proc
-    stream = getattr(proc, "stderr", None)
-    if stream is None:
-        return
-    from plugin.framework.worker_pool import run_in_background
-
-    run_in_background(_drain_soffice_stderr, stream, name="soffice-stderr-drain", dedicated=True)
-
-
 def _drain_soffice_stderr(stream: Any) -> None:
     try:
-        while True:
-            line = stream.readline()
-            if not line:
-                break
+        for line in stream:
             note_office_stderr_line(line, echo=True)
     except Exception:
         log.debug("soffice stderr drain failed", exc_info=True)
@@ -318,9 +299,6 @@ class _StderrMarkerTee:
         if text and _APPLICATION_ERROR_MARKER in text:
             note_office_stderr_line(text, echo=False)
         return self._inner.write(data)
-
-    def flush(self) -> None:
-        return self._inner.flush()
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
@@ -362,13 +340,11 @@ def collect_post_test_death(ctx: Any = None) -> str | None:
             "pids=%s bridge=%s %s%s"
             % (exit_code, pids, bridge, crumb, tail_note)
         )
-    if bridge == "disposed":
-        return (
-            "Binary URP bridge disposed during call; office dead after "
-            "TEST returned (teardown likely killed URP) %s"
-            % crumb
-        )
-    return None
+    return (
+        "Binary URP bridge disposed during call; office dead after "
+        "TEST returned (teardown likely killed URP) %s"
+        % crumb
+    )
 
 
 def probe_uno_bridge(ctx: Any = None) -> str:
@@ -544,17 +520,8 @@ def _module_matches_filters(full_path: str, filename: str, filters: Sequence[str
         source = Path(full_path).read_text(encoding="utf-8")
     except OSError:
         return False
-    for line in source.splitlines():
-        stripped = line.lstrip()
-        if not stripped.startswith("def test_"):
-            continue
-        # ``def test_foo(ctx):`` → ``test_foo``
-        rest = stripped[4:]
-        end = 0
-        while end < len(rest) and (rest[end].isalnum() or rest[end] == "_"):
-            end += 1
-        def_name = rest[:end]
-        if def_name and _function_name_matches(def_name, func_filters):
+    for def_name in re.findall(r"(?m)^\s*def (test_\w*)", source):
+        if _function_name_matches(def_name, func_filters):
             return True
     return False
 
@@ -668,19 +635,12 @@ def _user_writeragent_uno_packages() -> Path | None:
 
 
 def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
-    """Copy user-level WriterAgent into the throwaway ``UserInstallation``.
+    """Copy user-level WriterAgent ``uno_packages`` into the throwaway profile.
 
-    ``make register-built-oxt`` / ``unopkg add`` writes the default user
-    profile (``~/.config/libreoffice`` on Linux). ``testing_runner`` starts
-    soffice with ``-env:UserInstallation=<tmp>``, and that profile does
-    **not** inherit user-level unopkg. Sheet ``=PY()`` is then #NAME?
-    (504/525) — PR CI 33731677620 skipped leftover geometric eval.
-
-    ``unopkg -env:UserInstallation=<tmp> add`` cannot enable Python
-    components here (helper soffice pipe ``NoConnectException``). Copying
-    ``user/uno_packages`` works: ``$UNO_USER_PACKAGES_CACHE`` expands in
-    the throwaway. Direct ``PythonFunction.py`` is not a substitute
-    (bypasses Calc order).
+    ``-env:UserInstallation=<tmp>`` does not inherit ``unopkg add`` on the
+    real profile, so sheet ``=PY()`` is ``#NAME?``. ``unopkg add`` into the
+    throwaway fails (helper soffice ``NoConnectException``). Copying
+    ``user/uno_packages`` is what registers the components.
     """
     src = _user_writeragent_uno_packages()
     if src is None:
@@ -725,27 +685,16 @@ def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
 
 
 def _soffice_bootstrap_command(officehelper_module: Any) -> tuple[list[str], str]:
-    """Return a headless soffice argv for native tests (path is ``argv[0]``).
+    """Headless soffice argv. ``argv[0]`` is the executable path, not a shell string.
 
-    Seeds a throwaway ``UserInstallation`` (never recovery UI). Do **not** pass
-    this as ``officehelper.bootstrap(soffice=...)``: current LibreOffice treats
-    ``soffice=`` as a single executable path and ``Popen``s a list with no
-    shell. Older LO 25.2 used ``shell=True``, which hid the bug on Ubuntu CI.
-
-    Discover soffice with ``_resolve_soffice_bin`` (not only next to
-    ``officehelper``). On macOS ``officehelper.py`` lives in
-    ``Contents/Resources`` and ``soffice`` in ``Contents/MacOS`` (PR #561);
-    looking only beside the helper returned ``None`` and skipped throwaway
-    seed / GITHUB_ACTIONS leftover hard-fail (GHA 33749075233 / 33749078050).
-    Windows unit tests must create ``soffice.exe``, not a bare ``soffice``.
-
-    ``--user-profile`` does not use this helper — see ``_user_profile_soffice_argv``.
+    Do not pass this to ``officehelper.bootstrap(soffice=...)``: current
+    LibreOffice treats ``soffice=`` as one path and ``Popen``s it with no
+    shell. Resolve the binary with ``_resolve_soffice_bin`` (macOS keeps
+    ``officehelper.py`` in ``Contents/Resources`` and ``soffice`` in
+    ``Contents/MacOS``). Windows must find ``soffice.exe``.
+    ``--user-profile`` uses ``_user_profile_soffice_argv`` instead.
     """
     soffice = _resolve_soffice_bin(officehelper_module)
-    if soffice is None:
-        raise RuntimeError(
-            "soffice not found (PATH, officehelper dir, or common install paths)"
-        )
     profile_dir = Path(tempfile.mkdtemp(prefix="writeragent-lo-test-profile-"))
     # Seed after the lookup so a missing user OXT on GitHub Actions
     # raises instead of becoming a silent None command.
@@ -856,7 +805,7 @@ def _unused_tcp_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _resolve_soffice_bin(officehelper_module: Any) -> Path | None:
+def _resolve_soffice_bin(officehelper_module: Any) -> Path:
     name = "soffice.exe" if sys.platform.startswith("win") else "soffice"
     next_to_helper = Path(officehelper_module.__file__).resolve().parent / name
     if next_to_helper.exists():
@@ -871,7 +820,9 @@ def _resolve_soffice_bin(officehelper_module: Any) -> Path | None:
     ):
         if candidate.exists():
             return candidate
-    return None
+    raise RuntimeError(
+        "soffice not found (PATH, officehelper dir, or common install paths)"
+    )
 
 
 def _uno_resolver_for_local_ctx() -> Any:
@@ -946,6 +897,7 @@ def _connect_uno_accept(
 
 
 def _spawn_soffice(cmd: list[str], env: dict[str, str]) -> Any:
+    global _soffice_proc
     proc = subprocess.Popen(
         cmd,
         env=env,
@@ -957,7 +909,14 @@ def _spawn_soffice(cmd: list[str], env: dict[str, str]) -> Any:
         errors="replace",
         bufsize=1,
     )
-    attach_soffice_proc(proc)
+    _soffice_proc = proc
+    stream = getattr(proc, "stderr", None)
+    if stream is not None:
+        from plugin.framework.worker_pool import run_in_background
+
+        run_in_background(
+            _drain_soffice_stderr, stream, name="soffice-stderr-drain", dedicated=True
+        )
     return proc
 
 
@@ -971,8 +930,6 @@ def _bootstrap_user_profile_gui(officehelper_module: Any) -> Any:
     if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         raise RuntimeError("user-profile sidebar tests need DISPLAY (visible Writer)")
     soffice = _resolve_soffice_bin(officehelper_module)
-    if soffice is None:
-        raise RuntimeError("soffice not found (PATH, officehelper dir, or common install paths)")
     _clear_stale_user_profile_ipc()
     port = _unused_tcp_port()
     accept = "socket,host=127.0.0.1,port=%s;urp;" % port
@@ -1021,36 +978,14 @@ _WINDOWS_FIRST_IN_DIR = frozenset({"test_designs_uno.py"})
 
 
 def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
-    """Windows: leftover-leaving suites run last so they do not poison later loads.
+    """Windows-only order. POSIX returns ``(0, path)`` and stays path-sorted.
 
-    GHA 34551644954: recycle *did* start a new soffice, then the next Calc
-    factory raised ``Could not create system bitmap`` and hung. Other
-    suites must keep the original office. Peer leftovers die with process
-    teardown, not in-process rebootstrap.
-
-    GHA 34616287301: skipping Math OLE ``close_doc`` kept Draw uid=50
-    open. GHA 34619751330 deferred this file and the notebook detect
-    hang still happened *before* ``insert_math`` — leftover Math Draw
-    is not that hang. Still run ``test_draw_uno`` just before the peer
-    suite so the leftover Math Draw is not closed (34607010446 exit 0)
-    and does not recycle mid-run (34551644954). Notebook Hidden
-    ``_blank`` isolation is ``windows_notebook_load_args``.
-
-    GHA 34648929578 / 34649699848: leftover HTML-paste Writers
-    (``test_formulas_uno`` / ``test_rich_html_uno``) bitmap-failed
-    Hidden ``Budget_read.ods`` and hung slash ``createPeer``. Those
-    suites did **not** change ``_wa_doc_research``. Defer them until
-    after slash, ``document_research_uno``, and import-filter so the
-    copy Hidden-open stays 3/3. Same band as ``test_draw_uno`` (calc
-    paths sort first). Do not skip the Hidden-open tests.
-
-    GHA 37406913485 (master d66aa2e1): ``draw/test_bridge_uno`` (new
-    since the last green Windows run) sorts before ``test_designs_uno``.
-    It became the first Impress suite with leftovers open, so its
-    teardown asked for the suite-end recycle and designs ran on the
-    fresh soffice. There it exited 0 mid-suite and the runner aborted.
-    On 36804071142 designs was the first Impress suite and passed on
-    the original office. Keep it first in ``draw/``.
+    Leftover docs must not sit in front of a later Hidden open. Band 2
+    ``test_peer_message_uno.py`` is last. Band 1 is ``test_draw_uno.py``,
+    ``test_formulas_uno.py``, and ``test_rich_html_uno.py``.
+    ``test_designs_uno.py`` sorts first inside its directory so it runs on
+    the original office, before any suite whose teardown asks for a recycle.
+    History: ``docs/framework/uno-test-lifecycle.md``.
     """
     name = os.path.basename(module_path)
     if sys.platform != "win32":
@@ -1145,18 +1080,12 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
 
 
 def _bootstrap_office(officehelper_module: Any) -> Any:
-    """Start soffice without leaking the test runner's Python env into the child.
+    """Start soffice without the test runner's Python env in the child.
 
-    Visible user-profile soffice loads the installed WriterAgent OXT. Headless
-    throwaway profiles are seeded from that same user-level ``uno_packages``
-    cache when ``make register-built-oxt`` has run (GitHub Actions requires
-    it — user ``unopkg add`` is invisible to ``-env:UserInstallation=<tmp>``).
-    If it inherits the checkout ``PYTHONPATH``, the extension imports mixed
-    sources and can crash on startup (URP then reports the bridge disposed).
-
-    Headless uses argv ``Popen`` (same idea as user-profile / ``tools_lo``).
-    Do not call ``officehelper.bootstrap(soffice=<command string>)``: current
-    LibreOffice treats ``soffice=`` as a path only (list ``Popen``, no shell).
+    A checkout ``PYTHONPATH`` makes the extension import mixed sources and
+    the URP bridge comes up disposed. Headless uses argv ``Popen``. Do not
+    call ``officehelper.bootstrap(soffice=<command string>)``: current
+    LibreOffice treats ``soffice=`` as a path only.
     """
     if use_user_profile:
         return _bootstrap_user_profile_gui(officehelper_module)
@@ -1321,8 +1250,9 @@ def run_module_suite(ctx: Any, module: Any, name: str) -> tuple[int, int, list[s
     # Do not reset the lifecycle trail here: the first test of this suite may
     # fail on factory open because the *previous suite's last test* killed URP.
     _progress(f"SUITE start {name}")
-    if _uno_progress_verbose():
-        _progress("SUITE pids %s python_pid=%s soffice.bin=%s" % (name, os.getpid(), _soffice_pids()))
+    _progress_verbose(
+        "SUITE pids %s python_pid=%s soffice.bin=%s" % (name, os.getpid(), _soffice_pids())
+    )
     # GHA 34643210006: leftover HTML-paste Writers forced leftover Writer
     # reuse into notebook_runner. Isolate those suites on _wa_notebook_host.
     from tests.testing_utils import set_windows_notebook_host
@@ -1473,9 +1403,7 @@ def run_module_suite(ctx: Any, module: Any, name: str) -> tuple[int, int, list[s
                     suite_log.append(f"TEARDOWN EXCEPTION: {e}")
                     suite_log.append(traceback.format_exc())
 
-    from tests.testing_utils import set_windows_notebook_host as _clear_nb_host
-
-    _clear_nb_host(False)
+    set_windows_notebook_host(False)
     _progress(f"SUITE end {name} passed={total_passed} failed={total_failed}")
     return total_passed, total_failed, suite_log
 
@@ -1655,10 +1583,7 @@ def run_all_tests(ctx: Any) -> str:
     tests_root = os.path.join(os.path.dirname(get_plugin_dir()), "tests")
 
     if os.path.isdir(tests_root):
-        # Discover and run all test modules recursively in the tests directory.
-        # UNO tests are identified by the _uno.py suffix (collocated with the
-        # module they exercise). A leftover directory named ``uno`` is still
-        # treated as native for compatibility.
+        # Discover ``*_uno.py`` recursively under tests/ (collocated with the module).
         from tests.testing_utils import NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
 
         _MISSING = object()
@@ -1678,10 +1603,7 @@ def run_all_tests(ctx: Any) -> str:
                 if not (filename.startswith("test_") or filename.endswith("_tests.py")):
                     continue
                 
-                # We specifically want tests that are meant for the native runner.
-                # These are identified by the _uno.py suffix (or a directory named uno).
-                is_uno_test = "_uno.py" in filename or "uno" in root.split(os.sep)
-                if is_uno_test:
+                if "_uno.py" in filename:
                     user_only = filename in _USER_PROFILE_ONLY_UNO
                     if user_only != use_user_profile:
                         continue
@@ -1729,9 +1651,8 @@ def run_all_tests(ctx: Any) -> str:
                 rel_path = os.path.relpath(module_path, tests_root)
                 sys_module_name = "plugin.tests." + rel_path[:-3].replace(os.sep, ".")
 
-                restore_snapshot: Dict[str, Any] | None = None
+                restore_snapshot: Dict[str, Any] = {k: sys.modules.get(k, _MISSING) for k in NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS}
                 try:
-                    restore_snapshot = {k: sys.modules.get(k, _MISSING) for k in NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS}
                     spec = importlib.util.spec_from_file_location(sys_module_name, module_path)
                     if spec is None or spec.loader is None:
                         continue
@@ -1786,12 +1707,11 @@ def run_all_tests(ctx: Any) -> str:
                     total_failed += 1
                 finally:
                     # Prevent sys.modules mocking from polluting later native tests.
-                    if restore_snapshot is not None:
-                        for k, v in restore_snapshot.items():
-                            if v is _MISSING:
-                                sys.modules.pop(k, None)
-                            else:
-                                sys.modules[k] = v
+                    for k, v in restore_snapshot.items():
+                        if v is _MISSING:
+                            sys.modules.pop(k, None)
+                        else:
+                            sys.modules[k] = v
 
         if skip_keeper_close:
             # Leftover peer docs / Impress: do not close(True). Kill soffice.
