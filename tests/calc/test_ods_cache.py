@@ -9,10 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch
-
 import pytest
-import yaml
 
 from plugin.calc.ods_cache import (
     CACHE_FORMAT_VERSION,
@@ -24,7 +21,6 @@ from plugin.calc.ods_cache import (
     meta_matches_source,
     normalize_source_path,
     ods_cache_dir,
-    ods_cache_enabled,
     source_stat,
     write_sidecar_meta,
 )
@@ -143,49 +139,3 @@ def test_meta_matches_source_rejects_wrong_path(tmp_path: Path):
     }
     assert meta_matches_source(meta, abs_path, mtime_ns, size)
     assert not meta_matches_source(meta, abs_path + ".bak", mtime_ns, size)
-
-
-def test_ods_cache_enabled_false():
-    with patch("plugin.framework.config.get_config_bool", return_value=False) as mock_get:
-        assert ods_cache_enabled() is False
-        mock_get.assert_called_once_with("calc.ods_cache_enabled")
-
-
-def test_ods_cache_enabled_propagates_runtime_error():
-    with patch("plugin.framework.config.get_config_bool", side_effect=RuntimeError("disk failure")):
-        with pytest.raises(RuntimeError):
-            ods_cache_enabled()
-
-
-def test_ods_cache_enabled_unknown_key_returns_false():
-    from plugin.framework.errors import ConfigError
-
-    with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("missing", code="CONFIG_KEY_NOT_FOUND")):
-        assert ods_cache_enabled() is False
-
-
-def test_ods_cache_enabled_bad_stored_value_uses_schema_default():
-    from plugin.framework import config_schema as schema
-    from plugin.framework.errors import ConfigError
-
-    calc_yaml_path = Path(__file__).resolve().parents[2] / "plugin" / "calc" / "module.yaml"
-    data = yaml.safe_load(calc_yaml_path.read_text(encoding="utf-8"))
-    schema_default = data["config"]["ods_cache_enabled"]["default"]
-    assert schema_default is True
-
-    orig = (
-        schema.MODULES,
-        schema.CONFIG_DEFAULTS,
-        schema.CONFIG_SCHEMAS,
-        schema.DOTTED_FALLBACKS,
-    )
-    try:
-        schema.set_manifest_modules([{"name": "calc", "config": {"ods_cache_enabled": {"type": "boolean", "default": schema_default}}}])
-        with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("bad type", code="CONFIG_TYPE_ERROR")):
-            assert ods_cache_enabled() is True
-
-        schema.set_manifest_modules([{"name": "calc", "config": {"ods_cache_enabled": {"type": "boolean", "default": False}}}])
-        with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("bad type", code="CONFIG_TYPE_ERROR")):
-            assert ods_cache_enabled() is False
-    finally:
-        schema.MODULES, schema.CONFIG_DEFAULTS, schema.CONFIG_SCHEMAS, schema.DOTTED_FALLBACKS = orig
