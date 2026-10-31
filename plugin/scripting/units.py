@@ -18,7 +18,6 @@ from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     is_status_helper_result,
-    make_template_api,
     parse_run_import_call_spec,
 )
 
@@ -49,21 +48,19 @@ _FORMATTED_DEFAULT_HELPERS = frozenset({"convert_quantity", "parse_quantity"})
 # --- Templates ---
 
 
-_API = make_template_api(
-    DomainFacadeConfig(
-        tag="units",
-        helper_names=HELPER_NAMES,
-        default_params=_DEFAULT_PARAMS,
-        descriptions=_HELPER_DESCRIPTIONS,
-        import_module="writeragent.scripting.units",
-        run_name="run_units",
-        shipped_templates=frozenset(_DEFAULT_PARAMS),
-        # convert_quantity takes value, from_unit, to_unit positionally (``from``
-        # is not a keyword argument). parse/check are keyword-only.
-        positional_args={
-            "convert_quantity": ("value", "from", "to"),
-        },
-    )
+_API = DomainFacadeConfig(
+    tag="units",
+    helper_names=HELPER_NAMES,
+    default_params=_DEFAULT_PARAMS,
+    descriptions=_HELPER_DESCRIPTIONS,
+    import_module="writeragent.scripting.units",
+    run_name="run_units",
+    shipped_templates=frozenset(_DEFAULT_PARAMS),
+    # convert_quantity takes value, from_unit, to_unit positionally (``from``
+    # is not a keyword argument). parse/check are keyword-only.
+    positional_args={
+        "convert_quantity": ("value", "from", "to"),
+    },
 )
 
 get_units_script_templates = _API.get_templates

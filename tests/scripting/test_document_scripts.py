@@ -308,7 +308,7 @@ def test_scripts_list_reports_unreadable_envelope():
     with (
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
-        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
+        patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         msg = build_scripts_list_message(
             session_doc=doc,
@@ -324,7 +324,7 @@ def test_scripts_list_reports_unreadable_envelope():
     with (
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
-        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
+        patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         msg_ok = build_scripts_list_message(
             session_doc=doc,
@@ -340,7 +340,7 @@ def test_scripts_list_reports_unreadable_envelope():
     with (
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
-        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
+        patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         msg_corrupt = build_scripts_list_message(
             session_doc=doc_corrupt,
@@ -664,7 +664,7 @@ def test_build_scripts_list_untitled_save_is_not_stale():
 def test_build_scripts_list_includes_analysis_section_for_calc():
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.scripting.domain_registry.is_calc", return_value=True
+        "plugin.doc.doc_type.is_calc", return_value=True
     ), patch(
         "plugin.scripting.document_scripts.is_calc", return_value=True
     ):
@@ -894,7 +894,7 @@ def test_readonly_fallback_second_edit_follows_the_user_row():
             "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
             return_value="last_python_script_name_writer",
         ),
-        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
+        patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         assert handle_editor_script_message(
             "save_script",
@@ -1020,7 +1020,7 @@ def test_scripts_list_without_session_doc_is_not_writable():
     with (
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
-        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
+        patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         msg = build_scripts_list_message(
             session_doc=None,
@@ -1037,7 +1037,7 @@ def test_scripts_list_without_session_doc_is_not_writable():
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.scripting.document_scripts.save_document_script") as mock_save,
-        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
+        patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         handle_editor_script_message(
             "save_script",
@@ -1056,7 +1056,7 @@ def test_save_script_reserved_prefix_is_status_error():
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.framework.config.set_config") as mock_set,
-        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
+        patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         handled = handle_editor_script_message(
             "save_script",
@@ -1147,8 +1147,8 @@ def test_init_script_omitted_from_picker():
         "plugin.scripting.document_scripts.get_document_scripts",
         return_value={"INIT": "x = 1", "Hello": "y = 1"},
     ), patch(
-        "plugin.scripting.domain_registry.get_picker_domains",
-        return_value=(),
+        "plugin.scripting.domain_registry.PICKER_WIRING",
+        (),
     ):
         items, merged, _origins = build_xdl_script_picker_state(MagicMock(), {})
     assert document_script_display_name("Hello") in items
@@ -1443,7 +1443,7 @@ def test_stale_list_selection_ignores_templates_of_the_stale_document():
         patch("plugin.framework.config.get_config", return_value={}),
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.framework.config.set_config") as mock_set_config,
-        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=[domain]),
+        patch("plugin.scripting.domain_registry.PICKER_WIRING", (domain,)),
     ):
         msg = build_scripts_list_message(
             session_doc=doc,

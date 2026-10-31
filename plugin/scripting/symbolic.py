@@ -20,7 +20,6 @@ from plugin.scripting.client import run_symbolic as client_run_symbolic
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     is_status_helper_result,
-    make_template_api,
     supports_calc_or_writer_manual,
 )
 
@@ -51,17 +50,15 @@ install_lazy_exports(globals(), "symbolic", _SYMBOLIC_VENV_EXPORTS)
 
 # --- Templates ---
 
-_API = make_template_api(
-    DomainFacadeConfig(
-        tag="math",
-        helper_names=HELPER_NAMES,
-        default_params=_DEFAULT_PARAMS,
-        descriptions=_HELPER_DESCRIPTIONS,
-        import_module="writeragent.scripting.symbolic",
-        run_name="run_symbolic",
-        shipped_templates=_SHIPPED_TEMPLATES,
-        data_expr="None",
-    )
+_API = DomainFacadeConfig(
+    tag="math",
+    helper_names=HELPER_NAMES,
+    default_params=_DEFAULT_PARAMS,
+    descriptions=_HELPER_DESCRIPTIONS,
+    import_module="writeragent.scripting.symbolic",
+    run_name="run_symbolic",
+    shipped_templates=_SHIPPED_TEMPLATES,
+    data_expr="None",
 )
 
 get_math_script_templates = _API.get_templates

@@ -16,7 +16,6 @@ from plugin.scripting.domain_registry import (
     POST_VENV_DOMAIN_ORDER,
     WIRING_TABLE,
     FormatOkKind,
-    get_picker_domains,
     get_post_venv_domains,
 )
 from plugin.scripting.helper_domain import _RUN_DATA_BINDING_CALLS
@@ -30,13 +29,12 @@ def test_registry_module_attr_targets_resolve():
 
     targets: list[str] = []
     for w in WIRING_TABLE:
-        targets.extend([w.insert, w.is_result])
+        targets.extend([w.insert_ref, w.is_result_ref])
         if w.insert_kwargs_from_code is not None:
             targets.append(w.insert_kwargs_from_code)
     for p in PICKER_WIRING:
         targets.append(p.templates_ref)
-        if p.supports_ref != "calc_only":
-            targets.append(p.supports_ref)
+        targets.append(p.supports_ref)
 
     for target in targets:
         assert target.count(":") == 1, target
@@ -90,14 +88,8 @@ def test_wiring_and_post_venv_and_run_import_binding_agree():
         assert domain_id in wiring_ids
 
 
-def test_picker_domains_are_cached():
-    assert get_picker_domains() is get_picker_domains()
-
-
 def test_calc_only_insert_passes_document_then_context():
     """Calc egress is (doc, ctx, result). Swapping those args inserts into the wrong object."""
-    from plugin.scripting.domain_registry import build_rps_spec
-
     ctx, doc = object(), object()
     result = {"helper": "x"}
     for wiring in WIRING_TABLE:
@@ -107,10 +99,8 @@ def test_calc_only_insert_passes_document_then_context():
             seen["args"] = args
             return 2
 
-        spec = build_rps_spec(wiring)
-        assert spec.insert is not None
         with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=_record):
-            spec.insert(ctx, doc, result)
+            wiring.insert(ctx, doc, result)
         if wiring.post_venv_calc_only:
             assert seen["args"] == (doc, ctx, result), wiring.id
         else:
@@ -118,7 +108,7 @@ def test_calc_only_insert_passes_document_then_context():
 
 
 def test_calc_only_insert_forwards_kwargs():
-    from plugin.scripting.domain_registry import build_rps_spec, WIRING_TABLE
+    from plugin.scripting.domain_registry import WIRING_TABLE
 
     wiring = next(w for w in WIRING_TABLE if w.post_venv_calc_only)
     ctx, doc, result = object(), object(), {"helper": "x"}
@@ -129,26 +119,20 @@ def test_calc_only_insert_forwards_kwargs():
         seen["kwargs"] = kwargs
         return 3
 
-    spec = build_rps_spec(wiring)
-    assert spec.insert is not None
     with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=_record):
-        assert spec.insert(ctx, doc, result, start_col=4) == 3
+        assert wiring.insert(ctx, doc, result, start_col=4) == 3
     assert seen["args"] == (doc, ctx, result)
     assert seen["kwargs"] == {"start_col": 4}
 
 
 def test_vision_html_block_count_ignores_tag_prefixes():
-    from plugin.scripting.domain_registry import build_rps_spec
-
     wiring = next(w for w in WIRING_TABLE if w.id == "vision")
-    spec = build_rps_spec(wiring)
     html = (
         "<html><head><title>t</title></head><header></header><hr>"
         "<pre>no</pre><param name='p'/><p>a</p><p class='x'>b</p>"
         "<h2>c</h2><table><tr><td>d</td></tr></table>"
     )
-    assert spec.format_ok is not None
-    out = spec.format_ok(
+    out = wiring.format_ok(
         meta=SimpleNamespace(helper="extract_structure"),
         result={"helper": "extract_structure", "html": html, "metrics": {"table_count": 1}},
         t0=0.0,
@@ -158,7 +142,7 @@ def test_vision_html_block_count_ignores_tag_prefixes():
 
 
 def test_picker_domains_unique_origins_and_prefixes():
-    domains = get_picker_domains()
+    domains = PICKER_WIRING
     origins = [d.origin for d in domains]
     prefixes = [d.display_prefix for d in domains]
     assert len(origins) == len(set(origins))
@@ -171,7 +155,7 @@ def test_picker_domains_unique_origins_and_prefixes():
 
 
 def test_picker_order_starts_with_vision_math_units_analysis():
-    origins = [d.origin for d in get_picker_domains()]
+    origins = [d.origin for d in PICKER_WIRING]
     assert origins[:4] == ["vision", "math", "units", "analysis"]
     assert origins == [
         "vision",
@@ -213,14 +197,13 @@ def test_sql_is_result_handles_missing_duckdb_sql(caplog):
     # to raise ImportError and break Calc result insertions for non-sql scripts.
     # Why this change: Catch ImportError, log at debug, and treat as not this domain (return False).
     import logging
-    from plugin.scripting.domain_registry import build_rps_spec, WIRING_TABLE
+    from plugin.scripting.domain_registry import WIRING_TABLE
 
     sql_wiring = next(w for w in WIRING_TABLE if w.id == "sql")
-    spec = build_rps_spec(sql_wiring)
 
     with patch("plugin.scripting.domain_registry._resolve_module_attr", side_effect=ImportError("No module named 'plugin.scripting.duckdb_sql'")):
         with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
-            assert spec.is_result({"some": "result"}) is False
+            assert sql_wiring.is_result({"some": "result"}) is False
     # Release strips log.debug; returning False is the behavior that must survive.
     from plugin.scripting import domain_registry as domain_registry_mod
     from tests.harness.strip_bundle import module_source_contains
@@ -249,19 +232,18 @@ def test_rps_spec_insert_returns_int_only_when_int():
     # What was wrong: bool is an instance of int in Python, so returning True could
     # leak as cell count 1 or mask an integer return check.
     # Why this change: Explicitly check isinstance(ret, int) and not isinstance(ret, bool).
-    from plugin.scripting.domain_registry import build_rps_spec, WIRING_TABLE
+    from plugin.scripting.domain_registry import WIRING_TABLE
 
     wiring = next(w for w in WIRING_TABLE if w.id == "viz")
-    spec = build_rps_spec(wiring)
 
     with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: 42):
-        assert spec.insert(object(), object(), {}) == 42
+        assert wiring.insert(object(), object(), {}) == 42
 
     with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: True):
-        assert spec.insert(object(), object(), {}) is None
+        assert wiring.insert(object(), object(), {}) is None
 
     with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: None):
-        assert spec.insert(object(), object(), {}) is None
+        assert wiring.insert(object(), object(), {}) is None
 
 
 def test_format_ok_kind_and_display_label():
@@ -277,30 +259,28 @@ def test_picker_supports_matches_post_venv_calc_only():
     for row in PICKER_WIRING:
         assert row.origin in by_id
         if by_id[row.origin].post_venv_calc_only:
-            assert row.supports_ref == "calc_only"
+            assert row.supports_ref == "plugin.doc.doc_type:is_calc"
         else:
-            assert row.supports_ref != "calc_only"
+            assert row.supports_ref != "plugin.doc.doc_type:is_calc"
             assert row.supports_ref.count(":") == 1
     assert set(by_id) - {row.origin for row in PICKER_WIRING} == {"text"}
 
 
 def test_quant_picker_is_calc_only():
-    quant_spec = next(d for d in get_picker_domains() if d.origin == "quant")
+    quant_spec = next(d for d in PICKER_WIRING if d.origin == "quant")
     calc_doc = object()
     writer_doc = object()
-    with patch("plugin.scripting.domain_registry.is_calc", side_effect=lambda doc: doc is calc_doc):
+    with patch("plugin.doc.doc_type.is_calc", side_effect=lambda doc: doc is calc_doc):
         assert quant_spec.supports(calc_doc) is True
         assert quant_spec.supports(writer_doc) is False
         assert quant_spec.supports(None) is False
 
 
 def test_units_format_ok_joins_formatted_list():
-    from plugin.scripting.domain_registry import build_rps_spec
+    from plugin.scripting.domain_registry import WIRING_TABLE
 
     wiring = next(w for w in WIRING_TABLE if w.id == "units")
-    spec = build_rps_spec(wiring)
-    assert spec.format_ok is not None
-    out = spec.format_ok(
+    out = wiring.format_ok(
         meta=SimpleNamespace(helper="convert_quantity"),
         result={
             "helper": "convert_quantity",

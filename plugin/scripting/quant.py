@@ -13,10 +13,7 @@ from typing import Any
 
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
-from plugin.scripting.helper_domain import (
-    DomainFacadeConfig,
-    make_template_api,
-)
+from plugin.scripting.helper_domain import DomainFacadeConfig
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     # Runner templates embed params in a Python literal, so "data" was the ticker symbol
@@ -42,16 +39,14 @@ install_lazy_exports(globals(), "quant", _QUANT_VENV_EXPORTS)
 
 # --- Templates ---
 
-_API = make_template_api(
-    DomainFacadeConfig(
-        tag="quant",
-        helper_names=HELPER_NAMES,
-        default_params=_DEFAULT_PARAMS,
-        descriptions=_HELPER_DESCRIPTIONS,
-        import_module="writeragent.scripting.quant",
-        run_name="run_quant",
-        invoke="runner",
-    )
+_API = DomainFacadeConfig(
+    tag="quant",
+    helper_names=HELPER_NAMES,
+    default_params=_DEFAULT_PARAMS,
+    descriptions=_HELPER_DESCRIPTIONS,
+    import_module="writeragent.scripting.quant",
+    run_name="run_quant",
+    invoke="runner",
 )
 
 parse_quant_script_header = _API.parse_header

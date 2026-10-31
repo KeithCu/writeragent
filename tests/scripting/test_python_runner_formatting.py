@@ -294,7 +294,6 @@ def _egress_spec(insert):
     return SimpleNamespace(
         post_venv_calc_only=False,
         is_result=lambda value: True,
-        insert_kwargs_fn=None,
         insert=insert,
         format_ok=lambda **k: {},
     )
