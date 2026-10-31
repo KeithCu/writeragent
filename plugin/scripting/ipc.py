@@ -225,11 +225,6 @@ def _numpy_reconstruct_nbytes(shape: object, dtype: object) -> int:
     return n * itemsize
 
 
-def _is_numpy_ndarray(obj: object) -> bool:
-    """True for the real ``numpy.ndarray`` class, not a lookalike."""
-    return getattr(obj, "__name__", "") == "ndarray" and getattr(obj, "__module__", "") == "numpy"
-
-
 def _reject_ndarray_constructor(obj: object) -> None:
     """Refuse a call that would run ``numpy.ndarray`` as a constructor.
 
@@ -237,7 +232,8 @@ def _reject_ndarray_constructor(obj: object) -> None:
     GLOBAL, not a call. Calling it allocates the shape, and the shape is
     only a few pickle bytes.
     """
-    if _is_numpy_ndarray(obj):
+    # Real numpy.ndarray only. A lookalike name must not take this path.
+    if getattr(obj, "__name__", "") == "ndarray" and getattr(obj, "__module__", "") == "numpy":
         raise pickle.UnpicklingError("numpy.ndarray constructor is not allowed")
 
 
@@ -471,7 +467,6 @@ AllowlistUnpickler.dispatch[pickle.BYTEARRAY8[0]] = _guarded_load_bytearray8
 class _SafeUnpickler(AllowlistUnpickler):
     _builtins_allow: frozenset[str] = _SAFE_PICKLE_BUILTINS
     _module_allow: frozenset[tuple[str, str]] = _NUMPY_RECONSTRUCT_PAIRS
-    _deny_tail: str = "is not allowed"
     _import_missing_modules: bool = True
 
 
@@ -833,7 +828,6 @@ class _PipeWait(enum.Enum):
 
 
 def _poll_pipe(
-    select_target: Any,
     fd: int | None,
     deadline: float,
     *,
@@ -875,7 +869,8 @@ def _poll_pipe(
         # sleep(negative) is ValueError.
         time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
         return _PipeWait.EMPTY, 0
-    ready, _unused, _unused2 = select.select([select_target], [], [], _select_slice(remaining, select_cap))
+    assert fd is not None
+    ready, _unused, _unused2 = select.select([fd], [], [], _select_slice(remaining, select_cap))
     if ready:
         return _PipeWait.READY, 0
     if is_alive is not None and not is_alive():
@@ -892,7 +887,6 @@ def read_frame_payload(
     is_alive: Callable[[], bool] | None = None,
     stop_checker: Callable[[], bool] | None = None,
     deadline: float | None = None,
-    timeout_label: float | None = None,
     cmd: str | None = None,
 ) -> bytes | None:
     """Read one length-prefixed payload. Return None on clean EOF.
@@ -902,8 +896,7 @@ def read_frame_payload(
     ``PeekNamedPipe``, and streams without a real fd (BytesIO, mocks) wait
     on a daemon thread. A ``stop_checker`` raises ``TimeoutExpired`` (the
     caller maps that to cancel); ``deadline`` is an absolute
-    ``time.monotonic()`` stamp; ``timeout_label`` is only the number stored
-    on ``TimeoutExpired``. Zero bytes at a frame boundary is clean EOF
+    ``time.monotonic()`` stamp. Zero bytes at a frame boundary is clean EOF
     (None). EOF after at least one byte of a frame raises ``IpcFrameReadError``.
     A deadline with the pipe still open is ``IpcPartialFrameTimeout``, raised by
     the timed reader.
@@ -926,7 +919,7 @@ def read_frame_payload(
     else:
         timeout_sec = max(0.0, float(timeout_sec))
         abs_deadline = time.monotonic() + timeout_sec if deadline is None else float(deadline)
-        label = float(timeout_sec if timeout_label is None else timeout_label)
+        label = float(timeout_sec)
         cmd_name = frame_label if cmd is None else cmd
         fd = _stream_fileno(stream)
 
@@ -970,7 +963,6 @@ def read_frame_payload(
                 buf = bytearray()
                 while len(buf) < n:
                     state, avail = _poll_pipe(
-                        stream,
                         fd,
                         abs_deadline,
                         timeout_label=label,
@@ -1036,22 +1028,6 @@ def unpack_pickle_frame(payload: bytes) -> Any:
         raise ValueError(str(exc)) from exc
 
 
-def _decode_pickle_payload(
-    payload: bytes | None,
-    *,
-    frame_label: str,
-    require_dict: bool,
-    unpacker: Callable[[bytes], Any] | None = None,
-) -> Any | None:
-    if payload is None:
-        return None
-    decode_fn = unpacker if unpacker is not None else unpack_pickle_frame
-    decoded = decode_fn(payload)
-    if require_dict and not isinstance(decoded, dict):
-        raise ValueError(f"{frame_label} must contain a dict")
-    return decoded
-
-
 def read_pickle_frame(
     stream: IO[bytes],
     timeout_sec: float | None = None,
@@ -1070,7 +1046,13 @@ def read_pickle_frame(
         frame_label=frame_label,
         is_alive=is_alive,
     )
-    return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
+    if payload is None:
+        return None
+    decode_fn = unpacker if unpacker is not None else unpack_pickle_frame
+    decoded = decode_fn(payload)
+    if require_dict and not isinstance(decoded, dict):
+        raise ValueError(f"{frame_label} must contain a dict")
+    return decoded
 
 
 # One lock for every venv → host tool_call on this pipe, as well as heartbeat
@@ -1368,18 +1350,9 @@ def _read_json_tail_from_fd(stream: IO[str], fd: int, pending: bytearray, max_by
     for a line that finishes before the deadline.
     """
     while True:
-        if len(pending) > max_bytes:
-            # The line is already over the cap. Saving it makes the next
-            # read raise again instead of starting mid-line. The caller
-            # drops the child, the same as an oversize pickle frame.
-            _save_json_line_pending(stream, pending)
-            raise ValueError(f"JSON line exceeds {max_bytes} bytes")
-        nl = pending.find(b"\n")
-        if nl >= 0:
-            line_b = bytes(pending[: nl + 1])
-            rest = bytearray(pending[nl + 1 :])
-            _save_json_line_pending(stream, rest)
-            return line_b.decode("utf-8", errors="replace")
+        line = _line_from_pending(stream, pending, max_bytes)
+        if line is not None:
+            return line
         try:
             chunk = os.read(fd, 4096)
         except OSError:
@@ -1448,7 +1421,6 @@ def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, max_bytes:
             return line
         try:
             state, avail = _poll_pipe(
-                stream,
                 fd,
                 deadline,
                 timeout_label=timeout_sec,
@@ -1542,7 +1514,6 @@ def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float, m
             return line
         try:
             state, _avail = _poll_pipe(
-                fd,
                 fd,
                 deadline,
                 timeout_label=timeout_sec,
