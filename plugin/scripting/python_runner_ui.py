@@ -58,18 +58,13 @@ class ModelessWindowClosingListener(BaseTopWindowListener):
 def close_modeless_dialog(dlg: Any, *, toolkit_teardown: bool = False, log_label: str = "dialog") -> None:
     if dlg is None:
         return
-    if toolkit_teardown:
-        log.debug("%s: windowClosing (no dispose)", log_label)
-        try:
-            dlg.setVisible(False)
-        except Exception:
-            log.debug("%s: hide after windowClosing failed", log_label, exc_info=True)
-        return
-    log.debug("%s: close dispose", log_label)
+    log.debug("%s: windowClosing (no dispose)" if toolkit_teardown else "%s: close dispose", log_label)
     try:
         dlg.setVisible(False)
     except Exception:
-        log.debug("%s: hide before dispose failed", log_label, exc_info=True)
+        log.debug("%s: hide after windowClosing failed" if toolkit_teardown else "%s: hide before dispose failed", log_label, exc_info=True)
+    if toolkit_teardown:
+        return
     try:
         dlg.dispose()
     except Exception:
@@ -188,7 +183,6 @@ class NativePythonScriptDialog:
     _doc: Any | None
     _modeless: bool
     _closed: bool
-    _open_failure_detail: str | None = None
     _name_config_key: str
 
     def __init__(
@@ -207,7 +201,6 @@ class NativePythonScriptDialog:
         self._script_origin_map: dict[str, str] = {}
         self._closed = False
         self._top_listener: Any | None = None
-        self._open_failure_detail = None
         self._name_config_key = resolve_run_script_name_config_key(initial_doc)
 
     def close(self, *, toolkit_teardown: bool = False) -> None:
@@ -237,15 +230,8 @@ class NativePythonScriptDialog:
 
         config_key = self._name_config_key
 
-        selected_name = ""
-        if select_display and select_display in names:
-            selected_name = select_display
-        else:
-            last_name = get_config_str(config_key)
-            if last_name and last_name in names:
-                selected_name = last_name
-        if not selected_name and names:
-            selected_name = names[0]
+        picked = select_display if select_display and select_display in names else get_config_str(config_key)
+        selected_name = picked if picked and picked in names else (names[0] if names else "")
 
         dlg = self._dlg
         if selected_name:
@@ -256,7 +242,7 @@ class NativePythonScriptDialog:
             if code_ctrl is not None:
                 code_ctrl.setText(merged.get(selected_name, "") if selected_name else "")
 
-    def _open(self) -> bool:
+    def _open(self) -> str | None:
         ctx = self._ctx
         try:
             dlg, load_detail = load_writeragent_dialog_detail("PythonScriptDialog", ctx)
@@ -265,9 +251,8 @@ class NativePythonScriptDialog:
                     "NativePythonScriptDialog: PythonScriptDialog XDL load failed:\n%s",
                     load_detail or "(no load detail captured)",
                 )
-                self._open_failure_detail = load_detail or _("PythonScriptDialog could not be loaded from the extension.")
                 self.close()
-                return False
+                return load_detail or _("PythonScriptDialog could not be loaded from the extension.")
             self._dlg = dlg
 
             # Finite pre-warm. The shared daemon pool is for this. dedicated=True
@@ -301,17 +286,16 @@ class NativePythonScriptDialog:
                 # Why this change fixes it: the modeless dialog focuses CodeEdit after it is visible.
                 if code_ctrl is not None:
                     code_ctrl.setFocus()
-                return True
+                return None
             dlg.execute()
             self._closed = True
             self._dlg = None
             dlg.dispose()
-            return True
+            return None
         except Exception as exc:
             log.exception("NativePythonScriptDialog._open failed")
-            self._open_failure_detail = exception_traceback(exc)
             self.close()
-            return False
+            return exception_traceback(exc)
 
     def _save_current_script(self, t: str, *, only_if_changed: bool = False) -> _ScriptSaveResult:
         select_ctrl = self._select_ctrl
@@ -613,9 +597,8 @@ def show_python_input_dialog(
             initial_doc=doc,
             modeless=modeless,
         )
-        if inst._open():
-            return True, None
-        return False, inst._open_failure_detail
+        detail = inst._open()
+        return detail is None, detail
     except Exception as exc:
         log.exception("show_python_input_dialog failed")
         return False, exception_traceback(exc)
