@@ -506,7 +506,7 @@ def asc(text: Any) -> str:
 
 def avedev(*args: Any) -> float:
     # Excel/Calc AVEDEV ignores text and logicals.
-    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
+    arr = _extract_numeric_array(*args, propagate_nan=False)
     if not arr.size:
         return float("nan")
     return float(np.mean(np.abs(arr - np.mean(arr))))
@@ -524,7 +524,7 @@ def averagea(*args: Any) -> float:
 
 
 def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
-    vals = _criteria_numbers(r, crit, ar)
+    vals = _criteria_numbers(r if ar is None else ar, [(r, crit)])
     if vals is None or not vals:
         return float("nan")
     return float(np.mean(vals))
@@ -547,7 +547,7 @@ def averageifs(ar: Any, *args: Any) -> float | str:
     pairs = _criteria_pairs(args)
     if pairs is None:
         return "#VALUE!"
-    vals = _criteria_numbers(ar, pairs=pairs)
+    vals = _criteria_numbers(ar, pairs)
     if vals is None:
         return "#VALUE!"
     if not vals:
