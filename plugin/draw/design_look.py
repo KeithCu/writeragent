@@ -37,7 +37,6 @@ import zlib
 from typing import Iterable
 
 from plugin.draw.otp_zip import (
-    MAX_MEMBER_BYTES,
     norm_zip_name as _norm_zip_name,
     read_member as _read_member,
 )
@@ -92,7 +91,7 @@ def _derive_otp_look_cached(path: str, mtime_ns: int, size: int) -> str:
         with zipfile.ZipFile(path) as zf:
             names = zf.namelist()
             pic_tag = _picture_tag(names)
-            samples = _thumbnail_samples(zf)
+            samples = decode_png_rgb(_read_member(zf, "thumbnails/thumbnail.png") or b"")
             min_count = _MIN_THUMB_ACCENT
             if not samples:
                 samples = _xml_color_samples(zf, names)
@@ -125,10 +124,6 @@ def _picture_tag(names: Iterable[str]) -> str:
     return "illustrated" if images >= 2 else "graphic chrome" if images == 1 else ""
 
 
-def _thumbnail_samples(zf: zipfile.ZipFile) -> list[tuple[int, int, int]]:
-    return decode_png_rgb(_read_member(zf, "thumbnails/thumbnail.png") or b"") or []
-
-
 def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
     """Hex colors from ``styles.xml`` and at most ``_MAX_XML_SVG_MEMBERS`` SVGs.
 
@@ -136,15 +131,9 @@ def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int,
     user-writable template dirs. A per-member byte cap does not limit how many
     SVGs are opened; stop once ``_MAX_XML_SAMPLES`` hits are kept.
     """
+    svgs = [n for n in names if (norm := _norm_zip_name(n)).startswith("pictures/") and norm.endswith(".svg")][:_MAX_XML_SVG_MEMBERS]
     samples: list[tuple[int, int, int]] = []
-    svgs: list[str] = []
-    for n in names:
-        norm = _norm_zip_name(n)
-        if norm.startswith("pictures/") and norm.endswith(".svg") and len(svgs) < _MAX_XML_SVG_MEMBERS:
-            svgs.append(n)
-    to_read: list[str] = ["styles.xml"]
-    to_read.extend(svgs)
-    for name in to_read:
+    for name in ("styles.xml", *svgs):
         if len(samples) >= _MAX_XML_SAMPLES:
             break
         blob = _read_member(zf, name)
@@ -191,10 +180,7 @@ def _accent_hue_name(r: int, g: int, b: int) -> str:
     if val < _SKIP_V_LO or sat < _SKIP_S:
         return ""
     deg = hue * 360.0
-    for bound, name in _HUE_BINS:
-        if deg <= bound:
-            return name
-    return ""
+    return next((name for bound, name in _HUE_BINS if deg <= bound), "")
 
 
 # ---------------------------------------------------------------------------
@@ -253,8 +239,6 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
             trans = chunk
         elif tag == b"IDAT":
             idat.extend(chunk)
-            if len(idat) > MAX_MEMBER_BYTES:
-                return None
         elif tag == b"IEND":
             break
     if width < 1 or height < 1 or width > 4096 or height > 4096:
@@ -343,20 +327,9 @@ def _unpack_row(row: bytes | bytearray, width: int, bit_depth: int, color_type: 
     if color_type == 2:
         return [(row[i], row[i + 1], row[i + 2]) for i in range(0, width * 3, 3)]
     if color_type == 6:
-        out: list[tuple[int, int, int]] = []
-        for i in range(0, width * 4, 4):
-            if row[i + 3] < _MIN_ALPHA:
-                continue
-            out.append((row[i], row[i + 1], row[i + 2]))
-        return out
+        return [(row[i], row[i + 1], row[i + 2]) for i in range(0, width * 4, 4) if row[i + 3] >= _MIN_ALPHA]
     if color_type == 4:
-        out = []
-        for i in range(width):
-            if row[i * 2 + 1] < _MIN_ALPHA:
-                continue
-            g = row[i * 2]
-            out.append((g, g, g))
-        return out
+        return [(row[i * 2], row[i * 2], row[i * 2]) for i in range(width) if row[i * 2 + 1] >= _MIN_ALPHA]
     # Gray (0) and indexed (3): one sample per pixel, MSB first.
     # 8-bit is the shift-0 case (range(0, -1, -8) == [0]); maxv is 255.
     maxv = (1 << bit_depth) - 1
