@@ -654,7 +654,7 @@ class PythonSidebarController:
             if 0 <= idx < len(cells_before):
                 selected_address = cells_before[idx].address
 
-        self._cells = list_python_cells_in_doc(doc, active_sheet_only=True)
+        self._cells = list_python_cells_in_doc(doc)
         cell_lines = [c.address for c in self._cells]
         if not cell_lines:
             cell_lines = [_("(no =PY() cells on active sheet)")]

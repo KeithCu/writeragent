@@ -81,7 +81,7 @@ The prototype also does **not** add a dedicated IDL ordering argument. That rebu
 
 `list_python_cells_on_sheet` already returns `PythonCellInfo` sorted by `(row, column)`. That **is** the geometric list.
 
-**List (current design):** all PY cells on **each sheet**, row-major, each sheet chained **independently**. Flag-on / document-open reconcile every sheet (`list_python_cells_in_doc(..., active_sheet_only=False)`). Insert/delete repair only the **modified** sheet. Cross-sheet predecessors are out of scope (sheet-qualified refs + sheet insert/rename). Workbook-global order (Sheet1 then Sheet2) is a later option, not required to prove the idea.
+**List (current design):** all PY cells on **each sheet**, row-major, each sheet chained **independently**. Flag-on / document-open reconcile every sheet (`_iter_sheets` + `discover_python_cells_on_sheet`). Insert/delete repair only the **modified** sheet. Cross-sheet predecessors are out of scope (sheet-qualified refs + sheet insert/rename). Workbook-global order (Sheet1 then Sheet2) is a later option, not required to prove the idea.
 
 **Cross-cluster chaining (current design):** two independent PY clusters on one sheet (A1:A5 and D1:D5) become one chain — D1 waits on A5. That slightly over-dirties the D column when A3 changes. Correctness is fine; users who care can turn the flag off and write explicit `data` refs. Spatial clustering is not in the prototype.
 
@@ -378,7 +378,7 @@ Parse → drop the last geometric data arg → rebuild → drop the map record. 
 
 ### 9.6 Flag-on / document-open — all sheets
 
-**Current design: A.** All sheets, each chained independently. `list_python_cells_in_doc(..., active_sheet_only=False)` already walks `doc.getSheets()`. Modify-listener repair stays per-sheet.
+**Current design: A.** All sheets, each chained independently. `_iter_sheets` walks `doc.getSheets()` and discovers each sheet with `discover_python_cells_on_sheet`. Modify-listener repair stays per-sheet.
 
 **Considered, not used:** active sheet only (other tabs stay inconsistent until visited).
 

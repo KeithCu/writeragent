@@ -96,15 +96,12 @@ def _binds_name(tree: ast.AST, name: str) -> bool:
 
 def _bare_data_load_spans(src: str, tree: ast.AST, line_starts: list[int]) -> list[tuple[int, int]]:
     skip_names: set[int] = set()
+    hits: list[tuple[int, int]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "data":
             skip_names.add(id(node.value))
-
-    hits: list[tuple[int, int]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Name) or node.id != "data":
             continue
-        if not isinstance(node.ctx, ast.Load):
+        if not isinstance(node, ast.Name) or node.id != "data" or not isinstance(node.ctx, ast.Load):
             continue
         if id(node) in skip_names:
             continue
@@ -207,11 +204,8 @@ def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = No
     # crosshair: off
     existing = [a.strip() for a in (existing_data_args or []) if a and str(a).strip()]
     calls, issues, bare_spans = _find_static_xl_literals(code)
-    if issues:
+    if issues or not calls:
         return XlStaticRewriteResult(code=code, data_args=list(existing), issues=issues, changed=False)
-
-    if not calls:
-        return XlStaticRewriteResult(code=code, data_args=list(existing), issues=[], changed=False)
 
     # Preserve explicit Data: order; append newly seen addresses from xl() calls.
     data_args: list[str] = []
