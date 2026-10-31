@@ -57,6 +57,11 @@ def _mock_document(*, texts=None, tables=None, markdown=None):
     return doc
 
 
+def _rows_table(rows: list[list[str]], prov: list | None = None) -> dict:
+    cells = [{"text": t, "start_row_offset_idx": r, "start_col_offset_idx": c, "row_span": 1, "col_span": 1} for r, row in enumerate(rows) for c, t in enumerate(row)]
+    return {"prov": [] if prov is None else prov, "data": {"num_rows": len(rows), "num_cols": len(rows[0]), "table_cells": cells}}
+
+
 @patch(
     "plugin.vision.venv.vision_docling.export_docling_to_html",
     return_value="<p><strong>Line A</strong></p>",
@@ -83,7 +88,7 @@ def test_extract_text_maps_docling_document(mock_convert, _mock_html):
 def test_extract_structure_maps_tables(mock_convert, _mock_html):
     mock_convert.return_value = _mock_document(
         texts=[{"text": "Title", "label": "section_header", "prov": []}],
-        tables=[{"prov": [], "data": {"grid": [["A", "B"], ["1", "2"]]}}],
+        tables=[_rows_table([["A", "B"], ["1", "2"]])],
     )
 
     result = extract_structure(b"png", {"ocr_backend": "rapidocr_paddle"})
@@ -625,10 +630,10 @@ def test_provenance_table_bbox_page_height_flips_bottom_left_coords(mock_convert
     doc = _mock_document(
         texts=[],
         tables=[
-            {
-                "prov": [{"page_no": 1, "bbox": {"l": 0, "t": 790, "r": 40, "b": 750, "coord_origin": "BOTTOMLEFT"}}],
-                "data": {"grid": [["A"], ["1"]]},
-            }
+            _rows_table(
+                [["A"], ["1"]],
+                prov=[{"page_no": 1, "bbox": {"l": 0, "t": 790, "r": 40, "b": 750, "coord_origin": "BOTTOMLEFT"}}],
+            )
         ],
     )
     doc.pages = {1: SimpleNamespace(size=SimpleNamespace(height=800))}

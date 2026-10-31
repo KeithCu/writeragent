@@ -57,6 +57,11 @@ def _mock_docling_document(*, texts=None, tables=None, markdown=None):
     return doc
 
 
+def _rows_table(rows: list[list[str]], prov: list | None = None) -> dict:
+    cells = [{"text": t, "start_row_offset_idx": r, "start_col_offset_idx": c, "row_span": 1, "col_span": 1} for r, row in enumerate(rows) for c, t in enumerate(row)]
+    return {"prov": [] if prov is None else prov, "data": {"num_rows": len(rows), "num_cols": len(rows[0]), "table_cells": cells}}
+
+
 @patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="<p>Hello</p><p>World</p>")
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_docling_default_maps_regions(mock_convert, _mock_html):
@@ -216,10 +221,10 @@ def test_extract_structure_docling_default(mock_convert, _mock_html):
     mock_convert.return_value = _mock_docling_document(
         texts=[{"text": "Invoice", "label": "text", "prov": [{"bbox": {"l": 10, "t": 10, "r": 100, "b": 30}}]}],
         tables=[
-            {
-                "prov": [{"bbox": {"l": 10, "t": 40, "r": 200, "b": 120}}],
-                "data": {"grid": [["Item", "Qty"], ["Widget", "2"]]},
-            }
+            _rows_table(
+                [["Item", "Qty"], ["Widget", "2"]],
+                prov=[{"bbox": {"l": 10, "t": 40, "r": 200, "b": 120}}],
+            )
         ],
     )
 
