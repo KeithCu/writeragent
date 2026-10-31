@@ -187,7 +187,7 @@ def _gap(label_g: dict[str, int], blank_g: dict[str, int], *, horizontal: bool) 
 def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) -> str | None:
     """Return text of the nearest left-or-above labeled sibling, or None.
 
-    *candidates* should already be filtered to nodes with non-empty text.
+    *candidates* should already be filtered to nodes with non-empty text and geometry.
     Left is priority 0, above is priority 1 (left beats above even with a
     larger gap).
     """
@@ -197,10 +197,8 @@ def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) 
     best_text: str | None = None
     best_key: tuple[int, int] | None = None
     for cand in candidates:
-        text = (cand.get("text") or "").strip()
-        geom = cand.get("geometry")
-        if not text or not geom:
-            continue
+        text = cand["text"]
+        geom = cand["geometry"]
         left = _gap(geom, blank_g, horizontal=True)
         gap = left if left is not None else _gap(geom, blank_g, horizontal=False)
         if gap is None:
@@ -214,7 +212,7 @@ def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) 
 
 def attach_label_hints(nodes: list[dict[str, Any]]) -> None:
     """Set ``label_hint`` on fillable siblings. One level; ``build_shape_tree`` calls this per group."""
-    labeled = [n for n in nodes if (n.get("text") or "").strip() and not n.get("fillable")]
+    labeled = [n for n in nodes if (n.get("text") or "").strip() and n.get("geometry") and not n.get("fillable")]
     for node in nodes:
         if node.get("fillable"):
             hint = nearest_label_hint(node, labeled)
@@ -289,13 +287,10 @@ def find_shape_on_page(
     if index is not None:
         if isinstance(index, bool) or not isinstance(index, (int, str)):
             return None, None, None, "Invalid shape index: %s" % index
-        if isinstance(index, int):
-            seg_ints = [index]
-        else:
-            parts = index.split(".")
-            if any(not p.isdigit() for p in parts):
-                return None, None, None, "Invalid shape index: %s" % index
-            seg_ints = [int(p) for p in parts]
+        parts = str(index).split(".")
+        if any(not p.isdigit() for p in parts):
+            return None, None, None, "Invalid shape index: %s" % index
+        seg_ints = [int(p) for p in parts]
 
         curr: Any = page
         parent: Any = None
@@ -305,7 +300,7 @@ def find_shape_on_page(
 
             try:
                 count = curr.getCount()
-                if seg_idx < 0 or seg_idx >= count:
+                if seg_idx >= count:
                     return None, None, None, "Invalid shape index: %s" % index
                 child = curr.getByIndex(seg_idx)
             except Exception as exc:
