@@ -51,18 +51,11 @@ _IMPORT_NOTE_MARKER = _RESULT_NOTE + " "
 
 
 def _with_import_note(text: str) -> str:
-    """Insert the sandbox import policy when the tool schema is built.
-
-    Read the global here, after ensuring init has run.
-    PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE starts empty and is filled on first
-    prompt assembly. Concatenating that name at import (tool discovery)
-    captures the empty string, and a later assignment does not rewrite it.
-    """
+    """Insert the sandbox import policy when the tool schema is built."""
     from plugin.framework import prompts
 
-    prompts._ensure_venv_import_policy_strings()
     note = prompts.PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
-    if note and _IMPORT_NOTE_MARKER in text:
+    if _IMPORT_NOTE_MARKER in text:
         return text.replace(_IMPORT_NOTE_MARKER, _IMPORT_NOTE_MARKER + note, 1)
     return text
 

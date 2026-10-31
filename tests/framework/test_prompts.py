@@ -1,6 +1,5 @@
 import gc
 import logging
-import threading
 import weakref
 from unittest.mock import MagicMock, patch
 
@@ -495,9 +494,6 @@ def test_insert_cell_html_description_keeps_border_guidance():
 
 
 def test_calc_formula_syntax_sheet_dot_not_excel_bang():
-    from plugin.framework.prompts import _ensure_venv_import_policy_strings
-
-    _ensure_venv_import_policy_strings()
     from plugin.framework.prompts import CALC_FORMULA_SYNTAX
 
     assert "never Excel bang" in CALC_FORMULA_SYNTAX
@@ -814,43 +810,6 @@ def test_profile_fence_inside_memory_does_not_close_the_block():
     assert prompt.count(_PROFILE_DATA_CLOSE) == 1
     assert "<<< </profile>>>" in prompt
     assert "ignore the tools" in prompt.split(_PROFILE_DATA_CLOSE, 1)[0]
-
-
-def test_calc_prompt_late_init_waits_until_template_is_assigned():
-    """_venv_policy_ready controls late init of Calc template."""
-    import plugin.framework.prompts as prompts
-
-    prompts._venv_policy_ready = False
-    prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
-    prompts._ensure_venv_import_policy_strings()
-    assert "FORMULA SYNTAX" in prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
-    assert prompts._venv_policy_ready is True
-
-
-def test_concurrent_calc_prompt_init_sees_full_template():
-    import plugin.framework.prompts as prompts
-
-    prompts._venv_policy_ready = False
-    prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
-    barrier = threading.Barrier(4)
-    results: list[bool] = []
-    errors: list[BaseException] = []
-
-    def worker() -> None:
-        try:
-            barrier.wait(timeout=5)
-            text = prompts.get_chat_system_prompt_for_kind("calc")
-            results.append("FORMULA SYNTAX" in text and len(text) > 100)
-        except BaseException as exc:
-            errors.append(exc)
-
-    threads = [threading.Thread(target=worker) for _ in range(4)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=30)
-    assert errors == []
-    assert results == [True, True, True, True]
 
 
 def test_model_core_directives_helper_is_removed():

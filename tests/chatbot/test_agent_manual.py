@@ -113,7 +113,6 @@ def test_shared_pieces_are_identical_in_both_channels():
     assert "read the editing-html topic" not in full_manual("writer")  # concatenated: no dangler
     # The generic (Calc/Draw/no-doc) editing topic is the same object the Calc and Draw sidebar
     # prompts embed.
-    c._ensure_venv_import_policy_strings()
     assert get_section("editing", "calc") is c.GENERIC_EDIT_CONFIRMATION_RULES
     assert c.GENERIC_EDIT_CONFIRMATION_RULES in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
     assert c.GENERIC_EDIT_CONFIRMATION_RULES in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
