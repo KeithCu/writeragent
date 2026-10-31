@@ -116,6 +116,12 @@ def test_maybe_rewrite_restores_is_modified():
         def calculateAll(self) -> None:
             self.calculated += 1
 
+        def lockControllers(self) -> None:
+            pass
+
+        def unlockControllers(self) -> None:
+            pass
+
         def getSheets(self):
             doc = self
 
@@ -199,6 +205,12 @@ def test_maybe_rewrite_partial_failure_restores_is_modified():
         def calculateAll(self) -> None:
             self.calculated += 1
 
+        def lockControllers(self) -> None:
+            pass
+
+        def unlockControllers(self) -> None:
+            pass
+
         def getSheets(self):
             doc = self
 
@@ -277,6 +289,12 @@ def test_maybe_rewrite_disposal_reraises_document_disposed():
 
         def calculateAll(self) -> None:
             self.calculated += 1
+
+        def lockControllers(self) -> None:
+            pass
+
+        def unlockControllers(self) -> None:
+            pass
 
         def getSheets(self):
             doc = self
