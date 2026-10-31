@@ -909,3 +909,37 @@ def test_humanizer_failure_logs_exception_and_prompt_continues(caplog):
     assert len(humanizer_logs) == 1
     assert humanizer_logs[0].levelno == logging.ERROR
     assert humanizer_logs[0].exc_info is not None
+
+
+def test_calc_chat_prompt_includes_formula_syntax_section():
+    """The Calc sidebar prompt must carry the FORMULA SYNTAX block (semicolons, Sheet.A1)."""
+    import plugin.framework.prompts as prompts
+
+    assert prompts.CALC_FORMULA_SYNTAX.startswith("FORMULA SYNTAX:")
+    assert prompts.CALC_FORMULA_SYNTAX in prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
+    text = prompts.get_chat_system_prompt_for_kind("calc")
+    assert "FORMULA SYNTAX" in text
+    assert prompts.CALC_FORMULA_SYNTAX in text
+
+
+def test_sheets_create_completion_instruction_forwards_inner_tool_instruction():
+    """The first non-empty inner ``instruction`` is forwarded even without create/finish-text hints."""
+    from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION, attach_sheets_create_completion_instruction
+
+    custom = "Inner tool says: verify totals before reporting."
+    assert custom != SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
+    finish = {"status": "ok", "answer": "Done", "message": "Specialized task complete."}
+    tool_results = [
+        "not a dict",
+        {"status": "ok"},
+        {"status": "ok", "instruction": "   "},
+        {"status": "ok", "instruction": custom},
+        {"status": "ok", "instruction": "second instruction is ignored"},
+    ]
+    out = attach_sheets_create_completion_instruction(finish, create_sheet_ran=False, tool_results=tool_results)
+    assert out["instruction"] == custom
+    assert "instruction" not in finish
+
+    # Inner instruction wins over the create_sheet fallback.
+    out2 = attach_sheets_create_completion_instruction(finish, create_sheet_ran=True, tool_results=tool_results)
+    assert out2["instruction"] == custom

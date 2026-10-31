@@ -85,3 +85,30 @@ def test_verify_accepts_stored_python_formula():
     actual_values = {a: model.cells[a].value for a in report.converted}
     result = verify_converted_cells(model, output, report, actual_values=actual_values)
     assert addr not in [m.address for m in result]
+
+
+def test_verify_converted_cells_checks_every_converted_cell():
+    """A mismatch after the first converted cell must still be reported."""
+    model, output, report = _build_sample()
+    assert len(report.converted) >= 2
+    actual_values = {addr: model.cells[addr].value for addr in report.converted}
+    last_addr = report.converted[-1]
+    actual_values[last_addr] = -1.0
+    result = verify_converted_cells(model, output, report, actual_values=actual_values)
+    assert [m.address for m in result] == [last_addr]
+
+    # Every bad cell is reported, in converted order, not just the first.
+    for addr in report.converted:
+        actual_values[addr] = -1.0
+    result = verify_converted_cells(model, output, report, actual_values=actual_values)
+    assert [m.address for m in result] == list(report.converted)
+
+
+def test_verify_rejects_non_py_formula_after_first_cell():
+    model, output, report = _build_sample()
+    addr = report.converted[-1]
+    assert addr != report.converted[0]
+    output.cells[addr].formula = "=SUM(1)"
+    actual_values = {a: model.cells[a].value for a in report.converted}
+    result = verify_converted_cells(model, output, report, actual_values=actual_values)
+    assert [(m.address, m.message) for m in result] == [(addr, "missing PY formula")]
