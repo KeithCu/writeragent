@@ -88,12 +88,12 @@ def _doc_url(raw_doc: Any) -> str:
     return (raw_doc.getURL() or "").strip()
 
 
-def _enumerated_matching_models(ctx: Any, predicate: Any) -> list[Any]:
+def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "session_manager") -> list[Any]:
     from plugin.framework.thread_guard import guard_uno
 
     matches: list[Any] = []
     try:
-        for model in iter_desktop_models(ctx, label="session_manager"):
+        for model in iter_desktop_models(ctx, label=label):
             try:
                 if predicate(model):
                     matches.append(guard_uno(model))
@@ -215,17 +215,13 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
 def _existing_workbook_session_key(doc: Any) -> str | None:
     """URL or already-stored session prop. Does not create a prop."""
     _raw_doc, url, existing = _read_workbook_key_parts(doc, include_property_when_url=False)
-    if url:
-        return url
-    return existing
+    return url or existing
 
 
 def _session_key_for_reset(doc: Any) -> str | None:
     raw_doc, url, existing = _read_workbook_key_parts(doc, include_property_when_url=True)
-    if url:
-        _retire_orphaned_unsaved_session(raw_doc, url, existing)
-        return url
-    return existing
+    _retire_orphaned_unsaved_session(raw_doc, url, existing)
+    return url or existing
 
 
 def _workbook_session_key(doc: Any) -> str:
@@ -354,22 +350,14 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
         key = key[: -len(_INIT_SUFFIX)]
     if not key:
         return None
-    try:
-        for model in iter_desktop_models(ctx, label="document_for_script_session"):
-            try:
-                # Read-only: _workbook_session_key would mint a UDProp on docs
-                # that have never run Python.
-                if _existing_workbook_session_key(model) == key:
-                    # Desktop enumeration hands back the component itself. Returning
-                    # it raw let a worker that resolved wa.doc / tool RPC call
-                    # UNO off the main thread. guard_uno asserts on later
-                    # access unless the caller is already on the main thread.
-                    return guard_uno(model)
-            except Exception:
-                log.debug("document_for_script_session: key read failed", exc_info=True)
-    except Exception:
-        log.debug("document_for_script_session: enumeration failed", exc_info=True)
-    return None
+    # Read-only key: _workbook_session_key would mint a UDProp on docs
+    # that have never run Python. The enumerator applies guard_uno.
+    matches = _enumerated_matching_models(
+        ctx,
+        lambda model: _existing_workbook_session_key(model) == key,
+        label="document_for_script_session",
+    )
+    return matches[0] if matches else None
 
 
 def notebook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
@@ -502,28 +490,24 @@ def _reset_on_main(ctx: Any, doc: Any | None = None) -> None:
     # there is no session to reset. A focused Base, Math, or Start Center
     # window is not Writer, Draw, or Calc; falling through to desktop
     # enumeration cleared a background Calc document. Tell the user and return.
+    resets = (
+        (is_calc, _("Several Calc spreadsheets are open and none is focused. Switch to the spreadsheet to reset and try again."), _reset_calc_python_sessions),
+        (is_writer, _("Several Writer documents are open and none is focused. Switch to the document to reset and try again."), _reset_writer_sessions),
+        (is_draw, _("Several Draw documents are open and none is focused. Switch to the document to reset and try again."), _reset_rps_python_session),
+    )
     if doc is None:
         desktop = get_desktop(ctx)
         doc = desktop.getCurrentComponent() if desktop else None
     if doc is not None:
-        if is_writer(doc):
-            _reset_writer_sessions(ctx, doc)
-            return
-        if is_draw(doc):
-            _reset_rps_python_session(ctx, doc)
-            return
-        if is_calc(doc):
-            _reset_calc_python_sessions(ctx, doc)
-            return
+        for predicate, _several, reset in resets:
+            if predicate(doc):
+                reset(ctx, doc)
+                return
         _msgbox(ctx, _("Reset Python Session applies to Writer, Calc, and Draw documents."))
         return
 
     # No current component (headless): keep the open-document search.
-    for predicate, several, reset in (
-        (is_calc, _("Several Calc spreadsheets are open and none is focused. Switch to the spreadsheet to reset and try again."), _reset_calc_python_sessions),
-        (is_writer, _("Several Writer documents are open and none is focused. Switch to the document to reset and try again."), _reset_writer_sessions),
-        (is_draw, _("Several Draw documents are open and none is focused. Switch to the document to reset and try again."), _reset_rps_python_session),
-    ):
+    for predicate, several, reset in resets:
         matches = _enumerated_matching_models(ctx, predicate)
         if len(matches) > 1:
             _msgbox(ctx, several)

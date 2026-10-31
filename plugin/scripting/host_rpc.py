@@ -97,17 +97,8 @@ def singularize_domain(domain: str) -> str:
 
 
 def domain_proxy_namespace(python_tool_domain: str, tools: dict[str, list[str]]) -> str | None:
-    """``DOMAIN_TOOLS`` key for one specialized domain name.
-
-    Tries the raw name, then ``singularize_domain``. ``None`` when
-    *python_tool_domain* is not a key.
-    """
-    if python_tool_domain in tools:
-        return python_tool_domain
-    singular = singularize_domain(python_tool_domain)
-    if singular in tools:
-        return singular
-    return None
+    """``DOMAIN_TOOLS`` key: the raw name, else ``singularize_domain``, else ``None``."""
+    return next((key for key in (python_tool_domain, singularize_domain(python_tool_domain)) if key in tools), None)
 
 
 def domain_proxy_tool_names(python_tool_domain: str) -> frozenset[str] | None:
@@ -203,8 +194,6 @@ def _proxy_methods_by_tool() -> dict[str, Any] | None:
     found: dict[str, Any] = {}
     for tool_name, (namespace, method_name) in tool_methods.items():
         proxy = getattr(api, namespace, None)
-        if proxy is None:
-            continue
         method = getattr(proxy, method_name, None)
         if callable(method):
             found[tool_name] = method
@@ -410,8 +399,7 @@ def execute_tool(
 
     if is_async:
         return registry.execute(tool_name, tctx, **payload)
-    else:
-        return execute_on_main_thread(lambda: registry.execute(tool_name, tctx, **payload))
+    return execute_on_main_thread(lambda: registry.execute(tool_name, tctx, **payload))
 
 
 def _document_script_store(script_session_id: str | None) -> dict[str, str]:
@@ -500,7 +488,11 @@ def handle_tool_call_frame(
             frame["code"] = code
         return frame
 
-    def _reply(payload: dict[str, Any], *, failure_log: str) -> None:
+    def _reply(
+        payload: dict[str, Any],
+        *,
+        failure_log: str = "venv tool_call reply failed (worker pipe closed)",
+    ) -> None:
         try:
             frame = pack_pickle_frame(payload, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except IpcFrameError as exc:
@@ -526,17 +518,11 @@ def handle_tool_call_frame(
             log.warning(failure_log, exc_info=True)
 
     if not isinstance(tool_name, str):
-        _reply(
-            _error_frame(f"Invalid tool_call: {tool_name!r}"),
-            failure_log="venv tool_call reply failed (worker pipe closed)",
-        )
+        _reply(_error_frame(f"Invalid tool_call: {tool_name!r}"))
         return True
     args = response.get("args")
     if args is not None and not isinstance(args, dict):
-        _reply(
-            _error_frame("args must be a dictionary"),
-            failure_log="venv tool_call reply failed (worker pipe closed)",
-        )
+        _reply(_error_frame("args must be a dictionary"))
         return True
     # Stop was checked once before the venv turn, so the child kept calling
     # host tools, including export, after the sidebar went idle. The same
@@ -579,5 +565,5 @@ def handle_tool_call_frame(
         # only status and message hid that code from the child worker.
         err_code = getattr(exc, "code", None)
         tool_response = _error_frame(str(exc), code=str(err_code) if err_code else None)
-    _reply(tool_response, failure_log="venv tool_call reply failed (worker pipe closed)")
+    _reply(tool_response)
     return True

@@ -87,7 +87,6 @@ def test_download_url_to_file_atomic_replace_preserves_inode(tmp_path):
                 "https://example.test/pack.so",
                 str(dest),
                 statuses.append,
-                max_bytes=1024,
                 expected_sha256="775653072817f6d0c39da9f29b7747925c12b57a0dd5414463423915c3f07555",
             )
         assert mock_urlopen.call_args.kwargs["timeout"] == 60
@@ -124,7 +123,6 @@ def test_download_url_to_file_cleans_partial_on_failure(tmp_path):
                 "https://example.test/pack.so",
                 str(dest),
                 lambda _s: None,
-                max_bytes=1024,
                 expected_sha256="0" * 64,
             )
 
@@ -158,14 +156,13 @@ def test_download_rejects_bad_sha_and_keeps_dest(tmp_path):
                 str(dest),
                 lambda _s: None,
                 expected_sha256="0" * 64,
-                max_bytes=1024,
             )
 
     assert dest.read_bytes() == b"KEEP"
     assert list(tmp_path.glob("*.partial")) == []
 
 
-def test_download_stops_when_body_exceeds_cap(tmp_path):
+def test_download_stops_when_body_exceeds_cap(tmp_path, monkeypatch):
     dest = tmp_path / "pack.so"
     dest.write_bytes(b"KEEP")
 
@@ -181,13 +178,13 @@ def test_download_stops_when_body_exceeds_cap(tmp_path):
         def __exit__(self, *args):
             return False
 
+    monkeypatch.setattr("plugin.scripting.native_binaries._MAX_NATIVE_BYTES", 150)
     with patch("urllib.request.urlopen", return_value=_Endless()):
         with pytest.raises(RuntimeError, match="exceeded"):
             _download_url_to_file(
                 "https://example.test/pack.so",
                 str(dest),
                 lambda _s: None,
-                max_bytes=150,
                 expected_sha256="0" * 64,
             )
 
@@ -227,7 +224,6 @@ def test_download_urlopen_failure_closes_fd_and_removes_partial(tmp_path, side_e
                 "https://example.test/pack.so",
                 str(dest),
                 lambda _s: None,
-                max_bytes=1024,
                 expected_sha256="0" * 64,
             )
     count_after = _get_fd_count()
@@ -398,10 +394,7 @@ def test_atomic_replace_native_windows_restore_failure_keeps_aside(tmp_path):
     mock_log.assert_called_once()
 
 
-def test_cleanup_stale_native_backups_removes_old_files(tmp_path, monkeypatch):
-    import plugin.scripting.native_binaries as nb
-    monkeypatch.setattr(nb, "_swept", False)
-
+def test_cleanup_stale_native_backups_removes_old_files(tmp_path):
     vec_dir = tmp_path / "writeragent_vec"
     vec_dir.mkdir()
     (vec_dir / "pack.cp314-win_amd64.pyd").write_bytes(b"live")
@@ -424,10 +417,7 @@ def test_cleanup_stale_native_backups_removes_old_files(tmp_path, monkeypatch):
     assert (tmp_path / "archive.oldest").exists()
 
 
-def test_cleanup_stale_native_backups_tolerates_locked_file(tmp_path, monkeypatch):
-    import plugin.scripting.native_binaries as nb
-    monkeypatch.setattr(nb, "_swept", False)
-
+def test_cleanup_stale_native_backups_tolerates_locked_file(tmp_path):
     (tmp_path / "pack.pyd").write_bytes(b"live")
     (tmp_path / "pack.pyd.old").write_bytes(b"stale")
 
@@ -440,10 +430,7 @@ def test_cleanup_stale_native_backups_tolerates_locked_file(tmp_path, monkeypatc
     assert (tmp_path / "pack.pyd.old").exists()
 
 
-def test_cleanup_restores_newest_aside_when_dest_missing(tmp_path, monkeypatch):
-    import plugin.scripting.native_binaries as nb
-    monkeypatch.setattr(nb, "_swept", False)
-
+def test_cleanup_restores_newest_aside_when_dest_missing(tmp_path):
     (tmp_path / "pack.pyd.old").write_bytes(b"OLDER")
     (tmp_path / "pack.pyd.old.1").write_bytes(b"NEWER")
     (tmp_path / "_cffi_backend.pyd.old").write_bytes(b"CFFI")
@@ -468,10 +455,7 @@ def test_cleanup_restores_newest_aside_when_dest_missing(tmp_path, monkeypatch):
     assert (tmp_path / ".old").read_bytes() == b"dotold"
 
 
-def test_cleanup_leaves_asides_when_restore_fails(tmp_path, monkeypatch):
-    import plugin.scripting.native_binaries as nb
-    monkeypatch.setattr(nb, "_swept", False)
-
+def test_cleanup_leaves_asides_when_restore_fails(tmp_path):
     (tmp_path / "pack.pyd.old").write_bytes(b"ONLY")
 
     def boom_replace(_src, _dst):
@@ -491,10 +475,7 @@ def test_cleanup_leaves_asides_when_restore_fails(tmp_path, monkeypatch):
     assert not (tmp_path / "pack.pyd").exists()
 
 
-def test_cleanup_stale_native_backups_noop_on_posix(tmp_path, monkeypatch):
-    import plugin.scripting.native_binaries as nb
-    monkeypatch.setattr(nb, "_swept", False)
-
+def test_cleanup_stale_native_backups_noop_on_posix(tmp_path):
     (tmp_path / "pack.so.old").write_bytes(b"stale")
 
     with patch("os.name", "posix"):
@@ -583,7 +564,6 @@ def test_run_audio_download_selects_cffi_and_portaudio(
 
     for i, basename in enumerate(expected_basenames):
         kwargs = dl_calls[i][2]
-        assert kwargs["max_bytes"] == native_binaries._MAX_NATIVE_BYTES
         assert kwargs["expected_sha256"] == native_binaries._NATIVE_SHA256[basename]
 
     assert zip_opened == [(zip_path, "r")]

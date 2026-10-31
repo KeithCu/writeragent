@@ -80,8 +80,6 @@ _NATIVE_SHA256: dict[str, str] = {
     "_cffi_backend.cpython-314-x86_64-linux-gnu.so": "db7fc2f6b397158cd867038949ca3524403aa0821e6778e657f41188188d5fd9",
 }
 
-_swept = False
-
 
 def _remove_quiet(path: str) -> None:
     """Remove *path*. OSError means it is already gone or still mapped.
@@ -109,10 +107,8 @@ def _cleanup_stale_native_backups(bin_dir: str) -> None:
     onto it before any older aside is deleted; that aside is the only remaining copy
     after a failed replace-and-restore.
     """
-    global _swept
-    if os.name != "nt" or _swept:
+    if os.name != "nt":
         return
-    _swept = True
     try:
         import re
 
@@ -249,7 +245,6 @@ def _download_url_to_file(
     dest_path: str,
     on_status: Callable[[str], None],
     *,
-    max_bytes: int,
     expected_sha256: str,
 ) -> None:
     """Download *url* to *dest_path* via a sibling ``.partial`` file + ``os.replace``.
@@ -259,7 +254,7 @@ def _download_url_to_file(
     ``open(..., "wb")`` rewrite can SIGBUS LibreOffice on the next call into
     the old mapping (redownload crash).
 
-    *max_bytes* aborts once the body grows past the cap. *expected_sha256*
+    Aborts once the body grows past ``_MAX_NATIVE_BYTES``. *expected_sha256*
     is checked on the partial before it replaces *dest_path*; a mismatch
     leaves the previous file in place. Both are required and are checked
     before the partial replaces the destination.
@@ -297,9 +292,9 @@ def _download_url_to_file(
                     downloaded += len(buffer)
                     fh.write(buffer)
                     digest.update(buffer)
-                    if downloaded > max_bytes:
+                    if downloaded > _MAX_NATIVE_BYTES:
                         raise RuntimeError(
-                            f"Download of {os.path.basename(dest_path)} exceeded {max_bytes} bytes"
+                            f"Download of {os.path.basename(dest_path)} exceeded {_MAX_NATIVE_BYTES} bytes"
                         )
                     if total_size:
                         percent = int(downloaded * 100 / total_size)
@@ -320,8 +315,7 @@ def _download_url_to_file(
     except Exception as exc:
         raise RuntimeError(f"Failed to download {url}: {exc}") from exc
     finally:
-        if os.path.exists(partial_path):
-            _remove_quiet(partial_path)
+        _remove_quiet(partial_path)
 
 
 def _prepare_native_target() -> tuple[str, str]:
@@ -348,7 +342,6 @@ def _download_pinned(
         url,
         dest_path,
         on_status,
-        max_bytes=_MAX_NATIVE_BYTES,
         expected_sha256=expected_sha256,
     )
 
@@ -368,8 +361,6 @@ def run_vec_pack_download(
 
     target_dir, ext_suffix = _prepare_native_target()
 
-    base_url = _CONTRIB_BASE_URL
-
     if include_header:
         on_display(f"Target directory: {target_dir}\n")
         on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
@@ -378,8 +369,8 @@ def run_vec_pack_download(
     pack_name = f"pack{ext_suffix}"
     if pack_name not in _NATIVE_SHA256:
         raise RuntimeError(f"No pinned sha256 for {pack_name}")
-    _download_pinned(on_display, on_status, "Downloading writeragent_vec/__init__.py...\n", f"{base_url}vec_pack/__init__.py", os.path.join(target_dir, "writeragent_vec", "__init__.py"), _NATIVE_SHA256["__init__.py"])
-    _download_pinned(on_display, on_status, f"Downloading binary {pack_name}...\n", f"{base_url}vec_pack/{pack_name}", os.path.join(target_dir, "writeragent_vec", pack_name), _NATIVE_SHA256[pack_name])
+    _download_pinned(on_display, on_status, "Downloading writeragent_vec/__init__.py...\n", f"{_CONTRIB_BASE_URL}vec_pack/__init__.py", os.path.join(target_dir, "writeragent_vec", "__init__.py"), _NATIVE_SHA256["__init__.py"])
+    _download_pinned(on_display, on_status, f"Downloading binary {pack_name}...\n", f"{_CONTRIB_BASE_URL}vec_pack/{pack_name}", os.path.join(target_dir, "writeragent_vec", pack_name), _NATIVE_SHA256[pack_name])
 
     importlib.invalidate_caches()
     if include_header:
@@ -416,15 +407,13 @@ def run_audio_download(
     if portaudio_name and portaudio_name not in _NATIVE_SHA256:
         raise RuntimeError(f"No pinned sha256 for {portaudio_name}")
 
-    base_url = _CONTRIB_BASE_URL
-
     on_display(f"Target directory: {target_dir}\n")
     on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
     on_display(f"Python: {platform.python_version()}\n\n")
 
     # Download pure Python source zip
     zip_dest = os.path.join(target_dir, "audio_source.zip")
-    _download_pinned(on_display, on_status, "Downloading pure Python audio libraries (audio_source.zip)...\n", f"{base_url}audio_source.zip", zip_dest, _NATIVE_SHA256["audio_source.zip"])
+    _download_pinned(on_display, on_status, "Downloading pure Python audio libraries (audio_source.zip)...\n", f"{_CONTRIB_BASE_URL}audio_source.zip", zip_dest, _NATIVE_SHA256["audio_source.zip"])
 
     # Extract audio_source.zip
     on_status("Extracting audio_source.zip...")
@@ -435,19 +424,18 @@ def run_audio_download(
     except Exception as exc:
         raise RuntimeError(f"Failed to extract audio_source.zip: {exc}") from exc
     finally:
-        if os.path.exists(zip_dest):
-            _remove_quiet(zip_dest)
+        _remove_quiet(zip_dest)
 
     importlib.invalidate_caches()
 
     # Download CFFI binary
     cffi_dest = os.path.join(target_dir, cffi_name)
-    _download_pinned(on_display, on_status, f"Downloading binary {cffi_name}...\n", f"{base_url}audio/{cffi_name}", cffi_dest, _NATIVE_SHA256[cffi_name])
+    _download_pinned(on_display, on_status, f"Downloading binary {cffi_name}...\n", f"{_CONTRIB_BASE_URL}audio/{cffi_name}", cffi_dest, _NATIVE_SHA256[cffi_name])
 
     # Download PortAudio binary if needed
     if portaudio_name:
         pa_dest = os.path.join(target_dir, "_sounddevice_data", "portaudio-binaries", portaudio_name)
-        _download_pinned(on_display, on_status, f"Downloading binary {portaudio_name}...\n", f"{base_url}audio/_sounddevice_data/portaudio-binaries/{portaudio_name}", pa_dest, _NATIVE_SHA256[portaudio_name])
+        _download_pinned(on_display, on_status, f"Downloading binary {portaudio_name}...\n", f"{_CONTRIB_BASE_URL}audio/_sounddevice_data/portaudio-binaries/{portaudio_name}", pa_dest, _NATIVE_SHA256[portaudio_name])
 
     # Create _sounddevice_data/__init__.py placeholder
     init_dest = os.path.join(target_dir, "_sounddevice_data", "__init__.py")
