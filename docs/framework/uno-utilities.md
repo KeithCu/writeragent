@@ -222,7 +222,7 @@ Module: [`plugin/framework/errors.py`](../../plugin/framework/errors.py) — UNO
 |--------|---------|
 | `UnoObjectError` | Stale docs / missing properties (`UNO_OBJECT_ERROR`). |
 | `DocumentDisposedError` | Disposed object (`DOCUMENT_DISPOSED`). |
-| `is_disposed_exception` | `DisposedException` / `RuntimeException` name heuristic + UNO types (UI lifecycle). |
+| `is_disposed_exception` | `DisposedException` / `RuntimeException` type-name heuristic (UI lifecycle). |
 | `is_real_disposal` | True only for `DisposedException` / `DocumentDisposedError`. |
 | `is_tool_document_disposed` | `execute_safe` mapping: live-doc bare `RuntimeException` is not `DOCUMENT_DISPOSED`. |
 | `suppress_disposed` | UI lifecycle: swallow disposal (and optionally other `Exception`s). `KeyboardInterrupt`, `SystemExit`, and `GeneratorExit` propagate. |
@@ -315,7 +315,7 @@ Untitled documents have `getURL() == ""`. Identity then **must** use RuntimeUID.
 
 `plugin/framework/tool.py` documents `document_url` as “URL or RuntimeUID from `list_open_documents`”.
 
-Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, and formula locator cache; Calc workbook lifecycle (`workbook_lifecycle._lifecycle_key` and `_script_lifecycle_key`) and the spill registry (`function._spill_registry_doc_key`) call `_read_runtime_uid` rather than `getPropertyValue("RuntimeUID")` alone and rather than `get_runtime_uid`. New code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`. Notebook `_doc_key` is the exception: File Open `XFilter.filter` runs on Dummy-2 (detect reload on Dummy-3), so it calls `_read_runtime_uid` (same ladder, no `@main_thread_only`). Calling the guarded getter there makes `filter()` return false and `loadComponentFromURL` return None.
+Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, and formula locator cache; Calc workbook lifecycle (`workbook_lifecycle._lifecycle_key` and the `py:` key in `ensure_python_session_cleared_on_unload`) and the spill registry (`function._spill_registry_doc_key`) call `_read_runtime_uid` rather than `getPropertyValue("RuntimeUID")` alone and rather than `get_runtime_uid`. New code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`. Notebook `_doc_key` is the exception: File Open `XFilter.filter` runs on Dummy-2 (detect reload on Dummy-3), so it calls `_read_runtime_uid` (same ladder, no `@main_thread_only`). Calling the guarded getter there makes `filter()` return false and `loadComponentFromURL` return None.
 
 ### 2.4 PathSettings / work-directory vs config user-profile paths
 

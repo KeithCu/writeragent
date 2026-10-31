@@ -597,9 +597,9 @@ def test_ok_does_not_write_unchanged_keys_and_writes_only_real_changes():
     import json
 
     from plugin.chatbot.settings_dialog import apply_settings_result
-    from plugin.framework.config import _config_path, get_config, set_config, set_configs
+    from plugin.framework.config import get_config, get_config_file_path, set_config, set_configs
 
-    path = _config_path()
+    path = get_config_file_path()
     assert path
     set_config("text_model", "llama3")
     before = open(path, encoding="utf-8").read()
@@ -719,7 +719,7 @@ def test_settings_ok_many_keys_one_write_and_one_emit(tmp_path):
     real_write = _write_config_file
     try:
         with (
-            patch("plugin.framework.config._config_path", return_value=str(path)),
+            patch("plugin.framework.config.get_config_file_path", return_value=str(path)),
             patch.object(get_event_bus(), "emit") as emit,
             patch("plugin.framework.config._write_config_file", wraps=real_write) as write,
             patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),

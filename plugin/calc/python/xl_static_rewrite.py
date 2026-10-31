@@ -96,15 +96,12 @@ def _binds_name(tree: ast.AST, name: str) -> bool:
 
 def _bare_data_load_spans(src: str, tree: ast.AST, line_starts: list[int]) -> list[tuple[int, int]]:
     skip_names: set[int] = set()
+    hits: list[tuple[int, int]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "data":
             skip_names.add(id(node.value))
-
-    hits: list[tuple[int, int]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Name) or node.id != "data":
             continue
-        if not isinstance(node.ctx, ast.Load):
+        if not isinstance(node, ast.Name) or node.id != "data" or not isinstance(node.ctx, ast.Load):
             continue
         if id(node) in skip_names:
             continue
@@ -128,8 +125,6 @@ def iter_xl_calls(
         func = node.func
         if not isinstance(func, ast.Name) or func.id != "xl":
             continue
-        if getattr(node, "lineno", None) is None:
-            continue
         start, end = node_span(node, src, line_starts)
         if start < 0 or end < 0 or end <= start:
             issues.append("xl() call without reliable source positions")
@@ -141,8 +136,6 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
     """Locate direct ``xl("A1…")`` calls; report dynamic / invalid forms as issues."""
     issues: list[str] = []
     src = code or ""
-    if not src.strip():
-        return [], issues, []
     try:
         tree = ast.parse(src)
     except SyntaxError as exc:
@@ -207,11 +200,8 @@ def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = No
     # crosshair: off
     existing = [a.strip() for a in (existing_data_args or []) if a and str(a).strip()]
     calls, issues, bare_spans = _find_static_xl_literals(code)
-    if issues:
+    if issues or not calls:
         return XlStaticRewriteResult(code=code, data_args=list(existing), issues=issues, changed=False)
-
-    if not calls:
-        return XlStaticRewriteResult(code=code, data_args=list(existing), issues=[], changed=False)
 
     # Preserve explicit Data: order; append newly seen addresses from xl() calls.
     data_args: list[str] = []
@@ -229,15 +219,14 @@ def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = No
     for call in calls:
         if call.key not in key_to_index:
             key_to_index[call.key] = len(data_args)
-            data_args.append(call.address.strip())
+            data_args.append(call.address)
 
     n_bindings = len(data_args)
-    replacements: list[tuple[int, int, str]] = []
-    for call in calls:
-        idx = key_to_index[call.key]
-        base = "data" if n_bindings <= 1 else f"data[{idx}]"
-        repl = base + {"true": ".to_pandas()", "false": ".to_pandas(header_row=None)"}.get(call.header_mode, "")
-        replacements.append((call.start, call.end, repl))
+    header_suffix = {"true": ".to_pandas()", "false": ".to_pandas(header_row=None)"}
+    replacements = [
+        (c.start, c.end, ("data" if n_bindings <= 1 else f"data[{key_to_index[c.key]}]") + header_suffix.get(c.header_mode, ""))
+        for c in calls
+    ]
 
     # Growing 1→N on this save: prior sugar left bare ``data``. Only the injected
     # global is migrated; a shadowed name is skipped in _find_static_xl_literals.

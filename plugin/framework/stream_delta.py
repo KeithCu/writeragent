@@ -76,10 +76,9 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
                 if not isinstance(delta_entry, dict):
                     raise TypeError(f"Unexpected list delta entry is not a dictionary: {delta_entry}")
 
-                try:
-                    index = cast("dict[str, Any]", delta_entry)["index"]
-                except KeyError as exc:
-                    raise RuntimeError(f"Expected list delta entry to have an `index` key; {delta_entry}") from exc
+                if "index" not in delta_entry:
+                    raise RuntimeError(f"Expected list delta entry to have an `index` key; {delta_entry}")
+                index = cast("dict[str, Any]", delta_entry)["index"]
 
                 if not isinstance(index, int):
                     raise TypeError(f"Unexpected, list delta entry `index` value is not an integer; {index}")

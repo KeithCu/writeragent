@@ -9,16 +9,23 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.framework.errors import NetworkError
 from .anthropic_shim import AnthropicShim
-from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_image_data_url, coerce_raw_b64
+from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_image_data_url, coerce_raw_b64, effort_payload
 from .google_shim import GoogleShim
 from .grok_shim import GrokShim
+from .responses_shim import (
+    is_responses_body,
+    parse_responses_chunk,
+    parse_responses_sync,
+    responses_failed_message,
+    responses_payload,
+    uses_responses_api,
+)
 
 # api.openai.com o-series and gpt-5/6 reject max_tokens. Dated snapshots
 # (o3-mini-2025-01-31, gpt-5-2025-08-07) and ft:gpt-5-... share the family prefix.
 _OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt-6")
-# Chat Completions default. These models reject every other temperature.
-_OPENAI_DEFAULT_TEMPERATURE = 1
 
 
 def _openai_reasoning_model(model_name: str | None) -> bool:
@@ -78,11 +85,17 @@ class OpenAIShim(BaseProviderShim):
     legacy body; ``dall-e-*`` edit raises.
     """
 
-    _effort_provider: str | None = "openai"
-
     def _chat_payload(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        # api.openai.com Chat Completions rejects reasoning_details. The Responses
+        # branch does not call this method, so that key stays on messages there.
+        messages = [
+            {key: value for key, value in message.items() if key != "reasoning_details"}
+            if isinstance(message, dict) and "reasoning_details" in message
+            else message
+            for message in messages
+        ]
         data = super()._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
         # api.openai.com o1/o3/o4 and gpt-5 reject max_tokens and any
         # temperature other than the default (1), which is HTTP 400. This
@@ -94,9 +107,46 @@ class OpenAIShim(BaseProviderShim):
         if "max_tokens" in data:
             data["max_completion_tokens"] = data.pop("max_tokens")
         temp = data.get("temperature")
-        if temp is not None and temp != _OPENAI_DEFAULT_TEMPERATURE:
+        if temp is not None and temp != 1:
             data.pop("temperature", None)
         return data
+
+    def build_chat_request(
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+    ) -> tuple[str, str, bytes, dict[str, str]]:
+        if uses_responses_api(model_name, tools):
+            data = responses_payload(
+                messages, max_tokens, temperature, tools, stream, model_name, response_format,
+                endpoint_effort=self._endpoint_reasoning_effort(),
+                chat_extra=chat_extra if isinstance(chat_extra, dict) else None,
+            )
+            reasoning = data.get("reasoning")
+            if isinstance(reasoning, dict) and (effort := reasoning.get("effort")):
+                fragment = effort_payload(self._reasoning_provider(), effort)
+                val = fragment.get("reasoning_effort") or (fragment.get("reasoning") or {}).get("effort")
+                if val:
+                    reasoning["effort"] = val
+            return self._post(self._url("/responses"), data)
+        return super().build_chat_request(
+            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra,
+        )
+
+    def parse_response_chunk(
+        self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None
+    ) -> tuple[str, str | None, str | None, dict[str, Any]]:
+        event_type = chunk.get("type")
+        if isinstance(event_type, str) and event_type.startswith("response."):
+            if event_type == "response.failed":
+                raise NetworkError(responses_failed_message(chunk), code="STREAM_ERROR")
+            return parse_responses_chunk(chunk, stream_state, model_name=None)
+        return super().parse_response_chunk(chunk, stream_state)
+
+    def parse_sync_response(
+        self, response_data: dict[str, Any]
+    ) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
+        if isinstance(response_data, dict) and is_responses_body(response_data):
+            return parse_responses_sync(response_data)
+        return super().parse_sync_response(response_data)
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. The OpenAI Images API has no steps field.
@@ -147,8 +197,6 @@ class OpenAIShim(BaseProviderShim):
 class OllamaShim(BaseProviderShim):
     """Shim for Ollama specifically (handles native /api image endpoints if needed)."""
 
-    _effort_provider: str | None = "ollama"
-
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. Ollama /api/generate has no steps field.
         endpoint = self.client._endpoint()
@@ -185,8 +233,6 @@ class OllamaShim(BaseProviderShim):
 
 class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
-
-    _effort_provider: str | None = "openrouter"
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. OpenRouter /images has no steps field.
@@ -233,8 +279,6 @@ class OpenRouterShim(BaseProviderShim):
 
 class TogetherShim(BaseProviderShim):
     """Together Images API: Kontext uses image_url; other models use reference_images."""
-
-    _effort_provider: str | None = "together"
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         url = self._url("/images/generations")

@@ -39,14 +39,21 @@ from plugin.calc.named_ranges import (
 
 
 def _doc_with_sheet_names(*names: str) -> MagicMock:
+    by_name = {}
     sheet_objs = []
-    for name in names:
+    for idx, name in enumerate(names):
         sheet = MagicMock()
         sheet.getName.return_value = name
+        addr = MagicMock()
+        addr.Sheet = idx
+        sheet.getRangeAddress.return_value = addr
         sheet_objs.append(sheet)
+        by_name[name] = sheet
     sheets = MagicMock()
     sheets.getCount.return_value = len(sheet_objs)
     sheets.getByIndex.side_effect = lambda idx: sheet_objs[idx]
+    sheets.hasByName.side_effect = lambda n: n in by_name
+    sheets.getByName.side_effect = lambda n: by_name[n]
     doc = MagicMock()
     doc.getSheets.return_value = sheets
     return doc
@@ -79,15 +86,17 @@ def test_named_range_unknown_sheet_prefix_errors(monkeypatch):
     doc = _doc_with_sheet_names("Sheet1", "Data")
 
     with pytest.raises(ValueError, match="No sheet named 'Nope'"):
-        _parse_base_address(doc, "Nope.B2", default_sheet_idx=0)
+        _parse_base_address(doc, "Nope.B2")
     with pytest.raises(ValueError, match="No sheet named 'Missing Sheet'"):
-        _parse_base_address(doc, "'Missing Sheet'!A1", default_sheet_idx=0)
+        _parse_base_address(doc, "'Missing Sheet'!A1")
 
-    pos = _parse_base_address(doc, "Data.B2", default_sheet_idx=0)
+    pos = _parse_base_address(doc, "Data.B2")
     assert pos.Sheet == 1
     assert (pos.Column, pos.Row) == (1, 1)
 
-    bare = _parse_base_address(doc, "C3", default_sheet_idx=4)
+    sheet4 = MagicMock()
+    sheet4.getRangeAddress.return_value = MagicMock(Sheet=4)
+    bare = _parse_base_address(doc, "C3", sheet_obj=sheet4)
     assert bare.Sheet == 4
     assert (bare.Column, bare.Row) == (2, 2)
 

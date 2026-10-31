@@ -61,18 +61,11 @@ def _block_bottom(block: _LayoutBlock) -> float:
     return float(block.box[1] + block.box[3])
 
 
-def _page_width(blocks: list[_LayoutBlock]) -> float:
-    edges = [b.box[0] + b.box[2] for b in blocks if b.box[2] > 0]
-    return float(max(edges)) if edges else 800.0
-
-
 def _render_blocks(blocks: list[_LayoutBlock]) -> str:
     return "".join(b.html for b in blocks if b.html)
 
 
 def _group_bands(blocks: list[_LayoutBlock]) -> list[list[_LayoutBlock]]:
-    if not blocks:
-        return []
     # A zero box [0,0,0,0] has no position. Leave those blocks in input order
     # and keep them out of spatial bands, or they sort to y=0 at the top.
     boxed = iter(sorted((b for b in blocks if _has_box(b)), key=lambda b: (b.box[1], b.box[0])))
@@ -135,14 +128,14 @@ def html_from_layout_blocks(blocks: list[dict[str, Any]]) -> str:
             continue
         if str(block.get("type") or "").lower() == "table":
             continue
-        if str(block.get("text") or "").strip():
-            box = _box_xywh(block)
-            html = _block_to_html(block)
-            parsed.append(_LayoutBlock(box=box, html=html))
+        html = _block_to_html(block)
+        if html:
+            parsed.append(_LayoutBlock(box=_box_xywh(block), html=html))
     if not parsed:
         return ""
 
-    page_w = _page_width(parsed)
+    edges = [b.box[0] + b.box[2] for b in parsed if b.box[2] > 0]
+    page_w = float(max(edges)) if edges else 800.0
     split_x = page_w * 0.5
     parts = [_render_band(band, page_w, split_x) for band in _group_bands(parsed)]
     return "\n".join(part for part in parts if part)

@@ -6,18 +6,18 @@
 
 from __future__ import annotations
 
-from plugin.calc.python.formula_edit import inline_py_code_has_lexer_collisions
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model, emit_py_formula
 from plugin.calc.spreadsheet_import.ingest import ingest_from_arrays
 from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
 from plugin.calc.spreadsheet_import.translate import translate_formula
+from tests.calc.test_spreadsheet_import_emit import _lexer_collision_names
 import pytest
 
 
 def _assert_lexer_safe_formula(formula: str | None) -> None:
     assert formula is not None
     assert formula.startswith("=PY(")
-    assert not inline_py_code_has_lexer_collisions(formula)
+    assert not _lexer_collision_names(formula)
 
 
 def test_corpus_sum_left_as_calc():

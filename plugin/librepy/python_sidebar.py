@@ -16,10 +16,13 @@ from plugin.calc.python.diagnostics import DiagnosticEntry, DiagnosticFilter, di
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_visible, translate_dialog
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
+from plugin.framework.main_shared import get_action_handler
+from plugin.framework.queue_executor import post_to_main_thread
+from plugin.framework.thread_guard import guard_uno
 from plugin.framework.uno_listeners import BaseActionListener, BaseActivationEventListener, BaseItemListener, BaseWindowListener
 from plugin.doc.doc_type import is_calc
 from plugin.scripting.sandbox import resolve_venv_python
-from plugin.librepy.sidebar_menus import HEADER_BUTTON_IDS, wire_sidebar_header_buttons
+from plugin.librepy.sidebar_menus import HEADER_BUTTON_IDS, invoke_action_handler, wire_sidebar_header_buttons
 from plugin.scripting.session_manager import existing_calc_session_id, python_session_mode
 
 log = logging.getLogger(__name__)
@@ -53,7 +56,7 @@ _CONTROL_IDS = (
 )
 
 
-def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, tuple[int, int, int, int]], *, bottom_margin: int = _BOTTOM_MARGIN, min_flex_height: int = _MIN_FLEX_HEIGHT, right_margin: int = _RIGHT_MARGIN) -> dict[str, tuple[int, int, int, int]]:
+def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, tuple[int, int, int, int]]) -> dict[str, tuple[int, int, int, int]]:
     """Distribute height among flex fields and stretch/tile controls across the width."""
     if width <= 0 or height <= 0 or not snapshot:
         return {}
@@ -63,48 +66,39 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
 
     content_bottom = max(rect[1] + rect[3] for rect in snapshot.values())
     flex_sum = sum(snapshot[name][3] for name in flex_names)
-    leftover = height - bottom_margin - (content_bottom - flex_sum)
+    leftover = height - _BOTTOM_MARGIN - (content_bottom - flex_sum)
     # What was wrong: short sidebar panels overflowed the bottom margin because clamping to min flex height exceeded leftover space.
     # How it happened: each flex control clamped independently to min_flex_height without checking the total deck budget.
     # Why this change: scale against leftover budget and shrink from the bottom controls backward so controls fit within height.
     budget = max(0, leftover)
     new_heights: dict[str, int]
     if flex_sum <= 0:
-        new_heights = {name: max(min_flex_height, snapshot[name][3]) for name in flex_names}
+        new_heights = {name: max(_MIN_FLEX_HEIGHT, snapshot[name][3]) for name in flex_names}
     else:
         new_heights = {}
         remaining = budget
         last = len(flex_names) - 1
         for i, name in enumerate(flex_names):
-            if i == last:
-                share = remaining
-            else:
-                share = budget * snapshot[name][3] // flex_sum
-                remaining -= share
-            new_heights[name] = max(min_flex_height, share)
+            share = remaining if i == last else budget * snapshot[name][3] // flex_sum
+            remaining -= share
+            new_heights[name] = max(_MIN_FLEX_HEIGHT, share)
 
     excess = sum(new_heights.values()) - budget
-    if excess > 0:
+    for floor in (_MIN_FLEX_HEIGHT, 0):
+        if excess <= 0:
+            break
         for name in reversed(flex_names):
-            cur = new_heights[name]
-            if cur > min_flex_height:
-                reducible = cur - min_flex_height
-                reduce_by = min(excess, reducible)
-                new_heights[name] = cur - reduce_by
-                excess -= reduce_by
-                if excess <= 0:
-                    break
-        if excess > 0:
-            for name in reversed(flex_names):
-                cur = new_heights[name]
-                reduce_by = min(excess, cur)
-                new_heights[name] = cur - reduce_by
-                excess -= reduce_by
-                if excess <= 0:
-                    break
+            room = new_heights[name] - floor
+            if room <= 0:
+                continue
+            reduce_by = min(excess, room)
+            new_heights[name] -= reduce_by
+            excess -= reduce_by
+            if excess <= 0:
+                break
 
     left_margin = _LEFT_MARGIN
-    content_right = max(20, width - right_margin)
+    content_right = max(20, width - _RIGHT_MARGIN)
     content_width = max(20, content_right - left_margin)
     gap = _CONTROL_GAP
 
@@ -115,6 +109,19 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
     # Filter label width
     filter_label_w = min(40, max(10, content_width // 4))
 
+    run_x = left_margin + 2 * (bw3 + gap)
+    filter_x = left_margin + filter_label_w + gap
+    reset_x = left_margin + bw2 + gap
+    placed: dict[str, tuple[int, int]] = {
+        "btn_refresh": (left_margin, bw3),
+        "btn_edit_cell": (left_margin + bw3 + gap, bw3),
+        "btn_run_script": (run_x, max(10, content_right - run_x)),
+        "btn_edit_init": (left_margin, bw2),
+        "filter_label": (left_margin, filter_label_w),
+        "filter_combo": (filter_x, max(10, content_right - filter_x)),
+        "btn_reset": (left_margin, content_width) if "btn_edit_init" not in snapshot else (reset_x, max(10, content_right - reset_x)),
+    }
+
     layouts: dict[str, tuple[int, int, int, int]] = {}
     for name, (origin_x, oy, origin_w, oh) in snapshot.items():
         shift = 0
@@ -122,37 +129,12 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
             if snapshot[fname][1] < oy:
                 shift += new_heights[fname] - snapshot[fname][3]
 
-        if name == "btn_refresh":
-            nx = left_margin
-            nw = bw3
-        elif name == "btn_edit_cell":
-            nx = left_margin + bw3 + gap
-            nw = bw3
-        elif name == "btn_run_script":
-            nx = left_margin + 2 * (bw3 + gap)
-            nw = max(10, content_right - nx)
-        elif name == "btn_edit_init":
-            nx = left_margin
-            nw = bw2
-        elif name == "btn_reset":
-            if "btn_edit_init" not in snapshot:
-                nx = left_margin
-                nw = content_width
-            else:
-                nx = left_margin + bw2 + gap
-                nw = max(10, content_right - nx)
-        elif name == "filter_label":
-            nx = left_margin
-            nw = filter_label_w
-        elif name == "filter_combo":
-            nx = left_margin + filter_label_w + gap
-            nw = max(10, content_right - nx)
+        if name in placed:
+            nx, nw = placed[name]
         elif name in HEADER_BUTTON_IDS:
-            nx = origin_x
-            nw = origin_w
+            nx, nw = origin_x, origin_w
         else:
-            nx = left_margin
-            nw = content_width
+            nx, nw = left_margin, content_width
 
         if nx >= content_right:
             nx = max(0, content_right - 10)
@@ -164,20 +146,23 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
     return layouts
 
 
+def _invoke_cleared(callback: Any, message: str) -> None:
+    if not callable(callback):
+        return
+    try:
+        callback()
+    except Exception:
+        log.exception(message)
+
+
 class _PanelResizeListener(BaseWindowListener):
     """Repositions Python sidebar controls when the panel root is resized."""
 
-    _c: dict[str, Any]
-    _on_dispose: Any
-    _in_relayout: bool
-    _root_window: Any
-
     def __init__(self, controls: dict[str, Any], on_dispose: Any = None) -> None:
-        self._c = controls
-        self._on_dispose = on_dispose
+        self._c: dict[str, Any] = controls
+        self._on_dispose: Any = on_dispose
         self._snapshot: dict[str, tuple[int, int, int, int]] | None = None
-        self._in_relayout = False
-        self._root_window = None
+        self._in_relayout: bool = False
 
     def on_disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
         # LibreOffice queries XComponent for dispose. This element is
@@ -188,18 +173,29 @@ class _PanelResizeListener(BaseWindowListener):
         # (same as the chat panel listener).
         callback = self._on_dispose
         self._on_dispose = None
-        if callable(callback):
-            try:
-                callback()
-            except Exception:
-                log.exception("python sidebar window dispose callback failed")
+        _invoke_cleared(callback, "python sidebar window dispose callback failed")
 
     def relayout_now(self, win: Any) -> None:
         if not win or self._in_relayout:
             return
         try:
             self._in_relayout = True
-            self._relayout(win)
+            r = win.getPosSize()
+            w, h = int(r.Width), int(r.Height)
+            if w <= 0 or h <= 0:
+                return
+            if self._snapshot is None:
+                self._capture_snapshot()
+            snapshot = self._snapshot
+            if not snapshot:
+                log.warning("python sidebar _relayout: no snapshot, skip")
+                return
+            layouts = compute_python_sidebar_layout(w, h, snapshot)
+            for name, (nx, ny, nw, nh) in layouts.items():
+                ctrl = self._c[name]
+                cur = ctrl.getPosSize()
+                if cur.X != nx or cur.Y != ny or cur.Width != nw or cur.Height != nh:
+                    ctrl.setPosSize(nx, ny, nw, nh, 15)
         except Exception:
             log.exception("python sidebar relayout_now failed")
         finally:
@@ -208,10 +204,7 @@ class _PanelResizeListener(BaseWindowListener):
     def on_window_resized(self, rEvent: Any) -> None:
         self.relayout_now(rEvent.Source)
 
-    def _capture_snapshot(self, win: Any) -> None:
-        r = win.getPosSize()
-        if r.Width <= 0 or r.Height <= 0:
-            return
+    def _capture_snapshot(self) -> None:
         snapshot: dict[str, tuple[int, int, int, int]] = {}
         for name, ctrl in self._c.items():
             if not ctrl:
@@ -222,40 +215,12 @@ class _PanelResizeListener(BaseWindowListener):
             return
         self._snapshot = snapshot
 
-    def _relayout(self, win: Any) -> None:
-        r = win.getPosSize()
-        w, h = int(r.Width), int(r.Height)
-        if w <= 0 or h <= 0:
-            return
-        if self._snapshot is None:
-            self._capture_snapshot(win)
-        snapshot = self._snapshot
-        if not snapshot:
-            log.warning("python sidebar _relayout: no snapshot, skip")
-            return
-        layouts = compute_python_sidebar_layout(w, h, snapshot)
-        if not layouts:
-            return
-        for name, (nx, ny, nw, nh) in layouts.items():
-            ctrl = self._c.get(name)
-            if ctrl is None:
-                continue
-            cur = ctrl.getPosSize()
-            if cur.X != nx or cur.Y != ny or cur.Width != nw or cur.Height != nh:
-                ctrl.setPosSize(nx, ny, nw, nh, 15)
-
-        max_right = max((entry[0] + entry[2] for entry in layouts.values()), default=0)
-        log.debug("[LIBREPY LAYOUT] relayout w=%d h=%d max_child_right=%d overflow=%s", w, h, max_right, "YES" if max_right > w - 2 else "no")
-
 
 class _Activation(BaseActivationEventListener):
     """Sheet-activation listener that calls handler() whenever the active sheet changes."""
 
-    _handler: Any
-
     def __init__(self, handler: Any) -> None:
-        super().__init__()
-        self._handler = handler
+        self._handler: Any = handler
 
     def on_active_spreadsheet_changed(self, aEvent: object) -> None:
         self._handler()
@@ -287,10 +252,7 @@ def format_runtime_status(ctx: Any) -> str:
 def _populate_listbox(control: Any, lines: list[str]) -> None:
     if control is None:
         return
-    model = control.getModel() if hasattr(control, "getModel") else None
-    if model is None:
-        return
-    model.StringItemList = tuple(lines)
+    control.getModel().StringItemList = tuple(lines)
 
 
 def _selected_index(control: Any) -> int:
@@ -312,51 +274,28 @@ def _filter_from_combo(control: Any) -> DiagnosticFilter:
     return "all"
 
 
-def _select_diag_row(control: Any, index: int) -> None:
-    if control is None or not hasattr(control, "selectItemPos"):
-        return
-    control.selectItemPos(index, True)
-
-
 class PythonSidebarController:
     """Wires XDL controls for the LibrePy Python sidebar panel."""
 
-    ctx: Any
-    root: Any
-    frame: Any
-    _calc_panel: bool
-    _store: Any
-    _on_diag: Any
-    _activation_listener: Any
-    _disposed: bool
-    _refresh_pending: bool
-    _pending_full: bool
-    _suppress_diag_nav: bool
-    _controls: dict[str, Any]
-    _last_cell_lines: list[str] | None
-    _last_diag_detail_text: str | None
-    _on_torn_down: Any
-    resize_listener: _PanelResizeListener | None
-
     def __init__(self, ctx: Any, root_window: Any, frame: Any = None, on_torn_down: Any = None) -> None:
-        self.ctx = ctx
-        self.root = root_window
-        self.frame = frame
-        self._on_torn_down = on_torn_down
-        self._calc_panel = self._frame_is_calc()
+        self.ctx: Any = ctx
+        self.root: Any = root_window
+        self.frame: Any = frame
+        self._on_torn_down: Any = on_torn_down
+        self._calc_panel: bool = self._calc_document() is not None
         self._cells: list[PythonCellInfo] = []
         self._diags: list[DiagnosticEntry] = []
-        self._store = get_diagnostics_store()
-        self._on_diag = lambda entry=None: self._schedule_refresh(entry, full=False)
-        self._disposed = False
-        self._refresh_pending = False
-        self._pending_full = False
-        self._suppress_diag_nav = False
-        self._controls = {}
-        self._last_cell_lines = None
-        self._last_diag_detail_text = None
-        self.resize_listener = None
-        self._activation_listener = None
+        self._store: Any = get_diagnostics_store()
+        self._on_diag: Any = lambda entry=None: self._schedule_refresh(entry, full=False)
+        self._disposed: bool = False
+        self._refresh_pending: bool = False
+        self._pending_full: bool = False
+        self._suppress_diag_nav: bool = False
+        self._controls: dict[str, Any] = {}
+        self._last_cell_lines: list[str] | None = None
+        self._last_diag_detail_text: str | None = None
+        self.resize_listener: _PanelResizeListener | None = None
+        self._activation_listener: _Activation | None = None
 
         translate_dialog(root_window)
         if not self._calc_panel:
@@ -382,7 +321,7 @@ class PythonSidebarController:
             self._store.add_listener(self._on_diag)
 
     def disposing(self, *, from_window: bool = False) -> None:
-        if getattr(self, "_disposed", False):
+        if self._disposed:
             return
         self._disposed = True
         # Deck close never calls PythonPanelElement.disposing: the element is
@@ -392,44 +331,29 @@ class PythonSidebarController:
         # the root is still held, then the diagnostics and Calc activation
         # listeners; otherwise they run against a dead frame. Clear on_dispose
         # first so the window hook cannot re-enter.
-        rl = getattr(self, "resize_listener", None)
+        rl = self.resize_listener
         if rl is not None:
             self.resize_listener = None
             rl._on_dispose = None
-            root = getattr(rl, "_root_window", None)
-            if not from_window and root is not None and hasattr(root, "removeWindowListener"):
-                root.removeWindowListener(rl)
-            rl._root_window = None
-        store = getattr(self, "_store", None)
-        on_diag = getattr(self, "_on_diag", None)
-        if store is not None and on_diag is not None:
-            try:
-                store.remove_listener(on_diag)
-            except Exception:
-                log.debug("sidebar diagnostics listener remove failed", exc_info=True)
-        activation = getattr(self, "_activation_listener", None)
+            if not from_window and self.root is not None:
+                self.root.removeWindowListener(rl)
+        try:
+            self._store.remove_listener(self._on_diag)
+        except Exception:
+            log.debug("sidebar diagnostics listener remove failed", exc_info=True)
+        activation = self._activation_listener
         self._activation_listener = None
-        frame = getattr(self, "frame", None)
-        if activation is not None and frame is not None:
+        if activation is not None and self.frame is not None:
             try:
-                controller = frame.getController()
+                controller = self.frame.getController()
                 if controller is not None:
                     controller.removeActivationEventListener(activation)
             except Exception:
                 log.debug("sidebar activation listener remove failed", exc_info=True)
-        if hasattr(self, "_controls"):
-            self._controls.clear()
-        on_torn_down = getattr(self, "_on_torn_down", None)
-        if callable(on_torn_down):
-            self._on_torn_down = None
-            try:
-                on_torn_down()
-            except Exception:
-                log.exception("python sidebar on_torn_down callback failed")
-
-    def _release_on_window_dispose(self) -> None:
-        """Deck close never calls PythonPanelElement.disposing (not an XComponent)."""
-        self.disposing(from_window=True)
+        self._controls.clear()
+        on_torn_down = self._on_torn_down
+        self._on_torn_down = None
+        _invoke_cleared(on_torn_down, "python sidebar on_torn_down callback failed")
 
     def _ctrl(self, name: str) -> Any:
         if name not in self._controls:
@@ -441,27 +365,27 @@ class PythonSidebarController:
         try:
             ids = _CONTROL_IDS if self._calc_panel else tuple(cid for cid in _CONTROL_IDS if cid not in _CALC_ONLY_IDS)
             controls = {cid: self._ctrl(cid) for cid in ids}
-            listener = _PanelResizeListener(controls, on_dispose=self._release_on_window_dispose)
-            listener._root_window = self.root
-            if self.root is not None and hasattr(self.root, "addWindowListener"):
+            listener = _PanelResizeListener(controls, on_dispose=lambda: self.disposing(from_window=True))
+            if self.root is not None:
                 self.root.addWindowListener(listener)
             self.resize_listener = listener
-            listener._capture_snapshot(self.root)
             listener.relayout_now(self.root)
         except Exception:
             log.debug("sidebar resize listener attach failed", exc_info=True)
 
     def _wire(self) -> None:
-        for cid in _CONTROL_IDS:
-            if cid not in self._controls:
-                self._controls[cid] = get_optional_control(self.root, cid)
-        filter_combo = self._ctrl("filter_combo") if self._calc_panel else None
-        if filter_combo is not None:
-            model = filter_combo.getModel()
-            choices = _filter_choices()
-            model.StringItemList = tuple(label for label, _filt in choices)
-            filter_combo.setText(choices[0][0])
-
+        if self._calc_panel:
+            filter_combo = self._ctrl("filter_combo")
+            if filter_combo is not None:
+                model = filter_combo.getModel()
+                choices = _filter_choices()
+                model.StringItemList = tuple(label for label, _filt in choices)
+                filter_combo.setText(choices[0][0])
+                filter_combo.addItemListener(_Item(self._on_filter_changed))
+            for cid, handler in (("cells_list", self._on_cell_selected), ("diag_list", self._on_diag_selected)):
+                ctrl = self._ctrl(cid)
+                if ctrl is not None:
+                    ctrl.addItemListener(_Item(handler))
         bindings: list[tuple[str, Any]] = [("btn_reset", self._on_reset), ("btn_settings", self._on_settings)]
         if self._calc_panel:
             bindings[0:0] = [("btn_refresh", self.refresh), ("btn_edit_cell", self._on_edit_cell), ("btn_run_script", self._on_run_script), ("btn_edit_init", self._on_edit_init)]
@@ -470,53 +394,34 @@ class PythonSidebarController:
             if ctrl is None:
                 continue
             ctrl.addActionListener(_Action(handler))
-
-        if self._calc_panel:
-            cells = self._ctrl("cells_list")
-            if cells is not None:
-                cells.addItemListener(_Item(self._on_cell_selected))
-
-            diags = self._ctrl("diag_list")
-            if diags is not None:
-                diags.addItemListener(_Item(self._on_diag_selected))
-
-            if filter_combo is not None:
-                filter_combo.addItemListener(_Item(self._on_filter_changed))
-
         try:
             header = {cid: self._ctrl(cid) for cid in HEADER_BUTTON_IDS}
             wire_sidebar_header_buttons(self.ctx, self.frame, header, calc_doc=self._calc_panel)
         except Exception:
             log.debug("wire header toolbar failed", exc_info=True)
 
-    def _active_workbook_key(self) -> str:
-        doc = self._calc_document()
-        return workbook_key_for_doc(doc)
-
     def _schedule_refresh(self, entry: DiagnosticEntry | None = None, *, full: bool = False) -> None:
         # What was wrong: inline refresh during diagnostic events scanned the sheet on every =PY() recalc.
         # How it happened: record() invokes listeners synchronously, triggering full sheet cell scans inline.
         # Why this change: coalesce refreshes and post to main thread, skipping if already disposed or pending.
-        if getattr(self, "_disposed", False):
+        if self._disposed:
             return
-        if entry is not None and getattr(entry, "workbook_key", None):
-            active_key = self._active_workbook_key()
+        if entry is not None and entry.workbook_key:
+            active_key = workbook_key_for_doc(self._calc_document())
             if active_key != "unknown" and entry.workbook_key != active_key:
                 return
         if full:
             self._pending_full = True
-        if getattr(self, "_refresh_pending", False):
+        if self._refresh_pending:
             return
         self._refresh_pending = True
-        from plugin.framework.queue_executor import post_to_main_thread
-
         post_to_main_thread(self._run_scheduled_refresh)
 
     def _run_scheduled_refresh(self) -> None:
         self._refresh_pending = False
-        if getattr(self, "_disposed", False):
+        if self._disposed:
             return
-        is_full = getattr(self, "_pending_full", False)
+        is_full = self._pending_full
         self._pending_full = False
         try:
             if is_full:
@@ -531,7 +436,8 @@ class PythonSidebarController:
     # What was wrong: _calc_document fell back to desktop active Calc document, binding wrong documents or Writer frames to Calc.
     # How it happened: get_calc_document_from_ctx was called when frame resolve failed or when resolving outside the frame.
     # Why this change: resolve only via frame.getController().getModel(), returning None if not Calc or resolve fails.
-    def _frame_calc_model(self) -> Any | None:
+    def _calc_document(self) -> Any | None:
+        """Return the Calc model for this sidebar frame, or None for Writer frames and failed resolves."""
         frame = self.frame
         if frame is None:
             return None
@@ -542,64 +448,44 @@ class PythonSidebarController:
             model = controller.getModel()
             if model is None:
                 return None
-            from plugin.framework.thread_guard import guard_uno
-
             guarded = guard_uno(model)
             return guarded if is_calc(guarded) else None
         except Exception:
             log.debug("LibrePy sidebar: frame document resolve failed", exc_info=True)
             return None
 
-    def _frame_is_calc(self) -> bool:
-        return self._frame_calc_model() is not None
-
     def _hide_calc_only_controls(self) -> None:
         for cid in _CALC_ONLY_IDS:
             set_control_visible(self._ctrl(cid), False)
 
-    def _calc_document(self) -> Any | None:
-        """Return the Calc model for this sidebar frame, or None for Writer frames and failed resolves."""
-        return self._frame_calc_model()
-
     def _refresh_diagnostics(self, doc: Any) -> None:
         diag_ctrl = self._ctrl("diag_list")
         prev_idx = _selected_index(diag_ctrl)
-        prev_entry: DiagnosticEntry | None = None
-        prev_diags = getattr(self, "_diags", [])
-        if 0 <= prev_idx < len(prev_diags):
-            prev_entry = prev_diags[prev_idx]
+        prev_entry = self._diags[prev_idx] if 0 <= prev_idx < len(self._diags) else None
 
         key = workbook_key_for_doc(doc)
         filt = _filter_from_combo(self._ctrl("filter_combo"))
-        self._diags = self._store.list_entries(key, filt=filt, newest_first=True)
+        self._diags = self._store.list_entries(key, filt=filt)
 
         # Attach addresses from cell list when codes match.
+        by_sheet: dict[tuple[str, str], list[str]] = {}
+        by_code: dict[str, list[str]] = {}
+        for cell in self._cells:
+            prefix = (cell.code or "")[:240]
+            if prefix:
+                by_code.setdefault(prefix, []).append(cell.address)
+                if cell.sheet:
+                    by_sheet.setdefault((cell.sheet, prefix), []).append(cell.address)
         enriched: list[DiagnosticEntry] = []
         for entry in self._diags:
-            if entry.address:
-                enriched.append(entry)
-                continue
-            chosen_addr = None
-            entry_sheet = entry.sheet
-            entry_code_prefix = entry.code[:240] if entry.code else ""
-            if entry_sheet and entry_code_prefix:
-                sheet_matches = [
-                    c.address for c in self._cells
-                    if c.sheet == entry_sheet and (c.code[:240] if c.code else "") == entry_code_prefix
-                ]
-                if len(sheet_matches) == 1:
-                    chosen_addr = sheet_matches[0]
-            if not chosen_addr and entry_code_prefix:
-                global_matches = [
-                    c.address for c in self._cells
-                    if (c.code[:240] if c.code else "") == entry_code_prefix
-                ]
-                if len(global_matches) == 1:
-                    chosen_addr = global_matches[0]
-            if chosen_addr:
-                enriched.append(replace(entry, address=chosen_addr))
-            else:
-                enriched.append(entry)
+            chosen = entry.address
+            prefix = (entry.code or "")[:240]
+            if not chosen and prefix:
+                sheet_hits = by_sheet.get((entry.sheet, prefix), []) if entry.sheet else []
+                hits = sheet_hits if len(sheet_hits) == 1 else by_code.get(prefix, [])
+                if len(hits) == 1:
+                    chosen = hits[0]
+            enriched.append(replace(entry, address=chosen) if chosen and chosen != entry.address else entry)
         self._diags = enriched
 
         diag_lines = [e.summary_line() for e in self._diags]
@@ -611,22 +497,20 @@ class PythonSidebarController:
             target_idx = 0
             if prev_entry is not None:
                 prev_key = (prev_entry.timestamp, prev_entry.code, prev_entry.address, prev_entry.status, prev_entry.message)
-                for idx, entry in enumerate(self._diags):
-                    if (entry.timestamp, entry.code, entry.address, entry.status, entry.message) == prev_key:
-                        target_idx = idx
-                        break
+                target_idx = next((i for i, entry in enumerate(self._diags) if (entry.timestamp, entry.code, entry.address, entry.status, entry.message) == prev_key), 0)
             selected_entry = self._diags[target_idx]
             self._set_diag_detail(diagnostics_detail_text(selected_entry))
             self._suppress_diag_nav = True
             try:
-                _select_diag_row(diag_ctrl, target_idx)
+                if diag_ctrl is not None:
+                    diag_ctrl.selectItemPos(target_idx, True)
             finally:
                 self._suppress_diag_nav = False
         else:
             self._set_diag_detail("")
 
     def _set_diag_detail(self, text: str) -> None:
-        if getattr(self, "_last_diag_detail_text", None) != text:
+        if self._last_diag_detail_text != text:
             self._last_diag_detail_text = text
             set_control_text(self._ctrl("diag_detail"), text)
 
@@ -650,25 +534,21 @@ class PythonSidebarController:
         selected_address = None
         if cells_ctrl is not None:
             idx = _selected_index(cells_ctrl)
-            cells_before = getattr(self, "_cells", [])
+            cells_before = self._cells
             if 0 <= idx < len(cells_before):
                 selected_address = cells_before[idx].address
 
-        self._cells = list_python_cells_in_doc(doc, active_sheet_only=True)
+        self._cells = list_python_cells_in_doc(doc)
         cell_lines = [c.address for c in self._cells]
         if not cell_lines:
             cell_lines = [_("(no =PY() cells on active sheet)")]
 
-        if getattr(self, "_last_cell_lines", None) != cell_lines:
+        if self._last_cell_lines != cell_lines:
             self._last_cell_lines = cell_lines
             _populate_listbox(cells_ctrl, cell_lines)
 
-        if selected_address and cells_ctrl is not None and hasattr(cells_ctrl, "selectItemPos"):
-            try:
-                target_pos = cell_lines.index(selected_address)
-                cells_ctrl.selectItemPos(target_pos, True)
-            except ValueError:
-                pass
+        if selected_address and cells_ctrl is not None and selected_address in cell_lines:
+            cells_ctrl.selectItemPos(cell_lines.index(selected_address), True)
 
         self._refresh_diagnostics(doc)
 
@@ -681,19 +561,12 @@ class PythonSidebarController:
         if doc is None:
             return
         navigate_to_cell(doc, self.ctx, cell.address)
-        cell_code_prefix = cell.code[:240] if cell.code else ""
-        matched_diag = None
-        for entry in self._diags:
-            if (entry.code[:240] if entry.code else "") == cell_code_prefix:
-                if entry.address == cell.address or (entry.sheet and entry.sheet == cell.sheet):
-                    matched_diag = entry
-                    break
-        if matched_diag is not None:
-            self._set_diag_detail(diagnostics_detail_text(matched_diag))
-        else:
-            latest = self._store.latest_for_code(workbook_key_for_doc(doc), cell.code)
-            if latest is not None:
-                self._set_diag_detail(diagnostics_detail_text(latest))
+        cell_key = (cell.code or "")[:240]
+        shown = next((entry for entry in self._diags if (entry.code or "")[:240] == cell_key and (entry.address == cell.address or (entry.sheet and entry.sheet == cell.sheet))), None)
+        if shown is None:
+            shown = self._store.latest_for_code(workbook_key_for_doc(doc), cell.code)
+        if shown is not None:
+            self._set_diag_detail(diagnostics_detail_text(shown))
 
     def _on_diag_selected(self, _event: Any = None) -> None:
         if self._suppress_diag_nav:
@@ -710,12 +583,8 @@ class PythonSidebarController:
             navigate_to_cell(doc, self.ctx, entry.address)
 
     def _run_action(self, command: str, fallback: Callable[[], None]) -> None:
-        from plugin.framework.main_shared import get_action_handler
-
         handler = get_action_handler(command)
         if handler:
-            from plugin.librepy.sidebar_menus import invoke_action_handler
-
             invoke_action_handler(handler, command=command)
             return
         fallback()
@@ -767,22 +636,16 @@ class PythonSidebarController:
 
 
 class _Action(BaseActionListener):
-    _callback: Any
-
     def __init__(self, callback: Any) -> None:
-        super().__init__()
-        self._callback = callback
+        self._callback: Any = callback
 
     def on_action_performed(self, rEvent: Any) -> None:
         self._callback()
 
 
 class _Item(BaseItemListener):
-    _callback: Any
-
     def __init__(self, callback: Any) -> None:
-        super().__init__()
-        self._callback = callback
+        self._callback: Any = callback
 
     def on_item_state_changed(self, rEvent: Any) -> None:
         self._callback(rEvent)

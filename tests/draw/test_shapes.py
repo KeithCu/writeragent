@@ -711,9 +711,8 @@ def test_outside_page_zero_width_or_height():
     assert not _outside_page(page, shape)
 
 
-def test_shape_summary_intent_and_name():
+def test_shape_summary_name():
     tool = GetDrawSummary()
-    assert tool.intent == "read"
 
     ctx = MagicMock()
     ctx.active_page_index = 0

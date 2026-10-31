@@ -17,9 +17,9 @@ def test_popup_menu_image_and_command(ctx):
     assert popup.getCommand(1) == "org.extension.writeragent:scripting.run_python_dialog"
 
     # Verify graphic loading and 3-arg setItemImage for all menu icons
-    from plugin.chatbot.hamburger_menu import _load_graphic
+    from plugin.librepy.sidebar_menus import load_menu_graphic
 
     for icon in ("python_32.png", "python_cell_32.png", "search_32.png", "latex_32.png", "gear_32.png", "running_16.png", "stopped_16.png"):
-        g = _load_graphic(ctx, icon)
+        g = load_menu_graphic(ctx, icon)
         assert g is not None, f"Failed to load graphic for {icon}"
     popup.setItemImage(1, g, False)

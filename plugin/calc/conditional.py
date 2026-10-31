@@ -61,19 +61,16 @@ _SCHEMA_OPERATORS: list[str] = [name for name, _ in _OPERATORS if name != "NONE"
 def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
     """Convert a conditional entry to a readable dict."""
     result: dict[str, Any] = {"index": idx}
-    op_name: str | None = None
-    op_code: int | None = None
     xc2 = _query_interface(entry, "com.sun.star.sheet.XSheetCondition2")
     if xc2 is not None:
         op_code = int(xc2.getConditionOperator())
         op_name = _CODE_TO_NAME.get(op_code, str(op_code))
-    if op_name is None:
+        result["operator_code"] = op_code
+    else:
         op = entry.getOperator()
         op_name = str(op.value) if hasattr(op, "value") else str(op)
     if op_name:
         result["operator"] = op_name
-    if op_code is not None:
-        result["operator_code"] = op_code
     f1 = entry.getFormula1()
     if f1:
         result["formula1"] = f1
@@ -106,7 +103,6 @@ class ListConditionalFormats(ToolCalcConditionalBase):
     """List conditional formatting rules on a cell range."""
 
     name: str | None = "list_conditional_formats"
-    intent: str | None = "navigate"
     description: str = "List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range (e.g. ["A1:D10"]). If omitted, scans used area.'}}, "required": []}
 
@@ -143,7 +139,6 @@ class AddConditionalFormat(ToolCalcConditionalBase):
     """Add a conditional formatting rule to a cell range."""
 
     name: str | None = "add_conditional_format"
-    intent: str | None = "edit"
     description: str = (
         "Add a conditional formatting rule to a Calc cell range. "
         "Applies a cell style when the condition is met. "
@@ -217,9 +212,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             cell_range.setPropertyValue("ConditionalFormat", formats)
 
             log.info("Conditional format added to %s.", range_str.upper())
-            count = formats.getCount()
-
-            return {"status": "ok", "range": range_str, "rule_count": count}
+            return {"status": "ok", "range": range_str, "rule_count": formats.getCount()}
         except IllegalArgumentException as e:
             log.exception("Add conditional format failed")
             return self._tool_error(f"Failed to add conditional format: {str(e)}", code="CONDITIONAL_FORMAT_ERROR")
@@ -229,7 +222,6 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
     """Remove or clear conditional formatting rules from a cell range."""
 
     name: str | None = "remove_conditional_formats"
-    intent: str | None = "edit"
     description: str = "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices."
     parameters: dict[str, Any] | None = {
         "type": "object",

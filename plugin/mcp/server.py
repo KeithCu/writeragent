@@ -48,6 +48,7 @@ MCP_HTTP_MAX_BODY_BYTES = 4 * 1024 * 1024
 MCP_HTTP_SOCKET_TIMEOUT_SEC = 30.0
 
 from plugin.framework.thread_guard import background
+import contextlib
 import json
 import logging
 import socket
@@ -57,13 +58,9 @@ import weakref
 from http.server import BaseHTTPRequestHandler
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
-from plugin.framework.errors import safe_json_loads
+from plugin.framework.errors import AgentParsingError, WriterAgentException, format_error_payload, safe_json_loads
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.http_server import (
-    DualStackThreadPoolHTTPServer,
-    _PORT_IN_USE_GUIDANCE as _PORT_IN_USE_GUIDANCE,
-    is_port_in_use_error as is_port_in_use_error,
-)
+from plugin.framework.http_server import DualStackThreadPoolHTTPServer
 from plugin.mcp.cors import reject_forbidden_host, reject_forbidden_origin, send_cors_headers
 from plugin.mcp.http_trace import log_cors_preflight, log_http_request, log_no_route
 
@@ -90,35 +87,19 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
     body = json.dumps(data, ensure_ascii=False, default=str, indent=indent).encode("utf-8")
     handler._response_started = True
     handler.send_response(status)
-    if extra_headers is not None:
-        extra_headers(handler)
-    else:
-        send_cors_headers(handler, preflight=False)
+    (extra_headers or send_cors_headers)(handler)
     handler.send_header("Content-Type", "application/json")
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
-    flush = getattr(handler.wfile, "flush", None)
-    if callable(flush):
-        try:
-            flush()
-        except OSError:
-            # Client disconnect during flush (BrokenPipeError, ConnectionResetError).
-            pass
+    try:
+        handler.wfile.flush()
+    except OSError:
+        pass
 
 
-def _transfer_encoding_is_chunked(handler: Any) -> bool:
-    """True when Transfer-Encoding contains chunked.
-
-    Same predicate as compute_service.server._transfer_encoding_is_chunked.
-    Not imported: plugin must not depend on compute_service. This listener
-    is HTTP/1.0 and reads Content-Length. Chunked is not decoded.
-    """
-    headers = getattr(handler, "headers", None)
-    raw = headers.get("Transfer-Encoding") if headers is not None else None
-    if not isinstance(raw, str):
-        return False
-    return "chunked" in raw.lower()
+def _body_error(status: int, message: str, **details: Any) -> tuple[None, tuple[int, AgentParsingError]]:
+    return None, (status, AgentParsingError(message, details=details))
 
 
 def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]:
@@ -132,9 +113,8 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
     under the cap is 408. An empty body with no
     chunked coding is still ``{}`` and does not touch ``rfile``.
     """
-    from plugin.framework.errors import AgentParsingError
-
-    if _transfer_encoding_is_chunked(handler):
+    raw_te = handler.headers.get("Transfer-Encoding", "")
+    if isinstance(raw_te, str) and "chunked" in raw_te.lower():
         # What was wrong: a missing or zero Content-Length returned {}
         # without reading rfile. Transfer-Encoding: chunked was then
         # handled as an empty object (MCP reported Invalid JSON-RPC) and
@@ -146,27 +126,24 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
         # the leftover bytes as the next request. No chunk parser.
         handler.close_connection = True
         log.warning("Rejecting chunked Transfer-Encoding")
-        err = AgentParsingError(
+        return _body_error(
+            400,
             "Chunked transfer encoding is not supported",
-            details={"transfer_encoding": handler.headers.get("Transfer-Encoding")},
+            transfer_encoding=handler.headers.get("Transfer-Encoding"),
         )
-        return None, (400, err)
 
     raw_length = handler.headers.get("Content-Length", 0)
     try:
         content_length = int(raw_length)
     except (TypeError, ValueError):
-        err = AgentParsingError("Invalid Content-Length in HTTP request", details={"length": raw_length})
-        return None, (400, err)
+        return _body_error(400, "Invalid Content-Length in HTTP request", length=raw_length)
     if content_length < 0:
         # BaseHTTPRequestHandler / rfile.read treats a negative size as "read
         # until EOF". Content-Length: -1 would block the worker until the
         # socket closed. Reject before any read.
         log.warning("Invalid negative Content-Length: %s", content_length)
-        err = AgentParsingError("Invalid negative Content-Length in HTTP request", details={"length": content_length})
-        return None, (400, err)
+        return _body_error(400, "Invalid negative Content-Length in HTTP request", length=content_length)
     if content_length == 0:
-        setattr(handler, "_body_read", True)
         return {}, None
     if content_length > MCP_HTTP_MAX_BODY_BYTES:
         # A trusted Content-Length with no ceiling pins the worker on the
@@ -174,29 +151,21 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
         # forever. Refuse the length before the read. The handler/server
         # timeout covers a stall whose declared length is still under the cap.
         log.warning("Rejecting oversized Content-Length: %s", content_length)
-        err = AgentParsingError("HTTP body exceeds %s bytes" % MCP_HTTP_MAX_BODY_BYTES, details={"length": content_length, "max": MCP_HTTP_MAX_BODY_BYTES})
-        return None, (413, err)
+        return _body_error(413, "HTTP body exceeds %s bytes" % MCP_HTTP_MAX_BODY_BYTES, length=content_length, max=MCP_HTTP_MAX_BODY_BYTES)
     try:
         raw_bytes = handler.rfile.read(content_length)
-        setattr(handler, "_body_read", True)
     # Before Python 3.10 socket.timeout is a distinct class (same rule as http_server.handle_error).
     except (TimeoutError, socket.timeout):
         log.warning("Timed out reading HTTP body (%s bytes declared)", content_length)
-        err = AgentParsingError("Timed out reading HTTP body", details={"length": content_length})
-        return None, (408, err)
-    if isinstance(raw_bytes, str):
-        raw = raw_bytes
-    else:
-        try:
-            raw = bytes(raw_bytes).decode("utf-8")
-        except UnicodeDecodeError:
-            err = AgentParsingError("HTTP body is not UTF-8", details={"length": content_length})
-            return None, (400, err)
+        return _body_error(408, "Timed out reading HTTP body", length=content_length)
+    try:
+        raw = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return _body_error(400, "HTTP body is not UTF-8", length=content_length)
     data = safe_json_loads(raw, default=None, strict=True)
     if data is None and raw.strip():
         log.warning("Invalid JSON body: %s", raw[:200])
-        err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
-        return None, (400, err)
+        return _body_error(400, "Invalid JSON body in HTTP request", raw=raw[:200])
     return (data if data is not None else {}), None
 
 
@@ -249,17 +218,6 @@ def try_reserve_sse(tcp_server: Any, sock: Any = None) -> threading.Event | None
         return stop
 
 
-def note_sse_keepalive(tcp_server: Any, sock: Any) -> threading.Event | None:
-    """Register *sock* on *tcp_server*.
-
-    Returns the stop event the loop must watch, or None when this listener
-    is already stopped and the loop must not run.
-    """
-    if tcp_server is None or sock is None:
-        return None
-    return try_reserve_sse(tcp_server, sock)
-
-
 def forget_sse_keepalive(tcp_server: Any, sock: Any = None) -> None:
     """Drop a keepalive that has left its loop and release its reservation."""
     if tcp_server is None:
@@ -281,20 +239,10 @@ def _shutdown_sse_socket(sock: Any) -> None:
     the fd can be reused under that wait. shutdown(SHUT_RDWR) marks the
     socket readable so the keepalive loop returns and checks the stop flag.
     """
-    shutdown = getattr(sock, "shutdown", None)
-    if callable(shutdown):
-        try:
-            shutdown(socket.SHUT_RDWR)
-        except OSError:
-            # Already-closed socket. Other exceptions are bugs.
-            pass
-    close = getattr(sock, "close", None)
-    if callable(close):
-        try:
-            close()
-        except OSError:
-            # Already-closed socket. Other exceptions are bugs.
-            pass
+    with contextlib.suppress(OSError):
+        sock.shutdown(socket.SHUT_RDWR)
+    with contextlib.suppress(OSError):
+        sock.close()
 
 
 def stop_sse_keepalives(tcp_server: Any) -> None:
@@ -342,7 +290,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
     def handle_one_request(self) -> None:
         """A client that goes away while the response is written is a closed request.
 
-        What was wrong: the 404 ``_send_json`` in ``_dispatch`` is outside the
+        What was wrong: the 404 ``write_http_json`` in ``_dispatch`` is outside the
         ``try`` that swallows ``OSError`` on the 500 write. ``do_GET`` returns
         into ``BaseHTTPRequestHandler.handle_one_request``, which only catches
         ``TimeoutError`` and then flushes ``wfile`` again. ``BrokenPipeError``
@@ -353,11 +301,15 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         Why: those disconnects are ``ConnectionError``. Any other exception
         still propagates.
         """
-        self._response_started = False
         try:
             super().handle_one_request()
         except ConnectionError:
             self.close_connection: bool = True
+
+    def _guard(self) -> bool:
+        """False when Host or Origin was rejected and the 403 is already written."""
+        self._response_started = False
+        return not reject_forbidden_host(self) and not reject_forbidden_origin(self)
 
     def do_GET(self) -> None:
         self._dispatch("GET")
@@ -369,20 +321,14 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         self._dispatch("DELETE")
 
     def do_OPTIONS(self) -> None:
-        self._response_started = False
-        if reject_forbidden_host(self):
-            return
-        if reject_forbidden_origin(self):
+        if not self._guard():
             return
         path = get_url_path(self.path)
         log_cors_preflight(self, path)
         write_http_empty(self, 204, extra_headers=lambda h: send_cors_headers(h, preflight=True))
 
     def _dispatch(self, method: str) -> None:
-        self._response_started = False
-        if reject_forbidden_host(self):
-            return
-        if reject_forbidden_origin(self):
+        if not self._guard():
             return
         path = get_url_path(self.path)
         log_http_request(self, method, path)
@@ -393,10 +339,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 
         if route is None:
             log_no_route(self, method, path)
-            from plugin.framework.errors import WriterAgentException, format_error_payload
-
             err = WriterAgentException("Not found", code="NOT_FOUND", details={"path": path})
-            self._send_json(404, format_error_payload(err))
+            write_http_json(self, 404, format_error_payload(err))
             return
 
         try:
@@ -409,7 +353,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                 query = get_url_query_dict(self.path)
                 result = route.handler(body, self.headers, query)
                 status, data = cast("tuple[int, Any]", result)
-                self._send_json(status, data)
+                write_http_json(self, status, data)
         except ConnectionError:
             # Peer went away (RST/EPIPE) during the body read or a write.
             # That is a closed request, not a server bug: no 500, no traceback.
@@ -419,23 +363,17 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             log.exception("%s %s failed", method, path)
             if not self._response_started:
                 try:
-                    from plugin.framework.errors import format_error_payload
-                    self._send_json(500, format_error_payload(e))
+                    write_http_json(self, 500, format_error_payload(e))
                 except OSError:
                     pass
 
     def _read_body(self) -> Any:
         data, rejected = read_json_body(self)
         if rejected is not None:
-            from plugin.framework.errors import format_error_payload
-
             status, err = rejected
-            self._send_json(status, format_error_payload(err))
+            write_http_json(self, status, format_error_payload(err))
             return None
         return data
-
-    def _send_json(self, status: int, data: Any) -> None:
-        write_http_json(self, status, data)
 
     def log_message(self, format: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], format % args)
@@ -444,24 +382,16 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 class HttpServer:
     """Generic threaded HTTP server with optional TLS."""
 
-    route_registry: Any
-    port: int
-    host: str
-    use_ssl: bool
-    ssl_cert: str
-    ssl_key: str
-    _running: bool
-
     def __init__(self, route_registry: Any, port: int, host: str = "localhost", use_ssl: bool = False, ssl_cert: str = "", ssl_key: str = "") -> None:
-        self.route_registry = route_registry
-        self.port = port
-        self.host = host
-        self.use_ssl = use_ssl
-        self.ssl_cert = ssl_cert
-        self.ssl_key = ssl_key
+        self.route_registry: Any = route_registry
+        self.port: int = port
+        self.host: str = host
+        self.use_ssl: bool = use_ssl
+        self.ssl_cert: str = ssl_cert
+        self.ssl_key: str = ssl_key
         self._server: Any = None
         self._thread: Any = None
-        self._running = False
+        self._running: bool = False
 
     def start(self) -> None:
         if self._running:
@@ -477,12 +407,11 @@ class HttpServer:
             # Local generation of certificates has been removed from ssl_helpers.
             if not (self.ssl_cert and self.ssl_key):
                 raise ValueError("use_ssl is True but no certificates provided.")
-            cert_path, key_path = self.ssl_cert, self.ssl_key
-            log.info("TLS using custom certs: %s", cert_path)
+            log.info("TLS using custom certs: %s", self.ssl_cert)
             import ssl
 
             ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-            ssl_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+            ssl_ctx.load_cert_chain(certfile=self.ssl_cert, keyfile=self.ssl_key)
 
         # Single bind — no retry/sleep. A busy port used to block bootstrap and the Start MCP
         # menu for ~4s (5×1s). Stdio clients that start before LO are handled by mcp_bridge.py;
@@ -505,9 +434,8 @@ class HttpServer:
         self._running = True
         self._thread = run_in_background(self._run, daemon=True, name="http-server", dedicated=True)
 
-        scheme = "https" if self.use_ssl else "http"
-        url = "%s://%s:%s" % (scheme, self.host, self.port)
-        log.info("HTTP server ready — %s (%d routes)", url, self.route_registry.route_count)
+        status = self.get_status()
+        log.info("HTTP server ready — %s (%d routes)", status["url"], status["routes"])
 
     def stop(self) -> None:
         if not self._running:
@@ -534,15 +462,12 @@ class HttpServer:
             # Join in-flight SSE keepalive threads within a single 2s deadline.
             deadline = time.monotonic() + 2.0
             still_alive: list[str] = []
-            # Join in-flight SSE keepalive threads. We give them a bit of time, shutdown() only shuts down new accept calls.
             for t in threads_to_join:
-                if not t.is_alive() or t is threading.current_thread():
+                if t is threading.current_thread():
                     continue
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    still_alive.append(getattr(t, "name", "unknown"))
-                    continue
-                t.join(timeout=remaining)
+                if remaining > 0:
+                    t.join(timeout=remaining)
                 if t.is_alive():
                     still_alive.append(getattr(t, "name", "unknown"))
             if still_alive:
@@ -552,8 +477,7 @@ class HttpServer:
     def _run(self) -> None:
         server = self._server
         try:
-            if server:
-                server.serve_forever()
+            server.serve_forever()
         except Exception:
             if self._running:
                 log.exception("HTTP server error")
@@ -570,11 +494,9 @@ class HttpServer:
             self._running = False
             if unexpected:
                 try:
-                    if server is not None:
-                        server.server_close()
+                    server.server_close()
                 finally:
-                    if server is not None:
-                        stop_sse_keepalives(server)
+                    stop_sse_keepalives(server)
 
     def is_running(self) -> bool:
         return self._running

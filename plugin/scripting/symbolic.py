@@ -20,15 +20,8 @@ from plugin.scripting.client import run_symbolic as client_run_symbolic
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     is_status_helper_result,
-    make_template_api,
     supports_calc_or_writer_manual,
 )
-
-# The menu scripts are solve, simplify, integrate, and differentiate.
-# latex_to_math_object only normalizes a string for Writer Math insert.
-# It stays callable from symbolic_math and run_symbolic and is not a
-# Math Helpers template.
-_SHIPPED_TEMPLATES = HELPER_NAMES - {"latex_to_math_object"}
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "solve_equation": {"equation": "x**2 - 4", "variable": "x"},
@@ -51,17 +44,16 @@ install_lazy_exports(globals(), "symbolic", _SYMBOLIC_VENV_EXPORTS)
 
 # --- Templates ---
 
-_API = make_template_api(
-    DomainFacadeConfig(
-        tag="math",
-        helper_names=HELPER_NAMES,
-        default_params=_DEFAULT_PARAMS,
-        descriptions=_HELPER_DESCRIPTIONS,
-        import_module="writeragent.scripting.symbolic",
-        run_name="run_symbolic",
-        shipped_templates=_SHIPPED_TEMPLATES,
-        data_expr="None",
-    )
+_API = DomainFacadeConfig(
+    tag="math",
+    helper_names=HELPER_NAMES,
+    default_params=_DEFAULT_PARAMS,
+    descriptions=_HELPER_DESCRIPTIONS,
+    import_module="writeragent.scripting.symbolic",
+    run_name="run_symbolic",
+    # latex_to_math_object is callable but not a Math Helpers template.
+    shipped_templates=frozenset(_DEFAULT_PARAMS),
+    data_expr="None",
 )
 
 get_math_script_templates = _API.get_templates
@@ -96,11 +88,9 @@ def run_trusted_symbolic(
     if isinstance(params, dict) and params:
         spec["params"] = params
 
-    context: dict[str, Any] = {}
-    if task_hint:
-        context["task_hint"] = str(task_hint)
-
-    return client_run_symbolic(uno_ctx, spec, None, context=context or None)
+    return client_run_symbolic(
+        uno_ctx, spec, None, context={"task_hint": str(task_hint)} if task_hint else None
+    )
 
 
 # --- Egress ---

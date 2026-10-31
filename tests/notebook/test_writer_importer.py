@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.notebook.cell_registry import (
+    NotebookDocState,
     _MAX_IMPORT_TEXT_CHARS,
     _TRUNCATION_SUFFIX,
     _coerce_notebook_text,
@@ -23,10 +24,9 @@ from plugin.notebook.notebook_controls import (
     _LINE_HEIGHT,
     _MAX_FIELD_HEIGHT,
     _MIN_FIELD_HEIGHT,
-    _WRAP_SLACK,
+    _cap_from_style,
     _height_for_text,
     _insert_code_input_in_flow,
-    _max_field_height_units,
     _page_style,
     _text_area_width_units,
     _text_width_from_style,
@@ -38,7 +38,6 @@ from plugin.notebook.writer_importer import (
     _STYLE_NOTEBOOK_IN,
     _STYLE_NOTEBOOK_OUT,
     _append_body_paragraph,
-    _append_body_text_block,
     _append_paragraph_break_at_end,
     _apply_no_spellcheck_for_import,
     _create_import_para_style,
@@ -47,7 +46,7 @@ from plugin.notebook.writer_importer import (
     _ensure_notebook_import_styles,
     output_para_style,
     _format_outputs_for_body,
-    _inline_backticks_to_html,
+    _inline_markdown_to_html,
     _iter_markdown_blocks,
     _looks_like_html,
     _image_mime_from_bytes,
@@ -57,7 +56,6 @@ from plugin.notebook.writer_importer import (
     _webp_pixel_size,
     _trim_trailing_empty_paragraph,
     _unglue_last_paragraph,
-    format_all_outputs,
     format_output_text,
     import_ipynb_to_writer,
 )
@@ -189,7 +187,7 @@ def test_format_all_outputs_joins():
         {"output_type": "stream", "name": "stdout", "text": "a"},
         {"output_type": "execute_result", "data": {"text/plain": "b"}},
     ]
-    text = format_all_outputs(outputs)
+    text = "\n\n".join(p for p in (format_output_text(o) for o in outputs) if p.strip())
     assert "a" in text and "b" in text
 
 
@@ -432,7 +430,6 @@ def test_height_for_text_includes_one_wrap_line():
     """Two source lines get a third visual line of pad (In[3] long print wraps)."""
     h = _height_for_text("line1\nline2")
     assert h == 3 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
-    assert _WRAP_SLACK == _LINE_HEIGHT
 
 
 def test_code_field_uses_full_text_area_width():
@@ -448,7 +445,7 @@ def test_page_style_shared_by_width_and_height():
 
     assert _page_style(None) is None
     assert "_page_style(doc)" in inspect.getsource(_text_area_width_units)
-    assert "_page_style(doc)" in inspect.getsource(_max_field_height_units)
+    assert "_page_style(doc)" in inspect.getsource(_height_for_text) and "_page_style(doc)" in inspect.getsource(_insert_code_input_in_flow)
 
     style = MagicMock()
     style.getPropertyValue.side_effect = lambda name: {
@@ -471,8 +468,8 @@ def test_page_style_shared_by_width_and_height():
 
     assert _page_style(doc) is style
     assert _text_area_width_units(doc) == 17000
-    assert _max_field_height_units(doc) == max(_MIN_FIELD_HEIGHT, 29700 - 2000 - 2000 - 1500)
-    assert _max_field_height_units(None) == _MAX_FIELD_HEIGHT
+    assert _cap_from_style(_page_style(doc)) == max(_MIN_FIELD_HEIGHT, 29700 - 2000 - 2000 - 1500)
+    assert _cap_from_style(None) == _MAX_FIELD_HEIGHT
 
 
 def test_page_style_reads_page_desc_name_from_first_paragraph():
@@ -511,7 +508,7 @@ def test_page_style_reads_page_desc_name_from_first_paragraph():
     assert _page_style(doc) is landscape
     cursor.gotoStart.assert_called_once_with(False)
     assert _text_area_width_units(doc) == 27700
-    assert _max_field_height_units(doc) == max(_MIN_FIELD_HEIGHT, 21000 - 1000 - 1000 - 1500)
+    assert _cap_from_style(_page_style(doc)) == max(_MIN_FIELD_HEIGHT, 21000 - 1000 - 1000 - 1500)
 
 
 def test_height_for_text_narrow_and_wide_field_w():
@@ -770,7 +767,7 @@ def test_append_body_paragraph_applies_resolved_style():
 def test_append_body_text_block_single_paragraph():
     doc, body_text, body_cursor = _writer_doc_mock()
     body_cursor.getString.return_value = ""
-    _append_body_text_block(doc, "line1\nline2\nline3", "Preformatted Text", lead_break=False)
+    _append_body_paragraph(doc, "line1\nline2\nline3", "Preformatted Text", lead_break=False)
     assert body_text.insertString.call_count == 1
     body_text.insertControlCharacter.assert_not_called()
 
@@ -1177,7 +1174,7 @@ def test_iter_markdown_blocks_deeper_atx_maps_to_h2():
 
 
 def test_inline_backticks_to_html_wraps_code():
-    html = _inline_backticks_to_html("The primary data structure in NumPy is the `ndarray`.")
+    html = _inline_markdown_to_html("The primary data structure in NumPy is the `ndarray`.")
     assert "<code>ndarray</code>" in html
     assert "`ndarray`" not in html
     assert "NumPy" in html
@@ -1563,7 +1560,7 @@ def test_html_img_and_a_to_markdown_extracts_tags():
 
 
 def test_resolve_markdown_image_path_relative_to_notebook_dir(tmp_path):
-    from plugin.notebook.writer_importer import _resolve_markdown_image_path
+    from plugin.notebook.writer_importer import _resolve_markdown_image
 
     nb_dir = tmp_path / "fixtures"
     img_dir = tmp_path / "images"
@@ -1571,16 +1568,16 @@ def test_resolve_markdown_image_path_relative_to_notebook_dir(tmp_path):
     img_dir.mkdir()
     img = img_dir / "foo.png"
     img.write_bytes(_TINY_PNG)
-    resolved = _resolve_markdown_image_path("../images/foo.png", str(nb_dir))
+    resolved = _resolve_markdown_image("../images/foo.png", str(nb_dir))
     assert resolved is not None
-    path, is_temp = resolved
-    assert is_temp is False
-    assert Path(path).resolve() == img.resolve()
-    assert _resolve_markdown_image_path("../images/missing.png", str(nb_dir)) is None
+    raw, hint = resolved
+    assert Path(hint).resolve() == img.resolve()
+    assert raw == _TINY_PNG
+    assert _resolve_markdown_image("../images/missing.png", str(nb_dir)) is None
 
 
 def test_resolve_bourke_images_from_fixture_notebook_dir():
-    from plugin.notebook.writer_importer import _resolve_markdown_image_path
+    from plugin.notebook.writer_importer import _resolve_markdown_image
 
     fixtures = Path(__file__).resolve().parents[1] / "fixtures"
     for name in (
@@ -1590,11 +1587,11 @@ def test_resolve_bourke_images_from_fixture_notebook_dir():
         "numpy-car-photo.png",
         "numpy-dog-photo.png",
     ):
-        resolved = _resolve_markdown_image_path(f"../images/{name}", str(fixtures))
+        resolved = _resolve_markdown_image(f"../images/{name}", str(fixtures))
         assert resolved is not None, name
-        path, is_temp = resolved
-        assert is_temp is False
-        assert Path(path).is_file(), name
+        raw, hint = resolved
+        assert Path(hint).is_file(), name
+        assert raw == Path(hint).read_bytes(), name
 
 
 def test_svg_pixel_size_reads_comma_viewbox():
@@ -1818,21 +1815,21 @@ def test_split_markdown_image_src_quotes_angles():
 
 
 def test_resolve_markdown_image_path_unquotes_and_angles(tmp_path):
-    from plugin.notebook.writer_importer import _resolve_markdown_image_path
+    from plugin.notebook.writer_importer import _resolve_markdown_image
 
     pic = tmp_path / "my pic.png"
     pic.write_bytes(_TINY_PNG)
-    res1 = _resolve_markdown_image_path("my%20pic.png", str(tmp_path))
+    res1 = _resolve_markdown_image("my%20pic.png", str(tmp_path))
     assert res1 is not None
-    path1, is_temp1 = res1
-    assert is_temp1 is False
-    assert Path(path1).resolve() == pic.resolve()
+    raw1, hint1 = res1
+    assert Path(hint1).resolve() == pic.resolve()
+    assert raw1 == _TINY_PNG
 
-    res2 = _resolve_markdown_image_path("<my pic.png>", str(tmp_path))
+    res2 = _resolve_markdown_image("<my pic.png>", str(tmp_path))
     assert res2 is not None
-    path2, is_temp2 = res2
-    assert is_temp2 is False
-    assert Path(path2).resolve() == pic.resolve()
+    raw2, hint2 = res2
+    assert Path(hint2).resolve() == pic.resolve()
+    assert raw2 == _TINY_PNG
 
 
 def test_file_url_to_local_path_unquotes(monkeypatch):
@@ -1856,7 +1853,7 @@ def test_file_url_to_local_path_unquotes(monkeypatch):
 
 def test_remote_image_budget_stops_fetches(monkeypatch):
     import urllib.request
-    from plugin.notebook.writer_importer import _RemoteImageBudget, _resolve_markdown_image_path
+    from plugin.notebook.writer_importer import _RemoteImageBudget, _resolve_markdown_image
 
     def fail_urlopen(*args, **kwargs):
         pytest.fail("urlopen should not be called when budget exhausted")
@@ -1864,10 +1861,10 @@ def test_remote_image_budget_stops_fetches(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen", fail_urlopen)
 
     budget1 = _RemoteImageBudget(max_images=0)
-    assert _resolve_markdown_image_path("https://example.com/a.png", None, budget=budget1) is None
+    assert _resolve_markdown_image("https://example.com/a.png", None, budget=budget1) is None
 
     budget2 = _RemoteImageBudget(budget_sec=-1.0)
-    assert _resolve_markdown_image_path("https://example.com/a.png", None, budget=budget2) is None
+    assert _resolve_markdown_image("https://example.com/a.png", None, budget=budget2) is None
 
 
 def test_format_stream_strips_ansi_and_collapses_cr():
@@ -1993,11 +1990,11 @@ def test_import_cells_closed_document_aborts(monkeypatch):
         raise type("DisposedException", (Exception,), {})("closed")
 
     monkeypatch.setattr(
-        "plugin.notebook.writer_importer._append_body_text_block", fail_append)
+        "plugin.notebook.writer_importer._append_body_paragraph", fail_append)
     doc = MagicMock()
     stats = {"cells": 0, "markdown": 0, "code": 0, "raw": 0, "shapes": 0, "images": 0, "outputs": 0, "controls": 0}
     with pytest.raises(DocumentDisposedError):
-        _import_cells(doc, _Nb(), stats, 2, 0.0)
+        _import_cells(doc, _Nb(), stats, 0.0, registry_state=NotebookDocState())
     # Counted before the try. The second cell must not run.
     assert stats["cells"] == 1
 

@@ -108,9 +108,7 @@ def _flag_line(lines: list[int], node: ast.AST | None, *, effect: bool = False) 
         return
     if effect and not _expr_has_load_time_effect(node):
         return
-    lineno = getattr(node, "lineno", 0)
-    if lineno not in lines:
-        lines.append(lineno)
+    lines.append(getattr(node, "lineno", 0))
 
 
 def _raise_not_library(lines: list[int]) -> None:
@@ -322,11 +320,10 @@ def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
         # evaluate_function_def previously wrote each def into custom_tools.
         # Defs now stay in state, but the defensive copy of custom_tools is kept
         # so library code cannot mutate the executor's tool dict.
-        shared_tools = executor.custom_tools if isinstance(executor.custom_tools, dict) else {}
         evaluate_python_code(
             extracted,
             static_tools=executor.static_tools or {},
-            custom_tools=dict(shared_tools),
+            custom_tools=dict(executor.custom_tools or {}),
             state=state,
             authorized_imports=executor.authorized_imports,
             max_print_outputs_length=executor.max_print_outputs_length,
@@ -459,8 +456,10 @@ class ScriptLibrary:
         return f"ScriptLibrary(origin={self._origin!r})"
 
 
-def _library_for_executor(executor: Any, origin: str) -> ScriptLibrary:
-    """Return the ScriptLibrary bound to *executor*, creating it once."""
+def _library_for_executor(executor: Any | None, origin: str) -> ScriptLibrary:
+    """Library cached on *executor*, or a fresh unbound library when *executor* is None."""
+    if executor is None:
+        return ScriptLibrary(origin)
     attr = "_named_scripts_library" if origin == SCRIPT_ORIGIN_USER else "_named_doc_library"
     existing = getattr(executor, attr, None)
     if isinstance(existing, ScriptLibrary) and existing._origin == origin and existing._executor is executor:
@@ -500,12 +499,8 @@ def attach_named_script_libraries(executor: Any | None = None) -> None:
     # module at those objects. Do not retarget a library another run still
     # holds: one module-level ScriptLibrary meant a second document's run
     # redirected the first run's object.
-    if executor is None:
-        scripts = ScriptLibrary(SCRIPT_ORIGIN_USER)
-        doc = ScriptLibrary(SCRIPT_ORIGIN_DOCUMENT)
-    else:
-        scripts = _library_for_executor(executor, SCRIPT_ORIGIN_USER)
-        doc = _library_for_executor(executor, SCRIPT_ORIGIN_DOCUMENT)
+    scripts = _library_for_executor(executor, SCRIPT_ORIGIN_USER)
+    doc = _library_for_executor(executor, SCRIPT_ORIGIN_DOCUMENT)
     for mod in mods:
         mod.scripts = scripts
         mod.doc = doc

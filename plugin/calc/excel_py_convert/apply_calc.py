@@ -40,15 +40,6 @@ def _resolve_sheet(doc: Any, sheet_name: str) -> Any | None:
     return None
 
 
-def _clear_spill_uno(sheet: Any, array_ref: str) -> None:
-    bounds = a1_span_bounds(array_ref)
-    assert bounds is not None, array_ref
-    (c1, r1), (c2, r2) = bounds
-    if c1 == c2 and r1 == r2:
-        return
-    sheet.getCellRangeByName(array_ref).clearContents(_SPILL_CLEAR_FLAGS)
-
-
 def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[str]:
     """Write script bank + converted formulas onto *doc*. Returns error strings.
 
@@ -97,78 +88,54 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
             ):
                 errors.append(f"{cell.sheet}!{cell.cell}: invalid array_ref {array_ref!r}")
                 continue
+            (c1, r1), (c2, r2) = bounds
+            if c1 == c2 and r1 == r2:
+                array_ref = ""
         planned_cells.append((sheet, cell.cell, formula, array_ref))
 
     if errors:
         return errors
 
     # 2. Write with rollback tracking
-    inserted_sheets: list[str] = []
-    added_defined_names: list[str] = []
-    overwritten_bank_strings: list[tuple[Any, str, str]] = []
-    overwritten_formulas: list[tuple[Any, str, str]] = []
+    journal: list[tuple[str, str, Any]] = []
     named_ranges = getattr(doc, "NamedRanges", None)
 
     def _rollback() -> list[str]:
         failed: list[str] = []
-        for sh, a1, prev_f in reversed(overwritten_formulas):
+        for label, detail, fn in reversed(journal):
             try:
-                sh.getCellRangeByName(a1).setFormula(prev_f)
+                fn()
             except Exception as exc:
-                log.warning("excel_py apply: rollback setFormula failed for %s: %s", a1, exc)
-                failed.append(f"rollback incomplete: setFormula {a1}: {exc}")
-        for sh, a1, prev_s in reversed(overwritten_bank_strings):
-            try:
-                sh.getCellRangeByName(a1).setString(prev_s)
-            except Exception as exc:
-                log.warning("excel_py apply: rollback setString failed for %s: %s", a1, exc)
-                failed.append(f"rollback incomplete: setString {a1}: {exc}")
-        if named_ranges is not None and hasattr(named_ranges, "removeByName"):
-            for name in reversed(added_defined_names):
-                try:
-                    if hasattr(named_ranges, "hasByName") and named_ranges.hasByName(name):
-                        named_ranges.removeByName(name)
-                except Exception as exc:
-                    log.warning("excel_py apply: rollback removeByName failed for %s: %s", name, exc)
-                    failed.append(f"rollback incomplete: removeByName {name}: {exc}")
-        if hasattr(sheets, "removeByName"):
-            for sh_name in reversed(inserted_sheets):
-                try:
-                    if sheets.hasByName(sh_name):
-                        sheets.removeByName(sh_name)
-                except Exception as exc:
-                    log.warning("excel_py apply: rollback remove sheet failed for %s: %s", sh_name, exc)
-                    failed.append(f"rollback incomplete: remove sheet {sh_name}: {exc}")
+                log.warning("excel_py apply: rollback %s failed for %s: %s", label, detail, exc)
+                failed.append(f"rollback incomplete: {label} {detail}: {exc}")
         return failed
 
     try:
         for code_sheet, sheet_bank in sorted(bank.items()):
-            if not sheet_bank:
-                continue
             if not sheets.hasByName(code_sheet):
                 sheets.insertNewByName(code_sheet, sheets.getCount())
-                inserted_sheets.append(code_sheet)
+                journal.append(("remove sheet", code_sheet, lambda sh_name=code_sheet: sheets.removeByName(sh_name) if sheets.hasByName(sh_name) else None))
             bank_sheet = sheets.getByName(code_sheet)
 
             if named_ranges is not None:
                 expected_def = bank_defined_name_for(code_sheet)
-                if hasattr(named_ranges, "hasByName") and not named_ranges.hasByName(expected_def):
+                if not named_ranges.hasByName(expected_def):
                     import uno
 
                     addr = uno.createUnoStruct("com.sun.star.table.CellAddress")
                     named_ranges.addNewByName(expected_def, f"'{code_sheet}'.$A$1", addr, 0)
-                    added_defined_names.append(expected_def)
+                    journal.append(("removeByName", expected_def, lambda name=expected_def, nr=named_ranges: nr.removeByName(name) if nr.hasByName(name) else None))
 
             if CODE_SHEET_NOTE_CELL not in sheet_bank:
                 note_cell = bank_sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL)
-                prev_note = note_cell.getString() if hasattr(note_cell, "getString") else ""
-                overwritten_bank_strings.append((bank_sheet, CODE_SHEET_NOTE_CELL, prev_note))
+                prev_note = note_cell.getString()
+                journal.append(("setString", CODE_SHEET_NOTE_CELL, lambda c=note_cell, prev=prev_note: c.setString(prev)))
                 note_cell.setString(CODE_SHEET_NOTE)
 
             for a1, code in sorted(sheet_bank.items()):
                 cell_obj = bank_sheet.getCellRangeByName(a1)
-                prev_code = cell_obj.getString() if hasattr(cell_obj, "getString") else ""
-                overwritten_bank_strings.append((bank_sheet, a1, prev_code))
+                prev_code = cell_obj.getString()
+                journal.append(("setString", a1, lambda c=cell_obj, prev=prev_code: c.setString(prev)))
                 cell_obj.setString(code)
     except Exception as exc:
         errors = [f"script bank write failed: {exc}"]
@@ -179,13 +146,13 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
     for sheet, coord, formula, array_ref in planned_cells:
         try:
             uno_cell = sheet.getCellRangeByName(coord)
-            prev_formula = uno_cell.getFormula() if hasattr(uno_cell, "getFormula") else ""
-            overwritten_formulas.append((sheet, coord, prev_formula))
+            prev_formula = uno_cell.getFormula()
+            journal.append(("setFormula", coord, lambda c=uno_cell, prev=prev_formula: c.setFormula(prev)))
             if array_ref:
-                _clear_spill_uno(sheet, array_ref)
+                sheet.getCellRangeByName(array_ref).clearContents(_SPILL_CLEAR_FLAGS)
             uno_cell.setFormula(formula)
         except Exception as exc:
-            errors.append(f"{sheet.getName() if hasattr(sheet, 'getName') else 'Sheet'}!{coord}: {exc}")
+            errors.append(f"{sheet.getName()}!{coord}: {exc}")
             errors.extend(_rollback())
             best_effort(doc.calculateAll, "calculateAll after Excel PY apply rollback")
             return errors

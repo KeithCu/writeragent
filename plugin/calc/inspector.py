@@ -32,7 +32,7 @@ from plugin.calc.datetime_wire import (
 )
 from plugin.calc.calc_utils import cell_value_and_type
 from plugin.framework.errors import CalcError, is_disposed_exception
-from plugin.scripting.config_limits import configured_python_max_data_cells, python_max_data_cells_min
+from plugin.scripting.config_limits import configured_python_max_data_cells
 
 log = logging.getLogger("writeragent.calc")
 
@@ -54,16 +54,6 @@ class CellInspector:
         self.bridge = bridge
 
     # ── Internal helpers ───────────────────────────────────────────────
-
-    @staticmethod
-    def _safe_prop(cell: Any, name: str, default: Any = None) -> Any:
-        try:
-            return cell.getPropertyValue(name)
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.debug("_safe_prop read failed for %s", name, exc_info=True)
-            return default
 
     def _format_meta(self, format_key: Any, formats: Any, cache: dict[int, tuple[str | None, str | None]]) -> tuple[str | None, str | None]:
         """Resolve one number-format key to (category, FormatString), caching across groups.
@@ -117,7 +107,7 @@ class CellInspector:
             return
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
-        category, format_code = self._format_meta(self._safe_prop(cell, "NumberFormat"), formats, {})
+        category, format_code = self._format_meta(cell.getPropertyValue("NumberFormat"), formats, {})
         if category is None:
             return
         null_date = doc.getNumberFormatSettings().getPropertyValue("NullDate")
@@ -163,7 +153,7 @@ class CellInspector:
                 if group.getCount() == 0:
                     continue
                 representative = group.getByIndex(0)
-                category, format_code = self._format_meta(self._safe_prop(representative, "NumberFormat"), formats, cache)
+                category, format_code = self._format_meta(representative.getPropertyValue("NumberFormat"), formats, cache)
                 if category is None:
                     continue
                 addresses = tuple(group.getRangeAddresses())
@@ -252,22 +242,14 @@ class CellInspector:
         try:
             cell_range = self.bridge.resolve_range_or_address(range_name)
 
-            if hasattr(cell_range, "getRangeAddress"):
-                addr = cell_range.getRangeAddress()
-                # Refuse an over-cap range before fetching data/formula arrays.
-                rows = addr.EndRow - addr.StartRow + 1
-                cols = addr.EndColumn - addr.StartColumn + 1
-                n = rows * cols
-                if isinstance(n, int) and n > python_max_data_cells_min():
-                    limit = configured_python_max_data_cells()
-                    if n > limit:
-                        raise CalcError(f"Data range has {n} cells; maximum is {limit}.")
-                if addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow:
-                    cell_info = self.read_cell(range_name, include_format_info=include_format_info)
-                    return [[cell_info]]
-            else:
-                cell_info = self.read_cell(range_name, include_format_info=include_format_info)
-                return [[cell_info]]
+            addr = cell_range.getRangeAddress() if hasattr(cell_range, "getRangeAddress") else None
+            if addr is None or (addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow):
+                return [[self.read_cell(range_name, include_format_info=include_format_info)]]
+            # Refuse an over-cap range before fetching data/formula arrays.
+            n = (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1)
+            limit = configured_python_max_data_cells()
+            if n > limit:
+                raise CalcError(f"Data range has {n} cells; maximum is {limit}.")
 
             data_array = cell_range.getDataArray()
             formula_array = cell_range.getFormulaArray()

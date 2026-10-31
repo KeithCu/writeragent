@@ -221,21 +221,16 @@ class BatchingStreamQueue:
 
     def put(self, item: Any) -> None:
         """Batch CHUNK/THINKING. Any other item flushes those runs first."""
-        # Fast path for the two display kinds.
-        # Bugfix: StreamQueueKind is a str enum, so "chunk" == StreamQueueKind.CHUNK
-        # evaluated to True. Bare string tags were batched into display runs instead of
-        # falling through to the boundary/raw queue, causing a mismatch with the drain
-        # which requires isinstance(kind, StreamQueueKind). Requiring isinstance here
-        # lets bare strings fall through so the drain's existing TypeError path reports them.
-        if isinstance(item, (list, tuple)) and item:
-            kind, data = split_stream_item(item)
-            if isinstance(kind, StreamQueueKind) and (kind is StreamQueueKind.CHUNK or kind is StreamQueueKind.THINKING):
-                with self._lock:
-                    # Abort discarded this batcher. A later put must not arm the timer.
-                    if self._dropped:
-                        return
-                    self._append_display_locked(kind, data or "")
-                return
+        # Bugfix: str-enum equality made "chunk" == CHUNK, so bare string tags were
+        # batched. `is` rejects them; they stay boundary items and the drain reports them.
+        kind, data = split_stream_item(item)
+        if isinstance(item, (list, tuple)) and (kind is StreamQueueKind.CHUNK or kind is StreamQueueKind.THINKING):
+            with self._lock:
+                # Abort discarded this batcher. A later put must not arm the timer.
+                if self._dropped:
+                    return
+                self._append_display_locked(kind, data or "")
+            return
 
         # Any other kind (including bare kinds or control tuples) is a boundary.
         # Emit, the dropped check, and the put share this lock. Releasing the
@@ -253,8 +248,6 @@ class BatchingStreamQueue:
     def flush(self) -> None:
         """Force immediate emission of any pending display text (one joined string per kind)."""
         with self._lock:
-            if self._dropped:
-                return
             self._emit_pending_locked()
 
     def discard(self) -> None:

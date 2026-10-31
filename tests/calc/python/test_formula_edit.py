@@ -9,7 +9,6 @@ from __future__ import annotations
 from plugin.calc.python.formula_edit import (
     assemble_python_formula,
     build_data_suffix,
-    build_new_python_formula,
     cell_looks_python_like,
     escape_code_for_formula,
     format_data_binding_display,
@@ -163,11 +162,11 @@ def test_normalize_array_and_no_equals():
 
 
 def test_build_new_formula_empty():
-    assert build_new_python_formula("") == '=PY("")'
+    assert rebuild_python_formula_with_data("", []) == '=PY("")'
 
 
 def test_build_new_formula_escapes():
-    assert '""' in build_new_python_formula('say "hi"')
+    assert '""' in rebuild_python_formula_with_data('say "hi"', [])
 
 
 def test_rebuild_preserves_data_suffix_from_parts():
@@ -259,7 +258,7 @@ def test_format_py_and_excel_data_range_real_sheets():
     assert format_py_data_range("!A1") == "''.A1"
     assert build_data_suffix(["Sheet.A1"]) == ";Sheet.A1)"
     assert build_data_suffix(["'My Sheet'.A1"]) == ";'My Sheet'.A1)"
-    assert build_data_suffix(["Sheet!A1"], separator=",", excel_ranges=True) == ",Sheet!A1)"
+    assert build_data_suffix(["Sheet!A1"], separator=",") == ",Sheet!A1)"
     assert build_data_suffix(["My Sheet.A1"], separator=",") == ",'My Sheet'!A1)"
 
 
@@ -298,7 +297,7 @@ def test_calc_escape_preserves_hand_written_code():
     code = "x = float(1)"
     assert escape_code_for_formula(code) == code
     calc = rebuild_python_formula_with_data(code, [])
-    xlsx = rebuild_python_formula_with_data(code, [], separator=",", excel_escape=True)
+    xlsx = rebuild_python_formula_with_data(code, [], separator=",")
     assert "float(1)" in calc
     assert "float(1)" in xlsx
     assert xlsx.startswith('=PY("')

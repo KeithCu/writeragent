@@ -17,7 +17,6 @@ from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     insert_helper_result_into_calc,
     is_status_helper_result,
-    make_template_api,
     run_trusted_calc_data_helper,
 )
 
@@ -67,17 +66,15 @@ install_lazy_exports(globals(), "forecast", _FORECAST_VENV_EXPORTS)
 
 # --- Templates ---
 
-_API = make_template_api(
-    DomainFacadeConfig(
-        tag="forecast",
-        helper_names=HELPER_NAMES,
-        default_params=_DEFAULT_PARAMS,
-        descriptions=_HELPER_DESCRIPTIONS,
-        import_module="writeragent.scripting.forecast",
-        run_name="run_forecast",
-        leading_data=True,
-        extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
-    )
+_API = DomainFacadeConfig(
+    tag="forecast",
+    helper_names=HELPER_NAMES,
+    default_params=_DEFAULT_PARAMS,
+    descriptions=_HELPER_DESCRIPTIONS,
+    import_module="writeragent.scripting.forecast",
+    run_name="run_forecast",
+    leading_data=True,
+    extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
 )
 
 parse_forecast_script_header = _API.parse_header

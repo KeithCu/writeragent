@@ -62,7 +62,6 @@ def _at_page_anchor_page(obj: Any) -> Any | None:
 
 class SectionList(ToolWriterStructuralBase):
     name: str | None = "section_list"
-    intent: str | None = "navigate"
     description: str = "List all named sections in the document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -80,7 +79,6 @@ class SectionList(ToolWriterStructuralBase):
 
 class NavGotoPage(ToolWriterStructuralBase):
     name: str | None = "nav_goto_page"
-    intent: str | None = "navigate"
     is_mutation: bool | None = False
     description: str = "Navigate the view cursor to a specific page."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "Page number to navigate to"}}, "required": ["page"]}
@@ -98,7 +96,6 @@ class NavGotoPage(ToolWriterStructuralBase):
 
 class GetPageObjects(ToolBase):
     name: str | None = "get_page_objects"
-    intent: str | None = "read"
     description: str = (
         "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide "
         "page number, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the "
@@ -280,7 +277,6 @@ class SectionRead(ToolWriterStructuralBase):
     """Read the content of a named text section."""
 
     name: str | None = "section_read"
-    intent: str | None = "navigate"
     description: str = "Read the text content of a named section. Returns the full text within the section boundaries."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"section": {"type": "string", "description": "Name of the section to read."}}, "required": ["section"]}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -370,7 +366,6 @@ class CloneHeadingBlock(ToolBaseDummy):
     """Clone an entire heading block (heading + all sub-headings + body)."""
 
     name: str | None = "clone_heading_block"
-    intent: str | None = "edit"
     description: str = (
         "Clone an entire heading block (heading + all sub-headings + body). Plain paragraph text and "
         "paragraph style are copied; character formatting, lists, fields, hyperlinks, bookmarks, and "

@@ -507,11 +507,14 @@ def test_unicode():
 def test_besseli():
     import scipy.special
     assert math.isclose(calc.besseli(1.5, 1), scipy.special.iv(1, 1.5))
+    assert math.isclose(calc.besseli(0.0, 1), scipy.special.iv(1, 0.0))
     assert math.isnan(calc.besseli(1.5, -1))
+    assert math.isnan(calc.besseli("invalid", 1))
 
 def test_besselj():
     import scipy.special
     assert math.isclose(calc.besselj(1.5, 1), scipy.special.jv(1, 1.5))
+    assert math.isclose(calc.besselj(0.0, 1), scipy.special.jv(1, 0.0))
     assert math.isnan(calc.besselj(1.5, -1))
 
 
@@ -1141,6 +1144,11 @@ def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
     assert math.isnan(calc.xor([1, float("nan"), 0]))
     assert calc.xor(np.array([1, 0, 1])) is False
     assert calc.xor(np.array([[True, False], [True, False]])) is False
+    assert calc.xor(np.int64(1), np.int64(0)) is True
+    assert calc.xor([np.float64(1.5), np.float64(0.0)]) is True
+    assert calc.xor(np.bool_(True), np.bool_(True)) is False
+    assert calc.xor(np.longdouble(1.0), np.longdouble(0.0)) is True
+    assert calc.xor(np.array(1.0)) == "#VALUE!"
     assert calc.xor() == "#VALUE!"
 
 

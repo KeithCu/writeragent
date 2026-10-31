@@ -13,21 +13,16 @@ import numpy as np
 import pytest
 
 from plugin.scripting.venv.calc_functions_a_c import (
-    _bessel_eval,
     _int_bitwise,
     _int_shift,
 )
-from plugin.scripting.venv.calc_functions_d_h import (
-    _dollar_fraction_terms,
-    _fractional_dollar_digits,
-)
+from plugin.scripting.venv.calc_functions_d_h import _dollar_fraction_terms
 from plugin.scripting.venv.calc_functions_t_z import _find_match_index
 from plugin.scripting.venv.calc_functions_util import (
     _build_holiday_set,
     _collect_a_values,
     _criteria_numbers,
     _extract_numeric_array,
-    _find_text_cut,
     _npf_result,
     _parse_weekend,
     _serial_to_date,
@@ -194,61 +189,6 @@ def test_parse_weekend():
     assert math.isnan(_parse_weekend(None))
 
 
-def test_find_text_cut():
-    import pytest
-
-    # Positive instance, before
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 1, after=False)
-    assert (s, inst, idx, at_end) == ("a-b-c", 1, 1, False)
-
-    # Positive instance, after
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 1, after=True)
-    assert (s, inst, idx, at_end) == ("a-b-c", 1, 2, False)
-
-    # Second instance, before and after
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 2, after=False)
-    assert idx == 3
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 2, after=True)
-    assert idx == 4
-
-    # Negative instance
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=False)
-    assert (idx, at_end) == (3, False)
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=True)
-    # End of the last hyphen. The remainder starts at 4, not at the
-    # hyphen itself: TEXTAFTER used to add len(delim) to a start index.
-    assert (idx, at_end) == (4, False)
-
-    # Match mode 1 (case insensitive)
-    s, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=False)
-    assert idx == 3
-    s, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=True)
-    assert idx == 6
-
-    # Match end miss (instance lands on boundary)
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 3)
-    assert idx is None and at_end is True
-
-    # Real miss (beyond boundary)
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 4)
-    assert idx is None and at_end is False
-
-    # lower() of İ grows, so an index into the lowered string included "b".
-    s, inst, idx, at_end = _find_text_cut("aİb", "b", 1, match_mode=1, after=False)
-    assert idx == 2
-    # rfind saw an overlapping second "aa". The walk is non-overlapping.
-    s, inst, idx, at_end = _find_text_cut("aaa", "aa", -1, after=False)
-    assert idx == 0
-
-    # Instance 0 raises ValueError
-    with pytest.raises(ValueError):
-        _find_text_cut("a-b-c", "-", 0)
-
-    # Non-numeric instance raises ValueError
-    with pytest.raises(ValueError):
-        _find_text_cut("a-b-c", "-", "invalid")
-
-
 def test_int_bitwise():
     import operator
 
@@ -281,52 +221,22 @@ def test_int_shift():
     assert math.isnan(_int_shift(float("inf"), 1, left=False))
 
 
-def test_bessel_iv_jv():
-    def dummy_fn(v, z):
-        return v * 10.0 + z
-
-    assert _bessel_eval(dummy_fn, 2.5, 3, positive_x=False) == 32.5
-    assert _bessel_eval(dummy_fn, 0.0, 1, positive_x=False) == 10.0
-    # n < 0 returns NaN
-    assert math.isnan(_bessel_eval(dummy_fn, 2.5, -1, positive_x=False))
-    with pytest.raises(ValueError):
-        _bessel_eval(dummy_fn, "invalid", 1, positive_x=False)
-
-
-def test_bessel_kn_yn():
-    def dummy_fn(v, z):
-        return v * 10.0 + z
-
-    assert _bessel_eval(dummy_fn, 2.5, 3, positive_x=True) == 32.5
-    # x <= 0 returns NaN
-    assert math.isnan(_bessel_eval(dummy_fn, 0.0, 1, positive_x=True))
-    assert math.isnan(_bessel_eval(dummy_fn, -2.5, 1, positive_x=True))
-    assert math.isnan(_bessel_eval(dummy_fn, 1.0, -1, positive_x=True))
-    with pytest.raises(ValueError):
-        _bessel_eval(dummy_fn, "invalid", 1, positive_x=True)
-
-
 def test_criteria_numbers():
     # Same range for criteria and values
-    assert _criteria_numbers([10, 20, 30, 40], ">20") == [30.0, 40.0]
+    assert _criteria_numbers([10, 20, 30, 40], [([10, 20, 30, 40], ">20")]) == [30.0, 40.0]
 
     # Separate value range with text and NaN filtering
     cond = ["yes", "no", "yes", "yes"]
     vals = [10.0, 20.0, "bad", 30.0]
-    assert _criteria_numbers(cond, "yes", vals) == [10.0, 30.0]
+    assert _criteria_numbers(vals, [(cond, "yes")]) == [10.0, 30.0]
 
     # No matches returns empty list
-    assert _criteria_numbers([1, 2, 3], ">10") == []
+    assert _criteria_numbers([1, 2, 3], [([1, 2, 3], ">10")]) == []
     # Numeric text and bools are not numbers in the value range.
-    assert _criteria_numbers(["yes", "yes", "yes"], "yes", ["5", True, 4.0]) == [4.0]
+    assert _criteria_numbers(["5", True, 4.0], [(["yes", "yes", "yes"], "yes")]) == [4.0]
 
 
 def test_dollar_fraction_terms():
-    assert _fractional_dollar_digits(1) == 0
-    assert _fractional_dollar_digits(4) == 1
-    assert _fractional_dollar_digits(16) == 2
-    assert _fractional_dollar_digits(32) == 2
-
     # dollarde terms
     terms = _dollar_fraction_terms(1.02, 4)
     assert terms is not None
@@ -483,7 +393,7 @@ def test_eval_d_criteria():
     # Match Pear
     crit = [["Tree"], ["Pear"]]
     vals = _eval_d_criteria(db, "Height", crit)
-    assert vals == [15.0]
+    assert vals == [15]
 
     # No match returns empty list []
     crit_none = [["Tree"], ["Orange"]]
@@ -498,7 +408,9 @@ def test_eval_d_criteria():
     # Text is skipped, TRUE is 1, NaN is missing. An unknown header is an error.
     mixed = [["Name", "Score"], ["A", "5"], ["B", True], ["C", 2.0], ["D", float("nan")]]
     mixed_crit = [["Name"], ["A"], ["B"], ["C"], ["D"]]
-    assert _eval_d_criteria(mixed, "Score", mixed_crit) == [1.0, 2.0]
+    raw = _eval_d_criteria(mixed, "Score", mixed_crit)
+    assert raw[:3] == ["5", True, 2.0]
+    assert len(raw) == 4 and isinstance(raw[3], float) and math.isnan(raw[3])
     assert _eval_d_criteria(mixed, "Score", [["Nope"], ["A"]]) is None
 
     # Duplicate database headers: the name is the first column. Index 2 is the second.
@@ -513,14 +425,13 @@ def test_multi_criteria_mask():
 
     # Matching lengths
     pairs = [([1, 2, 3], ">1"), (["a", "b", "c"], "<>a")]
-    mask = _multi_criteria_mask(pairs, base_len=3)
+    mask = _multi_criteria_mask(pairs)
     assert mask is not None
     assert list(mask) == [False, True, True]
 
     # Mismatched lengths returns None
     pairs_bad = [([1, 2], ">0"), ([1, 2, 3], ">0")]
     assert _multi_criteria_mask(pairs_bad) is None
-    assert _multi_criteria_mask(pairs, base_len=2) is None
 
     # Same cell count, different shape. 2x3 and 3x2 both ravel to 6.
     wide = [[1, 2, 3], [4, 5, 6]]
@@ -536,11 +447,12 @@ def test_get_coupon_dates_calendar_stepping():
     from plugin.scripting.venv.calc_functions_a_c import _get_coupon_dates
 
     # 2020-01-01 to 2020-06-01, freq=2, basis=0
-    p_ser, c_ser, days_in_per, k = _get_coupon_dates(43831, 43983, 2, 0)
+    p_ser, c_ser, days_in_per, k, basis_code = _get_coupon_dates(43831, 43983, 2, 0)
     assert p_ser == 43800.0  # 2019-12-01
     assert c_ser == 43983.0  # 2020-06-01
     assert days_in_per == 180.0
     assert k == 1.0
+    assert basis_code == 0
 
     # Invalid frequency or basis raises ValueError
     with pytest.raises(ValueError):

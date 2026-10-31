@@ -131,6 +131,13 @@ def merge_provider_default_models(to_show: list[str], provider: str, req_cap: st
             to_show.append(effective_id)
 
 
+def _catalog_id_matches(provider: str | None, catalog_id: str, model_id: str) -> bool:
+    # Suffix and an optional vendor prefix are the same model only on OpenRouter.
+    if provider == "openrouter":
+        return openrouter_model_ids_equivalent(catalog_id, model_id)
+    return catalog_id == model_id
+
+
 def get_model_capability(model_id: Any, endpoint: Any) -> int:
     """Check the model catalog for capabilities bitmask."""
     provider = get_provider_from_endpoint(endpoint)
@@ -140,10 +147,7 @@ def get_model_capability(model_id: Any, endpoint: Any) -> int:
         effective_id = resolve_model_id(m, provider)
         if not effective_id:
             continue
-        if provider == "openrouter":
-            if openrouter_model_ids_equivalent(effective_id, model_id):
-                return m.get("capability", ModelCapability.CHAT)
-        elif effective_id == model_id:
+        if _catalog_id_matches(provider, effective_id, model_id):
             return m.get("capability", ModelCapability.CHAT)
     return ModelCapability.NONE
 
@@ -161,39 +165,29 @@ _COMBO_CAP = {
 }
 
 
-def catalog_speech_ids(provider: str, kind: str) -> list[str]:
-    """Every TTS or STT catalog id for ``provider``, not only the default."""
-    pred = _row_is_tts if kind == "tts" else _row_is_stt
-    out: list[str] = []
-    for model in DEFAULT_MODELS:
-        if not pred(model):
-            continue
-        effective_id = resolve_model_id(model, provider)
-        if effective_id and effective_id not in out:
-            out.append(effective_id)
-    return out
-
-
 def together_speech_ids(kind: str, remote_models: list[str] | None = None) -> list[str]:
     """Together Speech-tab ids: full serverless catalog, plus prefix matches.
 
     ``remote_models`` may be the raw ``GET /v1/models`` array. Chat rows are
     dropped. There is no Together ``output_modalities`` query.
     """
-    out = catalog_speech_ids("together", kind)
+    pred = _row_is_tts if kind == "tts" else _row_is_stt
+    out: list[str] = []
+    for model in DEFAULT_MODELS:
+        if not pred(model):
+            continue
+        effective_id = resolve_model_id(model, "together")
+        if effective_id and effective_id not in out:
+            out.append(effective_id)
     prefixes = _TOGETHER_TTS_PREFIXES if kind == "tts" else _TOGETHER_STT_PREFIXES
     seen = {mid.casefold() for mid in out}
     for raw in remote_models or []:
         mid = str(raw).strip()
-        if not mid:
-            continue
         folded = mid.casefold()
-        if folded in seen:
-            continue
         # nvidia/nemotron also matches chat ids (nemotron-nano). Those are
         # not ASR unless the id contains "asr". Whisper, parakeet, and the
         # TTS prefixes do not overlap this string.
-        if folded.startswith(prefixes) and not (
+        if mid and folded not in seen and folded.startswith(prefixes) and not (
             folded.startswith("nvidia/nemotron") and "asr" not in folded
         ):
             out.append(mid)

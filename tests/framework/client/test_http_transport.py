@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.client.http_transport import LlmHttpTransport
-from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
+from plugin.framework.client.request_controls import enable_local_unverified, reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError
 
 
@@ -28,7 +28,7 @@ def test_endpoint_parts_bad_port_is_network_error():
 
 
 def test_endpoint_parts_malformed_bracket_url_is_network_error():
-    """``current_host`` / ``_endpoint_parts`` must not leak ``ValueError``.
+    """``_endpoint_parts`` must not leak ``ValueError``.
 
     What was wrong: ``urlparse`` raises before ``_explicit_port`` for an
     unmatched bracket, so ``LlmHttpTransport.current_host`` escaped.
@@ -39,10 +39,6 @@ def test_endpoint_parts_malformed_bracket_url_is_network_error():
             transport._endpoint_parts()
         assert raised.value.code == "INVALID_URL"
         assert not isinstance(raised.value, ValueError)
-        with pytest.raises(NetworkError) as raised_host:
-            transport.current_host()
-        assert raised_host.value.code == "INVALID_URL"
-        assert not isinstance(raised_host.value, ValueError)
 
 
 def test_exchange_malformed_bracket_redirect_is_network_error():
@@ -124,7 +120,8 @@ def test_transport_local_cert_fallback_reopens_with_unverified_context():
         transport.get_connection()
         assert mock_https.call_args_list[0].kwargs["context"] == mock_verified_ssl.return_value
 
-        assert transport.enable_local_ssl_fallback(ssl.SSLCertVerificationError("self-signed certificate")) is True
+        assert enable_local_unverified(transport._endpoint_parts()[1], ssl.SSLCertVerificationError("self-signed certificate")) is True
+        transport.close()
         transport.get_connection()
 
         assert mock_https.call_args_list[1].kwargs["context"] == mock_unverified_ssl.return_value

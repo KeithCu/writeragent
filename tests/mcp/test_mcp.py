@@ -216,9 +216,9 @@ def test_mcp_action_server_status_dialog_controls():
 
     mock_dlg.getControl.side_effect = lambda name: mock_controls.get(name)
 
+    mod._tunnel = mock_tunnel
     with (
-        patch.object(mod, "_bound_http_server", return_value=mock_server),
-        patch.object(mod, "_bound_tunnel", return_value=mock_tunnel),
+        patch("plugin.mcp._shared_http_server", mock_server),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=mock_dlg),
     ):
@@ -251,7 +251,7 @@ def test_mcp_action_toggle_server_start_does_not_popup_modal_msgbox():
     mod._services = mock_services
 
     with (
-        patch.object(mod, "_bound_http_server", side_effect=[None, mock_server]),
+        patch("plugin.mcp.is_mcp_server_running", side_effect=[False, True]),
         patch.object(mod, "_start_server") as mock_start,
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
@@ -276,7 +276,7 @@ def test_mcp_action_toggle_server_stop_does_not_popup_modal_msgbox():
     mod._services = mock_services
 
     with (
-        patch.object(mod, "_bound_http_server", return_value=mock_server),
+        patch("plugin.mcp.is_mcp_server_running", return_value=True),
         patch.object(mod, "_stop_server") as mock_stop,
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
@@ -304,7 +304,7 @@ def test_mcp_action_toggle_server_failure_shows_failure_dialog():
     mod._services = mock_services
 
     with (
-        patch.object(mod, "_bound_http_server", return_value=None),
+        patch("plugin.mcp.is_mcp_server_running", return_value=False),
         patch.object(mod, "_start_server"),
         patch.object(mod, "_show_start_failure_dialog") as mock_fail_dlg,
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),

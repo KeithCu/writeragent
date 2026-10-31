@@ -10,6 +10,7 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 from __future__ import annotations
 
 import datetime as dt
+from functools import wraps
 from itertools import islice
 import math
 import sys
@@ -35,9 +36,6 @@ from .calc_functions_util import (
     yearfrac,
 )
 from .coerce import is_missing_value
-
-_PERCENTRANK_MAX_SIG = 15
-
 
 
 __all__ = [
@@ -92,6 +90,20 @@ __all__ = [
 ]
 
 
+# Whole-body NaN handler for ValueError, TypeError, and OverflowError only.
+# Leave a try that does not cover the whole function, and leave any except
+# that is not exactly this tuple.
+def _nan_on_error(fn: Any) -> Any:
+    @wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        except (ValueError, TypeError, OverflowError):
+            return float("nan")
+
+    return wrapper
+
+
 def na() -> float:
     # Usually #N/A in Calc maps to NaN in Python data array
     return float("nan")
@@ -107,22 +119,20 @@ def n(val: Any) -> float:
     return 0.0
 
 
+@_nan_on_error
 def negbinomdist(x: Any, r: Any, p: Any) -> float:
-    try:
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
-        # int(float(+inf)) and int() of an oversized count raise OverflowError.
-        # The old except only named ValueError, so that input escaped. Excel
-        # NEGBINOMDIST is #NUM!, which this module returns as NaN.
-        k = int(float(x))
-        r_val = int(float(r))
-        prob = float(p)
-        if k < 0 or r_val < 1 or prob <= 0 or prob > 1:
-            return float("nan")
-        return float(st.nbinom.pmf(k, r_val, prob))
-    except (ValueError, TypeError, OverflowError):
+    st = _scipy_stats()
+    if st is None:
         return float("nan")
+    # int(float(+inf)) and int() of an oversized count raise OverflowError.
+    # The old except only named ValueError, so that input escaped. Excel
+    # NEGBINOMDIST is #NUM!, which this module returns as NaN.
+    k = int(float(x))
+    r_val = int(float(r))
+    prob = float(p)
+    if k < 0 or r_val < 1 or prob <= 0 or prob > 1:
+        return float("nan")
+    return float(st.nbinom.pmf(k, r_val, prob))
 
 
 def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> float:
@@ -157,10 +167,9 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
             days += 1
         curr += dt.timedelta(days=1)
 
-    if h_dates:
-        for h in h_dates:
-            if sd <= h <= ed and h.weekday() not in wk_days:
-                days -= 1
+    for h in h_dates:
+        if sd <= h <= ed and h.weekday() not in wk_days:
+            days -= 1
 
     return float(sign * max(0, days))
 
@@ -186,38 +195,34 @@ def nominal(effect_rate: Any, npery: Any) -> float:
     return res if math.isfinite(res) else float("nan")
 
 
+@_nan_on_error
 def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
-    try:
-        x_val = float(x)
-        m = float(mean)
-        s = float(stdev)
-        cum = bool(float(c))
-        if s <= 0:
-            return float("nan")
-        # integralPhi / phi from ScNormDist. scipy.stats was imported inside
-        # the call, so a missing scipy made every value NaN.
-        z = (x_val - m) / s
-        if cum:
-            res = 0.5 * math.erfc(-z / math.sqrt(2.0))
-        else:
-            res = math.exp(-0.5 * z * z) / (s * math.sqrt(2.0 * math.pi))
-        return res if math.isfinite(res) else float("nan")
-    except (ValueError, TypeError, OverflowError):
+    x_val = float(x)
+    m = float(mean)
+    s = float(stdev)
+    cum = bool(float(c))
+    if s <= 0:
         return float("nan")
+    # integralPhi / phi from ScNormDist. scipy.stats was imported inside
+    # the call, so a missing scipy made every value NaN.
+    z = (x_val - m) / s
+    if cum:
+        res = 0.5 * math.erfc(-z / math.sqrt(2.0))
+    else:
+        res = math.exp(-0.5 * z * z) / (s * math.sqrt(2.0 * math.pi))
+    return res if math.isfinite(res) else float("nan")
 
 
+@_nan_on_error
 def norminv(prob: Any, mean: Any, stdev: Any) -> float:
-    try:
-        p = float(prob)
-        m = float(mean)
-        s = float(stdev)
-        if p <= 0 or p >= 1 or s <= 0:
-            return float("nan")
-        # gaussinv(p) is the standard-normal inverse CDF.
-        res = m + s * statistics.NormalDist().inv_cdf(p)
-        return res if math.isfinite(res) else float("nan")
-    except (ValueError, TypeError, OverflowError):
+    p = float(prob)
+    m = float(mean)
+    s = float(stdev)
+    if p <= 0 or p >= 1 or s <= 0:
         return float("nan")
+    # gaussinv(p) is the standard-normal inverse CDF.
+    res = m + s * statistics.NormalDist().inv_cdf(p)
+    return res if math.isfinite(res) else float("nan")
 
 
 def normsdist(z: Any) -> float:
@@ -228,18 +233,16 @@ def normsinv(prob: Any) -> float:
     return norminv(prob, 0, 1)
 
 
+@_nan_on_error
 def _npf_call(kind: str, a: Any, b: Any, c: Any, d: Any, type_val: Any) -> float:
     # Only type 1 is beginning-of-period, same rule as PMT/FV/PV.
     # The old closed form plugged any integer into (1+rate*type).
     # float() of an oversized int raises OverflowError. Excel is #VALUE!.
-    try:
-        a_f = float(a)
-        b_f = float(b)
-        c_f = float(c)
-        d_f = float(d)
-        t = 1 if int(float(type_val)) == 1 else 0
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    a_f = float(a)
+    b_f = float(b)
+    c_f = float(c)
+    d_f = float(d)
+    t = 1 if int(float(type_val)) == 1 else 0
     return _npf_result(kind, a_f, b_f, c_f, d_f, t)
 
 
@@ -296,61 +299,57 @@ def npv(rate: Any, *args: Any) -> float:
 _NUMBER_TEXT = re.compile(r"^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$")
 
 
+@_nan_on_error
 def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     # When the group separator equals the decimal separator, do not strip it.
     # numbervalue("1,5", ",") is 1.5, not 15.
-    try:
-        s = str(text)
-        dec = str(dec_sep)
-        grp = str(grp_sep)
-        # ScNumberValue requires a one-character decimal separator.
-        if len(dec) != 1:
-            return float("nan")
-        if not s:
-            return 0.0
-        if grp != dec:
-            # A decimal mark inside the group separator is IllegalArgument.
-            if dec in grp:
-                return float("nan")
-            # Group marks are removed from the integer part only. Stripping
-            # them from the fraction turned "1.2,3" into 1.23.
-            split_at = s.find(dec)
-            head, tail = (s, "") if split_at < 0 else (s[:split_at], s[split_at:])
-            for ch in grp:
-                head = head.replace(ch, "")
-            s = head + tail
-        if dec != ".":
-            s = s.replace(dec, ".", 1)
-        # Spaces, tabs, and line breaks are removed, then each trailing '%'
-        # divides by 100. float("5%") and float("1 000") used to be NaN.
-        s = "".join(ch for ch in s if ch not in " \t\r\n")
-        percent = 0
-        while s.endswith("%"):
-            s = s[:-1]
-            percent += 1
-        if _NUMBER_TEXT.fullmatch(s) is None:
-            return float("nan")
-        value = float(s) * (10.0 ** (-2 * percent))
-        return value if math.isfinite(value) else float("nan")
-    except (ValueError, TypeError, OverflowError):
+    s = str(text)
+    dec = str(dec_sep)
+    grp = str(grp_sep)
+    # ScNumberValue requires a one-character decimal separator.
+    if len(dec) != 1:
         return float("nan")
+    if not s:
+        return 0.0
+    if grp != dec:
+        # A decimal mark inside the group separator is IllegalArgument.
+        if dec in grp:
+            return float("nan")
+        # Group marks are removed from the integer part only. Stripping
+        # them from the fraction turned "1.2,3" into 1.23.
+        split_at = s.find(dec)
+        head, tail = (s, "") if split_at < 0 else (s[:split_at], s[split_at:])
+        for ch in grp:
+            head = head.replace(ch, "")
+        s = head + tail
+    if dec != ".":
+        s = s.replace(dec, ".", 1)
+    # Spaces, tabs, and line breaks are removed, then each trailing '%'
+    # divides by 100. float("5%") and float("1 000") used to be NaN.
+    s = "".join(ch for ch in s if ch not in " \t\r\n")
+    percent = 0
+    while s.endswith("%"):
+        s = s[:-1]
+        percent += 1
+    if _NUMBER_TEXT.fullmatch(s) is None:
+        return float("nan")
+    value = float(s) * (10.0 ** (-2 * percent))
+    return value if math.isfinite(value) else float("nan")
 
 
+@_nan_on_error
 def odd(n: Any) -> float:
     # ScOdd (interpr2.cxx) ceils away from zero, then steps off an even
     # integer. int(trunc(1.5)) is already odd, so odd(1.5) used to return 1.
-    try:
-        v = float(n)
-        # ceil() raises on non-finite input; the except below returns NaN.
-        # -0.0 == 0. copysign(1, -0.0) is -1, and ScOdd takes the >= 0 branch.
-        if v == 0.0:
-            return 1.0
-        n_abs = math.ceil(abs(v))
-        if n_abs % 2 == 0:
-            n_abs += 1
-        return math.copysign(float(n_abs), v)
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    v = float(n)
+    # ceil() raises on non-finite input; the handler returns NaN.
+    # -0.0 == 0. copysign(1, -0.0) is -1, and ScOdd takes the >= 0 branch.
+    if v == 0.0:
+        return 1.0
+    n_abs = math.ceil(abs(v))
+    if n_abs % 2 == 0:
+        n_abs += 1
+    return math.copysign(float(n_abs), v)
 
 
 def _parse_odd_args(
@@ -423,9 +422,7 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     if isinstance(tail, complex) or tail == 0:
         return float("nan")
     price += red / tail
-    if isinstance(price, complex) or not math.isfinite(price):
-        return float("nan")
-    return float(price)
+    return float(price) if math.isfinite(price) else float("nan")
 
 
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
@@ -454,8 +451,7 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     # used to raise ZeroDivisionError. Excel ODDFYIELD is #NUM!.
     if red + price == 0:
         return float("nan")
-    approx_y = (c + (red - price) / years) / ((red + price) / 2)
-    return approx_y
+    return (c + (red - price) / years) / ((red + price) / 2)
 
 
 def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
@@ -511,7 +507,7 @@ def pearson(data1: Any, data2: Any) -> float:
 
 
 def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
-    # Truncate at 10^sig (Excel/Calc), and sig must be >= 1. round() is not truncate.
+    # Truncate at 10^sig (Excel/Calc), and sig must be 1..15. round() is not truncate.
     try:
         d = np.asarray(data, dtype=float).ravel()
         d = d[np.isfinite(d)]
@@ -519,7 +515,7 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
             return float("nan")
         val = float(x)
         sig = int(float(significance))
-        if sig < 1 or sig > _PERCENTRANK_MAX_SIG:
+        if sig < 1 or sig > 15:
             return float("nan")
         d_sorted = np.sort(d)
         if val < d_sorted[0] or val > d_sorted[-1]:
@@ -530,10 +526,9 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
             return 1.0
         idx = np.searchsorted(d_sorted, val)
         if d_sorted[idx] == val:
-            count_less = np.sum(d < val)
-            res = count_less / (n - 1)
+            res = idx / (n - 1)
         else:
-            idx = np.searchsorted(d_sorted, val) - 1
+            idx -= 1
             x0, x1 = d_sorted[idx], d_sorted[idx + 1]
             r0, r1 = np.sum(d < x0) / (n - 1), np.sum(d < x1) / (n - 1)
             res = r0 + (r1 - r0) * (val - x0) / (x1 - x0)
@@ -545,33 +540,31 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
         return float("nan")
 
 
+@_nan_on_error
 def permut(n: Any, k: Any) -> float:
-    try:
-        n_val = int(float(n))
-        k_val = int(float(k))
-        if n_val < 0 or k_val < 0 or n_val < k_val:
-            return float("nan")
-        # What was wrong: PERMUT(1e6, 1e6) stalled the shared venv worker
-        # for seconds, and PERMUT(1e7, 1e7) for minutes.
-        # How it happened: math.perm builds n!/(n-k)! as a Python int
-        # before float() raises OverflowError. ScPermut multiplies in
-        # double and PushDouble turns the overflow into #NUM!. Excel
-        # PERMUT of that overflow is #NUM!.
-        # Why this change fixes it: P(n,k) = n!/(n-k)!, so the log is
-        # lgamma(n+1)-lgamma(n-k+1). The same pre-check as _binom_float
-        # rejects a log that is not finite or is above
-        # log(sys.float_info.max) before math.perm runs. Do not call
-        # _binom_float: that also subtracts lgamma(k+1). 170! fits;
-        # 171! does not.
-        log_p = math.lgamma(n_val + 1) - math.lgamma(n_val - k_val + 1)
-        if not math.isfinite(log_p) or log_p > math.log(sys.float_info.max):
-            return float("nan")
-        return float(math.perm(n_val, k_val))
-    except (ValueError, TypeError, OverflowError):
-        # int(float(+inf)) and float() of a huge permutation raise
-        # OverflowError. lgamma of int(float(1e308)) raises OverflowError
-        # too. Excel PERMUT is #NUM!.
+    n_val = int(float(n))
+    k_val = int(float(k))
+    if n_val < 0 or k_val < 0 or n_val < k_val:
         return float("nan")
+    # What was wrong: PERMUT(1e6, 1e6) stalled the shared venv worker
+    # for seconds, and PERMUT(1e7, 1e7) for minutes.
+    # How it happened: math.perm builds n!/(n-k)! as a Python int
+    # before float() raises OverflowError. ScPermut multiplies in
+    # double and PushDouble turns the overflow into #NUM!. Excel
+    # PERMUT of that overflow is #NUM!.
+    # Why this change fixes it: P(n,k) = n!/(n-k)!, so the log is
+    # lgamma(n+1)-lgamma(n-k+1). The same pre-check as _binom_float
+    # rejects a log that is not finite or is above
+    # log(sys.float_info.max) before math.perm runs. Do not call
+    # _binom_float: that also subtracts lgamma(k+1). 170! fits;
+    # 171! does not.
+    log_p = math.lgamma(n_val + 1) - math.lgamma(n_val - k_val + 1)
+    if not math.isfinite(log_p) or log_p > math.log(sys.float_info.max):
+        return float("nan")
+    # int(float(+inf)) and float() of a huge permutation raise
+    # OverflowError. lgamma of int(float(1e308)) raises OverflowError
+    # too. Excel PERMUT is #NUM!.
+    return float(math.perm(n_val, k_val))
 
 
 def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
@@ -580,46 +573,42 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
     return _npf_call("pmt", rate, nper, pv, fv_val, type_val)
 
 
+@_nan_on_error
 def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
-    try:
-        # int(float(+inf)) raises OverflowError. The old except missed it,
-        # so POISSON(+inf) crashed. Excel is #NUM!.
-        k = int(float(x))
-        m = float(mean)
-        if k < 0 or m < 0:
-            return float("nan")
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
-
-        # What was wrong: POISSON(2, 2, "0") returned the CDF, and
-        # POISSON(2, 2, "abc") returned the CDF instead of NaN.
-        # How it happened: `if cumulative:` is Python truthiness. Any
-        # non-empty string is true. ScPoissonDist uses GetBool()
-        # (GetDouble() != 0).
-        # Why this change fixes it: _as_nonzero is that check. "0" is false.
-        # "abc" raises ValueError, which this handler already turns into NaN.
-        if _as_nonzero(cumulative):
-            return float(st.poisson.cdf(k, m))
-        return float(st.poisson.pmf(k, m))
-    except (ValueError, TypeError, OverflowError):
+    # int(float(+inf)) raises OverflowError. The old except missed it,
+    # so POISSON(+inf) crashed. Excel is #NUM!.
+    k = int(float(x))
+    m = float(mean)
+    if k < 0 or m < 0:
+        return float("nan")
+    st = _scipy_stats()
+    if st is None:
         return float("nan")
 
+    # What was wrong: POISSON(2, 2, "0") returned the CDF, and
+    # POISSON(2, 2, "abc") returned the CDF instead of NaN.
+    # How it happened: `if cumulative:` is Python truthiness. Any
+    # non-empty string is true. ScPoissonDist uses GetBool()
+    # (GetDouble() != 0).
+    # Why this change fixes it: _as_nonzero is that check. "0" is false.
+    # "abc" raises ValueError, which the handler turns into NaN.
+    if _as_nonzero(cumulative):
+        return float(st.poisson.cdf(k, m))
+    return float(st.poisson.pmf(k, m))
 
+
+@_nan_on_error
 def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float:
-    try:
-        d = np.asarray(data, dtype=float).ravel()
-        p = np.asarray(probs, dtype=float).ravel()
-        if len(d) != len(p) or len(d) == 0:
-            return float("nan")
-        if not np.isclose(np.sum(p), 1.0) or np.any(p < 0) or np.any(p > 1):
-            return float("nan")
-        start = float(x_start)
-        end = float(x_end) if x_end is not None else start
-        mask = (d >= start) & (d <= end)
-        return float(np.sum(p[mask]))
-    except (ValueError, TypeError, OverflowError):
+    d = np.asarray(data, dtype=float).ravel()
+    p = np.asarray(probs, dtype=float).ravel()
+    if len(d) != len(p) or len(d) == 0:
         return float("nan")
+    if not np.isclose(np.sum(p), 1.0) or np.any(p < 0) or np.any(p > 1):
+        return float("nan")
+    start = float(x_start)
+    end = float(x_end) if x_end is not None else start
+    mask = (d >= start) & (d <= end)
+    return float(np.sum(p[mask]))
 
 
 def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
@@ -751,17 +740,6 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
         return float("nan")
 
 
-# Excel REPT allows 32767 characters. LibreOffice ScRept uses
-# kScInterpreterMaxStrLen (SAL_MAX_INT32 / 8 == 268435455, Err:513).
-# That ceiling is hundreds of MB in the shared venv worker, and the IPC
-# frame cap is 16 MiB, so the result cannot be returned anyway.
-# What was wrong: REPT allowed 2**31//8 characters per call.
-# How it happened: the constant copied the LO interpreter limit.
-# Why this change fixes it: the cap is Excel's 32767. The failure value
-# stays nan, same as a negative count. Length is Python len (code points).
-_MAX_REPT_CHARS = 32767
-
-
 def rept(text: Any, n: Any) -> str | float:
     try:
         count = int(float(n))
@@ -773,8 +751,12 @@ def rept(text: Any, n: Any) -> str | float:
     if count < 0:
         return float("nan")
     body = str(text)
-    # Check before allocating. Exactly 32767 characters is allowed.
-    if count and body and count > _MAX_REPT_CHARS // len(body):
+    # What was wrong: REPT allowed 2**31//8 characters per call.
+    # How it happened: the constant copied LO ScRept's kScInterpreterMaxStrLen
+    # (SAL_MAX_INT32 / 8). That ceiling is hundreds of MB; the IPC frame is 16 MiB.
+    # Why this stays: the cap is Excel's 32767. Failure stays nan, same as a
+    # negative count. Length is Python len (code points). Check before allocating.
+    if count and body and count > 32767 // len(body):
         return float("nan")
     return body * count
 
@@ -814,9 +796,7 @@ def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
             if isinstance(term, complex):
                 return float("nan")
             res += term
-        if isinstance(res, complex) or not math.isfinite(res):
-            return float("nan")
-        return float(res)
+        return float(res) if math.isfinite(res) else float("nan")
     except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return float("nan")
 
@@ -871,12 +851,9 @@ def _calc_sort_key(val: Any) -> tuple[int, Any]:
         return (3, "")
     if isinstance(val, (bool, np.bool_)):
         return (2, int(val))
-    if isinstance(val, (int, float, np.integer, np.floating)):
+    if is_number(val):
         try:
-            fval = float(val)
-            if math.isnan(fval):
-                return (3, "")
-            return (0, fval)
+            return (0, float(val))
         except (ValueError, TypeError, OverflowError):
             return (3, "")
     return (1, str(val).casefold())
@@ -904,29 +881,20 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
     if order != 1.0 and order != -1.0:
         return float("nan")
     asc = order > 0.0
-    if arr.ndim == 1:
-        # What was wrong: sort([3, 1, 2], 99) returned [1, 2, 3].
-        # How it happened: this branch returned before the si checks used
-        # for a 2-D range, so the parsed index was ignored.
-        # Why this change fixes it: a flat vector is one column of arr.size
-        # rows. ScSort rejects an index past that axis (PushIllegalParameter).
-        # by_col false keys the only column, which must be index 1, then sorts
-        # the values. by_col true keys a row; one column is the "No need to
-        # sort" path (!bByRow && nsC == 1), so the original order is returned.
-        if bool(by_col):
-            if si < 1 or si > arr.size:
-                return float("nan")
-            return arr.tolist()
-        if si != 1:
-            return float("nan")
-        indices = list(range(arr.size))
-        indices.sort(key=lambda i: _calc_sort_key(arr[i]), reverse=not asc)
-        return arr[indices].tolist()
+    # What was wrong: sort([3, 1, 2], 99) returned [1, 2, 3].
+    # How it happened: the 1-D branch returned before the index checks used
+    # for a 2-D range, so the parsed index was ignored.
+    # Why this stays: a flat vector is one column of arr.size rows. Reshape
+    # it and use the same index check. by_col false keys that only column,
+    # which must be index 1. by_col true is ScSort's "No need to sort" path
+    # (!bByRow && nsC == 1): one row after the axis swap, so the original
+    # order is returned. A flat vector stays a flat list; a 2-D range stays
+    # nested.
     # Excel SORT(..., by_col=TRUE) orders columns by the sort_index-th ROW
-    # (1-based; arr[si - 1, :]). The old path keyed off a column and then
-    # transposed, so both the permutation and the result shape were wrong.
-    # An index outside 1..nrows fell back to row 0. Excel is #VALUE!.
-    # A column index outside 1..ncols fell back to column 0. Excel is #VALUE!.
+    # (1-based). An index outside that axis is #VALUE!, returned here as NaN.
+    flat_input = arr.ndim == 1
+    if flat_input:
+        arr = arr.reshape(-1, 1)
     work = np.swapaxes(arr, 0, 1) if bool(by_col) else arr
     if si < 1 or si > work.shape[1]:
         return float("nan")
@@ -935,6 +903,8 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
     result = work[indices]
     if bool(by_col):
         result = np.swapaxes(result, 0, 1)
+    if flat_input:
+        return result.ravel().tolist()
     return result.tolist()
 
 
@@ -1002,13 +972,9 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
             if int(flat.size) != nrows:
                 return float("nan")
             this_axis = "row"
-        elif (
-            ncols is not None
-            and key_arr.ndim == 2
-            and tuple(key_arr.shape) == (1, ncols)
-        ):
+        elif tuple(key_arr.shape) == (1, ncols):
             this_axis = "col"
-        elif key_arr.ndim == 2 and tuple(key_arr.shape) == (nrows, 1):
+        elif tuple(key_arr.shape) == (nrows, 1):
             this_axis = "row"
         else:
             return float("nan")
@@ -1022,43 +988,36 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
         width = ncols if axis == "col" and ncols is not None else nrows
         order_list = list(range(width))
         for flat, asc in reversed(keys):
-            target_flat = flat
-            order_list.sort(key=lambda pos: _calc_sort_key(target_flat[pos]), reverse=not asc)
+            order_list.sort(key=lambda pos: _calc_sort_key(flat[pos]), reverse=not asc)
         if axis == "col":
             return arr[:, order_list].tolist()
-        if arr.ndim == 1:
-            return arr.ravel()[order_list].tolist()
         return arr[order_list].tolist()
     except (TypeError, ValueError, IndexError):
         return float("nan")
 
 
+@_nan_on_error
 def sqrtpi(number: Any) -> float:
-    try:
-        n = float(number)
-        if n < 0:
-            return float("nan")
-        # What was wrong: SQRTPI(1e308) returned inf.
-        # How it happened: n * pi overflows to inf, and math.sqrt(inf) does
-        # not raise, so the OverflowError handler never ran.
-        # Why this change fixes it: AnalysisAddIn::getSqrtpi returns
-        # finiteOrThrow. A non-finite root is NaN.
-        res = math.sqrt(n * math.pi)
-        return res if math.isfinite(res) else float("nan")
-    except (ValueError, TypeError, OverflowError):
+    n = float(number)
+    if n < 0:
         return float("nan")
+    # What was wrong: SQRTPI(1e308) returned inf.
+    # How it happened: n * pi overflows to inf, and math.sqrt(inf) does
+    # not raise, so the OverflowError handler never ran.
+    # Why this change fixes it: AnalysisAddIn::getSqrtpi returns
+    # finiteOrThrow. A non-finite root is NaN.
+    res = math.sqrt(n * math.pi)
+    return res if math.isfinite(res) else float("nan")
 
 
+@_nan_on_error
 def standardize(x: Any, mean: Any, stdev: Any) -> float:
-    try:
-        val = float(x)
-        m = float(mean)
-        s = float(stdev)
-        if s <= 0:
-            return float("nan")
-        return float((val - m) / s)
-    except (ValueError, TypeError, OverflowError):
+    val = float(x)
+    m = float(mean)
+    s = float(stdev)
+    if s <= 0:
         return float("nan")
+    return float((val - m) / s)
 
 
 def stdeva(*args: Any) -> float:
@@ -1108,9 +1067,7 @@ def _cell_number(val: Any) -> float | None:
     and TypeError are None, while OverflowError from a huge integer propagates
     so the caller can return NaN for the call.
     """
-    if val is None or val == "":
-        return None
-    if isinstance(val, str):
+    if val is None or val == "" or isinstance(val, str):
         return None
     try:
         return float(val)
@@ -1197,7 +1154,7 @@ def subtotal(fn_num: Any, r: Any) -> float:
 
 
 def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
-    vals = _criteria_numbers(r, crit, sr)
+    vals = _criteria_numbers(r if sr is None else sr, [(r, crit)])
     if vals is None:
         return float("nan")
     return float(sum(vals))
@@ -1214,7 +1171,7 @@ def sumifs(sr: Any, *args: Any) -> float:
     if isinstance(sr, str):
         return 0.0
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
-    vals = _criteria_numbers(sr, pairs=pairs)
+    vals = _criteria_numbers(sr, pairs)
     if vals is None:
         return float("nan")
     return float(sum(vals))

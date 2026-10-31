@@ -87,7 +87,6 @@ def _iter_body_field_identity(doc: Any) -> Any:
 
 class FieldsUpdateAll(ToolWriterFieldBase):
     name: str | None = "fields_update_all"
-    intent: str | None = "navigate"
     description: str = "Refresh all text fields (dates, page numbers, cross-references). Call after changes that affect computed fields."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
@@ -108,7 +107,6 @@ class FieldsUpdateAll(ToolWriterFieldBase):
 
 class FieldsList(ToolWriterFieldBase):
     name: str | None = "fields_list"
-    intent: str | None = "examine"
     description: str = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
@@ -162,7 +160,6 @@ class FieldsList(ToolWriterFieldBase):
 
 class FieldsDelete(ToolWriterFieldBase):
     name: str | None = "fields_delete"
-    intent: str | None = "edit"
     description: str = (
         "Deletes one or more text fields from the document by their 1-based ID in the fields_list snapshot. "
         "Pass the snapshot string from fields_list to ensure IDs have not shifted."
@@ -275,7 +272,6 @@ class FieldsDelete(ToolWriterFieldBase):
 
 class FieldsInsert(ToolWriterFieldBase):
     name: str | None = "fields_insert"
-    intent: str | None = "edit"
     description: str = (
         "Insert a text field at the specified target position. "
         "Use target='beginning', 'end', or 'selection' to insert at those positions. "

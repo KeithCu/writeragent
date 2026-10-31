@@ -31,7 +31,6 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
     """List all master slides in a Draw/Impress document."""
 
     name: str | None = "list_master_slides"
-    intent: str | None = "navigate"
     description: str = "List all master slides (master pages) in the document with name and dimensions."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
@@ -39,13 +38,12 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
         doc = ctx.doc
         result = []
         for i, m in enumerate(_master_pages(doc)):
-            entry = {
+            result.append({
                 "index": i,
                 "name": getattr(m, "Name", ""),
                 "width_mm": m.Width // 100,
                 "height_mm": m.Height // 100,
-            }
-            result.append(entry)
+            })
         return {"status": "ok", "master_slides": result, "count": len(result)}
 
 
@@ -53,7 +51,6 @@ class GetSlideMaster(ToolDrawSlideMastersBase):
     """Get which master slide is assigned to a slide."""
 
     name: str | None = "get_slide_master"
-    intent: str | None = "navigate"
     description: str = "Get the master slide assigned to a specific slide. Returns the master slide name."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
@@ -62,16 +59,13 @@ class GetSlideMaster(ToolDrawSlideMastersBase):
         if err:
             return self._tool_error(err)
         assert page is not None
-        master = page.MasterPage
-        name = getattr(master, "Name", "")
-        return {"status": "ok", "page": actual_idx, "master": name}
+        return {"status": "ok", "page": actual_idx, "master": getattr(page.MasterPage, "Name", "")}
 
 
 class SetSlideMaster(ToolDrawSlideMastersBase):
     """Assign a master slide to a slide."""
 
     name: str | None = "set_slide_master"
-    intent: str | None = "edit"
     description: str = "Assign a master slide to a specific slide by master name. Use list_master_slides to see available masters."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "master": {"type": "string", "description": "Name of the master slide to assign."}}, "required": ["master"]}
     is_mutation: bool | None = True

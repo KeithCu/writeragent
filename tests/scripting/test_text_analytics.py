@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from plugin.scripting import text_analytics as ta
+from plugin.scripting.helper_domain import header_prefix
 from plugin.scripting.text_analytics_ui import format_text_analytics_result_for_display
 from plugin.scripting.venv import text_analytics as vta
 
@@ -68,7 +69,7 @@ def test_text_analytics_templates_include_run_call():
     for h in ("full", "readability", "entities", "key_phrases"):
         if h in temps:
             code = temps[h]
-            assert ta.TEXT_ANALYTICS_HEADER_PREFIX not in code
+            assert header_prefix("text") not in code
             assert "from writeragent.scripting.text_analytics import run_text_analytics" in code
 
 
@@ -312,7 +313,7 @@ def test_normalize_sentiment_label():
 
 
 def test_extract_sentiment_label_n_and_neutral_score(monkeypatch):
-    vta._SENTIMENT_PIPELINE.clear()
+    vta._sentiment_pipeline.cache_clear()
     import types
     fake_transformers = types.ModuleType("transformers")
     recorded: dict[str, Any] = {}
@@ -348,7 +349,7 @@ def test_extract_sentiment_label_n_and_neutral_score(monkeypatch):
 
 def test_sentiment_pipeline_is_cached_and_single_string_has_no_section_index(monkeypatch):
     import types
-    vta._SENTIMENT_PIPELINE.clear()
+    vta._sentiment_pipeline.cache_clear()
     fake_transformers = types.ModuleType("transformers")
     init_count = 0
 
@@ -985,15 +986,15 @@ def test_insert_topic_inner_error_raises(monkeypatch):
 
 def test_payload_has_content_and_error():
     res_ok = {"status": "ok", "result": {"readability": {"flesch_reading_ease": 60}}}
-    assert ta.text_analytics_payload_has_content(res_ok) is True
+    assert bool(ta._result_to_html_table(ta._result_payload(res_ok))) is True
     assert ta.text_analytics_payload_error(res_ok) is None
 
     res_empty_ents = {"entities": []}
-    assert ta.text_analytics_payload_has_content(res_empty_ents) is False
+    assert bool(ta._result_to_html_table(ta._result_payload(res_empty_ents))) is False
     assert ta.text_analytics_payload_error(res_empty_ents) is None
 
     res_note = {"note": "no text"}
-    assert ta.text_analytics_payload_has_content(res_note) is False
+    assert bool(ta._result_to_html_table(ta._result_payload(res_note))) is False
     assert ta.text_analytics_payload_error(res_note) == "no text"
 
 

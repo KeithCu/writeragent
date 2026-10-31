@@ -43,9 +43,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("writeragent.calc")
 
-_FILTER_CONNECTION_AND: int = 0
-_FILTER_CONNECTION_OR: int = 1
-
 _RANGE_PARAM_SCHEMA: dict[str, Any] = {
     "type": "array",
     "items": {"type": "string"},
@@ -114,7 +111,7 @@ def _build_filter_fields2(uno_obj: Any, criteria: list[dict[str, Any]], range_wi
         st = uno_obj.createUnoStruct("com.sun.star.sheet.TableFilterField2")
         st.Field = c.field
         st.Operator = c.operator
-        st.Connection = _FILTER_CONNECTION_OR if c.connection == 1 else _FILTER_CONNECTION_AND
+        st.Connection = c.connection
         st.IsNumeric = c.is_numeric
         st.NumericValue = c.numeric_value
         st.StringValue = c.string_value
@@ -129,24 +126,16 @@ def _first_range_name(kwargs: dict[str, Any]) -> str:
     return range_arg[0].strip()
 
 
-def _get_filterable_for_range(ctx: Any, range_name: str) -> Any:
-    bridge = CalcBridge(ctx.doc)
-    cell_range = bridge.resolve_range_or_address(range_name)
-    xf = _query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
-    if xf is None:
-        raise UnoObjectError("This range does not support filtering (XSheetFilterable missing).")
-    return xf
-
-
 def _filter_descriptor(
-    ctx: Any,
-    range_name: str,
+    cell_range: Any,
     *,
     empty: bool,
     has_header: bool | None,
     missing_msg: str,
 ) -> tuple[Any, Any, Any]:
-    xf = _get_filterable_for_range(ctx, range_name)
+    xf = _query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
+    if xf is None:
+        raise UnoObjectError("This range does not support filtering (XSheetFilterable missing).")
     fd = xf.createFilterDescriptor(empty)
     if has_header is not None:
         ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
@@ -162,34 +151,21 @@ def _filter_descriptor(
 def _run_filter(
     ctx: ToolContext,
     kwargs: dict[str, Any],
-    *,
-    criteria: list[dict[str, Any]] | None = None,
+    criteria: list[dict[str, Any]],
 ) -> tuple[str, int]:
     range_name = _first_range_name(kwargs)
     has_header = bool(kwargs.get("has_header", True))
-
-    bridge = CalcBridge(ctx.doc)
-    cell_range = bridge.resolve_range_or_address(range_name)
+    cell_range = CalcBridge(ctx.doc).resolve_range_or_address(range_name)
     ra = cell_range.getRangeAddress()
     range_width = ra.EndColumn - ra.StartColumn + 1
-
-    xf = _query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
-    if xf is None:
-        raise UnoObjectError("This range does not support filtering (XSheetFilterable missing).")
-
-    fd = xf.createFilterDescriptor(True)
-    ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
-    if ps is None:
-        raise UnoObjectError("Cannot set ContainsHeader on this filter descriptor.")
-    ps.setPropertyValue("ContainsHeader", has_header)
-
-    fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
-    if fd2 is None:
-        raise UnoObjectError("XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).")
-
-    fields = _build_filter_fields2(uno, criteria or [], range_width=range_width)
+    xf, fd, fd2 = _filter_descriptor(
+        cell_range,
+        empty=True,
+        has_header=has_header,
+        missing_msg="XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).",
+    )
+    fields = _build_filter_fields2(uno, criteria, range_width=range_width)
     fd2.setFilterFields2(fields)
-
     xf.filter(fd)
     return range_name, len(fields)
 
@@ -219,7 +195,6 @@ class ApplySheetFilter(ToolCalcSheetBase):
     """Apply a standard sheet filter (AutoFilter-style) on a cell range."""
 
     name: str | None = "apply_sheet_filter"
-    intent: str | None = "edit"
     description: str = "Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_specialized_calc_toolset(domain='sheets'). One column per criterion; chain with connection (AND default) after the first."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -247,7 +222,6 @@ class ClearSheetFilter(ToolCalcSheetBase):
     """Remove the standard filter from a range (show all rows again)."""
 
     name: str | None = "clear_sheet_filter"
-    intent: str | None = "edit"
     description: str = "Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as apply_sheet_filter. delegate_to_specialized_calc_toolset(domain='sheets')."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -260,7 +234,7 @@ class ClearSheetFilter(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_name, _count = _run_filter(ctx, kwargs, criteria=None)
+        range_name, _count = _run_filter(ctx, kwargs, [])
         log.info("Sheet filter cleared on %s.", range_name.upper())
         return {"status": "ok", "range": range_name, "cleared": True}
 
@@ -269,16 +243,14 @@ class GetSheetFilter(ToolCalcSheetBase):
     """Read back current filter criteria for a range (round-trip debugging)."""
 
     name: str | None = "get_sheet_filter"
-    intent: str | None = "navigate"
     description: str = "Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets')."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": _RANGE_PARAM_SCHEMA}, "required": ["range"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         range_name = _first_range_name(kwargs)
-
+        cell_range = CalcBridge(ctx.doc).resolve_range_or_address(range_name)
         _xf, fd, fd2 = _filter_descriptor(
-            ctx,
-            range_name,
+            cell_range,
             empty=False,
             has_header=None,
             missing_msg="XSheetFilterDescriptor2 is not available.",

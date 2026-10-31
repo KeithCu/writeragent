@@ -16,7 +16,7 @@
 """Pure helpers for Calc date/time LLM wire contract (gate, preserve, elapsed, format runs).
 
 No UNO imports — unit-testable. See docs/calc/date-time-handling.md.
-Duration parse uses vendored ``isodate``; emit is a thin hours-may-exceed-24 formatter
+Duration parse is integer H/M/S day-serial arithmetic; emit is a thin hours-may-exceed-24 formatter
 so the wire stays ``PT30H`` rather than ``P1DT6H``.
 """
 
@@ -24,10 +24,7 @@ from __future__ import annotations
 
 import datetime
 import re
-from datetime import timedelta
 from typing import Any, TypeAlias
-
-from isodate import parse_duration
 
 # Per-cell format decision before/after S25 empty resolve.
 # ``"empty"`` is input-only; resolved rows use None for an unbridged hole.
@@ -109,7 +106,7 @@ def iso_duration_from_serial(serial: float) -> str:
 
 def is_elapsed_format_string(format_string: object) -> bool:
     """True when FormatString uses a bracketed elapsed time unit (any locale letters)."""
-    if not isinstance(format_string, str) or not format_string:
+    if not isinstance(format_string, str):
         return False
     return _ELAPSED_BRACKET_RE.search(format_string) is not None
 
@@ -120,14 +117,7 @@ def match_iso_temporal(text: str) -> str | None:
     Shape filter only — calendar validity is left to Calc. Evaluate datetime
     before date before time so a T/space datetime is never classified as date.
     """
-    if not isinstance(text, str):
-        return None
     val = text.strip()
-    if not val:
-        return None
-    # O(1) reject for prose / plain numbers before regex.
-    if not any(c in val for c in ("-", ":")):
-        return None
     if _DATETIME_RE.match(val):
         return "datetime"
     if _DATE_RE.match(val):
@@ -144,18 +134,18 @@ def is_midnight_serial(serial: float) -> bool:
 
 def match_iso_duration(text: str) -> bool:
     """True when *text* matches the strict PT duration wire gate (integer H/M/S only)."""
-    if not isinstance(text, str):
-        return False
     return _DURATION_RE.match(text.strip()) is not None
 
 
 def duration_serial_from_iso(text: str) -> float:
-    """Parse a gated ``PT…`` string to a Calc day serial via vendored isodate."""
-    td = parse_duration(text.strip())
-    if not isinstance(td, timedelta):
-        # Calendar Duration (Y/M) — rejected by the gate; defend against API misuse.
+    """Parse a gated ``PT…`` string to a Calc day serial (integer H/M/S only)."""
+    matched = _DURATION_RE.match(text.strip())
+    if matched is None:
         raise ValueError(f"unsupported calendar duration: {text!r}")
-    return float(td.total_seconds()) / 86400.0
+    hours = int(matched.group(1) or 0)
+    minutes = int(matched.group(2) or 0)
+    seconds = int(matched.group(3) or 0)
+    return (hours * 3600 + minutes * 60 + seconds) / 86400.0
 
 
 def time_day_fraction(value: datetime.time | datetime.datetime) -> float:
@@ -184,8 +174,6 @@ _COMPATIBLE_TEMPORAL_DESTS: dict[str, tuple[str, ...]] = {
 
 def should_preserve_temporal_format(input_category: str, serial: float, dest_category: str | None) -> bool:
     """M1 preserve predicate: keep destination NumberFormat when category-compatible."""
-    if dest_category is None:
-        return False
     if dest_category in _PRESERVE_TEMPORAL_DESTS.get(input_category, ()):
         return True
     # S15: a date format keeps a datetime only when the serial is midnight.
@@ -200,14 +188,10 @@ def is_compatible_temporal_template(input_category: str, template_category: str 
     elapsed ``[HH]:…`` templates (those flip read enrichment to ``duration`` /
     ``PT…``). Duration inputs still accept any TIME template including elapsed.
     """
-    if template_category is None:
-        return False
-    if template_category not in _COMPATIBLE_TEMPORAL_DESTS.get(input_category, ()):
-        return False
     # Elapsed FormatString is still UNO Type TIME; clock writes must not inherit it.
-    if input_category == "time" and is_elapsed_format_string(format_code):
-        return False
-    return True
+    return template_category in _COMPATIBLE_TEMPORAL_DESTS.get(input_category, ()) and not (
+        input_category == "time" and is_elapsed_format_string(format_code)
+    )
 
 
 def resolve_s25_row_empties(row: list[FormatDecision]) -> list[FormatDecision]:

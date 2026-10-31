@@ -58,18 +58,13 @@ class ModelessWindowClosingListener(BaseTopWindowListener):
 def close_modeless_dialog(dlg: Any, *, toolkit_teardown: bool = False, log_label: str = "dialog") -> None:
     if dlg is None:
         return
-    if toolkit_teardown:
-        log.debug("%s: windowClosing (no dispose)", log_label)
-        try:
-            dlg.setVisible(False)
-        except Exception:
-            log.debug("%s: hide after windowClosing failed", log_label, exc_info=True)
-        return
-    log.debug("%s: close dispose", log_label)
+    log.debug("%s: windowClosing (no dispose)" if toolkit_teardown else "%s: close dispose", log_label)
     try:
         dlg.setVisible(False)
     except Exception:
-        log.debug("%s: hide before dispose failed", log_label, exc_info=True)
+        log.debug("%s: hide after windowClosing failed" if toolkit_teardown else "%s: hide before dispose failed", log_label, exc_info=True)
+    if toolkit_teardown:
+        return
     try:
         dlg.dispose()
     except Exception:
@@ -188,7 +183,6 @@ class NativePythonScriptDialog:
     _doc: Any | None
     _modeless: bool
     _closed: bool
-    _open_failure_detail: str | None = None
     _name_config_key: str
 
     def __init__(
@@ -207,7 +201,6 @@ class NativePythonScriptDialog:
         self._script_origin_map: dict[str, str] = {}
         self._closed = False
         self._top_listener: Any | None = None
-        self._open_failure_detail = None
         self._name_config_key = resolve_run_script_name_config_key(initial_doc)
 
     def close(self, *, toolkit_teardown: bool = False) -> None:
@@ -237,15 +230,8 @@ class NativePythonScriptDialog:
 
         config_key = self._name_config_key
 
-        selected_name = ""
-        if select_display and select_display in names:
-            selected_name = select_display
-        else:
-            last_name = get_config_str(config_key)
-            if last_name and last_name in names:
-                selected_name = last_name
-        if not selected_name and names:
-            selected_name = names[0]
+        picked = select_display if select_display and select_display in names else get_config_str(config_key)
+        selected_name = picked if picked and picked in names else (names[0] if names else "")
 
         dlg = self._dlg
         if selected_name:
@@ -256,7 +242,7 @@ class NativePythonScriptDialog:
             if code_ctrl is not None:
                 code_ctrl.setText(merged.get(selected_name, "") if selected_name else "")
 
-    def _open(self) -> bool:
+    def _open(self) -> str | None:
         ctx = self._ctx
         try:
             dlg, load_detail = load_writeragent_dialog_detail("PythonScriptDialog", ctx)
@@ -265,9 +251,8 @@ class NativePythonScriptDialog:
                     "NativePythonScriptDialog: PythonScriptDialog XDL load failed:\n%s",
                     load_detail or "(no load detail captured)",
                 )
-                self._open_failure_detail = load_detail or _("PythonScriptDialog could not be loaded from the extension.")
                 self.close()
-                return False
+                return load_detail or _("PythonScriptDialog could not be loaded from the extension.")
             self._dlg = dlg
 
             # Finite pre-warm. The shared daemon pool is for this. dedicated=True
@@ -301,17 +286,16 @@ class NativePythonScriptDialog:
                 # Why this change fixes it: the modeless dialog focuses CodeEdit after it is visible.
                 if code_ctrl is not None:
                     code_ctrl.setFocus()
-                return True
+                return None
             dlg.execute()
             self._closed = True
             self._dlg = None
             dlg.dispose()
-            return True
+            return None
         except Exception as exc:
             log.exception("NativePythonScriptDialog._open failed")
-            self._open_failure_detail = exception_traceback(exc)
             self.close()
-            return False
+            return exception_traceback(exc)
 
     def _save_current_script(self, t: str, *, only_if_changed: bool = False) -> _ScriptSaveResult:
         select_ctrl = self._select_ctrl
@@ -365,16 +349,6 @@ class NativePythonScriptDialog:
             return _ScriptSaveResult(user_err, "modal")
         self._current_scripts[display_name] = t
         return _ScriptSaveResult(_("Script '%s' saved successfully.") % real_name, "ok")
-
-    def _prompt_new_script_name(self, **kwargs: Any) -> tuple[str, bool] | None:
-        res = show_new_script_dialog(self._ctx, doc=self._doc, **kwargs)
-        if not res:
-            return None
-        name, attach = res
-        name = name.strip()
-        if not name:
-            return None
-        return name, attach
 
     def _store_script(
         self,
@@ -445,20 +419,18 @@ class NativePythonScriptDialog:
                 # Why this change: builtin stays on the label through a successful
                 # finish; every other warning is a Save box before Running...
                 save_res = owner._save_current_script(t, only_if_changed=True)
-                save_channel = save_res.channel
-                save_text = save_res.text
 
-                if save_channel == "builtin":
-                    if save_text:
-                        set_control_text(lbl, save_text)
-                elif save_channel == "modal":
-                    if save_text:
-                        msgbox(ctx, _("Save"), save_text)
+                if save_res.channel == "builtin":
+                    if save_res.text:
+                        set_control_text(lbl, save_res.text)
+                elif save_res.channel == "modal":
+                    if save_res.text:
+                        msgbox(ctx, _("Save"), save_res.text)
 
                 btn_run = dlg.getControl("BtnRun")
                 set_control_enabled(btn_run, False)
 
-                if save_channel != "builtin":
+                if save_res.channel != "builtin":
                     set_control_text(lbl, _("Running..."))
 
                 def _on_complete(outcome: dict[str, Any]) -> None:
@@ -469,8 +441,8 @@ class NativePythonScriptDialog:
                         _report_run_outcome(ctx, lbl, outcome)
                         if not outcome.get("ok"):
                             set_control_text(lbl, str(outcome.get("message") or _("Execution Error")))
-                        elif save_channel == "builtin" and save_text:
-                            set_control_text(lbl, save_text)
+                        elif save_res.channel == "builtin" and save_res.text:
+                            set_control_text(lbl, save_res.text)
                     finally:
                         set_control_enabled(btn_run, True)
 
@@ -506,7 +478,9 @@ class NativePythonScriptDialog:
                     else ("", SCRIPT_ORIGIN_USER)
                 )
 
-                prompted = owner._prompt_new_script_name(
+                prompted = show_new_script_dialog(
+                    owner._ctx,
+                    doc=owner._doc,
                     default_name=real_curr,
                     title=_("Save Script As"),
                     default_attach=(curr_origin == SCRIPT_ORIGIN_DOCUMENT),
@@ -566,7 +540,7 @@ class NativePythonScriptDialog:
 
         def _on_new() -> None:
             try:
-                prompted = owner._prompt_new_script_name()
+                prompted = show_new_script_dialog(owner._ctx, doc=owner._doc)
                 if prompted is None:
                     return
                 name, attach_to_document = prompted
@@ -623,9 +597,8 @@ def show_python_input_dialog(
             initial_doc=doc,
             modeless=modeless,
         )
-        if inst._open():
-            return True, None
-        return False, inst._open_failure_detail
+        detail = inst._open()
+        return detail is None, detail
     except Exception as exc:
         log.exception("show_python_input_dialog failed")
         return False, exception_traceback(exc)

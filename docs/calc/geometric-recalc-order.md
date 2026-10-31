@@ -81,7 +81,7 @@ The prototype also does **not** add a dedicated IDL ordering argument. That rebu
 
 `list_python_cells_on_sheet` already returns `PythonCellInfo` sorted by `(row, column)`. That **is** the geometric list.
 
-**List (current design):** all PY cells on **each sheet**, row-major, each sheet chained **independently**. Flag-on / document-open reconcile every sheet (`list_python_cells_in_doc(..., active_sheet_only=False)`). Insert/delete repair only the **modified** sheet. Cross-sheet predecessors are out of scope (sheet-qualified refs + sheet insert/rename). Workbook-global order (Sheet1 then Sheet2) is a later option, not required to prove the idea.
+**List (current design):** all PY cells on **each sheet**, row-major, each sheet chained **independently**. Flag-on / document-open reconcile every sheet (`_iter_sheets` + `discover_python_cells_on_sheet`). Insert/delete repair only the **modified** sheet. Cross-sheet predecessors are out of scope (sheet-qualified refs + sheet insert/rename). Workbook-global order (Sheet1 then Sheet2) is a later option, not required to prove the idea.
 
 **Cross-cluster chaining (current design):** two independent PY clusters on one sheet (A1:A5 and D1:D5) become one chain — D1 waits on A5. That slightly over-dirties the D column when A3 changes. Correctness is fine; users who care can turn the flag off and write explicit `data` refs. Spatial clustering is not in the prototype.
 
@@ -248,7 +248,7 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 | User already passed the previous cell as **data** | Do not record as ours; do not strip ([§9.5](#95-marker-is-the-udprop--in-memory-map)) |
 | User passed a **different** single-cell last arg (real data) | Append, do not replace, unless the map says that last arg is **our** stale predecessor |
 | Two independent PY clusters on one sheet | One row-major chain; slightly over-dirties the later cluster |
-| Circular refs from user reverse-refs | cycle check is `_reaches` over `_neighbors` (data args and an unquoted code-in-cell); skip attach; remove an ours field when that field is the attached predecessor; the desired predecessor is the previous row-major cell, so a later cell is never attached. |
+| Circular refs from user reverse-refs | cycle check is `_reaches` over `_adj_for` (data args and an unquoted code-in-cell); skip attach; remove an ours field when that field is the attached predecessor; the desired predecessor is the previous row-major cell, so a later cell is never attached. |
 | 100-cell discovery cap | Skip the **whole** sheet; never chain a partial list |
 | Shared + Isolated confusion | Checkbox always visible; helper: “Used with Shared kernel”; Isolated is a no-op |
 | Collabora Online | Proposed design in [§13](#12-collabora--libreoffice-core-living-sketch-not-final) (engine DAG + **inhibit** emit-gate + `g_aParamCache` identity, **not** trailing `;A1`, **not** `g_aWaiters`). Not implemented. |
@@ -378,7 +378,7 @@ Parse → drop the last geometric data arg → rebuild → drop the map record. 
 
 ### 9.6 Flag-on / document-open — all sheets
 
-**Current design: A.** All sheets, each chained independently. `list_python_cells_in_doc(..., active_sheet_only=False)` already walks `doc.getSheets()`. Modify-listener repair stays per-sheet.
+**Current design: A.** All sheets, each chained independently. `_iter_sheets` walks `doc.getSheets()` and discovers each sheet with `discover_python_cells_on_sheet`. Modify-listener repair stays per-sheet.
 
 **Considered, not used:** active sheet only (other tabs stay inconsistent until visited).
 

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
-from plugin.scripting.viz import HELPER_NAMES, insert_viz_result_into_doc
+from plugin.scripting.viz import HELPER_NAMES, insert_viz_result_into_doc, run_trusted_viz
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -41,29 +41,22 @@ class PlotDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        helper = str(kwargs.get("helper") or "").strip()
+        from plugin.calc.analysis import extract_calc_data_tool_args
+
+        helper, dr, data, params, headers, task_hint, _output_range = extract_calc_data_tool_args(kwargs)
         if not helper:
             return self._tool_error("helper is required")
         if helper not in HELPER_NAMES:
             return self._tool_error(f"Unknown helper {helper!r}")
-
-        data_range = kwargs.get("data_range")
-        if not (data_range and str(data_range).strip()) and kwargs.get("data") is None:
+        if not dr and data is None:
             return self._tool_error("Provide data_range")
-
-        if getattr(ctx, "active_domain", None) == "analysis" and kwargs.get("data") is not None:
+        if getattr(ctx, "active_domain", None) == "analysis" and data is not None:
             return self._tool_error("analysis domain requires data_range (A1 address string) only for plot_data.")
 
-        dr = str(data_range).strip() if data_range else None
-        params = kwargs.get("params") if isinstance(kwargs.get("params"), dict) else None
-        headers = bool(kwargs.get("headers", True))
-        task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
-
-        from plugin.scripting.viz import run_trusted_viz
         from plugin.scripting.payload_codec import extract_image_payload, write_image_payload_to_temp
 
         try:
-            result = run_trusted_viz(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=kwargs.get("data"), headers=headers, task_hint=task_hint)
+            result = run_trusted_viz(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "VIZ_ERROR"))
         except Exception as exc:

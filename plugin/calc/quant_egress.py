@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.calc.python.function import to_calc_compatible
 from plugin.calc.tabular_egress import (
     _append_blank,
     _append_key_value_block,
     _append_table_rows,
-    _cell,
     insert_tabular_result_into_calc,
 )
 from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES
@@ -54,7 +54,7 @@ def format_quant_for_calc(result: dict[str, Any]) -> list[list[Any]]:
     table = result.get("table")
     if isinstance(table, dict) and (table.get("columns") or table.get("rows")):
         _append_blank(rows)
-        _append_table_rows(rows, table.get("columns"), table.get("rows"), _cell)
+        _append_table_rows(rows, table.get("columns"), table.get("rows"), to_calc_compatible)
 
     if len(rows) == 1:
         rows.append(["(no tabular output)"])

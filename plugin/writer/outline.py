@@ -41,7 +41,6 @@ class GetDocumentTree(ToolBase):
     """Document heading tree with bookmarks, optional content, and document statistics."""
 
     name: str | None = "get_document_tree"
-    intent: str | None = "navigate"
     tier: str = "core"
     description: str = (
         "Get the document heading tree with bookmarks and content previews, plus document statistics. "

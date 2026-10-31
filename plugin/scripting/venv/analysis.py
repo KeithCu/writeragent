@@ -22,8 +22,6 @@ from plugin.scripting.venv.coerce import (
     resolve_df as _resolve_df,
     table_from_df as _table_from_df,
     _dedupe_column_names,
-    _is_numeric_dtype,
-    _NUMERIC_PROFILE_KEYS,
 )
 from plugin.scripting.venv.trusted_dispatch import (
     dispatch_common_kwargs,
@@ -216,8 +214,9 @@ def _describe_columns_from_profile(
             "unique_count": var_info.get("n_unique", 0),
         }
         if var_info.get("type") == "Numeric":
-            for out_key, in_key in _NUMERIC_PROFILE_KEYS:
-                summary[out_key] = _safe_float(var_info.get(in_key))
+            for key in ("mean", "std", "min", "max"):
+                summary[key] = _safe_float(var_info.get(key))
+            summary["median"] = _safe_float(var_info.get("50%"))
             if include_outliers:
                 outlier_count = outlier_counts.get(col_name, 0)
                 if outlier_count:
@@ -625,7 +624,7 @@ def clean_and_prepare(
         # was mode-filled and labeled categorical; _is_numeric_dtype matches
         # those extension dtypes, and complex stays categorical so median cannot
         # drop the imaginary part.
-        is_num = _is_numeric_dtype(series.dtype) and not pd.api.types.is_complex_dtype(series.dtype)
+        is_num = bool(pd.api.types.is_numeric_dtype(series.dtype) and not pd.api.types.is_bool_dtype(series.dtype)) and not pd.api.types.is_complex_dtype(series.dtype)
         if is_num:
             if fill_numeric == "median":
                 fill_value = series.median()

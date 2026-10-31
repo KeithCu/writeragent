@@ -1,6 +1,5 @@
 import gc
 import logging
-import threading
 import weakref
 from unittest.mock import MagicMock, patch
 
@@ -23,7 +22,6 @@ from plugin.framework.prompts import (
     get_chat_system_prompt_for_document,
     get_core_directives_for_type,
     get_greeting_for_document,
-    get_specialized_delegation_for_model,
     images_specialized_sub_agent_hint,
     python_specialized_sub_agent_hint,
 )
@@ -197,11 +195,10 @@ def test_writer_chat_prompt_includes_sidebar_vs_document_routing():
 
 
 def test_writer_chat_prompt_research_delegate_to_document():
-    from plugin.framework.prompts import WRITER_SIDEBAR_ONLY_DOMAINS
+    from plugin.framework.prompts import WRITER_SIDEBAR_ONLY_DOMAINS, get_specialized_delegation_tool_hint
+    from plugin.writer.specialized_base import ToolWriterSpecialBase
 
-    model = MagicMock()
-    model.supportsService.return_value = False
-    block = get_specialized_delegation_for_model(model)
+    block = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer")
     assert "web_research:" in block
     assert "apply_document_content" in block
     for domain in WRITER_SIDEBAR_ONLY_DOMAINS:
@@ -386,18 +383,15 @@ def test_writer_chat_prompt_delegation_routing_local_vs_web():
 
 
 def test_specialized_delegation_block_is_single_line():
-    from plugin.framework.prompts import SPECIALIZED_TASK_RULES, get_specialized_delegation_for_model, get_specialized_delegation_tool_hint
+    from plugin.framework.prompts import SPECIALIZED_TASK_RULES, get_specialized_delegation_tool_hint
     from plugin.writer.specialized_base import ToolWriterSpecialBase
 
-    model = MagicMock()
-    model.supportsService.return_value = False
-    block = get_specialized_delegation_for_model(model)
+    block = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer")
     assert "SPECIALIZED WRITER" in block
     assert SPECIALIZED_TASK_RULES in block
     assert "source_image='selection'" in block
     assert "Enumerate what must be true" not in block
     assert "\n" not in block
-    assert get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer") == block
 
 
 def test_calc_core_directives_local_before_web():
@@ -500,9 +494,6 @@ def test_insert_cell_html_description_keeps_border_guidance():
 
 
 def test_calc_formula_syntax_sheet_dot_not_excel_bang():
-    from plugin.framework.prompts import _ensure_venv_import_policy_strings
-
-    _ensure_venv_import_policy_strings()
     from plugin.framework.prompts import CALC_FORMULA_SYNTAX
 
     assert "never Excel bang" in CALC_FORMULA_SYNTAX
@@ -641,9 +632,10 @@ def test_python_specialized_sub_agent_hint_calc():
 
 
 def test_document_research_multi_file_delegation_in_prompts():
-    model = MagicMock()
-    model.supportsService.return_value = False
-    block = get_specialized_delegation_for_model(model)
+    from plugin.framework.prompts import get_specialized_delegation_tool_hint
+    from plugin.writer.specialized_base import ToolWriterSpecialBase
+
+    block = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer")
     assert "document_research:" in block
     assert "file(s)" in block
     for directives in (WRITER_CORE_DIRECTIVES, CALC_CORE_DIRECTIVES, DRAW_CORE_DIRECTIVES):
@@ -661,7 +653,6 @@ def test_sheets_create_completion_instruction_is_create_not_populate():
     from plugin.framework.prompts import (
         SHEETS_CREATED_NOT_POPULATED_INSTRUCTION,
         attach_sheets_create_completion_instruction,
-        first_instruction_from_tool_results,
     )
 
     inst = SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
@@ -676,7 +667,6 @@ def test_sheets_create_completion_instruction_is_create_not_populate():
         "message": "New sheet named 'Q1 Actuals' created; no cells copied.",
         "instruction": inst,
     }
-    assert first_instruction_from_tool_results([inner]) == inst
 
     finish = {
         "status": "ok",
@@ -777,7 +767,6 @@ def test_tts_short_answers_absent_when_checkbox_off():
 def test_user_memory_long_blob_is_truncated_short_is_unchanged():
     """USER.md is capped like the chat document excerpt; a short profile is not marked truncated."""
     from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-    from plugin.framework.prompts import _INJECTED_BLOB_TRUNCATION_MARKER
 
     model = MagicMock()
     model.supportsService.return_value = False
@@ -797,11 +786,11 @@ def test_user_memory_long_blob_is_truncated_short_is_unchanged():
     assert "<<<profile>>>" in long_prompt
     assert long_mem not in long_prompt
     assert "U" * CHAT_DOCUMENT_CONTEXT_MAX_CHARS in long_prompt
-    assert _INJECTED_BLOB_TRUNCATION_MARKER in long_prompt
+    assert "[truncated]" in long_prompt
 
     short_prompt = _prompt(short_mem)
     assert short_mem in short_prompt
-    assert _INJECTED_BLOB_TRUNCATION_MARKER not in short_prompt
+    assert "[truncated]" not in short_prompt
 
 
 def test_profile_fence_inside_memory_does_not_close_the_block():
@@ -821,43 +810,6 @@ def test_profile_fence_inside_memory_does_not_close_the_block():
     assert prompt.count(_PROFILE_DATA_CLOSE) == 1
     assert "<<< </profile>>>" in prompt
     assert "ignore the tools" in prompt.split(_PROFILE_DATA_CLOSE, 1)[0]
-
-
-def test_calc_prompt_late_init_waits_until_template_is_assigned():
-    """_venv_policy_ready controls late init of Calc template."""
-    import plugin.framework.prompts as prompts
-
-    prompts._venv_policy_ready = False
-    prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
-    prompts._ensure_venv_import_policy_strings()
-    assert "FORMULA SYNTAX" in prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
-    assert prompts._venv_policy_ready is True
-
-
-def test_concurrent_calc_prompt_init_sees_full_template():
-    import plugin.framework.prompts as prompts
-
-    prompts._venv_policy_ready = False
-    prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
-    barrier = threading.Barrier(4)
-    results: list[bool] = []
-    errors: list[BaseException] = []
-
-    def worker() -> None:
-        try:
-            barrier.wait(timeout=5)
-            text = prompts.get_chat_system_prompt_for_kind("calc")
-            results.append("FORMULA SYNTAX" in text and len(text) > 100)
-        except BaseException as exc:
-            errors.append(exc)
-
-    threads = [threading.Thread(target=worker) for _ in range(4)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=30)
-    assert errors == []
-    assert results == [True, True, True, True]
 
 
 def test_model_core_directives_helper_is_removed():

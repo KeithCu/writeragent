@@ -15,10 +15,6 @@ from plugin.calc.python.function import to_calc_compatible
 from plugin.framework.errors import CalcError
 
 
-def _cell(value: Any) -> Any:
-    return to_calc_compatible(value)
-
-
 def pad_grid(grid: list[list[Any]]) -> list[list[Any]]:
     """Pad ragged rows with "" so write_formula_range gets a rectangular array."""
     width = max((len(row) for row in grid), default=0)
@@ -40,7 +36,7 @@ def _append_key_value_block(rows: list[list[Any]], title: str, mapping: dict[str
         if isinstance(val, (dict, list)):
             rows.append([str(key), str(val)])
         else:
-            rows.append([str(key), _cell(val)])
+            rows.append([str(key), to_calc_compatible(val)])
 
 
 def _append_table_rows(
@@ -64,16 +60,6 @@ def _append_truncation_note(rows: list[list[Any]], table: dict[str, Any]) -> Non
     if table.get("truncated"):
         total = table.get("total_rows")
         rows.append([f"(showing first rows; {total} total)" if total is not None else "(truncated)"])
-
-
-def calc_anchor_from_selection(doc: Any) -> tuple[int, int]:
-    """Return (start_col, start_row) from the current Calc selection."""
-    controller = doc.getCurrentController()
-    selection = controller.getSelection()
-    if selection is not None and hasattr(selection, "getRangeAddress"):
-        addr = selection.getRangeAddress()
-        return int(addr.StartColumn), int(addr.StartRow)
-    return 0, 0
 
 
 def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str, default_helper: str, failed_message: str, metadata_keys: tuple[str, ...] = ("n_rows", "n_cols", "numeric_cols")) -> list[list[Any]]:
@@ -110,7 +96,7 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
                 continue
             _append_blank(rows)
             rows.append([str(table.get("name") or "table")])
-            _append_table_rows(rows, table.get("columns"), table.get("rows"), _cell)
+            _append_table_rows(rows, table.get("columns"), table.get("rows"), to_calc_compatible)
             _append_truncation_note(rows, table)
 
     metadata = result.get("metadata")
@@ -138,7 +124,13 @@ def insert_tabular_result_into_calc(
     The _uno_ctx parameter exists so Run Python Script can call (doc, ctx, result).
     """
     if start_col is None or start_row is None:
-        col, row = calc_anchor_from_selection(doc)
+        controller = doc.getCurrentController()
+        selection = controller.getSelection()
+        if selection is not None and hasattr(selection, "getRangeAddress"):
+            addr = selection.getRangeAddress()
+            col, row = int(addr.StartColumn), int(addr.StartRow)
+        else:
+            col, row = 0, 0
         start_col = col if start_col is None else start_col
         start_row = row if start_row is None else start_row
 

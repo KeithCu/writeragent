@@ -36,10 +36,11 @@ from plugin.scripting.python_runner_ui import (
     close_modeless_dialog,
 )
 from plugin.scripting.text_analytics import (
+    _result_payload,
+    _result_to_html_table,
     get_doc_language,
     insert_text_analytics_result_into_doc,
     resolve_text_analytics_document_inputs,
-    text_analytics_payload_has_content,
 )
 
 log = logging.getLogger(__name__)
@@ -53,9 +54,7 @@ _COMPUTE_BUTTONS: tuple[tuple[str, str, bool], ...] = (
     ("BtnCheck", "diagnostics", False),
 )
 
-_BUSY_CONTROL_IDS: tuple[str, ...] = tuple(
-    btn_id for btn_id, _helper, _scoped in _COMPUTE_BUTTONS
-) + ("BtnInsert",)
+_BUSY_CONTROL_IDS: tuple[str, ...] = tuple(row[0] for row in _COMPUTE_BUTTONS) + ("BtnInsert",)
 
 
 class _TextAnalyticsAction(BaseActionListener):
@@ -143,17 +142,16 @@ class TextAnalyticsDialog:
 
     def _wire(self) -> None:
         assert self._dlg is not None
-        for btn_id, helper, uses_scope in _COMPUTE_BUTTONS:
-            ctrl = self._dlg.getControl(btn_id)
+        extra = (("BtnInsert", self._insert_report), ("BtnClose", self.close))
+        compute = (
+            (btn_id, partial(self._on_compute, helper, uses_scope))
+            for btn_id, helper, uses_scope in _COMPUTE_BUTTONS
+        )
+        buttons: tuple[tuple[str, Callable[[], None]], ...] = (*compute, *extra)
+        for control_id, handler in buttons:
+            ctrl = self._dlg.getControl(control_id)
             if ctrl is not None:
-                ctrl.addActionListener(_TextAnalyticsAction(partial(self._on_compute, helper, uses_scope)))
-
-        btn_insert = self._dlg.getControl("BtnInsert")
-        if btn_insert is not None:
-            btn_insert.addActionListener(_TextAnalyticsAction(self._insert_report))
-        btn_close = self._dlg.getControl("BtnClose")
-        if btn_close is not None:
-            btn_close.addActionListener(_TextAnalyticsAction(self.close))
+                ctrl.addActionListener(_TextAnalyticsAction(handler))
 
     def _on_compute(self, helper: str, scoped: bool) -> None:
         if scoped:
@@ -252,14 +250,11 @@ class TextAnalyticsDialog:
                 res_ctrl.getModel().Text = _("The document was closed.")
                 return
 
-            too_short = not text or (isinstance(text, str) and len(text.strip()) < 20)
-            if too_short:
-                nothing_selected = scope == "selection" and (
-                    not text or (isinstance(text, str) and not text.strip())
-                )
+            stripped = text.strip() if isinstance(text, str) else text
+            if not stripped or (isinstance(text, str) and len(stripped) < 20):
                 res_ctrl.getModel().Text = (
                     _("Nothing is selected.")
-                    if nothing_selected
+                    if scope == "selection" and not stripped
                     else _("Not enough text in the chosen scope.")
                 )
                 return
@@ -268,8 +263,6 @@ class TextAnalyticsDialog:
             res_ctrl.getModel().Text = _("Analyzing...")
 
         self._set_busy(True)
-
-        owner = self
 
         # Bugfix: worker blocking UI thread
         # What was wrong: worker RPC executed synchronously on the main VCL thread, freezing the UI.
@@ -290,35 +283,24 @@ class TextAnalyticsDialog:
                 log.exception("Text analytics worker call failed")
                 err = e
 
-            owner._deliver_compute_result(helper, res, err)
+            apply = partial(self._apply_compute_result, helper, res, err)
+            # a raised post_to_main_thread used to return after a log, so _busy stayed true and the compute buttons stayed disabled until the dialog was closed. post raises TimeoutError when AsyncCallback is missing and the pending list is full; a flush of older pending posts logs and leaves that tail queued, and it does not raise, so this closure is still enqueued when AsyncCallback exists. execute_on_main_thread is the retry that still runs _apply_compute_result on a live main thread. The flag clear is only for when that marshal also refuses, and it does not touch UNO.
+            try:
+                post_to_main_thread(apply)
+                return
+            except Exception:
+                log.exception("Failed to post text analytics compute result to main thread")
+            try:
+                execute_on_main_thread(apply, timeout=5.0)
+            except Exception:
+                log.exception("text analytics: could not deliver result on the main thread")
+                self._busy = False
 
         try:
             run_in_background(_worker, name="text-analytics-dialog", dedicated=True)
         except Exception as e:
             log.exception("Failed to schedule text analytics background worker")
             self._apply_compute_result(helper, None, e)
-
-    def _deliver_compute_result(
-        self,
-        helper: str,
-        result: dict[str, Any] | None,
-        error: Exception | None,
-    ) -> None:
-        def _post() -> None:
-            self._apply_compute_result(helper, result, error)
-
-        # a raised post_to_main_thread used to return after a log, so _busy stayed true and the compute buttons stayed disabled until the dialog was closed. post raises TimeoutError when AsyncCallback is missing and the pending list is full; a flush of older pending posts logs and leaves that tail queued, and it does not raise, so this closure is still enqueued when AsyncCallback exists. execute_on_main_thread is the retry that still runs _apply_compute_result on a live main thread. The flag clear is only for when that marshal also refuses, and it does not touch UNO.
-        try:
-            post_to_main_thread(_post)
-            return
-        except Exception:
-            log.exception("Failed to post text analytics compute result to main thread")
-
-        try:
-            execute_on_main_thread(_post, timeout=5.0)
-        except Exception:
-            log.exception("text analytics: could not deliver result on the main thread")
-            self._busy = False
 
     def _apply_compute_result(
         self,
@@ -355,8 +337,7 @@ class TextAnalyticsDialog:
         if (
             isinstance(result, dict)
             and result.get("status") == "ok"
-            and helper not in ("diagnostics", "check")
-            and text_analytics_payload_has_content(result)
+            and _result_to_html_table(_result_payload(result))
         ):
             self._last_result = result
         else:
@@ -467,8 +448,7 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
         models = data.get("models") or []
         if models:
             lines.append(f"  Installed Models ({len(models)}):")
-            for m in models:
-                lines.append(f"    - {m}")
+            lines.extend(f"    - {m}" for m in models)
         else:
             lines.append("  No models detected/loaded.")
 
@@ -518,11 +498,10 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
                 return "No entities found."
             return _capped_list("Entities", ents, lambda e: f"  {e.get('text')} [{e.get('label')}]")
 
-        if helper in ("key_phrases", "chunks"):
-            kps = data.get("key_phrases") or []
-            if not kps:
-                return "No key phrases found."
-            return _capped_list("Key Phrases", kps, lambda kp: f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
+        kps = data.get("key_phrases") or []
+        if not kps:
+            return "No key phrases found."
+        return _capped_list("Key Phrases", kps, lambda kp: f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
 
     if helper == "topics":
         tops = data.get("topics") or []

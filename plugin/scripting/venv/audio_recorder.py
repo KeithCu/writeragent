@@ -96,9 +96,7 @@ def record_to_wav(
     # — that step is 100 whenever silence_stop_ms is 1..400.
     # Why this change: PCM and VAD still run, but should_emit_silence_progress / on_ipc_emit
     # wait until on_stream_started has returned so the first line is ready.
-    progress_after_ready = threading.Event()
-    if on_stream_started is None:
-        progress_after_ready.set()
+    progress_after_ready = on_stream_started is None
 
     stream = None
 
@@ -123,7 +121,7 @@ def record_to_wav(
         try:
             result = vad.process_chunk(pcm)
             if (
-                progress_after_ready.is_set()
+                progress_after_ready
                 and on_ipc_emit is not None
                 and vad.should_emit_silence_progress(result)
             ):
@@ -149,7 +147,7 @@ def record_to_wav(
         stream.start()
         if on_stream_started is not None:
             on_stream_started()
-        progress_after_ready.set()
+        progress_after_ready = True
         if not stop_event.wait(timeout=MAX_RECORDING_DURATION_SEC):
             # The 4-hour cap is a normal end of take, not a crash: reuse the
             # auto-stop frame so the host commits the WAV instead of sitting

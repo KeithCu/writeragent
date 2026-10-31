@@ -650,6 +650,7 @@ def test_win32_readline_sleep_clamps_when_peek_crosses_deadline(monkeypatch):
     """PeekNamedPipe can finish after the deadline; sleep(negative) is ValueError."""
     from plugin.scripting import ipc
 
+    monkeypatch.setattr(ipc.sys, "platform", "win32")
     slept: list[float] = []
     monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
     times = iter([0.0, 0.009, 0.011, 0.011])
@@ -658,7 +659,7 @@ def test_win32_readline_sleep_clamps_when_peek_crosses_deadline(monkeypatch):
     stream = MagicMock()
     stream.fileno.return_value = 3
     with pytest.raises(subprocess.TimeoutExpired):
-        ipc._readline_with_timeout_win32(stream, 0.01, 1024)
+        ipc._readline_with_timeout(stream, 0.01, 1024)
     assert slept == [0.0]
 
 
@@ -666,6 +667,7 @@ def test_win32_partial_json_line_times_out_then_resumes(monkeypatch):
     """Queued bytes without a newline must not block in readline past the deadline."""
     from plugin.scripting import ipc
 
+    monkeypatch.setattr(ipc.sys, "platform", "win32")
     partial = b'{"status": "partial"'
     rest = b"}\n"
     stage = {"phase": "partial"}
@@ -703,12 +705,12 @@ def test_win32_partial_json_line_times_out_then_resumes(monkeypatch):
     monkeypatch.setattr(ipc.time, "sleep", lambda sec: clock.__setitem__("t", clock["t"] + 1.0))
 
     with pytest.raises(subprocess.TimeoutExpired):
-        ipc._readline_with_timeout_win32(stream, 0.2, 1024)
+        ipc._readline_with_timeout(stream, 0.2, 1024)
     assert stream.readline_calls == 0
 
     clock["t"] = 0.0
     stage["phase"] = "rest"
-    assert ipc._readline_with_timeout_win32(stream, 1.0, 1024) == '{"status": "partial"}\n'
+    assert ipc._readline_with_timeout(stream, 1.0, 1024) == '{"status": "partial"}\n'
     assert stream.readline_calls == 0
 
 
@@ -716,6 +718,7 @@ def test_oversize_pending_json_line_is_restored(monkeypatch):
     """A line over max_bytes must still be pending, not dropped mid-line."""
     from plugin.scripting import ipc
 
+    monkeypatch.setattr(ipc.sys, "platform", "win32")
     chunk = b"x" * 20
     reads = {"n": 0}
 
@@ -734,10 +737,10 @@ def test_oversize_pending_json_line_is_restored(monkeypatch):
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: len(chunk))
     monkeypatch.setattr(ipc.os, "read", fake_read)
     with pytest.raises(ValueError, match="exceeds"):
-        ipc._readline_with_timeout_win32(stream, 1.0, 10)
+        ipc._readline_with_timeout(stream, 1.0, 10)
     assert reads["n"] == 1
     with pytest.raises(ValueError, match="exceeds"):
-        ipc._readline_with_timeout_win32(stream, 1.0, 10)
+        ipc._readline_with_timeout(stream, 1.0, 10)
     assert reads["n"] == 1
 
 
@@ -749,6 +752,7 @@ def test_untimed_read_json_line_uses_saved_partial(monkeypatch):
     """
     from plugin.scripting import ipc
 
+    monkeypatch.setattr(ipc.sys, "platform", "win32")
     partial = b'{"a": 1'
     stage = {"phase": "partial"}
 
@@ -778,7 +782,7 @@ def test_untimed_read_json_line_uses_saved_partial(monkeypatch):
     monkeypatch.setattr(ipc.time, "monotonic", lambda: clock["t"])
     monkeypatch.setattr(ipc.time, "sleep", lambda sec: clock.__setitem__("t", clock["t"] + 1.0))
     with pytest.raises(subprocess.TimeoutExpired):
-        ipc._readline_with_timeout_win32(stream, 0.2, 1024)
+        ipc._readline_with_timeout(stream, 0.2, 1024)
     assert read_json_line(stream) == {"a": 1}
 
 
@@ -1416,22 +1420,21 @@ def test_read_pickle_frame_win32_is_alive_honored(monkeypatch):
     # Return valid frame size (e.g. 4 bytes length) to prevent IpcFrameError
     stream.read.side_effect = [b"\x00\x00\x00\x04", b"\x00\x00\x00\x00"]
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 4)
-    monkeypatch.setattr(ipc, "_decode_pickle_payload", lambda p, *args, **kwargs: None if p is None else {"ok": 1})
 
     # is_alive returning True should NOT cause TimeoutExpired
-    res = ipc.read_pickle_frame(stream, 1.0, is_alive=lambda: True)
+    res = ipc.read_pickle_frame(stream, 1.0, is_alive=lambda: True, unpacker=lambda _payload: {"ok": 1})
     assert res == {"ok": 1}
 
     # is_alive returning False drains queued bytes when peek > 0
     stream.read.side_effect = [b"\x00\x00\x00\x04", b"\x00\x00\x00\x00"]
-    assert ipc.read_pickle_frame(stream, 1.0, is_alive=lambda: False) == {"ok": 1}
+    assert ipc.read_pickle_frame(stream, 1.0, is_alive=lambda: False, unpacker=lambda _payload: {"ok": 1}) == {"ok": 1}
 
     # When peek is 0 and is_alive is False, it returns None without sleeping out the deadline
     slept: list[float] = []
     monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
     stream.read.reset_mock()
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 0)
-    assert ipc.read_pickle_frame(stream, 10.0, is_alive=lambda: False) is None
+    assert ipc.read_pickle_frame(stream, 10.0, is_alive=lambda: False, unpacker=lambda _payload: {"ok": 1}) is None
     stream.read.assert_not_called()
     assert slept == []
 
@@ -1693,7 +1696,7 @@ def test_read_frame_payload_stop_checker_raises_timeout_expired():
         try:
             t0 = time.monotonic()
             with pytest.raises(subprocess.TimeoutExpired) as exc_info:
-                read_frame_payload(reader, 30.0, timeout_label=30.0, stop_checker=lambda: True)
+                read_frame_payload(reader, 30.0, stop_checker=lambda: True)
             assert exc_info.value.timeout == 30.0
             assert time.monotonic() - t0 < 1.0
         finally:
@@ -1709,7 +1712,7 @@ def test_read_frame_payload_explicit_deadline():
         try:
             t0 = time.monotonic()
             with pytest.raises(subprocess.TimeoutExpired) as exc_info:
-                read_frame_payload(reader, 30.0, deadline=time.monotonic() + 0.3, timeout_label=12.0)
+                read_frame_payload(reader, 12.0, deadline=time.monotonic() + 0.3)
             elapsed = time.monotonic() - t0
             assert exc_info.value.timeout == 12.0
             assert 0.2 <= elapsed < 2.0
@@ -1726,7 +1729,7 @@ def test_read_frame_payload_partial_frame_raises_partial():
         reader = os.fdopen(r_fd, "rb", buffering=0)
         try:
             with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
-                read_frame_payload(reader, 30.0, deadline=time.monotonic() + 0.3, timeout_label=12.0)
+                read_frame_payload(reader, 30.0, deadline=time.monotonic() + 0.3)
         finally:
             reader.close()
     finally:

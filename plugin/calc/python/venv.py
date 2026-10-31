@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import execute_on_main_thread, run_on_main
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
 from plugin.scripting.payload_codec import find_image_payloads, strip_image_payloads, write_image_payload_to_temp
 from plugin.scripting.venv_worker import run_code_in_user_venv
@@ -51,18 +51,11 @@ _IMPORT_NOTE_MARKER = _RESULT_NOTE + " "
 
 
 def _with_import_note(text: str) -> str:
-    """Insert the sandbox import policy when the tool schema is built.
-
-    Read the global here, after ensuring init has run.
-    PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE starts empty and is filled on first
-    prompt assembly. Concatenating that name at import (tool discovery)
-    captures the empty string, and a later assignment does not rewrite it.
-    """
+    """Insert the sandbox import policy when the tool schema is built."""
     from plugin.framework import prompts
 
-    prompts._ensure_venv_import_policy_strings()
     note = prompts.PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
-    if note and _IMPORT_NOTE_MARKER in text:
+    if _IMPORT_NOTE_MARKER in text:
         return text.replace(_IMPORT_NOTE_MARKER, _IMPORT_NOTE_MARKER + note, 1)
     return text
 
@@ -80,11 +73,6 @@ def _venv_schema_and_description(doc_type: str | None) -> tuple[str, dict[str, A
             "The host reads ranges on the main thread and sends shaped data over the efficient IPC path. "
             "For anything beyond tiny grids, use data_range (address) rather than passing values in the data parameter."
         )
-    elif doc_type in ("draw", "impress"):
-        base_desc = (
-            f"Run Python code in the configured venv. {_RESULT_NOTE} "
-            "Use document tools to read or change the slide/page; this tool does not inject spreadsheet `data`."
-        )
     elif doc_type is None:
         props["data_range"] = {**_DATA_RANGE_SCHEMA, "description": "(Calc only) " + _DATA_RANGE_DESCRIPTION}
         props["data"] = _data_value_schema("(Calc only) Optional 2D array of cell values as `data` (prefer data_range for bulk data).")
@@ -94,9 +82,10 @@ def _venv_schema_and_description(doc_type: str | None) -> tuple[str, dict[str, A
             "in Writer or Draw/Impress use document tools to read or change content (no spreadsheet `data` injection)."
         )
     else:
+        where = "slide/page" if doc_type in ("draw", "impress") else "file"
         base_desc = (
             f"Run Python code in the configured venv. {_RESULT_NOTE} "
-            "Use document tools to read or change the file; this tool does not inject spreadsheet `data`."
+            f"Use document tools to read or change the {where}; this tool does not inject spreadsheet `data`."
         )
 
     hint = format_matplotlib_plot_hint(doc_type=doc_type)
@@ -121,11 +110,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
     name: str | None = "run_venv_python_script"
     specialized_cross_cutting: ClassVar[bool] = True
     description: str = f"Run Python code in the configured venv. {_RESULT_NOTE}"
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {"code": dict(_CODE_PROP)},
-        "required": ["code"],
-    }
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
     long_running: bool = True
 
@@ -140,9 +124,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         code = str(kwargs.get("code", ""))
-        if kwargs.get("timeout_sec") is not None:
-            log.debug("run_venv_python_script: ignoring timeout_sec (user setting controls wall clock)")
-
         py_data = None
         if ctx.doc_type == "calc":
             data_range = kwargs.get("data_range")
@@ -157,9 +138,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
             )
             if err:
                 return self._tool_error(err, code="DATA_RESOLUTION_ERROR")
-        else:
-            if kwargs.get("data_range") is not None or kwargs.get("data") is not None:
-                log.debug("run_venv_python_script: ignoring data/data_range on doc_type=%s", ctx.doc_type)
 
         # Pin ctx.doc for this call only. document_for_script_session
         # resolves a doc: id before the desktop's current component. The
@@ -215,7 +193,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 failure: Exception | None = None
                 if ctx.doc_type == "calc":
                     from plugin.calc.python.image_egress import insert_image_result_on_sheet
-                    from plugin.framework.queue_executor import execute_on_main_thread
 
                     # Pass ctx.doc, and report inserted only after the
                     # main-thread call returns. Omitting doc= makes egress

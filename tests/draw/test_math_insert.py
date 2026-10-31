@@ -8,26 +8,15 @@ from typing import Any
 import pytest
 
 from plugin.draw.math_insert import (
+    _DISPLAY_BLOCK_RE,
     _MAP_ONE_CM,
     _MAP_ONE_MM,
     InsertMathDraw,
     _content_size_hmm,
-    _latex_is_display_block,
     _try_ole_shape_content_size_hmm,
-    _uno_ctx_from_tool_ctx,
 )
 from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.math.math_mml_convert import MathConversionResult
-
-
-def test_uno_ctx_from_tool_ctx_uses_inner_ctx() -> None:
-    inner = object()
-    assert _uno_ctx_from_tool_ctx(SimpleNamespace(ctx=inner)) is inner
-
-
-def test_uno_ctx_from_tool_ctx_passes_bare_object() -> None:
-    bare = object()
-    assert _uno_ctx_from_tool_ctx(bare) is bare
 
 
 class _AwtSize:
@@ -116,7 +105,7 @@ def test_content_size_hmm_map_units(width: int, height: int, map_unit: int, expe
     ],
 )
 def test_latex_is_display_block(latex: str, expected: bool) -> None:
-    assert _latex_is_display_block(latex) is expected
+    assert bool(_DISPLAY_BLOCK_RE.search(latex)) is expected
 
 
 class _FakePages:

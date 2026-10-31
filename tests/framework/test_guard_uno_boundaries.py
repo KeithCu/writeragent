@@ -75,7 +75,6 @@ class TestGuardUnoBoundaries:
             patch("plugin.framework.uno_context.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
             patch("plugin.mcp.mcp_protocol._resolve_mcp_doc_key", return_value="key"),
             patch("plugin.mcp.document_mutation_gate._document_mutation_gate"),
-            patch("plugin.mcp.document_mutation_gate._tool_needs_document_mutation_gate", return_value=False),
         ):
             handler._execute_long_running("noop", {}, document_url=None)
 
@@ -256,8 +255,7 @@ class TestGuardUnoBoundaries:
         with (
             patch("plugin.calc.python.editor.get_desktop", return_value=desktop),
             patch("plugin.calc.python.editor.CalcBridge") as mock_bridge,
-            patch("plugin.calc.python.editor._cell_formula_strings", return_value=["=PY(\"1\")"]),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
+            patch("plugin.calc.python.editor.guard_uno", side_effect=lambda o: o) as mock_guard,
         ):
             from plugin.calc.python.editor import _get_active_calc_cell
 

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 from typing import Any
 
 from plugin.framework.errors import best_effort
@@ -14,6 +15,7 @@ from plugin.framework.uno_context import get_desktop
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, run_dialog_with_listeners
 from plugin.calc.address_utils import parse_range_string, parse_address
+from plugin.calc.bridge import used_range_address
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, enrich_number_formats
@@ -21,7 +23,6 @@ from plugin.calc.spreadsheet_import.verify import verify_converted_cells
 
 log = logging.getLogger("writeragent.calc.import_dialog")
 
-TARGET_SHEET_NAME = "PythonImport"
 # com.sun.star.sheet.CellFlags: VALUE(1) | DATETIME(2) | STRING(4) | FORMULA(16).
 _CLEAR_CONTENTS_FLAGS = 1 | 2 | 4 | 16
 
@@ -93,23 +94,21 @@ def run_sheet_conversion(
     sheet_bounds: dict[str, tuple[int, int]] = {}
 
     def _collect_bounds() -> None:
-        from plugin.calc.spreadsheet_import.ingest import _used_range_address
-
         sheets = doc.getSheets()
         for i in range(sheets.getCount()):
             sh = sheets.getByIndex(i)
-            addr = _used_range_address(sh)
+            addr = used_range_address(sh)
             sheet_bounds[sh.getName().upper()] = (addr.EndColumn, addr.EndRow)
 
     best_effort(_collect_bounds, "collect workbook sheet bounds")
 
     # 2. Translate and Build Converted Output Model
-    output, report = build_converted_output_model(model, vectorize=vectorize, sheet_bounds=sheet_bounds or None)
+    output, report = build_converted_output_model(model, vectorize=vectorize, sheet_bounds=sheet_bounds)
 
     # 3. Resolve Target Sheet
     if output_mode == "new_sheet":
         sheets = doc.getSheets()
-        target_name = _unique_sheet_name(sheets, TARGET_SHEET_NAME)
+        target_name = _unique_sheet_name(sheets, "PythonImport")
         sheets.insertNewByName(target_name, sheets.getCount())
         target_sheet = sheets.getByName(target_name)
     else:
@@ -126,12 +125,10 @@ def run_sheet_conversion(
     if verify:
         doc.calculateAll()
         actual_values = fetch_actual_values(target_sheet, report.converted)
-        verify_res = verify_converted_cells(model, output, report, actual_values=actual_values)
-        failed_verifications = [item.to_dict() for item in verify_res.failed]
+        failed_verifications = [asdict(item) for item in verify_converted_cells(model, output, report, actual_values=actual_values)]
 
-    status = "partial" if failed_verifications else "ok"
     return {
-        "status": status,
+        "status": "partial" if failed_verifications else "ok",
         "report": report.to_dict(),
         "summary": report.summary(),
         "failed_verifications": failed_verifications,
@@ -184,7 +181,7 @@ def show_import_dialog(ctx: Any) -> None:
                     verify = _control_is_checked(dlg.getControl("OptVerify"))
                     preserve_formats = _control_is_checked(dlg.getControl("OptFormats"))
 
-                    res = run_sheet_conversion(
+                    _outcome = run_sheet_conversion(
                         doc,
                         source_sheet,
                         scope=scope,
@@ -193,7 +190,6 @@ def show_import_dialog(ctx: Any) -> None:
                         verify=verify,
                         preserve_formats=preserve_formats,
                     )
-                    _outcome = res
                     dlg.endDialog(1)
                 except Exception as e:
                     log.exception("Sheet conversion failed inside dialog")

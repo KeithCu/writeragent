@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import mimetypes
@@ -23,8 +24,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _ready_lock = threading.Lock()
 _ready_sent = False
 _session_lock = threading.Lock()
-_closed_sent = False
-_closed_session_id = ""
+_closed_for: str | None = None
 _lifecycle_lock = threading.Lock()
 _gui_loop_entered = False
 _window: Any = None
@@ -177,18 +177,19 @@ def _remember_session(msg: dict[str, Any]) -> None:
 def _note_load(msg: dict[str, Any]) -> None:
     """The reader publishes identity as soon as the load frame arrives; poll_messages applies the same helper again on the GUI thread immediately before show."""
     _remember_session(msg)
-    _reset_closed_sent()
-
-
-def _reset_closed_sent() -> None:
-    global _closed_sent
+    global _closed_for
     with _session_lock:
-        _closed_sent = False
+        _closed_for = None
 
 
-def _session_snapshot() -> tuple[str, str, dict[str, str]]:
-    with _session_lock:
-        return _current_session_id, _current_mode, dict(_current_target)
+def _stamp_current(message: dict[str, Any]) -> dict[str, Any]:
+    # Caller holds _session_lock. Closed frames must be stamped in that same section.
+    return stamp_session(
+        message,
+        session_id=_current_session_id,
+        mode=_current_mode,
+        target=dict(_current_target),
+    )
 
 
 def _emit(message: dict[str, Any]) -> None:
@@ -199,13 +200,8 @@ def _emit(message: dict[str, Any]) -> None:
 def _write_parent(message: dict[str, Any]) -> None:
     kind = message_type(message)
     if kind and kind != "ready":
-        sid, mode, target = _session_snapshot()
-        message = stamp_session(
-            message,
-            session_id=sid,
-            mode=mode,
-            target=target,
-        )
+        with _session_lock:
+            message = _stamp_current(message)
     _emit(message)
 
 
@@ -222,25 +218,19 @@ def _send_ready_once() -> None:
 
 def _send_closed_once() -> None:
     """Tell LibreOffice the editor session ended (Cancel, WM close, or process exit)."""
-    # Bugfix: A load frame arriving on the pipe thread could clear _closed_sent
+    # Bugfix: A load frame arriving on the pipe thread could clear _closed_for
     # after _send_closed_once set the flag and before writing the message, and
     # _write_parent then stamped the closed frame with the newly loaded session,
     # causing the host to close the buffer it had just opened. Building the
-    # stamped payload under _session_lock alongside updating the closed flag
-    # and session id ensures the closed frame is always stamped with the
+    # stamped payload under _session_lock alongside updating _closed_for
+    # ensures the closed frame is always stamped with the
     # session identity captured when the close was accepted.
-    global _closed_sent, _closed_session_id
+    global _closed_for
     with _session_lock:
-        if _closed_sent and _closed_session_id == _current_session_id:
+        if _closed_for == _current_session_id:
             return
-        _closed_sent = True
-        _closed_session_id = _current_session_id
-        payload = stamp_session(
-            {"type": "closed"},
-            session_id=_current_session_id,
-            mode=_current_mode,
-            target=dict(_current_target),
-        )
+        _closed_for = _current_session_id
+        payload = _stamp_current({"type": "closed"})
     try:
         _emit(payload)
         log.info("editor_main: sent closed")
@@ -308,7 +298,6 @@ class MonacoEditorApi:
         self._jedi_started: float = 0.0
         self._jedi_lock: threading.Lock = threading.Lock()
         self._completion_gen: int = 0
-        self._completion_lock: threading.Lock = threading.Lock()
 
     def poll_messages(self) -> list[dict[str, Any]]:
         batch: list[dict[str, Any]] = []
@@ -352,7 +341,7 @@ class MonacoEditorApi:
 
     def _bump_completion_gen(self) -> int:
         # Overlapping API calls must not share a generation.
-        with self._completion_lock:
+        with self._jedi_lock:
             self._completion_gen += 1
             return self._completion_gen
 
@@ -390,9 +379,6 @@ class MonacoEditorApi:
                     else:
                         active = expected
                     box["result"] = active.get_completions(code, line, column)
-                except Exception:
-                    log.exception("Jedi completions failed")
-                    box["result"] = {"items": []}
                 finally:
                     done.set()
 
@@ -475,14 +461,8 @@ class MonacoEditorApi:
     def notify_cancel(self) -> None:
         log.info("editor_main: notify_cancel called; hiding window")
         _send_closed_once()
-        _hide_and_clear(_window)
-
-
-def _hide_and_clear(win: Any) -> None:
-    try:
-        win.hide()
-    except Exception:
-        pass
+        with contextlib.suppress(Exception):
+            _window.hide()
 
 
 def _handle_window_closing() -> bool:
@@ -495,7 +475,8 @@ def _handle_window_closing() -> bool:
         return True
     log.info("editor_main: intercepting window close. Hiding window instead.")
     _send_closed_once()
-    _hide_and_clear(_window)
+    with contextlib.suppress(Exception):
+        _window.hide()
     return False  # Aborts standard window close/destruction
 
 
@@ -559,11 +540,10 @@ def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | No
     # for a leading separator too.
     if raw_suffix.startswith(("/", "\\")) or os.path.isabs(raw_suffix):
         return None
-    suffix = raw_suffix.lstrip("/")
     # The empty suffix is the rocher directory and only files are served.
-    if not suffix:
+    if not raw_suffix:
         return None
-    candidate = os.path.realpath(os.path.normpath(os.path.join(root, suffix)))
+    candidate = os.path.realpath(os.path.normpath(os.path.join(root, raw_suffix)))
     try:
         if os.path.commonpath([candidate, root]) != root:
             return None
@@ -584,25 +564,18 @@ def selected_backend() -> str:
     return "codemirror" if os.environ.get("WRITERAGENT_EDITOR_BACKEND") == "codemirror" else "monaco"
 
 
-def editor_config_js() -> bytes:
-    """Body of /editor_config.js, loaded by index.html before editor_shell.js."""
-    return f"window.WA_EDITOR_BACKEND = {json.dumps(selected_backend())};\n".encode("utf-8")
-
-
 def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
     path = environ.get("PATH_INFO", "")
     if path == "/editor_config.js":
-        body = editor_config_js()
+        # index.html loads this before editor_shell.js.
+        body = f"window.WA_EDITOR_BACKEND = {json.dumps(selected_backend())};\n".encode("utf-8")
         start_response("200 OK", [("Content-Type", "application/javascript"), ("Content-Length", str(len(body)))])
         return [body]
-    rocher_root = _ROCHER_ROOT if path.startswith("/vs/") else ""
     assets = os.path.abspath(os.environ.get("WRITERAGENT_EDITOR_ASSETS", _ASSETS_DIR))
-    filepath = monaco_static_path(path, assets, rocher_root) or ""
+    filepath = monaco_static_path(path, assets, _ROCHER_ROOT) or ""
 
     if filepath and os.path.isfile(filepath):
-        mime, _unused = mimetypes.guess_type(filepath)
-        if not mime:
-            mime = "application/octet-stream"
+        mime = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
         try:
             with open(filepath, "rb") as f:
                 content = f.read()
@@ -612,9 +585,8 @@ def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
             log.exception("editor_main: failed to serve %s", filepath)
             start_response("500 Internal Server Error", [("Content-Type", "text/plain")])
             return [str(e).encode("utf-8")]
-    else:
-        start_response("404 Not Found", [("Content-Type", "text/plain")])
-        return [b"Not Found"]
+    start_response("404 Not Found", [("Content-Type", "text/plain")])
+    return [b"Not Found"]
 
 
 def main() -> None:

@@ -24,28 +24,14 @@ from __future__ import annotations
 
 import contextlib
 import errno
+from functools import wraps
 import logging
 from typing import Any, Callable, TypeVar, overload
 
 from plugin.framework.i18n import _
-from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
+from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 from plugin.framework.deal_shim import DEAL_MAX_MSGID, UNDER_CROSSHAIR, deal
-
-try:
-    from com.sun.star.lang import DisposedException
-
-    # isinstance must be DisposedException only. com.sun.star.uno.Exception is the
-    # parent of almost every UNO error, and IllegalArgumentException subclasses
-    # RuntimeException, so either of those bases reports a bad argument as disposal.
-    # RuntimeException still matches by type name below (bridge teardown, mocks).
-    # Drop the type when a test mock aliases it to builtins.Exception.
-    if isinstance(DisposedException, type) and issubclass(DisposedException, BaseException) and DisposedException is not Exception:
-        UNO_DISPOSED_EXCEPTIONS: tuple[type[BaseException], ...] = (DisposedException,)
-    else:
-        UNO_DISPOSED_EXCEPTIONS = ()
-except (ImportError, AttributeError):
-    UNO_DISPOSED_EXCEPTIONS = ()
 
 _FILESYSTEM_ERRNOS: frozenset[int] = frozenset(
     val
@@ -82,12 +68,7 @@ def is_disposed_exception(exc: BaseException) -> bool:
     bare RuntimeException is not reported as DOCUMENT_DISPOSED.
     `reraise_if_disposed` uses `is_real_disposal` and must not call this function.
     """
-    if isinstance(exc, DocumentDisposedError):
-        return True
-    if isinstance(exc, UNO_DISPOSED_EXCEPTIONS):
-        return True
-    name = type(exc).__name__
-    return "DisposedException" in name or "RuntimeException" in name
+    return is_real_disposal(exc) or "RuntimeException" in type(exc).__name__
 
 
 _T = TypeVar("_T")
@@ -142,14 +123,12 @@ class suppress_disposed(contextlib.ContextDecorator):
 
     action: str
     logger: logging.Logger | None
-    log_unexpected: bool
     suppress_all: bool
     exc_info: bool
 
-    def __init__(self, action: str = "action", *, logger: logging.Logger | None = None, log_unexpected: bool = True, suppress_all: bool = True, exc_info: bool = False) -> None:
+    def __init__(self, action: str = "action", *, logger: logging.Logger | None = None, suppress_all: bool = True, exc_info: bool = False) -> None:
         self.action = action
         self.logger = logger
-        self.log_unexpected = log_unexpected
         self.suppress_all = suppress_all
         self.exc_info = exc_info
 
@@ -171,28 +150,31 @@ class suppress_disposed(contextlib.ContextDecorator):
             log_obj.debug("%s skipped (likely disposed): %s", self.action, exc_val, exc_info=self.exc_info)
             return True
 
-        if self.log_unexpected:
-            log_obj.exception("Unexpected error during %s: %s", self.action, exc_val)
+        log_obj.exception("Unexpected error during %s: %s", self.action, exc_val)
 
         return self.suppress_all
 
 
-def resolve_exception_message(e: Any) -> str:
-    """Extract non-empty message string from an exception, resolving UNO Exception Message attributes and causes."""
-    msg = ""
+def _exception_text(obj: Any) -> str:
+    """Non-empty Message, else str. Either read can throw on a hostile UNO proxy."""
     try:
-        raw = getattr(e, "Message", None)
+        raw = getattr(obj, "Message", None)
         if isinstance(raw, str) and raw.strip():
-            msg = raw.strip()
+            return raw.strip()
     except Exception as exc:
         logging.getLogger("writeragent.errors").debug("resolve_exception_message: Message unreadable (%s)", type(exc).__name__)
-    if not msg:
-        try:
-            raw = str(e)
-            if isinstance(raw, str) and raw.strip():
-                msg = raw.strip()
-        except Exception as exc:
-            logging.getLogger("writeragent.errors").debug("resolve_exception_message: str(exception) failed (%s)", type(exc).__name__)
+    try:
+        raw = str(obj)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    except Exception as exc:
+        logging.getLogger("writeragent.errors").debug("resolve_exception_message: str(exception) failed (%s)", type(exc).__name__)
+    return ""
+
+
+def resolve_exception_message(e: Any) -> str:
+    """Extract non-empty message string from an exception, resolving UNO Exception Message attributes and causes."""
+    msg = _exception_text(e)
     if not msg:
         cause = None
         try:
@@ -200,19 +182,7 @@ def resolve_exception_message(e: Any) -> str:
         except Exception as exc:
             logging.getLogger("writeragent.errors").debug("resolve_exception_message: cause lookup failed (%s)", type(exc).__name__)
         if cause is not None and cause is not e:
-            try:
-                raw = getattr(cause, "Message", None)
-                if isinstance(raw, str) and raw.strip():
-                    msg = raw.strip()
-            except Exception as exc:
-                logging.getLogger("writeragent.errors").debug("resolve_exception_message: cause Message unreadable (%s)", type(exc).__name__)
-            if not msg:
-                try:
-                    raw = str(cause)
-                    if isinstance(raw, str) and raw.strip():
-                        msg = raw.strip()
-                except Exception as exc:
-                    logging.getLogger("writeragent.errors").debug("resolve_exception_message: str(cause) failed (%s)", type(exc).__name__)
+            msg = _exception_text(cause)
     if not msg:
         if isinstance(e, BaseException):
             msg = type(e).__name__.strip() or "BaseException"
@@ -279,52 +249,10 @@ class NetworkError(WriterAgentException):
     code: str = "NETWORK_ERROR"
 
 
-class ScriptingError(WriterAgentException):
-    """Base exception for user scripting and external Python execution."""
-
-    code: str = "SCRIPTING_ERROR"
-
-
-class VenvError(ScriptingError):
-    """Virtualenv configuration, resolution, or environment issues."""
-
-    code: str = "VENV_ERROR"
-
-
-class VenvNotFoundError(VenvError):
-    """Configured Python virtual environment or interpreter executable not found."""
-
-    code: str = "VENV_NOT_FOUND"
-
-
-class VenvTimeoutError(ScriptingError):
-    """Execution inside virtual environment exceeded configured timeout."""
-
-    code: str = "VENV_TIMEOUT"
-
-
 class CalcError(WriterAgentException):
     """Calc spreadsheet manipulation and calculation failures."""
 
     code: str = "CALC_ERROR"
-
-
-class FormulaError(CalcError):
-    """Calc formula parsing, rebuilding, or evaluation failures."""
-
-    code: str = "FORMULA_ERROR"
-
-
-class SpillCollisionError(FormulaError):
-    """Dynamic array formula cannot spill because destination cells are not empty."""
-
-    code: str = "SPILL_COLLISION"
-
-
-class SandboxSecurityError(ScriptingError):
-    """Script attempted an operation or import forbidden by the sandbox policy."""
-
-    code: str = "SANDBOX_SECURITY_ERROR"
 
 
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
@@ -348,24 +276,12 @@ def format_error_payload(e: BaseException) -> dict[str, Any]:
     return {"status": "error", "code": "INTERNAL_ERROR", "message": err_msg, "details": {"type": err_type}}
 
 
-# ── Centralized user-friendly error mapping (the single i18n mapper) ─────────
-# Previously duplicated logic lived in plugin/framework/client/errors.py as
-# format_error_message(). All code (tools, streams, logging, LLM client, HTTP
-# requests, etc.) should now go through this one function for turning raw
-# exceptions into localized, actionable advice for users.
-#
-# This is the companion to format_error_payload(): the former produces the
-# structured dict used by tools/logs/UI; this one produces the plain friendly
-# string used in logs, error messages, and as a fallback in display helpers.
-#
-# Wire-specific formatting (full HTTP response bodies, audio modality heuristics)
-# remains in client/errors.py. Generic display formatting (format_error_for_display)
-# and the i18n mapper (format_error_message) live in this module.
+# i18n mapper for raw exceptions. format_error_payload is the structured dict.
+# Wire-specific HTTP bodies and audio/image heuristics stay in client/errors.py.
 
 
 def _is_connection_refused(exc: BaseException, reason: str) -> bool:
     """True for a refused TCP connect, not for the digits 111 in an unrelated message."""
-    import errno
     import urllib.error
 
     if isinstance(exc, ConnectionRefusedError):
@@ -418,12 +334,9 @@ def format_error_message(e: BaseException) -> str:
     # HTTPException like HTTPError discarded str(e) and reported "HTTP Error 0".
     # Those fall through to the connection/OSError path or the final str(e).
     if isinstance(e, urllib.error.HTTPError):
-        code_candidate = getattr(e, "code", None)
-        if code_candidate is None:
-            code_candidate = getattr(e, "status", None)
         try:
-            code = int(code_candidate) if code_candidate is not None else 0
-        except (TypeError, ValueError):
+            code = int(e.code)
+        except (TypeError, ValueError, AttributeError):
             code = 0
         mapped = http_status_message(code)
         if mapped is not None:
@@ -442,14 +355,6 @@ def format_error_message(e: BaseException) -> str:
         if provider and provider != "custom":
             return _("No API key configured for {0}. Open Settings and add a key.").format(provider)
         return _("No API key configured. Open Settings and add a key.")
-    if isinstance(e, VenvNotFoundError):
-        return _("Python venv not found. Open Settings → Python, set the venv path, then Test.")
-    if isinstance(e, VenvTimeoutError):
-        return _("Python execution timed out. Open Settings → Python to raise the timeout.")
-    if isinstance(e, SpillCollisionError):
-        return _("Formula spill collision: destination range contains non-empty cells.")
-    if isinstance(e, SandboxSecurityError):
-        return _("Script execution blocked by sandbox policy: {0}").format(getattr(e, "message", str(e)))
 
     # Filesystem errors are not a down local server. Match connection-shaped
     # transport errors, not filesystem classes or errnos.
@@ -458,49 +363,42 @@ def format_error_message(e: BaseException) -> str:
         raw_reason = getattr(e, "reason", None)
         reason_obj = raw_reason if isinstance(raw_reason, BaseException) else None
     else:
-        reason_obj = e if isinstance(e, BaseException) else None
+        reason_obj = e
 
     if UNDER_CROSSHAIR:
         reason = "mock"
     elif reason_obj is not None:
         reason = resolve_exception_message(reason_obj)
-    elif isinstance(e, urllib.error.URLError):
-        reason = str(getattr(e, "reason", None) or e)
     else:
-        reason = str(e)
+        reason = str(getattr(e, "reason", None) or e)
 
     is_fs = isinstance(e, _FILESYSTEM_CLASSES) or (getattr(e, "errno", None) in _FILESYSTEM_ERRNOS)
     if isinstance(e, (urllib.error.URLError, OSError)) and not is_fs:
-        is_transport = (
-            isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.gaierror, socket.herror))
-            or (getattr(e, "errno", None) in _TRANSPORT_ERRNOS)
-            or ("timed out" in reason.lower() and "formula" not in reason.lower())
-            or _is_connection_refused(e, reason)
-            or ("getaddrinfo failed" in reason.lower())
-        )
-        if is_transport:
-            # URLError is not itself a socket.timeout; the timeout is e.reason.
-            # Check that before the connection-error sentence, or a wrapped
-            # timeout tells the user the server is down.
-            if reason_obj is not None and isinstance(reason_obj, (socket.timeout, TimeoutError)):
-                msg_obj = "mock" if UNDER_CROSSHAIR else resolve_exception_message(reason_obj)
-                if _is_socket_timeout_phrase(msg_obj):
-                    return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
-                return msg_obj
-            # urllib.request wraps a certificate failure as URLError(reason=SSLError).
-            # A direct SSLError is handled above. The wrapped form used to return "Connection Error"
-            # and hide the TLS sentence.
-            if isinstance(reason_obj, ssl.SSLError):
-                tls = "mock" if UNDER_CROSSHAIR else resolve_exception_message(reason_obj)
-                return _("TLS/SSL Error: {0}").format(tls)
-            if "timed out" in reason.lower() and "formula" not in reason.lower():
+        rl = reason.lower()
+        # URLError is not itself a socket.timeout; the timeout is e.reason.
+        # Check that before the connection-error sentence, or a wrapped
+        # timeout tells the user the server is down.
+        if reason_obj is not None and isinstance(reason_obj, (socket.timeout, TimeoutError)):
+            if _is_socket_timeout_phrase(reason):
                 return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
-            # Errno text and unrelated messages both contain "111" (port 1111).
-            # Match the errno or the words, not that substring.
-            if _is_connection_refused(e, reason):
-                return _("Connection Refused. Is your local AI server (Ollama/LM Studio) running?")
-            if "getaddrinfo failed" in reason.lower():
-                return _("DNS Error. Could not resolve the endpoint URL.")
+            return reason
+        # urllib.request wraps a certificate failure as URLError(reason=SSLError).
+        # A direct SSLError is handled above. The wrapped form used to return "Connection Error"
+        # and hide the TLS sentence.
+        if isinstance(reason_obj, ssl.SSLError):
+            return _("TLS/SSL Error: {0}").format(reason)
+        if "timed out" in rl and "formula" not in rl:
+            return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
+        # Errno text and unrelated messages both contain "111" (port 1111).
+        # Match the errno or the words, not that substring.
+        if _is_connection_refused(e, reason):
+            return _("Connection Refused. Is your local AI server (Ollama/LM Studio) running?")
+        if "getaddrinfo failed" in rl:
+            return _("DNS Error. Could not resolve the endpoint URL.")
+        if (
+            isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.gaierror, socket.herror))
+            or getattr(e, "errno", None) in _TRANSPORT_ERRNOS
+        ):
             return _("Connection Error: {0}").format(reason)
 
     lower = msg.lower()
@@ -540,8 +438,6 @@ def make_tool_error(message: Any, code: str = "TOOL_EXECUTION_ERROR", **details:
     through ``WriterAgentException``, which does not apply the gettext msgid
     length contract to that text.
     """
-    if not isinstance(message, str):
-        message = resolve_exception_message(message)
     if not isinstance(code, str) or not code:
         code = "TOOL_EXECUTION_ERROR"
     return format_error_payload(ToolExecutionError(message, code=code, details=details))
@@ -580,12 +476,6 @@ class ToolExecutionError(WriterAgentException):
     """Tool invocation and execution failures."""
 
     code: str = "TOOL_EXECUTION_ERROR"
-
-
-class ToolPermissionError(WriterAgentException):
-    """User rejected tool execution or permission denied."""
-
-    code: str = "PERMISSION_DENIED"
 
 
 class AgentParsingError(WriterAgentException):
@@ -706,8 +596,6 @@ def safe_uno_call(default: Any = None) -> Any:
     """
 
     def decorator(func: Any) -> Any:
-        from functools import wraps
-
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
@@ -735,7 +623,7 @@ def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
     except WriterAgentException:
         # Bugfix: safe_call previously caught all Exception instances and wrapped them
         # in UnoObjectError, converting WriterAgentException subclasses (like
-        # ToolPermissionError) into generic UNO errors and losing their error codes.
+        # ConfigError) into generic UNO errors and losing their error codes.
         # Catching WriterAgentException first preserves specific domain exceptions.
         raise
     except Exception as e:
@@ -752,46 +640,3 @@ def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
         raise UnoObjectError(f"{context_name} failed: {text}", details={"operation": context_name, "type": e_name}) from e
 
 
-# Exception types and error helpers live here. safe_json_loads / safe_python_literal_eval
-# are implemented in json_utils and re-exported as stable public imports (intentional).
-__all__ = [
-    "AgentParsingError",
-    "BlockingWaitStopped",
-    "CalcError",
-    "ConfigError",
-    "ConfigValidationError",
-    "DocumentDisposedError",
-    "FormulaError",
-    "NetworkError",
-    "SandboxSecurityError",
-    "ScriptingError",
-    "SpillCollisionError",
-    "ToolExecutionError",
-    "ToolPermissionError",
-    "UnoObjectError",
-    "VenvError",
-    "VenvNotFoundError",
-    "VenvTimeoutError",
-    "WorkerPoolError",
-    "WriterAgentException",
-    "best_effort",
-    "check_disposed",
-    "format_error_for_display",
-    "format_error_message",  # The single i18n-friendly mapper (centralized here in 2026 janitor effort)
-    "format_error_payload",
-    "http_status_message",
-    "is_disposed_exception",
-    "is_document_disposed",
-    "is_real_disposal",
-    "is_tool_document_disposed",
-    "make_tool_error",  # Central factory for all tool error dicts
-    "reraise_if_disposed",
-    "resolve_exception_message",
-    "safe_call",
-    "safe_json_loads",
-    "safe_python_literal_eval",
-    "safe_uno_call",
-    "suppress_disposed",
-    "uno_probe",
-    "uno_read",
-]

@@ -84,11 +84,6 @@ def _error_with_tail(code: str, msg: str, tail: str, *, with_message: bool = Fal
 class _KokoroWorker:
     """Subprocess worker executing Kokoro jobs over stdio Pickle 5 framing."""
 
-    _ready_timeout_sec: float
-    _managed: ManagedSubprocess
-    _shutting_down: bool
-    _killed: bool
-
     def __init__(
         self,
         python_executable: str,
@@ -97,18 +92,16 @@ class _KokoroWorker:
         env: dict[str, str] | None = None,
         ready_timeout_sec: float = _SPAWN_READY_TIMEOUT_SEC,
     ) -> None:
-        self._ready_timeout_sec = ready_timeout_sec
-        self._managed = ManagedSubprocess(
+        self._ready_timeout_sec: float = ready_timeout_sec
+        self._managed: ManagedSubprocess = ManagedSubprocess(
             [python_executable, script_path],
             base_env=env,
-            command_wrapper=None,
             optimize_pipes=True,
             stderr_name="wa-kokoro",
             stderr_name_with_pid=True,
             label="Kokoro",
         )
-        self._shutting_down = False
-        self._killed = False
+        self._killed: bool = False
 
     def stderr_tail(self) -> str:
         text = self._managed.stderr_text()
@@ -117,7 +110,7 @@ class _KokoroWorker:
         return text.strip()[-500:]
 
     def respawn(self) -> None:
-        if self._shutting_down:
+        if self._killed:
             return
         try:
             self._managed.start()
@@ -126,14 +119,8 @@ class _KokoroWorker:
             self.kill()
             return
 
-        if self._shutting_down:
-            self.kill()
-            return
-
-        proc = self._managed.popen
-
         stdout = self._managed.stdout
-        if stdout is None:
+        if self._killed or stdout is None:
             self.kill()
             return
 
@@ -150,7 +137,7 @@ class _KokoroWorker:
                 return
             log.info(
                 "Kokoro worker spawned (pid=%s, status=%s)",
-                ready_data.get("pid", getattr(proc, "pid", None)),
+                ready_data.get("pid", self._managed.pid),
                 ready_data.get("status"),
             )
         except Exception as exc:
@@ -187,9 +174,6 @@ class _KokoroWorker:
 
         elapsed = time.monotonic() - start_time
         remaining = timeout_sec - elapsed
-        if remaining <= 0:
-            self.kill()
-            return _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {timeout_sec} seconds.", self.stderr_tail(), with_message=True)
 
         try:
             resp = read_pickle_frame(stdout, remaining, is_alive=self.is_alive, require_dict=True)
@@ -210,13 +194,7 @@ class _KokoroWorker:
     def is_alive(self) -> bool:
         return not self._killed and self._managed.is_alive()
 
-    def is_shutting_down(self) -> bool:
-        return self._shutting_down
-
-    def request_shutdown(self) -> None:
-        self._shutting_down = True
-
-    def kill(self) -> bool:
+    def kill(self) -> None:
         # What was wrong: when spawn failed (missing script), respawn() called
         # kill(), which signaled and abandoned the process to the background
         # reaper without waiting for it to be reaped. is_alive() returned True
@@ -228,13 +206,12 @@ class _KokoroWorker:
         # immediately, surfacing spawn failures as WORKER_SPAWN_FAILED.
         self._killed = True
         self._managed.kill_tree()
-        if not bool(self._managed.is_alive()):
+        if not self._managed.is_alive():
             self._managed.close_stdio()
             if self._managed.wait_once():
                 self._managed.unregister()
-                return True
+                return
         self._managed.abandon()
-        return True
 
     def signal(self) -> None:
         """Signal the child process directly without waiting or closing stdin.
@@ -247,6 +224,9 @@ class _KokoroWorker:
         Windows); the job thread unblocks on EPIPE/EOF and leaves the pipe; kill
         still does not close pipes.
         """
+        # Popen may not have published popen yet. _killed is what makes
+        # respawn kill that child after start() returns.
+        self._killed = True
         proc = self._managed.popen
         if proc is None:
             return
@@ -257,40 +237,28 @@ class _KokoroWorker:
 class KokoroProcessPool:
     """Single warm worker plus an idle reaper."""
 
-    python_executable: str
-    script_path: str
-    idle_worker_ttl_sec: float | None
-    job_timeout_sec: float
-    _lock: threading.Lock
-    _job_lock: threading.Lock
-    _shutdown: bool
-    _last_active: float
-    _reaper_stop: threading.Event
-    _seen_warnings: dict[str, None]
-
     def __init__(
         self,
         python_executable: str,
         *,
         script_path: str | None = None,
         idle_worker_ttl_sec: float | None = _DEFAULT_IDLE_TTL_SEC,
-        job_timeout_sec: float = _DEFAULT_JOB_TIMEOUT_SEC,
     ) -> None:
-        self.python_executable = python_executable
-        self.script_path = script_path or _SCRIPT_PATH
-        self.idle_worker_ttl_sec = idle_worker_ttl_sec
-        self.job_timeout_sec = job_timeout_sec
+        self.python_executable: str = python_executable
+        self.script_path: str = script_path or _SCRIPT_PATH
+        self.idle_worker_ttl_sec: float | None = idle_worker_ttl_sec
+        self.job_timeout_sec: float = _DEFAULT_JOB_TIMEOUT_SEC
         self._worker: _KokoroWorker | None = None
-        self._lock = threading.Lock()
-        self._job_lock = threading.Lock()
+        self._lock: threading.Lock = threading.Lock()
+        self._job_lock: threading.Lock = threading.Lock()
         # Identifies this execute() call. cancel() must not clear a newer
         # call's token, and the older call's finally must not clear the newer
         # one. In-flight means the token is not None.
         self._exec_token: object | None = None
-        self._shutdown = False
-        self._last_active = time.monotonic()
-        self._reaper_stop = threading.Event()
-        self._seen_warnings = {}
+        self._shutdown: bool = False
+        self._last_active: float = time.monotonic()
+        self._reaper_stop: threading.Event = threading.Event()
+        self._seen_warnings: dict[str, None] = {}
         if idle_worker_ttl_sec is not None and idle_worker_ttl_sec > 0:
             self._start_reaper()
 
@@ -345,7 +313,7 @@ class KokoroProcessPool:
                 existing = self._worker
                 # A dead slot is not warm. kill() has already dropped a child it
                 # could not reap, so is_alive() is false and this job may spawn.
-                reuse = existing is not None and existing.is_alive() and not existing.is_shutting_down()
+                reuse = existing is not None and existing.is_alive()
 
             deadline = Deadline(eff_timeout)
             token_stolen = False
@@ -353,15 +321,14 @@ class KokoroProcessPool:
             spawned_worker: _KokoroWorker | None = None
             try:
                 if existing is not None and not reuse:
-                    self._retire_worker(existing)
+                    existing.kill()
                     with self._lock:
                         if self._worker is existing:
                             self._worker = None
 
                 if reuse:
                     if deadline.left() <= 0:
-                        msg = f"Execution exceeded maximum timeout of {eff_timeout} seconds."
-                        result = error_dict("EXECUTION_TIMEOUT", msg, message=msg)
+                        result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", "", with_message=True)
                         worker = None
                     else:
                         worker = existing
@@ -370,8 +337,7 @@ class KokoroProcessPool:
 
                 if worker is None and not result:
                     if deadline.left() < _MIN_SPAWN_REMAINING_SEC:
-                        msg = f"Execution exceeded maximum timeout of {eff_timeout} seconds."
-                        result = error_dict("EXECUTION_TIMEOUT", msg, message=msg)
+                        result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", "", with_message=True)
                     else:
                         ready_timeout = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
                         spawned = _KokoroWorker(
@@ -397,17 +363,14 @@ class KokoroProcessPool:
                             failed = False
                             with self._lock:
                                 # Token drop means Stop or shutdown. A crashed handshake
-                                # kills the child without setting ``_shutting_down``, so
-                                # that flag is not "cancelled": a real spawn failure must
-                                # stay WORKER_SPAWN_FAILED and fall back to the one-shot clip.
+                                # calls kill(), so a real spawn failure must stay
+                                # WORKER_SPAWN_FAILED and fall back to the one-shot clip.
                                 spawn_cancelled = self._shutdown or self._exec_token is not token
                                 # A handshake that could not reap has already dropped the
                                 # child, so is_alive() is false and this stays a failed spawn.
                                 failed = spawn_cancelled or not spawned.is_alive()
-                                if failed and self._worker is spawned:
-                                    self._worker = None
                             if failed:
-                                self._retire_worker(spawned)
+                                spawned.kill()
                                 if spawn_cancelled:
                                     result = error_dict(WORKER_CANCELLED, "Kokoro worker spawn was cancelled.")
                                 elif deadline.left() < _MIN_SPAWN_REMAINING_SEC:
@@ -416,12 +379,8 @@ class KokoroProcessPool:
                                     result = _error_with_tail("WORKER_SPAWN_FAILED", "Kokoro worker could not be started.", spawned.stderr_tail())
                             else:
                                 if deadline.left() <= 0:
-                                    self._retire_worker(spawned)
-                                    with self._lock:
-                                        if self._worker is spawned:
-                                            self._worker = None
-                                    msg = f"Execution exceeded maximum timeout of {eff_timeout} seconds."
-                                    result = error_dict("EXECUTION_TIMEOUT", msg, message=msg)
+                                    spawned.kill()
+                                    result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", "", with_message=True)
                                 else:
                                     worker = spawned
 
@@ -468,8 +427,8 @@ class KokoroProcessPool:
         """Kill the child only when a job is running. Idle warm processes stay up.
 
         Drop ``_exec_token`` so the spawner cannot adopt the child, and kill
-        the process if it has already been published. ``request_shutdown``
-        makes an in-flight ``respawn`` discard the child instead of
+        the process if it has already been published. ``signal()`` sets
+        ``_killed`` so an in-flight ``respawn`` discards the child instead of
         publishing it. The worker is stored before ``respawn`` so Stop
         during the ready handshake still finds it.
         """
@@ -483,7 +442,6 @@ class KokoroProcessPool:
             self._exec_token = None
         if worker is not None:
             log.info("Cancelling in-flight Kokoro synthesis")
-            worker.request_shutdown()
             worker.signal()
             # close() waits up to 3 seconds and then up to 1 second on the
             # stderr drain; stop_speech runs on the UI thread and already reaps
@@ -508,17 +466,7 @@ class KokoroProcessPool:
         if not expired:
             return
         log.info("Kokoro worker idle for >%.0fs; releasing the ONNX model", ttl)
-        self._retire_worker(worker)
-
-    def _retire_worker(self, worker: _KokoroWorker) -> None:
-        """request_shutdown plus kill calls kill_tree then abandon (group SIGKILL, no pipe close, no wait on this thread; the abandon reaper does the five 1s passes). It is not close() and it is not the compute handshake."""
-        worker.request_shutdown()
         worker.kill()
-
-    def token_if_inflight(self) -> object | None:
-        """Return the active job's token when a job is inflight, else None."""
-        with self._lock:
-            return self._exec_token
 
     def shutdown(self) -> None:
         self._reaper_stop.set()
@@ -530,7 +478,7 @@ class KokoroProcessPool:
             # does not fall through to a one-shot Kokoro clip.
             self._exec_token = None
         if worker is not None:
-            self._retire_worker(worker)
+            worker.kill()
 
 
 _POOL: KokoroProcessPool | None = None
@@ -586,9 +534,10 @@ def get_kokoro_inflight_token() -> object | None:
     """Return an opaque token for the active job, or None."""
     with _POOL_LOCK:
         pool = _POOL
-    if pool is not None:
-        return pool.token_if_inflight()
-    return None
+    if pool is None:
+        return None
+    with pool._lock:
+        return pool._exec_token
 
 
 def cancel_kokoro_inflight(token: object | None = None) -> None:

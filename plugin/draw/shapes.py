@@ -31,8 +31,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_DRAW_SHAPE_DOCS = list(SHAPE_TOOL_UNO_SERVICES)
-
 
 class _AnyDocumentShapeTool(ToolDrawShapeBase):
     """Writer and Calc as well as Draw and Impress.
@@ -41,7 +39,7 @@ class _AnyDocumentShapeTool(ToolDrawShapeBase):
     and diagram stay on that base.
     """
 
-    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
+    uno_services: list[str] | None = SHAPE_TOOL_UNO_SERVICES
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
@@ -169,7 +167,6 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
 
 class GetDrawSummary(_AnyDocumentShapeTool):
     name: str | None = "shape_summary"
-    intent: str | None = "read"
     description: str = (
         "Returns a summary of shapes on the active or specified page. "
         'Child shapes in groups use a dotted index (e.g. "2.0.1") which edit and delete accept.'
@@ -675,7 +672,6 @@ class ConnectShapes(_AnyDocumentShapeTool):
     """Connect two shapes with a connector."""
 
     name: str | None = "shape_connect"
-    intent: str | None = "edit"
     description: str = "Connect two shapes on the same page with a connector."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -780,7 +776,6 @@ class GroupShapes(_AnyDocumentShapeTool):
     """Group multiple shapes together."""
 
     name: str | None = "shape_group"
-    intent: str | None = "edit"
     description: str = (
         "Group related shapes into one composite object so the user can select and move them together. "
         "After you place pieces that belong to the same thing (a flag, logo, diagram, icon), "
@@ -853,7 +848,6 @@ def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout
 
 class AlignShapes(ToolDrawShapeBase):
     name: str | None = "align_shapes"
-    intent: str | None = "edit"
     description: str = "Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -876,7 +870,6 @@ class AlignShapes(ToolDrawShapeBase):
 
 class DistributeShapes(ToolDrawShapeBase):
     name: str | None = "distribute_shapes"
-    intent: str | None = "edit"
     description: str = "Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -899,7 +892,6 @@ class DistributeShapes(ToolDrawShapeBase):
 
 class CreateDiagram(ToolDrawShapeBase):
     name: str | None = "create_diagram"
-    intent: str | None = "edit"
     description: str = "Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -1028,7 +1020,6 @@ class CreateDiagram(ToolDrawShapeBase):
 
 class DeleteShape(_AnyDocumentShapeTool):
     name: str | None = "shape_delete"
-    intent: str | None = "edit"
     description: str = "Deletes a shape by page index or dotted path."
     parameters: dict[str, Any] | None = {
         "type": "object",

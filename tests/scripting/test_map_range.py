@@ -109,28 +109,28 @@ def test_rewrap_output():
 
 
 def test_broadcast_scalar_with_vector():
-    primary, b_args, b_kwargs = broadcast_args(
+    res = broadcast_args(
         CalcRange([[10], [20], [30]]),
         "m/s",
         target_unit="km/h",
     )
-    assert primary.nrows == 3
-    assert primary.ncols == 1
-    assert b_args[0] == [10, 20, 30]
-    assert b_args[1] == ["m/s", "m/s", "m/s"]
-    assert b_kwargs["target_unit"] == ["km/h", "km/h", "km/h"]
+    assert res.primary.nrows == 3
+    assert res.primary.ncols == 1
+    assert res.b_args[0] == [10, 20, 30]
+    assert res.b_args[1] == ["m/s", "m/s", "m/s"]
+    assert res.b_kwargs["target_unit"] == ["km/h", "km/h", "km/h"]
 
 
 def test_broadcast_paired_1d_vectors():
-    primary, b_args, b_kwargs = broadcast_args(
+    res = broadcast_args(
         [10, 20],
         ["m/s", "km/h"],
         to=["ft/s", "mph"],
     )
-    assert primary.length == 2
-    assert b_args[0] == [10, 20]
-    assert b_args[1] == ["m/s", "km/h"]
-    assert b_kwargs["to"] == ["ft/s", "mph"]
+    assert res.primary.length == 2
+    assert res.b_args[0] == [10, 20]
+    assert res.b_args[1] == ["m/s", "km/h"]
+    assert res.b_kwargs["to"] == ["ft/s", "mph"]
 
 
 def test_broadcast_length_mismatch_raises():
@@ -237,11 +237,11 @@ def test_broadcast_args_equal_shape_grids():
     """Two M×N grids with identical shape can be broadcast elementwise."""
     grid1 = CalcRange([[1, 2], [3, 4]])
     grid2 = CalcRange([[10, 20], [30, 40]])
-    primary, b_args, _ = broadcast_args(grid1, grid2)
-    assert primary.nrows == 2
-    assert primary.ncols == 2
-    assert b_args[0] == [1, 2, 3, 4]
-    assert b_args[1] == [10, 20, 30, 40]
+    res = broadcast_args(grid1, grid2)
+    assert res.primary.nrows == 2
+    assert res.primary.ncols == 2
+    assert res.b_args[0] == [1, 2, 3, 4]
+    assert res.b_args[1] == [10, 20, 30, 40]
 
     res = map_over_range(lambda a, b: a + b, grid1, grid2)
     assert res == [[11, 22], [33, 44]]

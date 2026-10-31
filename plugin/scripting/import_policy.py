@@ -109,10 +109,8 @@ _MATPLOTLIB_PLOT_HINTS: dict[str, str] = {
 }
 
 
-def format_matplotlib_plot_hint(*, doc_type: str | None = None, agent_label: str | None = None) -> str:
+def format_matplotlib_plot_hint(*, doc_type: str | None = None) -> str:
     """Return a single-sentence plot egress hint for the active app, or \"\" if unknown."""
-    if agent_label:
-        doc_type = {"Calc": "calc", "Writer": "writer", "Draw": "draw"}.get(agent_label, doc_type)
     if not doc_type:
         return ""
     return _MATPLOTLIB_PLOT_HINTS.get(doc_type, "")

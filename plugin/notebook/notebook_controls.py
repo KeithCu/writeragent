@@ -52,7 +52,6 @@ _DEFAULT_WIDTH = 14000
 _MIN_FIELD_HEIGHT = 500
 _LINE_HEIGHT = 450
 _FIELD_HEIGHT_PAD = 280
-_WRAP_SLACK = _LINE_HEIGHT
 _MAX_FIELD_HEIGHT = 24000
 _RUN_BUTTON_SIZE = 320
 _SLOW_ADD_MS = 2000
@@ -60,46 +59,6 @@ _CODE_FONT_NAME = "Liberation Mono"
 _CODE_FONT_HEIGHT = 10
 _CODE_FIELD_BG = 0xF7F7F7
 _CODE_FIELD_BORDER = 0xD0D0D0
-
-__all__ = [
-    "form_button_push_type",
-    "ensure_form_design_mode_off",
-    "get_control_view_for_model",
-    "form_run_listeners",
-    "prune_dead_listeners",
-    "forget_document_wiring",
-    "NotebookRunButtonListener",
-    "NotebookFormContainerListener",
-    "NotebookFormRunListener",
-    "wire_all_notebook_run_buttons",
-    "install_notebook_run_button_wiring",
-    "_page_style",
-    "_text_width_from_style",
-    "_cap_from_style",
-    "_text_area_width_units",
-    "_max_field_height_units",
-    "_height_for_text",
-    "_raw_height_for_text",
-    "_anchor_control_as_character",
-    "_set_model_props",
-    "_style_code_field_model",
-    "_style_run_button_model",
-    "_log_shape_add",
-    "_insert_run_button_in_flow",
-    "_insert_code_input_in_flow",
-    "_DEFAULT_WIDTH",
-    "_MIN_FIELD_HEIGHT",
-    "_LINE_HEIGHT",
-    "_FIELD_HEIGHT_PAD",
-    "_WRAP_SLACK",
-    "_MAX_FIELD_HEIGHT",
-    "_RUN_BUTTON_SIZE",
-    "_SLOW_ADD_MS",
-    "_CODE_FONT_NAME",
-    "_CODE_FONT_HEIGHT",
-    "_CODE_FIELD_BG",
-    "_CODE_FIELD_BORDER",
-]
 
 
 # ---------------------------------------------------------------------------
@@ -172,13 +131,6 @@ def _cap_from_style(style: Any | None) -> int:
     val = best_effort(_calc, "notebook controls cap from style failed")
     return val if val is not None else _MAX_FIELD_HEIGHT
 
-
-def _max_field_height_units(doc: Any | None) -> int:
-    """Cap AS_CHARACTER code fields at roughly the page body height."""
-    style = _page_style(doc)
-    return _cap_from_style(style)
-
-
 def _line_display_cols(line: str, *, max_cols: int | None = None) -> int:
     if line.endswith("\r"):
         line = line[:-1]
@@ -209,7 +161,7 @@ def _raw_height_for_text(
         char_width = int(_CODE_FONT_HEIGHT * 2540 * 0.6 / 72)
         cols = max(8, field_w // char_width)
     lines = 0
-    base_pad = _FIELD_HEIGHT_PAD + _WRAP_SLACK
+    base_pad = _FIELD_HEIGHT_PAD + _LINE_HEIGHT
     # Stop line walk once height strictly passes cap so raw_h > cap remains true.
     max_lines_needed = max(1, (cap - base_pad) // _LINE_HEIGHT + 1) if cap is not None else None
 
@@ -224,11 +176,11 @@ def _raw_height_for_text(
     return lines * _LINE_HEIGHT + base_pad
 
 
-def _height_for_text(text: str, doc: Any | None = None, *, field_w: int | None = None, cap: int | None = None) -> int:
+def _height_for_text(text: str, doc: Any | None = None, *, field_w: int | None = None, cap: int | None = None) -> int:  # pyright: ignore[reportUnusedFunction]
     """Shape height in 1/100 mm so every source line is visible (no clipped last line)."""
     raw = _raw_height_for_text(text, doc, field_w=field_w, cap=cap)
     if cap is None:
-        cap = _max_field_height_units(doc)
+        cap = _cap_from_style(_page_style(doc))
     return max(_MIN_FIELD_HEIGHT, min(cap, raw))
 
 
@@ -244,7 +196,7 @@ def _anchor_control_as_character(shape: Any) -> None:
     shape.setPropertyValue("TextWrap", 0)
 
 
-def _set_model_props(model: Any, pairs: list[tuple[str, Any]] | tuple[tuple[str, Any], ...] | dict[str, Any]) -> None:
+def _set_model_props(model: Any, pairs: list[tuple[str, Any]]) -> None:
     """Set form-model properties querying getPropertySetInfo once. Skip names this model lacks.
 
     CommandButton has no ``Border``; the form TextField has no ``AutoVScroll``.
@@ -253,8 +205,7 @@ def _set_model_props(model: Any, pairs: list[tuple[str, Any]] | tuple[tuple[str,
     info = best_effort(lambda: model.getPropertySetInfo(), "notebook controls getPropertySetInfo failed")
     if info is None:
         return
-    items = pairs.items() if isinstance(pairs, dict) else pairs
-    for name, value in items:
+    for name, value in pairs:
         if info.hasPropertyByName(name):
             best_effort(functools.partial(model.setPropertyValue, name, value), f"notebook controls could not set model {name}")
 
@@ -296,7 +247,7 @@ def _log_shape_add(*, step: str, name: str = "", text_chars: int = 0, truncated:
         log.warning("notebook controls slow UNO add step=%s total_ms=%d shapes_before=%d", step, total_ms, shapes_before)
 
 
-def _insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int) -> None:
+def _insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int) -> None:  # pyright: ignore[reportUnusedFunction]
     """In-flow ▶ on the ``In [n]:`` gutter paragraph (not the tall gray field)."""
     hex_id = cell_id_to_hex(cell_id)
     t0 = time.monotonic()
@@ -307,7 +258,7 @@ def _insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int) 
     model.Label = "\u25b6"
     if hasattr(model, "HelpText"):
         model.HelpText = _("Run code cell")
-    model.ButtonType = form_button_push_type()
+    model.ButtonType = _FORM_BUTTON_PUSH
     _style_run_button_model(model)
 
     shape = doc.createInstance("com.sun.star.drawing.ControlShape")
@@ -325,7 +276,7 @@ def _insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int) 
     _log_shape_add(step="run_button", name=model.Name, shapes_before=controls_before, create_ms=_mono_ms(t0), add_ms=_mono_ms(t_add), shape_h=_RUN_BUTTON_SIZE)
 
 
-def _insert_code_input_in_flow(
+def _insert_code_input_in_flow(  # pyright: ignore[reportUnusedFunction]
     doc: Any,
     *,
     name: str,
@@ -341,7 +292,7 @@ def _insert_code_input_in_flow(
     if field_w is None:
         field_w = _text_area_width_units(doc)
     if cap is None:
-        cap = _max_field_height_units(doc)
+        cap = _cap_from_style(_page_style(doc))
 
     raw_h = _raw_height_for_text(source_text, field_w=field_w, cap=cap)
     h = max(_MIN_FIELD_HEIGHT, min(cap, raw_h))
@@ -405,10 +356,6 @@ _warned_no_container: set[str] = set()
 
 _doc_listener: Any | None = None
 _lock = threading.Lock()
-
-
-def form_button_push_type() -> int:
-    return _FORM_BUTTON_PUSH
 
 
 def ensure_form_design_mode_off(doc: Any) -> None:
@@ -499,7 +446,7 @@ def form_run_listeners(doc: Any | None = None) -> list[Any]:
     Pass *doc* to exclude leftover import-filter / leftover-reuse Writers
     (GHA 34643210006).
     """
-    out = [lis for lis in _listener_refs if getattr(lis, "_form_level", False)]
+    out = [lis for lis in _listener_refs if isinstance(lis, NotebookFormRunListener)]
     if doc is None:
         return out
     key = _doc_key(doc)
@@ -537,12 +484,11 @@ def prune_dead_listeners() -> None:
     global _listener_refs
     with _lock:
         refs = list(_listener_refs)
-    survivors: list[Any] = []
-    for lis in refs:
-        doc = best_effort(lis._resolve_doc, "notebook controls: prune resolve failed")
-        if doc is None:
-            continue
-        survivors.append(lis)
+    survivors = [
+        lis
+        for lis in refs
+        if best_effort(lis._resolve_doc, "notebook controls: prune resolve failed") is not None
+    ]
     with _lock:
         # Dummy-2 prune must not drop a Dummy-3 wire_all append that landed
         # after the snapshot.
@@ -550,33 +496,30 @@ def prune_dead_listeners() -> None:
         _listener_refs = survivors + added
 
 
-class NotebookRunButtonListener(BaseActionListener):
-    """Run one notebook cell when the ▶ push button is pressed."""
+class NotebookFormRunListener(BaseActionListener):
+    """One listener for every ``nb_run_*`` PUSH button on a document."""
 
     _ctx: Any
-    _hex_id: str
-    _form_level: bool
     _doc_key_val: str
     _doc_url: str
     _runtime_uid: str
     _doc_weak: Any | None
+    _attached_names: set[str]
 
-    def __init__(self, ctx: Any, doc: Any, hex_id: str) -> None:
+    def __init__(self, ctx: Any, doc: Any) -> None:
         self._ctx = ctx
-        self._hex_id = hex_id
-        self._form_level = False
         self._doc_key_val = _doc_key(doc)
         self._doc_url = str(uno_probe(lambda: doc.getURL(), "") or "")
-        from plugin.framework.uno_context import _read_runtime_uid
-
-        # Untitled Writer docs have an empty URL. Hidden native tests (and a
-        # notebook that is not Desktop.getCurrentComponent) then failed
-        # get_active_document; PyUNO wrappers usually cannot be weakref'd, so
-        # ▶ looked wired but actionPerformed returned "document gone".
-        self._runtime_uid = _read_runtime_uid(doc) or ""
+        # _doc_key already stored RuntimeUID in the uid: prefix. Untitled docs
+        # have an empty URL. Hidden native tests (and a notebook that is not
+        # Desktop.getCurrentComponent) then failed get_active_document; PyUNO
+        # wrappers usually cannot be weakref'd, so ▶ looked wired but
+        # actionPerformed returned "document gone".
+        self._runtime_uid = self._doc_key_val[4:] if self._doc_key_val.startswith("uid:") else ""
         import weakref
 
         self._doc_weak = uno_probe(lambda: weakref.ref(doc), None)
+        self._attached_names = set()
 
     def _resolve_doc(self) -> Any | None:
         from plugin.framework.uno_context import get_active_document, resolve_document_by_url
@@ -585,23 +528,19 @@ class NotebookRunButtonListener(BaseActionListener):
         if callable(weak):
             ref_doc: Any = weak()
             if ref_doc is not None:
-                def _probe() -> bool:
+                for meth in ("getRuntimeUID", "getURL"):
+                    fn = getattr(ref_doc, meth, None)
+                    if not callable(fn):
+                        continue
                     try:
-                        if callable(getattr(ref_doc, "getRuntimeUID", None)):
-                            ref_doc.getRuntimeUID()
-                            return True
+                        fn()
+                        return ref_doc
                     except Exception:
-                        log.debug("notebook controls: getRuntimeUID liveness probe failed", exc_info=True)
-                    try:
-                        if callable(getattr(ref_doc, "getURL", None)):
-                            ref_doc.getURL()
-                            return True
-                    except Exception:
-                        log.debug("notebook controls: getURL liveness probe failed", exc_info=True)
-                    return False
-
-                if _probe():
-                    return ref_doc
+                        log.debug(
+                            "notebook controls: %s liveness probe failed",
+                            meth,
+                            exc_info=True,
+                        )
             self._doc_weak = None
 
         active = best_effort(
@@ -611,47 +550,23 @@ class NotebookRunButtonListener(BaseActionListener):
         if active is not None and _doc_key(active) == self._doc_key_val:
             return active
 
-        if self._doc_url:
+        for token, what in (
+            (self._doc_url, "notebook controls: doc resolution failed"),
+            (self._runtime_uid, "notebook controls: runtime uid resolution failed"),
+        ):
+            if not token:
+                continue
             resolved = best_effort(
-                lambda: resolve_document_by_url(self._ctx, self._doc_url),
-                "notebook controls: doc resolution failed",
+                functools.partial(resolve_document_by_url, self._ctx, token),
+                what,
             )
-            if resolved is not None:
-                doc, _doc_type = resolved
-                if doc is not None:
-                    return doc
-
-        if self._runtime_uid:
-            resolved = best_effort(
-                lambda: resolve_document_by_url(self._ctx, self._runtime_uid),
-                "notebook controls: runtime uid resolution failed",
-            )
-            if resolved is not None:
-                doc, _doc_type = resolved
-                if doc is not None:
-                    return doc
+            if resolved is None:
+                continue
+            doc, _doc_type = resolved
+            if doc is not None:
+                return doc
 
         return None
-
-    def on_action_performed(self, rEvent: Any) -> None:
-        doc = self._resolve_doc()
-        if doc is None:
-            log.warning("notebook run button: document gone")
-            return
-        from plugin.notebook.notebook_runner import run_cell_for_doc_hex
-
-        run_cell_for_doc_hex(self._ctx, doc, self._hex_id)
-
-
-class NotebookFormRunListener(NotebookRunButtonListener):
-    """One listener for every ``nb_run_*`` PUSH button on a document."""
-
-    _form_level: bool
-
-    def __init__(self, ctx: Any, doc: Any) -> None:
-        super().__init__(ctx, doc, hex_id="")
-        self._form_level = True
-        self._attached_names: set[str] = set()
 
     def on_action_performed(self, rEvent: Any) -> None:
         hex_id = _hex_id_from_event(rEvent)
@@ -671,17 +586,12 @@ class NotebookFormContainerListener(BaseContainerListener):
 
     _form_listener: NotebookFormRunListener
     _doc_key_val: str
-    _form_level: bool
     _container: Any
 
     def __init__(self, form_listener: NotebookFormRunListener, container: Any) -> None:
         self._form_listener = form_listener
         self._doc_key_val = form_listener._doc_key_val
-        self._form_level = False
         self._container = container
-        # Not a per-button listener. prune_dead_listeners used to treat the
-        # missing attribute as a button key and raise AttributeError.
-        self._hex_id: str | None = None
 
     def _resolve_doc(self) -> Any | None:
         return self._form_listener._resolve_doc()
@@ -690,22 +600,19 @@ class NotebookFormContainerListener(BaseContainerListener):
         elem = getattr(Event, "Element", None)
         _attach_action_listener(elem, self._form_listener)
 
-    def on_element_removed(self, Event: Any) -> None:
-        elem = getattr(Event, "Element", None)
+    def _forget_attached_name(self, elem: Any, what: str) -> None:
         if elem is None:
             return
-        name = best_effort(lambda: _control_name(elem), "notebook controls: failed to read removed control name")
+        name = best_effort(lambda: _control_name(elem), what)
         if name:
             self._form_listener._attached_names.discard(name)
 
+    def on_element_removed(self, Event: Any) -> None:
+        self._forget_attached_name(getattr(Event, "Element", None), "notebook controls: failed to read removed control name")
+
     def on_element_replaced(self, Event: Any) -> None:
-        old_elem = getattr(Event, "ReplacedElement", None)
-        if old_elem is not None:
-            old_name = best_effort(lambda: _control_name(old_elem), "notebook controls: failed to read replaced control name")
-            if old_name:
-                self._form_listener._attached_names.discard(old_name)
-        new_elem = getattr(Event, "Element", None)
-        _attach_action_listener(new_elem, self._form_listener)
+        self._forget_attached_name(getattr(Event, "ReplacedElement", None), "notebook controls: failed to read replaced control name")
+        _attach_action_listener(getattr(Event, "Element", None), self._form_listener)
 
     def on_disposing(self, Source: Any) -> None:
         global _listener_refs
@@ -757,21 +664,16 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
         target_form = None
         for i in range(count):
             form = forms.getByIndex(i)
-            # check for elements with nb_run_ prefix
-            has_nb = False
             elem_count = getattr(form, "getCount", lambda: 0)()
             for j in range(elem_count):
-                elem = form.getByIndex(j)
-                name = getattr(elem, "Name", "")
+                name = getattr(form.getByIndex(j), "Name", "")
                 if name and name.startswith(_RUN_PREFIX):
-                    has_nb = True
+                    target_form = form
                     break
-            if has_nb:
-                target_form = form
+            if target_form is not None:
                 break
-
-        if target_form is None and count > 0:
-            target_form = forms.getByIndex(0)  # fallback
+        if target_form is None:
+            target_form = forms.getByIndex(0)
 
         if target_form is not None:
             fc = None
@@ -828,6 +730,18 @@ def forget_document_wiring(doc: Any) -> None:
         _listener_refs = [lis for lis in _listener_refs if lis not in drop_set]
 
 
+def _container_wired(doc_key: str, container: Any | None = None) -> bool:
+    """Caller holds ``_lock``. ``container is None`` skips ``uno_same``."""
+    from plugin.framework.uno_context import uno_same
+
+    return any(
+        isinstance(lis, NotebookFormContainerListener)
+        and lis._doc_key_val == doc_key
+        and (container is None or uno_same(lis._container, container))
+        for lis in _listener_refs
+    )
+
+
 def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> int:
     """Attach the shared form-level ▶ listener if missing. Returns 1 when wired.
 
@@ -836,10 +750,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
     doc_key = _doc_key(doc)
     if not new_view:
         with _lock:
-            already_wired = any(
-                isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key
-                for lis in _listener_refs
-            )
+            already_wired = _container_wired(doc_key)
         if already_wired:
             ensure_form_design_mode_off(doc)
             return 1
@@ -861,14 +772,8 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
             log.warning("notebook controls: no form controller container; ▶ clicks will not run (%d code cells)", len(state.code_cells))
         return 0
 
-    from plugin.framework.uno_context import uno_same
-    already_wired = False
     with _lock:
-        for lis in _listener_refs:
-            if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key:
-                if uno_same(lis._container, container):
-                    already_wired = True
-                    break
+        already_wired = _container_wired(doc_key, container)
 
     if already_wired:
         log.debug("notebook controls: form listener already attached doc=%s", doc_key)
@@ -890,23 +795,11 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
         container.addContainerListener(container_lis)
     except Exception:
         log.warning("notebook controls: addContainerListener failed", exc_info=True)
-
-        def _rollback() -> None:
-            controls = container.getControls() if hasattr(container, "getControls") else ()
-            for control in controls or ():
-                if hasattr(control, "removeActionListener"):
-                    control.removeActionListener(listener)
-
-        best_effort(_rollback, "notebook controls: removeActionListener during failed attach failed")
+        _detach_wiring(container, listener, container_lis)
         return 0
 
     with _lock:
-        already_wired = False
-        for lis in _listener_refs:
-            if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key:
-                if uno_same(lis._container, container):
-                    already_wired = True
-                    break
+        already_wired = _container_wired(doc_key, container)
         if not already_wired:
             _listener_refs.append(listener)
             _listener_refs.append(container_lis)

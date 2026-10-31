@@ -46,7 +46,6 @@ import plugin.mcp.mcp_session as mcp_session
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
 from plugin.mcp.server import (
     forget_sse_keepalive,
-    note_sse_keepalive,
     read_json_body,
     try_reserve_sse,
     write_http_empty,
@@ -367,7 +366,7 @@ class MCPProtocolHandler:
         document_url = handler.headers.get("X-Document-URL") or None
 
         # POST threads are short-lived daemons. Registering them via
-        # note_sse_keepalive makes HttpServer.stop() join them. A POST waiting
+        # try_reserve_sse makes HttpServer.stop() join them. A POST waiting
         # on the main-thread queue while stop() runs on the main thread can
         # stall or deadlock. Only long-lived SSE streams need keepalive
         # tracking and shutdown.
@@ -454,9 +453,9 @@ class MCPProtocolHandler:
         """
         sock = handler.connection
         tcp_server = getattr(handler, "server", None)
-        if stop_event is None:
-            stop_event = note_sse_keepalive(tcp_server, sock)
-        if stop_event is None:
+        if stop_event is None and sock is not None:
+            stop_event = try_reserve_sse(tcp_server, sock)
+        if stop_event is None or sock is None:
             log.info("[SSE] GET stream closed")
             return
         try:
@@ -682,7 +681,7 @@ class MCPProtocolHandler:
             raise ValueError("protocolVersion must be a string")
         if client_version not in _SUPPORTED_HTTP_PROTOCOL_VERSIONS:
             client_version = wire_types.MCP_PROTOCOL_VERSION
-        return wire_types.initialize_result(protocol_version=wire_types.MCP_PROTOCOL_VERSION, client_protocol_version=client_version, server_version=self.version, instructions=build_initialize_instructions(self._tool_exposure_mode()))
+        return wire_types.initialize_result(protocol_version=client_version, server_version=self.version, instructions=build_initialize_instructions(self._tool_exposure_mode()))
 
     def _mcp_ping(self, params: Any) -> Any:
         return {}
@@ -908,8 +907,8 @@ class MCPProtocolHandler:
             return None
 
         parsed = wire_types.parse_jsonrpc_request(msg)
-        if isinstance(parsed, wire_types.JsonRpcParseError):
-            return (400, wire_types.jsonrpc_failure(_echoable_jsonrpc_id(msg), parsed.code, parsed.message))
+        if parsed is None:
+            return (400, wire_types.jsonrpc_failure(_echoable_jsonrpc_id(msg), wire_types.INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"))
 
         method = parsed.method
         params = parsed.params
@@ -1001,7 +1000,7 @@ class MCPProtocolHandler:
             # before waiting so other documents can take it.
             _tool_semaphore.release()
             holding = False
-            with document_mutation_gate._document_mutation_gate(prepared.doc_key, enabled=True):
+            with document_mutation_gate._document_mutation_gate(prepared.doc_key):
                 acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
                 if not acquired:
                     raise document_mutation_gate.BusyError(_BUSY_MESSAGE)
@@ -1138,7 +1137,7 @@ class MCPProtocolHandler:
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=send_cancellation, stop_checker=stop_checker)
-        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=document_mutation_gate._tool_needs_document_mutation_gate(tool, arguments), echo=_document_echo_payload(doc))
+        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=tool.requires_document_lock(arguments), echo=_document_echo_payload(doc))
 
     def _invoke_prepared_mcp_tool(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
         """Registry execute + elapsed/echo. Caller holds the mutation gate when the tool needs it.
@@ -1183,7 +1182,9 @@ class MCPProtocolHandler:
         prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation, session=session)
         if not isinstance(prepared, _PreparedMcpCall):
             return prepared
-        with document_mutation_gate._document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
+        if not prepared.needs_gate:
+            return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
+        with document_mutation_gate._document_mutation_gate(prepared.doc_key):
             return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 
     # ── Debug helpers ────────────────────────────────────────────────

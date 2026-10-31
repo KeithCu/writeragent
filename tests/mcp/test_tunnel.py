@@ -4,9 +4,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.mcp.tunnel import (
+    _TAILSCALE_OFF_CMD,
     TunnelManager,
-    _redact_cmd_for_log,
-    _tailscale_off_command,
     _tailscale_reset,
     binary_available,
     build_bore_command,
@@ -107,8 +106,8 @@ def test_build_ngrok_and_tailscale():
 
 
 def test_tailscale_off_command_targets_https_443():
-    cmd = _tailscale_off_command()
-    assert cmd == ["tailscale", "funnel", "--https=443", "off"]
+    cmd = _TAILSCALE_OFF_CMD
+    assert cmd == ("tailscale", "funnel", "--https=443", "off")
     assert "18765" not in cmd
     assert "serve" not in cmd
     assert "reset" not in cmd
@@ -332,16 +331,6 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
         assert started_cmds[3] == ["tailscale", "funnel", "18765"]
         mgr.stop()
         _join_recorded_background(background)
-
-
-def test_redact_cmd_for_log_masks_secrets():
-    assert "super-secret" not in _redact_cmd_for_log(["ngrok", "http", "80", "--authtoken", "super-secret"])
-    assert "--authtoken ***" in _redact_cmd_for_log(["ngrok", "http", "80", "--authtoken", "super-secret"])
-    assert "cf-jwt" not in _redact_cmd_for_log(["cloudflared", "tunnel", "--token", "cf-jwt"])
-    assert "--token ***" in _redact_cmd_for_log(["cloudflared", "tunnel", "--token", "cf-jwt"])
-    assert "s3cret" not in _redact_cmd_for_log(["bore", "local", "1", "--secret", "s3cret"])
-    assert "--secret ***" in _redact_cmd_for_log(["bore", "local", "1", "--secret", "s3cret"])
-    assert _redact_cmd_for_log(build_bore_command(1)) == "bore local 1 --to bore.pub"
 
 
 def test_detect_tunnel_auth_error():
@@ -1591,7 +1580,7 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     bound = MagicMock()
     bound.is_running.return_value = True
     bound.port = 18765
-    mod._server = bound
+    monkeypatch.setattr(mcp_mod, "_shared_http_server", bound)
     tunnel = TunnelManager()
     mod._tunnel = tunnel
 

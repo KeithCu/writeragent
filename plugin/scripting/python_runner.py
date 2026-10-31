@@ -55,7 +55,7 @@ from plugin.scripting.helper_domain import (
 )
 
 if TYPE_CHECKING:
-    from plugin.scripting.domain_registry import RpsDomainSpec
+    from plugin.scripting.domain_registry import DomainWiring
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -63,15 +63,9 @@ _monaco_run_in_flight: set[str] = set()
 
 
 def _monaco_run_document_key(doc: Any) -> str:
-    """Document key for Monaco in-flight run tracking.
-
-    Uses get_runtime_uid(doc). Non-empty UID becomes 'uid:' + uid;
-    otherwise falls back to a per-object id ('id:' + id(doc)).
-    """
+    """``uid:`` + RuntimeUID, or ``id:`` + ``id(doc)`` when the uid is empty."""
     uid = get_runtime_uid(doc)
-    if uid:
-        return "uid:" + uid
-    return f"id:{id(doc)}"
+    return ("uid:" + uid) if uid else f"id:{id(doc)}"
 
 
 def _html_insert_text(value: Any) -> str:
@@ -91,6 +85,13 @@ def _html_row(cells: list[Any] | tuple[Any, ...], tag: str = "td") -> str:
     return "<tr>" + inner + "</tr>"
 
 
+def _html_table(body: list[str], header: list[Any] | None = None) -> str:
+    """Same table bytes as the old per-branch joins. No header means no thead/tbody."""
+    if header is None:
+        return '<table border="1">' + "".join(body) + "</table>"
+    return '<table border="1"><thead>' + _html_row(header, "th") + "</thead><tbody>" + "".join(body) + "</tbody></table>"
+
+
 def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) -> str:
     """Convert a list of dicts or lists to an HTML table.
 
@@ -101,20 +102,14 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
     if not data:
         return ""
 
-    parts = []
-
     # Explicit headers (e.g. from dataframe payload) take precedence for order and 1-col cases.
     if headers:
-        parts.append('<table border="1"><thead>' + _html_row(headers, "th") + "</thead><tbody>")
         # data may be list of lists (2d) or flat list (1-col series-like)
-        if data and isinstance(data[0], (list, tuple)):
-            for row in data:
-                parts.append(_html_row(row))
+        if isinstance(data[0], (list, tuple)):
+            body = [_html_row(row) for row in data]
         else:
-            for v in data:
-                parts.append(_html_row([v]))
-        parts.append("</tbody></table>")
-        return "".join(parts)
+            body = [_html_row([v]) for v in data]
+        return _html_table(body, headers)
 
     # Handle list of dicts (e.g. pandas records) -- legacy path
     # Dict headers must come from the first-seen union of every dict row.
@@ -131,7 +126,7 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
                 for k in row.keys():
                     seen_keys.setdefault(str(k), k)
         keys = list(seen_keys.keys())
-        parts.append('<table border="1"><thead>' + _html_row(keys, "th") + "</thead><tbody>")
+        body = []
         for row in data:
             if isinstance(row, dict):
                 cells: list[Any] = []
@@ -146,22 +141,20 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
                                 val = candidate_v
                                 break
                     cells.append(val)
-                parts.append(_html_row(cells))
+                body.append(_html_row(cells))
             else:
-                parts.append(_html_row([row, *[""] * (len(keys) - 1)]))
-        parts.append("</tbody></table>")
-        return "".join(parts)
+                body.append(_html_row([row, *[""] * (len(keys) - 1)]))
+        return _html_table(body, keys)
 
     # Handle list of lists (table)
     if isinstance(data[0], (list, tuple)):
-        parts.append('<table border="1">')
+        body = []
         for row in data:
             if isinstance(row, (list, tuple)):
-                parts.append(_html_row(row))
+                body.append(_html_row(row))
             else:
-                parts.append(_html_row([row]))
-        parts.append("</table>")
-        return "".join(parts)
+                body.append(_html_row([row]))
+        return _html_table(body)
 
     # Fallback: list of primitives
     return "<br>".join(_html_insert_text(x) for x in data)
@@ -187,11 +180,7 @@ def format_result_for_writer(result: Any) -> str:
     - Dicts become a series of sections (with tables for nested lists).
     - Strings/primitives are returned as-is (with newline conversion).
     """
-    if result is None:
-        return ""
-    if isinstance(result, (list, dict)) and not result:
-        return ""
-    if isinstance(result, str) and not result:
+    if result is None or (isinstance(result, (str, list, dict)) and not result):
         return ""
 
     if isinstance(result, dict) and is_dataframe_payload(result):
@@ -262,12 +251,6 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
         insert_cell_html_rich(doc, uno_ctx, anchor_addr, formatted)
 
 
-def insert_result_into_draw(doc: Any, uno_ctx: Any, result: Any) -> None:
-    """Insert the result of a Python script into a Draw/Impress document."""
-    del doc, result
-    msgbox(uno_ctx, _("Info"), _("Result insertion into Draw/Impress is not yet supported. PRs welcome!"))
-
-
 def script_uses_run_import(code: str, *, run_name: str) -> bool:
     """True when *code* contains a call to *run_name*.
 
@@ -326,11 +309,9 @@ def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] 
     call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
     raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
     params = merge_vision_params(ctx, raw_params)
-    image_name = str(params.get("image_name") or "").strip() or None
     helper_name = str(call_spec.get("helper") or "extract_text").strip() or "extract_text"
 
     return {
-        "early_outcome": None,
         "is_vision_selection": True,
         "ctx": ctx,
         "doc": doc,
@@ -338,7 +319,6 @@ def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] 
         "t0": t0,
         "helper_name": helper_name,
         "params": params,
-        "image_name": image_name,
     }
 
 
@@ -367,8 +347,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
     if is_calc(doc):
         binding = str(data_range).strip() if data_range else ""
         if binding:
-            ranges = parse_data_binding_text(binding)
-            drs = ranges if ranges else [binding]
+            drs = parse_data_binding_text(binding) or [binding]
         else:
             sel = calc_selection_to_a1(doc)
             drs = [sel] if sel else None
@@ -406,7 +385,6 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         return {"early_outcome": rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e))}
 
     return {
-        "early_outcome": None,
         "ctx": ctx,
         "doc": doc,
         "code": code,
@@ -423,20 +401,14 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
     if prepared.get("is_vision_selection"):
         from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
-        ctx = prepared["ctx"]
-        doc = prepared["doc"]
-        helper_name = prepared["helper_name"]
-        params = prepared["params"]
-        image_name = prepared.get("image_name")
-
-        params_dict = dict(params)
-        if image_name:
-            params_dict["image_name"] = image_name
-
         # run_and_insert_vision_for_selection safely marshals document operations to the main thread
         # while keeping the 120s OCR wait on this background thread.
         result = run_and_insert_vision_for_selection(
-            ctx, doc, helper=helper_name, params=params_dict, insert_into_document=False
+            prepared["ctx"],
+            prepared["doc"],
+            helper=prepared["helper_name"],
+            params=prepared["params"],
+            insert_into_document=False,
         )
 
         return {"status": "ok", "vision_selection_result": result}
@@ -485,7 +457,7 @@ def _finish_vision_execution(prepared: dict[str, Any], response: dict[str, Any])
 
 
 def try_rps_post_venv(
-    spec: "RpsDomainSpec",
+    spec: "DomainWiring",
     *,
     ctx: Any,
     doc: Any,
@@ -500,8 +472,8 @@ def try_rps_post_venv(
     if not spec.is_result(result_data):
         return None
     insert_kwargs: dict[str, Any] = {}
-    if spec.insert_kwargs_fn is not None and code:
-        insert_kwargs = spec.insert_kwargs_fn(ctx, code)
+    if code:
+        insert_kwargs = spec.insert_kwargs(ctx, code)
     try:
         row_count = spec.insert(ctx, doc, result_data, **insert_kwargs)
     except Exception as e:
@@ -567,7 +539,7 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
 
                     run_writer_mutation_with_optional_review(doc, ctx, lambda: insert_content_at_position(doc, ctx, formatted, "selection"))
             elif is_draw(doc):
-                insert_result_into_draw(doc, ctx, result_data)
+                msgbox(ctx, _("Info"), _("Result insertion into Draw/Impress is not yet supported. PRs welcome!"))
             else:
                 return {"ok": False, "message": _("Unsupported document type for result insertion. (took {time})").format(time=formatted_time)}
         except Exception as e:
@@ -647,7 +619,6 @@ def start_native_script_run(
 
         pin_token = pin_script_document(doc)
         try:
-            prepared: dict[str, Any] | None = None
             try:
                 prepared = execute_on_main_thread(
                     _prepare_rps_execution, ctx, doc, code, data_range=data_range, pin_token=pin_token
@@ -681,14 +652,10 @@ def start_native_script_run(
 def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str, code: str = "") -> dict[str, Any]:
     """Map a native-run outcome to the Monaco saved or error frame."""
     if not outcome.get("ok"):
-        message = _("Unknown error")
-        traceback_text = None
         raw = outcome.get("message")
-        if isinstance(raw, str) and raw:
-            message = raw
+        message = raw if isinstance(raw, str) and raw else _("Unknown error")
         tb = outcome.get("traceback")
-        if isinstance(tb, str) and tb:
-            traceback_text = tb
+        traceback_text = tb if isinstance(tb, str) and tb else None
         payload: dict[str, Any] = {
             "type": "error",
             "message": message,
@@ -762,16 +729,14 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         # venv wait uses the same prepare/finish split as the native Run
         # button. The Monaco frame is delivered when that run finishes.
         _monaco_run_in_flight.add(run_key)
-        snapshot = code
-        binding = data_binding
 
         def _start(deliver: Callable[[dict[str, Any]], None]) -> None:
             def _on_complete(outcome: dict[str, Any]) -> None:
                 _monaco_run_in_flight.discard(run_key)
-                deliver(_monaco_editor_run_payload(outcome, run_ok_text, snapshot))
+                deliver(_monaco_editor_run_payload(outcome, run_ok_text, code))
 
             try:
-                start_native_script_run(ctx, doc, snapshot, data_range=binding, on_complete=_on_complete)
+                start_native_script_run(ctx, doc, code, data_range=data_binding, on_complete=_on_complete)
             except Exception:
                 _monaco_run_in_flight.discard(run_key)
                 raise

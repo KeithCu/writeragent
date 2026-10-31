@@ -354,51 +354,35 @@ class ACPBackend(AgentBackend):
     binary_prefixes: tuple[str, ...] = ()
     api_key_env_by_provider: Mapping[str, str] = {}
     default_extra_args: Tuple[str, ...] = ()
-    _stop_requested: bool
-    _state_lock: threading.Lock
-    _send_lock: threading.Lock
-    _pending_permissions: dict[Any, tuple[ACPConnection, list[Any]]]
-    _turn: int
-    _turn_pending: bool
-    _stop_turn: int
-    _ready: bool
-    _session_url: str | None
-    _session_mcp_url: str | None
-    _session_prompted: bool
-    _prompt_inflight: bool
-    _prompt_done: threading.Event
-    _inflight_token: Any | None
-    _closed: bool
+    _binary_cache_key: tuple[str, str, str] | None = None
+    _binary_cache_val: str | None = None
 
     def __init__(self) -> None:
         self._conn: ACPConnection | None = None
         self._session_id: str | None = None
-        self._session_url = None
-        self._session_mcp_url = None
-        self._session_prompted = False
-        self._ready = False
-        self._stop_requested = False
-        self._closed = False
-        self._inflight_token = None
+        self._session_url: str | None = None
+        self._session_mcp_url: str | None = None
+        self._session_prompted: bool = False
+        self._ready: bool = False
+        self._stop_requested: bool = False
+        self._closed: bool = False
+        self._inflight_token: Any | None = None
         # prepare_turn publishes _turn before Stop is registered. send()
         # consumes that publication. A send that was not prepared opens a
         # new turn, so a Stop from the previous message cannot stick.
-        self._turn = 0
-        self._turn_pending = False
-        self._stop_turn = 0
-        self._prompt_inflight = False
-        self._prompt_done = threading.Event()
+        self._turn: int = 0
+        self._turn_pending: bool = False
+        self._stop_turn: int = 0
+        self._prompt_done: threading.Event = threading.Event()
         self._prompt_done.set()
         self._binary_path: Optional[str] = None
         self._extra_args: List[str] = []
         # request id -> options from session/request_permission. The same
         # lock guards the stop latch so send() cannot clear a Stop that
         # landed as this turn began.
-        self._state_lock = threading.Lock()
-        self._send_lock = threading.Lock()
-        self._pending_permissions = {}
-        self._binary_cache_key: tuple[str, str, str] | None = None
-        self._binary_cache_val: str | None = None
+        self._state_lock: threading.Lock = threading.Lock()
+        self._send_lock: threading.Lock = threading.Lock()
+        self._pending_permissions: dict[Any, tuple[ACPConnection, list[Any]]] = {}
         self._load_config()
 
     def _resolve_binary(self, path_setting: str, args_str: str) -> str | None:
@@ -409,11 +393,9 @@ class ACPBackend(AgentBackend):
             log.warning("ACP agent_backend.path is not a file (%s); searching PATH", path_setting)
 
         key = (self.binary_name, path_setting, args_str)
-        cached_key = getattr(self, "_binary_cache_key", None)
-        cached_val = getattr(self, "_binary_cache_val", None)
-        if cached_key == key and cached_val is not None:
-            if os.path.isfile(cached_val) and os.access(cached_val, os.X_OK):
-                return cached_val
+        if self._binary_cache_key == key and self._binary_cache_val is not None:
+            if os.path.isfile(self._binary_cache_val) and os.access(self._binary_cache_val, os.X_OK):
+                return self._binary_cache_val
 
         found = self._find_binary()
         if found is not None:
@@ -439,11 +421,7 @@ class ACPBackend(AgentBackend):
 
         # str.split() breaks a quoted path into several argv entries.
         # posix=False on Windows so backslashes in paths stay literal.
-        try:
-            self._extra_args = self._launch_extra_args(self._binary_path, args_str)
-        except ValueError:
-            self._extra_args = []
-            raise
+        self._extra_args = self._launch_extra_args(self._binary_path, args_str)
 
     def _binary_matches(self, path: str) -> bool:
         """True when ``path`` is this backend's CLI, including Windows launcher suffixes."""
@@ -504,20 +482,6 @@ class ACPBackend(AgentBackend):
         log.info("%s binary not found", self.display_name)
         return False
 
-    def _startup_stopped(self, stop_checker: Any) -> bool:
-        """True when the post-start wait must leave before initialize.
-
-        A true ``stop_checker`` latches ``_stop_requested`` so ``send()``
-        takes the same ``_finish_stopped`` path it uses when Stop wins
-        before the prompt.
-        """
-        if self._stop_requested:
-            return True
-        if callable(stop_checker) and bool(stop_checker()):
-            self._stop_requested = True
-            return True
-        return False
-
     def _slot_lost_locked(self, conn: ACPConnection | None = None) -> bool:
         """Caller holds ``_state_lock``. Latch Stop when this conn is no longer the slot."""
         if self._closed or (conn is not None and self._conn is not conn):
@@ -567,7 +531,12 @@ class ACPBackend(AgentBackend):
                 return
 
             # Honor Stop before sending initialize; fail fast if child died during spawn.
-            if self._startup_stopped(stop_checker):
+            # Latch a true stop_checker onto _stop_requested so send() finishes Stopped.
+            # Call the checker once, and skip it when Stop already latched during spawn.
+            if self._stop_requested:
+                return
+            if callable(stop_checker) and bool(stop_checker()):
+                self._stop_requested = True
                 return
             if not conn.is_alive:
                 detail = conn.stderr_text().strip()
@@ -907,12 +876,10 @@ class ACPBackend(AgentBackend):
             if self._stop_requested and self._stop_turn == self._turn:
                 raise _TurnStopped()
             self._prompt_done.clear()
-            self._prompt_inflight = True
             self._inflight_token = token
             try:
                 handle = conn.begin_request(method, params)
             except Exception:
-                self._prompt_inflight = False
                 if self._inflight_token is token:
                     self._inflight_token = None
                 self._prompt_done.set()
@@ -921,7 +888,6 @@ class ACPBackend(AgentBackend):
             return conn.await_response(handle, timeout)
         finally:
             with self._state_lock:
-                self._prompt_inflight = False
                 if self._inflight_token is token:
                     self._inflight_token = None
             self._prompt_done.set()
@@ -942,7 +908,7 @@ class ACPBackend(AgentBackend):
         """Stop the CLI captured for ``token`` when that request is still in flight."""
         # Check token and clear slot under _state_lock so a subsequent send does not adopt a killed connection.
         with self._state_lock:
-            if token is None or self._inflight_token is not token or not self._prompt_inflight or self._conn is not conn:
+            if token is None or self._inflight_token is not token or self._conn is not conn:
                 return
             pending_permissions = self._pop_pending_permission_ids()
             self._clear_slot_locked(conn)
@@ -1106,7 +1072,7 @@ class ACPBackend(AgentBackend):
         with self._state_lock:
             self._stop_turn = self._turn
             self._stop_requested = True
-            inflight = self._prompt_inflight
+            inflight = self._inflight_token is not None
             token = self._inflight_token
             # Read _conn and _session_id under _state_lock to avoid sending cancel to a swapped connection.
             conn = self._conn

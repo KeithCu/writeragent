@@ -38,7 +38,6 @@ log = logging.getLogger(__name__)
 
 # Safe imports for optional PyUNO environment (ensures unit test compatibility outside of LO)
 _HAVE_UNO = False
-_unohelper: Any = None
 
 if TYPE_CHECKING:
 
@@ -93,7 +92,7 @@ else:
     # Each fallback is its own class. One shared stub is a duplicate base
     # on BaseListener(_BaseParent, _XEventListenerParent).
     try:
-        import unohelper as _unohelper
+        import unohelper
         from com.sun.star.lang import XEventListener as _XEventListenerParent
         from com.sun.star.awt import (
             XActionListener as _XActionListenerParent,
@@ -112,10 +111,9 @@ else:
         from com.sun.star.util import XModifyListener as _XModifyListenerParent
         from com.sun.star.frame import XTerminateListener as _XTerminateListenerParent
 
-        _BaseParent = _unohelper.Base
+        _BaseParent = unohelper.Base
         _HAVE_UNO = True
     except ImportError:
-        _unohelper = None
         _BaseParent = type("_DummyBase", (), {})
         _XEventListenerParent = type("_DummyEventListener", (), {})
         _XActionListenerParent = type("_DummyActionListener", (), {})
@@ -137,7 +135,6 @@ else:
 # Marker on wrappers from ``_catch_and_log``. Prefer this over ``id()`` so a
 # collected wrapper cannot suppress wrapping a later override.
 _CATCH_LOGGED_ATTR = "_writeragent_catch_and_log"
-_CATCH_FAILURE_ATTR = "_writeragent_catch_failure"
 
 
 class ListenerBoundary(BaseException):
@@ -165,15 +162,6 @@ class ListenerBoundary(BaseException):
         super().__init__(str(original))
 
 
-def _is_thread_violation(exc: BaseException) -> bool:
-    return isinstance(exc, RuntimeError) and THREAD_VIOLATION_MARK in str(exc)
-
-
-def _is_bridge_veto(exc: BaseException) -> bool:
-    name = type(exc).__name__
-    return "CloseVetoException" in name or "TerminationVetoException" in name
-
-
 def listener_boundary(exc: BaseException) -> ListenerBoundary | None:
     """The one boundary for *exc*, or None when the callback may fail soft.
 
@@ -183,9 +171,10 @@ def listener_boundary(exc: BaseException) -> ListenerBoundary | None:
     """
     if isinstance(exc, ListenerBoundary):
         return exc
-    if _is_thread_violation(exc):
+    if isinstance(exc, RuntimeError) and THREAD_VIOLATION_MARK in str(exc):
         return ListenerBoundary("thread", exc)
-    if _is_bridge_veto(exc):
+    name = type(exc).__name__
+    if "CloseVetoException" in name or "TerminationVetoException" in name:
         return ListenerBoundary("veto", exc)
     if is_real_disposal(exc):
         return ListenerBoundary("disposed", exc)
@@ -224,9 +213,7 @@ def _catch_and_log(func: Any = None, *, failure: Any = None) -> Any:
                 return fn(self, ev, *args, **kwargs)
             except ListenerBoundary as boundary:
                 # Already classified. A veto still has to be the UNO type.
-                if boundary.kind == "veto":
-                    raise boundary.original
-                raise
+                reraise_listener_boundary(boundary)
             except Exception as exc:
                 # Classify before any per-type handler. A TypeError or ValueError
                 # clause above this would treat a disposal or veto that subclasses
@@ -241,17 +228,15 @@ def _catch_and_log(func: Any = None, *, failure: Any = None) -> Any:
                     return failure
                 if signal is not None:
                     reraise_listener_boundary(exc)
+                label = "unhandled exception"
                 if isinstance(exc, TypeError):
-                    log.exception(f"{self.__class__.__name__} TypeError in {fn.__name__}")
-                    return failure
-                if isinstance(exc, ValueError):
-                    log.exception(f"{self.__class__.__name__} ValueError in {fn.__name__}")
-                    return failure
-                log.exception(f"{self.__class__.__name__} unhandled exception in {fn.__name__}")
+                    label = "TypeError"
+                elif isinstance(exc, ValueError):
+                    label = "ValueError"
+                log.exception(f"{self.__class__.__name__} {label} in {fn.__name__}")
                 return failure
 
-        setattr(wrapper, _CATCH_LOGGED_ATTR, True)
-        setattr(wrapper, _CATCH_FAILURE_ATTR, failure)
+        setattr(wrapper, _CATCH_LOGGED_ATTR, (failure,))
         return wrapper
 
     if func is None:
@@ -272,17 +257,17 @@ class BaseListener(_BaseParent, _XEventListenerParent):
         # How it happened: adding or wrapping new listener methods required updating _UNO_CALLBACK_NAMES.
         # Why this change: discover callback names dynamically from base classes on the MRO with _CATCH_LOGGED_ATTR.
         for name, method in list(cls.__dict__.items()):
-            if method is None or getattr(method, _CATCH_LOGGED_ATTR, False):
+            if method is None or getattr(method, _CATCH_LOGGED_ATTR, None) is not None:
                 continue
             base_method = None
             for base in cls.__mro__[1:]:
                 candidate = base.__dict__.get(name)
-                if candidate is not None and getattr(candidate, _CATCH_LOGGED_ATTR, False):
+                if candidate is not None and getattr(candidate, _CATCH_LOGGED_ATTR, None) is not None:
                     base_method = candidate
                     break
             if base_method is None:
                 continue
-            failure = getattr(base_method, _CATCH_FAILURE_ATTR)
+            failure = getattr(base_method, _CATCH_LOGGED_ATTR)[0]
             setattr(cls, name, _catch_and_log(method, failure=failure))
 
     @_catch_and_log

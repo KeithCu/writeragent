@@ -252,7 +252,7 @@ class TurnController:
     text_model: str | None
     endpoint: str | None
     stripper: StreamingHTMLStripper | None
-    _alive: bool
+    alive: bool
     _stop_banner_appended: bool
     _stop_committed: bool
     _stop_partial_text: str | None
@@ -287,7 +287,7 @@ class TurnController:
         self.text_model = text_model
         self.endpoint = endpoint
         self.stripper = StreamingHTMLStripper()
-        self._alive = True
+        self.alive = True
         self._stop_banner_appended = False
         self._stop_committed = False
         self._stop_partial_text = None
@@ -302,10 +302,6 @@ class TurnController:
         self.active_execute_tool_fn = None
         self.active_query_text = None
         self.active_supports_status = False
-
-    @property
-    def alive(self) -> bool:
-        return self._alive
 
     def same_messages(self) -> bool:
         """Clear replaces the list. A write against the old list must not land."""
@@ -327,8 +323,10 @@ class TurnController:
 
     def abort(self) -> None:
         """Refuse later callbacks. Idempotent."""
-        self._alive = False
-        _discard_batcher(self.batcher)
+        self.alive = False
+        # Drop a pending batch so its timer cannot emit after the turn is gone.
+        if self.batcher is not None:
+            self.batcher.discard()
 
     def open_text(self) -> str:
         """Assistant bytes already folded into this turn's message list."""
@@ -350,10 +348,8 @@ class TurnController:
         later drain. This used to write the raw queue, so a control item
         could pass text still in the batcher, and callers had to flush by hand.
         """
-        if not self._alive:
+        if not self.alive:
             return False
-        # This used to write the raw queue, so a control item could pass text
-        # still in the batcher, and callers had to flush by hand.
         target = spawn_queue(self)
         if target is None:
             return False
@@ -399,12 +395,6 @@ class TurnController:
             kwargs["reasoning_replay"] = reasoning_replay
         self.session.add_assistant_message(content=content, **kwargs)
 
-    def persist_tool(self, host: Any, call_id: str | None, content: Any) -> None:
-        if not self.can_write(host):
-            return
-        assert self.session is not None
-        self.session.add_tool_result(call_id, content)
-
     def take_stripper_tail(self) -> str:
         """Finish the HTML stripper and return any held fragment.
 
@@ -446,12 +436,7 @@ class TurnController:
             self.fold_chunk(host, tail, "assistant")
         emitted = self.open_text()
         fallback = partial.strip() if isinstance(partial, str) else ""
-        if emitted:
-            chosen = emitted
-        elif fallback and fallback != "No response.":
-            chosen = fallback
-        else:
-            chosen = ""
+        chosen = emitted or (fallback if fallback != "No response." else "")
         if chosen:
             self.persist_assistant(host, content=chosen)
         messages = self.messages if isinstance(self.messages, list) and self.same_messages() else None
@@ -459,13 +444,6 @@ class TurnController:
         if not chosen and closed == 0:
             self.persist_assistant(host, content="No response.")
         self.persist_assistant(host, content=_STOP_LINE)
-
-
-def _discard_batcher(batcher: Any) -> None:
-    """Drop a producer batch so its timer cannot emit after the turn is gone."""
-    discard = getattr(batcher, "discard", None)
-    if callable(discard):
-        discard()
 
 
 def note_stop_partial(turn: Any, response: Any) -> None:
@@ -722,7 +700,7 @@ def persist_assistant_on_turn(
     turn.persist_assistant(host, content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
 
 
-def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: Any = None, *, model: Any) -> None:
+def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: TurnController, *, model: Any) -> None:
     """Queue a tool failure. A disposed document ends the loop.
 
     A closed document is not a normal tool error. Turning every exception
@@ -737,8 +715,6 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
     fails ``is_tool_document_disposed`` and is queued as ``TOOL_DONE``.
     The same capture keeps the tool from running on the new send.
     """
-    if turn is None:
-        turn = current_turn(host)
     formatted = format_error_payload(exc)
     if is_tool_document_disposed(exc, model):
         put_for_turn(turn, (StreamQueueKind.ERROR, formatted))
@@ -984,7 +960,8 @@ class ToolLoopEffectInterpreter:
             host._tool_calling._refresh_active_tools_for_session()
             host._tool_calling._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num, query_text=turn.active_query_text)
         elif isinstance(effect, UpdateActivityStateEffect):
-            self._update_activity_state(effect)
+            if effect.action == "tool_execute":
+                update_activity_state("tool_execute", round_num=effect.round_num, tool_name=effect.tool_name)
         elif isinstance(effect, CleanupAudioEffect):
             self._cleanup_audio()
         elif isinstance(effect, SpawnToolWorkerEffect):
@@ -1070,14 +1047,9 @@ class ToolLoopEffectInterpreter:
             )
         elif effect.role == MessageRole.TOOL:
             turn = current_turn(self.host)
-            if isinstance(turn, TurnController):
-                turn.persist_tool(self.host, effect.call_id, tool_message_content(content))
-
-    def _update_activity_state(self, effect: UpdateActivityStateEffect) -> None:
-        if effect.action == "tool_execute":
-            update_activity_state("tool_execute", round_num=effect.round_num, tool_name=effect.tool_name)
-        elif effect.action == "exhausted_rounds":
-            update_activity_state("exhausted_rounds")
+            if turn is not None and turn.can_write(self.host):
+                assert turn.session is not None
+                turn.session.add_tool_result(effect.call_id, tool_message_content(content))
 
     def _cleanup_audio(self) -> None:
         """Clean up recording file and record audio support for the captured model.
@@ -1185,7 +1157,7 @@ class ToolLoopEffectInterpreter:
             except Exception as e:
                 if sync:
                     log.debug("sync tool failed name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
-                _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, model=spawn_doc)
+                _queue_tool_failure(call_id, func_name, func_args_str, e, turn, model=spawn_doc)
 
         # Use the same dedicated worker as async tools. Calling the tool
         # on the drain thread skips pump_ui_idle, so Stop is not delivered

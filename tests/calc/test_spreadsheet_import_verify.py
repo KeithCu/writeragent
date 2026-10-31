@@ -46,9 +46,7 @@ def test_verify_converted_cells_smoke():
     model, output, report = _build_sample()
     actual_values = {addr: model.cells[addr].value for addr in report.converted}
     result = verify_converted_cells(model, output, report, actual_values=actual_values)
-    assert len(result.passed) == len(report.converted)
-    assert not result.skipped
-    assert not result.failed
+    assert result == []
 
 
 def test_verify_converted_cells_wrong_actual_fails():
@@ -57,9 +55,8 @@ def test_verify_converted_cells_wrong_actual_fails():
     bad_addr = report.converted[0]
     actual_values[bad_addr] = -1.0
     result = verify_converted_cells(model, output, report, actual_values=actual_values)
-    assert len(result.failed) == 1
-    assert result.failed[0].address == bad_addr
-    assert len(result.passed) == len(report.converted) - 1
+    assert len(result) == 1
+    assert result[0].address == bad_addr
 
 
 def test_verify_converted_cells_missing_actual_is_skipped():
@@ -67,9 +64,7 @@ def test_verify_converted_cells_missing_actual_is_skipped():
     missing_addr = report.converted[0]
     actual_values = {addr: model.cells[addr].value for addr in report.converted if addr != missing_addr}
     result = verify_converted_cells(model, output, report, actual_values=actual_values)
-    assert missing_addr in result.skipped
-    assert missing_addr not in result.passed
-    assert missing_addr not in [m.address for m in result.failed]
+    assert missing_addr not in [m.address for m in result]
 
 
 def test_verify_rejects_non_py_formula():
@@ -78,9 +73,9 @@ def test_verify_rejects_non_py_formula():
     output.cells[addr].formula = "=PYRAMID(1)"
     actual_values = {a: model.cells[a].value for a in report.converted}
     result = verify_converted_cells(model, output, report, actual_values=actual_values)
-    assert len(result.failed) == 1
-    assert result.failed[0].address == addr
-    assert result.failed[0].message == "missing PY formula"
+    assert len(result) == 1
+    assert result[0].address == addr
+    assert result[0].message == "missing PY formula"
 
 
 def test_verify_accepts_stored_python_formula():
@@ -89,4 +84,4 @@ def test_verify_accepts_stored_python_formula():
     output.cells[addr].formula = '=PYTHON("result = 1")'
     actual_values = {a: model.cells[a].value for a in report.converted}
     result = verify_converted_cells(model, output, report, actual_values=actual_values)
-    assert addr in result.passed
+    assert addr not in [m.address for m in result]

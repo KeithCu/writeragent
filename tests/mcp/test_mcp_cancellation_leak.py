@@ -31,8 +31,8 @@ def test_in_flight_requests_does_not_leak():
 def test_bool_is_not_id():
     msg = {"jsonrpc": "2.0", "id": True, "method": "ping"}
     res = parse_jsonrpc_request(msg)
-    assert res.__class__.__name__ == "JsonRpcParseError"
+    assert res is None
 
     msg = {"jsonrpc": "2.0", "id": False, "method": "ping"}
     res = parse_jsonrpc_request(msg)
-    assert res.__class__.__name__ == "JsonRpcParseError"
+    assert res is None

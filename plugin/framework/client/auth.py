@@ -25,19 +25,7 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ConfigError
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
-
-
-def reject_control_chars_in_api_key(api_key: str) -> str:
-    """Raise if *api_key* contains characters outside printable ASCII (CR/LF/controls/DEL/NBSP/smart quotes)."""
-    # What was wrong: Checking only ord(c) < 32 let DEL (\x7f), NBSP (\xa0),
-    # and unicode chars like smart quotes through. Smart quotes caused
-    # http.client putheader to fail with a confusing latin-1 UnicodeEncodeError.
-    # Why this fixes it: Enforce printable ASCII (33 to 126), disallowing interior
-    # spaces, DEL, and non-ASCII chars while code stays invalid_api_key.
-    if any(ord(c) < 33 or ord(c) > 126 for c in api_key):
-        raise AuthError("API key must be printable ASCII", code="invalid_api_key")
-    return api_key
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
 
 
 class AuthError(ConfigError):
@@ -45,9 +33,7 @@ class AuthError(ConfigError):
 
     provider: str
 
-    def __init__(self, message: str, *, provider: str = "", code: str | None = None) -> None:
-        if code is None:
-            code = "AUTH_ERROR"
+    def __init__(self, message: str, *, provider: str = "", code: str = "AUTH_ERROR") -> None:
         super().__init__(message, code=code, details={"provider": provider})
         self.provider = provider
 
@@ -70,60 +56,31 @@ class ProviderConfig:
 
 
 PROVIDERS: dict[str, ProviderConfig] = {
-    "openrouter": ProviderConfig(id="openrouter", header_style="bearer", model_id_style="slug", extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE}),
-    "together": ProviderConfig(id="together", header_style="bearer", model_id_style="slug"),
-    "mistral": ProviderConfig(id="mistral", header_style="bearer"),
-    "openai": ProviderConfig(id="openai", header_style="bearer"),
-    "deepseek": ProviderConfig(id="deepseek", header_style="bearer"),
-    "groq": ProviderConfig(id="groq", header_style="bearer"),
-    "cerebras": ProviderConfig(id="cerebras", header_style="bearer"),
-    "perplexity": ProviderConfig(id="perplexity", header_style="bearer"),
-    "xai": ProviderConfig(id="xai", header_style="bearer"),
+    "openrouter": ProviderConfig(id="openrouter", model_id_style="slug", extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE}),
+    "together": ProviderConfig(id="together", model_id_style="slug"),
+    "mistral": ProviderConfig(id="mistral"),
+    "openai": ProviderConfig(id="openai"),
+    "deepseek": ProviderConfig(id="deepseek"),
+    "groq": ProviderConfig(id="groq"),
+    "cerebras": ProviderConfig(id="cerebras"),
+    "perplexity": ProviderConfig(id="perplexity"),
+    "xai": ProviderConfig(id="xai"),
     "anthropic": ProviderConfig(id="anthropic", header_style="x-api-key", extra_headers={"anthropic-version": "2023-06-01"}),
-    "google": ProviderConfig(
-        id="google",
-        # Google's official OpenAI-compatible endpoint (/v1beta/openai) requires
-        # standard "Authorization: Bearer ***" headers.
-        header_style="bearer",
-    ),
+    # Google's official OpenAI-compatible endpoint (/v1beta/openai) requires
+    # standard "Authorization: Bearer ***" headers.
+    "google": ProviderConfig(id="google"),
     "ollama": ProviderConfig(id="ollama", header_style="none"),
     # Local LM Studio accepts an empty key the way Ollama does. A key, when
     # set, still becomes Authorization: Bearer via build_auth_headers fallback.
     "lmstudio": ProviderConfig(id="lmstudio", header_style="none"),
-    "zai": ProviderConfig(id="zai", header_style="bearer"),
-    "nvidia": ProviderConfig(id="nvidia", header_style="bearer"),
+    "zai": ProviderConfig(id="zai"),
+    "nvidia": ProviderConfig(id="nvidia"),
     # Fallback for endpoints we don't recognize explicitly.
-    "custom": ProviderConfig(id="custom", header_style="bearer"),
+    "custom": ProviderConfig(id="custom"),
 }
 
 
-# Endpoint strings are unbounded. CrossHair uses a finite endpoint enum.
-_DEAL_RESOLVE_ENDPOINTS = frozenset(("", "api.openai.com", "localhost:11434", "openrouter.ai"))
 _PROVIDER_HINTS = frozenset(PROVIDERS)
-
-
-def _deal_resolve_hint_ok_pytest(provider_hint: object) -> bool:
-    return provider_hint is None or (isinstance(provider_hint, str) and ascii_bounded(provider_hint, DEAL_MAX_TOKEN))
-
-
-def _deal_resolve_hint_ok_crosshair(provider_hint: object) -> bool:
-    return provider_hint is None or provider_hint in _PROVIDER_HINTS
-
-
-_deal_resolve_hint_ok = _deal_resolve_hint_ok_crosshair if UNDER_CROSSHAIR else _deal_resolve_hint_ok_pytest
-
-
-def _deal_resolve_endpoint_ok_pytest(endpoint: object) -> bool:
-    # IPv6 brackets, userinfo @, and query characters are real endpoints;
-    # the body does the parse (same as url_utils._deal_url_ok_pytest).
-    return True
-
-
-def _deal_resolve_endpoint_ok_crosshair(endpoint: object) -> bool:
-    return endpoint in _DEAL_RESOLVE_ENDPOINTS
-
-
-_deal_resolve_endpoint_ok = _deal_resolve_endpoint_ok_crosshair if UNDER_CROSSHAIR else _deal_resolve_endpoint_ok_pytest
 
 
 def _deal_provider_id_ok_pytest(provider_id: object) -> bool:
@@ -137,22 +94,13 @@ def _deal_provider_id_ok_crosshair(provider_id: object) -> bool:
 _deal_provider_id_ok = _deal_provider_id_ok_crosshair if UNDER_CROSSHAIR else _deal_provider_id_ok_pytest
 
 
-@deal.pre(lambda endpoint, provider_hint=None: _deal_resolve_endpoint_ok(endpoint) and _deal_resolve_hint_ok(provider_hint))
-def _resolve_provider_id(endpoint: str, provider_hint: str | None = None) -> str:
-    """
-    Map an endpoint URL + optional hint to a provider id from PROVIDERS.
-    Falls back to "custom" when nothing matches.
+def _resolve_provider_id(endpoint: str) -> str:
+    """Provider id for an endpoint URL, or ``custom`` when the host is unknown.
 
-    Hostname equality via ``get_provider_from_endpoint``, not a substring of
-    the whole URL. ``ollama`` inside ``notollama.example`` used to match and
-    skip a required API key.
+    Hostname equality via ``get_provider_from_endpoint``, not a substring.
+    ``ollama`` inside ``notollama.example`` used to match and skip a required API key.
     """
     # crosshair: off  # URL parse + host match; finite endpoint enum still huge (cover-all).
-    if provider_hint:
-        normalized = provider_hint.strip().lower()
-        if normalized in PROVIDERS:
-            return normalized
-
     return get_provider_from_endpoint(endpoint) or "custom"
 
 
@@ -205,10 +153,7 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     if not endpoint:
         raise AuthError("No endpoint configured.", provider="", code="missing_endpoint")
 
-    # Use the consolidated detection helpers (2026 provider heuristic cleanup).
-    # Single provider detection: determine hint once, avoiding redundant calls.
-    provider_hint = "openrouter" if is_openrouter_endpoint(endpoint, explicit_is_openrouter=api_config.get("is_openrouter")) else None
-    provider_id = _resolve_provider_id(endpoint, provider_hint)
+    provider_id = "openrouter" if is_openrouter_endpoint(endpoint, explicit_is_openrouter=api_config.get("is_openrouter")) else _resolve_provider_id(endpoint)
     provider_cfg = PROVIDERS.get(provider_id, PROVIDERS["custom"])
 
     # For well-known hosted providers (OpenRouter, OpenAI, etc.), an API key
@@ -221,8 +166,6 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     return {"provider": provider_cfg.id, "endpoint": endpoint, "api_key": api_key, "header_style": provider_cfg.header_style, "headers": dict(provider_cfg.extra_headers)}
 
 
-@deal.pre(lambda auth_info: isinstance(auth_info, dict))
-@deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
 def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     """
     Convert a resolved auth descriptor into concrete HTTP headers.
@@ -237,7 +180,13 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     style = str(auth_info.get("header_style") or "bearer").lower().strip()
     api_key = str(auth_info.get("api_key") or "").strip()
     if api_key:
-        api_key = reject_control_chars_in_api_key(api_key)
+        # What was wrong: Checking only ord(c) < 32 let DEL (\x7f), NBSP (\xa0),
+        # and unicode chars like smart quotes through. Smart quotes caused
+        # http.client putheader to fail with a confusing latin-1 UnicodeEncodeError.
+        # Why this fixes it: Enforce printable ASCII (33 to 126), disallowing interior
+        # spaces, DEL, and non-ASCII chars while code stays invalid_api_key.
+        if any(ord(c) < 33 or ord(c) > 126 for c in api_key):
+            raise AuthError("API key must be printable ASCII", code="invalid_api_key")
 
     if style == "bearer" and api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -246,16 +195,14 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     # style == "none" -> no auth header
 
     # Merge any provider-specific static headers (e.g., version pins).
-    # Plain dict only — isinstance(dict) is true for CrossHair AttrDict and .items() can crash.
     extra = auth_info.get("headers") or {}
-    if type(extra) is dict:
-        existing = {h.lower() for h in headers}
-        for k, v in extra.items():
-            # Do not overwrite explicitly set auth headers.
-            if str(k).lower() in existing:
-                continue
-            headers[str(k)] = str(v)
-            existing.add(str(k).lower())
+    existing = {h.lower() for h in headers}
+    for k, v in extra.items():
+        # Do not overwrite explicitly set auth headers.
+        if str(k).lower() in existing:
+            continue
+        headers[str(k)] = str(v)
+        existing.add(str(k).lower())
 
     # Legacy fallback for simple/manual endpoints: if an api_key exists and no
     # auth header was added (e.g. style='none' or unknown provider), add Bearer.

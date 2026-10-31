@@ -30,13 +30,11 @@ from typing import Any
 # interpreter does not have the extension on sys.path (LibreOffice's
 # PYTHONPATH is scrubbed before spawn). Insert the root that contains
 # ``plugin`` so the child can import the shared IPC helpers.
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, os.pardir, os.pardir))
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, os.pardir))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from plugin.scripting.ipc import (  # noqa: E402
-    DEFAULT_MAX_PAYLOAD_BYTES,
     claim_ipc_channel,
     read_pickle_frame,
     write_pickle_frame,
@@ -48,37 +46,27 @@ from plugin.audio.kokoro_g2p import (  # noqa: E402
     misaki_frontend,
 )
 
-# Held for the life of the process. Replaced only when the model paths change.
-_loaded_key: tuple[str, str] | None = None
-_loaded: Any = None
-_kokoro_cls: Any = None
-_soundfile: Any = None
+# (model_path, voices_path), Kokoro instance, soundfile module.
+# Replaced when the paths change. ImportError stays sticky for this process.
+_loaded: tuple[tuple[str, str], Any, Any] | None = None
 _import_failure: BaseException | None = None
 
 
-def _load_venv_audio() -> tuple[Any, Any]:
-    global _kokoro_cls, _soundfile, _import_failure
+def _import_audio() -> tuple[Any, Any]:
+    global _import_failure
     if isinstance(_import_failure, ImportError):
         raise _import_failure
-    if _kokoro_cls is not None and _soundfile is not None:
-        return _kokoro_cls, _soundfile
     try:
         from kokoro_onnx import Kokoro  # type: ignore[import-not-found, ty:unresolved-import]
         import soundfile as sf  # type: ignore[import-not-found, ty:unresolved-import]
 
-        _kokoro_cls = Kokoro
-        _soundfile = sf
-        return _kokoro_cls, _soundfile
+        return Kokoro, sf
     except ImportError as exc:
         _import_failure = exc
         raise
 
 
-def run_kokoro_stdio_loop(
-    handler: Any,
-    *,
-    max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
-) -> int:
+def run_kokoro_stdio_loop(handler: Any) -> int:
     """Pickle 5 request loop. First frame is ``{"status": "ready", "pid": ...}``."""
     stdin_bin = sys.stdin.buffer
     try:
@@ -93,7 +81,7 @@ def run_kokoro_stdio_loop(
         # A length-prefix or decode error has consumed stdin mid-frame;
         # writing an error and reading again would desync every later job.
         try:
-            req = read_pickle_frame(stdin_bin, max_payload_bytes=max_payload_bytes)
+            req = read_pickle_frame(stdin_bin)
         except Exception as exc:
             sys.stderr.write(
                 f"Fatal: failed to read/decode IPC frame from stdin: {exc}\n"
@@ -111,7 +99,7 @@ def run_kokoro_stdio_loop(
         except Exception as exc:
             res = {"status": "error", "error": f"Unhandled error: {exc}"}
         try:
-            write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
+            write_pickle_frame(stdout_bin, res)
         except Exception:
             break
     return 0
@@ -141,18 +129,16 @@ def _fallback_voice(kokoro: Any, requested: str) -> str:
     return "af_sky"
 
 
-def _get_kokoro(model_path: str, voices_path: str) -> Any:
-    """Construct ``Kokoro`` once per (model, voices) pair."""
-    global _loaded, _loaded_key
+def _get_kokoro(model_path: str, voices_path: str) -> tuple[Any, Any]:
+    """One Kokoro per (model, voices). Returns ``(kokoro, soundfile)``."""
+    global _loaded
     key = (model_path, voices_path)
-    if _loaded is not None and _loaded_key == key:
-        return _loaded
-    kokoro_cls, _sf = _load_venv_audio()
-
+    if _loaded is not None and _loaded[0] == key:
+        return _loaded[1], _loaded[2]
+    kokoro_cls, sf = _import_audio()
     inst = kokoro_cls(model_path, voices_path)
-    _loaded = inst
-    _loaded_key = key
-    return inst
+    _loaded = (key, inst, sf)
+    return inst, sf
 
 
 def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
@@ -178,8 +164,7 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         speed = 1.0
 
     try:
-        kokoro = _get_kokoro(model_path, voices_path)
-        _cls, sf = _load_venv_audio()
+        kokoro, sf = _get_kokoro(model_path, voices_path)
     except ImportError as exc:
         return {
             "status": "error",
@@ -208,12 +193,9 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
 
     detail = {"warning": warning, "g2p": g2p}
     try:
-        if phonemes:
-            samples, rate = kokoro.create(
-                phonemes, voice=voice, speed=speed, lang=lang, is_phonemes=True
-            )
-        else:
-            samples, rate = kokoro.create(text, voice=voice, speed=speed, lang=lang)
+        samples, rate = kokoro.create(
+            phonemes or text, voice=voice, speed=speed, lang=lang, is_phonemes=bool(phonemes)
+        )
 
         # An empty samples array would write a header-only wav that the parent
         # accepts as success (size > 0).
@@ -233,20 +215,18 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _emit(payload: dict[str, Any]) -> None:
+    sys.stdout.write(json.dumps(payload) + "\n")
+
+
 def run_kokoro_once(argv: list[str]) -> int:
     if len(argv) != 9:
-        sys.stdout.write(
-            json.dumps({"status": "error", "error": f"Invalid arguments count: expected 9, got {len(argv)}"})
-            + "\n"
-        )
+        _emit({"status": "error", "error": f"Invalid arguments count: expected 9, got {len(argv)}"})
         return 1
     try:
         speed = float(argv[4])
     except (ValueError, TypeError) as exc:
-        sys.stdout.write(
-            json.dumps({"status": "error", "error": f"Invalid speed: {exc}"})
-            + "\n"
-        )
+        _emit({"status": "error", "error": f"Invalid speed: {exc}"})
         return 1
     text_or_dash = argv[2]
     text = sys.stdin.read() if text_or_dash == "-" else text_or_dash
@@ -257,10 +237,9 @@ def run_kokoro_once(argv: list[str]) -> int:
         "out_path": argv[5],
         "model_path": argv[6],
         "voices_path": argv[7],
-        "lang": argv[8],
     }
     res = handle_kokoro_job(req)
-    sys.stdout.write(json.dumps(res) + "\n")
+    _emit(res)
     return 0 if res.get("status") == "ok" else 1
 
 

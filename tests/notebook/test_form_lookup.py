@@ -5,10 +5,10 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from plugin.notebook.form_lookup import (
+    build_control_index,
     control_lookup_scope,
     find_control_shape_by_name,
     find_form_control_model_by_name,
-    index_form_control_models,
     read_code_from_field,
 )
 
@@ -38,7 +38,7 @@ def test_index_form_control_models_from_draw_page():
     doc.getDrawPage.return_value = dp
     doc.getText.side_effect = AttributeError("no text")
 
-    by_name = index_form_control_models(doc)
+    by_name = build_control_index(doc).models_by_name
     assert by_name["nb_run_abc"] is run_model
     assert by_name["nb_cell_1_code"] is code_model
     assert len(by_name) == 2
@@ -108,6 +108,7 @@ def test_find_control_shape_by_name_from_draw_page():
     assert find_control_shape_by_name(doc, "nb_run_abc") is run_shape
     dp.getByIndex.side_effect = [run_shape, code_shape]
     assert find_control_shape_by_name(doc, "missing") is None
+    dp.getByIndex.side_effect = [run_shape, code_shape]
     assert find_control_shape_by_name(doc, "") is None
 
 
@@ -198,7 +199,7 @@ def test_missing_field_name_in_scope_returns_none_without_second_walk():
 
 
 def test_lookup_with_none_doc_is_empty_not_a_crash():
-    assert index_form_control_models(None) == {}
+    assert build_control_index(None).models_by_name == {}
     assert find_form_control_model_by_name(None, "nb_cell_0_code") is None
     assert find_control_shape_by_name(None, "nb_cell_0_code") is None
     assert read_code_from_field(None, "nb_cell_0_code") is None

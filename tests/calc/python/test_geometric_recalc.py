@@ -25,24 +25,20 @@ from plugin.calc.python.geometric_recalc import (
     compute_sheet_repair,
     current_geometric_strip_safe,
     ensure_geometric_strip_index_for_eval,
-    geometric_cap_hit_user_message,
     geometric_workbook_key,
     load_geometric_registry_for_doc,
     local_a1,
     maybe_geometric_on_document_open,
     maybe_strip_geometric_eval_args,
     notify_geometric_cap_hit,
-    reconcile_geometric_document,
+    reconcile,
     replace_geometric_strip_safe,
     reset_geometric_runtime_for_tests,
-    resolved_code_for_formula,
     save_geometric_registry_for_doc,
 )
 from plugin.calc.python.geometric_recalc_core import (
-    GEOMETRIC_DISCOVERY_CAP,
     formula_data_args,
     rebuild_formula_with_data_args,
-    repair_n_args,
     same_cell_ref,
 )
 
@@ -59,7 +55,8 @@ def _wb_doc(url: str = "file:///pipe.ods") -> object:
 
 def _cell(addr: str, formula: str, code: str | None = None) -> GeometricCell:
     if code is None:
-        code = resolved_code_for_formula(formula)
+        parts = parse_python_formula(formula)
+        code = parts.code if parts is not None else ""
     return GeometricCell(address=addr, formula=formula, resolved_code=code)
 
 
@@ -68,13 +65,11 @@ def _repair(
     records: dict[str, GeometricRecord] | None = None,
     *,
     sheet_name: str = "Sheet1",
-    truncated: bool = False,
 ):
     return compute_sheet_repair(
         cells,
         records,
         sheet_name=sheet_name,
-        truncated=truncated,
     )
 
 
@@ -100,7 +95,6 @@ def _key(code: str, n_args: int, workbook_key: str = WB) -> EvalIndexKey:
 
 
 def test_constants_match_discovery_and_spill_pattern():
-    assert GEOMETRIC_DISCOVERY_CAP == _MAX_PYTHON_CELLS_FOUND == 100
     assert GEOMETRIC_REGISTRY_PROP == "WriterAgentGeometricRegistry"
     assert CONFIG_KEY == "scripting.python_geometric_recalc_order"
 
@@ -117,7 +111,6 @@ def test_local_a1_and_same_cell_ref():
 
 def test_empty_list():
     result = _repair([])
-    assert result.skipped is False
     assert result.patches == ()
     assert result.records == {}
 
@@ -668,8 +661,8 @@ def test_code_in_cell_repair_and_resolved_source():
     assert new.startswith("=PY($A$1")
     assert '"$A$1"' not in new
     assert formula_data_args(new) == ["C1:C10", "B1"]
-    assert resolved_code_for_formula("=PY($A$1; C1:C10)", code_cell_text=source) == source
-    assert resolved_code_for_formula('=PY("df = clean(df)")') == "df = clean(df)"
+    parts = parse_python_formula('=PY("df = clean(df)")')
+    assert parts is not None and parts.code == "df = clean(df)"
     key = _key(source, 2)
     safe = _safe_after_patches(
         [
@@ -681,11 +674,11 @@ def test_code_in_cell_repair_and_resolved_source():
     assert key in safe
 
 
-def test_repair_n_args_is_not_semicolon_count():
-    assert repair_n_args('=PY("a; b; c")') == 0
-    assert repair_n_args('=PY("np.mean(data)"; B1:B10)') == 1
-    assert repair_n_args('=PY("np.mean(data)"; B1:B10; A1)') == 2
-    assert repair_n_args("=PY($A$1; B1:B10; C1)") == 2
+def test_formula_data_args_ignores_semicolons_in_code():
+    assert len(formula_data_args('=PY("a; b; c")') or []) == 0
+    assert len(formula_data_args('=PY("np.mean(data)"; B1:B10)') or []) == 1
+    assert len(formula_data_args('=PY("np.mean(data)"; B1:B10; A1)') or []) == 2
+    assert len(formula_data_args("=PY($A$1; B1:B10; C1)") or []) == 2
 
 
 def test_n_args_matches_split_python_addin_data_args_for_range_plus_1x1():
@@ -694,7 +687,7 @@ def test_n_args_matches_split_python_addin_data_args_for_range_plus_1x1():
     pred = ((0.0,),)
     split = split_python_addin_data_args((col, pred))
     assert len(split) == 2
-    assert repair_n_args('=PY("np.mean(data)"; B1:B10; A1)') == 2
+    assert len(formula_data_args('=PY("np.mean(data)"; B1:B10; A1)') or []) == 2
 
 
 def test_fill_down_unanimous_ours_is_strip_safe():
@@ -778,18 +771,10 @@ def test_two_workbooks_unambiguous_false_no_strip():
     reset_geometric_runtime_for_tests()
 
 
-def test_cap_hit_skips_sheet_no_patches_no_strip_safe():
-    cells = [_cell(f"A{i + 1}", '=PY("x")') for i in range(GEOMETRIC_DISCOVERY_CAP)]
-    result = _repair(cells, sheet_name="Data", truncated=True)
-    assert result.skipped is True
-    assert result.patches == ()
-
-
 def test_exact_100_without_truncated_is_chained():
     """Phase 3: an exact 100 that finished the scan is not a cap-hit."""
-    cells = [_cell(f"A{i + 1}", '=PY("x")') for i in range(GEOMETRIC_DISCOVERY_CAP)]
-    result = _repair(cells, sheet_name="Data", truncated=False)
-    assert result.skipped is False
+    cells = [_cell(f"A{i + 1}", '=PY("x")') for i in range(_MAX_PYTHON_CELLS_FOUND)]
+    result = _repair(cells, sheet_name="Data")
     assert result.patches  # A2..A100 get a predecessor
 
 
@@ -833,22 +818,28 @@ def test_notify_geometric_cap_hit_off_main_does_not_persist():
         assert mock_box.call_count == 1
 
 
-def test_cap_hit_user_message_names_the_sheet():
-    text = geometric_cap_hit_user_message("Pivots")
-    assert "Pivots" in text
-    assert str(GEOMETRIC_DISCOVERY_CAP) in text
+def test_cap_hit_user_message_names_the_sheet(monkeypatch):
+    boxes = []
+    monkeypatch.setattr("plugin.chatbot.dialogs.msgbox", lambda *args, **kw: boxes.append(args))
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    from plugin.calc.python.geometric_recalc import notify_geometric_cap_hit
+
+    assert notify_geometric_cap_hit("ctx", "Pivots", workbook_key="calc:wb") is True
+    assert len(boxes) == 1
+    assert "Pivots" in boxes[0][2]
+    assert str(_MAX_PYTHON_CELLS_FOUND) in boxes[0][2]
 
 
 def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
     """K3: a truncated sheet poisons the entire workbook's strip safe index."""
-    from plugin.calc.python.geometric_recalc import reconcile_geometric_document
+    from plugin.calc.python.geometric_recalc import reconcile
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
     doc = CalcDocStub(url="file:///truncated-wb.ods")
-    # Sheet1 has GEOMETRIC_DISCOVERY_CAP + 1 cells
+    # Sheet1 has _MAX_PYTHON_CELLS_FOUND + 1 cells
     sheet1 = doc.getSheets().getByName("Sheet1")
-    for i in range(GEOMETRIC_DISCOVERY_CAP + 1):
+    for i in range(_MAX_PYTHON_CELLS_FOUND + 1):
         c = sheet1.getCellByPosition(0, i)
         c.setFormula('=PY("np.mean(data)"; B1:B10; C1)')
 
@@ -868,7 +859,7 @@ def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
         patch("plugin.chatbot.dialogs.msgbox"),
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
     ):
-        reconcile_geometric_document("ctx", doc)
+        reconcile("ctx", doc)
 
     assert current_geometric_strip_safe() == frozenset()
     assert (
@@ -979,7 +970,7 @@ def test_flag_on_attaches_all_sheets(monkeypatch):
     )
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
-    reconcile_geometric_document("ctx", doc)
+    reconcile("ctx", doc)
     assert sheet1.getCellByPosition(0, 1).getFormula() == '=PY("b";A1)'
     assert sheet2.getCellByPosition(0, 1).getFormula() == '=PY("d";A1)'
     assert sheet1.getCellByPosition(0, 0).getFormula() == '=PY("a")'
@@ -1050,7 +1041,7 @@ def test_reentrancy_skips_nested_repair(monkeypatch):
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
     geo._RUNTIME.repairing = True
     try:
-        geo.reconcile_geometric_document("ctx", doc)
+        geo.reconcile("ctx", doc)
         assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("b")'
     finally:
         geo._RUNTIME.repairing = False
@@ -1062,7 +1053,7 @@ def test_cap_hit_sheet_skipped_on_reconcile(monkeypatch):
     _reset_geo()
     doc = CalcDocStub(url="file:///cap-geo.ods")
     sheet = doc.getSheets().getByName("Sheet1")
-    for i in range(GEOMETRIC_DISCOVERY_CAP + 1):
+    for i in range(_MAX_PYTHON_CELLS_FOUND + 1):
         sheet.getCellByPosition(0, i).setFormula(f'=PY("x{i}")')
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
@@ -1073,7 +1064,7 @@ def test_cap_hit_sheet_skipped_on_reconcile(monkeypatch):
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
-        reconcile_geometric_document("ctx", doc)
+        reconcile("ctx", doc)
         assert mock_box.call_count == 1
     # First two cells stay unchained (whole sheet skipped).
     assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("x1")'
@@ -1087,7 +1078,7 @@ def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch
     _reset_geo()
     sheet1 = CalcSheetStub("Sheet1")
     sheet2 = CalcSheetStub("Data")
-    for i in range(GEOMETRIC_DISCOVERY_CAP + 1):
+    for i in range(_MAX_PYTHON_CELLS_FOUND + 1):
         sheet1.getCellByPosition(0, i).setFormula(f'=PY("x{i}")')
         sheet2.getCellByPosition(0, i).setFormula(f'=PY("y{i}")')
     doc = CalcDocStub(sheets=[sheet1, sheet2], url="file:///cap-persist.ods")
@@ -1100,8 +1091,8 @@ def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
-        reconcile_geometric_document("ctx", doc)
-        reconcile_geometric_document("ctx", doc)
+        reconcile("ctx", doc)
+        reconcile("ctx", doc)
         assert mock_box.call_count == 2
         titles = [c.args[1] for c in mock_box.call_args_list]
         assert all("Experimental" in t for t in titles)
@@ -1114,7 +1105,7 @@ def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
-        reconcile_geometric_document("ctx", doc)
+        reconcile("ctx", doc)
         assert mock_box.call_count == 2
 
 
@@ -1798,7 +1789,7 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
         "plugin.calc.python.geometric_recalc._apply_patches_to_sheet",
         lambda _sheet, _patches: set(),  # No patches applied
     )
-    res, _cells = _repair_one_sheet("ctx", doc, sheet, wk)
+    res, unused_cells, unused_name = _repair_one_sheet("ctx", doc, sheet, wk)
     # The append patch failed to land, so A2 must NOT be recorded with predecessor A1.
     assert "A2" not in records_for_sheet(wk, "Sheet1")
 
@@ -1812,7 +1803,7 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
         "plugin.calc.python.geometric_recalc._apply_patches_to_sheet",
         lambda _sheet, _patches: set(),  # Remove patch fails to apply
     )
-    res2, _cells2 = _repair_one_sheet("ctx", doc, sheet, wk)
+    res2, unused_cells2, unused_name2 = _repair_one_sheet("ctx", doc, sheet, wk)
     # The remove patch failed, so the incoming record for A2 must be kept in pre-patch state.
     assert records_for_sheet(wk, "Sheet1").get("A2") == GeometricRecord(predecessor="A1")
 

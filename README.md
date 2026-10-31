@@ -227,7 +227,7 @@ See [AGENTS.md](AGENTS.md) (invariants), [docs/repo-map.md](docs/repo-map.md) (e
 | [Hermes Agent](https://github.com/NousResearch/hermes-agent) | Tool-call parsers, JSON repair, memory patterns |
 | [latex2mathml](https://github.com/roniemartinez/latex2mathml) | LaTeX → MathML |
 | [mathml-to-latex](https://github.com/asnunes/py-mathml-to-latex) | MathML → LaTeX (Writer formula export) |
-| [isodate](https://github.com/gweis/isodate) | ISO 8601 duration parse/format (Calc wire) |
+| [isodate](https://github.com/gweis/isodate) | ISO 8601 duration support (vendored) |
 
 ---
 

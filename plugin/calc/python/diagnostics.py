@@ -58,13 +58,6 @@ class DiagnosticEntry:
     def is_error(self) -> bool:
         return self.status != "ok"
 
-    def matches_filter(self, filt: DiagnosticFilter) -> bool:
-        if filt == "errors":
-            return self.is_error
-        if filt == "output":
-            return self.has_output or self.is_error
-        return True
-
     def summary_line(self) -> str:
         """One-line label for list controls."""
         where = self.address or "(unknown cell)"
@@ -116,13 +109,16 @@ class PythonDiagnosticsStore:
             best_effort(lambda: cb(entry), "diagnostic listener failed")
         return entry
 
-    def list_entries(self, workbook_key: str, *, filt: DiagnosticFilter = "all", newest_first: bool = True) -> list[DiagnosticEntry]:
+    def list_entries(self, workbook_key: str, *, filt: DiagnosticFilter = "all") -> list[DiagnosticEntry]:
         key = (workbook_key or "unknown").strip() or "unknown"
         with self._lock:
             bucket = list(self._by_workbook.get(key, ()))
-        if newest_first:
-            bucket.reverse()
-        return [e for e in bucket if e.matches_filter(filt)]
+        bucket.reverse()
+        if filt == "errors":
+            return [e for e in bucket if e.is_error]
+        if filt == "output":
+            return [e for e in bucket if e.has_output or e.is_error]
+        return bucket
 
     def latest_for_code(self, workbook_key: str, code: str) -> DiagnosticEntry | None:
         """Return the newest entry for exactly *code* (both sides clipped to 240 chars).
@@ -134,7 +130,7 @@ class PythonDiagnosticsStore:
         needle = (code or "")[:_CODE_SNIPPET_MAX]
         if not needle:
             return None
-        for entry in self.list_entries(workbook_key, filt="all", newest_first=True):
+        for entry in self.list_entries(workbook_key):
             if entry.code == needle:
                 return entry
         return None

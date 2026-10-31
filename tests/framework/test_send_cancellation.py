@@ -147,7 +147,7 @@ def test_unbound_cancel_leaves_default_executor_queue():
 
     from plugin.framework.queue_executor import _WorkItem
 
-    item = _WorkItem("unbound-cancel", lambda: None, (), {}, blocking=True)
+    item = _WorkItem(lambda: None, (), {}, blocking=True)
     default_executor._work_queue.put(item)
     try:
         scope = SendCancellation()
@@ -196,7 +196,7 @@ def test_bound_cancel_wakes_only_that_scope():
 def test_cancel_pending_work_wakes_blocking_waiter():
     from plugin.framework.queue_executor import _WorkItem
 
-    item = _WorkItem("id", lambda: None, (), {}, blocking=True)
+    item = _WorkItem(lambda: None, (), {}, blocking=True)
     default_executor._work_queue.put(item)
     default_executor.cancel_pending_work()
     assert item.cancelled
@@ -258,7 +258,7 @@ def test_agent_session_success_does_not_cancel():
     from plugin.framework.queue_executor import _WorkItem
 
     client = MagicMock()
-    item = _WorkItem("pending", lambda: None, (), {}, blocking=True)
+    item = _WorkItem(lambda: None, (), {}, blocking=True)
     default_executor._work_queue.put(item)
     try:
         with agent_session() as scope:
@@ -296,7 +296,7 @@ def test_agent_session_abort_cancels_pending_main_thread_work():
 
     from plugin.framework.queue_executor import _WorkItem
 
-    earlier = _WorkItem("earlier", lambda: None, (), {}, blocking=True)
+    earlier = _WorkItem(lambda: None, (), {}, blocking=True)
     default_executor._work_queue.put(earlier)
     mine = None
     try:
@@ -325,8 +325,8 @@ def test_cancel_clears_bound_executor_not_unrelated():
     other = QueueExecutor()
 
     scope = SendCancellation()
-    bound_item = _WorkItem("bound", lambda: None, (), {}, blocking=True, scope=scope)
-    other_item = _WorkItem("other", lambda: None, (), {}, blocking=True)
+    bound_item = _WorkItem(lambda: None, (), {}, blocking=True, scope=scope)
+    other_item = _WorkItem(lambda: None, (), {}, blocking=True)
     bound._work_queue.put(bound_item)
     other._work_queue.put(other_item)
 

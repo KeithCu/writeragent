@@ -15,8 +15,7 @@ from plugin.mcp import wire_types
 
 def test_initialize_result_required_keys():
     result = wire_types.initialize_result(
-        protocol_version=wire_types.MCP_PROTOCOL_VERSION,
-        client_protocol_version="2024-11-05",
+        protocol_version="2024-11-05",
         server_version="1.0.0",
         instructions="test instructions",
     )
@@ -82,7 +81,7 @@ def test_parse_jsonrpc_request_preserves_extra_params():
 )
 def test_parse_jsonrpc_request_rejects_invalid(msg):
     parsed = wire_types.parse_jsonrpc_request(msg)
-    assert isinstance(parsed, wire_types.JsonRpcParseError)
+    assert parsed is None
 
 
 def test_is_jsonrpc_notification():
@@ -103,7 +102,7 @@ def test_is_jsonrpc_notification():
 )
 def test_malformed_notification_is_not_a_notification(msg):
     assert wire_types.is_jsonrpc_notification(msg) is False
-    assert isinstance(wire_types.parse_jsonrpc_request(msg), wire_types.JsonRpcParseError)
+    assert wire_types.parse_jsonrpc_request(msg) is None
 
 
 def test_jsonrpc_failure_preserves_data_and_codes():
@@ -136,27 +135,6 @@ def test_call_tool_request_params_missing_name():
         wire_types.CallToolRequestParams.from_params({"name": ""})
 
 
-def test_initialize_result_accepts_long_odd_client_protocol_version():
-    """initialize params.protocolVersion is client input.
-
-    The pytest deal profile must not raise PreContractError for a long or
-    odd version. The body copies it. CrossHair keeps the short token.
-    """
-    from plugin.framework.deal_shim import DEAL_MAX_TOKEN
-
-    long_version = "v" * (DEAL_MAX_TOKEN + 1)
-    odd_version = "2025-11-25-üñícode / odd\nversion"
-    both = "ü" * (DEAL_MAX_TOKEN + 1)
-    for version in (long_version, odd_version, both):
-        result = wire_types.initialize_result(
-            protocol_version=wire_types.MCP_PROTOCOL_VERSION,
-            client_protocol_version=version,
-            server_version="1.0.0",
-            instructions="test instructions",
-        )
-        assert result["protocolVersion"] == version
-
-
 def test_wire_ingest_accepts_long_image_and_odd_tool_args():
     """Image bytes and tool arguments are external. They must not PreContract."""
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE
@@ -180,15 +158,14 @@ def test_parse_and_initialize_ignore_loaded_crosshair_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "crosshair", object())
     parsed = wire_types.parse_jsonrpc_request({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}})
     assert isinstance(parsed, wire_types.ParsedJsonRpcRequest)
-    assert not isinstance(parsed, wire_types.JsonRpcParseError)
+    assert parsed is not None
     assert parsed.method == "ping"
     assert parsed.req_id == 1
 
     result = wire_types.initialize_result(
-        protocol_version=wire_types.MCP_PROTOCOL_VERSION,
+        protocol_version="2025-06-18",
         server_version="1.2.3",
         instructions="hi",
-        client_protocol_version="2025-06-18",
     )
     assert result["protocolVersion"] == "2025-06-18"
     assert result["serverInfo"]["version"] == "1.2.3"

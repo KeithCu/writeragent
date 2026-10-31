@@ -531,7 +531,7 @@ def test_dispatch_does_not_write_second_response_after_start():
     route.handler.side_effect = _half_written
     handler.server = MagicMock()
     handler.server.route_registry.match.return_value = route
-    with patch("plugin.mcp.server.reject_forbidden_origin", return_value=False), patch.object(handler, "_send_json") as send:
+    with patch("plugin.mcp.server.reject_forbidden_origin", return_value=False), patch("plugin.mcp.server.write_http_json") as send:
         handler._dispatch("GET")
     send.assert_not_called()
 

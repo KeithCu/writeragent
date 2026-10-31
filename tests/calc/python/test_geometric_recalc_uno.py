@@ -155,12 +155,12 @@ def _session_config_paths(ctx) -> list[str]:
     """``writeragent.json`` under the active UserInstallation only.
 
     Prefer the throwaway profile ``testing_runner`` created. Include the
-    ctx-resolved / client ``_config_path`` only when it sits under that
+    ctx-resolved / client ``get_config_file_path`` only when it sits under that
     profile (or when there is no throwaway — ``--user-profile`` mode).
     Never rewrite the default user profile while a throwaway is active;
     leftover diag previously dumped production API keys from there.
     """
-    from plugin.framework.config import _config_path, _resolve_config_path_from_ctx
+    from plugin.framework.config import _resolve_config_path_from_ctx, get_config_file_path
     from plugin.testing_runner import throwaway_writeragent_json
 
     paths: list[str] = []
@@ -177,7 +177,7 @@ def _session_config_paths(ctx) -> list[str]:
     except Exception:
         pass
     try:
-        candidates.append(_config_path())
+        candidates.append(get_config_file_path())
     except Exception:
         pass
     for candidate in candidates:
@@ -210,7 +210,7 @@ def _patch_config_files(ctx, mutator) -> None:
     for path in _session_config_paths(ctx):
         data: dict = {}
         if os.path.exists(path):
-            loaded = _load_config_dict(path, allow_repair=True, persist_repair=False)
+            loaded = _load_config_dict(path, persist_repair=False)
             if isinstance(loaded, dict):
                 data = loaded
         mutator(data)
@@ -672,7 +672,6 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
         # be a saved file, and its URL would not match, so the spill would be skipped.
         doc_url = _spill_registry_doc_key(doc)
         perform_deferred_spill(
-            ctx,
             doc_url,
             sheet.Name,
             2,
@@ -710,7 +709,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
     action), not a hidden-under-nothing no-op and not a fragment per cell.
     """
     from plugin.calc.python.geometric_recalc import (
-        reconcile_geometric_document,
+        reconcile,
         reset_geometric_runtime_for_tests,
     )
     from plugin.tests.testing_utils import _clear_undo
@@ -753,7 +752,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
             % _undo_titles(um)
         )
         locked_before = _undo_titles(um)
-        reconcile_geometric_document(ctx, doc)
+        reconcile(ctx, doc)
         assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
         assert _pred(str(a5_setup.getFormula() or "")) == "A3", a5_setup.getFormula()
         locked_after = _undo_titles(um)
@@ -855,7 +854,7 @@ def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
         a1.setFormula('=PY("first")')
         a3.setFormula('=PY("third")')
         # Direct document reconcile: _DISPATCHING stays false.
-        geo.reconcile_geometric_document(ctx, doc)
+        geo.reconcile(ctx, doc)
         assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
         _progress(
             "geometric reenter apply=%s repair=%s listener_hits=%s nested_growth=%s"

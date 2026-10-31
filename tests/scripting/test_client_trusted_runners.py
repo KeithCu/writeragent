@@ -178,6 +178,20 @@ def test_spec_runner_omits_headers_when_unset(ctx):
     assert "headers" not in payload
     assert "header_row" not in payload
 
+    with (
+        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run,
+    ):
+        mock_run.return_value = {"status": "ok", "result": {"status": "ok"}}
+        client.run_optimize(
+            ctx,
+            {"helper": "optimize_portfolio", "headers": None, "header_row": None},
+            [],
+        )
+    payload_none = mock_run.call_args.kwargs["data"]
+    assert "headers" not in payload_none
+    assert "header_row" not in payload_none
+
 
 def test_run_text_analytics_string_spec_applies_sentiment_model(ctx):
     with (

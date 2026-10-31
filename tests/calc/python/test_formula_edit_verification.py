@@ -57,7 +57,6 @@ _REWRITE_WRAPPERS_OFF = (
     "format_data_binding_display",
     "parse_data_binding_text",
     "extract_python_code_loose",
-    "build_new_python_formula",
     "build_data_suffix",
     "py_formula_has_unquoted_code_ref",
     "rebuild_python_formula_with_code_ref",
@@ -274,7 +273,6 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
     cover_fqns = cover_fqns_for_module(path)
     for name in (
         "extract_python_code_loose",
-        "build_new_python_formula",
         "build_data_suffix",
         "py_formula_has_unquoted_code_ref",
         "rebuild_python_formula_with_code_ref",

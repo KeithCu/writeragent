@@ -168,14 +168,13 @@ def test_vision_structure_layout_tables_and_blocks():
 @patch("plugin.calc.vision_egress.calc_output_anchor_from_graphic", return_value=("Sheet1", 1, 4))
 def test_insert_vision_structure_into_calc(mock_anchor, mock_bridge, mock_manipulator_cls):
     doc = MagicMock()
-    ctx = MagicMock()
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
     result = {
         "helper": "extract_structure",
         "tables": [{"name": "table_1", "columns": ["A"], "rows": [["1"]]}],
     }
-    rows = insert_vision_structure_into_calc(doc, ctx, result)
+    rows = insert_vision_structure_into_calc(doc, result)
     assert rows >= 3
     manipulator.write_formula_range.assert_called_once()
     assert manipulator.write_formula_range.call_args[0][0] == "Sheet1.B5"
@@ -198,7 +197,7 @@ def test_insert_vision_structure_merges_colspan(mock_anchor, mock_bridge, mock_m
             }
         ],
     }
-    insert_vision_structure_into_calc(MagicMock(), MagicMock(), result)
+    insert_vision_structure_into_calc(MagicMock(), result)
     manipulator.merge_cells.assert_called_once_with("Sheet1.A4:C4", center=False)
 
 
@@ -224,7 +223,6 @@ def test_insert_asks_for_literal_text_write():
         "plugin.calc.vision_egress.CalcBridge"
     ), patch("plugin.calc.vision_egress.calc_output_anchor_from_graphic", return_value=("Sheet1", 0, 0)):
         insert_vision_structure_into_calc(
-            MagicMock(),
             MagicMock(),
             {"helper": "extract_structure", "tables": [{"name": "t", "columns": ["Id"], "rows": [["000123"]]}]},
         )
@@ -273,7 +271,7 @@ def test_insert_vision_structure_title_only_raises_vision_error(mock_anchor, moc
     mock_manipulator_cls.return_value = manipulator
     result = {"helper": "extract_structure"}
     with pytest.raises(ToolExecutionError) as exc_info:
-        insert_vision_structure_into_calc(MagicMock(), MagicMock(), result)
+        insert_vision_structure_into_calc(MagicMock(), result)
     assert exc_info.value.code == "VISION_ERROR"
     manipulator.write_formula_range.assert_not_called()
 
@@ -401,9 +399,8 @@ def test_error_result_has_no_table_and_raises_vision_error(mock_anchor, mock_bri
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
     doc = MagicMock()
-    ctx = MagicMock()
     result = {"status": "error", "message": "OCR failed"}
     with pytest.raises(ToolExecutionError) as exc_info:
-        insert_vision_structure_into_calc(doc, ctx, result)
+        insert_vision_structure_into_calc(doc, result)
     assert exc_info.value.code == "VISION_ERROR"
     manipulator.write_formula_range.assert_not_called()

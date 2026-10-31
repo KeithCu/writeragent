@@ -28,8 +28,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-NEARBY_FILE_EXTENSIONS = ALL_INDEXABLE_EXTENSIONS
-
 DOC_RESEARCH_DISCOVERY_TOOL_NAMES = frozenset(
     {
         "list_nearby_files",
@@ -88,16 +86,8 @@ _EXTENSION_DOC_TYPE: dict[str, DocTypeGuess] = {
     ".odg": "draw",
     ".pptx": "draw",
     ".ppt": "draw",
+    **{ext: "image" for ext in NEARBY_IMAGE_EXTENSIONS},
 }
-
-for _image_ext in NEARBY_IMAGE_EXTENSIONS:
-    _EXTENSION_DOC_TYPE[_image_ext] = "image"
-
-
-def _extensions_for_file_kind(file_kind: FileKind) -> frozenset[str]:
-    if file_kind == "images":
-        return NEARBY_IMAGE_EXTENSIONS
-    return NEARBY_FILE_EXTENSIONS
 
 
 def guess_doc_type_from_path(path: str) -> DocTypeGuess:
@@ -116,10 +106,6 @@ def filter_document_research_discovery_tools(tools: list[ToolBase]) -> list[Tool
 
 def _normalize_path(path: str) -> str:
     return os.path.normpath(os.path.abspath(path))
-
-
-def _is_absolute_or_posix_absolute(path: str) -> bool:
-    return os.path.isabs(path) or path.startswith("/")
 
 
 def _system_path_from_url(url: str) -> str | None:
@@ -263,11 +249,9 @@ def _collect_open_file_urls(
                     type(exc).__name__,
                 )
                 continue
-    except Exception:
-        try:
-            log.exception("_collect_open_file_urls failed")
-        except Exception:  # noqa: S110  PyUNO traceback conversion raises inside log.exception (GHA 34593327841)
-            pass
+    except Exception as exc:
+        # log.debug, not log.exception: formatting a UNO traceback can raise (GHA 34593327841).
+        log.debug("_collect_open_file_urls failed (%s)", type(exc).__name__)
     return out
 
 
@@ -289,7 +273,7 @@ def _scan_directory(
     except OSError as e:
         raise OSError(f"Cannot list directory {directory!r}: {e}") from e
 
-    candidates: list[tuple[str, str, str, os.stat_result]] = []
+    entries: list[FileEntry] = []
     for idx, name in enumerate(names):
         if idx % 50 == 0 and stop_checker and stop_checker():
             raise InterruptedError("USER_STOPPED")
@@ -301,10 +285,7 @@ def _scan_directory(
         if filter_lower and filter_lower not in name.lower():
             continue
         full = os.path.join(directory, name)
-        try:
-            if not os.path.isfile(full):
-                continue
-        except OSError:
+        if not os.path.isfile(full):
             continue
         norm = _normalize_path(full)
         if exclude_norm and norm == exclude_norm:
@@ -313,21 +294,18 @@ def _scan_directory(
             st = os.stat(full)
         except OSError:
             continue
-        candidates.append((name, full, norm, st))
-
-    chosen, truncated = _cap_newest(candidates, max_entries, mtime_of=lambda item: item[3].st_mtime)
-    entries = [
-        _make_entry(
-            norm,
-            name,
-            open_paths.get(norm) or path_to_file_url(full),
-            st.st_mtime,
-            st.st_size,
-            is_open=norm in open_paths,
+        entries.append(
+            _make_entry(
+                norm,
+                name,
+                open_paths.get(norm) or path_to_file_url(norm),
+                st.st_mtime,
+                st.st_size,
+                is_open=norm in open_paths,
+            )
         )
-        for name, full, norm, st in chosen
-    ]
-    return entries, truncated
+
+    return _cap_newest(entries, max_entries)
 
 
 def _entries_from_open_only(
@@ -337,7 +315,7 @@ def _entries_from_open_only(
     max_entries: int,
 ) -> tuple[list[FileEntry], bool]:
     filter_lower = filter_substring.lower() if filter_substring else None
-    items: list[tuple[str, str, float, int]] = []
+    entries: list[FileEntry] = []
     for norm, url in open_paths.items():
         name = os.path.basename(norm)
         if _should_skip_filename(name):
@@ -345,13 +323,8 @@ def _entries_from_open_only(
         if filter_lower and filter_lower not in name.lower():
             continue
         mtime, size = _mtime_size_or_zero(norm)
-        items.append((norm, url, mtime, size))
-    chosen, truncated = _cap_newest(items, max_entries, mtime_of=lambda item: item[2])
-    entries = [
-        _make_entry(norm, os.path.basename(norm), url, mtime, size, is_open=True)
-        for norm, url, mtime, size in chosen
-    ]
-    return entries, truncated
+        entries.append(_make_entry(norm, name, url, mtime, size, is_open=True))
+    return _cap_newest(entries, max_entries)
 
 
 def _mtime_size_or_zero(path: str) -> tuple[float, int]:
@@ -363,12 +336,10 @@ def _mtime_size_or_zero(path: str) -> tuple[float, int]:
     return st.st_mtime, st.st_size
 
 
-def _cap_newest(items: list[Any], max_entries: int, *, mtime_of: Callable[[Any], float]) -> tuple[list[Any], bool]:
-    """Stable newest-first slice. max_entries <= 0 keeps the old loop: no rows, truncated when any candidate existed."""
-    items.sort(key=mtime_of, reverse=True)
-    if max_entries <= 0:
-        return [], bool(items)
-    return items[:max_entries], len(items) > max_entries
+def _cap_newest(entries: list[FileEntry], max_entries: int) -> tuple[list[FileEntry], bool]:
+    """Newest-first stable slice (list.sort is stable)."""
+    entries.sort(key=lambda entry: entry["modified"], reverse=True)
+    return entries[:max_entries], len(entries) > max_entries
 
 
 def _make_entry(
@@ -427,7 +398,7 @@ def list_nearby_files(
 
     Returns a dict with ``files``, ``truncated``, and optional ``listing_root``.
     """
-    extensions = _extensions_for_file_kind(file_kind)
+    extensions = NEARBY_IMAGE_EXTENSIONS if file_kind == "images" else ALL_INDEXABLE_EXTENSIONS
 
     def _fetch_uno_state() -> tuple[Any, Any, Any]:
         res_exclude = exclude_path
@@ -488,9 +459,6 @@ def resolve_path_or_name(
     ctx: Any,
     active_model: Any,
     path_or_name: str,
-    *,
-    filter: str | None = None,
-    file_kind: FileKind = "documents",
 ) -> tuple[str | None, str | None]:
     """Resolve a path, file URL, or basename to an absolute path and file URL.
 
@@ -517,9 +485,7 @@ def resolve_path_or_name(
         norm = _normalize_path(raw)
         return norm, path_to_file_url(norm)
 
-    listing = list_nearby_files(
-        ctx, active_model, filter=filter or raw, file_kind=file_kind
-    )
+    listing = list_nearby_files(ctx, active_model, filter=raw)
     if listing.get("status") != "ok":
         return None, listing.get("message", "Could not resolve file")
 
@@ -587,7 +553,8 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     if raw.startswith("file:"):
         url = normalize_file_url(raw)
         path = _system_path_from_url(url)
-    elif _is_absolute_or_posix_absolute(raw) and os.path.isfile(raw):
+    # Leading "/" is absolute on POSIX; on Windows os.path.isabs is false for it.
+    elif (os.path.isabs(raw) or raw.startswith("/")) and os.path.isfile(raw):
         path = _normalize_path(raw)
         url = path_to_file_url(path)
     else:
@@ -669,12 +636,6 @@ def _is_same_document(model: Any, active_model: Any) -> bool:
     return bool(url) and url == str(getattr(active_model, "URL", "") or "")
 
 
-def _is_modified(model: Any) -> bool:
-    """doc.isModified() (XModifiable), best-effort. Lets an agent SEE unsaved changes so it can
-    tell the user to save. The agent never saves itself (user owns persistence)."""
-    return uno_read(lambda: bool(model.isModified()), False)
-
-
 def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str, Any]]:
     """Retrieve all open documents from the desktop context with metadata.
 
@@ -682,7 +643,6 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     leaves as ``ListenerBoundary``. A runtime error is re-raised as itself,
     not as disposal and not as ``[]``.
     """
-    from plugin.doc.doc_type import get_document_type
     from plugin.framework.thread_guard import assert_main_thread
     from plugin.framework.uno_context import get_desktop, get_runtime_uid
     from plugin.framework.uno_listeners import reraise_listener_boundary
@@ -725,16 +685,16 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             elem = enum.nextElement()
         except Exception as exc:
             reraise_listener_boundary(exc)
-        model = _office_model_from_desktop_element(elem)
+        model: Any = _office_model_from_desktop_element(elem)
         if model is None or not hasattr(model, "getURL"):
             continue
         # Same filter as MCP's _real_active_document: the Start Center is a live component but
         # not an OfficeDocument, so skip it — listing it would confuse multi-document targeting.
 
-        def _is_office_doc(m: Any = model) -> Any:
-            return m.supportsService("com.sun.star.document.OfficeDocument")
-
-        if not uno_read(_is_office_doc, True):
+        if not uno_read(
+            lambda: model.supportsService("com.sun.star.document.OfficeDocument"),
+            True,
+        ):
             continue
         url_raw = model.getURL()
         # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
@@ -748,11 +708,6 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
                 lambda: doc_type_family_label(get_document_type(model)),
                 "unknown",
             )
-            if untitled:
-                log.debug(
-                    "get_open_documents: doc type lookup failed for an untitled doc",
-                    exc_info=True,
-                )
         name = os.path.basename(path) if path else "Untitled"
         docs.append({
             "name": name,
@@ -761,7 +716,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             "path": path,
             "doc_type": doc_type_guess,
             "is_active": _is_same_document(model, active_model),
-            "modified": _is_modified(model)
+            # isModified (XModifiable), best-effort: show unsaved changes; the agent never saves.
+            "modified": uno_read(lambda: bool(model.isModified()), False),
         })
     return docs
 

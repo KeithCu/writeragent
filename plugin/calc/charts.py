@@ -23,6 +23,7 @@ from native test assertions rather than the factory CLSID).
 """
 from __future__ import annotations
 
+import copy
 import logging
 import math
 import time
@@ -39,7 +40,7 @@ from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.errors import DocumentDisposedError, is_disposed_exception, is_document_disposed, is_real_disposal, is_tool_document_disposed
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import get_ctx, get_desktop, process_events_to_idle, uno_same
 import uno
 
 _MAX_CHART_DATA_CELLS = 10_000
@@ -73,7 +74,7 @@ def supportsService(obj: Any, service_name: str) -> bool:
         return False
 
 
-def _doc_kind(doc: Any) -> Literal["draw"] | None:
+def _is_draw_doc(doc: Any) -> bool:
     """Draw or Impress. DrawingDocument is probed first, then PresentationDocument.
 
     Both orders accept a live Draw doc and a live Impress doc (Impress supports
@@ -81,11 +82,9 @@ def _doc_kind(doc: Any) -> Literal["draw"] | None:
     call either way. UpsertChart used to probe Presentation first; the branch
     taken is the same.
     """
-    if supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(
+    return supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(
         doc, "com.sun.star.presentation.PresentationDocument"
-    ):
-        return "draw"
-    return None
+    )
 
 
 log = logging.getLogger("writeragent.calc")
@@ -109,28 +108,21 @@ RECOGNIZED_CHART_CLSIDS: frozenset[str] = frozenset({
 })
 
 
-def _byte_sequence_payload(clsid: Any) -> bytes | bytearray | None:
-    """Payload of a UNO ByteSequence, or None when *clsid* is not one.
+def _normalize_clsid_value(clsid: Any) -> str:
+    """Coerce UNO CLSID (string, ByteSequence, etc.) to a comparable string.
 
     ``uno.ByteSequence`` is not ``bytes``. Unwrap ``.value`` (some bridges
     use ``.Value``) before the bytes/string checks, or ``str(seq)`` is
     ``<ByteSequence instance ...>`` and chart embeds disappear from
     list/get/delete/resolve.
     """
+    if clsid is None:
+        return ""
     for attr in ("Value", "value"):
         payload = getattr(clsid, attr, None)
         if isinstance(payload, (bytes, bytearray)):
-            return payload
-    return None
-
-
-def _normalize_clsid_value(clsid: Any) -> str:
-    """Coerce UNO CLSID (string, ByteSequence, etc.) to a comparable string."""
-    if clsid is None:
-        return ""
-    payload = _byte_sequence_payload(clsid)
-    if payload is not None:
-        clsid = payload
+            clsid = payload
+            break
     if isinstance(clsid, str):
         return clsid
     if isinstance(clsid, (bytes, bytearray)):
@@ -172,13 +164,7 @@ def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
         except Exception as exc:
             if is_real_disposal(exc):
                 raise
-            pass
     return False
-
-
-def _writer_embed_is_chart(host: Any) -> bool:
-    """True for Writer TextEmbeddedObject charts: CLSID match or embedded chart model."""
-    return _is_chart_host(host, is_embed=True)
 
 
 def _is_chart_shape(shape: Any, shape_type: str | None | Exception) -> bool:
@@ -225,7 +211,6 @@ def _chart_document_from_host(host: Any) -> Any | None:
     except Exception as exc:
         if is_real_disposal(exc):
             raise
-        pass
 
     return None
 
@@ -254,18 +239,6 @@ def _strip_chart_schema_for_doc_type(properties: dict[str, Any], doc_type: str |
                 }
         else:
             properties.pop("position", None)
-
-
-def _chart_parameters(base_schema: dict[str, Any] | None, doc_type: str | None) -> dict[str, Any] | None:
-    """Return a deep copy of *base_schema* stripped for *doc_type*."""
-    if not base_schema or "properties" not in base_schema:
-        return base_schema
-    import copy
-
-    params = copy.deepcopy(base_schema)
-    properties = cast("dict[str, Any]", params["properties"])
-    _strip_chart_schema_for_doc_type(properties, doc_type)
-    return params
 
 
 def _unique_chart_name(existing: set[str]) -> str:
@@ -407,8 +380,6 @@ def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
     if os.environ.get("WRITERAGENT_TESTING") == "1":
         return False
     try:
-        from plugin.framework.uno_context import get_desktop, get_ctx
-
         uctx = ctx or get_ctx()
         if not uctx:
             return False
@@ -416,8 +387,6 @@ def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
         desktop = get_desktop(uctx)
         if desktop and desktop.getActiveFrame() is None:
             return False
-
-        from plugin.framework.uno_context import process_events_to_idle
 
         return bool(process_events_to_idle(uctx))
     except Exception:
@@ -443,16 +412,14 @@ def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _
     deadline = time.monotonic() + max(0.0, float(timeout))
     chart_doc = _chart_document_from_host(chart_obj)
     if chart_doc is not None:
-        log.info("Obtained chart model on attempt 1")
+        log.info("Obtained chart model")
         return chart_doc
-    pumps = 0
     while time.monotonic() < deadline:
-        pumps += 1
-        log.debug("Model missing on attempt %d, pumping events...", pumps)
-        idle_reached = _process_events(getattr(ctx, "ctx", ctx), deadline=deadline)
+        log.debug("Model missing, pumping events...")
+        idle_reached = _process_events(ctx, deadline=deadline)
         chart_doc = _chart_document_from_host(chart_obj)
         if chart_doc is not None:
-            log.info("Obtained chart model on attempt %d", pumps + 1)
+            log.info("Obtained chart model")
             return chart_doc
         if not idle_reached:
             log.debug("Writer chart model wait stopped: idle did not arrive")
@@ -543,18 +510,6 @@ def _set_axis_title(diagram: Any, axis: str, value: Any, warnings: list[str]) ->
 def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
     """Apply enhanced styling properties to a chart document."""
     warnings: list[str] = []
-    log.info(
-        "Applying chart styling: chart_type=%s, has_title=%s, series_colors=%d, rows=%d, cols=%d",
-        kwargs.get("chart_type"),
-        bool(kwargs.get("title")),
-        len(kwargs.get("colors") or []),
-        len(kwargs.get("rows") or []),
-        len(kwargs.get("headers") or []),
-    )
-    log.debug("Chart styling kwargs: %s", {k: v for k, v in kwargs.items() if k not in ("data_range", "rows")})
-    if kwargs.get("rows"):
-        log.debug("Chart rows first item: %r", kwargs["rows"][0] if kwargs["rows"] else None)
-
     diagram = chart_doc.getDiagram()
     if not diagram:
         warnings.append("No diagram found on chart document.")
@@ -569,13 +524,7 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
     # 2. Bar/Column Orientation
     chart_type = kwargs.get("chart_type")
     if chart_type in ["bar", "column"]:
-        if hasattr(diagram, "Vertical"):
-            def _set_vertical() -> None:
-                diagram.Vertical = chart_type == "bar"
-                log.debug("Set diagram orientation: vertical=%s", diagram.Vertical)
-            _chart_step(warnings, "Vertical", _set_vertical)
-        else:
-            warnings.append("Diagram does not support Vertical")
+        _set_diagram_flag(diagram, "Vertical", chart_type == "bar", warnings, "Set diagram orientation: vertical=%s")
 
     # 3. Titles
     def _apply_chart_title(prop: str, getter: str, text: str, label: str) -> None:
@@ -601,18 +550,12 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
     # There is no ChartLegendAlignment type.
     has_legend = kwargs.get("has_legend")
     if has_legend is not None:
-        def _set_legend_vis() -> None:
-            chart_doc.HasLegend = has_legend
-            log.debug("Set chart legend visibility: %s", has_legend)
-        _chart_step(warnings, "legend visibility", _set_legend_vis)
+        _chart_step(warnings, "legend visibility", lambda: setattr(chart_doc, "HasLegend", has_legend))
 
     legend_pos = kwargs.get("legend_position")
     if legend_pos:
         if legend_pos == "none":
-            def _hide_legend() -> None:
-                chart_doc.HasLegend = False
-                log.debug("Set legend position: none")
-            _chart_step(warnings, "legend position", _hide_legend)
+            _chart_step(warnings, "legend position", lambda: setattr(chart_doc, "HasLegend", False))
         elif legend_pos in _LEGEND_POSITION_MEMBER:
             if has_legend is False:
                 msg = f"legend_position '{legend_pos}' ignored because has_legend is false"
@@ -665,31 +608,27 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
                 diag = chart_doc.getFirstDiagram()
                 if diag:
                     coords = diag.getCoordinateSystems()
-                    series_count = 0
-                    # Counter spans all chart types; the old enumerate restarted per type repeating colors[0].
-                    series_idx = 0
-                    for coord in coords:
-                        ctypes = coord.getChartTypes()
-                        for ctype in ctypes:
-                            series_list = ctype.getDataSeries()
-                            for s in series_list:
-                                idx = series_idx
-                                series_idx += 1
-                                color_val = parsed_colors[idx % len(parsed_colors)]
-                                try:
-                                    prop_info = s.getPropertySetInfo()
-                                    for prop in ["Color", "FillColor", "LineColor"]:
-                                        if prop_info.hasPropertyByName(prop):
-                                            s.setPropertyValue(prop, color_val)
-                                except Exception as exc:
-                                    # Skip a disposed series and keep coloring the rest.
-                                    if is_disposed_exception(exc):
-                                        log.debug("Skipping disposed chart series %d", idx)
-                                        continue
-                                    raise
-                                log.debug("Set data series %d color to RGB %d", idx, color_val)
-                                series_count += 1
-                    log.info("Successfully styled %d chart data series with %d colors", series_count, len(parsed_colors))
+                    # One index across chart types. Per-type enumerate repeated colors[0].
+                    all_series = (
+                        s
+                        for coord in coords
+                        for ctype in coord.getChartTypes()
+                        for s in ctype.getDataSeries()
+                    )
+                    for idx, s in enumerate(all_series):
+                        color_val = parsed_colors[idx % len(parsed_colors)]
+                        try:
+                            prop_info = s.getPropertySetInfo()
+                            for prop in ["Color", "FillColor", "LineColor"]:
+                                if prop_info.hasPropertyByName(prop):
+                                    s.setPropertyValue(prop, color_val)
+                        except Exception as exc:
+                            # Skip a disposed series and keep coloring the rest.
+                            if is_disposed_exception(exc):
+                                log.debug("Skipping disposed chart series %d", idx)
+                                continue
+                            raise
+                        log.debug("Set data series %d color to RGB %d", idx, color_val)
                 else:
                     warnings.append("Could not retrieve first diagram to apply series colors")
                     log.warning("Could not retrieve first diagram using getFirstDiagram")
@@ -731,14 +670,9 @@ def _apply_chart_data_arrays(chart_doc: Any, headers: Any, rows: Any) -> None:
 def _drop_failed_chart_insert(remove: Callable[[], None], name: str) -> None:
     """Remove a chart inserted before a later create step failed.
 
-    Delete this insert before the error is returned. A failed delete is
-    logged and does not replace the original error. ``legend_position``
-    used ``uno.Enum`` for ``ChartLegendAlignment``, which is not in the
-    UNO API, so that call raises ``RuntimeException``. The legend handler
-    only caught ``ImportError`` and ``AttributeError``, and the create
-    handler left the chart in the sheet, text, or slide while telling the
-    caller it did not exist. The same window exists for any property set
-    that fails after the insert (diagram, title, legend).
+    A failed delete is logged and does not replace the original error.
+    A later step (diagram, title, legend) used to leave the inserted chart
+    in the document while the tool reported that the create failed.
     """
     try:
         remove()
@@ -764,11 +698,6 @@ def _remove_writer_chart(doc: Any, chart_obj: Any, name: str) -> None:
     if not objects.hasByName(name):
         raise ValueError(f"Chart '{name}' is not in the embedded objects container.")
     objects.removeByName(name)
-
-
-def _drop_writer_chart_insert(doc: Any, chart_obj: Any, name: str) -> None:
-    """Remove a Writer chart embedded before a later create step failed."""
-    _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, name), name)
 
 
 def _format_chart_exception_msg(e: Exception) -> str:
@@ -801,6 +730,13 @@ def _chart_list_failure(doc: Any, exc: Exception, errors: list[dict[str, Any]], 
     if is_tool_document_disposed(exc, doc):
         raise exc
     errors.append({**where, "message": _format_chart_exception_msg(exc)})
+
+
+def _chart_container_failure(tool: Any, doc: Any, exc: Exception) -> dict[str, Any]:
+    # Real disposal propagates even when the document probe still answers.
+    if is_tool_document_disposed(exc, doc):
+        raise exc
+    return tool._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
 
 
 def _get_all_calc_chart_names(doc: Any) -> set[str]:
@@ -941,7 +877,7 @@ def _lookup_chart(
             objects = doc.getEmbeddedObjects()
             if objects.hasByName(name):
                 obj = objects.getByName(name)
-                if _writer_embed_is_chart(obj):
+                if _is_chart_host(obj, is_embed=True):
                     return ChartLookup(ref=ChartRef(obj, objects, "writer_embed", None))
         except Exception as exc:
             if is_real_disposal(exc):
@@ -952,25 +888,21 @@ def _lookup_chart(
             if ref is not None:
                 return ChartLookup(ref=ref)
         return ChartLookup()
-    elif _doc_kind(doc) == "draw":
+    elif _is_draw_doc(doc):
         draw_pages = doc.getDrawPages()
         count = draw_pages.getCount()
-        if page is not None:
-            if page < 0 or page >= count:
-                return ChartLookup(error=f"Page index {page} is out of range (document has {count} pages).")
-            target_page = draw_pages.getByIndex(page)
-            for shape, parent, shape_type in _iter_page_shapes(target_page, doc):
-                ref = _named_ole_chart_ref(shape, parent, shape_type, name, "draw_page", page)
-                if ref is not None:
-                    return ChartLookup(ref=ref)
-            return ChartLookup()
-
+        if page is not None and (page < 0 or page >= count):
+            return ChartLookup(error=f"Page index {page} is out of range (document has {count} pages).")
+        # A requested page returns the first hit. An omitted page collects every page.
         matches: list[ChartRef] = []
-        for i in range(count):
+        indices = (page,) if page is not None else range(count)
+        for i in indices:
             pg = draw_pages.getByIndex(i)
             for shape, parent, shape_type in _iter_page_shapes(pg, doc):
                 ref = _named_ole_chart_ref(shape, parent, shape_type, name, "draw_page", i)
                 if ref is not None:
+                    if page is not None:
+                        return ChartLookup(ref=ref)
                     matches.append(ref)
         if len(matches) == 1:
             return ChartLookup(ref=matches[0])
@@ -1015,10 +947,7 @@ class ListCharts(ToolBaseDummy):
                 sheets = doc.getSheets()
                 sheets_count = sheets.getCount()
             except Exception as exc:
-                # Tip: real disposal propagates even when the document probe still answers.
-                if is_tool_document_disposed(exc, doc):
-                    raise exc
-                return self._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
+                return _chart_container_failure(self, doc, exc)
             for i in range(sheets_count):
                 sheet_name = None
                 try:
@@ -1048,7 +977,7 @@ class ListCharts(ToolBaseDummy):
                 for name in embed_names:
                     try:
                         obj = objects.getByName(name)
-                        if _writer_embed_is_chart(obj):
+                        if _is_chart_host(obj, is_embed=True):
                             result.append(self._get_summary(obj, name))
                             seen_names.add(name)
                     except Exception as exc:
@@ -1070,15 +999,12 @@ class ListCharts(ToolBaseDummy):
             except Exception as exc:
                 _chart_list_failure(doc, exc, errors, source="draw_page")
 
-        elif _doc_kind(doc) == "draw":
+        elif _is_draw_doc(doc):
             try:
                 pages = doc.getDrawPages()
                 pages_count = pages.getCount()
             except Exception as exc:
-                # Tip: real disposal propagates even when the document probe still answers.
-                if is_tool_document_disposed(exc, doc):
-                    raise exc
-                return self._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
+                return _chart_container_failure(self, doc, exc)
             for i in range(pages_count):
                 try:
                     page = pages.getByIndex(i)
@@ -1166,24 +1092,16 @@ class GetChartInfo(ToolBaseDummy):
                     info["stacked"] = getattr(diagram, "Stacked", None)
                     info["percent"] = getattr(diagram, "Percent", None)
 
-                    if hasattr(diagram, "HasXAxisTitle") and diagram.HasXAxisTitle:
-                        try:
-                            xs = _axis_title_shape_string(diagram.getXAxisTitle(), None)
-                            if xs is not None:
-                                info["x_axis_title"] = xs
-                        except Exception as exc:
-                            if is_real_disposal(exc):
-                                raise
-                            pass
-                    if hasattr(diagram, "HasYAxisTitle") and diagram.HasYAxisTitle:
-                        try:
-                            ys = _axis_title_shape_string(diagram.getYAxisTitle(), None)
-                            if ys is not None:
-                                info["y_axis_title"] = ys
-                        except Exception as exc:
-                            if is_real_disposal(exc):
-                                raise
-                            pass
+                    for axis, key in (("X", "x_axis_title"), ("Y", "y_axis_title")):
+                        flag = f"Has{axis}AxisTitle"
+                        if hasattr(diagram, flag) and getattr(diagram, flag):
+                            try:
+                                text = _axis_title_shape_string(getattr(diagram, f"get{axis}AxisTitle")(), None)
+                                if text is not None:
+                                    info[key] = text
+                            except Exception as exc:
+                                if is_real_disposal(exc):
+                                    raise
 
         except Exception as e:
             if is_real_disposal(e):
@@ -1235,7 +1153,7 @@ class UpsertChart(ToolBaseDummy):
                     return self._create_calc_chart(ctx, rect, chart_service, **kwargs)
                 elif supportsService(doc, "com.sun.star.text.TextDocument"):
                     return self._create_writer_chart(ctx, rect, chart_service, **kwargs)
-                elif _doc_kind(doc) == "draw":
+                elif _is_draw_doc(doc):
                     return self._create_draw_chart(ctx, rect, chart_service, **kwargs)
                 return self._tool_error("Unsupported document type for chart creation.")
             except Exception as e:
@@ -1412,14 +1330,13 @@ class UpsertChart(ToolBaseDummy):
         # 1. Resolve cursor position
         try:
             pos = kwargs.get("position", "end")
+            cursor = None
             if pos == "cursor":
                 controller = doc.getCurrentController()
                 if hasattr(controller, "getViewCursor"):
                     vc = controller.getViewCursor()
                     cursor = text.createTextCursorByRange(vc.getStart())
-                else:
-                    cursor = text.createTextCursorByRange(text.getEnd())
-            else:
+            if cursor is None:
                 cursor = text.createTextCursorByRange(text.getEnd())
         except Exception as exc:
             # Bugfix: a closed document raises DisposedException while creating a Writer chart, and this
@@ -1434,14 +1351,12 @@ class UpsertChart(ToolBaseDummy):
             except Exception as exc:
                 if is_real_disposal(exc):
                     raise
-                pass
 
         # 2. Collect existing names across embeds and draw page
         existing_names: set[str] = set()
         try:
             embeds = doc.getEmbeddedObjects()
-            if hasattr(embeds, "getElementNames"):
-                existing_names.update(embeds.getElementNames())
+            existing_names.update(embeds.getElementNames())
         except Exception as exc:
             if is_real_disposal(exc):
                 raise
@@ -1453,11 +1368,6 @@ class UpsertChart(ToolBaseDummy):
         chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
         if not chart_obj:
             return self._tool_error("Failed to create TextEmbeddedObject instance.")
-
-        try:
-            log.debug("TextEmbeddedObject Implementation: %s", chart_obj.getImplementationName())
-        except Exception:
-            log.debug("TextEmbeddedObject getImplementationName failed", exc_info=True)
 
         # CRITICAL: Match proven working pattern from plugin/writer/math/math_mml_convert.py
         chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
@@ -1542,7 +1452,6 @@ class UpsertChart(ToolBaseDummy):
                     chart_doc = _chart_document_from_host(obj)
             except Exception as e:
                 log.debug("Last ditch effort failed: %s", e)
-                pass
 
         warnings: list[str] = []
         # 5. Configure Diagram
@@ -1557,26 +1466,25 @@ class UpsertChart(ToolBaseDummy):
                 warnings = _apply_chart_styling(chart_doc, **kwargs)
             except Exception:
                 # Diagram installation and styling must succeed or the embed is rolled back.
-                _drop_writer_chart_insert(doc, chart_obj, actual_name)
+                _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, actual_name), actual_name)
                 raise
         else:
-            _drop_writer_chart_insert(doc, chart_obj, actual_name)
+            _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, actual_name), actual_name)
             return self._tool_error("Cannot access chart content.")
 
         # Force a refresh of the chart model using direct UNO calls on the chart document itself.
-        if chart_doc:
-            try:
-                # 1. Notify views of model changes (com.sun.star.util.XModifiable)
-                if hasattr(chart_doc, "setModified"):
-                    chart_doc.setModified(True)
-                    log.debug("Called chart_doc.setModified(True) to notify view listeners.")
+        try:
+            # 1. Notify views of model changes (com.sun.star.util.XModifiable)
+            if hasattr(chart_doc, "setModified"):
+                chart_doc.setModified(True)
+                log.debug("Called chart_doc.setModified(True) to notify view listeners.")
 
-                # 2. Trigger layout/calculations update (com.sun.star.util.XRefreshable)
-                if hasattr(chart_doc, "refresh"):
-                    chart_doc.refresh()
-                    log.debug("Called chart_doc.refresh() to update chart document.")
-            except Exception as e:
-                log.debug("Failed direct chart_doc model update: %s", e)
+            # 2. Trigger layout/calculations update (com.sun.star.util.XRefreshable)
+            if hasattr(chart_doc, "refresh"):
+                chart_doc.refresh()
+                log.debug("Called chart_doc.refresh() to update chart document.")
+        except Exception as e:
+            log.debug("Failed direct chart_doc model update: %s", e)
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         out: dict[str, Any] = {"status": "ok", "message": f"Chart '{actual_name}' inserted in Writer.", "name": actual_name}
@@ -1687,17 +1595,9 @@ class ManageCharts(ToolCalcChartBase):
     ``ToolRegistry`` keeps one instance per name (last module load wins). Writer/Draw
     set union ``uno_services`` so registration order does not drop other document types.
     Skinny list/info/upsert/delete classes are Dummy backends for this dispatcher.
-
-    Future (per-app tiers and a growing API, e.g. full 3D):
-    - Registry: store ``list[ToolBase]`` per name and resolve via ``supportsService`` instead of last-wins.
-    - Or ``get_tier(doc_type)`` on a single class if multi-bind is too heavy.
-    - Schema: ``get_parameters(doc_type)`` / ``get_description(doc_type)`` so Calc keeps ``data_range`` while
-      Writer/Draw omit it; add a 3D block (view angle, perspective, wall/floor) when UNO paths beyond ``is_3d`` exist.
-    - Sub-agent: richer ``required_core_tools`` or a domain preamble when the consolidated schema grows.
     """
 
     name: str | None = "manage_charts"
-    intent: str | None = "edit"
     description: str = "Manage charts: list, get_info, create, edit, or delete a chart in the current context (active sheet, document, or slide)."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -1717,7 +1617,10 @@ class ManageCharts(ToolCalcChartBase):
         return action not in ("list", "get_info")
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        return _chart_parameters(self.parameters, doc_type)
+        params = copy.deepcopy(cast("dict[str, Any]", self.parameters))
+        properties = cast("dict[str, Any]", params["properties"])
+        _strip_chart_schema_for_doc_type(properties, doc_type)
+        return params
 
     def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
         ok, err = super().validate(doc_type=doc_type, **kwargs)

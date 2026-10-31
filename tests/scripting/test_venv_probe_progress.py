@@ -33,13 +33,16 @@ def test_run_venv_self_check_with_progress_emits_grouped_present_missing() -> No
                 ({"spacy": "present", "textdescriptives": None, "transformers": None}, None)
                 if name == "nlp"
                 else (
-                    ({"envwrap": "present", "sqlite_vec": "present"}, None)
-                    if name == "vector_search"
-                    else orig_named_probe(exe, name, timeout=timeout)
+                    ({"docling": "present"}, None)
+                    if name == "vision"
+                    else (
+                        ({"envwrap": "present", "sqlite_vec": "present"}, None)
+                        if name == "vector_search"
+                        else orig_named_probe(exe, name)
+                    )
                 )
             ),
         ),
-        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({"docling": "present"}, None)),
     ):
         ok, msg = run_venv_self_check_with_progress(
             "/fake/python",
@@ -87,10 +90,11 @@ def test_run_venv_self_check_with_progress_continues_after_sandbox_probe_error()
         patch(
             "plugin.scripting.venv_diagnostics._run_named_json_probe",
             side_effect=lambda exe, name, timeout=None: (
-                ({}, None) if name in {"nlp", "vector_search"} else orig_named_probe(exe, name, timeout=timeout)
+                ({"docling": "present"}, None)
+                if name == "vision"
+                else (({}, None) if name in {"nlp", "vector_search"} else orig_named_probe(exe, name))
             ),
         ),
-        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({"docling": "present"}, None)),
     ):
         ok, msg = run_venv_self_check_with_progress("/fake/python", displays.append)
 
@@ -112,13 +116,14 @@ def test_run_venv_self_check_with_progress_skips_audio_and_vector_search() -> No
 
     mock_runner = MagicMock(
         side_effect=lambda exe, name, timeout=None: (
-            ({}, None) if name == "nlp" else orig_named_probe(exe, name, timeout=timeout)
+            ({"docling": "present"}, None)
+            if name == "vision"
+            else (({}, None) if name == "nlp" else orig_named_probe(exe, name))
         )
     )
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._run_named_json_probe", mock_runner),
-        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({"docling": "present"}, None)) as mock_vision,
     ):
         ok, msg = run_venv_self_check_with_progress(
             "/fake/python",
@@ -131,7 +136,7 @@ def test_run_venv_self_check_with_progress_skips_audio_and_vector_search() -> No
     called_names = [call.args[1] for call in mock_runner.call_args_list]
     assert "audio" not in called_names
     assert "vector_search" not in called_names
-    mock_vision.assert_called_once()
+    assert "vision" in called_names
     assert "Vector Search" not in msg
     assert "Audio Recording" not in msg
     assert "Vision Libraries" in msg
@@ -159,10 +164,13 @@ def test_partial_group_title_is_translated(monkeypatch) -> None:
             side_effect=lambda exe, name, timeout=None: (
                 ({"sounddevice": "present", "input_device": "present"}, None)
                 if name == "audio"
-                else (({}, None) if name in {"nlp", "vector_search"} else orig_named_probe(exe, name, timeout=timeout))
+                else (
+                    ({}, None)
+                    if name in {"nlp", "vector_search", "vision"}
+                    else orig_named_probe(exe, name)
+                )
             ),
         ),
-        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
     ):
         ok, _msg = run_venv_self_check_with_progress("/fake/python", displays.append)
 

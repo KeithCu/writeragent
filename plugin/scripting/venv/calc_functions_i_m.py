@@ -13,6 +13,7 @@ from __future__ import annotations
 import builtins
 import cmath
 import math
+import re
 import statistics
 import sys
 import unicodedata
@@ -110,9 +111,7 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
     # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
     try:
         val = f()
-        if _is_calc_error(val):
-            return alt
-        return val
+        return alt if _is_calc_error(val) else val
     except Exception:
         return alt
 
@@ -120,25 +119,9 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
     try:
         val = f()
-        if is_na_value(val):
-            return alt
-        return val
+        return alt if isna(val) else val
     except Exception:
         return alt
-
-
-def is_na_value(value: Any) -> bool:
-    """True for float or numpy NaN, or a stripped #N/A token."""
-    if isinstance(value, float) and math.isnan(value):
-        return True
-    if isinstance(value, str) and value.strip().upper() == "#N/A":
-        return True
-    try:
-        if isinstance(value, np.floating) and np.isnan(value):
-            return True
-    except ImportError:
-        pass
-    return False
 
 
 def _parse_complex(val: Any) -> tuple[builtins.complex, str]:
@@ -209,21 +192,13 @@ def _im_float(fn: Callable[[complex], float]) -> Callable[[Any], float]:
         # _is_calc_error(inf) is false. String IM functions still catch
         # inside _im_unary and return "#VALUE!".
         result = float(fn(_parse_complex(inumber)[0]))
-        if not math.isfinite(result):
-            return float("nan")
-        return result
+        return result if math.isfinite(result) else float("nan")
 
     return wrapper
 
 
-@_im_float
-def imabs(c: complex) -> float:
-    return abs(c)
-
-
-@_im_float
-def imaginary(c: complex) -> float:
-    return c.imag
+imabs = _im_float(abs)
+imaginary = _im_float(lambda c: c.imag)
 
 
 @_im_float
@@ -235,54 +210,16 @@ def imargument(c: complex) -> float:
     return cmath.phase(c)
 
 
-@_im_unary
-def imconjugate(c: complex) -> complex:
-    return c.conjugate()
-
-
-@_im_unary
-def imcos(c: complex) -> complex:
-    return cmath.cos(c)
-
-
-@_im_unary
-def imcosh(c: complex) -> complex:
-    return cmath.cosh(c)
-
-
-@_im_unary
-def imcot(c: complex) -> complex:
-    return 1.0 / cmath.tan(c)
-
-
-@_im_unary
-def imcsc(c: complex) -> complex:
-    return 1.0 / cmath.sin(c)
-
-
-@_im_unary
-def imcsch(c: complex) -> complex:
-    return 1.0 / cmath.sinh(c)
-
-
-@_im_binary
-def imdiv(c1: complex, c2: complex) -> complex:
-    return c1 / c2
-
-
-@_im_unary
-def imexp(c: complex) -> complex:
-    return cmath.exp(c)
-
-
-@_im_unary
-def imln(c: complex) -> complex:
-    return cmath.log(c)
-
-
-@_im_unary
-def imlog10(c: complex) -> complex:
-    return cmath.log10(c)
+imconjugate = _im_unary(complex.conjugate)
+imcos = _im_unary(cmath.cos)
+imcosh = _im_unary(cmath.cosh)
+imcot = _im_unary(lambda c: 1.0 / cmath.tan(c))
+imcsc = _im_unary(lambda c: 1.0 / cmath.sin(c))
+imcsch = _im_unary(lambda c: 1.0 / cmath.sinh(c))
+imdiv = _im_binary(lambda left, right: left / right)
+imexp = _im_unary(cmath.exp)
+imln = _im_unary(cmath.log)
+imlog10 = _im_unary(cmath.log10)
 
 
 @_im_unary
@@ -334,53 +271,21 @@ def improduct(*args: Any) -> str:
     return _im_fold(args, lambda left, right: left * right)
 
 
-@_im_float
-def imreal(c: complex) -> float:
-    return c.real
-
-
-@_im_unary
-def imsec(c: complex) -> complex:
-    return 1.0 / cmath.cos(c)
-
-
-@_im_unary
-def imsech(c: complex) -> complex:
-    return 1.0 / cmath.cosh(c)
-
-
-@_im_unary
-def imsin(c: complex) -> complex:
-    return cmath.sin(c)
-
-
-@_im_unary
-def imsinh(c: complex) -> complex:
-    return cmath.sinh(c)
-
-
-@_im_unary
-def imsqrt(c: complex) -> complex:
-    return cmath.sqrt(c)
-
-
-@_im_binary
-def imsub(c1: complex, c2: complex) -> complex:
-    return c1 - c2
+imreal = _im_float(lambda c: c.real)
+imsec = _im_unary(lambda c: 1.0 / cmath.cos(c))
+imsech = _im_unary(lambda c: 1.0 / cmath.cosh(c))
+imsin = _im_unary(cmath.sin)
+imsinh = _im_unary(cmath.sinh)
+imsqrt = _im_unary(cmath.sqrt)
+imsub = _im_binary(lambda left, right: left - right)
 
 
 def imsum(*args: Any) -> str:
     return _im_fold(args, lambda left, right: left + right)
 
 
-@_im_unary
-def imtan(c: complex) -> complex:
-    return cmath.tan(c)
-
-
-@_im_unary
-def imtanh(c: complex) -> complex:
-    return cmath.tanh(c)
+imtan = _im_unary(cmath.tan)
+imtanh = _im_unary(cmath.tanh)
 
 
 def intercept(data_y: Any, data_x: Any) -> float:
@@ -496,7 +401,7 @@ def isblank(val: Any) -> bool:
 
 def iserr(val: Any) -> bool:
     # Real Calc error tokens, excluding #N/A. '#hashtag' is text.
-    return _is_calc_error(val) and not is_na_value(val)
+    return _is_calc_error(val) and not isna(val)
 
 
 def iserror(val: Any) -> bool:
@@ -533,7 +438,12 @@ def islogical(val: Any) -> bool:
 
 
 def isna(val: Any) -> bool:
-    return is_na_value(val)
+    """True for float or numpy NaN, or a stripped #N/A token."""
+    if isinstance(val, (float, np.floating)) and math.isnan(val):
+        return True
+    if isinstance(val, str) and val.strip().upper() == "#N/A":
+        return True
+    return False
 
 
 def isnontext(val: Any) -> bool:
@@ -583,6 +493,11 @@ def istext(val: Any) -> bool:
     return isinstance(val, str) and not _is_calc_error(val)
 
 
+# A kana run is normalized together so ｶﾞ becomes ガ, not カ plus a mark.
+_JIS_KANA_RE = re.compile(r"[\uff61-\uff9f]+")
+_JIS_TRANS = str.maketrans({0x20: "\u3000", **{cp: chr(cp + 0xFEE0) for cp in range(0x21, 0x7F)}})
+
+
 def jis(text: Any) -> str:
     # Convert half-width ASCII (0x21-0x7E) to full-width (U+FF01-U+FF5E), space to
     # U+3000, and half-width katakana (U+FF61-U+FF9F) to full-width via NFKC.
@@ -593,26 +508,10 @@ def jis(text: Any) -> str:
         s = str(int(text))
     else:
         s = str(text)
-
-    out: list[str] = []
-    kana_buf: list[str] = []
-    for ch in s:
-        cp = ord(ch)
-        if 0xFF61 <= cp <= 0xFF9F:
-            kana_buf.append(ch)
-        else:
-            if kana_buf:
-                out.append(unicodedata.normalize("NFKC", "".join(kana_buf)))
-                kana_buf = []
-            if ch == " ":
-                out.append("\u3000")
-            elif 0x21 <= cp <= 0x7E:
-                out.append(chr(cp + 0xFEE0))
-            else:
-                out.append(ch)
-    if kana_buf:
-        out.append(unicodedata.normalize("NFKC", "".join(kana_buf)))
-    return "".join(out)
+    return _JIS_KANA_RE.sub(
+        lambda match: unicodedata.normalize("NFKC", match.group()),
+        s.translate(_JIS_TRANS),
+    )
 
 
 def kurt(*args: Any) -> float:
@@ -620,7 +519,7 @@ def kurt(*args: Any) -> float:
     # is #DIV/0!. This is the unbiased excess kurtosis. scipy.stats.kurtosis
     # (bias=False) is the same expression, and a missing scipy used to make
     # every call NaN.
-    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True)
+    arr = _extract_numeric_array(*args)
     count = len(arr)
     if count < 4:
         return float("nan")
@@ -683,26 +582,17 @@ def _regression_inputs(
             data_x = data_x.T
     if data_x.shape[0] != len(data_y):
         raise ValueError
-    if "const" in kwargs:
-        raw_const = kwargs["const"]
-    elif len(args) > 2:
-        raw_const = args[2]
-    else:
-        raw_const = True
+    raw_const = kwargs.get("const", args[2] if len(args) > 2 else True)
     return data_y, data_x, _as_bool_flag(raw_const)
 
 
 def _fit_line(data_y: np.ndarray, data_x: np.ndarray, const: bool) -> list[float]:
     """Coefficients in ``[mk, …, m1, b]`` order. ``const=False`` forces ``b = 0``."""
-    if const:
-        coeffs = np.linalg.lstsq(np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None)[0]
-        slopes = coeffs[:-1]
-        intercept_b = float(coeffs[-1])
-    else:
-        coeffs = np.linalg.lstsq(data_x, data_y, rcond=None)[0]
-        slopes = coeffs
-        intercept_b = 0.0
-    return [float(v) for v in slopes[::-1]] + [intercept_b]
+    design = np.c_[data_x, np.ones(data_x.shape[0])] if const else data_x
+    coeffs = np.linalg.lstsq(design, data_y, rcond=None)[0]
+    n_slopes = data_x.shape[1]
+    intercept_b = float(coeffs[n_slopes]) if const else 0.0
+    return [float(v) for v in coeffs[:n_slopes][::-1]] + [intercept_b]
 
 
 def linest(*args: Any, **kwargs: Any) -> Any:
@@ -723,11 +613,7 @@ def logest(*args: Any, **kwargs: Any) -> Any:
         if np.any(data_y <= 0):
             return "#VALUE!"
         fitted = _fit_line(np.log(data_y), data_x, const)
-        # const=False stores a log-space intercept of 0. The multiplicative
-        # intercept is 1, not exp of a fitted b.
-        if const:
-            return [float(np.exp(v)) for v in fitted]
-        return [float(np.exp(v)) for v in fitted[:-1]] + [1.0]
+        return [float(np.exp(v)) for v in fitted]
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 
@@ -772,9 +658,7 @@ def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
 
 def _lookup_number(val: Any) -> float | None:
     """Numeric LOOKUP key. A bool is 0 or 1. Text and blanks are not numbers."""
-    if isinstance(val, (bool, np.bool_)):
-        return float(val)
-    if isinstance(val, (int, float, np.integer, np.floating)):
+    if isinstance(val, (bool, np.bool_, int, float, np.integer, np.floating)):
         try:
             number = float(val)
         except (ValueError, TypeError, OverflowError):
@@ -827,24 +711,15 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
             return "#VALUE!"
         result = result_arr.ravel()
     query_num = _lookup_number(lookup_val)
-    if query_num is not None:
-        def _matches(value: Any) -> bool:
+
+    def _matches(value: Any) -> bool:
+        if query_num is not None:
             cell = _lookup_number(value)
             return cell is not None and cell <= query_num
-    else:
-        query_text = lookup_val.casefold() if isinstance(lookup_val, str) and lookup_val != "" else None
-
-        def _matches(value: Any) -> bool:
-            return (
-                query_text is not None
-                and isinstance(value, str)
-                and value != ""
-                and value.casefold() <= query_text
-            )
-    best_idx = None
-    for i, value in enumerate(vec):
-        if _matches(value):
-            best_idx = i
+        if isinstance(lookup_val, str) and lookup_val != "" and isinstance(value, str) and value != "":
+            return value.casefold() <= lookup_val.casefold()
+        return False
+    best_idx = max((i for i, value in enumerate(vec) if _matches(value)), default=None)
     if best_idx is None or best_idx >= len(result):
         return "#N/A"
     return result[best_idx]
@@ -861,21 +736,17 @@ def maxa(*args: Any) -> float:
     return _a_extreme(args, np.max)
 
 
-def _trim_matrix(matrix: np.ndarray) -> np.ndarray:
-    """Keep the first block of a 3-d list. det/inv/matmul used to do this inline."""
-    if matrix.ndim > 2:
-        return matrix[0]
-    return matrix
-
-
 def _as_matrix(value: Any, *, numeric: bool) -> np.ndarray:
     """2-D array. A scalar is 1×1. A flat list is a row.
 
     Sheet ranges are already 2-D. ``MMULT`` of two 1-D lists used to be a
     dot product; ``ScMatMult`` rejects 1×n times 1×n. ``ScMatDet`` of a
-    1×1 matrix is that element, so ``MDETERM(5)`` is 5.
+    1×1 matrix is that element, so ``MDETERM(5)`` is 5. ndim > 2 keeps
+    the first block; det/inv/matmul used to peel that inline.
     """
-    matrix = _trim_matrix(np.asarray(value, dtype=float if numeric else None))
+    matrix = np.asarray(value, dtype=float if numeric else None)
+    if matrix.ndim > 2:
+        matrix = matrix[0]
     if matrix.ndim == 0:
         return matrix.reshape(1, 1)
     if matrix.ndim == 1:
@@ -941,7 +812,7 @@ def mode(*args: Any) -> Any:
     # numbers only. mode(1, 2, 2) used to raise TypeError. Text is not a
     # candidate. A Calc bool is a numeric cell, so True and 1 are the same
     # value and must stay merged.
-    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=False, propagate_nan=False)
+    arr = _extract_numeric_array(*args, ignore_bool=False, propagate_nan=False)
     if not arr.size:
         return float("nan")
     counts = Counter(arr.tolist())
@@ -964,10 +835,8 @@ def mround(number: Any, multiple: Any) -> float:
         return float("nan")
     # multiple 0 returns 0. LibreOffice analysis.cxx getMround
     # (if fMult == 0.0 return fMult) and Excel agree; it is not #DIV/0!.
-    if m == 0:
-        return 0.0
-    # 0 / negative is signed zero, so MROUND(0, -1) was -0.0.
-    if n == 0:
+    # n == 0 returns +0. 0 / negative is signed zero, so MROUND(0, -1) was -0.0.
+    if m == 0 or n == 0:
         return 0.0
     if (n > 0 and m < 0) or (n < 0 and m > 0):
         return float("nan")
@@ -982,14 +851,11 @@ def mround(number: Any, multiple: Any) -> float:
 
 def mtrans(matrix: Any) -> Any:
     try:
-        m = _trim_matrix(np.asarray(matrix))
-        # A scalar stays a scalar. np.transpose of a 1-D array does nothing,
-        # so a flat row never became a column. ScMatTrans swaps the axes.
-        if m.ndim == 0:
-            return m.tolist()
-        if m.ndim == 1:
-            m = m.reshape(1, -1)
-        return np.transpose(m).tolist()
+        raw = np.asarray(matrix)
+        # A scalar stays a scalar. _as_matrix would turn it into 1×1.
+        if raw.ndim == 0:
+            return raw.tolist()
+        return _as_matrix(matrix, numeric=False).T.tolist()
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
 
@@ -1034,8 +900,7 @@ def multinomial(*args: Any) -> float:
         if acc.bit_length() > 1024:
             return float("nan")
         rest -= value
-    result = float(acc)
-    return result if math.isfinite(result) else float("nan")
+    return float(acc)
 
 
 def munit(dimension: Any) -> Any:

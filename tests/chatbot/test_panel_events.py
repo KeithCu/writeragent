@@ -243,7 +243,7 @@ def test_mcp_request_and_result():
     controller = PanelEventsController(panel)
 
     turn = TurnController(session=MagicMock(), mode="chat")
-    turn._alive = True
+    turn.alive = True
 
     with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=turn):
         controller._on_mcp_request(tool="calculator", args={"expr": "2+2"}, req_id="req1")

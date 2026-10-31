@@ -97,11 +97,12 @@ class SearchNearbyFiles(ToolBase):
         import pathlib
 
         def _resolve_uno_context() -> tuple[str | None, str | None, dict[str, str]]:
-            from plugin.doc.document_research import resolve_listing_directory, get_document_path, _normalize_path, _collect_open_file_urls, _extensions_for_file_kind
+            from plugin.doc.document_research import resolve_listing_directory, get_document_path, _normalize_path, _collect_open_file_urls
+            from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
             listing_root = resolve_listing_directory(ctx.ctx, ctx.doc)
             active_path = get_document_path(ctx.doc)
             exclude_path = _normalize_path(active_path) if active_path else None
-            exts = _extensions_for_file_kind("documents")
+            exts = ALL_INDEXABLE_EXTENSIONS
             open_paths = _collect_open_file_urls(ctx.ctx, exclude_path=exclude_path, extensions=exts)
             return listing_root, exclude_path, open_paths
 

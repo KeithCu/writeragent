@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from .http_security import origin_and_path
-from .http_transport import HttpResult, LlmHttpTransport
+from .http_transport import LlmHttpTransport
 
 
 def sync_request(
@@ -40,14 +40,12 @@ def sync_request(
     truncated body is ``BAD_RESPONSE``, not a repaired object.
 
     Returns decoded JSON, or raw bytes when ``parse_json`` is false. With
-    ``include_meta``, returns :class:`HttpResult` (status, body, content type).
+    ``include_meta``, returns ``http_transport.HttpResult`` (status, body, content type).
 
-    Redirects (301/302/303/307/308) are followed on the shared transport,
-    at most five hops. 301/302/303 switch a non-GET to GET and drop the
-    body; 307/308 keep the method and body. A non-numeric or out-of-range
-    port, or an unmatched bracket (``http://[::1``, ``http://[]/v1``), is
-    ``NetworkError``, including when it is in the URL before the request
-    is sent.
+    Redirects follow ``LlmHttpTransport.exchange``.
+    A non-numeric or out-of-range port, or an unmatched bracket
+    (``http://[::1``, ``http://[]/v1``), is ``NetworkError``, including
+    when it is in the URL before the request is sent.
     """
     if method is None:
         method = "POST" if data is not None else "GET"
@@ -72,6 +70,3 @@ def sync_request(
     if parse_json:
         return result.parsed
     return result.body
-
-
-__all__ = ["HttpResult", "sync_request"]

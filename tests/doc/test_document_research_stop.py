@@ -21,10 +21,10 @@ def test_delegate_read_document_closes_when_stopped(
 
     from plugin.framework.send_cancellation import _current_send_cancellation
 
-    def mock_run_on_main(fn):
-        if fn.__name__ == "_do_close":
+    def mock_run_on_main(fn, *args, **kwargs):
+        if getattr(fn, "__name__", "") == "_do_close":
             raise SendCancelled("Stopped")
-        return fn()
+        return fn(*args, **kwargs)
 
     with patch("plugin.doc.document_research_specialized.run_on_main", side_effect=mock_run_on_main), patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
         # Bind a dummy scope so _current_send_cancellation.get() is not None initially

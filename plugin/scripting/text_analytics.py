@@ -14,12 +14,9 @@ from collections import Counter
 from typing import Any
 
 from plugin.doc.text_helpers import iter_heading_nodes
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.helper_domain import (
-    DomainFacadeConfig,
-    header_prefix,
-    make_template_api,
-)
+from plugin.scripting.helper_domain import DomainFacadeConfig
 
 _TEXT_VENV_EXPORTS = frozenset({"analyze_text", "check_diagnostics", "run_text_analytics"})
 
@@ -43,24 +40,20 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "sentiment": "transformers + multilingual model (XLM-RoBERTa default) sentiment (score + label). Best with whole document for per-section results. Override model via JSON config.",
 }
 
-TEXT_ANALYTICS_HEADER_PREFIX = header_prefix("text")
+_SHIPPED_TEMPLATES = HELPER_NAMES - {"diagnostics", "check"}
 
-_SHIPPED_TEMPLATES = frozenset({"full", "readability", "entities", "key_phrases", "topics", "sentiment"})
-
-_API = make_template_api(
-    DomainFacadeConfig(
-        tag="text",
-        helper_names=HELPER_NAMES,
-        default_params=_DEFAULT_PARAMS,
-        descriptions=_HELPER_DESCRIPTIONS,
-        import_module="writeragent.scripting.text_analytics",
-        run_name="run_text_analytics",
-        shipped_templates=_SHIPPED_TEMPLATES,
-        data_expr="text",
-        context_expr="document_context",
-        invoke="runner",
-        extra_comment_lines=("# Works on Writer documents (document text is injected on Run).",),
-    )
+_API = DomainFacadeConfig(
+    tag="text",
+    helper_names=HELPER_NAMES,
+    default_params=_DEFAULT_PARAMS,
+    descriptions=_HELPER_DESCRIPTIONS,
+    import_module="writeragent.scripting.text_analytics",
+    run_name="run_text_analytics",
+    shipped_templates=_SHIPPED_TEMPLATES,
+    data_expr="text",
+    context_expr="document_context",
+    invoke="runner",
+    extra_comment_lines=("# Works on Writer documents (document text is injected on Run).",),
 )
 
 get_text_analytics_script_templates = _API.get_templates
@@ -115,7 +108,6 @@ def _get_writer_selection_text(doc: Any) -> str:
         return get_string_without_tracked_deletions(rng) or ""
     except Exception as exc:
         # Re-raise DocumentDisposedError so callers handle closed documents.
-        from plugin.framework.errors import reraise_if_disposed
         reraise_if_disposed(exc)
         log.debug("text analytics: selection text failed", exc_info=True)
         return ""
@@ -137,7 +129,6 @@ def _get_writer_text(doc: Any) -> str:
         # How it happened: nested try/except caught Exception and tried doc.getText().getString().
         # Why this change: reraise_if_disposed propagates DocumentDisposedError, and omitting getString()
         # prevents deleted text leakage and duplicate logs.
-        from plugin.framework.errors import reraise_if_disposed
         reraise_if_disposed(exc)
         log.debug("text analytics: writer text extraction failed", exc_info=True)
         return ""
@@ -201,7 +192,6 @@ def _get_writer_sections(doc: Any) -> list[str]:
                 # What was wrong: disposed document during paragraph iteration was ignored.
                 # How it happened: inner except Exception only logged debug without checking disposal.
                 # Why this change: reraise_if_disposed propagates DocumentDisposedError immediately.
-                from plugin.framework.errors import reraise_if_disposed
                 reraise_if_disposed(exc)
                 log.debug("text analytics: skipped paragraph %s", para_index, exc_info=True)
             para_index += 1
@@ -218,7 +208,6 @@ def _get_writer_sections(doc: Any) -> list[str]:
         # What was wrong: outer section extraction caught DisposedException and fell back to _get_writer_text.
         # How it happened: generic except Exception caught DisposedException.
         # Why this change: reraise_if_disposed propagates DocumentDisposedError before fallback.
-        from plugin.framework.errors import reraise_if_disposed
         reraise_if_disposed(exc)
         log.debug("text analytics: section extraction failed", exc_info=True)
         # Safe fallback to flat text
@@ -264,29 +253,24 @@ def is_text_analytics_result(value: Any) -> bool:
         return False
     # Error dicts must take this insert path. Falling through inserted the
     # raw dict as generic Writer text and reported success.
-    if value.get("status") == "error":
-        code = str(value.get("code") or "")
-        helper = value.get("helper")
-        if code in ("TEXT_ANALYTICS_ERROR", "UNKNOWN_HELPER"):
-            return True
-        if isinstance(helper, str) and helper in HELPER_NAMES:
-            return True
-    helper_name = value.get("helper")
-    if isinstance(helper_name, str) and helper_name in ("diagnostics", "check"):
-        return value.get("status") in ("ok", "error")
-    if value.get("status") != "ok":
+    status = value.get("status")
+    helper = value.get("helper")
+    if status == "error":
+        return str(value.get("code") or "") in ("TEXT_ANALYTICS_ERROR", "UNKNOWN_HELPER") or (
+            isinstance(helper, str) and helper in HELPER_NAMES
+        )
+    if isinstance(helper, str) and helper in ("diagnostics", "check"):
+        return status == "ok"
+    if status != "ok":
         return False
     # Our results have a top-level "result" with known keys, or the helper dispatch shape.
     res = value.get("result")
-    if isinstance(res, dict):
-        for k in ("readability", "descriptive_stats", "entities", "key_phrases", "topics", "sentiment", "meta"):
-            if k in res:
-                return True
+    if isinstance(res, dict) and any(k in res for k in (
+        "readability", "descriptive_stats", "entities", "key_phrases", "topics", "sentiment", "meta",
+    )):
+        return True
     # Also accept the narrow shapes returned by specific helpers
-    for k in ("entities", "key_phrases", "readability", "topics", "sentiment"):
-        if k in value:
-            return True
-    return False
+    return any(k in value for k in ("entities", "key_phrases", "readability", "topics", "sentiment"))
 
 
 def _result_to_html_table(data: dict[str, Any]) -> str:
@@ -367,31 +351,19 @@ def _result_payload(result: Any) -> dict[str, Any]:
 
 
 def text_analytics_payload_error(data: Any) -> str | None:
-    """Return error or note message from payload, checking top-level and inner result."""
+    """Return a top-level error or note from a payload dict."""
     if not isinstance(data, dict):
         return None
     for key in ("error", "note"):
         val = data.get(key)
         if val:
             return str(val)
-    res = data.get("result")
-    if isinstance(res, dict):
-        for key in ("error", "note"):
-            val = res.get(key)
-            if val:
-                return str(val)
     return None
-
-
-def text_analytics_payload_has_content(result: Any) -> bool:
-    """True if analysis payload contains renderable rows."""
-    return bool(_result_to_html_table(_result_payload(result)))
 
 
 def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a compact HTML report for the text analytics result (Writer)."""
     from plugin.doc.doc_type import is_writer
-    from plugin.framework.errors import ToolExecutionError
     from plugin.writer.format import insert_content_at_position
 
     if not is_writer(doc):

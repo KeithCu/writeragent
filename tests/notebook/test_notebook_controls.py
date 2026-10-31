@@ -10,7 +10,6 @@ import plugin.framework.thread_guard as tg
 from plugin.notebook.notebook_controls import (
     NotebookFormContainerListener,
     NotebookFormRunListener,
-    NotebookRunButtonListener,
     ensure_form_design_mode_off,
     form_run_listeners,
     get_control_view_for_model,
@@ -178,7 +177,7 @@ def test_notebook_run_button_listener_resolve_doc_order():
     doc = MagicMock()
     doc.getURL.return_value = "file:///tmp/nb.odt"
     doc.getRuntimeUID.return_value = "uid-resolve-order"
-    listener = NotebookRunButtonListener(ctx, doc, "abc")
+    listener = NotebookFormRunListener(ctx, doc)
     listener._doc_weak = None
 
     # URL set, weakref empty, active document key matches -> resolve_document_by_url not called
@@ -225,7 +224,7 @@ def test_listener_init_when_get_url_raises():
     doc = MagicMock()
     doc.getRuntimeUID.return_value = "uid-runtime-works"
     doc.getURL.side_effect = RuntimeError("broken getURL")
-    listener = NotebookRunButtonListener(ctx, doc, "abc")
+    listener = NotebookFormRunListener(ctx, doc)
     assert listener._doc_key_val == "uid:uid-runtime-works"
     assert listener._doc_url == ""
     assert notebook_controls._doc_key(doc) == "uid:uid-runtime-works"
@@ -235,9 +234,10 @@ def test_notebook_run_button_listener_calls_runner():
     ctx = MagicMock()
     doc = MagicMock()
     doc.getURL.return_value = ""
-    listener = NotebookRunButtonListener(ctx, doc, "deadbeef")
+    listener = NotebookFormRunListener(ctx, doc)
+    event = MagicMock(ActionCommand="nb_run_deadbeef", Source=None)
     with patch("plugin.notebook.notebook_runner.run_cell_for_doc_hex") as run:
-        listener.on_action_performed(MagicMock())
+        listener.on_action_performed(event)
     run.assert_called_once_with(ctx, doc, "deadbeef")
 
 
@@ -248,14 +248,15 @@ def test_notebook_run_button_listener_untitled_resolves_by_runtime_uid():
     found = MagicMock()
     doc.getURL.return_value = ""
     doc.getRuntimeUID.return_value = "uid-hidden-nb"
-    listener = NotebookRunButtonListener(ctx, doc, "cafebabecafebabecafebabecafebabe")
+    listener = NotebookFormRunListener(ctx, doc)
     listener._doc_weak = None
+    event = MagicMock(ActionCommand="nb_run_cafebabecafebabecafebabecafebabe", Source=None)
     with (
         patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(found, "writer")) as resolve,
         patch("plugin.framework.uno_context.get_active_document", return_value=None),
         patch("plugin.notebook.notebook_runner.run_cell_for_doc_hex") as run,
     ):
-        listener.on_action_performed(MagicMock())
+        listener.on_action_performed(event)
     resolve.assert_called_with(ctx, "uid-hidden-nb")
     run.assert_called_once_with(ctx, found, "cafebabecafebabecafebabecafebabe")
 
@@ -344,7 +345,7 @@ def test_wire_all_attaches_one_form_listener_without_getcontrol():
     get_view.assert_not_called()
     run_ctrl.addActionListener.assert_called_once()
     container.addContainerListener.assert_called_once()
-    form_lis = [lis for lis in notebook_controls._listener_refs if getattr(lis, "_form_level", False)]
+    form_lis = [lis for lis in notebook_controls._listener_refs if isinstance(lis, NotebookFormRunListener)]
     assert len(form_lis) == 1
 
 
@@ -457,14 +458,10 @@ def test_no_container_warning_logged_once(caplog):
 
 def test_listener_counts_exclude_leftover_docs():
     """GHA 34643210006: leftover import-filter listeners inflated global counts."""
-    leftover = MagicMock()
-    leftover._form_level = True
+    leftover = NotebookFormRunListener(MagicMock(), MagicMock())
     leftover._doc_key_val = "uid:41"
-    leftover._hex_id = None
-    current = MagicMock()
-    current._form_level = True
+    current = NotebookFormRunListener(MagicMock(), MagicMock())
     current._doc_key_val = "uid:99"
-    current._hex_id = None
     notebook_controls._listener_refs = [leftover, current]
     doc = MagicMock()
     with patch("plugin.notebook.notebook_controls._doc_key", return_value="uid:99"):
@@ -473,7 +470,7 @@ def test_listener_counts_exclude_leftover_docs():
 
 
 def test_prune_keeps_container_listener():
-    """Container listener has no _hex_id; prune must keep it and not raise."""
+    """Container listener prune must keep it and not raise."""
     ctx = MagicMock()
     doc = MagicMock()
     doc.getURL.return_value = "file:///tmp/nb.odt"
@@ -481,8 +478,6 @@ def test_prune_keeps_container_listener():
 
     form = NotebookFormRunListener(ctx, doc)
     container = NotebookFormContainerListener(form, MagicMock())
-    assert container._hex_id is None
-    assert container._form_level is False
 
     notebook_controls._listener_refs = [form, container]
 

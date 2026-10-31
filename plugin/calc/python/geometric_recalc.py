@@ -21,7 +21,11 @@ import uuid
 from typing import Any, Mapping, final
 
 from plugin.calc.address_utils import split_sheet_prefix
-from plugin.calc.python.cell_discovery import canonicalize_py_formula_for_parse, discover_python_cells_on_sheet
+from plugin.calc.python.cell_discovery import (
+    _MAX_PYTHON_CELLS_FOUND,
+    canonicalize_py_formula_for_parse,
+    discover_python_cells_on_sheet,
+)
 from plugin.calc.python.formula_edit import parse_python_formula, py_formula_has_unquoted_code_ref
 from plugin.calc.python.geometric_recalc_core import (
     CONFIG_KEY,
@@ -31,13 +35,10 @@ from plugin.calc.python.geometric_recalc_core import (
     GeometricCell,
     GeometricPatch,
     GeometricRecord,
-    SheetRepairResult,
     _parse_local,
     compute_eval_index,
     compute_sheet_repair,
-    geometric_cap_hit_user_message,
     local_a1,
-    resolved_code_for_formula,
 )
 from plugin.framework.errors import best_effort, is_disposed_exception, uno_probe
 from plugin.framework.i18n import _
@@ -152,13 +153,10 @@ def load_geometric_registry_for_doc(doc: Any) -> str:
                 if not isinstance(addrs, dict):
                     continue
                 for addr, pred in addrs.items():
-                    predecessor = pred
-                    if isinstance(pred, dict):
-                        predecessor = pred.get("predecessor", "")
-                    if not predecessor:
+                    if not isinstance(pred, str) or not pred:
                         continue
                     _RUNTIME.records[(workbook_key, str(sheet_name), local_a1(str(addr)))] = (
-                        GeometricRecord(predecessor=local_a1(str(predecessor)))
+                        GeometricRecord(predecessor=local_a1(pred))
                     )
     except Exception as exc:
         if is_disposed_exception(exc):
@@ -212,7 +210,9 @@ def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, workbook_key: str = "
         if persist_key in _RUNTIME.cap_hit_notified:
             return False
 
-    message = geometric_cap_hit_user_message(sheet_name)
+    message = _(
+        "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more Python cells (discovery cap). The sheet was left unchained so a partial list is not treated as complete."
+    ) % {"sheet": sheet_name, "cap": _MAX_PYTHON_CELLS_FOUND}
     log.error("Geometric Recalc Order: %s", message)
 
     from plugin.framework.thread_guard import on_main_thread
@@ -266,8 +266,6 @@ def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
             return ""
     else:
         sheet = default_sheet
-    if sheet is None:
-        return ""
     cell = _cell_on_sheet(sheet, rest)
     if cell is None:
         return ""
@@ -282,12 +280,12 @@ def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
 
 def _resolved_code_for_discovered(doc: Any, sheet: Any, formula: str) -> str:
     canon = canonicalize_py_formula_for_parse(formula)
+    parts = parse_python_formula(canon)
+    if parts is None:
+        return ""
     if py_formula_has_unquoted_code_ref(canon):
-        parts = parse_python_formula(canon)
-        if parts is None:
-            return ""
         return _read_code_ref_text(doc, sheet, parts.code)
-    return resolved_code_for_formula(canon)
+    return parts.code
 
 
 def _sheet_name(sheet: Any) -> str:
@@ -406,18 +404,13 @@ def _repair_one_sheet(
     doc: Any,
     sheet: Any,
     workbook_key: str,
-) -> tuple[SheetRepairResult, list[GeometricCell]]:
+) -> tuple[bool, list[GeometricCell], str]:
     cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
-    incoming = records_for_sheet(workbook_key, name)
-    result = compute_sheet_repair(
-        cells,
-        incoming,
-        sheet_name=name,
-        truncated=truncated,
-    )
-    if result.skipped:
+    if truncated:
         notify_geometric_cap_hit(ctx, name, workbook_key=workbook_key)
-        return result, cells
+        return True, cells, name
+    incoming = records_for_sheet(workbook_key, name)
+    result = compute_sheet_repair(cells, incoming, sheet_name=name)
 
     final_records = dict(result.records)
     actual_cells = cells
@@ -430,13 +423,12 @@ def _repair_one_sheet(
         # result.records directly records those failed appends and removes,
         # so a stale record marks a group strip-safe and strips real data.
         unapplied_patches = [p for p in result.patches if local_a1(p.address) not in applied_addrs]
-        if unapplied_patches:
-            for patch in unapplied_patches:
-                key = local_a1(patch.address)
-                if key in incoming:
-                    final_records[key] = incoming[key]
-                else:
-                    final_records.pop(key, None)
+        for patch in unapplied_patches:
+            key = local_a1(patch.address)
+            if key in incoming:
+                final_records[key] = incoming[key]
+            else:
+                final_records.pop(key, None)
 
         applied_formulas = {
             patch.address: patch.new_formula
@@ -449,20 +441,18 @@ def _repair_one_sheet(
         ]
 
     replace_records_for_sheet(workbook_key, name, final_records)
-    return result, actual_cells
+    return False, actual_cells, name
 
 
 def reconcile(
     ctx: Any,
     doc: Any,
     sheet: Any = None,
-    *,
-    already_loaded: bool = False,
 ) -> None:
     """Flag-on / doc-open / save-path attach: repair sheets in one locked undo unit."""
     if doc is None or _RUNTIME.repairing:
         return
-    workbook_key = geometric_workbook_key(doc) if already_loaded else load_geometric_registry_for_doc(doc)
+    workbook_key = load_geometric_registry_for_doc(doc)
     _RUNTIME.repairing = True
     repaired_sheets: dict[str, list[GeometricCell]] = {}
     try:
@@ -473,24 +463,18 @@ def reconcile(
             sheet_list = _iter_sheets(doc) if sheet is None else [sheet]
             for sheet in sheet_list:
                 ensure_sheet_modify_listener(ctx, doc, sheet)
-                res, live_cells = _repair_one_sheet(ctx, doc, sheet, workbook_key)
-                if not res.skipped:
-                    repaired_sheets[res.sheet_name] = live_cells
+                skipped, live_cells, name = _repair_one_sheet(ctx, doc, sheet, workbook_key)
+                if not skipped:
+                    repaired_sheets[name] = live_cells
             save_geometric_registry_for_doc(doc, workbook_key)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key, known_sheets=repaired_sheets)
     finally:
         _RUNTIME.repairing = False
 
 
-
-def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = False) -> None:
-    """Flag-on / document-open: attach every sheet, one locked undo unit."""
-    reconcile(ctx, doc, sheet=None, already_loaded=already_loaded)
-
-
-def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any, *, already_loaded: bool = False) -> None:
+def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any) -> None:
     """Save-path attach for one sheet. Neighbors on this sheet may retarget."""
-    reconcile(ctx, doc, sheet=sheet, already_loaded=already_loaded)
+    reconcile(ctx, doc, sheet=sheet)
 
 
 def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
@@ -513,11 +497,10 @@ def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
     """Load UDProp; reconcile when the flag is on. Always record Isolated session."""
     if doc is None or not uno_probe(lambda: doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False):
         return
-    load_geometric_registry_for_doc(doc)
     if geometric_flag_enabled():
-        reconcile_geometric_document(ctx, doc, already_loaded=True)
+        reconcile(ctx, doc)
     else:
-        workbook_key = geometric_workbook_key(doc)
+        workbook_key = load_geometric_registry_for_doc(doc)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
 
 
@@ -557,7 +540,7 @@ def _on_geometric_config_changed(**kwargs: Any) -> None:
     doc = _calc_document(ctx)
     if doc is None:
         return
-    reconcile_geometric_document(ctx, doc)
+    reconcile(ctx, doc)
 
 
 def install_geometric_recalc() -> None:

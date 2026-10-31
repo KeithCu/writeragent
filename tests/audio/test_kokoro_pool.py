@@ -106,12 +106,8 @@ def test_idle_reaper_leaves_a_warm_child_before_ttl():
         def is_alive(self) -> bool:
             return True
 
-        def request_shutdown(self) -> None:
-            return None
-
-        def kill(self) -> bool:
+        def kill(self) -> None:
             self.kills += 1
-            return True
 
     # None keeps the background reaper off. The TTL is set after init so
     # this call is the only tick.
@@ -240,22 +236,15 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
     class _Stuck:
         def __init__(self) -> None:
             self.kills = 0
-            self.shutdowns = 0
-
-        def request_shutdown(self) -> None:
-            self.shutdowns += 1
+            self.signals = 0
 
         def signal(self) -> None:
-            pass
+            self.signals += 1
 
-        def kill(self) -> bool:
+        def kill(self) -> None:
             self.kills += 1
-            return True
 
         def is_alive(self) -> bool:
-            return False
-
-        def is_shutting_down(self) -> bool:
             return False
 
     class _Replacement:
@@ -265,9 +254,6 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
         def is_alive(self) -> bool:
             return True
 
-        def is_shutting_down(self) -> bool:
-            return False
-
         def respawn(self) -> None:
             return None
 
@@ -275,11 +261,8 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
             del timeout_sec
             return {"status": "ok", "echo": payload.get("text")}
 
-        def request_shutdown(self) -> None:
+        def kill(self) -> None:
             return None
-
-        def kill(self) -> bool:
-            return True
 
     monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _Replacement)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
@@ -290,7 +273,7 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
     try:
         pool.cancel_inflight(token)
         assert pool._worker is None
-        assert stuck.shutdowns == 1
+        assert stuck.signals == 1
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline and stuck.kills == 0:
             time.sleep(0.01)
@@ -321,9 +304,6 @@ def test_failed_handshake_is_not_executed_and_a_later_job_may_spawn(monkeypatch)
         def is_alive(self) -> bool:
             return False
 
-        def is_shutting_down(self) -> bool:
-            return False
-
         def respawn(self) -> None:
             return None
 
@@ -335,11 +315,8 @@ def test_failed_handshake_is_not_executed_and_a_later_job_may_spawn(monkeypatch)
             self.executes += 1
             return {"status": "ok"}
 
-        def request_shutdown(self) -> None:
+        def kill(self) -> None:
             return None
-
-        def kill(self) -> bool:
-            return True
 
     monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _DeadSpawn)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
@@ -374,20 +351,13 @@ def test_dead_warm_child_is_retired_and_replaced(monkeypatch) -> None:
         def is_alive(self) -> bool:
             return False
 
-        def is_shutting_down(self) -> bool:
-            return False
-
         def execute(self, payload, timeout_sec):
             del payload, timeout_sec
             self.executes += 1
             return {"status": "ok"}
 
-        def request_shutdown(self) -> None:
-            return None
-
-        def kill(self) -> bool:
+        def kill(self) -> None:
             self.kills += 1
-            return True
 
     class _Replacement:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -396,9 +366,6 @@ def test_dead_warm_child_is_retired_and_replaced(monkeypatch) -> None:
         def is_alive(self) -> bool:
             return True
 
-        def is_shutting_down(self) -> bool:
-            return False
-
         def respawn(self) -> None:
             return None
 
@@ -406,11 +373,8 @@ def test_dead_warm_child_is_retired_and_replaced(monkeypatch) -> None:
             del timeout_sec
             return {"status": "ok", "echo": payload.get("text")}
 
-        def request_shutdown(self) -> None:
+        def kill(self) -> None:
             return None
-
-        def kill(self) -> bool:
-            return True
 
     monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _Replacement)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
@@ -478,7 +442,7 @@ def test_worker_kill_signals_and_abandons_without_close() -> None:
     mock_managed = MagicMock()
     worker._managed = mock_managed
 
-    assert worker.kill() is True
+    worker.kill()
     assert worker.is_alive() is False
     mock_managed.kill_tree.assert_called_once()
     mock_managed.abandon.assert_called_once()
@@ -489,24 +453,17 @@ def test_cancel_inflight_returns_while_reap_blocks() -> None:
     class _SlowKill:
         def __init__(self) -> None:
             self.kills = 0
-            self.shutdowns = 0
-
-        def request_shutdown(self) -> None:
-            self.shutdowns += 1
+            self.signals = 0
 
         def signal(self) -> None:
-            pass
+            self.signals += 1
 
-        def kill(self) -> bool:
+        def kill(self) -> None:
             time.sleep(2)
             self.kills += 1
-            return True
 
         def is_alive(self) -> bool:
             return True
-
-        def is_shutting_down(self) -> bool:
-            return False
 
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     slow = _SlowKill()
@@ -519,7 +476,7 @@ def test_cancel_inflight_returns_while_reap_blocks() -> None:
         elapsed = time.monotonic() - t0
         assert elapsed < 0.3
         assert pool._worker is None
-        assert slow.shutdowns == 1
+        assert slow.signals == 1
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline and slow.kills == 0:
             time.sleep(0.02)
@@ -608,15 +565,8 @@ def test_cancel_check_true_keeps_warm_worker() -> None:
         def is_alive(self) -> bool:
             return True
 
-        def is_shutting_down(self) -> bool:
-            return False
-
-        def request_shutdown(self) -> None:
-            return None
-
-        def kill(self) -> bool:
+        def kill(self) -> None:
             self.kills += 1
-            return True
 
         def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
             del timeout_sec
@@ -671,14 +621,8 @@ def test_execute_logs_each_warning_once(caplog) -> None:
         def is_alive(self) -> bool:
             return True
 
-        def is_shutting_down(self) -> bool:
-            return False
-
-        def request_shutdown(self) -> None:
+        def kill(self) -> None:
             return None
-
-        def kill(self) -> bool:
-            return True
 
         def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
             del payload, timeout_sec
@@ -766,9 +710,6 @@ def test_alive_worker_execute_shares_clock(monkeypatch):
         def is_alive(self):
             return True
 
-        def is_shutting_down(self):
-            return False
-
         def execute(self, payload, timeout_sec):
             recorded_timeout.append(timeout_sec)
             return {"status": "ok"}
@@ -796,16 +737,9 @@ def test_respawn_uses_clock_and_expires(monkeypatch):
         def is_alive(self):
             return self._alive
 
-        def is_shutting_down(self):
-            return False
-
-        def request_shutdown(self):
-            pass
-
-        def kill(self):
+        def kill(self) -> None:
             kills.append(True)
             self._alive = False
-            return True
 
         def execute(self, payload, timeout_sec):
             executes.append(True)
@@ -936,13 +870,13 @@ def test_worker_kill_dead_child_closes_and_unregisters():
     m1 = PlainManaged(wait_result=True)
     w1 = _KokoroWorker(sys.executable, "unused.py")
     w1._managed = cast("Any", m1)
-    assert w1.kill() is True
+    w1.kill()
     assert m1.calls == ["kill_tree", "close_stdio", "wait_once", "unregister"]
 
     # Second object: wait_once returns False
     m2 = PlainManaged(wait_result=False)
     w2 = _KokoroWorker(sys.executable, "unused.py")
     w2._managed = cast("Any", m2)
-    assert w2.kill() is True
+    w2.kill()
     assert m2.calls == ["kill_tree", "close_stdio", "wait_once", "abandon"]
 

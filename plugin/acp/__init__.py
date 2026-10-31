@@ -17,6 +17,5 @@
 """Pluggable agent backends for Chat with Document (builtin plus the five ACP backends)."""
 
 from plugin.acp.registry import AGENT_BACKEND_REGISTRY, get_backend
-from plugin.acp.base import AgentBackend
 
-__all__ = ["AGENT_BACKEND_REGISTRY", "get_backend", "AgentBackend"]
+__all__ = ["AGENT_BACKEND_REGISTRY", "get_backend"]

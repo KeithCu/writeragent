@@ -833,7 +833,7 @@ def test_get_open_documents():
     mock_desktop.getComponents.return_value.createEnumeration.return_value.nextElement.return_value = mock_comp
 
     with patch("plugin.framework.uno_context.get_desktop", return_value=mock_desktop), \
-         patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.CALC), \
+         patch("plugin.doc.document_research.get_document_type", return_value=DocumentType.CALC), \
          patch("plugin.doc.document_research._system_path_from_url", return_value="/tmp/Budget.ods"):
         docs = get_open_documents(mock_ctx)
         assert len(docs) == 1

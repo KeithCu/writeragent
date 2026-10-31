@@ -13,19 +13,17 @@ from __future__ import annotations
 
 import functools
 import inspect
-import logging
 import re
 from typing import Any, Callable
 
 from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.venv.trusted_dispatch import (
     error_result as _error_result,
+    is_blank_param,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
     parse_trusted_spec as _parse_trusted_spec,
 )
-
-log = logging.getLogger(__name__)
 
 _MAX_SYMBOLIC_EXPR_CHARS = 10_000
 
@@ -45,26 +43,16 @@ _KNOWN_CALL_NAMES = frozenset(_SYMPY_NAMES) | {"ln", "e"}
 
 
 def _undefined_call_names(text: str) -> list[str]:
-    names: list[str] = []
-    seen: set[str] = set()
-    for match in _CALL_NAME.finditer(text):
-        name = match.group(1)
-        if name in _KNOWN_CALL_NAMES:
-            continue
-        if name not in seen:
-            seen.add(name)
-            names.append(name)
-    return names
+    found = (match.group(1) for match in _CALL_NAME.finditer(text))
+    return list(dict.fromkeys(name for name in found if name not in _KNOWN_CALL_NAMES))
 
 
 class _SymbolicError(Exception):
     code: str
-    message: str
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
-        self.message = message
 
 
 def _require_sympy() -> Any | None:
@@ -84,11 +72,7 @@ def _param_text(value: Any) -> str:
     """
     if value is None:
         return ""
-    return str(value)
-
-
-def _is_blank_param(value: Any) -> bool:
-    return value is None or (isinstance(value, str) and not value.strip())
+    return str(value).strip()
 
 
 @functools.cache
@@ -111,24 +95,16 @@ def _sympy_name_dict(sp: Any) -> dict[str, Any]:
     """Names a formula may use. Not the process globals, so parse_expr cannot import.
 
     Cached on the sympy module. ``parse_expr`` writes ``local_dict``, not this
-    dict. ``__builtins__`` is present so ``eval`` does not inject the real
-    builtins when the key is missing. Callers must not mutate the dict.
+    dict. ``__builtins__`` is empty so ``eval`` does not inject real builtins.
+    Callers must not mutate the dict. ``ln`` is ``sp.log``. ``e`` is ``sp.E``
+    (there is no ``sp.e``; storing None would hide Euler's number).
     """
-    names: dict[str, Any] = {"__builtins__": {}}
-    # A name missing here is split into letters or fails to parse.
-    for name in _SYMPY_NAMES:
-        obj = getattr(sp, name, None)
-        if obj is not None:
-            names[name] = obj
-    # ln is sp.log. e is Euler's number (sympy spells it E). getattr(sp, "e")
-    # is None, and storing that None would make parse_expr treat e as missing.
-    log_fn = getattr(sp, "log", None)
-    if log_fn is not None:
-        names["ln"] = log_fn
-    euler = getattr(sp, "E", None)
-    if euler is not None:
-        names["e"] = euler
-    return names
+    return {
+        "__builtins__": {},
+        **{name: getattr(sp, name) for name in _SYMPY_NAMES},
+        "ln": sp.log,
+        "e": sp.E,
+    }
 
 
 def _reject_unsafe_expression(text: str) -> None:
@@ -152,7 +128,7 @@ def _reject_unsafe_expression(text: str) -> None:
 
 
 def _parse_expression(sp: Any, expr: Any, *, variable: Any | None = None) -> Any:
-    text = _param_text(expr).strip()
+    text = _param_text(expr)
     if not text:
         raise _SymbolicError("PARSE_ERROR", "empty expression")
     if len(text) > _MAX_SYMBOLIC_EXPR_CHARS:
@@ -196,8 +172,7 @@ def _parse_expression(sp: Any, expr: Any, *, variable: Any | None = None) -> Any
 
 
 def _parse_variable(sp: Any, name: Any) -> Any:
-    var = _param_text(name).strip() or "x"
-    return sp.Symbol(var)
+    return sp.Symbol(_param_text(name) or "x")
 
 
 def _public_signature(func: Callable[..., Any]) -> inspect.Signature:
@@ -230,7 +205,7 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
         try:
             return func(sp, *args, **kwargs)
         except _SymbolicError as exc:
-            return _error_result(exc.code, exc.message, helper=helper)
+            return _error_result(exc.code, str(exc), helper=helper)
         except Exception as exc:
             return _error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
 
@@ -276,16 +251,14 @@ def integrate(
     """Integrate an expression. Pass both bounds for a definite integral."""
     sym = _parse_variable(sp, variable)
     expr = _parse_expression(sp, expression, variable=sym)
-    has_lower = lower is not None and str(lower).strip() != ""
-    has_upper = upper is not None and str(upper).strip() != ""
-    if has_lower != has_upper:
+    if is_blank_param(lower, strip=True) != is_blank_param(upper, strip=True):
         # Exactly one bound is MISSING_PARAM. Both absent is indefinite;
         # both present is definite.
         raise _SymbolicError("MISSING_PARAM", "Both lower and upper bounds must be provided for definite integration.")
 
-    if has_lower:
-        a = _parse_expression(sp, str(lower), variable=sym)
-        b = _parse_expression(sp, str(upper), variable=sym)
+    if not is_blank_param(lower, strip=True):
+        a = _parse_expression(sp, lower, variable=sym)
+        b = _parse_expression(sp, upper, variable=sym)
         result = sp.integrate(expr, (sym, a, b))
     else:
         result = sp.integrate(expr, sym)
@@ -309,7 +282,7 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
     SymPy may still report that it has no algorithm for those.
     """
     sym = _parse_variable(sp, variable)
-    text = _param_text(equation).strip()
+    text = _param_text(equation)
     if not text:
         raise _SymbolicError("MISSING_PARAM", "equation is required")
     # Inequalities and '==' are INVALID_PARAMS. split("=", 1) would cut
@@ -342,13 +315,12 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
         solution_set = sp.solveset(target, sym, domain=sp.S.Complexes)
         if solution_set == sp.S.EmptySet:
             raise _SymbolicError("NO_SOLUTION", "No solution.")
-        latex = str(sp.latex(solution_set))
-        text_sol = str(solution_set)
-        solution_strs = [text_sol]
+        exprs = [solution_set]
     else:
-        latex = ", ".join(str(sp.latex(sol)) for sol in solutions)
-        text_sol = ", ".join(str(s) for s in solutions)
-        solution_strs = [str(s) for s in solutions]
+        exprs = solutions
+    latex = ", ".join(str(sp.latex(expr)) for expr in exprs)
+    text_sol = ", ".join(str(expr) for expr in exprs)
+    solution_strs = [str(expr) for expr in exprs]
     return _ok_result(
         "solve_equation",
         latex=latex,
@@ -368,7 +340,7 @@ def latex_to_math_object(sp: Any, *, latex: Any) -> dict[str, Any]:
     re-emitted as LaTeX. ``x_1`` is kept because of ``_``. ``x1`` and ``a b``
     have no cue, so they are parsed (``a b`` becomes a product).
     """
-    trimmed = _param_text(latex).strip()
+    trimmed = _param_text(latex)
     if not trimmed:
         raise _SymbolicError("MISSING_PARAM", "latex is required")
     if len(trimmed) > _MAX_SYMBOLIC_EXPR_CHARS:
@@ -400,11 +372,11 @@ def _dispatch_helper(name: str, params: dict[str, Any]) -> dict[str, Any]:
                 continue
             value = ""
         kwargs[pname] = value
-    if name == "latex_to_math_object" and _is_blank_param(kwargs.get("latex")):
+    if name == "latex_to_math_object" and is_blank_param(kwargs.get("latex"), strip=True):
         # Callers used to send the formula as `expression`. A blank latex
         # string fell through via `or`. Numeric 0 does not.
         expression = params.get("expression")
-        if not _is_blank_param(expression):
+        if not is_blank_param(expression, strip=True):
             kwargs["latex"] = expression
     return func(**kwargs)
 

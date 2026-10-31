@@ -16,10 +16,6 @@ from .base_provider_shim import BaseProviderShim, _dict_parts, coerce_raw_b64, e
 
 log = logging.getLogger(__name__)
 
-# messages[] on /v1/messages. system and developer are lifted into the top-level
-# system string. Anything else (function, …) is a 400 if it is sent through.
-_ANTHROPIC_MESSAGE_ROLES = frozenset({"user", "assistant"})
-
 
 def _image_url_value(image_url: Any) -> str:
     """OpenAI image part: a dict ``{"url": ...}`` or, on some paths, a bare string."""
@@ -156,8 +152,7 @@ def _convert_parts(content: Any, *, allow_images: bool) -> list[dict[str, Any]]:
         return blocks
     if content:
         text = content if isinstance(content, str) else str(content)
-        if text:
-            blocks.append({"type": "text", "text": text})
+        blocks.append({"type": "text", "text": text})
     return blocks
 
 
@@ -232,7 +227,7 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
                 converted.append({"role": "assistant", "content": anth_content})
             continue
 
-        if role not in _ANTHROPIC_MESSAGE_ROLES:
+        if role not in ("user", "assistant"):
             # ``function`` and any other role are not valid in messages[].
             # Coercing them to user would present tool plumbing as a question.
             log.warning("Anthropic shim skipping unsupported role %r", role)
@@ -314,23 +309,13 @@ def _tool_calls_from_content_blocks(content_parts: list[dict[str, Any]]) -> list
 
 
 def _thinking_text(content_parts: list[dict[str, Any]]) -> str | None:
-    """Join sync ``thinking`` blocks. The stream path already returns thinking_delta."""
-    parts: list[str] = []
-    for part in content_parts:
-        if part.get("type") != "thinking":
-            continue
-        text = part.get("thinking")
-        if isinstance(text, str) and text:
-            parts.append(text)
-    if not parts:
-        return None
-    return "\n\n".join(parts)
+    """Join sync thinking blocks. The stream path already returns thinking_delta."""
+    parts = [text for part in content_parts if part.get("type") == "thinking" and isinstance(text := part.get("thinking"), str) and text]
+    return "\n\n".join(parts) if parts else None
 
 
 class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
-
-    _effort_provider: str | None = "anthropic"
 
     def _tool_delta(self, block_index: Any, *, arguments: str, indexes: dict[int, int], tool_id: Any = None, name: str | None = None) -> dict[str, Any] | None:
         """One streamed tool-call fragment. ``arguments`` is a piece, not the final object.
@@ -414,17 +399,13 @@ class AnthropicShim(BaseProviderShim):
         elif msg_type == "content_block_delta":
             raw_delta = chunk.get("delta")
             d: dict[str, Any] = raw_delta if isinstance(raw_delta, dict) else {}
-            if d.get("type") == "text_delta":
-                content = d.get("text") or ""
-                if content:
-                    delta = {"content": content}
-            elif d.get("type") == "thinking_delta":
+            if d.get("type") == "text_delta" and (content := d.get("text") or ""):
+                delta = {"content": content}
+            elif d.get("type") == "thinking_delta" and (thinking := d.get("thinking") or ""):
                 # text_delta maps onto content. Extended-thinking chunks use the
                 # same return slot the OpenAI shim already calls thinking.
                 # signature_delta stays ignored.
-                thinking = d.get("thinking") or ""
-                if thinking:
-                    delta = {"thinking": thinking}
+                delta = {"thinking": thinking}
             elif d.get("type") == "input_json_delta":
                 # partial_json is a fragment. accumulate_delta concatenates
                 # function.arguments across chunks that share an index.
@@ -458,18 +439,15 @@ class AnthropicShim(BaseProviderShim):
             usage = _normalize_usage(chunk.get("usage"))
             if usage:
                 delta = {"usage": usage}
-        elif msg_type == "message_stop":
-            # message_stop carries no stop_reason. The stream loop keeps the
-            # last non-empty reason, and Anthropic sends stop_reason on
-            # message_delta then this bare event. Returning "stop" here would
-            # overwrite max_tokens / tool_use, so a truncated reply looks
-            # finished. Leave the reason unset.
-            finish_reason = None
+        # message_stop carries no stop_reason. The stream loop keeps the
+        # last non-empty reason, and Anthropic sends stop_reason on
+        # message_delta then this bare event. Returning "stop" here would
+        # overwrite max_tokens / tool_use, so a truncated reply looks
+        # finished. Leave the reason unset.
         return content, finish_reason, thinking, delta
 
     def parse_sync_response(self, response_data: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
         content, finish_reason, _thinking, delta = self.parse_response_chunk(response_data, {})
         tool_calls = delta.get("tool_calls")
         usage = _normalize_usage(response_data.get("usage") or {})
-        images = delta.get("images") or []
-        return content, finish_reason, tool_calls, usage, images, delta
+        return content, finish_reason, tool_calls, usage, [], delta

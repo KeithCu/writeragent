@@ -18,14 +18,11 @@ from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     is_status_helper_result,
-    make_template_api,
     parse_run_import_call_spec,
 )
 
 from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
-
-_SHIPPED_TEMPLATES = frozenset({"convert_quantity", "parse_quantity", "check_dimensionality"})
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "convert_quantity": {"value": "data", "from": "m/s", "to": "km/h"},
@@ -44,28 +41,23 @@ _UNITS_VENV_EXPORTS = HELPER_NAMES | {"run_units"}
 
 install_lazy_exports(globals(), "units", _UNITS_VENV_EXPORTS)
 
-OUTPUT_STYLES = frozenset({"formatted", "detailed"})
-_FORMATTED_DEFAULT_HELPERS = frozenset({"convert_quantity", "parse_quantity"})
-
 
 # --- Templates ---
 
 
-_API = make_template_api(
-    DomainFacadeConfig(
-        tag="units",
-        helper_names=HELPER_NAMES,
-        default_params=_DEFAULT_PARAMS,
-        descriptions=_HELPER_DESCRIPTIONS,
-        import_module="writeragent.scripting.units",
-        run_name="run_units",
-        shipped_templates=_SHIPPED_TEMPLATES,
-        # convert_quantity takes value, from_unit, to_unit positionally (``from``
-        # is not a keyword argument). parse/check are keyword-only.
-        positional_args={
-            "convert_quantity": ("value", "from", "to"),
-        },
-    )
+_API = DomainFacadeConfig(
+    tag="units",
+    helper_names=HELPER_NAMES,
+    default_params=_DEFAULT_PARAMS,
+    descriptions=_HELPER_DESCRIPTIONS,
+    import_module="writeragent.scripting.units",
+    run_name="run_units",
+    shipped_templates=frozenset(_DEFAULT_PARAMS),
+    # convert_quantity takes value, from_unit, to_unit positionally (``from``
+    # is not a keyword argument). parse/check are keyword-only.
+    positional_args={
+        "convert_quantity": ("value", "from", "to"),
+    },
 )
 
 get_units_script_templates = _API.get_templates
@@ -73,28 +65,15 @@ get_units_script_templates = _API.get_templates
 
 # --- Egress ---
 
-def resolve_output_style(helper: str, output_style: str | None) -> str:
-    """Resolve Calc egress layout: formatted (single cell) or detailed (key-value grid)."""
-    if output_style in OUTPUT_STYLES:
-        return output_style
-    if helper in _FORMATTED_DEFAULT_HELPERS:
-        return "formatted"
-    return "detailed"
-
-
 def extract_units_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     """Extract units insertion kwargs (e.g. output_style) from script code."""
     spec = parse_run_import_call_spec(code, run_name="run_units")
     body_params = spec.get("params") if spec else None
     if not isinstance(body_params, dict):
         return {}
-    raw_style = body_params.get("output_style")
-    if raw_style is None:
-        return {}
-    output_style = str(raw_style).strip()
-    if output_style == "":
-        return {}
-    return {"output_style": output_style}
+    raw = body_params.get("output_style")
+    style = "" if raw is None else str(raw).strip()
+    return {"output_style": style} if style else {}
 
 
 # Ordinary dicts with formatted and magnitude are not units results:
@@ -124,7 +103,13 @@ def format_units_for_calc(result: dict[str, Any], *, output_style: str | None = 
 
     helper = str(result.get("helper") or "units")
     formatted = units_display_text(result)
-    style = resolve_output_style(helper, output_style)
+    # formatted: one cell. detailed: key/value rows. Unknown style uses the helper default.
+    if output_style in ("formatted", "detailed"):
+        style = output_style
+    elif helper in ("convert_quantity", "parse_quantity"):
+        style = "formatted"
+    else:
+        style = "detailed"
 
     head = formatted or helper
     if style == "formatted":

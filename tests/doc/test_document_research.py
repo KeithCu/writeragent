@@ -14,7 +14,6 @@ from unittest.mock import MagicMock, patch
 import plugin.doc.document_research as dr
 from plugin.doc.doc_type import DocumentType
 from plugin.doc.document_research import (
-    NEARBY_FILE_EXTENSIONS,
     NEARBY_IMAGE_EXTENSIONS,
     _collect_open_file_urls,
     _is_same_document,
@@ -30,6 +29,7 @@ from plugin.doc.document_research import (
     resolve_listing_directory,
     resolve_path_or_name,
 )
+from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework import thread_guard as tg
 from plugin.framework.uno_listeners import ListenerBoundary
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
@@ -253,16 +253,16 @@ def test_resolve_listing_directory_work_fallback():
 
 
 def test_nearby_extensions_constant():
-    assert ".ods" in NEARBY_FILE_EXTENSIONS
-    assert ".odt" in NEARBY_FILE_EXTENSIONS
-    assert ".xlsx" in NEARBY_FILE_EXTENSIONS
-    assert ".docx" in NEARBY_FILE_EXTENSIONS
-    assert ".pptx" in NEARBY_FILE_EXTENSIONS
-    assert ".txt" in NEARBY_FILE_EXTENSIONS
-    assert ".md" in NEARBY_FILE_EXTENSIONS
-    assert ".pdf" not in NEARBY_FILE_EXTENSIONS
-    assert ".tmp" not in NEARBY_FILE_EXTENSIONS
-    assert ".png" not in NEARBY_FILE_EXTENSIONS
+    assert ".ods" in ALL_INDEXABLE_EXTENSIONS
+    assert ".odt" in ALL_INDEXABLE_EXTENSIONS
+    assert ".xlsx" in ALL_INDEXABLE_EXTENSIONS
+    assert ".docx" in ALL_INDEXABLE_EXTENSIONS
+    assert ".pptx" in ALL_INDEXABLE_EXTENSIONS
+    assert ".txt" in ALL_INDEXABLE_EXTENSIONS
+    assert ".md" in ALL_INDEXABLE_EXTENSIONS
+    assert ".pdf" not in ALL_INDEXABLE_EXTENSIONS
+    assert ".tmp" not in ALL_INDEXABLE_EXTENSIONS
+    assert ".png" not in ALL_INDEXABLE_EXTENSIONS
 
 
 def test_nearby_image_extensions_constant():
@@ -371,7 +371,7 @@ def test_collect_open_file_urls_skips_broken_desktop_component():
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
         ):
             out = _collect_open_file_urls(
-                object(), exclude_path=None, extensions=NEARBY_FILE_EXTENSIONS
+                object(), exclude_path=None, extensions=ALL_INDEXABLE_EXTENSIONS
             )
         assert out == {budget_norm: budget_url}
 
@@ -418,7 +418,7 @@ def test_collect_open_file_urls_skips_geturl_failure():
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
         ):
             out = _collect_open_file_urls(
-                object(), exclude_path=None, extensions=NEARBY_FILE_EXTENSIONS
+                object(), exclude_path=None, extensions=ALL_INDEXABLE_EXTENSIONS
             )
         assert out == {budget_norm: budget_url}
 
@@ -498,7 +498,7 @@ def test_resolve_path_or_name_no_match_does_not_fall_back_to_only_file():
             patch("plugin.doc.document_research._collect_open_file_urls", return_value={}),
             patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp),
         ):
-            path, err = resolve_path_or_name(MagicMock(), model, "Report", filter="Budget")
+            path, err = resolve_path_or_name(MagicMock(), model, "Report")
     assert path is None
     assert err == "No file matching 'Report'"
 

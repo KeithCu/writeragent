@@ -5,6 +5,8 @@
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
+Type errors are left to the worker exception path, which returns #VALUE!.
+ZeroDivisionError is left to that path as well, which returns #DIV/0!.
 """
 
 from __future__ import annotations
@@ -109,7 +111,6 @@ def _accrued(
     getAccrint also requires frequency in (1, 2, 4). Pass frequency only for that
     function. basis in (0..4), rate > 0, par > 0, issue < settlement.
     """
-    # type errors are left to the worker exception path, which returns #VALUE!
     f_rate = float(rate)
     f_par = float(par) if par is not None else 1000.0
     b = int(float(basis))
@@ -147,7 +148,6 @@ def accrintm(issue: Any, settlement: Any, rate: Any, par: Any = 1000.0, basis: A
     return _accrued(issue, settlement, rate, par, basis)
 
 
-# type errors are left to the worker exception path, which returns #VALUE!
 def acot(x: Any) -> float:
     xv = float(x)
     return float(math.pi / 2 - math.atan(xv))
@@ -167,12 +167,9 @@ def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = N
         r = int(float(row))
         c = int(float(col))
         abs_n = int(float(abs_num))
-    except (ValueError, TypeError, OverflowError):
-        return "#VALUE!"
-    if r < 1 or c < 1 or abs_n not in (1, 2, 3, 4):
-        return "#VALUE!"
-    try:
-        is_a1 = True if (a1 is None or a1 == "") else _as_nonzero(a1)
+        if r < 1 or c < 1 or abs_n not in (1, 2, 3, 4):
+            return "#VALUE!"
+        is_a1 = a1 is None or a1 == "" or _as_nonzero(a1)
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
 
@@ -205,7 +202,6 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
     # number for the numeric reductions (float(True) would be 1.0). COUNTA
     # still counts a bool. Do not share this switch with subtotal(): that
     # helper counts True as 1, which test_aggregate_stubs_and_bools forbids.
-    # non-numeric function_num/options are left to the worker exception path, which returns #VALUE!
     fn = int(float(function_num))
     opt = int(float(options))
     assert 1 <= fn <= 13
@@ -242,7 +238,6 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
         # a number. Calc returns the error instead.
         return float("nan")
 
-    # Simplified implementations for most common
     if fn == 1:
         # Empty after dropping text/errors is #DIV/0! in Calc; avoid the
         # RuntimeWarning from np.mean([]).
@@ -314,7 +309,6 @@ def _parse_amor(
     basis: Any,
 ) -> tuple[float, float, float, float, int, float, int] | None:
     """Shared AMORDEGRC / AMORLINC argument check. None means #NUM!."""
-    # type errors are left to the worker exception path, which returns #VALUE!
     f_cost = float(cost)
     d_purch = float(date_purchased)
     d_first = float(first_period)
@@ -374,11 +368,8 @@ def amordegrc(
         f_n_rate = _round_amor(f_rate * f_cost)
         f_rest -= f_n_rate
         if f_rest < 0.0:
-            rem = n_per - n
-            if rem in (0, 1):
-                return _round_amor(f_cost * 0.5)
-            else:
-                return 0.0
+            # n is in range(n_per), so n_per - n is at least 1. The last period is half the remaining cost.
+            return _round_amor(f_cost * 0.5) if n == n_per - 1 else 0.0
         f_cost -= f_n_rate
 
     return float(f_n_rate)
@@ -401,7 +392,6 @@ def amorlinc(
     f_cost, d_purch, d_first, f_salv, n_per, f_rate, b = parsed
 
     f_one_rate = f_cost * f_rate
-    f_cost_delta = f_cost - f_salv
     yf = yearfrac(d_purch, d_first, b)
     if math.isnan(yf):
         return float("nan")
@@ -417,13 +407,14 @@ def amorlinc(
     elif n_per <= num_full_periods:
         res = f_one_rate
     elif n_per == num_full_periods + 1:
-        res = f_cost_delta - f_one_rate * num_full_periods - f0_rate
+        res = f_cost - f_salv - f_one_rate * num_full_periods - f0_rate
     else:
         res = 0.0
 
     return float(res) if res > 0.0 else 0.0
 
 
+# ScArabic lcl_GetArabicValue. The bool is true for a power of ten.
 _ARABIC_DIGITS: dict[str, tuple[int, bool]] = {
     "M": (1000, True),
     "D": (500, False),
@@ -433,11 +424,6 @@ _ARABIC_DIGITS: dict[str, tuple[int, bool]] = {
     "V": (5, False),
     "I": (1, True),
 }
-
-
-def _arabic_digit(ch: str) -> tuple[int, bool] | None:
-    """ScArabic's lcl_GetArabicValue. The bool is true for a power of ten."""
-    return _ARABIC_DIGITS.get(ch)
 
 
 def arabic(text: Any) -> float:
@@ -453,13 +439,13 @@ def arabic(text: Any) -> float:
     index = 0
     length = len(roman)
     while index < length:
-        first = _arabic_digit(roman[index])
+        first = _ARABIC_DIGITS.get(roman[index])
         if first is None:
             return float("nan")
         digit, is_ten_power = first
         next_digit = 0
         if index + 1 < length:
-            second = _arabic_digit(roman[index + 1])
+            second = _ARABIC_DIGITS.get(roman[index + 1])
             if second is None:
                 return float("nan")
             next_digit = second[0]
@@ -495,30 +481,20 @@ def areas(r: Any) -> float:
     return 1.0
 
 
+# Full-width ASCII (U+FF01–U+FF5E) to ASCII, and ideographic space
+# U+3000 to a normal space. Half-width katakana is not converted.
+_ASC_TRANS = str.maketrans({0x3000: " ", **{cp: chr(cp - 0xFEE0) for cp in range(0xFF01, 0xFF5F)}})
+
+
 def asc(text: Any) -> str:
-    # Full-width ASCII (U+FF01–U+FF5E) to ASCII, and ideographic space
-    # U+3000 to a normal space. Half-width katakana is not converted.
-    # type errors are left to the worker exception path, which returns #VALUE!
     if text is None:
         return ""
-    s = str(text)
-    # Shift ASCII (Fullwidth is U+FF01 to U+FF5E) -> (U+0021 to U+007E)
-    # Fullwidth Space U+3000 -> U+0020
-    res = []
-    for ch in s:
-        code = ord(ch)
-        if 0xFF01 <= code <= 0xFF5E:
-            res.append(chr(code - 0xFEE0))
-        elif code == 0x3000:
-            res.append(" ")
-        else:
-            res.append(ch)
-    return "".join(res)
+    return str(text).translate(_ASC_TRANS)
 
 
 def avedev(*args: Any) -> float:
     # Excel/Calc AVEDEV ignores text and logicals.
-    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
+    arr = _extract_numeric_array(*args, propagate_nan=False)
     if not arr.size:
         return float("nan")
     return float(np.mean(np.abs(arr - np.mean(arr))))
@@ -536,7 +512,7 @@ def averagea(*args: Any) -> float:
 
 
 def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
-    vals = _criteria_numbers(r, crit, ar)
+    vals = _criteria_numbers(r if ar is None else ar, [(r, crit)])
     if vals is None or not vals:
         return float("nan")
     return float(np.mean(vals))
@@ -559,7 +535,7 @@ def averageifs(ar: Any, *args: Any) -> float | str:
     pairs = _criteria_pairs(args)
     if pairs is None:
         return "#VALUE!"
-    vals = _criteria_numbers(ar, pairs=pairs)
+    vals = _criteria_numbers(ar, pairs)
     if vals is None:
         return "#VALUE!"
     if not vals:
@@ -578,22 +554,15 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
         # Excel cells hold 32767 characters.
         if n < 0 or r < 2 or r > 36 or m < 0 or m > 32767:
             return "#NUM!"
-        if n == 0:
-            return "0".zfill(m)
-        digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        res = ""
-        while n > 0:
-            res = digits[n % r] + res
-            n //= r
-        return res.zfill(m)
+        return np.base_repr(n, r).zfill(m)
     except (ValueError, TypeError, OverflowError):
         return "#NUM!"
 
 
-def _bessel_eval(scipy_fn: Any, x: Any, n: Any, *, positive_x: bool) -> float:
-    """Parse Bessel x and order. positive_x is the kn/yn rule (x > 0).
+def _bessel_call(name: str, x: Any, n: Any, *, positive_x: bool) -> float:
+    """One scipy.special Bessel, or NaN when scipy is missing or the input is illegal.
 
-    Type and scipy errors propagate to _bessel_call, which returns NaN.
+    A missing install is the same NaN as _npf_result, not a raised ImportError.
     """
     # What was wrong: BESSELK(1, -1) returned kn(1, 1) and BESSELY(1, -1)
     # returned a finite value. Both are illegal orders.
@@ -602,22 +571,14 @@ def _bessel_eval(scipy_fn: Any, x: Any, n: Any, *, positive_x: bool) -> float:
     # Why this stays: AnalysisAddIn::getBesselk and getBessely throw
     # IllegalArgumentException when nOrder < 0 or fNum <= 0. NaN is that
     # error here. iv/jv still allow x <= 0 (positive_x=False).
-    xv = float(x)
-    nv = int(float(n))
-    if nv < 0 or (positive_x and xv <= 0):
-        return float("nan")
-    return float(scipy_fn(nv, xv))
-
-
-def _bessel_call(name: str, x: Any, n: Any, *, positive_x: bool) -> float:
-    """One scipy.special Bessel, or NaN when scipy is missing or the input is illegal.
-
-    A missing install is the same NaN as _npf_result, not a raised ImportError.
-    """
     try:
         import scipy.special  # type: ignore[import-untyped]
 
-        return _bessel_eval(getattr(scipy.special, name), x, n, positive_x=positive_x)
+        xv = float(x)
+        nv = int(float(n))
+        if nv < 0 or (positive_x and xv <= 0):
+            return float("nan")
+        return float(getattr(scipy.special, name)(nv, xv))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
@@ -706,7 +667,7 @@ def binomdist(*args: Any) -> float:
         int(float(args[0])),
         int(float(args[1])),
         float(args[2]),
-        False if (args[3] is None or args[3] == "") else _as_nonzero(args[3]),
+        _as_nonzero(args[3]),
     ))
     if got is None:
         return float("nan")
@@ -722,27 +683,17 @@ def binomdist(*args: Any) -> float:
 _MAX_BIT_VALUE: int = (1 << 48) - 1
 
 
-def _bit_arg(x: Any) -> int | None:
-    """int(float(x)), or None on OverflowError.
-
-    ValueError and TypeError propagate. Callers return nan on None before
-    converting the next argument, matching the old single try.
-    """
-    try:
-        return int(float(x))
-    except OverflowError:
-        return None
-
-
 def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
     """Apply a binary integer bitwise operator to n1 and n2 within [0, 2^48 - 1]."""
     # Non-negative integers below 2^48. Excel and Calc return #NUM! otherwise.
-    # type errors are left to the worker exception path, which returns #VALUE!
-    v1 = _bit_arg(n1)
-    if v1 is None:
+    # ValueError and TypeError propagate (#VALUE! on the worker). OverflowError is #NUM!.
+    # Convert n1 before n2.
+    try:
+        v1 = int(float(n1))
+        v2 = int(float(n2))
+    except OverflowError:
         return float("nan")
-    v2 = _bit_arg(n2)
-    if v2 is None or v1 < 0 or v1 > _MAX_BIT_VALUE or v2 < 0 or v2 > _MAX_BIT_VALUE:
+    if v1 < 0 or v1 > _MAX_BIT_VALUE or v2 < 0 or v2 > _MAX_BIT_VALUE:
         return float("nan")
     return float(op(v1, v2))
 
@@ -751,17 +702,16 @@ def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
     """Integer bit shift within [0, 2^48 - 1] and shift magnitude <= 53."""
     # Shift at most 53 bits (Excel) and the number stays in [0, 2^48 - 1].
     # A shift of 1e9 builds an integer large enough to hang or raise MemoryError.
-    # type errors are left to the worker exception path, which returns #VALUE!
     # With those bounds the result is at most 101 bits, so MemoryError cannot happen.
-    n = _bit_arg(number)
-    if n is None:
+    try:
+        n = int(float(number))
+        s = int(float(shift))
+    except OverflowError:
         return float("nan")
-    s = _bit_arg(shift)
-    if s is None or n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
+    if n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
         return float("nan")
     mag = abs(s)
-    # bool(left) keeps today's truthiness. left == (s >= 0) differs for non-bool left.
-    if (s >= 0) == bool(left):
+    if (s >= 0) == left:
         return float(n << mag)
     return float(n >> mag)
 
@@ -836,7 +786,6 @@ def choose(index: Any, *args: Any) -> Any:
 
 
 def clean(text: Any) -> str | float:
-    # type errors are left to the worker exception path, which returns #VALUE!
     if text is None:
         return ""
     if isinstance(text, float) and math.isnan(text):
@@ -851,29 +800,24 @@ def code(s: Any) -> float:
     # ScCode pushes 0 for an empty string. Excel CODE("") is #VALUE!.
     # This helper follows Calc. str(None) is "None", so a missing object
     # stays the code point of "N"; do not treat None as blank here.
-    # type errors are left to the worker exception path, which returns #VALUE!
     ss = str(s)
     if not ss:
         return 0.0
     return float(ord(ss[0]))
 
 
-def _binom_float(n: int, k: int, *, reject_k_gt_n: bool) -> float:
+def _binom_float(n: int, k: int) -> float:
     """Binomial coefficient as a float, or NaN when the result is not finite.
 
-    math.comb(n, k) is 0 when k > n. ScCombin (interpr3.cxx) rejects that
-    for COMBIN. COMBINA still wants C(n+k-1, k); that coefficient is 0
-    when the bottom exceeds the top (COMBINA(0, 1)), so the caller turns
-    the rejection off.
+    math.comb(n, k) is 0 when k > n. ScCombin (interpr3.cxx) rejects that,
+    so this returns NaN.
 
     math.comb(1e9, 5e8) builds a giant int before float() raises. After
     folding k to min(k, n-k), C(n, k) >= C(2k, k), which no longer fits
     in float64 once k is about 515. lgamma rejects that case first.
     """
-    if n < 0 or k < 0:
+    if n < 0 or k < 0 or k > n:
         return float("nan")
-    if k > n:
-        return float("nan") if reject_k_gt_n else 0.0
     k = min(k, n - k)
     log_c = math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
     if not math.isfinite(log_c) or log_c > math.log(sys.float_info.max):
@@ -884,7 +828,7 @@ def _binom_float(n: int, k: int, *, reject_k_gt_n: bool) -> float:
 def combin(n: Any, k: Any) -> float:
     # ScCombin rejects k > n and any negative. math.comb(3, 5) is 0.
     # non-numeric arguments are left to the worker exception path. OverflowError (inf) is #NUM!; ValueError is #VALUE!.
-    return _binom_float(int(float(n)), int(float(k)), reject_k_gt_n=True)
+    return _binom_float(int(float(n)), int(float(k)))
 
 
 def combina(n: Any, k: Any) -> float:
@@ -896,9 +840,10 @@ def combina(n: Any, k: Any) -> float:
     ki = int(float(k))
     if ni < 0 or ki < 0:
         return float("nan")
-    if ni == 0 and ki == 0:
-        return 1.0
-    return _binom_float(ni + ki - 1, ki, reject_k_gt_n=False)
+    # COMBINA(0, 0) is 1. COMBINA(0, k) for k > 0 is 0; C(k - 1, k) is k > n.
+    if ni == 0:
+        return 1.0 if ki == 0 else 0.0
+    return _binom_float(ni + ki - 1, ki)
 
 
 def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
@@ -926,23 +871,16 @@ def confidence(alpha: Any, stddev: Any, size: Any) -> float:
     return float(stats.norm.ppf(1 - a / 2.0) * sd / math.sqrt(n))
 
 
-# ZeroDivisionError is left to the worker exception path, which returns #DIV/0!. Type errors return #VALUE!.
 def cot(x: Any) -> float:
     return float(1.0 / math.tan(float(x)))
 
 
-# ZeroDivisionError is left to the worker exception path, which returns #DIV/0!. Type errors return #VALUE!.
 def coth(x: Any) -> float:
     return float(1.0 / math.tanh(float(x)))
 
 
 def countif(r: Any, crit: Any) -> float:
-    r_flat = np.asarray(r, dtype=object).ravel()
-    cnt = 0
-    for val in r_flat:
-        if match_criteria(val, crit):
-            cnt += 1
-    return float(cnt)
+    return float(sum(1 for v in np.asarray(r, dtype=object).ravel() if match_criteria(v, crit)))
 
 
 def countifs(*args: Any) -> float | str:
@@ -960,10 +898,10 @@ def countifs(*args: Any) -> float | str:
 
 def _get_coupon_dates(
     settlement: Any, maturity: Any, frequency: Any, basis: Any = 0
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float, float, int]:
     """Calculate previous and next coupon dates stepping backwards from maturity in calendar months.
 
-    Returns (prev_serial, curr_serial, days_in_period, num_coupons).
+    Returns (prev_serial, curr_serial, days_in_period, num_coupons, basis_code).
     """
     # Step back by calendar months from maturity. freq in (1, 2, 4), basis in
     # (0..4), settlement < maturity. A bad frequency (1e9) never terminates,
@@ -1005,18 +943,15 @@ def _get_coupon_dates(
     else:
         days_in_per = float((curr - prev).days)
 
-    return p_ser, c_ser, days_in_per, float(k)
+    return p_ser, c_ser, days_in_per, float(k), b
 
 
 def _coupon_schedule(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> tuple[float, float, float, float, float, float]:
     """Compute coupon schedule: (p_ser, c_ser, days_in_per, k, a_days, dsc_days)."""
-    b = int(float(basis))
-    p_ser, c_ser, days_in_per, k = _get_coupon_dates(settlement, maturity, frequency, b)
-    s_date = _serial_to_date(settlement)
-    assert s_date is not None
-    s_ser = _date_to_serial(s_date)
-    a_days = float(_days_between(p_ser, s_ser, b))
-    dsc_days = float(_days_between(s_ser, c_ser, b))
+    p_ser, c_ser, days_in_per, k, b = _get_coupon_dates(settlement, maturity, frequency, basis)
+    # _days_between truncates via _serial_to_date, same as the old date/serial round trip.
+    a_days = float(_days_between(p_ser, settlement, b))
+    dsc_days = float(_days_between(settlement, c_ser, b))
     return p_ser, c_ser, days_in_per, k, a_days, dsc_days
 
 
@@ -1035,7 +970,7 @@ def coupdaybs(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) ->
 
 
 def coupdays(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
-    return float(_coupon(settlement, maturity, frequency, basis, 2))
+    return _coupon(settlement, maturity, frequency, basis, 2)
 
 
 def coupdaysnc(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
@@ -1043,15 +978,15 @@ def coupdaysnc(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -
 
 
 def coupncd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
-    return float(_coupon(settlement, maturity, frequency, basis, 1))
+    return _coupon(settlement, maturity, frequency, basis, 1)
 
 
 def coupnum(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
-    return float(_coupon(settlement, maturity, frequency, basis, 3))
+    return _coupon(settlement, maturity, frequency, basis, 3)
 
 
 def couppcd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
-    return float(_coupon(settlement, maturity, frequency, basis, 0))
+    return _coupon(settlement, maturity, frequency, basis, 0)
 
 
 def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
@@ -1071,7 +1006,6 @@ def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
     return float(stats.binom.ppf(a, n, p))
 
 
-# ZeroDivisionError is left to the worker exception path, which returns #DIV/0!. Type errors return #VALUE!.
 def csc(x: Any) -> float:
     return float(1.0 / math.sin(float(x)))
 
@@ -1096,7 +1030,6 @@ def _cum_payment(
 ) -> float:
     """Shared body of CUMIPMT and CUMPRINC. kind is "ipmt" or "ppmt"."""
     # rate must be > 0. Zero is #NUM!, same as a negative rate.
-    # type errors are left to the worker exception path, which returns #VALUE!
     r = float(rate)
     # getCumipmt takes sal_Int32 nNumPeriods (financial.cxx). Leaving nper
     # as a float made numpy-financial price a different loan: nper 12.2

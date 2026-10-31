@@ -42,7 +42,7 @@ def test_calc_image_result_inserts_on_sheet():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
         patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
+            "plugin.calc.python.venv.execute_on_main_thread",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ) as main_thread,
         patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
@@ -74,7 +74,7 @@ def test_stdout_and_result_survives_image_result():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value=payload),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
         patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
+            "plugin.calc.python.venv.execute_on_main_thread",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch("plugin.calc.python.image_egress.insert_image_result_on_sheet"),
@@ -128,7 +128,7 @@ def test_calc_image_insert_failure_is_not_success():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
         patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
+            "plugin.calc.python.venv.execute_on_main_thread",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch(
@@ -235,7 +235,7 @@ def test_insert_image_result_on_sheet_uses_passed_doc_not_front_window():
         target.createInstance.return_value = MagicMock()
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=target)
     locate.assert_called()
-    assert locate.call_args[0][1] is target
+    assert locate.call_args[0][0] is target
 
 
 def test_insert_image_result_on_sheet_aborts_when_formula_location_fails_for_code():
@@ -1025,7 +1025,7 @@ def test_temp_images_unlinked_when_a_later_write_fails():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": [img1, img2]}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", side_effect=["/tmp/plot0.svg", OSError("second write failed")]),
         patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
+            "plugin.calc.python.venv.execute_on_main_thread",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as mock_insert,
@@ -1054,7 +1054,7 @@ def test_partial_insert_failure_unlinks_only_embedded_temps():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": [img1, img2]}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", side_effect=["/tmp/plot0.svg", "/tmp/plot1.svg"]),
         patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
+            "plugin.calc.python.venv.execute_on_main_thread",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch(

@@ -70,14 +70,8 @@ def code_sheet_name_for(source_sheet: str) -> str:
 
 
 def normalize_bank_a1(cell: str) -> str:
-    """Strip ``$`` / sheet prefix; return uppercase A1 (``H4``)."""
+    """Strip ``$``; return uppercase A1 (``H4``)."""
     raw = (cell or "").replace("$", "").strip()
-    if "!" in raw:
-        raw = raw.split("!", 1)[1]
-    if "." in raw and not _RE_A1.match(raw):
-        left, _unused, right = raw.partition(".")
-        if right and _RE_A1.match(right) and not _RE_A1.match(left):
-            raw = right
     m = _RE_A1.match(raw)
     if not m:
         raise ValueError(f"invalid bank A1 address: {cell!r}")
@@ -93,15 +87,10 @@ def resolve_bank_cell_reference(
     Shares bank reference pattern matching and A1 address normalization between
     offline OOXML extraction and live UNO Calc snapshotting.
     """
-    m = BANK_REF_RE.match((code or "").strip())
+    m = BANK_REF_RE.match(code.strip())
     if not m:
         return None
-    sheet = m.group(1)
-    try:
-        a1 = normalize_bank_a1(m.group(2))
-    except ValueError:
-        return None
-    return lookup_fn(sheet, a1)
+    return lookup_fn(m.group(1), normalize_bank_a1(m.group(2)))
 
 
 def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) -> str:
@@ -117,20 +106,24 @@ def should_inline_code(code: str, data_args: Sequence[str] = ()) -> bool:
     return len(rebuild_python_formula_with_data(code or "", list(data_args))) <= INLINE_CODE_MAX_CHARS
 
 
-def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";", excel_escape: bool = False) -> str:
+def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";") -> str:
     """Build ``=PY`` for a converted cell.
 
     Inline when the escaped formula is <= 1000 chars; otherwise reference
     ``py_code_<Sheet>.A1`` (same address as the caller).
     """
     args = list(cell.data_args)
-    excel_syntax = excel_escape or separator == ","
+    excel_syntax = separator == ","
     if should_inline_code(cell.converted_code, args):
-        return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator, excel_escape=excel_escape)
+        return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator)
     if not cell.cell or not cell.sheet:
         raise ValueError(f"script too long ({len(cell.converted_code)} chars) to inline")
     try:
-        return rebuild_python_formula_with_code_ref(code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax), args, separator=separator, excel_ranges=excel_syntax)
+        return rebuild_python_formula_with_code_ref(
+            code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax),
+            args,
+            separator=separator,
+        )
     except ValueError as exc:
         raise ValueError(f"script too long ({len(cell.converted_code)} chars) and bank ref failed: {exc}") from exc
 
@@ -194,28 +187,12 @@ def collect_safety_warnings(code: str) -> list[str]:
         warnings.append(f"source is not parseable: {exc}")
         return warnings
 
-    try:
-        from plugin.scripting.sandbox import build_sandbox_policy, import_authorized, policy_blocked_imports
+    from plugin.scripting.sandbox import build_sandbox_policy, import_authorized, policy_blocked_imports
 
-        blocked = policy_blocked_imports(build_sandbox_policy())
+    blocked = policy_blocked_imports(build_sandbox_policy())
 
-        def is_blocked(name: str) -> bool:
-            return not import_authorized(name, (), blocked)
-    except Exception:
-        _FALLBACK_BLOCKED = (
-            "subprocess",
-            "socket",
-            "shutil",
-            "tempfile",
-            "sqlite3",
-            "pickle",
-            "importlib",
-            "ctypes",
-        )
-
-        def is_blocked(name: str) -> bool:
-            root = (name or "").split(".", 1)[0]
-            return root in _FALLBACK_BLOCKED
+    def is_blocked(name: str) -> bool:
+        return not import_authorized(name, (), blocked)
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

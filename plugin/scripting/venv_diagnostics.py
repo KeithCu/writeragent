@@ -413,35 +413,25 @@ _JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
 def _run_named_json_probe(
     python_exe: str,
     name: str,
-    timeout: float | None = None,
 ) -> tuple[dict[str, Any], str | None]:
     spec = _JSON_PROBE_SPECS[name]
-    t = spec.timeout_sec if timeout is None else timeout
     return _run_json_probe(
         python_exe,
         spec.script,
-        t,
+        spec.timeout_sec,
         timeout_hint=_(spec.timeout_msgid),
         fail_hint=_(spec.fail_msgid),
         log_label=spec.log_label,
     )
 
 
-def probe_vision_packages(
-    python_exe: str,
-    timeout: float = VISION_PROBE_TIMEOUT_SEC,
-) -> tuple[dict[str, Any], str | None]:
-    """Import-check vision stack in the real venv interpreter (not the sandboxed warm worker)."""
-    return _run_named_json_probe(python_exe, "vision", timeout=timeout)
-
-
-def _merge_duckdb_probe(python_exe: str, data: dict[str, Any], timeout: float) -> None:
+def _merge_duckdb_probe(python_exe: str, data: dict[str, Any]) -> None:
     """Set data['p']['duckdb'] from the subprocess probe. Never fails the self-check.
 
     Appends duckdb to data['data_eng'] when the sandbox group no longer lists it,
     so the Settings install line still renders.
     """
-    probes, failure = _run_named_json_probe(python_exe, "duckdb", timeout=timeout)
+    probes, failure = _run_named_json_probe(python_exe, "duckdb")
     packages = data["p"]
     if failure:
         packages["duckdb"] = None
@@ -505,10 +495,6 @@ def _docling_ocr_ready(probe: dict[str, Any]) -> bool:
     return probe.get("docling") == "present" and probe.get("rapidocr") == "present"
 
 
-def _paddle_ocr_ready(probe: dict[str, Any]) -> bool:
-    return probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
-
-
 def _ocr_backend_ready(probe: dict[str, Any]) -> bool:
     """True when Docling+RapidOCR or PaddleOCR+Paddle imported.
 
@@ -521,7 +507,9 @@ def _ocr_backend_ready(probe: dict[str, Any]) -> bool:
     raises OcrBackendError when that backend cannot be built.
     Why: the Docling pair now requires rapidocr. PaddleOCR+Paddle is unchanged.
     """
-    return _docling_ocr_ready(probe) or _paddle_ocr_ready(probe)
+    return _docling_ocr_ready(probe) or (
+        probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
+    )
 
 
 def vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
@@ -573,23 +561,14 @@ def _format_group_lines(
 def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], packages: dict[str, Any]) -> list[str]:
     """Present/OCR-ready/Optional formatting — paddle/ultralytics/skimage are never required Missing."""
     present = [key for key in keys if packages.get(key) == "present"]
-    lines: list[str] = []
-    if present:
-        lines.append(f"\n{title}: {', '.join(present)}")
-    else:
-        lines.append(f"\n{title}:")
-
+    lines: list[str] = [f"\n{title}: {', '.join(present)}" if present else f"\n{title}:"]
+    optional_missing = [key for key in _VISION_OPTIONAL_KEYS if packages.get(key) != "present"]
     if vision_ocr_stack_ready(packages):
         engine = "Docling" if _docling_ocr_ready(packages) else "Paddle"
         lines.append(f"OCR: ready ({engine})")
-        optional_missing: list[str] = []
-        for key in _VISION_OPTIONAL_KEYS:
-            if packages.get(key) != "present":
-                optional_missing.append(key)
-        # Paddle-only readiness: Docling primary packages are optional, not Missing.
         if not _docling_ocr_ready(packages):
             for key in ("docling", "rapidocr"):
-                if packages.get(key) != "present" and key not in optional_missing:
+                if packages.get(key) != "present":
                     optional_missing.append(key)
         if optional_missing:
             lines.append(f"Optional (not installed): {', '.join(optional_missing)}")
@@ -598,7 +577,6 @@ def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], pa
         primary_missing = [key for key in _VISION_OCR_PRIMARY_KEYS if packages.get(key) != "present"]
         if primary_missing:
             lines.append(f"Missing (OCR): {', '.join(primary_missing)}")
-        optional_missing = [key for key in _VISION_OPTIONAL_KEYS if packages.get(key) != "present"]
         if optional_missing:
             lines.append(f"Optional (not installed): {', '.join(optional_missing)}")
     return lines
@@ -823,17 +801,7 @@ def _attach_external_probes(
     """Audio, UI, NLP, vision, or vector probe. Not the warm =PY() worker."""
     spec = _JSON_PROBE_SPECS[group]
     assert spec.keys is not None
-    if group == "vision":
-        probes, failure = probe_vision_packages(
-            python_exe,
-            timeout=float(VISION_PROBE_TIMEOUT_SEC),
-        )
-    else:
-        probes, failure = _run_named_json_probe(
-            python_exe,
-            group,
-            timeout=float(spec.timeout_sec),
-        )
+    probes, failure = _run_named_json_probe(python_exe, group)
     packages = data.setdefault("p", {})
     if isinstance(packages, dict) and probes:
         packages.update(probes)
@@ -975,7 +943,7 @@ def run_venv_self_check_with_progress(
                 partial_group_title=_(group_title),
             )
         if group_title == "Data Engineering Libraries":
-            _merge_duckdb_probe(python_exe, data, timeout=float(per_pkg_timeout))
+            _merge_duckdb_probe(python_exe, data)
         _refresh(data, completed_groups=group_index + 1)
 
     report_status(_("Text / NLP Libraries: loading (first run may take a while)..."))

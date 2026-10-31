@@ -26,9 +26,9 @@ For LLM tools (`read_cell_range` with format enrichment; the same strings are th
 - There is no separate `iso8601` field.
 - Internal callers (`CellInspector.read_range(include_format_info=False)`) still receive raw Calc serial floats for NumPy / `=PY` / analysis. Sidebar Calc selection context uses enrichment (`True`) so the model sees ISO/`PT…`, not raw serials.
 
-> **Status:** v1 is **shipped**, including duration wire (`PT30H`). MCP clock context (with Calc offset-omit hint and tool piggyback — [§4.1](#41-connection-time-clock-context)), read enrichment (elapsed → `duration` / `PT…`, plus `format_code`), mixed-formula commit, ISO + PT write ingestion (gate → detect/convert or isodate → S29 restore → M1 preserve / P1 inherit / detect), coercion report, MCP `values` array widen, and `number_format` quarantined from LLM `set_style` are in code. See [§2](#2-lifecycle-architecture) and [§5.7](#57-what-to-do-next).
+> **Status:** v1 is **shipped**, including duration wire (`PT30H`). MCP clock context (with Calc offset-omit hint and tool piggyback — [§4.1](#41-connection-time-clock-context)), read enrichment (elapsed → `duration` / `PT…`, plus `format_code`), mixed-formula commit, ISO + PT write ingestion (gate → detect/convert or duration convert → S29 restore → M1 preserve / P1 inherit / detect), coercion report, MCP `values` array widen, and `number_format` quarantined from LLM `set_style` are in code. See [§2](#2-lifecycle-architecture) and [§5.7](#57-what-to-do-next).
 
-> **Write design (locked):** After a strict ISO gate, convert date/time with `XNumberFormatter.detectNumberFormat` / `convertStringToNumber`; convert `PT…` durations with vendored `isodate` + day-serial arithmetic. Commit the serial, and unless the destination already has a **category-compatible** temporal format to preserve (S14–S16), **apply** an inherited column template key when found (P1), else the detected (or elapsed) format key. Do not hand-roll date epoch arithmetic or ASCII date format codes; do not rely on `setFormula` alone (it leaves General and breaks read enrichment).
+> **Write design (locked):** After a strict ISO gate, convert date/time with `XNumberFormatter.detectNumberFormat` / `convertStringToNumber`; convert `PT…` durations with day-serial arithmetic. Commit the serial, and unless the destination already has a **category-compatible** temporal format to preserve (S14–S16), **apply** an inherited column template key when found (P1), else the detected (or elapsed) format key. Do not hand-roll date epoch arithmetic or ASCII date format codes; do not rely on `setFormula` alone (it leaves General and breaks read enrichment).
 
 > **Every LibreOffice behavior claim in this document was measured**, not assumed. See [§8 Measured behavior](#8-measured-behavior-libreoffice-26252). Re-run the probes before trusting any claim here on a new LibreOffice major version.
 
@@ -148,7 +148,7 @@ Because elapsed formats classify as `"time"` (§1.1), routing them through `iso8
 | `1.25` | `[HH]:MM:SS` | `30:00:00` | `06:00:00` | `"PT30H"`, `type: "duration"` |
 | `0.333…` | `[HH]:MM:SS` | `08:00:00` | `08:00:00` | `"PT8H"`, `type: "duration"` |
 
-The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_elapsed_format_string`](../../plugin/calc/datetime_wire.py) detects bracketed elapsed units made of one repeated ASCII letter (`[H]`, `[HH]`, `[HHH]`, `[MM]`, `[SS]`, localized `[TT]`/`[UU]`), so color/modifier brackets such as `[RED]`/`[NatNum1]` do not turn a clock time into `duration`; wire category becomes `"duration"`; emit via [`iso_duration_from_serial`](../../plugin/calc/datetime_wire.py) (hours may exceed 24 — `PT30H`, not `P1DT6H`). Write accepts the same `PT…` gate, parses with vendored [`isodate`](https://github.com/gweis/isodate) from [`requirements-vendor.txt`](../requirements-vendor.txt) → `plugin/lib/` (build + hot-deploy overlay; without it `datetime_wire` fails to import and `write_formula_range` never registers), applies built-in formatindex 43 (`[HH]:MM:SS`) unless M1 preserves a TIME destination. Negative duration serials (e.g. `-0.5` under `[HH]:MM:SS`) are out of the wire contract: they stay raw (no `type`/`format_category`) and no longer fail the range read that contains them.
+The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_elapsed_format_string`](../../plugin/calc/datetime_wire.py) detects bracketed elapsed units made of one repeated ASCII letter (`[H]`, `[HH]`, `[HHH]`, `[MM]`, `[SS]`, localized `[TT]`/`[UU]`), so color/modifier brackets such as `[RED]`/`[NatNum1]` do not turn a clock time into `duration`; wire category becomes `"duration"`; emit via [`iso_duration_from_serial`](../../plugin/calc/datetime_wire.py) (hours may exceed 24 — `PT30H`, not `P1DT6H`). Write accepts the same `PT…` gate, parses integer H/M/S into day serials, applies built-in formatindex 43 (`[HH]:MM:SS`) unless M1 preserves a TIME destination. Negative duration serials (e.g. `-0.5` under `[HH]:MM:SS`) are out of the wire contract: they stay raw (no `type`/`format_category`) and no longer fail the range read that contains them.
 
 ---
 
@@ -343,7 +343,7 @@ At format-apply time, for each gated cell already converted to a serial:
 | Name | Source |
 | :--- | :--- |
 | `input_category` | `"date"` \| `"time"` \| `"datetime"` \| `"duration"` from **which gate matched** |
-| `serial` | float from `convertStringToNumber` (date/time) or isodate day-serial (duration) |
+| `serial` | float from `convertStringToNumber` (date/time) or duration day-serial |
 | Destination | cell’s current `NumberFormat` key → `Type` via `formats.getByKey` (cache per key for the invocation) |
 
 ```text
@@ -710,7 +710,7 @@ if not any(c in val for c in ("-", ":")):
     return None  # Skip regexes for plain text, numbers, and prose
 ```
 
-Duration is a separate gate (`match_iso_duration`); it does not use the `-`/`:` prefilter. Parse uses vendored `isodate.parse_duration`; emit uses [`iso_duration_from_serial`](../../plugin/calc/datetime_wire.py) so 30 hours stays `PT30H` (not `P1DT6H`).
+Duration is a separate gate (`match_iso_duration`); it does not use the `-`/`:` prefilter. Parse uses `duration_serial_from_iso`; emit uses [`iso_duration_from_serial`](../../plugin/calc/datetime_wire.py) so 30 hours stays `PT30H` (not `P1DT6H`).
 
 The gate regexes live in [`datetime_wire.py`](../../plugin/calc/datetime_wire.py) (`_DATE_RE`, `_TIME_RE`, `_DATETIME_RE`, `_DURATION_RE`) — prefer that source over copying them here.
 
@@ -742,7 +742,7 @@ What the gate deliberately rejects, and what Calc would otherwise do with it (§
 Shipped workflow:
 
 1. **Resolve document context once**: the formatter, document `CharLocale` with fallback ([M2](#m2-decision--locale-for-getstandardindex--detectnumberformat)), `getStandardIndex(locale)`; when any `PT…` is present, resolve elapsed formatindex 43.
-2. **Classify each input**: `=` prefix → formula overlay; apostrophe → text; duration gate → serial via isodate; date/time gate → temporal candidate; else `float()` → number; else text.
+2. **Classify each input**: `=` prefix → formula overlay; apostrophe → text; duration gate → serial via `duration_serial_from_iso`; date/time gate → temporal candidate; else `float()` → number; else text.
 3. **Convert date/time candidates** via `detectNumberFormat` / `convertStringToNumber`, recording `(value, detected_key)`. Durations already have a serial + elapsed key. On `NotNumericException`, demote to text.
 4. **Commit values** with one `setDataArray`, leaving formula cells empty. Float/`int` cells keep existing `NumberFormat` ([M3](#m3-decision--setdataarray-floats-vs-numberformat)); for ordinary text-fallback cells, snapshot the prior key before commit and restore after (S29); for apostrophe-forced cells (S18), leave `@`.
 5. **Overlay formulas** with `setFormula` per recorded cell. Never send ISO strings through `setFormulaArray`.
@@ -784,7 +784,7 @@ All three steps landed in v1 (duration wire completed afterward):
 
 1. **Read-path duration wire** (§3.2) — elapsed `FormatString` → `"duration"` / `PT…`.
 2. **Mixed-formula commit correction** — always `setDataArray`, then per-cell `setFormula` overlay (no whole-range `setFormulaArray`).
-3. **Complete user-visible feature** — gate, `detectNumberFormat` / isodate conversion, M1 preserve/apply, tool-schema guidance, coercion report, and core UNO write/readback tests. Serials are never left without a usable format on successful ISO/duration coercions into General/`@`.
+3. **Complete user-visible feature** — gate, `detectNumberFormat` / duration conversion, M1 preserve/apply, tool-schema guidance, coercion report, and core UNO write/readback tests. Serials are never left without a usable format on successful ISO/duration coercions into General/`@`.
 
 ### 5.6 Performance rules
 

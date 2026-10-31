@@ -137,7 +137,6 @@ log = logging.getLogger(__name__)
 
 # --- Optional Cython accelerator --------------------------------------------------
 
-_CYTHON_ACCELERATOR_DISABLED = False
 _CYTHON_ACCELERATOR_LOCATION: str | None = None
 # Set only after a load attempt fails. None means "not attempted yet" so
 # report-only status stays "Inactive (Pure Python)" until the host loads.
@@ -278,8 +277,8 @@ def load_cython_accelerator() -> None:
     """
     # crosshair: off
     global fast_flatten_grid_2d, fast_flatten_grid_1d
-    global _CYTHON_ACCELERATOR_DISABLED, _CYTHON_ACCELERATOR_LOCATION, _CYTHON_ACCELERATOR_INACTIVE_REASON
-    if fast_flatten_grid_2d is not None or _CYTHON_ACCELERATOR_DISABLED:
+    global _CYTHON_ACCELERATOR_LOCATION, _CYTHON_ACCELERATOR_INACTIVE_REASON
+    if fast_flatten_grid_2d is not None or _CYTHON_ACCELERATOR_INACTIVE_REASON:
         return
 
     # Ensure native binary directories (installed user_config or in-tree repo contrib) are on sys.path
@@ -322,16 +321,13 @@ def load_cython_accelerator() -> None:
             fast_flatten_grid_2d = fn2d
             fast_flatten_grid_1d = fn1d
             _CYTHON_ACCELERATOR_LOCATION = loc
-            _CYTHON_ACCELERATOR_DISABLED = False
             _CYTHON_ACCELERATOR_INACTIVE_REASON = None
             log.debug("payload_codec: Cython accelerator (%s) verified and loaded", loc)
         else:
-            _CYTHON_ACCELERATOR_DISABLED = True
             _CYTHON_ACCELERATOR_LOCATION = None
             _CYTHON_ACCELERATOR_INACTIVE_REASON = "canary failed"
             log.warning("payload_codec: Cython accelerator found at %s but failed canary check; using pure Python", loc)
     else:
-        _CYTHON_ACCELERATOR_DISABLED = True
         _CYTHON_ACCELERATOR_LOCATION = None
         _CYTHON_ACCELERATOR_INACTIVE_REASON = "not found"
         log.debug("payload_codec: Cython accelerator not found, using pure Python")
@@ -346,22 +342,14 @@ def invalidate_host_cython_accelerator() -> None:
     """
     # crosshair: off
     global fast_flatten_grid_2d, fast_flatten_grid_1d
-    global _CYTHON_ACCELERATOR_DISABLED, _CYTHON_ACCELERATOR_LOCATION, _CYTHON_ACCELERATOR_INACTIVE_REASON
+    global _CYTHON_ACCELERATOR_LOCATION, _CYTHON_ACCELERATOR_INACTIVE_REASON
     fast_flatten_grid_2d = None
     fast_flatten_grid_1d = None
-    _CYTHON_ACCELERATOR_DISABLED = False
     _CYTHON_ACCELERATOR_LOCATION = None
     _CYTHON_ACCELERATOR_INACTIVE_REASON = None
     for key in list(sys.modules):
         if key in _CYTHON_ACCEL_MODULES or any(key.startswith(m + ".") for m in _CYTHON_ACCEL_MODULES):
             sys.modules.pop(key, None)
-
-
-def reload_host_cython_accelerator() -> None:
-    """Re-attempt loading the host-side Cython pack accelerator (main thread)."""
-    global _CYTHON_ACCELERATOR_DISABLED
-    _CYTHON_ACCELERATOR_DISABLED = False
-    load_cython_accelerator()
 
 
 def get_cython_status_info() -> tuple[bool, str | None, str]:
@@ -385,7 +373,9 @@ def host_cython_status_line(*, reload: bool = False) -> str:
     thread after ``native_binaries.ensure_native_binaries_on_path`` when a fresh load is wanted.
     """
     if reload:
-        reload_host_cython_accelerator()
+        global _CYTHON_ACCELERATOR_INACTIVE_REASON
+        _CYTHON_ACCELERATOR_INACTIVE_REASON = None
+        load_cython_accelerator()
     return get_cython_status_info()[2]
 
 
@@ -461,22 +451,10 @@ def _deal_wire_dict_ok_crosshair(obj: object) -> bool:
     return len(obj) <= DEAL_MAX_SHAPE_DIM
 
 
-def _deal_wire_dict_ok_pytest(obj: object) -> bool:
-    """Pytest and production, including compute_service where deal stays installed.
-
-    Envelope detectors are total predicates. The body returns False for a
-    plain dict. The old shallow cap (len <= DEAL_MAX_SHAPE_DIM) raised
-    PreContractError, which subclasses AssertionError, so ValueError handlers
-    never saw it. host_unpack_data's @deal.pre calls the deal-wrapped
-    _is_any_payload_envelope, so a word-frequency dict (>256 keys) died before
-    the isinstance(dict) arm. json_egress is_* calls failed the same way.
-    Release OXTs strip deal and already accepted these dicts. Do not deep-walk.
-    ``obj`` is unused: every value, including a huge plain dict, is in domain.
-    """
-    return True
-
-
-_deal_wire_dict_ok = _profile(_deal_wire_dict_ok_crosshair, _deal_wire_dict_ok_pytest)
+# Pytest/production: always in domain. A len<=DEAL_MAX_SHAPE_DIM cap raised
+# PreContractError (an AssertionError) on wide plain dicts before host_unpack
+# and json_egress saw them. Release OXTs strip deal and already accept them.
+_deal_wire_dict_ok = _profile(_deal_wire_dict_ok_crosshair)
 
 
 def _is_multi_data_envelope(envelope: object) -> bool:
@@ -911,33 +889,18 @@ def cell_count(shape: tuple[int, ...]) -> int:
     return n
 
 
-def _deal_force_min_cells_domain(min_cells: object, force: object, *, max_cells: int) -> bool:
-    """Shared ``force`` / ``min_cells`` domain for policy and pack contracts.
+def _deal_force_min_cells_ok(min_cells: object, force: object) -> bool:
+    """force in auto/always/never and min_cells in 0.._SHAPE_DIM_CAP.
 
-    ``should_use_binary_envelope`` and ``host_pack_data`` used to repeat this
-    check. Each ``@deal.pre`` stays a keyword-default lambda so CrossHair's
-    call shape still matches. The cap is chosen once via ``_profile``:
-    CrossHair keeps ``DEAL_MAX_SHAPE_DIM`` so the search domain stays small.
-    Pytest allows a cell-count threshold up to one full Calc column
-    (``DEAL_MAX_ROW_INDEX + 1``). ``DEAL_MAX_SHAPE_DIM`` (256) is a side
-    length; it rejected ``scripts/bench_serialization.py --min-cells 1000``.
+    Cap is _SHAPE_DIM_CAP (CrossHair: DEAL_MAX_SHAPE_DIM, pytest: one Calc
+    column). DEAL_MAX_SHAPE_DIM (256) under pytest rejected
+    scripts/bench_serialization.py --min-cells 1000.
     """
     return (
         force in ("auto", "always", "never")
         and isinstance(min_cells, int)
-        and 0 <= min_cells <= max_cells
+        and 0 <= min_cells <= _SHAPE_DIM_CAP
     )
-
-
-_FORCE_MIN_CELLS_CAP = _profile(DEAL_MAX_SHAPE_DIM, DEAL_MAX_ROW_INDEX + 1)
-
-
-def _deal_force_min_cells_ok(min_cells: object, force: object) -> bool:
-    """Same domain as the old crosshair/pytest wrappers.
-
-    Pytest cap is DEAL_MAX_ROW_INDEX + 1. CrossHair cap is DEAL_MAX_SHAPE_DIM.
-    """
-    return _deal_force_min_cells_domain(min_cells, force, max_cells=_FORCE_MIN_CELLS_CAP)
 
 
 @deal.pre(lambda shape, *_unused, **__: _deal_shape_ok(shape))
@@ -1065,25 +1028,9 @@ def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list
     if len(grid) == 0:
         return []
     if type(grid[0]) in (list, tuple) and all(isinstance(r, (list, tuple)) for r in grid):
-        return [[_cell_for_json(c) for c in row] for row in grid]
-    return [_cell_for_json(x) for x in grid]
-
-
-def _cell_for_json(value: Any) -> Any:
-    """Normalize a single egress cell for list paths.
-
-    Python None (from mixed/text results or explicit) becomes None (later mapped to empty cell in Calc).
-    float('nan') / np.nan is preserved so it surfaces as a Calc error (cascades) rather than a silent blank.
-    This applies to small grids (< BINARY_MIN_CELLS) and list results that do not use the split_grid envelope.
-
-    Named on purpose. Do not inline it into ``grid_from_nested_list``: this is
-    the list-path hook that must not start rewriting NaN. The body is a
-    placeholder: ``None`` stays ``None``, and every other value is returned
-    unchanged.
-    """
-    if value is None:
-        return None
-    return value
+        # Copy cells unchanged. Do not rewrite NaN or None on this list path.
+        return [list(row) for row in grid]
+    return list(grid)
 
 
 def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> None:
@@ -1500,53 +1447,35 @@ def _flatten_grid_to_components(
             return False
 
     if is_2d:
-        grid_2d = cast("list[list[Any]]", grid)
-        # Rectangular check already ran in _validate_rectangular_grid, before this
-        # accelerator. It used to run only on the stdlib branch, so a native
-        # packer could pad a jagged grid and skip the ValueError. A short or
-        # long accelerator buffer still raises inside the try so the except
-        # falls back to stdlib (buf_append still targets the original buffer).
-        use_stdlib = True
-        if fast_flatten_grid_2d is not None:
-            rows = [list(row) if type(row) is tuple else row for row in grid_2d]
-            use_stdlib = not _try_accel(
-                fast_flatten_grid_2d, (rows, ncols), nrows * ncols, label="accelerator"
-            )
-
-        if use_stdlib:
-            _stdlib_flatten_pass(_iter_split_grid_cells(grid_2d, is_2d=True))
+        cells = cast("list[list[Any]]", grid)
+        accel_fn = fast_flatten_grid_2d
+        accel_args: tuple[Any, ...] = (
+            ([list(row) if type(row) is tuple else row for row in cells], ncols)
+            if accel_fn is not None
+            else ()
+        )
+        expected = nrows * ncols
+        label = "accelerator"
     else:
-        grid_1d = cast("list[Any]", grid)
-        use_stdlib = True
-        if fast_flatten_grid_1d is not None:
-            use_stdlib = not _try_accel(
-                fast_flatten_grid_1d, (grid_1d,), len(grid_1d), label="1D accelerator"
-            )
-
-        if use_stdlib:
-            _stdlib_flatten_pass(_iter_split_grid_cells(grid_1d, is_2d=False))
+        cells = cast("list[Any]", grid)
+        accel_fn = fast_flatten_grid_1d
+        accel_args = (cells,)
+        expected = len(cells)
+        label = "1D accelerator"
+    # Jagged grids are already rejected by _validate_rectangular_grid.
+    # A short or long accelerator buffer falls back inside _try_accel.
+    if accel_fn is None or not _try_accel(accel_fn, accel_args, expected, label=label):
+        _stdlib_flatten_pass(_iter_split_grid_cells(cells, is_2d=is_2d))
 
     # Map the final column states to "int" / "float" / "bool" with single-pass promotions
     column_kinds: list[str] = []
     for c in range(num_cols):
         state = column_states[c]
-        if state == 3:
-            kind = "float"
-        elif state == 1:
-            kind = "bool"
-        elif state == 0:
-            # No numeric cell was seen (text-only, or blanks beside text).
-            # "int" was a lie for any consumer that trusts the tag. Decode
-            # still prefers the strings map, so cell values do not change.
-            kind = "float"
-        else:
-            kind = "int"
-
-        # If purely numeric grid (strings is empty), any column with None must be promoted to "float"
-        # to avoid NumPy casting errors on NaN values.
+        # 0 (no numeric cell) and 3 are float. 1 is bool. 2 is int.
+        # Empty used to be tagged "int", which lied for text-only columns.
+        kind = ("float", "bool", "int", "float")[state] if 0 <= state <= 3 else "int"
         if not strings and column_has_none[c]:
             kind = "float"
-
         column_kinds.append(kind)
 
     # The Cython accelerator can leave np.str_ in the map (it is a str subclass).
@@ -1580,16 +1509,6 @@ def host_pack_split_grid(
     A separate sparse dictionary mapping flat cell indexes to their string value is passed in parallel.
     """
     # crosshair: off
-    if not grid:
-        return {
-            "__wa_payload__": PAYLOAD_SPLIT_GRID,
-            "dtype": SPLIT_GRID_WIRE_DTYPE,
-            "column_kinds": [],
-            "shape": [0],
-            "strings": {},
-            "buffer": b"",
-        }
-
     buf, strings, column_kinds, shape = _flatten_grid_to_components(grid)
 
     envelope: dict[str, Any] = {
@@ -2285,9 +2204,10 @@ def child_pack_result(
     """Pack a worker result. Not pickle-safe for every small-list cell.
 
     Top-level NumPy scalars become builtin int/float/bool. An ndarray becomes a
-    list or a split_grid envelope.     Inside a small list, ``_cell_for_json`` only
-    rewrites ``None``; ``np.int64``, ``Decimal``, and ``Fraction`` pass through.
-    ``serialize_result`` must run ``_coerce_host_pickle_tree`` on those
+    list or a split_grid envelope. Inside a small list, cells are copied
+    unchanged, and ``None`` stays ``None``; ``np.int64``, ``Decimal``, and
+    ``Fraction`` pass through. ``serialize_result`` must run
+    ``_coerce_host_pickle_tree`` on those
     containers, on object-ndarray ``tolist()`` output, and on
     datetime64/timedelta64 arrays first. ``float('nan')`` stays NaN.
     """

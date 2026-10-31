@@ -145,9 +145,9 @@ def test_apply_field_specs_result_maps_translated_label_to_value():
 
 def test_apply_field_specs_result_skips_unchanged_and_default_values():
     """A caption that maps to the current id, and a value equal to the default, are not writes."""
-    from plugin.framework.config import _config_path, set_configs
+    from plugin.framework.config import get_config_file_path, set_configs
 
-    path = _config_path()
+    path = get_config_file_path()
     assert path
     specs = [{
         "name": "scripting__python_session_mode",
@@ -345,7 +345,7 @@ def test_set_configs_one_write_one_emit_and_validation_writes_nothing(tmp_path):
     reset_config_for_tests()
     try:
         with (
-            patch("plugin.framework.config._config_path", return_value=str(path)),
+            patch("plugin.framework.config.get_config_file_path", return_value=str(path)),
             patch.object(get_event_bus(), "emit") as emit,
         ):
             set_configs({"text_model": "alpha", "request_timeout": 45})

@@ -294,7 +294,7 @@ class AudioRecorder:
                     return
             silence_config = load_silence_detector_config()
             self._auto_stopped_path = None
-            exe, _err = resolve_recording_python(self.ctx)
+            exe, _err = resolve_recording_python()
             if exe:
                 try:
                     self._take_new_temp_wav()
@@ -418,9 +418,7 @@ class AudioRecorder:
                             # wait for.
                             terminate_recording_process(proc, monitor=monitor, handoff=handoff)
                         else:
-                            path = stop_recording_process(
-                                proc, fallback_path=auto_path, handoff=handoff, monitor=monitor
-                            )
+                            path = stop_recording_process(proc, handoff=handoff, monitor=monitor)
                             self.temp_filename = path
                     else:
                         terminate_recording_process(proc, monitor=monitor, handoff=handoff)

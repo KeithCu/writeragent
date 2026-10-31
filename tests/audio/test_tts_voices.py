@@ -516,7 +516,7 @@ def test_cold_openrouter_gemini_no_alloy():
         assert isinstance(ctx, VoiceContext)
         assert ctx.family == "openrouter"
         assert list(ctx.rows) == []
-        assert ctx.editable is True
+        assert ctx.source == "unknown"
         voice = get_scoped_tts_voice("endpoint", gemini, endpoint="https://openrouter.ai/api")
         assert voice == ""
         assert voice != "alloy"
@@ -546,7 +546,7 @@ def test_together_non_kokoro_no_voices_is_editable_and_empty():
         ctx = resolve_voice_context("endpoint", cartesia, endpoint="https://api.together.xyz")
         assert ctx.family == "together"
         assert ctx.rows == ()
-        assert ctx.editable is True
+        assert ctx.source == "unknown"
         assert get_scoped_tts_voice("endpoint", cartesia, endpoint="https://api.together.xyz") == ""
 
 

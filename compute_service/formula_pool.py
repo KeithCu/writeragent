@@ -306,6 +306,7 @@ class FormulaProcessPool(BaseProcessPool):
         if self._is_shutdown or not self.workers:
             return False, "Formula compute pool is not running."
 
+        # No matplotlib: importing it can take up to 5 seconds at startup, and a broken install shows up when plotting.
         target_packages = ["numpy", "sympy", "pandas", "scipy"] if packages is None else packages
         with self.leased(timeout_sec=timeout_sec) as leased:
             if leased is None:

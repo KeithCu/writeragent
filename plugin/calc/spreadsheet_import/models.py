@@ -26,17 +26,15 @@ class CellRecord:
     formula: str | None
     number_format: int | None  # UNO NumberFormat key; None in bulk ingest path
     precedents: list[str] = field(default_factory=list)
-    error_code: str | None = None
 
 
 @dataclass
 class SheetModel:
-    """Ingested sheet: classified cells plus dependency ordering."""
+    """Ingested sheet: classified cells plus circular groups."""
 
     sheet_name: str
     used_range: str
     cells: dict[str, CellRecord]
-    formula_order: list[str] = field(default_factory=list)
     circular_groups: list[list[str]] = field(default_factory=list)
 
 
@@ -51,20 +49,12 @@ class OutputCell:
 
 
 def output_cell_from_record(cell: CellRecord) -> OutputCell:
-    if cell.type == "empty":
-        return OutputCell(address=cell.address, value=None, formula=None, number_format=None)
     if cell.type == "constant":
         return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=cell.number_format)
-    if cell.type == "py_formula":
-        formula = cell.formula
-        if formula:
-            normalized = normalize_py_formula(formula)
-            if normalized is not None:
-                formula = normalized
-        return OutputCell(address=cell.address, value=None, formula=formula, number_format=None)
-    if cell.formula:
-        return OutputCell(address=cell.address, value=None, formula=cell.formula, number_format=None)
-    return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=None)
+    formula = cell.formula
+    if cell.type == "py_formula" and formula:
+        formula = normalize_py_formula(formula) or formula
+    return OutputCell(address=cell.address, value=None, formula=formula, number_format=None)
 
 
 @dataclass
@@ -94,8 +84,8 @@ class ConversionReport:
     pass_through: list[str] = field(default_factory=list)
 
     def formula_total(self) -> int:
-        """Distinct formula-like cells considered; a cell with a reason is counted once."""
-        return len(set(self.converted) | set(self.pass_through) | {todo.address for todo in self.skipped})
+        """len(converted) + len(pass_through); skipped addresses are already in pass_through."""
+        return len(self.converted) + len(self.pass_through)
 
     def conversion_rate(self) -> float:
         total = self.formula_total()
@@ -120,16 +110,6 @@ class VerifyMismatch:
     expected: Any
     actual: Any
     message: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class VerifyResult:
-    passed: list[str] = field(default_factory=list)
-    failed: list[VerifyMismatch] = field(default_factory=list)
-    skipped: list[str] = field(default_factory=list)
 
 
 @dataclass

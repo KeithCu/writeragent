@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent, TextEvent
 
 from plugin.calc.python import editor
+from plugin.calc.python.formula_edit import format_data_binding_display
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
     get_control_text,
@@ -47,12 +48,6 @@ log = logging.getLogger("writeragent.scripting")
 _active: NativePythonCellEditorDialog | None = None
 
 
-def _status_text(body: str) -> str:
-    prefix = _("Status:")
-    label = body or _("Ready")
-    return label if label.startswith(prefix) else f"{prefix} {label}"
-
-
 class NativePythonCellEditorDialog:
     """Modeless native twin of Monaco calc_cell mode. One instance; later opens retarget."""
 
@@ -64,32 +59,30 @@ class NativePythonCellEditorDialog:
     _code_ref: str | None
     _dirty: bool
     _loading: bool
-    _opened: bool
 
     def __init__(self, ctx: Any, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> None:
         self._ctx = ctx
-        self._doc = doc
-        self._cell = cell
-        self._parsed_parts = parsed_parts
-        self._code_cell = code_cell if code_cell is not None else cell
-        self._code_ref = code_ref
+        self._set_target(doc=doc, cell=cell, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
         self._dlg: Any | None = None
         self._dirty = False
         self._loading = False
         self._top_listener: Any | None = None
         self._open_failure_detail: str | None = None
-        self._opened = self._open(initial_code)
+        self._open(initial_code)
+
+    def _set_target(self, *, doc: Any, cell: Any, parsed_parts: Any, code_cell: Any | None, code_ref: str | None) -> None:
+        self._doc = doc
+        self._cell = cell
+        self._parsed_parts = parsed_parts
+        self._code_cell = code_cell if code_cell is not None else cell
+        self._code_ref = code_ref
 
     @property
     def is_open(self) -> bool:
         return self._dlg is not None
 
     def retarget(self, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> None:
-        self._doc = doc
-        self._cell = cell
-        self._parsed_parts = parsed_parts
-        self._code_cell = code_cell if code_cell is not None else cell
-        self._code_ref = code_ref
+        self._set_target(doc=doc, cell=cell, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
         self._apply_load(initial_code)
         self._dirty = False
         self._focus_code()
@@ -132,8 +125,6 @@ class NativePythonCellEditorDialog:
         return bool(self._code_ref) and self._code_cell is not None and not editor._same_calc_cell(self._code_cell, self._cell)
 
     def _apply_load(self, initial_code: str) -> None:
-        from plugin.calc.python.formula_edit import format_data_binding_display
-
         self._loading = True
         self._set_cell_addr()
         code_ctrl = self._ctrl("CodeEdit")
@@ -156,12 +147,8 @@ class NativePythonCellEditorDialog:
         data_ctrl = self._ctrl("DataEdit")
         set_control_enabled(data_ctrl, not disabled)
         set_control_enabled(self._ctrl("DataLbl"), not disabled)
-        if data_ctrl is None:
-            return
         title = _("Data ranges apply only when saving as a =PY() formula.") if disabled else _("Calc injects `data` and `ranges` from these range(s) at runtime.")
-        model = data_ctrl.getModel()
-        if model is not None and hasattr(model, "HelpText"):
-            model.HelpText = title
+        data_ctrl.getModel().HelpText = title
 
     def _focus_code(self) -> None:
         ctrl = self._ctrl("CodeEdit")
@@ -169,7 +156,10 @@ class NativePythonCellEditorDialog:
             ctrl.setFocus()
 
     def _set_status(self, body: str) -> None:
-        set_control_text(self._ctrl("StatusEdit"), _status_text(body))
+        prefix = _("Status:")
+        label = body or _("Ready")
+        text = label if label.startswith(prefix) else f"{prefix} {label}"
+        set_control_text(self._ctrl("StatusEdit"), text)
 
     def _code_text(self) -> str:
         return str(get_control_text(self._ctrl("CodeEdit")) or "")
@@ -182,10 +172,16 @@ class NativePythonCellEditorDialog:
             self._set_status(_("Saving…"))
             save_as_plain = bool(get_checkbox_state(self._ctrl("ChkPlainText")))
             follow = self._following_ref()
-            # Same rule as editor_shell.js btn-save: follow still sends Data while
-            # Save without =PY() is checked (the code cell is plain text).
-            binding = self._data_text() if follow or not save_as_plain else None
-            outcome = editor._apply_cell_save(self._doc, self._cell, parsed_parts=self._parsed_parts, new_code=self._code_text(), save_as_plain=save_as_plain, data_binding_text=binding, code_cell=self._code_cell if follow else None, code_ref=self._code_ref if follow else None)
+            outcome = editor._apply_cell_save(
+                self._doc,
+                self._cell,
+                parsed_parts=self._parsed_parts,
+                new_code=self._code_text(),
+                save_as_plain=save_as_plain,
+                data_binding_text=self._data_text(),
+                code_cell=self._code_cell if follow else None,
+                code_ref=self._code_ref if follow else None,
+            )
             if outcome.get("type") == "error":
                 self._set_status(str(outcome.get("message") or _("Error")))
                 return
@@ -260,14 +256,10 @@ class NativePythonCellEditorDialog:
 
         dlg.getControl("BtnSave").addActionListener(_SaveListener())
         dlg.getControl("BtnCancel").addActionListener(_CancelListener())
-        chk = dlg.getControl("ChkPlainText")
-        if chk is not None:
-            chk.addItemListener(_PlainListener())
+        dlg.getControl("ChkPlainText").addItemListener(_PlainListener())
         dirty_listener = _DirtyTextListener()
         for name in ("CodeEdit", "DataEdit"):
-            ctrl = dlg.getControl(name)
-            if ctrl is not None and hasattr(ctrl, "addTextListener"):
-                ctrl.addTextListener(dirty_listener)
+            dlg.getControl(name).addTextListener(dirty_listener)
 
 
 def show_native_python_cell_editor(ctx: Any, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> tuple[bool, str | None]:
@@ -289,15 +281,7 @@ def show_native_python_cell_editor(ctx: Any, *, doc: Any, cell: Any, initial_cod
         _active.retarget(doc=doc, cell=cell, initial_code=initial_code, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
         return True, None
     inst = NativePythonCellEditorDialog(ctx, doc=doc, cell=cell, initial_code=initial_code, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
-    if inst._opened:
+    if inst.is_open:
         _active = inst
         return True, None
     return False, inst._open_failure_detail
-
-
-def reset_native_cell_editor_for_tests() -> None:
-    """Drop the singleton (unit tests)."""
-    global _active
-    if _active is not None:
-        _active.close()
-    _active = None

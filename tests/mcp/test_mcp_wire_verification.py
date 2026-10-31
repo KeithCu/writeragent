@@ -12,7 +12,6 @@ from hypothesis import strategies as st
 
 from plugin.mcp.wire_types import (
     ParsedJsonRpcRequest,
-    JsonRpcParseError,
     parse_jsonrpc_request,
     is_jsonrpc_notification,
     initialize_result,
@@ -30,8 +29,7 @@ def test_parse_jsonrpc_request_valid() -> None:
 
 def test_parse_jsonrpc_request_invalid() -> None:
     res = parse_jsonrpc_request({"invalid": True})
-    assert isinstance(res, JsonRpcParseError)
-    assert res.code == -32600
+    assert res is None
 
 
 @given(req_id=st.one_of(st.integers(), st.text(min_size=1, max_size=10)))

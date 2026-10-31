@@ -65,12 +65,10 @@ try:
 except ImportError:
     pass
 
-from plugin.framework.logging import init_logging
+from plugin.framework.logging import init_logging, log_exception
 import uno
 
 from com.sun.star.task import XJobExecutor, XJob
-from com.sun.star.frame import DispatchDescriptor, XDispatch, XDispatchProvider
-from com.sun.star.lang import XInitialization, XServiceInfo
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.menu_icon_dpi import menu_icon_asset_url
@@ -84,7 +82,7 @@ from plugin.framework.uno_context import (
     uno_same,
 )
 from plugin.framework.thread_guard import background, on_main_thread
-from plugin.framework.url_utils import dispatch_command_from_url, matches_extension_dispatch_url
+from plugin.framework.url_utils import dispatch_command_from_url
 
 EXTENSION_ID = EXTENSION_ID_WRITERAGENT
 _DISPATCH_PROTOCOL = EXTENSION_ID + ":"
@@ -97,7 +95,7 @@ _services = None
 log = logging.getLogger(__name__)
 
 from plugin.framework import main_shared
-from plugin.framework.main_shared import get_action_handler
+from plugin.framework.main_shared import ExtensionProtocolHandler, get_action_handler, report_action_failure
 
 
 _tools: ToolRegistry | None = None
@@ -169,12 +167,6 @@ def _install_terminate_listener(ctx: Any) -> None:
         # UNO boundary: desktop.addTerminateListener registration
         log.exception("Failed to install terminate listener")
 
-def _schedule_extension_update_check_once(ctx: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # called from panel_wiring after sidebar init
-    """Run weekly update check at most once per process per product, after init_logging."""
-    from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
-
-    schedule_extension_update_check_once(ctx, EXTENSION_ID)
-
 
 def get_services() -> Any:
     global _services
@@ -243,14 +235,12 @@ def bootstrap(ctx: Any | None = None) -> None:
     _bootstrap_state = BootstrapState.BOOTSTRAPPING
     try:
         # 1. Basic UNO context
-        if ctx is None:
-            from plugin.framework.uno_context import get_ctx
+        from plugin.framework.queue_executor import default_executor
 
+        if ctx is None:
             ctx = get_ctx()
 
         if ctx is not None:
-            from plugin.framework.queue_executor import default_executor
-
             # get_ctx() prefers this over uno.getComponentContext(). LibrePy
             # already pins it; without it WriterAgent lookups can hit a
             # different context (no VCL, wrong package, Desktop segfault).
@@ -290,8 +280,6 @@ def bootstrap(ctx: Any | None = None) -> None:
         _services.register("tools", _tools)
 
         # 4b. Main Thread Execution Service
-        from plugin.framework.queue_executor import default_executor
-
         _services.register("main_thread", default_executor)
 
         # Initialize i18n
@@ -331,22 +319,19 @@ def bootstrap(ctx: Any | None = None) -> None:
                     _bootstrap_error = exc
 
         try:
-            # Wire event bus into config service
-            events_svc = _services.get("events")
-            if events_svc:
-                # Subscribe to menu:update for dynamic menu text + icons.
-                # execute runs this @background function on the main thread;
-                # dispatch already queues it with run_in_background.
-                from plugin.framework.worker_pool import run_in_background
+            # Subscribe to menu:update for dynamic menu text + icons.
+            # execute runs this @background function on the main thread;
+            # dispatch already queues it with run_in_background.
+            from plugin.framework.worker_pool import run_in_background
 
-                events_svc.subscribe("menu:update", lambda **kw: run_in_background(notify_menu_update))
+            _services.get("events").subscribe(
+                "menu:update", lambda **kw: run_in_background(notify_menu_update)
+            )
 
             if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
                 # Pre-load icons into ImageManager so first menu display has them.
                 # Eval harness is headless with no VCL pump — posting icons to "main"
                 # trips the UNO thread guard and can segfault soffice (issue #402 family).
-                from plugin.framework.worker_pool import run_in_background
-
                 run_in_background(_update_menu_icons)
 
             # Headless eval connects via UNO pipe; menu/context-menu install
@@ -372,19 +357,15 @@ _status_listeners: list[tuple[Any, Any]] = []  # [(listener, url)]
 _status_lock = threading.Lock()
 
 
-def _split_command(command: str) -> tuple[str, str] | None:
-    """Split a command into (module_name, action) at the first dot, or None if dot <= 0."""
+def _module_for_command(command: str) -> tuple[ModuleBase | None, str] | None:
     dot = command.find(".")
     if dot <= 0:
         return None
-    return command[:dot], command[dot + 1 :]
-
-
-def _find_module(mod_name: str) -> ModuleBase | None:
+    mod_name, action = command[:dot], command[dot + 1 :]
     for mod in _modules:
         if mod.name == mod_name:
-            return mod
-    return None
+            return mod, action
+    return None, action
 
 
 def _dispatch_command(command: str) -> None:
@@ -407,18 +388,13 @@ def _dispatch_command(command: str) -> None:
         try:
             handler()
         except Exception as e:
-            from plugin.framework.main_shared import report_action_failure
-
             report_action_failure(command, e)
         return
 
     # If no handler, check for module delegation
-    parts = _split_command(command)
-    if parts is not None:
-        mod_name, action = parts
-
-        # Module actions
-        mod = _find_module(mod_name)
+    target = _module_for_command(command)
+    if target is not None:
+        mod, action = target
         if mod is not None:
             mod.on_action(action)
             return
@@ -431,7 +407,7 @@ def _dispatch_command(command: str) -> None:
             code="BOOTSTRAP_FAILED",
         ) from _bootstrap_error
 
-    if parts is None:
+    if target is None:
         log.warning("Unhandled command: %s", command)
         return
 
@@ -481,24 +457,18 @@ _STATIC_MENU_TITLES: dict[str, str] = {
 def get_menu_text(command: str) -> str | None:
     """Get dynamic menu text for a command, or None for default."""
     bootstrap()
-    parts = _split_command(command)
-    if parts is None:
+    target = _module_for_command(command)
+    if target is None:
         return None
-    mod_name, action = parts
+    mod, action = target
 
     from plugin.framework.i18n import _
 
-    # Check if the module provides a dynamic text
-    mod = _find_module(mod_name)
-    if mod is not None:
-        text = mod.get_menu_text(action)
-        if text is not None:
-            return _(text)
-
-    msgid = _STATIC_MENU_TITLES.get(command)
-    if msgid is not None:
-        return _(msgid)
-
+    text = mod.get_menu_text(action) if mod is not None else None
+    if text is None:
+        text = _STATIC_MENU_TITLES.get(command)
+    if text is not None:
+        return _(text)
     return None
 
 
@@ -518,15 +488,30 @@ def _command_from_dispatch_url(url: Any) -> str:
     return command
 
 
+def _lookup_menu_text(url: Any, where: str) -> tuple[str, str | None] | None:
+    try:
+        command = _command_from_dispatch_url(url)
+        return command, get_menu_text(command)
+    except Exception:
+        log.exception("%s: menu text failed for %s", where, getattr(url, "Complete", ""))
+        return None
+
+
+def _drop_status_listeners(pairs: list[tuple[Any, Any]]) -> None:
+    # Caller holds _status_lock.
+    # What was wrong: 'is' never matched PyUNO listener proxies.
+    # How it happened: each UNO upcall is a new proxy for the same object.
+    # Why this change: uno_same plus Complete is the match used for documents.
+    _status_listeners[:] = [
+        (lstnr, u)
+        for lstnr, u in _status_listeners
+        if not any(uno_same(lstnr, fl) and u.Complete == fu.Complete for fl, fu in pairs)
+    ]
+
+
 def _prune_failed_status_listeners(failed: list[tuple[Any, Any]]) -> None:
     with _status_lock:
-        # What was wrong: prune used 'is' on PyUNO listener proxies, failing to match.
-        # How it happened: PyUNO creates different proxy instances for the same UNO object.
-        # Why this change: compare with uno_same and Complete URL matching.
-        _status_listeners[:] = [
-            (lstnr, u) for (lstnr, u) in _status_listeners
-            if not any(uno_same(lstnr, fl) and u.Complete == fu.Complete for (fl, fu) in failed)
-        ]
+        _drop_status_listeners(failed)
 
 
 @background
@@ -545,21 +530,15 @@ def notify_menu_update() -> None:
         snapshot = list(_status_listeners)
     failed = []
     for listener, url in snapshot:
-        command = ""
-        try:
-            # What was wrong: menu text retrieval and statusChanged were grouped in a single try block, so text errors treated the listener as dead.
-            # How it happened: get_menu_text exception caused the listener to be appended to failed and pruned from listeners.
-            # Why this change: isolate command/text lookup; log and skip on text failure without marking listener failed or pruning it.
-            command = _command_from_dispatch_url(url)
-            text = get_menu_text(command)
-        except Exception:
-            log.exception(
-                "notify_menu_update: menu text failed for %s",
-                getattr(url, "Complete", ""),
-            )
+        # What was wrong: menu text retrieval and statusChanged were grouped in a single try block, so text errors treated the listener as dead.
+        # How it happened: get_menu_text exception caused the listener to be appended to failed and pruned from listeners.
+        # Why this change: isolate command/text lookup; log and skip on text failure without marking listener failed or pruning it.
+        looked_up = _lookup_menu_text(url, "notify_menu_update")
+        if looked_up is None:
             continue
+        command, text = looked_up
         try:
-            _fire_status_event(listener, url, text)
+            _fire_status_event(listener, url, text, command)
         except Exception as e:
             # UNO boundary: listener.statusChanged callback
             failed.append((listener, url))
@@ -599,11 +578,10 @@ def notify_menu_update() -> None:
         run_in_background(_update_menu_icons)
 
 
-def _fire_status_event(listener: Any, url: Any, text: str | None) -> None:
+def _fire_status_event(listener: Any, url: Any, text: str | None, command: str) -> None:
     """Send a FeatureStateEvent to one listener."""
     ev = cast("Any", uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent"))
     ev.FeatureURL = url
-    command = _command_from_dispatch_url(url)
     ev.IsEnabled = True
     if command in {"main.RunFormatTests", "main.RunCalcTests", "main.RunCalcIntegrationTests", "main.RunDrawTests"}:
         ev.IsEnabled = main_shared.tests_bundled()
@@ -622,11 +600,10 @@ _IMAGE_MANAGER_MODULES = ("com.sun.star.text.TextDocument", "com.sun.star.sheet.
 def _get_menu_icon(command: str) -> str | None:
     """Get dynamic icon prefix for a command, or None."""
     bootstrap()
-    parts = _split_command(command)
-    if parts is None:
+    target = _module_for_command(command)
+    if target is None:
         return None
-    mod_name, action = parts
-    mod = _find_module(mod_name)
+    mod, action = target
     if mod is not None:
         return mod.get_menu_icon(action)
     return None
@@ -643,11 +620,10 @@ def _collect_icon_commands() -> dict[str, tuple[str, str]]:
         return {}
 
     result: dict[str, tuple[str, str]] = {}
-    import typing
 
     for m in cast("list[dict[str, Any]]", MODULES):
         mod_name = str(m["name"])
-        action_icons = typing.cast("typing.Dict[str, str]", m.get("action_icons", {}))
+        action_icons = cast("dict[str, str]", m.get("action_icons", {}))
         for action_name, default_icon in action_icons.items():
             cmd_url = "%s%s.%s" % (_DISPATCH_PROTOCOL, mod_name, action_name)
             # Ask the module for dynamic icon (may override the default)
@@ -664,14 +640,6 @@ def _icon_apply_signature(
     icon_cmds: dict[str, tuple[str, str]], px: int
 ) -> tuple[tuple[tuple[str, str], ...], int]:
     return (tuple(sorted((url, prefix) for url, (_mod, prefix) in icon_cmds.items())), px)
-
-
-def _icons_unchanged(
-    icon_cmds: dict[str, tuple[str, str]],
-    px: int,
-    stamp: tuple[tuple[tuple[str, str], ...], int] | None,
-) -> bool:
-    return _icon_apply_signature(icon_cmds, px) == stamp
 
 
 def _load_icon_graphic(module_name: str, icon_filename: str, ctx: Any | None = None) -> Any:
@@ -744,7 +712,7 @@ def _update_menu_icons_impl() -> None:
         # managers; the stamp skips that when the command-to-prefix map and the
         # pixel size are unchanged, and it stays unset when a load or replace
         # failed so the next click retries.
-        if _icons_unchanged(icon_cmds, icon_px, _icon_apply_stamp):
+        if _icon_apply_signature(icon_cmds, icon_px) == _icon_apply_stamp:
             return
 
         # Group by (module, prefix) to avoid loading the same graphic twice
@@ -835,6 +803,7 @@ def _update_menu_icons() -> None:
 
 
 _LEGACY_FRAMEWORK_COMMANDS: dict[str, str] = {
+    "settings": "main.settings",
     "ToggleMCPServer": "mcp.toggle_server",
     "MCPStatus": "mcp.server_status",
     "RunFormatTests": "main.RunFormatTests",
@@ -879,106 +848,50 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             log.exception("MainBootstrapJob.trigger: init_logging failed")
 
         try:
-            args = Event
-            if args and ("." in args or args.startswith("plugin.")):
-                cmd = args
-                if cmd.startswith("plugin."):
-                    cmd = cmd[7:]
+            if Event and ("." in Event or Event.startswith("plugin.")):
+                cmd = Event[7:] if Event.startswith("plugin.") else Event
                 _dispatch_command(cmd)
                 return
 
-            if args == "settings":
-                _dispatch_command("main.settings")
-                return
-
-            if self._handle_framework_actions(args):
+            legacy = _LEGACY_FRAMEWORK_COMMANDS.get(Event)
+            if legacy is not None:
+                _dispatch_command(legacy)
                 return
 
             model = get_active_document(self.ctx)
             from plugin.doc.doc_type import get_document_type, DocumentType
 
             doc_type = get_document_type(model)
-            if doc_type in (DocumentType.WRITER, DocumentType.CALC):
-                self._handle_selection_actions(args, model)
-        except Exception as exc:  # UNO boundary: XJobExecutor.trigger entry point
-            from plugin.framework.main_shared import report_action_failure
+            if doc_type in (DocumentType.WRITER, DocumentType.CALC) and Event in ("ExtendSelection", "EditSelection"):
+                # What was wrong: accelerator actions bypassed _dispatch_command and never bootstrapped.
+                # How it happened: accelerators invoke trigger with ExtendSelection directly.
+                # Why this change: bootstrap eagerly before calling selection action.
+                bootstrap()
+                from plugin.chatbot.dialog_views import input_box
+                from plugin.chatbot.selection import do_selection_action_for_document
 
+                do_selection_action_for_document(self.ctx, model, input_box, Event == "EditSelection")
+        except Exception as exc:  # UNO boundary: XJobExecutor.trigger entry point
             report_action_failure(str(Event or "trigger"), exc)
 
-    def _handle_framework_actions(self, args: str) -> bool:
-        cmd = _LEGACY_FRAMEWORK_COMMANDS.get(args)
-        if cmd is None:
-            return False
-        _dispatch_command(cmd)
-        return True
 
-    def _handle_selection_actions(self, args: str, model: Any) -> None:
-        if args in ("ExtendSelection", "EditSelection"):
-            self._handle_selection_action(args, model)
-
-    def _handle_selection_action(self, args: str, model: Any) -> None:
-        # What was wrong: accelerator actions bypassed _dispatch_command and never bootstrapped.
-        # How it happened: accelerators invoke trigger with ExtendSelection directly.
-        # Why this change: bootstrap eagerly before calling selection action.
-        bootstrap()
-        from plugin.chatbot.dialog_views import input_box
-        from plugin.chatbot.selection import do_selection_action_for_document
-
-        do_selection_action_for_document(self.ctx, model, input_box, args == "EditSelection")
-
-
-class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitialization, XServiceInfo):
+class DispatchHandler(ExtensionProtocolHandler):
     """Protocol handler for WriterAgent dispatch URLs.
 
     Handles menu dispatch and supports dynamic menu text via
     FeatureStateEvent / addStatusListener.
     """
 
+    EXTENSION_ID: ClassVar[str] = EXTENSION_ID
     IMPL_NAME: ClassVar[str] = f"{EXTENSION_ID}.DispatchHandler"
-    SERVICE_NAMES: ClassVar[tuple[str, ...]] = ("com.sun.star.frame.ProtocolHandler",)
-    ctx: Any
-
-    def __init__(self, ctx: Any) -> None:
-        self.ctx = ctx
-
-    # ── XInitialization ──────────────────────────────────────────
-
-    def initialize(self, aArguments: Any) -> None:
-        pass
-
-    # ── XServiceInfo ─────────────────────────────────────────────
-
-    def getImplementationName(self) -> str:
-        return self.IMPL_NAME
-
-    def supportsService(self, ServiceName: str) -> bool:
-        return ServiceName in self.SERVICE_NAMES
-
-    def getSupportedServiceNames(self) -> tuple[str, ...]:
-        return self.SERVICE_NAMES
-
-    # ── XDispatchProvider ────────────────────────────────────────
-
-    def queryDispatch(self, URL: UnoURL, TargetFrameName: str, SearchFlags: int) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
-        if matches_extension_dispatch_url(URL, EXTENSION_ID):
-            return cast("XDispatch", self)
-        # UNO allows null dispatch; stub types reject None → cast via object.
-        return cast("XDispatch", cast("object", None))
-
-    def queryDispatches(self, Requests: tuple[DispatchDescriptor, ...]) -> tuple[XDispatch, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in Requests)
 
     # ── XDispatch ────────────────────────────────────────────────
 
     def dispatch(self, URL: UnoURL, Arguments: Any) -> None:
-        url = URL
-        command = _command_from_dispatch_url(url)
-        from plugin.framework.logging import init_logging, log_exception
-
+        command = _command_from_dispatch_url(URL)
         try:
             init_logging(self.ctx)
             log.info(f"Dispatch entered: {command}")
-            # msgbox(self.ctx, "Dispatch", f"Command: {command}") # Temporary probe
             _dispatch_command(command)
             # After action, push updated menu text
             from plugin.framework.worker_pool import run_in_background
@@ -1000,47 +913,27 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             )
 
     def addStatusListener(self, Control: Any, URL: UnoURL) -> None:
-        listener = Control
-        url = URL
         with _status_lock:
             # What was wrong: re-registering a status listener for the same control and URL added duplicates.
             # How it happened: addStatusListener unconditionally appended without deduplication.
             # Why this change: drop existing entries matching uno_same and Complete URL before appending.
-            _status_listeners[:] = [
-                (lstnr, u)
-                for lstnr, u in _status_listeners
-                if not (uno_same(lstnr, listener) and u.Complete == url.Complete)
-            ]
-            _status_listeners.append((listener, url))
+            _drop_status_listeners([(Control, URL)])
+            _status_listeners.append((Control, URL))
         # Send current state immediately
-        try:
-            command = _command_from_dispatch_url(url)
-            text = get_menu_text(command)
-        except Exception:
-            log.exception(
-                "addStatusListener: menu text failed for %s",
-                getattr(url, "Complete", ""),
-            )
+        looked_up = _lookup_menu_text(URL, "addStatusListener")
+        if looked_up is None:
             return
+        command, text = looked_up
 
         if text is not None:
             try:
-                _fire_status_event(listener, url, text)
+                _fire_status_event(Control, URL, text, command)
             except Exception as e:  # UNO boundary: initial statusChanged callback
                 log.warning("addStatusListener: failed to fire initial status event for %s: %s", command, e)
 
     def removeStatusListener(self, Control: Any, URL: UnoURL) -> None:
-        listener = Control
-        url = URL
         with _status_lock:
-            # PyUNO hands removeStatusListener a new proxy for the same listener,
-            # so 'is' left the row in _status_listeners and every rebind appended another.
-            # uno_same is the identity ladder already used for document objects.
-            _status_listeners[:] = [
-                (lstnr, u)
-                for lstnr, u in _status_listeners
-                if not (uno_same(lstnr, listener) and u.Complete == url.Complete)
-            ]
+            _drop_status_listeners([(Control, URL)])
 
 
 # pythonloader loads a static g_ImplementationHelper variable

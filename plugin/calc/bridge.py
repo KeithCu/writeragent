@@ -51,6 +51,14 @@ def filter_agent_sheet_names(names: Any) -> list[str]:
     return [n for n in names if is_agent_visible_sheet(n)]
 
 
+def used_range_address(sheet: Any) -> Any:
+    """Return the sheet used-area RangeAddress (start, then expand to the end)."""
+    cursor = sheet.createCursor()
+    cursor.gotoStartOfUsedArea(False)
+    cursor.gotoEndOfUsedArea(True)
+    return cursor.getRangeAddress()
+
+
 class NamedRangeHit(NamedTuple):
     container: Any
     scope: str  # sheet name, or "global"
@@ -93,14 +101,9 @@ def find_named_range(doc: Any, name: str) -> NamedRangeHit | None:
 
     # 2. Active sheet
     active_sheet = uno_read(lambda: CalcBridge(doc).get_active_sheet(), None)
-    active_name = (
-        active_sheet.getName()
-        if (active_sheet is not None and hasattr(active_sheet, "getName"))
-        else None
-    )
+    active_name = active_sheet.getName() if active_sheet is not None else None
     if active_sheet is not None:
-        scope = "" if active_name is None else active_name
-        hit = _named_range_hit(active_sheet, clean_name, scope, active_sheet)
+        hit = _named_range_hit(active_sheet, clean_name, active_name or "", active_sheet)
         if hit is not None:
             return hit
 

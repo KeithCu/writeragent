@@ -11,7 +11,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.framework.tool import ToolContext
-from plugin.mcp.document_mutation_gate import _tool_needs_document_mutation_gate
 from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
 
@@ -63,12 +62,6 @@ def test_requires_document_lock_string_domains(writer_gateway: DelegateToSpecial
     # Mutating domains require lock
     assert writer_gateway.requires_document_lock({"domain": "tables"}) is True
     assert writer_gateway.requires_document_lock({"domain": "shapes"}) is True
-
-
-def test_mcp_mutation_gate_non_str_domain(writer_gateway: DelegateToSpecializedWriter) -> None:
-    """_tool_needs_document_mutation_gate must not crash on unhashable dict domain arguments."""
-    needs_gate = _tool_needs_document_mutation_gate(writer_gateway, {"domain": {"type": "object"}})
-    assert needs_gate is True
 
 
 def test_execute_non_str_domain_returns_error(

@@ -548,7 +548,6 @@ def _bare_backend():
     backend._turn = 0
     backend._turn_pending = False
     backend._stop_turn = 0
-    backend._prompt_inflight = False
     backend._prompt_done = threading.Event()
     backend._prompt_done.set()
     backend._state_lock = threading.Lock()
@@ -906,7 +905,7 @@ class TestStopAndShutdown:
     def test_stop_while_inflight_cancels_the_session_and_keeps_the_process(self):
         backend = _bare_backend()
         backend._session_id = "sess-1"
-        backend._prompt_inflight = True
+        backend._inflight_token = object()
         backend._prompt_done.clear()
         conn = MagicMock()
         conn.is_alive = True
@@ -921,7 +920,7 @@ class TestStopAndShutdown:
     def test_stop_cancel_uses_the_inflight_connection_and_session(self):
         backend = _bare_backend()
         backend._turn = 4
-        backend._prompt_inflight = True
+        backend._inflight_token = object()
         backend._prompt_done.clear()
         backend._session_id = "sess-old"
 
@@ -1068,7 +1067,7 @@ class TestStopAndShutdown:
         with pytest.raises(_TurnStopped):
             backend._request(conn, "session/prompt", {}, 1)
         conn.send_request.assert_not_called()
-        assert (backend._prompt_inflight) is False
+        assert backend._inflight_token is None
         assert (backend._prompt_done.is_set()) is True
 
     def test_stop_just_before_the_prompt_does_not_send_it(self):
@@ -1126,7 +1125,6 @@ class TestStopAndShutdown:
         token = object()
         backend._inflight_token = token
         backend._turn = 3
-        backend._prompt_inflight = True
         backend._session_id = "sess"
         backend._ready = True
         conn = _mock_conn()
@@ -1147,7 +1145,6 @@ class TestStopAndShutdown:
         other_token = object()
         backend._inflight_token = token
         backend._turn = 4
-        backend._prompt_inflight = True
         backend._session_id = "sess"
         conn = _mock_conn()
         conn.is_alive = True
@@ -1420,7 +1417,7 @@ class TestStopAndShutdown:
                         {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "second"}}},
                         None,
                     )
-                    assert backend._prompt_inflight is True
+                    assert backend._inflight_token is not None
                     return {"stopReason": "end_turn"}
             raise AssertionError(f"Unexpected send_request: {method}")
 
@@ -2237,7 +2234,7 @@ class TestReplyAndCancelDoNotSwallow:
         conn.is_alive = True
         backend._conn = conn
         backend._session_id = "sess-1"
-        backend._prompt_inflight = True
+        backend._inflight_token = object()
         conn.send_notification.side_effect = TypeError("not json")
         with pytest.raises(TypeError, match="not json"):
             backend.stop()

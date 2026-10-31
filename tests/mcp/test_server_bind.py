@@ -9,12 +9,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from plugin.framework.http_server import format_bind_failure
-from plugin.mcp.server import (
-    HttpServer,
+from plugin.framework.http_server import (
     _PORT_IN_USE_GUIDANCE,
+    format_bind_failure,
     is_port_in_use_error,
 )
+from plugin.mcp.server import HttpServer
 
 
 def _free_port() -> int:
@@ -114,7 +114,6 @@ def test_start_server_stashes_last_start_error(monkeypatch):
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
     mod._registry = MagicMock()
     mod._srv_lock = threading.Lock()
-    mod._server = None
     mod.name = "mcp"
 
     boom = OSError(98, "Address already in use")
@@ -152,7 +151,6 @@ def test_mcp_module_does_not_register_api_config(monkeypatch):
 
     with mcp_mod._http_peer_lock:
         mcp_mod._primary_http_module = None
-        mcp_mod._shared_registry = None
         mcp_mod._shared_http_server = None
         mcp_mod._shared_tunnel = None
 
@@ -241,7 +239,6 @@ def _module_with_listener(monkeypatch, listener, cfg_values, *, fail_start: Base
     mod._services = services
     mod._registry = MagicMock()
     mod._srv_lock = threading.Lock()
-    mod._server = listener
     mod._tunnel = None
     mod._mcp_routes_registered = True
     mod._mcp_protocol = None
@@ -272,7 +269,9 @@ def test_mcp_port_only_change_rebinds_running_server(monkeypatch):
     assert len(created) == 1
     assert created[0].port == 19000
     assert created[0].is_running()
-    assert mod._bound_http_server() is created[0]
+    import plugin.mcp as mcp_mod
+
+    assert mcp_mod._shared_http_server is created[0]
     assert dialogs == []
     assert cfg.get("mcp_port") == 19000
 
@@ -340,7 +339,9 @@ def test_mcp_port_change_while_disabled_does_not_start(monkeypatch):
     mod._on_config_changed(key="mcp.mcp_port", value=19000)
     assert created == []
     assert dialogs == []
-    assert mod._bound_http_server() is None
+    import plugin.mcp as mcp_mod
+
+    assert mcp_mod._shared_http_server is None
 
 
 def test_mcp_port_change_starts_when_enabled_but_stopped(monkeypatch):
@@ -371,10 +372,10 @@ def test_mcp_port_rebind_failure_stops_old_listener_and_reports(monkeypatch):
     assert old.is_running() is False
     assert len(created) == 1
     assert created[0].is_running() is False
-    assert mod._bound_http_server() is None
-    assert dialogs == ["settings-ctx"]
     import plugin.mcp as mcp_mod
 
+    assert mcp_mod._shared_http_server is None
+    assert dialogs == ["settings-ctx"]
     assert mcp_mod._last_start_failure is not None and mcp_mod._last_start_failure[2] is boom
 
 

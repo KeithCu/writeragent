@@ -43,14 +43,21 @@ def missing_package_error(helper: str, package: str) -> dict[str, Any]:
     )
 
 
+def is_blank_param(value: Any, *, strip: bool = False) -> bool:
+    # Ranges must not use ``!= ""`` (numpy truthiness). strip=False keeps
+    # whitespace-only quantities parseable; strip=True treats them as blank.
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return (value.strip() if strip else value) == ""
+    return False
+
+
 def _sheet_layout_flags(spec_dict: dict[str, Any]) -> tuple[bool, int] | dict[str, Any]:
     """Extract and validate sheet layout flags (headers, header_row) from spec_dict."""
     try:
         headers = coerce_bool(spec_dict.get("headers"), name="headers", default=True)
-        if "header_row" in spec_dict:
-            header_row = coerce_int(spec_dict["header_row"], name="header_row")
-        else:
-            header_row = 0
+        header_row = coerce_int(spec_dict["header_row"], name="header_row") if "header_row" in spec_dict else 0
     except ValueError as exc:
         return error_result("INVALID_SPEC", str(exc))
     return headers, header_row
@@ -92,7 +99,6 @@ def resolve_spec_helper(
     spec: dict[str, Any] | str,
     *,
     helper_names: frozenset[str] | set[str],
-    missing_code: str = "MISSING_HELPER",
 ) -> tuple[str, dict[str, Any]] | dict[str, Any]:
     """Extract helper name and spec dict from spec, or return an error dict."""
     if isinstance(spec, str):
@@ -104,7 +110,7 @@ def resolve_spec_helper(
 
     helper = str(spec_dict.get("helper") or "").strip()
     if not helper:
-        return error_result(missing_code, "helper is required")
+        return error_result("MISSING_HELPER", "helper is required")
     if helper not in helper_names:
         return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
     return helper, spec_dict
@@ -149,20 +155,6 @@ def run_trusted_spec(
     return result
 
 
-def _trusted_action_spec(helper: Any, params: Any, packet: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Build a spec dict for spec-driven venv dispatchers."""
-    # What was wrong: non-dict params became {}, so a malformed packet ran
-    # the helper with defaults and reported a misleading helper-level error.
-    # How it happened: the boundary coerced any non-dict value instead of rejecting it.
-    # Why this change: fail at the boundary like _require_str does for bad fields.
-    if params is not None and not isinstance(params, dict):
-        raise ValueError("params must be a dict")
-    coerced_params = dict(params or {})
-    spec: dict[str, Any] = {"helper": str(helper or ""), "params": coerced_params}
-    spec.update(extract_sheet_layout(packet))
-    return spec
-
-
 def _require_str(value: Any, label: str) -> str:
     # Blank and whitespace-only values are rejected. The original string is
     # returned: LanguageTool and Vale offsets point into this text, and
@@ -185,34 +177,27 @@ def _require_str_list(value: Any, label: str) -> list[str]:
 
 def _packet_parts(data: dict[str, Any]) -> tuple[dict[str, Any], Any, dict[str, Any]]:
     """Return ``(spec, data_range, context)`` from a trusted-action packet."""
-    spec = _trusted_action_spec(data.get("helper"), data.get("params"), data)
+    # What was wrong: non-dict params became {}, so a malformed packet ran
+    # the helper with defaults and reported a misleading helper-level error.
+    # How it happened: the boundary coerced any non-dict value instead of rejecting it.
+    # Why this change: fail at the boundary like _require_str does for bad fields.
+    params = data.get("params")
+    if params is not None and not isinstance(params, dict):
+        raise ValueError("params must be a dict")
+    spec: dict[str, Any] = {"helper": str(data.get("helper") or ""), "params": dict(params or {})}
+    spec.update(extract_sheet_layout(data))
     raw_ctx = data.get("context")
     context = raw_ctx if isinstance(raw_ctx, dict) else {}
     return spec, data.get("data_range"), context
 
 
-# Same seven domains as the spec rows in trusted_action_registry.
-# text, vision, sql, languagetool, vale, embedding, and langdetect do not fit.
-_SPEC_DOMAIN_RUNNERS: dict[str, tuple[str, str]] = {
-    "units": ("plugin.scripting.venv.units", "run_units"),
-    "symbolic": ("plugin.scripting.venv.symbolic", "run_symbolic"),
-    "viz": ("plugin.scripting.venv.viz", "run_viz"),
-    "analysis": ("plugin.scripting.venv.analysis", "run_analysis"),
-    "forecast": ("plugin.scripting.venv.forecast", "run_forecast"),
-    "optimize": ("plugin.scripting.venv.optimize", "run_optimize"),
-    "quant": ("plugin.scripting.venv.quant", "run_quant"),
-}
-
-
+# text, vision, sql, languagetool, vale, embedding, and langdetect do not fit
+# this (spec, data, context) shape.
 def dispatch_spec_domain(data: dict[str, Any]) -> Any:
     domain = data.get("domain")
-    target = _SPEC_DOMAIN_RUNNERS.get(domain) if isinstance(domain, str) else None
-    # Harness lookup used this same domain string. A miss is a direct call.
-    assert target is not None, domain
-    module_name, attr_name = target
-    mod = importlib.import_module(module_name)
+    mod = importlib.import_module(f"plugin.scripting.venv.{domain}")
     spec, data_range, context = _packet_parts(data)
-    return getattr(mod, attr_name)(spec, data_range, context)
+    return getattr(mod, f"run_{domain}")(spec, data_range, context)
 
 
 def dispatch_text(data: dict[str, Any]) -> Any:

@@ -25,6 +25,7 @@ from typing import Any
 
 from plugin.framework.errors import best_effort
 from plugin.framework.thread_guard import _unwrap_uno
+from plugin.framework.uno_context import _read_runtime_uid
 from plugin.framework.uno_listeners import _HAVE_UNO as _HAVE_UNO_DOC_EVENTS
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from plugin.scripting.session_manager import calc_workbook_base_session_id
@@ -41,11 +42,9 @@ _LISTENERS: dict[str, "_CalcPythonUnloadListener"] = {}
 # look this up and must not call getPropertyValue / getURL on the cached model.
 # Weak keys so a collected document cannot leave an id that a new object reuses.
 _LIFECYCLE_KEYS: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()
-_LIFECYCLE_REFS_BY_KEY: dict[str, list[weakref.ReferenceType[Any]]] = {}
 # PyUNO objects often reject weakref. Those ids are stored with a strong reference
 # to the object so Python cannot reuse the id for a different document before unload.
 _LIFECYCLE_KEY_BY_DOC_ID: dict[int, tuple[str, Any]] = {}
-_DOC_IDS_BY_LIFECYCLE_KEY: dict[str, set[int]] = {}
 
 
 def _doc_objects(doc: Any) -> list[Any]:
@@ -66,24 +65,15 @@ def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
         for obj in objects:
             try:
                 previous = _LIFECYCLE_KEYS.get(obj)
-                if previous and previous != key:
-                    _rekey_listener(previous, key)
                 _LIFECYCLE_KEYS[obj] = key
             except TypeError:
                 doc_id = id(obj)
-                # Store (key, obj) so obj stays alive. When a PyUNO object
-                # rejects weakref, id(obj) alone can be reused for a
-                # different document and cancel the wrong spill timer.
                 entry = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
                 previous = entry[0] if entry is not None else None
-                if previous and previous != key:
-                    _rekey_listener(previous, key)
+                # Strong ref: PyUNO often rejects weakref, and id() can be reused.
                 _LIFECYCLE_KEY_BY_DOC_ID[doc_id] = (key, obj)
-                _DOC_IDS_BY_LIFECYCLE_KEY.setdefault(key, set()).add(doc_id)
-                continue
-            refs = _LIFECYCLE_REFS_BY_KEY.setdefault(key, [])
-            if not any(existing() is obj for existing in refs):
-                refs.append(weakref.ref(obj))
+            if previous and previous != key:
+                _rekey_listener(previous, key)
 
 
 def _forget_doc_lifecycle_key(key: str) -> None:
@@ -91,18 +81,16 @@ def _forget_doc_lifecycle_key(key: str) -> None:
     if not key:
         return
     with _LOCK:
-        for ref in _LIFECYCLE_REFS_BY_KEY.pop(key, ()):
-            obj = ref()
-            if obj is not None and _LIFECYCLE_KEYS.get(obj) == key:
+        for obj, stored in list(_LIFECYCLE_KEYS.items()):
+            if stored == key:
                 _LIFECYCLE_KEYS.pop(obj, None)
-        for doc_id in _DOC_IDS_BY_LIFECYCLE_KEY.pop(key, ()):
-            entry = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
-            if entry is not None and entry[0] == key:
+        for doc_id, entry in list(_LIFECYCLE_KEY_BY_DOC_ID.items()):
+            if entry[0] == key:
                 _LIFECYCLE_KEY_BY_DOC_ID.pop(doc_id, None)
 
 
 def _rekey_listener(old: str, new: str) -> None:
-    """Move a listener and its alias bookkeeping to a document's upgraded key.
+    """Move the unload listener when a document's key is upgraded.
 
     Caller holds ``_LOCK``. Without the move the old key kept a listener, the
     new key installed a second one, and unload forgot only the new alias.
@@ -111,12 +99,6 @@ def _rekey_listener(old: str, new: str) -> None:
     if listener is not None:
         listener._lifecycle_key = new
         _LISTENERS[new] = listener
-    refs = _LIFECYCLE_REFS_BY_KEY.pop(old, None)
-    if refs:
-        _LIFECYCLE_REFS_BY_KEY.setdefault(new, []).extend(refs)
-    doc_ids = _DOC_IDS_BY_LIFECYCLE_KEY.pop(old, None)
-    if doc_ids:
-        _DOC_IDS_BY_LIFECYCLE_KEY.setdefault(new, set()).update(doc_ids)
 
 
 def lifecycle_key_if_known(doc: Any | None) -> str:
@@ -157,8 +139,6 @@ def _lifecycle_key(doc: Any) -> str:
     A RuntimeUID read still replaces that fallback.
     """
     # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute and accepted non-strings. _read_runtime_uid walks method, attribute, then property, and keeps only str or int, with no thread check.
-    from plugin.framework.uno_context import _read_runtime_uid
-
     uid = _read_runtime_uid(doc)
     if uid:
         _remember_doc_lifecycle_key(doc, uid)
@@ -264,7 +244,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         """Retry resetting a worker session that returned WORKER_REENTRY."""
         # do_retry sleeps up to 5s, so run it on a dedicated background
         # worker. On the shared pool that sleep starves other tasks.
-        last_res: Any = None
+        res: Any = None
         for _attempt in range(10):
             time.sleep(0.5)
             # Check after the sleep: a reopen can register during it.
@@ -272,15 +252,29 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 log.debug("python_workbook_lifecycle: %s reopened; dropping reset retry", sid)
                 return
             try:
-                last_res = reset_python_session(self._ctx, sid)
-                if _is_reentry(last_res):
-                    continue
-                break
+                res = reset_python_session(self._ctx, sid)
             except Exception:
                 log.debug("python_workbook_lifecycle: retry reset raised", exc_info=True)
                 break
-        if _is_reentry(last_res):
+            if not _is_reentry(res):
+                return
+        if _is_reentry(res):
             log.warning("python_workbook_lifecycle: session %s still WORKER_REENTRY after retry timeout", sid)
+
+    def _reset_one(self, sid: str) -> None:
+        res = reset_python_session(self._ctx, sid)
+        if _is_reentry(res):
+            from plugin.framework.worker_pool import run_in_background
+
+            # A sleeping background job uses dedicated=True (AGENTS.md).
+            # The retry aborts if a new listener appears for the same session (reopen).
+            run_in_background(
+                lambda: self._retry_reset(sid),
+                name="reset_python_session_retry",
+                dedicated=True,
+            )
+        elif isinstance(res, dict) and res.get("status") != "ok":
+            log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
 
     def _reset_sessions(self, session_ids: tuple[str, ...]) -> None:
         # OnUnload must finish a live reset before it returns. A background
@@ -289,25 +283,8 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         # so this thread waits only for in-place IPC on a worker that already
         # exists (_ensure_running does not call _start_child in that case).
         for sid in session_ids:
-            if not sid:
-                continue
-
-            def _do_reset(s: str = sid) -> None:
-                res = reset_python_session(self._ctx, s)
-                if _is_reentry(res):
-                    from plugin.framework.worker_pool import run_in_background
-
-                    # A sleeping background job uses dedicated=True (AGENTS.md).
-                    # The retry aborts if a new listener appears for the same session (reopen).
-                    run_in_background(
-                        lambda: self._retry_reset(s),
-                        name="reset_python_session_retry",
-                        dedicated=True,
-                    )
-                elif isinstance(res, dict) and res.get("status") != "ok":
-                    log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", s, res.get("message"))
-
-            best_effort(_do_reset, "python_workbook_lifecycle: reset on unload")
+            if sid:
+                best_effort(lambda: self._reset_one(sid), "python_workbook_lifecycle: reset on unload")
 
     def _release_calc_state(self, session_ids: tuple[str, ...], doc_urls: tuple[str, ...], lifecycle_key: str) -> None:
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
@@ -381,15 +358,6 @@ def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any) -> None:
     _register(doc, key, lambda: _CalcPythonUnloadListener(ctx, session_id, key, doc_url=doc_url), lambda existing: existing.note_calc_identity(session_id, doc_url))
 
 
-def _script_lifecycle_key(doc: Any, session_id: str) -> str:
-    """Stable listener key that does not record a Calc session for Writer/Draw."""
-    # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute and accepted non-strings. _read_runtime_uid walks method, attribute, then property, and keeps only str or int, with no thread check.
-    from plugin.framework.uno_context import _read_runtime_uid
-
-    uid = _read_runtime_uid(doc)
-    return f"py:{uid or session_id}"
-
-
 def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str | None) -> None:
     """Drop *session_id* when *doc* closes.
 
@@ -401,5 +369,7 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
     if session_id.startswith("calc:"):
         ensure_calc_workbook_unload_resets_python(ctx, doc)
         return
-    key = _script_lifecycle_key(doc, session_id)
+    # Writer/Draw key. Must not record a Calc session id. Same RuntimeUID ladder as _lifecycle_key.
+    uid = _read_runtime_uid(doc)
+    key = f"py:{uid or session_id}"
     _register(doc, key, lambda: _CalcPythonUnloadListener(ctx, session_id, key, calc_cleanup=False), lambda existing: existing.note_session(session_id))

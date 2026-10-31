@@ -435,8 +435,8 @@ def test_materialize_calc_range_split_grid_inner():
     wire = pack_calc_range_envelope(
         grid,
         address="  Sheet1.A1  ",
-        pack_inner=lambda rows: host_pack_data(rows, force="always"),
     )
+    wire["data"] = host_pack_data(wire["data"], force="always")
     rng = materialize_calc_range(wire)
     assert rng.values == [[1, 2], [3, 4]]
     assert rng.address == "Sheet1.A1"

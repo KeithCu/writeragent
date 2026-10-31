@@ -143,6 +143,10 @@ def _literal_value(node: ast.AST) -> Any:
     return _UNRESOLVED
 
 
+def _bound_alias_names(aliases: list[ast.alias]) -> set[str]:
+    return {alias.asname or alias.name for alias in aliases} - {"", "*"}
+
+
 def _writeragent_imported_names(tree: ast.AST) -> set[str]:
     """Names brought in by ``from writeragent... import``.
 
@@ -156,10 +160,7 @@ def _writeragent_imported_names(tree: ast.AST) -> set[str]:
         module = node.module or ""
         if module != "writeragent" and not module.startswith("writeragent."):
             continue
-        for alias in node.names:
-            bound = alias.asname or alias.name
-            if bound and bound != "*":
-                names.add(bound)
+        names.update(_bound_alias_names(node.names))
     return names
 
 
@@ -188,12 +189,11 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
     {"quantity": "data"}.
     """
     params: dict[str, Any] = {}
-    if node.keywords and any(kw.arg is None for kw in node.keywords):
-        for kw in node.keywords:
-            if kw.arg is None:
-                val = _literal_value(kw.value)
-                if isinstance(val, dict):
-                    params.update(val)
+    for kw in node.keywords:
+        if kw.arg is None:
+            val = _literal_value(kw.value)
+            if isinstance(val, dict):
+                params.update(val)
     for kw in node.keywords:
         if kw.arg is not None:
             val = _literal_value(kw.value)
@@ -280,10 +280,7 @@ def _ast_needs_data_binding(tree: ast.AST) -> bool:
         if isinstance(node, ast.ImportFrom):
             mod = node.module or ""
             if mod in _IMPORT_DATA_BINDING:
-                for alias in node.names:
-                    bound = alias.asname or alias.name
-                    if bound and bound != "*":
-                        imported_names.add(bound)
+                imported_names.update(_bound_alias_names(node.names))
             elif mod == "writeragent.scripting":
                 for alias in node.names:
                     if f"writeragent.scripting.{alias.name}" in _IMPORT_DATA_BINDING:
@@ -369,54 +366,48 @@ def build_helper_script_template(
     helper: str,
     params: dict[str, Any],
     description: str,
-    import_module: str | None = None,
+    import_module: str,
     run_name: str | None = None,
     data_expr: str = "data",
     context_expr: str = "{}",
-    extra_comment_lines: tuple[str, ...] = (),
-    positional_args: tuple[str, ...] | None = None,
+    extra_comment_lines: tuple[str, ...] = ("# Edit the call below, then Run.",),
+    positional_args: tuple[str, ...] = (),
     leading_data: bool = False,
     invoke: str = "direct",
 ) -> str:
     """Build a Run Python Script template body."""
-    if not import_module:
-        raise ValueError("import_module required")
-    default_extra = extra_comment_lines or ("# Edit the call below, then Run.",)
-
-    def _format_param_val(key: str, val: Any) -> str:
-        # Bare data identifier only for the injected data argument (data, value, quantity).
-        # Real string values like column="data" or dict keys must remain quoted.
-        if (key in ("data", "value", "quantity") and data_expr != "None") and val == "data":
-            return data_expr
-        return _python_literal(val)
-
-    pos_keys = positional_args or ()
-    parts: list[str] = []
-    if leading_data:
-        parts.append(data_expr)
-    for key in pos_keys:
-        if key in params:
-            parts.append(_format_param_val(key, params[key]))
-    kw_parts = [
-        f"{key}={_format_param_val(key, val)}"
-        for key, val in params.items()
-        if key not in pos_keys
-    ]
-    args_str = ", ".join([*parts, *kw_parts])
-
-    import_name = run_name if invoke == "runner" else helper
     if invoke == "runner":
         spec_obj: dict[str, Any] = {"helper": helper}
         if params:
             spec_obj["params"] = params
+        imported = run_name
         call = f"{run_name}({_python_literal(spec_obj)}, {data_expr}, {context_expr})"
     else:
-        call = f"{helper}({args_str})"
+        def _format_param_val(key: str, val: Any) -> str:
+            # Bare data identifier only for the injected data argument (data, value, quantity).
+            # Real string values like column="data" or dict keys must remain quoted.
+            if key in ("data", "value", "quantity") and data_expr != "None" and val == "data":
+                return data_expr
+            return _python_literal(val)
+
+        parts: list[str] = []
+        if leading_data:
+            parts.append(data_expr)
+        for key in positional_args:
+            if key in params:
+                parts.append(_format_param_val(key, params[key]))
+        kw_parts = [
+            f"{key}={_format_param_val(key, val)}"
+            for key, val in params.items()
+            if key not in positional_args
+        ]
+        imported = helper
+        call = f"{helper}({', '.join([*parts, *kw_parts])})"
 
     body_lines = [
         f"# {description}",
-        *default_extra,
-        f"from {import_module} import {import_name}\n",
+        *extra_comment_lines,
+        f"from {import_module} import {imported}\n",
         f"result = {call}",
         "",
     ]
@@ -445,13 +436,6 @@ def format_elapsed_time(seconds: float) -> str:
     return f"{int(ms)} ms"
 
 
-def _append_took(message: str, elapsed: float) -> str:
-    err_msg = str(message)
-    if "timed out" in err_msg.lower() or "timeout" in err_msg.lower():
-        return err_msg
-    return f"{err_msg} (took {format_elapsed_time(elapsed)})"
-
-
 def _elapsed_since(t0: float) -> float:
     """Seconds since *t0*, or 0 while CrossHair is loaded."""
     if UNDER_CROSSHAIR:
@@ -465,11 +449,7 @@ def _exception_detail(error: BaseException) -> str:
     UNO often leaves ``str(exc)`` empty (or only a method name). An empty
     string rendered as "Failed to insert result:  (took ...)".
     """
-    detail = str(error).strip()
-    if detail:
-        return detail
-    fallback = repr(error).strip()
-    return fallback or type(error).__name__
+    return str(error).strip() or repr(error).strip() or type(error).__name__
 
 
 def rps_error_outcome(
@@ -480,7 +460,10 @@ def rps_error_outcome(
 ) -> dict[str, Any]:
     """Standard ``{ok: False, message}`` with elapsed time when not a timeout."""
     elapsed = _elapsed_since(t0)
-    out: dict[str, Any] = {"ok": False, "message": _append_took(message, elapsed)}
+    err_msg = str(message)
+    if "timed out" not in err_msg.lower() and "timeout" not in err_msg.lower():
+        err_msg = f"{err_msg} (took {format_elapsed_time(elapsed)})"
+    out: dict[str, Any] = {"ok": False, "message": err_msg}
     if traceback is not None:
         out["traceback"] = traceback
     return out
@@ -499,13 +482,11 @@ def rps_insert_failed_outcome(error: BaseException, *, t0: float) -> dict[str, A
         exc_info=error,
     )
 
-    elapsed_total = _elapsed_since(t0)
-    formatted_time_total = format_elapsed_time(elapsed_total)
     return {
         "ok": False,
         "message": _("Failed to insert result: {error} (took {time})").format(
             error=_exception_detail(error),
-            time=formatted_time_total,
+            time=format_elapsed_time(_elapsed_since(t0)),
         ),
     }
 
@@ -535,8 +516,7 @@ def preview_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    elapsed = _elapsed_since(t0)
-    formatted_time = format_elapsed_time(elapsed)
+    formatted_time = format_elapsed_time(_elapsed_since(t0))
     preview = preview_text[:80] + ("…" if len(preview_text) > 80 else "")
     status_ok = _("{domain} '{helper}' completed. Inserted: {preview} (took {time})").format(
         domain=domain_label,
@@ -555,8 +535,7 @@ def plot_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    elapsed = _elapsed_since(t0)
-    formatted_time = format_elapsed_time(elapsed)
+    formatted_time = format_elapsed_time(_elapsed_since(t0))
     msg = _("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time)
     if helper:
         status_ok = _("Viz '{helper}' completed. {msg}").format(helper=helper, msg=msg)
@@ -567,7 +546,6 @@ def plot_insert_ok_outcome(
 
 # --- Host Facade Factory ---
 
-from types import SimpleNamespace
 
 @dataclass(frozen=True)
 class DomainFacadeConfig:
@@ -588,52 +566,46 @@ class DomainFacadeConfig:
     leading_data: bool = False
     invoke: str = "direct"
 
-
-def make_template_api(cfg: DomainFacadeConfig) -> Any:
-    """Build _template_body, get_templates, and parse_header functions dynamically."""
     # crosshair: off
-    def _template_body(helper: str, params: dict[str, Any]) -> str:
-        desc = cfg.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
-        pos = cfg.positional_args.get(helper) if cfg.positional_args else None
+    def _template_body(self, helper: str, params: dict[str, Any]) -> str:
+        desc = self.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
+        pos = self.positional_args.get(helper, ()) if self.positional_args else ()
         return build_helper_script_template(
             helper=helper,
             params=params,
             description=desc,
-            import_module=cfg.import_module,
-            run_name=cfg.run_name,
-            data_expr=cfg.data_expr,
-            context_expr=cfg.context_expr,
-            extra_comment_lines=cfg.extra_comment_lines,
+            import_module=self.import_module,
+            run_name=self.run_name,
+            data_expr=self.data_expr,
+            context_expr=self.context_expr,
+            extra_comment_lines=self.extra_comment_lines,
             positional_args=pos,
-            leading_data=cfg.leading_data,
-            invoke=cfg.invoke,
+            leading_data=self.leading_data,
+            invoke=self.invoke,
         )
 
-    def get_templates() -> dict[str, str]:
-        shipped = cfg.shipped_templates if cfg.shipped_templates is not None else cfg.helper_names
+    # crosshair: off
+    def get_templates(self) -> dict[str, str]:
+        shipped = self.shipped_templates if self.shipped_templates is not None else self.helper_names
         return {
-            helper: _template_body(helper, dict(cfg.default_params.get(helper, {})))
+            helper: self._template_body(helper, dict(self.default_params.get(helper, {})))
             for helper in sorted(shipped)
-            if helper in cfg.helper_names
+            if helper in self.helper_names
         }
 
-    def parse_header(code: str) -> HelperScriptMeta | None:
+    # crosshair: off
+    def parse_header(self, code: str) -> HelperScriptMeta | None:
         return parse_helper_script_header(
             code,
-            tag=cfg.tag,
-            helper_names=cfg.helper_names,
+            tag=self.tag,
+            helper_names=self.helper_names,
         )
 
-    def template_for(helper: str) -> str | None:
-        if helper not in cfg.helper_names:
+    # crosshair: off
+    def template_for(self, helper: str) -> str | None:
+        if helper not in self.helper_names:
             return None
-        return _template_body(helper, dict(cfg.default_params.get(helper, {})))
-
-    return SimpleNamespace(
-        get_templates=get_templates,
-        parse_header=parse_header,
-        template_for=template_for,
-    )
+        return self._template_body(helper, dict(self.default_params.get(helper, {})))
 
 
 def is_status_helper_result(

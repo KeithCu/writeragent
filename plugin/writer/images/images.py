@@ -184,7 +184,6 @@ class ImageGenerate(ToolWriterImageBase):
     """Generate a new image from a prompt, or edit an existing image (Img2Img)."""
 
     name: str | None = "image_generate"
-    intent: str | None = "media"
     description: str = (
         "Generate an image from a text prompt using the Settings endpoint and insert it. "
         "To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected)."
@@ -483,7 +482,6 @@ class ImageListNearbyFiles(ToolWriterImageBase):
     """List image files in the active document's directory (images delegate only)."""
 
     name: str | None = "image_list_nearby_files"
-    intent: str | None = "media"
     description: str = (
         "List image files (.png, .jpg, .jpeg, .gif, .webp, .bmp, .svg) in the same folder as the active document "
         "(newest first). Excludes the active file. Use returned path with image_insert or image_replace. "
@@ -532,7 +530,6 @@ class ImageList(ToolWriterImageBase):
     """List all images/graphic objects in the document."""
 
     name: str | None = "image_list"
-    intent: str | None = "media"
     description: str = "List all images/graphic objects in the document with name, dimensions, title, and description."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
@@ -634,8 +631,8 @@ class ImageList(ToolWriterImageBase):
 
                     entry = {"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "title": title, "description": description, "paragraph_index": paragraph_index}
                     if is_calc:
-                        s_idx = getattr(item, "sheet_index", getattr(graphic, "_calc_sheet_index", None))
-                        s_name = getattr(item, "sheet_name", getattr(graphic, "_calc_sheet_name", None))
+                        s_idx = getattr(item, "sheet_index", None)
+                        s_name = getattr(item, "sheet_name", None)
                         if s_idx is not None:
                             entry["sheet_index"] = s_idx
                         if s_name is not None:
@@ -698,7 +695,6 @@ class ImageGetInfo(ToolWriterImageBase):
     """Get detailed info about a specific image."""
 
     name: str | None = "image_get_info"
-    intent: str | None = "media"
     description: str = "Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), hyperlink_url (the image link, including an internal target), and paragraph index."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -869,7 +865,6 @@ class ImageSetProperties(ToolWriterImageBase):
     """Resize, reposition, crop, or update caption/alt-text for an image."""
 
     name: str | None = "image_set_properties"
-    intent: str | None = "media"
     description: str = "Resize, reposition, crop, or update caption/alt-text for an image. Crop trims the given millimetres off each edge (crop_*_mm); only the edges you pass change."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -1070,7 +1065,6 @@ class ImageCropAndHighlight(ToolWriterImageBase):
     The why and the how live in :mod:`image_mark`."""
 
     name: str | None = "image_crop_and_highlight"
-    intent: str | None = "media"
     description: str = (
         "Cut an image down to a region and/or mark passages on it (highlighter, red box, underline) "
         "with boxes in the picture's OWN pixels: [x, y, width, height] from its top-left corner, "
@@ -1209,7 +1203,6 @@ class ImageDownload(ToolWriterImageBase):
     """Download an image from URL to local cache."""
 
     name: str | None = "image_download"
-    intent: str | None = "media"
     description: str = "Download an image from URL to local cache. Returns local path for image_insert/image_replace."
     scripting_only_parameters: frozenset[str] = frozenset({"verify_ssl"})
     parameters: dict[str, Any] | None = {
@@ -1251,7 +1244,6 @@ class ImageInsert(ToolWriterImageBase):
     """Insert an image from local path or URL into the document."""
 
     name: str | None = "image_insert"
-    intent: str | None = "media"
     description: str = (
         "Insert an image from local path or URL into the document. URLs are auto-downloaded first. "
         "Omitted dimensions preserve aspect ratio with the longer edge sized to 80 mm; "
@@ -1451,7 +1443,6 @@ class ImageDelete(ToolWriterImageBase):
     """Delete an image from the document."""
 
     name: str | None = "image_delete"
-    intent: str | None = "media"
     description: str = (
         "Delete an image from the document. Removes the graphic object; "
         "any frame created by image_insert_frame is a separate object."
@@ -1499,7 +1490,6 @@ class ImageReplace(ToolWriterImageBase):
     """Replace an image's source file keeping position and frame."""
 
     name: str | None = "image_replace"
-    intent: str | None = "media"
     description: str = "Replace an image's source file, keeping the same object, position, and frame. The new file is embedded. If only width_mm or only height_mm is set, the other side scales to keep the current aspect ratio. Setting both uses both sizes."
     parameters: dict[str, Any] | None = {
         "type": "object",

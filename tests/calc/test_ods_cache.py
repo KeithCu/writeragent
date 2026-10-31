@@ -9,10 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch
-
 import pytest
-import yaml
 
 from plugin.calc.ods_cache import (
     CACHE_FORMAT_VERSION,
@@ -23,8 +20,6 @@ from plugin.calc.ods_cache import (
     lookup_cached_ods,
     meta_matches_source,
     normalize_source_path,
-    ods_cache_dir,
-    ods_cache_enabled,
     source_stat,
     write_sidecar_meta,
 )
@@ -104,11 +99,6 @@ def test_ods_source_never_looks_up_cache(tmp_path: Path):
     assert not (tmp_path / ODS_CACHE_DIRNAME).exists()
 
 
-def test_ods_cache_dir_is_beside_source_folder(tmp_path: Path):
-    xlsx = _write_xlsx(tmp_path / "budget.xlsx")
-    assert os.path.normcase(str(ods_cache_dir(str(xlsx)))) == os.path.normcase(str(tmp_path / ODS_CACHE_DIRNAME))
-
-
 def test_write_sidecar_meta_is_atomic(tmp_path: Path):
     meta_path = tmp_path / "test.meta.json"
     write_sidecar_meta(meta_path, "/abs/file.xlsx", 1000, 200)
@@ -127,7 +117,11 @@ def test_normalize_source_path_resolves_symlink(tmp_path: Path):
     except (OSError, NotImplementedError):
         pytest.skip("symlinks unavailable")
     assert normalize_source_path(str(alias)) == normalize_source_path(str(budget))
-    assert ods_cache_dir(str(alias)) == ods_cache_dir(str(budget))
+    alias_entry = cache_entry(str(alias))
+    budget_entry = cache_entry(str(budget))
+    assert alias_entry is not None and budget_entry is not None
+    assert alias_entry.ods == budget_entry.ods
+    assert alias_entry.ods.parent == Path(normalize_source_path(str(budget))).parent / ODS_CACHE_DIRNAME
     _seed_cache(budget)
     assert lookup_cached_ods(str(alias)) is not None
 
@@ -143,49 +137,3 @@ def test_meta_matches_source_rejects_wrong_path(tmp_path: Path):
     }
     assert meta_matches_source(meta, abs_path, mtime_ns, size)
     assert not meta_matches_source(meta, abs_path + ".bak", mtime_ns, size)
-
-
-def test_ods_cache_enabled_false():
-    with patch("plugin.framework.config.get_config_bool", return_value=False) as mock_get:
-        assert ods_cache_enabled() is False
-        mock_get.assert_called_once_with("calc.ods_cache_enabled")
-
-
-def test_ods_cache_enabled_propagates_runtime_error():
-    with patch("plugin.framework.config.get_config_bool", side_effect=RuntimeError("disk failure")):
-        with pytest.raises(RuntimeError):
-            ods_cache_enabled()
-
-
-def test_ods_cache_enabled_unknown_key_returns_false():
-    from plugin.framework.errors import ConfigError
-
-    with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("missing", code="CONFIG_KEY_NOT_FOUND")):
-        assert ods_cache_enabled() is False
-
-
-def test_ods_cache_enabled_bad_stored_value_uses_schema_default():
-    from plugin.framework import config_schema as schema
-    from plugin.framework.errors import ConfigError
-
-    calc_yaml_path = Path(__file__).resolve().parents[2] / "plugin" / "calc" / "module.yaml"
-    data = yaml.safe_load(calc_yaml_path.read_text(encoding="utf-8"))
-    schema_default = data["config"]["ods_cache_enabled"]["default"]
-    assert schema_default is True
-
-    orig = (
-        schema.MODULES,
-        schema.CONFIG_DEFAULTS,
-        schema.CONFIG_SCHEMAS,
-        schema.DOTTED_FALLBACKS,
-    )
-    try:
-        schema.set_manifest_modules([{"name": "calc", "config": {"ods_cache_enabled": {"type": "boolean", "default": schema_default}}}])
-        with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("bad type", code="CONFIG_TYPE_ERROR")):
-            assert ods_cache_enabled() is True
-
-        schema.set_manifest_modules([{"name": "calc", "config": {"ods_cache_enabled": {"type": "boolean", "default": False}}}])
-        with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("bad type", code="CONFIG_TYPE_ERROR")):
-            assert ods_cache_enabled() is False
-    finally:
-        schema.MODULES, schema.CONFIG_DEFAULTS, schema.CONFIG_SCHEMAS, schema.DOTTED_FALLBACKS = orig

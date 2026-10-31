@@ -35,8 +35,8 @@ def test_ring_buffer_bound(monkeypatch):
     store = PythonDiagnosticsStore()
     for i in range(5):
         store.record(workbook_key="wb", code=f"c{i}", status="error", message=str(i))
-    entries = store.list_entries("wb", newest_first=False)
-    assert [e.message for e in entries] == ["2", "3", "4"]
+    entries = store.list_entries("wb")
+    assert [e.message for e in entries] == ["4", "3", "2"]
 
 
 def test_latest_for_code_and_detail():

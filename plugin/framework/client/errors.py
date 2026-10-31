@@ -20,6 +20,7 @@ import urllib.parse
 from plugin.framework.i18n import _
 from plugin.framework.errors import NetworkError, http_status_message, safe_json_loads
 from plugin.framework.client.http_security import redact_secrets
+from .responses_shim import responses_failed_message
 
 log = logging.getLogger(__name__)
 
@@ -135,14 +136,13 @@ def is_400_input_validation(err: Any) -> bool:
     # Bugfix: "400" in str(err) is true for any payload whose text happens
     # to contain those digits, including a non-400 body. The HTTP status is
     # already on details["status"] from handle_http_status via format_error_payload.
-    details = err.get("details") if isinstance(err, dict) else getattr(err, "details", None)
+    if not isinstance(err, dict):
+        return False
+    details = err.get("details")
     status = details.get("status") if isinstance(details, dict) else None
     if not isinstance(status, int) or isinstance(status, bool) or status != 400:
         return False
-    if isinstance(err, dict):
-        msg = str(err.get("message") or "").lower()
-    else:
-        msg = str(getattr(err, "message", None) or err).lower()
+    msg = str(err.get("message") or "").lower()
     return "input validation" in msg or "bad request" in msg
 
 
@@ -168,15 +168,18 @@ def stream_error_message(chunk: dict[str, Any]) -> str | None:
     if isinstance(err, str) and err.strip():
         return err.strip()
     event_type = chunk.get("type")
+    if event_type == "response.failed":
+        return responses_failed_message(chunk)
     if event_type == "error" or (isinstance(event_type, str) and event_type.endswith("_error")):
+        message = chunk.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
         return str(event_type)
     return None
 
 
 def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
     """Parse encoded chat JSON for diagnostics. Empty dict if unreadable."""
-    if not body:
-        return {}
     try:
         payload = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
     except (ValueError, TypeError, UnicodeDecodeError):
@@ -277,8 +280,6 @@ def _prompt_char_count(messages: Any) -> int:
 
 def _exit_code_from_provider_body(err_body: str) -> str | None:
     """Best-effort native exit code from an Ollama / llama-server 500 body."""
-    if not err_body:
-        return None
     matched = re.search(r"0x[0-9a-fA-F]+", err_body)
     if matched:
         return matched.group(0)

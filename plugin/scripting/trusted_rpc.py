@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -16,8 +15,6 @@ from plugin.framework.constants import WORKER_POOL_DEFAULT
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.venv_worker import run_code_in_user_venv
-
-log = logging.getLogger(__name__)
 
 
 @deal.pre(
@@ -48,17 +45,6 @@ def parse_worker_dict_result(
     return result
 
 
-_RESERVED_PAYLOAD_KEYS = frozenset({
-    "domain",
-    "helper",
-    "params",
-    "data_range",
-    "context",
-    "headers",
-    "header_row",
-})
-
-
 def run_trusted_worker_action(
     ctx: Any,
     *,
@@ -76,8 +62,6 @@ def run_trusted_worker_action(
     stop_checker: Callable[[], bool] | None = None,
     error_code: str = "TRUSTED_ACTION_ERROR",
     error_label: str = "Trusted action",
-    headers: Any = None,
-    header_row: Any = None,
     cancellation_scope: Any | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action in the warm venv worker without user code strings."""
@@ -87,32 +71,13 @@ def run_trusted_worker_action(
         cancellation_scope = getattr(ctx, "send_cancellation", None)
 
     payload: dict[str, Any] = {
+        **(additional_data or {}),
         "domain": domain,
         "helper": helper,
         "params": dict(params or {}),
         "data_range": data_range,
         "context": context or {},
     }
-    if additional_data:
-        # additional_data is merged after the routing keys. Reject reserved
-        # keys so it cannot overwrite domain, params, or context.
-        colliding = _RESERVED_PAYLOAD_KEYS.intersection(additional_data)
-        if colliding:
-            raise ValueError(f"additional_data cannot override reserved keys: {sorted(colliding)}")
-        payload.update(additional_data)
-    # Spec fields, not helper params. Omitting them made the worker default
-    # headers=True after the client had already stripped them off the spec.
-    # Pass values through unchanged so invalid values can be rejected with
-    # INVALID_SPEC by worker validation without raising here.
-    if headers is not None:
-        payload["headers"] = headers
-    if header_row is not None:
-        payload["header_row"] = header_row
-
-    def _on_heartbeat(hb: dict[str, Any]) -> None:
-        if heartbeat_fn:
-            heartbeat_fn(hb)
-        log.debug("trusted action heartbeat domain=%s helper=%s: %s", domain, helper, hb)
 
     response = run_code_in_user_venv(
         ctx,
@@ -123,7 +88,7 @@ def run_trusted_worker_action(
         worker_pool=worker_pool,
         action="run_trusted_action",
         allow_heartbeat=allow_heartbeat,
-        on_heartbeat=_on_heartbeat if allow_heartbeat else None,
+        on_heartbeat=heartbeat_fn if allow_heartbeat else None,
         stop_checker=stop_checker,
         cancellation_scope=cancellation_scope,
     )

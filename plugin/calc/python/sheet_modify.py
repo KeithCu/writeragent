@@ -75,10 +75,7 @@ def _doc_identity(doc: Any) -> str:
         return ""
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-    key = uno_probe(lambda: _lifecycle_key(doc), "")
-    if key:
-        return str(key)
-    return _doc_url_of(doc)
+    return str(uno_probe(lambda: _lifecycle_key(doc), "") or "")
 
 
 def _owning_calc_doc(sheet: Any) -> Any | None:
@@ -140,16 +137,10 @@ def cancel_pending_sheet_timers(identity: str) -> None:
     """
     if not identity:
         return
-    cancelled: list[threading.Timer] = []
     with _PENDING_LOCK:
-        for k in list(_PENDING_TIMERS.keys()):
-            if k[0] == identity:
-                timer = _PENDING_TIMERS.pop(k, None)
-                if timer is not None:
-                    cancelled.append(timer)
-    for timer in cancelled:
+        timers = [_PENDING_TIMERS.pop(k) for k in list(_PENDING_TIMERS) if k[0] == identity]
+    for timer in timers:
         timer.cancel()
-
 
 
 def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
@@ -162,11 +153,7 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
         return
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
-    lifecycle_key = ""
-    if doc is not None:
-        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
-
-        lifecycle_key = str(uno_probe(lambda: _lifecycle_key(doc), "") or "")
+    lifecycle_key = _doc_identity(doc)
     identity = lifecycle_key or url
     key = (identity, name)
     _cancel_pending(key)
@@ -200,7 +187,7 @@ def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url
     """Cancel debounce and run the pass on this thread. Tests only."""
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
-    identity = _doc_identity(doc) or url
+    identity = _doc_identity(doc) or _doc_url_of(doc) or url
     _cancel_pending((identity, name))
     run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name)
 
@@ -209,7 +196,6 @@ def migrate_sheet_rename(
     doc: Any,
     old_sheet_name: str,
     new_sheet_name: str,
-    dispatcher: "SheetModifyDispatcher | None" = None,
 ) -> None:
     """Migrate in-memory and persistent state when a sheet is renamed.
 
@@ -224,9 +210,15 @@ def migrate_sheet_rename(
     # Why this change fixes it: We collect non-empty IDs; if no valid IDs exist for the document, we log a warning and skip that map without rekeying other workbooks' entries.
     identity = _doc_identity(doc)
     url = _doc_url_of(doc)
+    ids = {x for x in (identity, url) if x}
 
-    if dispatcher is not None:
-        dispatcher.sheet_name = new_sheet_name
+    def _rekey(mapping: dict[Any, Any], touch: Any = None) -> None:
+        for key in list(mapping):
+            if key[1] == old_sheet_name and key[0] in ids:
+                value = mapping.pop(key)
+                if touch is not None:
+                    touch(value)
+                mapping[(key[0], new_sheet_name, *key[2:])] = value
 
     # Rekey SPILL_REGISTRY for this doc
     try:
@@ -237,49 +229,28 @@ def migrate_sheet_rename(
         )
 
         doc_key = _spill_registry_doc_key(doc) if doc is not None else ""
-        spill_ids = {x for x in (doc_key, identity, url) if x}
-        if not spill_ids:
-            log.warning("migrate_sheet_rename: no workbook identity found; skipping SPILL_REGISTRY migration")
-        else:
-            # Registry writes are UI-thread only, so this migration is not locked.
-            keys_to_migrate = [
-                k for k in list(SPILL_REGISTRY.keys())
-                if k[1] == old_sheet_name and k[0] in spill_ids
-            ]
-            for k in keys_to_migrate:
-                val = SPILL_REGISTRY.pop(k)
-                SPILL_REGISTRY[(k[0], new_sheet_name, k[2], k[3])] = val
-            if doc is not None:
-                save_spill_registry_for_doc(doc)
+        if doc_key:
+            ids.add(doc_key)
+        _rekey(SPILL_REGISTRY)
+        if doc is not None:
+            save_spill_registry_for_doc(doc)
     except Exception:
         log.exception("migrate_sheet_rename: failed to migrate SPILL_REGISTRY")
 
-    other_ids = {x for x in (identity, url) if x}
-
-    # Rekey SHEET_MODIFY_LISTENERS
-    try:
-        from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
-
-        if not other_ids:
-            log.warning("migrate_sheet_rename: no workbook identity found; skipping SHEET_MODIFY_LISTENERS migration")
-        else:
-            for skey in list(SHEET_MODIFY_LISTENERS.keys()):
-                if skey[1] == old_sheet_name and skey[0] in other_ids:
-                    disp = SHEET_MODIFY_LISTENERS.pop(skey)
-                    disp.sheet_name = new_sheet_name
-                    SHEET_MODIFY_LISTENERS[(skey[0], new_sheet_name)] = disp
-    except Exception:
-        log.exception("migrate_sheet_rename: failed to migrate SHEET_MODIFY_LISTENERS")
-
-    # Rekey _PENDING_TIMERS
-    if not other_ids:
-        log.warning("migrate_sheet_rename: no workbook identity found; skipping _PENDING_TIMERS migration")
+    if not ids:
+        log.warning("migrate_sheet_rename: no workbook identity found; skipping in-memory migration")
     else:
+        # Rekey SHEET_MODIFY_LISTENERS
+        try:
+            from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
+
+            _rekey(SHEET_MODIFY_LISTENERS, lambda disp: setattr(disp, "sheet_name", new_sheet_name))
+        except Exception:
+            log.exception("migrate_sheet_rename: failed to migrate SHEET_MODIFY_LISTENERS")
+
+        # Rekey _PENDING_TIMERS
         with _PENDING_LOCK:
-            for pkey in list(_PENDING_TIMERS.keys()):
-                if pkey[1] == old_sheet_name and pkey[0] in other_ids:
-                    timer = _PENDING_TIMERS.pop(pkey)
-                    _PENDING_TIMERS[(pkey[0], new_sheet_name)] = timer
+            _rekey(_PENDING_TIMERS)
 
     # Rekey geometric records and persist
     try:
@@ -302,25 +273,21 @@ def migrate_sheet_rename(
         log.exception("migrate_sheet_rename: failed to migrate geometric records")
 
 
+def _skip_sheet_modify() -> bool:
+    from plugin.calc.python.geometric_recalc import is_geometric_repairing
+    from plugin.framework.thread_guard import on_main_thread
+
+    return (not on_main_thread()) or is_sheet_modify_dispatching() or is_geometric_repairing()
+
+
 def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
     """UI-thread jobs after the shared debounce. Spill and geometric stay separate.
 
     Spill: ``CalcSpillModifyListener.modified`` (``SPILL_REGISTRY`` walk only).
     Geometric: own ``discover_python_cells_on_sheet`` via ``reconcile_geometric_sheet``.
     """
-    from plugin.calc.python.geometric_recalc import is_geometric_repairing
-    from plugin.framework.thread_guard import on_main_thread
-
-    if not on_main_thread():
+    if _skip_sheet_modify():
         return
-    if is_sheet_modify_dispatching() or is_geometric_repairing():
-        return
-    if doc is None:
-        from plugin.calc.python.function import _get_calc_doc
-
-        doc = _get_calc_doc(ctx)
-    if sheet is None and doc is not None:
-        sheet = uno_probe(lambda: doc.getSheets().getByName(sheet_name), None)
     if sheet is None:
         return
     url = doc_url or _doc_url_of(doc)
@@ -350,22 +317,17 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
             log.exception("Error in geometric sheet modify pass (%s)", name)
 
 
-
 def dispatch_sheet_modified(
     ctx: Any,
     doc_key: str,
     sheet_name: str,
     event: Any,
     doc: Any = None,
-    dispatcher: "SheetModifyDispatcher | None" = None,
 ) -> None:
     """Shared ``modified`` entry. Debounces; does not walk ``SPILL_REGISTRY``."""
-    from plugin.calc.python.geometric_recalc import is_geometric_repairing
     from plugin.framework.thread_guard import on_main_thread
 
-    if not on_main_thread():
-        return
-    if is_sheet_modify_dispatching() or is_geometric_repairing():
+    if not on_main_thread() or _skip_sheet_modify():
         return
     sheet = getattr(event, "Source", None)
     if sheet is None:
@@ -383,7 +345,7 @@ def dispatch_sheet_modified(
     live = _sheet_name_of(sheet)
     effective_name = sheet_name
     if live and sheet_name and live != sheet_name:
-        migrate_sheet_rename(owner, sheet_name, live, dispatcher=dispatcher)
+        migrate_sheet_rename(owner, sheet_name, live)
         effective_name = live
     live_url = _doc_url_of(owner) if owner is not None else ""
     schedule_sheet_modify_pass(ctx, owner, sheet, doc_url=live_url or doc_key, sheet_name=effective_name)
@@ -435,21 +397,16 @@ class SheetModifyDispatcher(BaseModifyListener):
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
         try:
-            dispatch_sheet_modified(self.ctx, self.doc_key, self.sheet_name, aEvent, doc=self.doc, dispatcher=self)
+            dispatch_sheet_modified(self.ctx, self.doc_key, self.sheet_name, aEvent, doc=self.doc)
         except Exception:
             log.exception("Error in SheetModifyDispatcher.modified")
 
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
         from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
 
-        SHEET_MODIFY_LISTENERS.pop((self.doc_identity, self.sheet_name), None)
-        if self.doc_key and self.doc_key != self.doc_identity:
-            SHEET_MODIFY_LISTENERS.pop((self.doc_key, self.sheet_name), None)
-        # Ensure any key in SHEET_MODIFY_LISTENERS pointing to self is removed
         for k, v in list(SHEET_MODIFY_LISTENERS.items()):
             if v is self:
                 SHEET_MODIFY_LISTENERS.pop(k, None)
                 _cancel_pending(k)
+        # Unload may already have popped this entry. Cancel is idempotent.
         _cancel_pending((self.doc_identity, self.sheet_name))
-        if self.doc_key and self.doc_key != self.doc_identity:
-            _cancel_pending((self.doc_key, self.sheet_name))

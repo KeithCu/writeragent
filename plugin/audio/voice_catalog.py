@@ -28,14 +28,6 @@ CATALOG_PATH = os.path.join(os.path.dirname(__file__), "data", "voice_catalog.js
 _PIPER_FIELDS: tuple[str, ...] = ("id", "onnx", "config", "lang", "label")
 _VOICE_FIELDS: tuple[str, ...] = ("id", "label")
 
-_FALLBACK_DEFAULTS: dict[str, str] = {
-    "piper": "en_US-lessac-medium",
-    "kokoro": "af_sky",
-    "openai": "alloy",
-    "system": "default",
-}
-
-
 def _load_catalog(path: str = CATALOG_PATH) -> Any:
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
@@ -52,12 +44,7 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
     }
     kokoro_items: list[dict[str, str]] = []
     short_names: dict[str, str] = {}
-    seen: dict[str, set[str]] = {
-        "piper": set(),
-        "kokoro": set(),
-        "openai": set(),
-        "system": set(),
-    }
+    kokoro_ids: set[str] = set()
     fallbacks: dict[str, str] = {}
     kokoro_locale_defaults: dict[str, str] = {}
     piper_locale_defaults: dict[str, str] = {}
@@ -71,7 +58,7 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
         if not isinstance(voices, list):
             raise ValueError(f"voice_catalog.json: {family}.voices must be a list")
 
-        seen_ids = seen[family]
+        seen_ids = kokoro_ids if family == "kokoro" else set()
 
         for idx, entry in enumerate(voices):
             if not isinstance(entry, dict):
@@ -91,22 +78,16 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
                 raise ValueError(f"voice_catalog.json: {family}.voices[{idx}] duplicate id '{voice_id}'")
             seen_ids.add(voice_id)
 
-            short_raw = entry.get("short_name")
-            short_name = short_raw if isinstance(short_raw, str) else ""
-
             if family == "piper":
                 piper_models[voice_id] = (entry["onnx"], entry["config"], entry["lang"], entry["label"])
             elif family == "kokoro":
-                lang_raw = entry.get("lang")
-                lang = lang_raw if isinstance(lang_raw, str) and lang_raw else "en"
-                kokoro_items.append({"value": voice_id, "label": entry["label"], "lang": lang})
+                kokoro_items.append({"value": voice_id, "label": entry["label"], "lang": entry.get("lang") or "en"})
             else:
                 voice_catalogs[family].append({"value": voice_id, "label": entry["label"]})
-            if short_name and family in ("piper", "kokoro"):
-                short_names[voice_id] = short_name
+            if entry.get("short_name"):
+                short_names[voice_id] = entry["short_name"]
 
-        raw_fallback = block.get("fallback_voice")
-        fallback_val = _FALLBACK_DEFAULTS[family] if raw_fallback is None else raw_fallback
+        fallback_val = block.get("fallback_voice")
         if not isinstance(fallback_val, str) or not fallback_val or fallback_val not in seen_ids:
             raise ValueError(f"voice_catalog.json: {family}.fallback_voice -> '{fallback_val}' is not a {family} voice")
         fallbacks[family] = fallback_val
@@ -125,6 +106,8 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
             elif family == "piper":
                 piper_locale_defaults = dict(loc_defaults)
 
+    voice_catalogs["openai"].sort(key=lambda row: row["label"].casefold())
+
     kokoro_block = raw["kokoro"]
     aliases = kokoro_block.get("openai_aliases")
     if not isinstance(aliases, dict):
@@ -132,7 +115,7 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
 
     kokoro_aliases: dict[str, str] = {}
     for alias_key, target_id in aliases.items():
-        if not isinstance(alias_key, str) or not alias_key or not isinstance(target_id, str) or target_id not in seen["kokoro"]:
+        if not isinstance(alias_key, str) or not alias_key or not isinstance(target_id, str) or target_id not in kokoro_ids:
             raise ValueError(
                 f"voice_catalog.json: kokoro.openai_aliases.{alias_key} -> '{target_id}' is not a kokoro voice"
             )
@@ -155,16 +138,11 @@ PIPER_VOICE_MODELS: dict[str, PiperModel] = _parsed["piper_models"]
 KOKORO_CATALOG_ITEMS: list[dict[str, str]] = _parsed["kokoro_items"]
 LOCALE_TO_KOKORO_DEFAULT = _parsed["kokoro_locale_defaults"]
 LOCALE_TO_PIPER_DEFAULT = _parsed["piper_locale_defaults"]
-PIPER_FALLBACK_VOICE = _parsed["fallbacks"]["piper"]
-KOKORO_FALLBACK_VOICE = _parsed["fallbacks"]["kokoro"]
+DEFAULT_VOICE_FOR_FAMILY: dict[str, str] = _parsed["fallbacks"]
+PIPER_FALLBACK_VOICE = DEFAULT_VOICE_FOR_FAMILY["piper"]
+KOKORO_FALLBACK_VOICE = DEFAULT_VOICE_FOR_FAMILY["kokoro"]
 KOKORO_OPENAI_ALIASES = _parsed["kokoro_aliases"]
 VOICE_CATALOGS = _parsed["voice_catalogs"]
-DEFAULT_VOICE_FOR_FAMILY = {
-    "kokoro": KOKORO_FALLBACK_VOICE,
-    "piper": PIPER_FALLBACK_VOICE,
-    "openai": _parsed["fallbacks"]["openai"],
-    "system": _parsed["fallbacks"]["system"],
-}
 _SHORT_NAMES: dict[str, str] = _parsed["short_names"]
 del _parsed
 
@@ -173,22 +151,4 @@ def voice_short_name(voice_id: str) -> str:
     """Human name from the catalog, e.g. Thorsten for ``de_DE-thorsten-medium``."""
     # Deliberately uses first segment before ' (' rather than a trailing paren group
     clean = (voice_id or "").split(" (")[0].strip()
-    named = _SHORT_NAMES.get(clean)
-    if named:
-        return named
-    return clean or voice_id
-
-
-__all__ = [
-    "CATALOG_PATH",
-    "DEFAULT_VOICE_FOR_FAMILY",
-    "KOKORO_CATALOG_ITEMS",
-    "KOKORO_FALLBACK_VOICE",
-    "KOKORO_OPENAI_ALIASES",
-    "LOCALE_TO_KOKORO_DEFAULT",
-    "LOCALE_TO_PIPER_DEFAULT",
-    "PIPER_FALLBACK_VOICE",
-    "PIPER_VOICE_MODELS",
-    "VOICE_CATALOGS",
-    "voice_short_name",
-]
+    return _SHORT_NAMES.get(clean) or clean or voice_id

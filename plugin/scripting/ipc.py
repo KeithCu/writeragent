@@ -81,14 +81,11 @@ def claim_ipc_channel() -> BinaryIO:
     if fileno != 1:
         return cast("BinaryIO", getattr(sys.stdout, "buffer", sys.stdout))
 
-    try:
-        sys.stdout.flush()
-    except Exception:
-        log.debug("claim_ipc_channel: stdout flush failed", exc_info=True)
-    try:
-        sys.stderr.flush()
-    except Exception:
-        log.debug("claim_ipc_channel: stderr flush failed", exc_info=True)
+    for name, stream in (("stdout", sys.stdout), ("stderr", sys.stderr)):
+        try:
+            stream.flush()
+        except Exception:
+            log.debug("claim_ipc_channel: %s flush failed", name, exc_info=True)
     ipc_fd = os.dup(1)
     os.dup2(2, 1)
     _child_ipc_stream = cast("BinaryIO", os.fdopen(ipc_fd, "wb", buffering=0))
@@ -225,11 +222,6 @@ def _numpy_reconstruct_nbytes(shape: object, dtype: object) -> int:
     return n * itemsize
 
 
-def _is_numpy_ndarray(obj: object) -> bool:
-    """True for the real ``numpy.ndarray`` class, not a lookalike."""
-    return getattr(obj, "__name__", "") == "ndarray" and getattr(obj, "__module__", "") == "numpy"
-
-
 def _reject_ndarray_constructor(obj: object) -> None:
     """Refuse a call that would run ``numpy.ndarray`` as a constructor.
 
@@ -237,7 +229,8 @@ def _reject_ndarray_constructor(obj: object) -> None:
     GLOBAL, not a call. Calling it allocates the shape, and the shape is
     only a few pickle bytes.
     """
-    if _is_numpy_ndarray(obj):
+    # Real numpy.ndarray only. A lookalike name must not take this path.
+    if getattr(obj, "__name__", "") == "ndarray" and getattr(obj, "__module__", "") == "numpy":
         raise pickle.UnpicklingError("numpy.ndarray constructor is not allowed")
 
 
@@ -471,7 +464,6 @@ AllowlistUnpickler.dispatch[pickle.BYTEARRAY8[0]] = _guarded_load_bytearray8
 class _SafeUnpickler(AllowlistUnpickler):
     _builtins_allow: frozenset[str] = _SAFE_PICKLE_BUILTINS
     _module_allow: frozenset[tuple[str, str]] = _NUMPY_RECONSTRUCT_PAIRS
-    _deny_tail: str = "is not allowed"
     _import_missing_modules: bool = True
 
 
@@ -646,8 +638,6 @@ def _write_fd_with_timeout(
             except InterruptedError:
                 continue
             if not writable:
-                if is_alive is not None and not is_alive():
-                    raise BrokenPipeError("IPC frame write aborted: child exited")
                 continue
             try:
                 written = os.write(fd, view[offset:])
@@ -697,20 +687,13 @@ def _nonblocking(fd: int) -> Generator[None, None, None]:
     ``EAGAIN`` or ``None`` as EOF and drop the following frame. Every exit,
     including an exception, puts the mode back.
     """
-    # Bugfix: What was wrong: ty on Windows failed because os.get_blocking and
-    # os.set_blocking are POSIX-only standard library functions.
-    # How it happened: _nonblocking was extracted as a standalone helper without
-    # the platform check that guarded earlier inline calls.
-    # Why this change: Skip non-blocking configuration on win32 or when set_blocking
-    # is unavailable, allowing static type checkers to narrow out the POSIX-only
-    # os calls on Windows and avoiding runtime AttributeError.
-    if sys.platform == "win32" or not hasattr(os, "set_blocking"):
+    # Win32 returns before os.set_blocking so Windows ty never type-checks those POSIX calls.
+    if sys.platform == "win32":
         yield
         return
     was_blocking = True
     try:
-        if hasattr(os, "get_blocking"):
-            was_blocking = os.get_blocking(fd)
+        was_blocking = os.get_blocking(fd)
     except OSError:
         was_blocking = True
     os.set_blocking(fd, False)
@@ -744,7 +727,7 @@ def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
     if fd is not None:
         # os.set_blocking is POSIX-only; skip the non-blocking peek on win32.
         # BytesIO/mocks still fall through to stream.read (no real fileno).
-        if sys.platform == "win32" or not hasattr(os, "set_blocking"):
+        if sys.platform == "win32":
             # Do not stream.read() here — that can block on a live pipe.
             return b""
         # Restore blocking when the peek ends. The blocking mode is restored
@@ -833,7 +816,6 @@ class _PipeWait(enum.Enum):
 
 
 def _poll_pipe(
-    select_target: Any,
     fd: int | None,
     deadline: float,
     *,
@@ -875,7 +857,8 @@ def _poll_pipe(
         # sleep(negative) is ValueError.
         time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
         return _PipeWait.EMPTY, 0
-    ready, _unused, _unused2 = select.select([select_target], [], [], _select_slice(remaining, select_cap))
+    assert fd is not None
+    ready, _unused, _unused2 = select.select([fd], [], [], _select_slice(remaining, select_cap))
     if ready:
         return _PipeWait.READY, 0
     if is_alive is not None and not is_alive():
@@ -892,7 +875,6 @@ def read_frame_payload(
     is_alive: Callable[[], bool] | None = None,
     stop_checker: Callable[[], bool] | None = None,
     deadline: float | None = None,
-    timeout_label: float | None = None,
     cmd: str | None = None,
 ) -> bytes | None:
     """Read one length-prefixed payload. Return None on clean EOF.
@@ -902,8 +884,7 @@ def read_frame_payload(
     ``PeekNamedPipe``, and streams without a real fd (BytesIO, mocks) wait
     on a daemon thread. A ``stop_checker`` raises ``TimeoutExpired`` (the
     caller maps that to cancel); ``deadline`` is an absolute
-    ``time.monotonic()`` stamp; ``timeout_label`` is only the number stored
-    on ``TimeoutExpired``. Zero bytes at a frame boundary is clean EOF
+    ``time.monotonic()`` stamp. Zero bytes at a frame boundary is clean EOF
     (None). EOF after at least one byte of a frame raises ``IpcFrameReadError``.
     A deadline with the pipe still open is ``IpcPartialFrameTimeout``, raised by
     the timed reader.
@@ -926,7 +907,7 @@ def read_frame_payload(
     else:
         timeout_sec = max(0.0, float(timeout_sec))
         abs_deadline = time.monotonic() + timeout_sec if deadline is None else float(deadline)
-        label = float(timeout_sec if timeout_label is None else timeout_label)
+        label = float(timeout_sec)
         cmd_name = frame_label if cmd is None else cmd
         fd = _stream_fileno(stream)
 
@@ -970,7 +951,6 @@ def read_frame_payload(
                 buf = bytearray()
                 while len(buf) < n:
                     state, avail = _poll_pipe(
-                        stream,
                         fd,
                         abs_deadline,
                         timeout_label=label,
@@ -1036,22 +1016,6 @@ def unpack_pickle_frame(payload: bytes) -> Any:
         raise ValueError(str(exc)) from exc
 
 
-def _decode_pickle_payload(
-    payload: bytes | None,
-    *,
-    frame_label: str,
-    require_dict: bool,
-    unpacker: Callable[[bytes], Any] | None = None,
-) -> Any | None:
-    if payload is None:
-        return None
-    decode_fn = unpacker if unpacker is not None else unpack_pickle_frame
-    decoded = decode_fn(payload)
-    if require_dict and not isinstance(decoded, dict):
-        raise ValueError(f"{frame_label} must contain a dict")
-    return decoded
-
-
 def read_pickle_frame(
     stream: IO[bytes],
     timeout_sec: float | None = None,
@@ -1070,7 +1034,13 @@ def read_pickle_frame(
         frame_label=frame_label,
         is_alive=is_alive,
     )
-    return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
+    if payload is None:
+        return None
+    decode_fn = unpacker if unpacker is not None else unpack_pickle_frame
+    decoded = decode_fn(payload)
+    if require_dict and not isinstance(decoded, dict):
+        raise ValueError(f"{frame_label} must contain a dict")
+    return decoded
 
 
 # One lock for every venv → host tool_call on this pipe, as well as heartbeat
@@ -1155,66 +1125,38 @@ def _drain_queued_pipe_bytes(
     deadline = time.monotonic() + max(0.0, float(timeout_sec))
     fd = _stream_fileno(stream)
     if fd is None:
-        # stream.read() with no size waits until EOF. This branch is only
-        # streams with no fileno, and a sized read can still block, so it is
-        # not a best-effort drain. Without an fd there is nothing to poll.
-        # Leave the bytes where they are instead of hanging.
         return
-    if hasattr(os, "set_blocking") and _drain_nonblocking_stream(stream, fd, deadline):
-        return
-    _drain_peek_available(stream, fd, deadline)
-
-
-def _drain_nonblocking_stream(stream: IO[bytes], fd: int, deadline: float) -> bool:
-    """Drain *stream* without blocking. Return False if the fd cannot be set."""
-    # Win32 anonymous pipes: set_blocking is not the peek path. A failed
-    # set_blocking must not fall through to a blocking stream.read.
     if sys.platform == "win32":
-        return False
+        while time.monotonic() < deadline:
+            try:
+                avail = _peek_pipe_bytes_available(fd)
+            except OSError:
+                log.exception("tool_call id-mismatch drain failed")
+                return
+            if not avail:
+                return
+            try:
+                chunk = stream.read(min(int(avail), 65536))
+            except OSError:
+                log.exception("tool_call id-mismatch drain failed")
+                return
+            if not chunk:
+                return
+        return
     try:
         with _nonblocking(fd):
             while time.monotonic() < deadline:
                 try:
                     chunk = stream.read(65536)
                 except (BlockingIOError, InterruptedError):
-                    return True
+                    return
                 except OSError:
                     log.exception("tool_call id-mismatch drain failed")
-                    return True
-                # Non-blocking FileIO/BufferedReader returns None when the queue
-                # is empty (not only b""). Stop; do not spin until the deadline.
+                    return
                 if not chunk:
-                    return True
-            # The deadline expired while the peer was still writing. True
-            # means this fd was handled. Leftover bytes stay queued. Do not
-            # fall through to PeekNamedPipe. This function already returns
-            # False on Windows before the loop, and on POSIX that peek
-            # helper returns immediately.
-            return True
+                    return
     except (OSError, AttributeError):
-        # set_blocking failed before the fd changed. Caller uses PeekNamedPipe.
-        return False
-
-
-def _drain_peek_available(stream: IO[bytes], fd: int, deadline: float) -> None:
-    """Windows: drop only bytes PeekNamedPipe already reports."""
-    if sys.platform != "win32":
         return
-    while time.monotonic() < deadline:
-        try:
-            avail = _peek_pipe_bytes_available(fd)
-        except OSError:
-            log.exception("tool_call id-mismatch drain failed")
-            return
-        if not avail:
-            return
-        try:
-            chunk = stream.read(min(int(avail), 65536))
-        except OSError:
-            log.exception("tool_call id-mismatch drain failed")
-            return
-        if not chunk:
-            return
 
 
 def _resume_script_alarm(paused: tuple[float, float, float] | None) -> bool:
@@ -1368,18 +1310,9 @@ def _read_json_tail_from_fd(stream: IO[str], fd: int, pending: bytearray, max_by
     for a line that finishes before the deadline.
     """
     while True:
-        if len(pending) > max_bytes:
-            # The line is already over the cap. Saving it makes the next
-            # read raise again instead of starting mid-line. The caller
-            # drops the child, the same as an oversize pickle frame.
-            _save_json_line_pending(stream, pending)
-            raise ValueError(f"JSON line exceeds {max_bytes} bytes")
-        nl = pending.find(b"\n")
-        if nl >= 0:
-            line_b = bytes(pending[: nl + 1])
-            rest = bytearray(pending[nl + 1 :])
-            _save_json_line_pending(stream, rest)
-            return line_b.decode("utf-8", errors="replace")
+        line = _line_from_pending(stream, pending, max_bytes)
+        if line is not None:
+            return line
         try:
             chunk = os.read(fd, 4096)
         except OSError:
@@ -1425,60 +1358,6 @@ def _readline_blocking_with_pending(stream: IO[str], max_bytes: int) -> str:
     return _finish_saved_json_line(stream, pending, max_bytes)
 
 
-def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, max_bytes: int, *, cmd: str = "IPC JSON line") -> str:
-    """Windows path: poll PeekNamedPipe and read only bytes already queued.
-
-    ``avail > 0`` only means some bytes are queued, not a full line, so
-    ``readline()`` here would block past ``timeout_sec``. ``os.read`` the
-    peeked count into the shared pending buffer instead. A deadline with
-    no newline saves that partial and raises ``TimeoutExpired``.
-    ``readline`` is only used when the stream has no real pipe fd.
-    """
-    # MagicMock.fileno() returns a mock that coerces to int; _stream_fileno
-    # only accepts a real int.
-    fd = _stream_fileno(stream)
-    if fd is None:
-        return _readline_blocking_with_pending(stream, max_bytes)
-
-    deadline = time.monotonic() + max(0.0, float(timeout_sec))
-    pending = _pop_json_line_pending(stream)
-    while True:
-        line = _line_from_pending(stream, pending, max_bytes)
-        if line is not None:
-            return line
-        try:
-            state, avail = _poll_pipe(
-                stream,
-                fd,
-                deadline,
-                timeout_label=timeout_sec,
-                cmd=cmd,
-                select_cap=1.0,
-                partial=False,
-                use_peek=True,
-            )
-        except subprocess.TimeoutExpired:
-            # Keep the partial line for the next read of this stream.
-            _save_json_line_pending(stream, pending)
-            raise
-        if state is _PipeWait.CLOSED:
-            # Pipe closed: return what was already pulled, do not block.
-            return pending.decode("utf-8", errors="replace")
-        if state is _PipeWait.READY:
-            try:
-                piece = os.read(fd, min(int(avail), 65536))
-            except BlockingIOError:
-                # Peek and read can race. Would-block is not EOF.
-                time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
-                continue
-            except OSError:
-                _save_json_line_pending(stream, pending)
-                raise
-            if not piece:
-                return pending.decode("utf-8", errors="replace")
-            pending.extend(piece)
-
-
 # Bytes read past a newline, or a partial line saved when the deadline fires.
 # Keyed by the text stream so the next read_json_line continues that line.
 # TextIOWrapper.readline() is not used: after select says the fd is readable it
@@ -1510,30 +1389,16 @@ def _take_json_line(pending: bytearray) -> tuple[str, bytearray] | None:
     return line, bytearray(pending[nl + 1 :])
 
 
-def _read_available_line_bytes(fd: int) -> bytes | None:
-    """Queued pipe bytes, ``b""`` on EOF, or None when nothing is ready.
-
-    Read the fd, not ``TextIOWrapper.buffer.read1``. ``read1(4096)`` can leave
-    the rest of an 8KB fill in the userspace buffer, and a later ``select`` on
-    the fd then waits even though those bytes were already pulled. ``os.read``
-    returns ``b""`` for EOF and raises ``BlockingIOError`` when the non-blocking
-    fd has nothing, so a quiet pipe is not treated as EOF.
-
-    The caller must be the only reader of this fd. A wrapper ``readline`` would
-    desync its own buffer from this read.
-    """
-    if sys.platform == "win32":
-        # No non-blocking pipe reads on win32; report "nothing available".
-        return None
-    with _nonblocking(fd):
-        try:
-            return os.read(fd, 4096)
-        except BlockingIOError:
-            return None
-
-
-def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float, max_bytes: int) -> str:
+def _readline_with_timeout(stream: IO[str], timeout_sec: float | None, max_bytes: int) -> str:
     """Read one line, returning when the deadline passes even without a newline."""
+    if timeout_sec is None:
+        return _readline_blocking_with_pending(stream, max_bytes)
+
+    fd = _stream_fileno(stream)
+    if fd is None:
+        return _readline_blocking_with_pending(stream, max_bytes)
+
+    use_peek = sys.platform == "win32"
     deadline = time.monotonic() + max(0.0, float(timeout_sec))
     pending = _pop_json_line_pending(stream)
     while True:
@@ -1541,46 +1406,40 @@ def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float, m
         if line is not None:
             return line
         try:
-            state, _avail = _poll_pipe(
-                fd,
+            state, avail = _poll_pipe(
                 fd,
                 deadline,
                 timeout_label=timeout_sec,
                 cmd="IPC JSON line",
                 select_cap=1.0,
                 partial=False,
-                use_peek=False,
+                use_peek=use_peek,
             )
         except subprocess.TimeoutExpired:
             _save_json_line_pending(stream, pending)
             raise
-        if state is _PipeWait.READY:
-            piece = _read_available_line_bytes(fd)
-            if piece is None:
+        if state is _PipeWait.CLOSED:
+            return pending.decode("utf-8", errors="replace")
+        if state is not _PipeWait.READY:
+            continue
+        if use_peek:
+            try:
+                piece = os.read(fd, min(int(avail), 65536))
+            except BlockingIOError:
+                time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
                 continue
-            if piece == b"":
-                return pending.decode("utf-8", errors="replace")
-            pending.extend(piece)
-
-
-def _readline_with_timeout(stream: IO[str], timeout_sec: float | None, max_bytes: int) -> str:
-    if timeout_sec is None:
-        # A timed read may have saved a partial line on this stream. Skipping
-        # the pending map parses the next chunk as a new object.
-        return _readline_blocking_with_pending(stream, max_bytes)
-
-    # Windows select.select() only supports sockets, not pipes (WinError 10038).
-    if sys.platform == "win32":
-        return _readline_with_timeout_win32(stream, timeout_sec, max_bytes)
-
-    fd = _stream_fileno(stream)
-    if fd is not None:
-        return _readline_with_timeout_posix(stream, fd, timeout_sec, max_bytes)
-
-    # No real fd, so there is no select deadline. A timed read may already
-    # have saved a partial line on this stream. readline() alone starts
-    # from the middle of that line.
-    return _readline_blocking_with_pending(stream, max_bytes)
+            except OSError:
+                _save_json_line_pending(stream, pending)
+                raise
+        else:
+            with _nonblocking(fd):
+                try:
+                    piece = os.read(fd, 4096)
+                except BlockingIOError:
+                    continue
+        if not piece:
+            return pending.decode("utf-8", errors="replace")
+        pending.extend(piece)
 
 
 def read_json_line(

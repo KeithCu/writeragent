@@ -12,20 +12,15 @@ from plugin.calc.address_utils import parse_address
 from plugin.calc.spreadsheet_import.models import OutputSheetModel, SheetModel, output_cell_from_record
 
 
-def _safe_number_format(cell: Any) -> int | None:
-    value = cell.getPropertyValue("NumberFormat")
-    return int(value) if value is not None else None
-
-
 def enrich_number_formats(sheet: Any, model: SheetModel) -> None:
     """Fill ``number_format`` on ingested cells (constants only)."""
     for addr, record in model.cells.items():
         if record.type != "constant":
             continue
         col, row = parse_address(addr)
-        fmt = _safe_number_format(sheet.getCellByPosition(col, row))
-        if fmt is not None:
-            record.number_format = fmt
+        value = sheet.getCellByPosition(col, row).getPropertyValue("NumberFormat")
+        if value is not None:
+            record.number_format = int(value)
 
 
 def build_output_model(model: SheetModel) -> OutputSheetModel:

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import zipfile
@@ -15,10 +16,7 @@ log = logging.getLogger("writeragent.draw.otp_zip")
 
 # Caps so a hostile/corrupt user .otp cannot inflate listing or cloning.
 MAX_MEMBER_BYTES = 2 * 1024 * 1024
-# ZipExtFile.read(n) passes n through as zlib max_length, then slices to
-# the header file_size. One read(limit) still builds that whole buffer
-# before the slice, so a forged file_size of 64 still costs ~limit bytes.
-# Chunks keep each inflate request small; the loop enforces the real cap.
+# ZipExtFile.read(n) inflates n bytes before the file_size slice; see read_member.
 READ_CHUNK = 64 * 1024
 
 
@@ -113,9 +111,6 @@ def extract_member(
         return out
     except Exception:
         log.debug("extract member failed name=%s", name, exc_info=True)
-        try:
-            if os.path.exists(out):
-                os.remove(out)
-        except OSError:
-            pass
+        with contextlib.suppress(OSError):
+            os.remove(out)
         return None

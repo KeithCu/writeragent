@@ -22,7 +22,7 @@ def test_locate_fill_down_ambiguous_and_array_formula_unique(ctx, doc):
     for r in range(3):
         sheet.getCellByPosition(0, r).setFormula(formula_fill)
 
-    located_fill = locate_formula_cell_in_doc(ctx, doc, code_fill)
+    located_fill = locate_formula_cell_in_doc(doc, code_fill)
     assert located_fill is None, f"Expected ambiguous locate for fill-down, got: {located_fill}"
 
     # 2. Enter an array formula over A5:B6 -> locate must return top-left A5 (col=0, row=4)
@@ -31,7 +31,7 @@ def test_locate_fill_down_ambiguous_and_array_formula_unique(ctx, doc):
     arr_range = sheet.getCellRangeByPosition(0, 4, 1, 5)
     arr_range.setArrayFormula(formula_arr)
 
-    located_arr = locate_formula_cell_in_doc(ctx, doc, code_arr)
+    located_arr = locate_formula_cell_in_doc(doc, code_arr)
     assert located_arr is not None, "Expected array formula to be located"
     found_sheet, found_cell, (r, c) = located_arr
     assert (r, c) == (4, 0), f"Expected top-left (row 4, col 0), got: ({r}, {c})"

@@ -82,7 +82,6 @@ class ListCellComments(ToolCalcCommentBase):
     """List all cell comments/annotations in a sheet."""
 
     name: str | None = "list_cell_comments"
-    intent: str | None = "review"
     description: str = "List all cell comments (annotations) in a Calc sheet. Returns cell address, author, date, and comment text."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": []}
 
@@ -90,13 +89,10 @@ class ListCellComments(ToolCalcCommentBase):
         doc = ctx.doc
         sheet = resolve_sheet(doc, kwargs.get("sheet"))
         annotations = sheet.getAnnotations()
-        ordered = sorted(
-            (annotations.getByIndex(i) for i in range(annotations.getCount())),
-            key=lambda ann: (ann.getPosition().Row, ann.getPosition().Column),
-        )
+        positioned = [(ann.getPosition(), ann) for ann in (annotations.getByIndex(i) for i in range(annotations.getCount()))]
+        positioned.sort(key=lambda item: (item[0].Row, item[0].Column))
         comments = []
-        for ann in ordered:
-            pos = ann.getPosition()
+        for pos, ann in positioned:
             # Read text/date through the cell's own CellAnnotation (as the
             # write path does), not the XSheetAnnotations collection item,
             # whose getString()/getDate() come back empty in current LO.
@@ -121,7 +117,6 @@ class AddCellComment(ToolCalcCommentBase):
     """Add a comment to a cell."""
 
     name: str | None = "add_cell_comment"
-    intent: str | None = "review"
     description: str = "Add a comment (annotation) to a specific cell in a Calc sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -141,13 +136,11 @@ class AddCellComment(ToolCalcCommentBase):
             return target
         sheet, col, row, cell_ref = target
 
-        cell = sheet.getCellByPosition(col, row)
-
         cell_ann, existing_text = _annotation_text(sheet, col, row)
         if existing_text:
             cell_ann.setString(text)
         else:
-            sheet.getAnnotations().insertNew(cell.getCellAddress(), text)
+            sheet.getAnnotations().insertNew(sheet.getCellByPosition(col, row).getCellAddress(), text)
 
         return {"status": "ok", "cell": cell_ref, "text": text, "sheet": sheet.getName()}
 
@@ -156,7 +149,6 @@ class DeleteCellComment(ToolCalcCommentBase):
     """Delete a comment from a cell."""
 
     name: str | None = "delete_cell_comment"
-    intent: str | None = "review"
     description: str = "Delete the comment (annotation) from a specific cell."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3')."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": ["cell"]}
     is_mutation: bool | None = True

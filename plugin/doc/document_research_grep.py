@@ -86,7 +86,6 @@ def resolve_grep_candidates(
         active_model,
         filter=raw,
         file_kind="documents",
-        max_entries=100,
         exclude_path=exclude_path,
         open_paths=open_paths,
         listing_root=listing_root,

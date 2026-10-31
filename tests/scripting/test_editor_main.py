@@ -22,8 +22,7 @@ from plugin.scripting.venv import editor_main as em
 
 
 def _reset_state() -> None:
-    em._closed_sent = False
-    em._closed_session_id = ""
+    em._closed_for = None
     em._shutting_down = False
     em._gui_loop_entered = False
     em._current_session_id = ""
@@ -112,7 +111,7 @@ def test_reader_queues_parent_types_and_drops_unknown():
 
 def test_reader_load_publishes_identity_and_clears_closed():
     _reset_state()
-    em._closed_sent = True
+    em._closed_for = "old"
     em._current_session_id = "old"
 
     buf = io.BytesIO()
@@ -137,7 +136,7 @@ def test_reader_load_publishes_identity_and_clears_closed():
     assert em._current_session_id == "s9"
     assert em._current_mode == "calc_cell"
     assert em._current_target["cell_address"] == "C3"
-    assert em._closed_sent is False
+    assert em._closed_for is None
 
 
 def test_reader_bad_pickle_finishes_and_destroys_only_after_claim():

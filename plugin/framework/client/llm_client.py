@@ -62,7 +62,7 @@ from plugin.framework.send_cancellation import get_current_send_cancellation
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
 from plugin.framework.errors import NetworkError, WriterAgentException, is_disposed_exception
-from plugin.framework.url_utils import get_api_version_suffix, normalize_endpoint_url
+from plugin.framework.url_utils import get_api_version_suffix, get_url_path_and_query, normalize_endpoint_url
 
 from plugin.framework.errors import format_error_message
 from .errors import (
@@ -111,7 +111,10 @@ def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
     choices = chunk.get("choices")
     if isinstance(choices, list) and choices:
         return True
-    return chunk.get("type") in _ANTHROPIC_STREAM_TYPES
+    event_type = chunk.get("type")
+    if isinstance(event_type, str) and event_type.startswith("response."):
+        return True
+    return event_type in _ANTHROPIC_STREAM_TYPES
 
 
 def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | None:
@@ -445,9 +448,6 @@ class LlmClient:
             return "stop", None
         api_key = str(self.config.get("api_key") or "").strip()
 
-        def _sender(send_method: str, send_path: str, send_body: Any, send_headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
-            return self._send_request(send_method, send_path, send_body, send_headers, stop_checker=stop_checker, status_callback=status_callback)
-
         try:
             # Same exchange as catalog and speech. Stop, timeout, retry, and
             # redaction are not a second loop here.
@@ -459,7 +459,7 @@ class LlmClient:
                 stop_checker=abort_checker,
                 status_callback=status_callback,
                 parse_json=False,
-                sender=_sender,
+                sender=self._send_request,
                 secrets=self._wire_secrets(),
                 on_retry=on_retry,
                 after_read=self._close_if_connection_close,
@@ -543,7 +543,6 @@ class LlmClient:
         import os
         import base64
         from plugin.framework.client.model_fetcher import has_native_audio
-        from plugin.framework.url_utils import get_url_path_and_query
 
         # Determine model
         # Client dict may carry the Speech-tab key or the legacy top-level key.

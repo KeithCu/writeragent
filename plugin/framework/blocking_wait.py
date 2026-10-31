@@ -30,7 +30,7 @@ import gc
 import logging
 import queue
 import threading
-from typing import Any, Callable, Generator
+from typing import Any, Generator
 
 from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
 from plugin.framework.worker_pool import run_in_background
@@ -126,29 +126,23 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     # GC off before the worker starts when this wait will not return to VCL.
     with (automatic_gc_suspended() if not pump_vcl else contextlib.nullcontext()):
         run_in_background(worker, daemon=True, name="blocking-thread", dedicated=True)
-        return _wait_for_worker(q, pump)
-
-
-def _wait_for_worker(q: queue.Queue[tuple[Any, BaseException | None]], pump: Callable[[], Any]) -> Any:
-    # crosshair: off
-
-    # Do not take drain_owner_scope here: this helper may run under an active stream
-    # drain. pump_ui_idle remains the owner-safe VCL pump path.
-    # Always wait 0.1s, never timeout=None (#1632). With no timeout this thread
-    # only wakes when the worker finishes, so it never drains the marshal
-    # queue. That deadlocked when pump_idle was True and get_toolkit failed:
-    # the worker sat in execute_on_main_thread waiting for this thread. Do not
-    # add a flag that skips the poll in some cases; that flag caused the bug.
-    while True:
-        # Only the get waits on the queue. A worker that raised queue.Empty
-        # must propagate: catching it here and calling get again with
-        # timeout=None blocks forever, because that worker has already exited.
-        try:
-            value, error = q.get(timeout=0.1)
-        except queue.Empty:
-            pump()
-            continue
-        if error is not None:
-            raise error
-        return value
+        # Do not take drain_owner_scope here: this helper may run under an active stream
+        # drain. pump_ui_idle remains the owner-safe VCL pump path.
+        # Always wait 0.1s, never timeout=None (#1632). With no timeout this thread
+        # only wakes when the worker finishes, so it never drains the marshal
+        # queue. That deadlocked when pump_idle was True and get_toolkit failed:
+        # the worker sat in execute_on_main_thread waiting for this thread. Do not
+        # add a flag that skips the poll in some cases; that flag caused the bug.
+        while True:
+            # Only the get waits on the queue. A worker that raised queue.Empty
+            # must propagate: catching it here and calling get again with
+            # timeout=None blocks forever, because that worker has already exited.
+            try:
+                value, error = q.get(timeout=0.1)
+            except queue.Empty:
+                pump()
+                continue
+            if error is not None:
+                raise error
+            return value
 

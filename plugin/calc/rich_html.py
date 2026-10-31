@@ -60,8 +60,6 @@ def _step(name: str) -> str:
 
 def _controller_get_transferable(controller: Any) -> Any:
     """Return transferable for the current selection (Writer controller)."""
-    if controller is None:
-        raise ToolExecutionError("Controller is None")
     t = getattr(controller, "getTransferable", None)
     if callable(t):
         return t()
@@ -77,24 +75,7 @@ def _controller_get_transferable(controller: Any) -> Any:
     raise ToolExecutionError("Writer controller does not support getTransferable; cannot paste HTML into cell.")
 
 
-def _controller_insert_transferable(controller: Any, transferable: Any) -> None:
-    if controller is None:
-        raise ToolExecutionError("Calc controller is None")
-    ins = getattr(controller, "insertTransferable", None)
-    if not callable(ins):
-        raise ToolExecutionError("Calc controller does not support insertTransferable.")
-    ins(transferable)
-
-
-def _system_clipboard(uno_ctx: Any) -> Any:
-    """SystemClipboard or None. Must not import chatbot (LibrePy ships this module)."""
-    smgr = get_service_manager(uno_ctx)
-    if smgr is None:
-        return None
-    return uno_probe(lambda: smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx), None)
-
-
-def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> str:
+def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
     """If SystemClipboard still owns *transferable*, replace it before closing the Writer.
 
     SwXTextView.getTransferable() builds a SwTransferable bound to that Writer
@@ -102,25 +83,26 @@ def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> str:
     transferable as owner after insertTransferable. Only touch the clipboard when
     it actually holds *our* transferable so a normal paste does not clobber an
     unrelated user copy. GHA 33771766524: insertTransferable often leaves
-    SystemClipboard empty (release returns ``empty``); the hang was closing the
+    SystemClipboard empty; the hang was closing the
     source Writer while Calc still held the paste — see ``insert_cell_html_rich``.
     """
     try:
-        clip = _system_clipboard(uno_ctx)
+        # Do not import chatbot for the clipboard; LibrePy ships this module.
+        smgr = get_service_manager(uno_ctx)
+        clip = None if smgr is None else uno_probe(lambda: smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx), None)
         if clip is None:
-            return "no_clipboard"
+            return
         contents = clip.getContents()
         if contents is None:
-            return "empty"
+            return
         same = contents is transferable
         equal = uno_probe(lambda: contents == transferable, False)
         if not (same or equal):
-            return "not_ours contents_id=%s xfer_id=%s" % (id(contents), id(transferable))
+            return
         # None, None drops the previous owner (lostOwnership) without a new OLE source.
         clip.setContents(None, None)
-        return "released contents_id=%s xfer_id=%s" % (id(contents), id(transferable))
-    except Exception as exc:
-        return "error:%s" % exc
+    except Exception:
+        return
 
 
 def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) -> None:
@@ -199,7 +181,10 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         step = _step("select cell")
         c_ctrl.select(cell)
         step = _step("insert transferable")
-        _controller_insert_transferable(c_ctrl, transferable)
+        ins = getattr(c_ctrl, "insertTransferable", None)
+        if not callable(ins):
+            raise ToolExecutionError("Calc controller does not support insertTransferable.")
+        ins(transferable)
         # SwXTextView.getTransferable builds a SwTransferable bound to this
         # Writer (PrepareForCopy). Keep the #572 rule: if SystemClipboard
         # still owns that object, drop it before any close. Do not gc.collect()

@@ -4,10 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.librepy.settings import (
-    _DownloadVecPackListener,
-    _scripting_field_specs,
-)
+from plugin.chatbot.settings_fields import build_module_field_specs
+from plugin.librepy.settings import _DownloadVecPackListener
 from plugin.scripting.venv_probe_ui import (
     ScriptingVenvTestListener,
     VenvProbeProgressDialog,
@@ -25,7 +23,7 @@ def test_scripting_field_specs_skips_buttons_and_internal():
         },
     }
     with patch("plugin._manifest.MODULES", [manifest]):
-        specs = _scripting_field_specs()
+        specs = build_module_field_specs("scripting", control_ids="prefixed", skip_librepy_exclude=True)
     names = {s["name"] for s in specs}
     assert names == {"scripting__python_venv_path"}
 
@@ -40,7 +38,7 @@ def test_scripting_field_specs_skips_librepy_exclude():
         },
     }
     with patch("plugin._manifest.MODULES", [manifest]):
-        specs = _scripting_field_specs()
+        specs = build_module_field_specs("scripting", control_ids="prefixed", skip_librepy_exclude=True)
     names = {s["name"] for s in specs}
     assert names == {"scripting__python_venv_path"}
 
@@ -273,7 +271,7 @@ def test_open_librepy_settings_disposes_when_populate_raises() -> None:
         patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
         patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
         patch(
-            "plugin.librepy.settings._scripting_field_specs",
+            "plugin.librepy.settings.build_module_field_specs",
             return_value=[{"name": "scripting__python_venv_path", "type": "string", "value": "x"}],
         ),
         patch("plugin.librepy.settings.get_optional", side_effect=get_opt),
@@ -312,7 +310,7 @@ def test_open_librepy_settings_disposes_after_cancel() -> None:
         patch("plugin.librepy.settings.init_logging"),
         patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
         patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
-        patch("plugin.librepy.settings._scripting_field_specs", return_value=[]),
+        patch("plugin.librepy.settings.build_module_field_specs", return_value=[]),
         patch("plugin.librepy.settings.get_optional", return_value=None),
     ):
         open_librepy_settings(MagicMock())
@@ -333,7 +331,7 @@ def test_open_librepy_settings_retries_on_config_validation_error() -> None:
         patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
         patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
         patch(
-            "plugin.librepy.settings._scripting_field_specs",
+            "plugin.librepy.settings.build_module_field_specs",
             return_value=[{"name": "scripting__python_exec_timeout", "type": "int", "value": "999"}],
         ),
         patch("plugin.librepy.settings.get_optional", return_value=MagicMock()),
@@ -374,7 +372,7 @@ def test_open_librepy_settings_teardown_removal_error_keeps_populate_error() -> 
         patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
         patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
         patch(
-            "plugin.librepy.settings._scripting_field_specs",
+            "plugin.librepy.settings.build_module_field_specs",
             return_value=[{"name": "scripting__python_venv_path", "type": "string", "value": "x"}],
         ),
         patch("plugin.librepy.settings.get_optional", side_effect=get_opt),
@@ -407,7 +405,7 @@ def test_open_librepy_settings_ok_writes_one_batch() -> None:
         patch("plugin.librepy.settings.init_logging"),
         patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
         patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
-        patch("plugin.librepy.settings._scripting_field_specs", return_value=specs),
+        patch("plugin.librepy.settings.build_module_field_specs", return_value=specs),
         patch("plugin.librepy.settings.get_optional", return_value=MagicMock()),
         patch("plugin.librepy.settings.read_settings_control", side_effect=fake_read),
         patch("plugin.chatbot.settings_fields.get_config", return_value={}),

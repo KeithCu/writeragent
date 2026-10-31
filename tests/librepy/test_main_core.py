@@ -111,7 +111,10 @@ def test_execute_inits_logging_before_bootstrap(monkeypatch) -> None:
     order: list[str] = []
     monkeypatch.setattr(main_core, "init_logging", lambda _ctx: order.append("log"))
     monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: order.append("boot"))
-    monkeypatch.setattr(main_core, "_schedule_update_check", lambda _ctx: order.append("upd"))
+    monkeypatch.setattr(
+        "plugin.chatbot.extension_update_check.schedule_extension_update_check_once",
+        lambda _ctx, _ext: order.append("upd"),
+    )
     job = main_core.MainBootstrapJob(MagicMock())
     job.execute(())
     assert order == ["log", "boot", "upd"]
@@ -128,7 +131,10 @@ def test_execute_bootstraps_when_init_logging_fails(monkeypatch) -> None:
 
     monkeypatch.setattr(main_core, "init_logging", fail_logging)
     monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: order.append("boot"))
-    monkeypatch.setattr(main_core, "_schedule_update_check", lambda _ctx: order.append("upd"))
+    monkeypatch.setattr(
+        "plugin.chatbot.extension_update_check.schedule_extension_update_check_once",
+        lambda _ctx, _ext: order.append("upd"),
+    )
     job = main_core.MainBootstrapJob(MagicMock())
     assert job.execute(()) == ()
     assert order == ["log", "boot", "upd"]
@@ -145,7 +151,10 @@ def test_trigger_bootstraps_when_init_logging_fails(monkeypatch) -> None:
 
     monkeypatch.setattr(main_core, "init_logging", fail_logging)
     monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: order.append("boot"))
-    monkeypatch.setattr(main_core, "_schedule_update_check", lambda _ctx: order.append("upd"))
+    monkeypatch.setattr(
+        "plugin.chatbot.extension_update_check.schedule_extension_update_check_once",
+        lambda _ctx, _ext: order.append("upd"),
+    )
     main_core.MainBootstrapJob(MagicMock()).trigger("")
     assert order == ["log", "boot", "upd"]
 
@@ -158,7 +167,6 @@ def test_trigger_wraps_bootstrap_errors(monkeypatch) -> None:
 
     monkeypatch.setattr(main_core, "init_logging", lambda _ctx: None)
     monkeypatch.setattr(main_core, "bootstrap", boom)
-    monkeypatch.setattr(main_core, "_schedule_update_check", lambda _ctx: None)
     job = main_core.MainBootstrapJob(MagicMock())
     job.trigger("")
 
@@ -172,7 +180,7 @@ def test_dispatch_command_reports_handler_failure(monkeypatch) -> None:
     def fake_report(cmd, exc):
         reported.append((cmd, exc))
 
-    monkeypatch.setattr("plugin.framework.main_shared.report_action_failure", fake_report)
+    monkeypatch.setattr("plugin.main_core.report_action_failure", fake_report)
     monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: None)
 
     def bad_handler():
@@ -200,7 +208,7 @@ def test_dispatch_reports_failure_once(monkeypatch) -> None:
 
     reported: list[tuple[str, Exception]] = []
     monkeypatch.setattr(
-        "plugin.framework.main_shared.report_action_failure",
+        "plugin.main_core.report_action_failure",
         lambda cmd, exc: reported.append((cmd, exc)),
     )
     monkeypatch.setattr(main_core, "init_logging", lambda _ctx: None)
@@ -230,7 +238,7 @@ def test_dispatch_survives_report_failure(monkeypatch) -> None:
         raise RuntimeError("report failed")
 
     monkeypatch.setattr(
-        "plugin.framework.main_shared.report_action_failure",
+        "plugin.main_core.report_action_failure",
         report_boom,
     )
     monkeypatch.setattr(main_core, "init_logging", lambda _ctx: None)

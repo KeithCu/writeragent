@@ -390,7 +390,7 @@ def test_calc_spill_undo_lock(ctx, doc):
 
     titles_before = list(um.getAllUndoActionTitles()) if um else []
 
-    perform_deferred_spill(ctx, doc_url, active_sheet.Name, 0, 0, [[1, 2], [3, 4]], doc=doc)
+    perform_deferred_spill(doc_url, active_sheet.Name, 0, 0, [[1, 2], [3, 4]], doc=doc)
 
     assert active_sheet.getCellByPosition(1, 0).getValue() == 2.0
     assert active_sheet.getCellByPosition(0, 1).getValue() == 3.0

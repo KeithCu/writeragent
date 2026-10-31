@@ -46,11 +46,9 @@ class HttpRouteRegistry:
     concurrent read sees the set from before the batch or after it.
     """
 
-    _lock: threading.RLock
-
     def __init__(self) -> None:
         self._routes: dict[tuple[str, str], Route] = {}  # (method, path) -> Route
-        self._lock = threading.RLock()
+        self._lock: threading.RLock = threading.RLock()
 
     def batch(self) -> threading.RLock:
         """Lock held across several add/remove calls (reentrant)."""
@@ -71,16 +69,12 @@ class HttpRouteRegistry:
             if key in self._routes:
                 log.warning("Route %s %s already registered — overwriting", method, path)
             self._routes[key] = Route(handler=handler, raw=raw)
-        log.debug("Route registered: %s %s (raw=%s)", method, path, raw)
 
-    def remove(self, method: str, path: str) -> bool:
+    def remove(self, method: str, path: str) -> None:
         """Unregister a route."""
         key = (method.upper(), path)
         with self._lock:
-            removed = self._routes.pop(key, None)
-        if removed:
-            log.debug("Route removed: %s %s", method, path)
-        return removed is not None
+            self._routes.pop(key, None)
 
     def match(self, method: str, path: str) -> Route | None:
         """Return Route(handler, raw) or None."""

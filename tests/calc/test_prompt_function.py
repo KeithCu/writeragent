@@ -36,7 +36,7 @@ def test_prompt_default_system_is_plain_cell_prompt(mock_get_config_int, mock_ge
         None,
         None,
         None,
-        client_holder=[None],
+        client=None,
     )
 
     messages = mock_run.call_args[0][2]
@@ -56,7 +56,7 @@ def test_prompt_respects_custom_extend_system_prompt(mock_get_config_int, mock_g
     mock_get_config_str.return_value = "Custom calc prompt"
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
 
-    execute_prompt_addin(MagicMock(), "hello", None, None, None, client_holder=[None])
+    execute_prompt_addin(MagicMock(), "hello", None, None, None, client=None)
 
     messages = mock_run.call_args[0][2]
     assert messages[0]["content"] == "Custom calc prompt"
@@ -75,7 +75,7 @@ def test_prompt_formula_system_arg_overrides_default(mock_get_config_int, mock_a
         "Inline system",
         None,
         None,
-        client_holder=[None],
+        client=None,
     )
 
     messages = mock_run.call_args[0][2]
@@ -98,7 +98,7 @@ def test_prompt_empty_response_returns_diagnostic(
         "reasoning": "Thinking about the user's greeting and model identity question.",
     }
 
-    out = execute_prompt_addin(MagicMock(), "Testing?", None, None, None, client_holder=[None])
+    out, _client = execute_prompt_addin(MagicMock(), "Testing?", None, None, None, client=None)
 
     assert out.startswith("Error: model returned no text.")
     assert "finish_reason='length'" in out
@@ -165,7 +165,7 @@ def test_optional_max_tokens(mock_get_config_int, value: Any, expected: int):
 @patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
 def test_prompt_model_override_reaches_new_client(mock_get_config_int, mock_api, mock_client_cls, mock_run):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
-    execute_prompt_addin(MagicMock(), "hello", None, "gpt-x", None, client_holder=[None])
+    execute_prompt_addin(MagicMock(), "hello", None, "gpt-x", None, client=None)
     assert mock_client_cls.call_args.args[0]["model"] == "gpt-x"
 
 
@@ -176,7 +176,7 @@ def test_prompt_model_override_reaches_new_client(mock_get_config_int, mock_api,
 @patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
 def test_prompt_blank_model_does_not_override(mock_get_config_int, mock_api, mock_client_cls, mock_run, blank_model):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
-    execute_prompt_addin(MagicMock(), "hello", None, blank_model, None, client_holder=[None])
+    execute_prompt_addin(MagicMock(), "hello", None, blank_model, None, client=None)
     assert mock_client_cls.call_args.args[0]["model"] == "cfg"
 
 
@@ -188,7 +188,7 @@ def test_prompt_blank_model_does_not_override(mock_get_config_int, mock_api, moc
 @patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
 def test_prompt_blank_system_prompt_uses_fallback(mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run, blank_system):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
-    execute_prompt_addin(MagicMock(), "hello", blank_system, None, None, client_holder=[None])
+    execute_prompt_addin(MagicMock(), "hello", blank_system, None, None, client=None)
     messages = mock_run.call_args[0][2]
     assert messages[0]["content"] == "Custom"
 
@@ -196,7 +196,7 @@ def test_prompt_blank_system_prompt_uses_fallback(mock_get_config_int, mock_get_
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 def test_prompt_blank_message_returns_error_without_call(mock_client_cls, mock_run):
-    res = execute_prompt_addin(MagicMock(), "   ", None, None, None, client_holder=[None])
+    res, _client = execute_prompt_addin(MagicMock(), "   ", None, None, None, client=None)
     assert res == "Error: prompt is empty."
     mock_client_cls.assert_not_called()
     mock_run.assert_not_called()
@@ -210,7 +210,7 @@ def test_prompt_reused_client_clears_stop(mock_get_config_int, mock_api, mock_cl
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
     client = MagicMock()
     client.config = {}
-    execute_prompt_addin(MagicMock(), "hello", None, None, None, client_holder=[client])
+    execute_prompt_addin(MagicMock(), "hello", None, None, None, client=client)
     mock_client_cls.assert_not_called()
     assert client.config == {"model": "cfg"}
     client.clear_stop.assert_called_once_with()
@@ -232,7 +232,7 @@ def test_prompt_empty_response_nested_reasoning_and_used_model(mock_get_config_i
         },
         "model": "used-model",
     }
-    out = execute_prompt_addin(MagicMock(), "Testing?", None, None, None, client_holder=[None])
+    out, _client = execute_prompt_addin(MagicMock(), "Testing?", None, None, None, client=None)
     assert "reasoning_tokens=7" in out
     assert "model=used-model" in out
 
@@ -243,7 +243,7 @@ def test_prompt_empty_response_nested_reasoning_and_used_model(mock_get_config_i
 @patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
 def test_prompt_long_error_is_capped(mock_get_config_int, mock_api, mock_client_cls, mock_run):
     mock_run.side_effect = RuntimeError("x" * 2000)
-    out = execute_prompt_addin(MagicMock(), "hello", None, None, None, client_holder=[None])
+    out, _client = execute_prompt_addin(MagicMock(), "hello", None, None, None, client=None)
     assert out.startswith("Error: ")
     assert len(out) <= _EMPTY_DIAGNOSTIC_MAX_LEN
 
@@ -254,7 +254,7 @@ def test_prompt_long_error_is_capped(mock_get_config_int, mock_api, mock_client_
 @patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
 def test_prompt_expected_failure_returns_cell_string(mock_get_config_int, mock_api, mock_client_cls, mock_run):
     mock_run.side_effect = NetworkError("boom")
-    out = execute_prompt_addin(MagicMock(), "hello", None, None, None, client_holder=[None])
+    out, _client = execute_prompt_addin(MagicMock(), "hello", None, None, None, client=None)
     assert out.startswith("Error: ")
 
 
@@ -266,6 +266,6 @@ def test_prompt_expected_failure_returns_cell_string(mock_get_config_int, mock_a
 @patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
 def test_prompt_empty_system_prompt_omits_system_message(mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run, empty_system):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
-    execute_prompt_addin(MagicMock(), "hello", empty_system, None, None, client_holder=[None])
+    execute_prompt_addin(MagicMock(), "hello", empty_system, None, None, client=None)
     messages = mock_run.call_args[0][2]
     assert messages == [{"role": "user", "content": "hello"}]

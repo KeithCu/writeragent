@@ -59,8 +59,6 @@ def _make_spec_runner(
             else configured_python_exec_timeout()
         )
         helper, params = _split_spec(spec)
-        layout = extract_sheet_layout(spec)
-
         return run_trusted_worker_action(
             ctx,
             domain=domain,
@@ -71,8 +69,11 @@ def _make_spec_runner(
             timeout_sec=timeout_sec,
             error_code=error_code,
             error_label=error_label,
-            headers=layout.get("headers"),
-            header_row=layout.get("header_row"),
+            additional_data={
+                key: value
+                for key, value in extract_sheet_layout(spec).items()
+                if value is not None
+            } or None,
         )
 
     _runner.__name__ = f"run_{domain}"
@@ -188,7 +189,6 @@ def run_text_analytics(
 
     model = get_config_dict().get("text_analytics_sentiment_model") or None
 
-    timeout_sec = long_trusted_worker_timeout_sec()
     helper, params = _split_spec(spec)
     if model:
         params = dict(params)
@@ -199,7 +199,7 @@ def run_text_analytics(
         helper=helper,
         params=params,
         context=context,
-        timeout_sec=timeout_sec,
+        timeout_sec=long_trusted_worker_timeout_sec(),
         error_code="TEXT_ANALYTICS_ERROR",
         error_label="Text Analytics",
         additional_data={"text": text},

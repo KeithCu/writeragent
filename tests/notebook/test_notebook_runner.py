@@ -10,7 +10,6 @@ import pytest
 from plugin.notebook.cell_registry import (
     NotebookDocState,
     cell_id_to_hex,
-    init_registry_execution_counter,
     new_code_cell_entry,
 )
 from plugin.notebook import form_lookup
@@ -102,14 +101,6 @@ def _enum_of(items):
     enum.hasMoreElements.side_effect = [True] * len(items) + [False]
     enum.nextElement.side_effect = items
     return enum
-
-
-def test_init_registry_execution_counter():
-    c0 = new_code_cell_entry(0, 3, "nb_cell_0_code")
-    c1 = new_code_cell_entry(1, None, "nb_cell_1_code")
-    state = NotebookDocState(code_cells=[c0, c1])
-    init_registry_execution_counter(state)
-    assert state.next_execution_count == 1
 
 
 def test_execute_code_does_not_pump_idle():
@@ -612,10 +603,13 @@ def test_clear_cell_output_skips_control_row_then_clears_stdout():
 def test_is_output_bookmark_home_empty_text_body_not_heading():
     from plugin.notebook.notebook_runner import _is_output_bookmark_home
 
+    doc = MagicMock()
+    cell = new_code_cell_entry(2, 2, "nb_cell_2_code")
+
     control = MagicMock()
     control.ParaStyleName = "Text Body"
     control.getString.return_value = ""
-    assert _is_output_bookmark_home(control) is False
+
     from plugin.notebook.notebook_runner import _is_leftover_empty_paragraph
 
     assert _is_leftover_empty_paragraph(control) is True
@@ -623,19 +617,21 @@ def test_is_output_bookmark_home_empty_text_body_not_heading():
     heading = MagicMock()
     heading.ParaStyleName = "Heading 2"
     heading.getString.return_value = ""
-    assert _is_output_bookmark_home(heading) is False
 
     stdout = MagicMock()
     stdout.ParaStyleName = "Preformatted Text"
     stdout.getString.return_value = ""
-    assert _is_output_bookmark_home(stdout) is False
 
     prompt = MagicMock()
     prompt.ParaStyleName = "WriterAgent Notebook In"
     prompt.getString.return_value = "In [1]:"
-    assert _is_output_bookmark_home(prompt) is True
 
-    cell = new_code_cell_entry(2, 2, "nb_cell_2_code")
+    with patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=None):
+        assert _is_output_bookmark_home(control, doc, cell) is False
+        assert _is_output_bookmark_home(heading, doc, cell) is False
+        assert _is_output_bookmark_home(stdout, doc, cell) is False
+        assert _is_output_bookmark_home(prompt, doc, cell) is True
+
     nxt = MagicMock()
     nxt.ParaStyleName = "WriterAgent Notebook In"
     nxt.getString.return_value = "In [3]:"
@@ -934,8 +930,7 @@ def test_apply_run_result_missing_bookmark_does_not_append_at_end():
     doc.getText.return_value = text
     with (
         patch("plugin.notebook.notebook_runner._reanchor_output_bookmark", return_value=None),
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=None),
-        patch("plugin.notebook.notebook_runner._find_cell_output_heading_end", return_value=None),
+        patch("plugin.notebook.notebook_runner._cell_end_range", return_value=None),
         patch("plugin.notebook.notebook_runner._insert_stdout_paragraph") as insert,
     ):
         apply_run_result(doc, cell, {"status": "ok", "stdout": "dumped\n", "result": None})
@@ -1839,10 +1834,8 @@ def test_request_stop_while_idle_creates_no_state():
 
     doc = MagicMock()
     doc.getURL.return_value = ""
-    notebook_runner._running_docs.clear()
     notebook_runner._stop_flags.clear()
     request_stop(doc)
-    assert notebook_runner._running_docs == set()
     assert notebook_runner._stop_flags == {}
 
 
@@ -1854,7 +1847,6 @@ def test_run_cell_leaves_no_stop_state():
     state = NotebookDocState(code_cells=[cell], next_execution_count=1)
     doc = MagicMock()
     doc.getURL.return_value = ""
-    notebook_runner._running_docs.clear()
     notebook_runner._stop_flags.clear()
     with (
         patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
@@ -1866,6 +1858,5 @@ def test_run_cell_leaves_no_stop_state():
         patch("plugin.notebook.notebook_runner.save_registry"),
     ):
         assert run_cell(ctx, doc, cell.cell_id).status == "ok"
-    assert notebook_runner._running_docs == set()
     assert notebook_runner._stop_flags == {}
 

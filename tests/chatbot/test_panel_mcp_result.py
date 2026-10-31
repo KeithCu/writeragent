@@ -12,7 +12,7 @@ def test_on_mcp_result_drops_stale_turn():
     listener = get_dummy_listener()
 
     current_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
-    current_turn._alive = True
+    current_turn.alive = True
 
     old_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
     listener._last_mcp_turn = {"": old_turn}
@@ -27,7 +27,7 @@ def test_on_mcp_result_drops_dead_turn():
     listener = get_dummy_listener()
 
     current_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
-    current_turn._alive = False
+    current_turn.alive = False
 
     listener._last_mcp_turn = {"": current_turn}
 
@@ -41,7 +41,7 @@ def test_on_mcp_result_posts_on_valid_turn():
     listener = get_dummy_listener()
 
     current_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
-    current_turn._alive = True
+    current_turn.alive = True
 
     listener._last_mcp_turn = {"": current_turn}
 

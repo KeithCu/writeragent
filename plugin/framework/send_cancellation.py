@@ -14,7 +14,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -58,13 +58,9 @@ def wait_for_approval(event: threading.Event, stop_checker: Callable[[], bool] |
 class SendCancellation:
     """Per-send cancellation: flag, registered HTTP clients, and optional hooks."""
 
-    __slots__: ClassVar[tuple[str, ...]] = ("_cancelled", "_lock", "_hooks", "_executors")
-    _cancelled: threading.Event
-    _lock: threading.Lock
-
     def __init__(self) -> None:
-        self._cancelled = threading.Event()
-        self._lock = threading.Lock()
+        self._cancelled: threading.Event = threading.Event()
+        self._lock: threading.Lock = threading.Lock()
         self._hooks: list[Callable[[], None]] = []
         self._executors: list[QueueExecutor] = []
 
@@ -81,24 +77,11 @@ class SendCancellation:
         # Resolve .stop() at registration time so cancel() only needs one list of
         # plain callables — no duck-type dispatch needed there.
         # B13: Stop can fire before the drain creates/registers the client. If the
-        # scope is already cancelled, call stop() immediately so the worker cannot
-        # open a socket under llm_request_lane.
+        # scope is already cancelled, register_on_cancel calls stop() immediately.
         stop = getattr(client, "stop", None)
         if not callable(stop):
             return
-        with self._lock:
-            # The same bound stop is one hook; a second register_client must not
-            # run it again, and a duplicate after cancel() does not call it again
-            # because the first registration or cancel() already did.
-            if stop in self._hooks:
-                return
-            self._hooks.append(cast("Callable[[], None]", stop))
-            already = self._cancelled.is_set()
-        if already:
-            try:
-                stop()
-            except Exception:
-                log.exception("SendCancellation: error stopping late-registered client")
+        self.register_on_cancel(cast("Callable[[], None]", stop))
 
     def register_on_cancel(self, hook: Callable[[], None]) -> None:
         with self._lock:
@@ -178,27 +161,17 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
     """
     if scope is not None and fallback is not None:
         return _fail_closed(lambda: scope.is_cancelled() or fallback())
-    if scope is not None:
-        return _fail_closed(scope.is_cancelled)
-    if fallback is not None:
-        return _fail_closed(fallback)
-    return lambda: False
+    predicate = scope.is_cancelled if scope is not None else fallback
+    return _fail_closed(predicate) if predicate is not None else (lambda: False)
 
 
 def capture_send_stop(host: Any) -> tuple[Any, Callable[[], bool]]:
-    """Scope and stop checker frozen on the send thread at worker spawn.
+    """Scope and stop checker frozen on the send thread before ``run_in_background``.
 
-    Call this before ``run_in_background``. The checker is whatever
-    ``resolve_stop_checker`` returns now, which on the panel is
-    ``bind_send_stop_checker`` closed over this scope object. The worker
-    closes over both results and must not read the panel field again.
-    Sub-agent and tool workers that call ``resolve_stop_checker()`` and
-    read ``host._send_cancellation`` inside the thread body miss Stop:
-    Stop's drain clears that field, and the next send stores a new scope
-    there. A worker spawned but not yet in its body then binds the next
-    send, so the old Stop is missed and the old worker can cancel the new
-    one. ``run_in_background`` already copies contextvars at submit;
-    ``get_current_send_cancellation`` stays that submit-time scope.
+    The worker closes over both results. Calling ``resolve_stop_checker`` or
+    reading ``host._send_cancellation`` inside the thread body misses Stop:
+    the drain clears that field and the next send stores a new scope, so the
+    old worker can latch onto the new send and cancel it.
     """
     scope = getattr(host, "_send_cancellation", None)
     checker = host.resolve_stop_checker()

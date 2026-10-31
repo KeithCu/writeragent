@@ -77,13 +77,8 @@ def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
     if sample_count == 0:
         return 0.0, 0.0
     samples = struct.unpack(f"<{sample_count}h", pcm[: sample_count * 2])
-    sum_sq = 0
-    peak = 0
-    for sample in samples:
-        sum_sq += sample * sample
-        abs_sample = sample if sample >= 0 else -sample
-        if abs_sample > peak:
-            peak = abs_sample
+    sum_sq = sum(sample * sample for sample in samples)
+    peak = max(abs(sample) for sample in samples)
     rms = (sum_sq / sample_count) ** 0.5
     return min(1.0, rms / 32768.0), min(1.0, peak / 32768.0)
 
@@ -120,8 +115,6 @@ class SilenceDetector:
     _speech_samples: int
     _silence_samples: int
     _last_reported_silence_ms: int
-    _session_max_rms: float
-    _session_max_peak: float
     _level_window: deque[tuple[int, float]]
     _level_samples: int
 
@@ -134,8 +127,6 @@ class SilenceDetector:
         self._speech_samples = 0
         self._silence_samples = 0
         self._last_reported_silence_ms = -1
-        self._session_max_rms = 0.0
-        self._session_max_peak = 0.0
         self._level_window = deque()
         self._level_samples = 0
 
@@ -173,16 +164,11 @@ class SilenceDetector:
 
     def process_chunk(self, pcm: bytes) -> SilenceDetectorResult:
         # crosshair: off
-        if not self._config.enabled:
+        if not self._config.enabled or len(pcm) < 2:
             return self._make_result(0.0, 0.0, False)
-
         sample_count = len(pcm) // 2
-        if sample_count == 0:
-            return self._make_result(0.0, 0.0, False)
 
         rms, peak = pcm_energy_int16(pcm)
-        self._session_max_rms = max(self._session_max_rms, rms)
-        self._session_max_peak = max(self._session_max_peak, peak)
         self._push_level(sample_count, rms)
 
         # The old code froze the 0.003 floor on the first chunk at or above 0.0054,
@@ -235,11 +221,9 @@ class SilenceDetector:
         result = self._make_result(rms, peak, is_speech)
         if result.should_stop:
             log.info(
-                "audio VAD: auto-stop triggered (speech_ms=%d silence_ms=%d max_rms=%.4f max_peak=%.4f)",
+                "audio VAD: auto-stop triggered (speech_ms=%d silence_ms=%d)",
                 result.speech_ms,
                 result.silence_ms,
-                self._session_max_rms,
-                self._session_max_peak,
             )
 
         return result
@@ -253,19 +237,6 @@ class SilenceDetector:
         step = max(100, self._config.silence_stop_ms // 4)
         if result.silence_ms - self._last_reported_silence_ms >= step:
             self._last_reported_silence_ms = result.silence_ms
-            log.debug(
-                "audio VAD: silence progress (silence_ms=%d speech_ms=%d heard_speech=%s "
-                "rms=%.4f peak=%.4f max_rms=%.4f max_peak=%.4f silence_thr=%.4f speech_thr=%.4f)",
-                result.silence_ms,
-                result.speech_ms,
-                result.heard_speech,
-                result.rms,
-                result.peak,
-                self._session_max_rms,
-                self._session_max_peak,
-                self._silence_threshold,
-                self._speech_threshold,
-            )
             return True
         return False
 
@@ -274,8 +245,7 @@ class SilenceDetector:
         self._level_samples += sample_count
         limit = STEADY_NOISE_MS * self._sample_rate // 1000
         while len(self._level_window) > 1 and self._level_samples - self._level_window[0][0] >= limit:
-            dropped, _dropped_rms = self._level_window.popleft()
-            self._level_samples -= dropped
+            self._level_samples -= self._level_window.popleft()[0]
 
     def _window_ambient(self) -> tuple[bool, float]:
         limit = STEADY_NOISE_MS * self._sample_rate // 1000
@@ -293,10 +263,7 @@ class SilenceDetector:
             return
         if is_speech:
             return
-        if self._noise_ema is None:
-            self._noise_ema = rms
-            return
-        if rms < self._noise_ema:
+        if self._noise_ema is None or rms < self._noise_ema:
             self._noise_ema = rms
             return
         dt = sample_count / self._sample_rate
@@ -310,10 +277,8 @@ class SilenceDetector:
             return False
         if self._noise_ema is None:
             return False
-        silence_thr = self._silence_threshold
-        speech_thr = self._speech_threshold
-        if rms >= speech_thr:
+        if rms >= self._speech_threshold:
             return True
-        if rms <= silence_thr and peak <= silence_thr * PEAK_SILENCE_FACTOR:
+        if rms <= self._silence_threshold and peak <= self._silence_threshold * PEAK_SILENCE_FACTOR:
             return False
         return self._run_committed

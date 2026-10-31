@@ -24,29 +24,12 @@ _LT_CACHE_LOCK = threading.Lock()
 def _match_wrong_text(m: Any) -> str:
     """Text the match covered.
 
-    ``matched_text`` of ``""`` is falsy, so ``or context[start:end]`` used to
-    take Python's lenient slice (negative start, end past the string) and
-    store the wrong span. Any real string, including empty, wins. The context
-    slice is only used when that attribute is missing and both offsets sit
-    inside ``context``.
+    ``matched_text`` of ``""`` is a real value. The old ``or`` slice treated
+    it as missing and underlined a lenient context span. On
+    ``language_tool_python.Match`` this property always returns ``str``.
     """
-    matched = getattr(m, "matched_text", None)
-    # ``""`` is a real value. The old ``or slice`` treated it as missing and
-    # underlined whatever a lenient context slice happened to return.
-    if isinstance(matched, str):
-        return matched
-    context = getattr(m, "context", None)
-    if not isinstance(context, str) or not context:
-        return ""
-    start = getattr(m, "offset_in_context", None)
-    length = getattr(m, "error_length", None)
-    if isinstance(start, bool) or isinstance(length, bool):
-        return ""
-    if not isinstance(start, int) or not isinstance(length, int):
-        return ""
-    if start < 0 or length < 0 or start + length > len(context):
-        return ""
-    return context[start : start + length]
+    matched = getattr(m, "matched_text", "")
+    return matched if isinstance(matched, str) else ""
 
 
 def _cached_languagetool(bcp47_clean: str) -> Any:

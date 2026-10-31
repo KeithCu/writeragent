@@ -38,10 +38,10 @@ def test_domain_templates_cover_helpers(templates_fn, helper_names, parse_fn, pu
 
 
 def test_units_templates_cover_shipped_helpers():
-    from plugin.scripting.units import _SHIPPED_TEMPLATES
+    from plugin.scripting.units import _DEFAULT_PARAMS
 
     templates = get_units_script_templates()
-    assert set(templates.keys()) == set(_SHIPPED_TEMPLATES)
+    assert set(templates.keys()) == set(_DEFAULT_PARAMS)
     for helper, code in templates.items():
         assert f"from writeragent.scripting.units import {helper}" in code
 

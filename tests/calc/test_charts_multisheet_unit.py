@@ -323,7 +323,7 @@ def test_writer_diagram_failure_after_insert_removes_chart():
     with (
         patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
         patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
-        patch("plugin.calc.charts._drop_writer_chart_insert") as drop_mock,
+        patch("plugin.calc.charts._drop_failed_chart_insert") as drop_mock,
         patch("plugin.calc.charts._apply_chart_styling") as styling_mock,
     ):
         res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
@@ -346,7 +346,7 @@ def test_writer_diagram_create_instance_none_removes_chart():
     with (
         patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
         patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
-        patch("plugin.calc.charts._drop_writer_chart_insert") as drop_mock,
+        patch("plugin.calc.charts._drop_failed_chart_insert") as drop_mock,
         patch("plugin.calc.charts._apply_chart_styling") as styling_mock,
     ):
         res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
@@ -419,18 +419,18 @@ def test_draw_legend_failure_removes_shape():
 
 
 def test_writer_drop_falls_back_to_embedded_objects():
-    from plugin.calc.charts import _drop_writer_chart_insert
+    from plugin.calc.charts import _remove_writer_chart
 
     doc = MagicMock()
     chart_obj = MagicMock()
     chart_obj.getAnchor().getText.return_value.removeTextContent.side_effect = RuntimeError("not in this text")
     embeds = doc.getEmbeddedObjects.return_value
     embeds.hasByName.return_value = True
-    _drop_writer_chart_insert(doc, chart_obj, "Chart_2")
+    _remove_writer_chart(doc, chart_obj, "Chart_2")
     embeds.removeByName.assert_called_once_with("Chart_2")
 
     chart_obj.getAnchor().getText.return_value.removeTextContent.side_effect = None
-    _drop_writer_chart_insert(doc, chart_obj, "Chart_2")
+    _remove_writer_chart(doc, chart_obj, "Chart_2")
     chart_obj.getAnchor().getText.return_value.removeTextContent.assert_called_with(chart_obj)
     assert embeds.removeByName.call_count == 1
 
@@ -686,7 +686,7 @@ def test_create_data_apply_failure_removes_chart_and_errors():
     with (
         patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
         patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
-        patch("plugin.calc.charts._drop_writer_chart_insert") as drop_mock,
+        patch("plugin.calc.charts._drop_failed_chart_insert") as drop_mock,
     ):
         res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
     assert res["status"] == "error"
@@ -1183,14 +1183,14 @@ def test_writer_create_rollback_targets_host_assigned_name():
     with (
         patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
         patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
-        patch("plugin.calc.charts._drop_writer_chart_insert") as drop_mock,
+        patch("plugin.calc.charts._drop_failed_chart_insert") as drop_mock,
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts._process_events"),
     ):
         res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
     assert res["status"] == "error"
     assert res.get("code") == "CHART_CREATE_ERROR"
-    assert drop_mock.call_args[0][2] == "Object 1"
+    assert drop_mock.call_args[0][1] == "Object 1"
 
 
 

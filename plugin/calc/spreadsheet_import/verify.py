@@ -11,7 +11,7 @@ from typing import Any
 
 from plugin.calc.error_detector import is_calc_error_display
 from plugin.calc.python.cell_discovery import is_py_formula_text
-from plugin.calc.spreadsheet_import.models import ConversionReport, OutputSheetModel, SheetModel, VerifyMismatch, VerifyResult
+from plugin.calc.spreadsheet_import.models import ConversionReport, OutputSheetModel, SheetModel, VerifyMismatch
 
 
 def _values_equal(expected: Any, actual: Any) -> tuple[bool, str]:
@@ -43,16 +43,15 @@ def verify_converted_cells(
     report: ConversionReport,
     *,
     actual_values: dict[str, Any],
-) -> VerifyResult:
+) -> list[VerifyMismatch]:
     """Compare converted cell values against the source ingest oracle."""
-    result = VerifyResult()
+    failed: list[VerifyMismatch] = []
     for addr in report.converted:
         if addr not in source.cells:
-            result.skipped.append(addr)
             continue
         oc = output.cells.get(addr)
         if oc is None or not oc.formula or not is_py_formula_text(oc.formula):
-            result.failed.append(
+            failed.append(
                 VerifyMismatch(
                     address=addr,
                     expected="=PY(...)",
@@ -62,14 +61,11 @@ def verify_converted_cells(
             )
             continue
         if addr not in actual_values:
-            result.skipped.append(addr)
             continue
         expected = source.cells[addr].value
         actual = actual_values[addr]
         ok, msg = _values_equal(expected, actual)
-        if ok:
-            result.passed.append(addr)
-        else:
-            result.failed.append(VerifyMismatch(address=addr, expected=expected, actual=actual, message=msg))
-    return result
+        if not ok:
+            failed.append(VerifyMismatch(address=addr, expected=expected, actual=actual, message=msg))
+    return failed
 

@@ -272,8 +272,6 @@ class ToolBase(_ToolErrorMixin, ABC):
                      ``"specialized_control"`` (hidden from default lists via
                      ``exclude_tiers``). Sidebar-only tools use ``"chat"``
                      (on the chat wire; hidden from MCP). Default ``"core"``.
-        intent:      Optional group label (e.g. "navigate", "edit", "review",
-                     "media"). Registry lookup does not filter on it.
         is_mutation:  Whether the tool mutates the document.  ``None``
                      means auto-detect from a read prefix (``get_``,
                      ``list_``, …) or a later domain-verb token
@@ -286,7 +284,6 @@ class ToolBase(_ToolErrorMixin, ABC):
     parameters: dict[str, Any] | None = None
     uno_services: list[str] | None = None
     tier: str = "core"
-    intent: str | None = None
     is_mutation: bool | None = None
     long_running: bool = False
     is_final_answer_tool: bool = False
@@ -416,7 +413,7 @@ class ToolBase(_ToolErrorMixin, ABC):
                 # UNO DisposedException often has an empty str() and the text in .Message; use the same resolver as the branch below.
                 return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED", original_error=resolve_exception_message(e), error_type=type(e).__name__)
             # Returning _tool_error() already keeps the code. Raising
-            # ToolPermissionError / ConfigError used to be rewritten as
+            # ConfigError used to be rewritten as
             # TOOL_EXECUTION_ERROR and lose details.
             if isinstance(e, WriterAgentException):
                 return format_error_payload(e)
@@ -502,7 +499,6 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"})
 # Sync tools that declare timeout= cannot enforce it. Warn once per name.
 _sync_timeout_warned: set[str] = set()
-_UNSET_EXCLUDE_TIERS = object()
 
 def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
     """Return True when *tool* is allowed on a document with the cached type/services."""
@@ -684,7 +680,7 @@ class ToolRegistry:
         doc_type: str | None = None,
         names: Any = None,
         filter_doc_type: bool = True,
-        exclude_tiers: Any = _UNSET_EXCLUDE_TIERS,
+        exclude_tiers: Any = _DEFAULT_EXCLUDE_TIERS,
         active_domain: str | None = None,
         uno_services_supported: Any = None,
         ctx: Any = None,
@@ -734,10 +730,7 @@ class ToolRegistry:
         # If we have an active domain, we want to include its tools (and the finish tool),
         # even if they are in the excluded tiers.
 
-        if exclude_tiers is _UNSET_EXCLUDE_TIERS:
-            to_exclude = _DEFAULT_EXCLUDE_TIERS
-        else:
-            to_exclude = frozenset(exclude_tiers) if exclude_tiers else frozenset()
+        to_exclude = frozenset(exclude_tiers) if exclude_tiers else frozenset()
 
         if active_domain:
             # Restrict the list to this domain, the finish tool, and names the
@@ -808,11 +801,10 @@ class ToolRegistry:
 
             doc_type = doc_type_str_from_doc(doc)
 
-        tools_kwargs = dict(kwargs)
         if doc_type is not None:
-            tools_kwargs["doc_type"] = doc_type
+            kwargs["doc_type"] = doc_type
 
-        tools = self.get_tools(active_domain=active_domain, **tools_kwargs)
+        tools = self.get_tools(active_domain=active_domain, **kwargs)
         # Probed services tell Impress (PresentationDocument) from Draw; both carry doc_type "draw".
         from plugin.doc.doc_type import uno_services_for_document
         from plugin.doc.specialized_base import narrow_delegate_domain_enums
@@ -820,11 +812,10 @@ class ToolRegistry:
         uno_services = kwargs.get("uno_services_supported") or uno_services_for_document(doc, doc_type)
         if protocol == "openai":
             from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
-            from plugin.vision.image_filter import filter_get_image_for_text_only_model
 
-            tools = filter_get_image_for_text_only_model(
-                tools, has_native_vision(get_text_model(), get_current_endpoint())
-            )
+            # Unknown (None) keeps get_image. Only a known text-only chat model drops it.
+            if has_native_vision(get_text_model(), get_current_endpoint()) is False:
+                tools = [t for t in tools if t.name != "get_image"]
             convert = to_openai_schema
             peer_domain: str | None = active_domain
         else:
@@ -862,10 +853,9 @@ class ToolRegistry:
             return 0.0
         return float(raw)
 
-    def _execute_with_timeout(self, func: Any, timeout: float, tool_name: str = "<unknown>", run_threaded: bool = True) -> Any:
+    def _execute_with_timeout(self, func: Any, timeout: float, tool_name: str = "<unknown>") -> Any:
         """Run *func* with an optional wall-clock timeout.
 
-        If ``run_threaded`` is False, the timeout is ignored and the function runs inline.
         Sync tools are marshaled to the main thread by ``ToolRegistry.execute`` before this runs.
 
         Timeout **abandons** the worker; it does not kill the dedicated thread.
@@ -876,15 +866,6 @@ class ToolRegistry:
         """
         # crosshair: off
         if timeout <= 0:
-            return func()
-
-        if not run_threaded:
-            # The timeout needs a thread, and execute hits this path on each
-            # run. One line per tool name is enough; warning every call
-            # floods the log for a sync tool with timeout=.
-            if tool_name not in _sync_timeout_warned:
-                _sync_timeout_warned.add(tool_name)
-                log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
             return func()
 
         result_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -999,7 +980,6 @@ class ToolRegistry:
             tool_kwargs: Raw arguments passed by caller.
         """
         try:
-            kwargs = dict(tool_kwargs)
             tool = self._tools.get(tool_name)
             if tool is None:
                 # Return a structured error instead of raising KeyError so the model
@@ -1021,7 +1001,7 @@ class ToolRegistry:
                     tool_name=tool_name,
                 )
 
-            prepared = prepare_tool_call(tool, ctx, tool_name, kwargs)
+            prepared = prepare_tool_call(tool, ctx, tool_name, tool_kwargs)
             if prepared.error is not None:
                 return prepared.error
             kwargs, ignored, common_details = prepared.kwargs, prepared.ignored, prepared.details
@@ -1035,7 +1015,6 @@ class ToolRegistry:
             # Sync tools are marshaled to the LO main thread so MCP long-running and any
             # other worker-thread caller cannot touch UNO off-thread.
             runner = tool.execute if bypass_thread_guard else tool.execute_safe
-            run_threaded = bypass_thread_guard or bool(tool.is_async())
             timeout = self._get_tool_timeout(tool)
 
             # Bugfix: A spread model dict (e.g. from MCP or host RPC) containing keys
@@ -1049,24 +1028,26 @@ class ToolRegistry:
                 return runner(ctx, **kwargs)
 
             if bypass_thread_guard or tool.is_async():
-                result = self._execute_with_timeout(_run_tool, timeout, tool_name, run_threaded)
+                result = self._execute_with_timeout(_run_tool, timeout, tool_name)
             else:
-                # We let the marshal TimeoutError become TOOL_REGISTRY_ERROR, not a
-                # TOOL_TIMEOUT/cancel path, because QueueExecutor raises it only for
-                # work that never started (started work is waited out), so nothing
-                # lands late and a retry is safe.
-                result = execute_on_main_thread(lambda: self._execute_with_timeout(_run_tool, timeout, tool_name, run_threaded))
+                def _run_sync() -> Any:
+                    if timeout > 0 and tool_name not in _sync_timeout_warned:
+                        _sync_timeout_warned.add(tool_name)
+                        log.warning(
+                            "Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. "
+                            "Set is_async() to True to enable timeout enforcement.",
+                            tool_name,
+                            timeout,
+                        )
+                    return _run_tool()
+
+                result = execute_on_main_thread(_run_sync)
 
             # Ensure any returned dict with status='error' includes full context details
             if isinstance(result, dict) and result.get("status") == "error":
                 result_details = result.get("details", {})
                 if isinstance(result_details, dict):
-                    # merge common_details into result_details without overwriting existing keys
-                    merged: dict[str, Any] = dict(result_details)
-                    for k, v in common_details.items():
-                        if k not in merged:
-                            merged[k] = v
-                    cast("dict[str, Any]", result)["details"] = merged
+                    cast("dict[str, Any]", result)["details"] = {**common_details, **result_details}
 
             # The dropped keys used to vanish silently: image_insert(paragraph_index=70) -- the
             # name image_list reports -- dropped the index and put the image at the view cursor

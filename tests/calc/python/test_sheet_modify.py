@@ -238,7 +238,6 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
     cell.clearContents = clear_and_dispatch
 
     perform_deferred_spill(
-        "ctx",
         "file:///spill_dispatch.ods",
         "Sheet1",
         0,

@@ -23,31 +23,13 @@ _MAX_PRECEDENT_CELLS = 80
 
 
 def _sheet_name(sheet: Any) -> str:
-    getter = getattr(sheet, "getName", None)
-    if not callable(getter):
-        return ""
-    name = getter()
+    name = sheet.getName()
     return name if isinstance(name, str) else ""
 
 
-def _sheet_for_precedent(doc: Any, fallback: Any, sheet_index: Any) -> Any:
-    """Spreadsheet named by ``CellRangeAddress.Sheet``.
-
-    ``getSheets().getByIndex`` is the sheet that index names. Ignoring
-    ``addr.Sheet`` makes ``=Data.A1`` report the formula sheet's A1, even
-    though ``queryPrecedents`` carries the sheet index. A missing index
-    (callers that only have the formula sheet) keeps *fallback*.
-    """
-    if doc is None or sheet_index is None:
-        return fallback
-    return doc.getSheets().getByIndex(int(sheet_index))
-
-
-def _cell_snapshot(sheet: Any, col: int, row: int, sheet_name: str | None = None) -> dict[str, Any]:
+def _cell_snapshot(sheet: Any, col: int, row: int, sheet_name: str) -> dict[str, Any]:
     cell = sheet.getCellByPosition(col, row)
     val, type_name = cell_value_and_type(cell, empty_as_none=False)
-    if sheet_name is None:
-        sheet_name = _sheet_name(sheet)
     addr = qualify_a1(sheet_name, format_address(col, row)) if sheet_name else format_address(col, row)
     snapshot: dict[str, Any] = {"address": addr, "type": type_name, "value": val}
 
@@ -85,7 +67,11 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any = Non
         # Sheet lookup stays before the cap check. A following address whose
         # sheet index throws still throws once the previous addresses filled
         # the cap exactly, which is what the old inner break did.
-        prec_sheet = _sheet_for_precedent(doc, sheet, getattr(addr, "Sheet", None))
+        # CellRangeAddress.Sheet is the precedent sheet. A missing index,
+        # or no doc, stays on the formula sheet. Dropping Sheet makes
+        # =Data.A1 report the formula sheet's A1.
+        sheet_index = getattr(addr, "Sheet", None)
+        prec_sheet = sheet if doc is None or sheet_index is None else doc.getSheets().getByIndex(int(sheet_index))
         prec_name = _sheet_name(prec_sheet)
         room = _MAX_PRECEDENT_CELLS - len(precedents)
         if room <= 0:
@@ -125,15 +111,14 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
         best_effort(lambda: navigate_to_cell(doc, ctx, address), f"navigate_to_cell failed for {address!r}; continuing dep chain")
 
     chain: dict[str, Any] | None = None
-    if hasattr(doc, "getCommandValues"):
-        raw = best_effort(lambda: doc.getCommandValues(_FORMULA_DEP_CHAIN_CMD), f"getCommandValues({_FORMULA_DEP_CHAIN_CMD}) failed")
-        if raw:
-            parsed = safe_json_loads(raw, default=None, strict=True) if isinstance(raw, str) else raw
-            if isinstance(parsed, dict):
-                chain = parsed.get("commandValues", parsed)
-                if chain:
-                    chain = dict(chain)
-                    chain["source"] = "uno_formula_dep_chain"
+    raw = best_effort(lambda: doc.getCommandValues(_FORMULA_DEP_CHAIN_CMD), f"getCommandValues({_FORMULA_DEP_CHAIN_CMD}) failed")
+    if raw:
+        parsed = safe_json_loads(raw, default=None, strict=True) if isinstance(raw, str) else raw
+        if isinstance(parsed, dict):
+            chain = parsed.get("commandValues", parsed)
+            if chain:
+                chain = dict(chain)
+                chain["source"] = "uno_formula_dep_chain"
 
     if not chain:
         chain = _precedents_via_formula_query(sheet, col, row, doc)

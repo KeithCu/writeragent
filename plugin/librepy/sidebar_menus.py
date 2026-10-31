@@ -46,11 +46,6 @@ def _librepy_hamburger_specs() -> tuple[tuple[str, str, str | None, str], ...]:
 _graphic_cache: dict[tuple[str, str], Any] = {}
 
 
-def reset_menu_graphic_cache() -> None:
-    """Test hook: clear the loaded graphic cache."""
-    _graphic_cache.clear()
-
-
 def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
     """Load a PNG icon from extension assets/ as XGraphic."""
     try:
@@ -65,12 +60,8 @@ def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
         if cached is not None:
             return cached
 
-        smgr = getattr(ctx, "getServiceManager", lambda: None)()
-        if smgr is None:
-            return None
+        smgr = ctx.getServiceManager()
         gp = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
-        if gp is None:
-            return None
 
         def _from_url(url: str) -> Any:
             pv = PropertyValue()
@@ -117,18 +108,12 @@ def invoke_action_handler(handler: Callable[..., Any] | None, frame: Any = None,
         return
     try:
         wants_frame = False
-        try:
-            sig = inspect.signature(handler)
-            for param in sig.parameters.values():
-                if param.kind == inspect.Parameter.VAR_POSITIONAL:
-                    wants_frame = frame is not None
+        sig = inspect.signature(handler)
+        for param in sig.parameters.values():
+            if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+                if param.name == "frame" or param.default is inspect.Parameter.empty:
+                    wants_frame = True
                     break
-                if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                    if param.name == "frame" or param.default is inspect.Parameter.empty:
-                        wants_frame = True
-                        break
-        except (TypeError, ValueError):
-            wants_frame = False
         if wants_frame:
             handler(frame)
         else:
@@ -137,12 +122,6 @@ def invoke_action_handler(handler: Callable[..., Any] | None, frame: Any = None,
         from plugin.framework.main_shared import report_action_failure
 
         report_action_failure(command, exc)
-
-
-def command_prefix_for_ctx(ctx: Any) -> str:
-    from plugin.framework.uno_context import resolve_package_extension_id
-
-    return resolve_package_extension_id(ctx) + ":"
 
 
 def document_has_notebook_registry(doc: Any) -> bool:
@@ -163,9 +142,8 @@ def document_has_notebook_registry(doc: Any) -> bool:
         return False
 
 
-def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, handler_lookup: Callable[[str], Any] | None = None, doc: Any | None = None) -> list[tuple[str, str, str | None]]:
+def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, doc: Any | None = None) -> list[tuple[str, str, str | None]]:
     """Return (label, action, icon) rows that have a registered handler."""
-    lookup = handler_lookup or get_action_handler
     out: list[tuple[str, str, str | None]] = []
     for label, action, icon, when in _librepy_hamburger_specs():
         if when == "calc" and not is_calc_doc:
@@ -175,7 +153,7 @@ def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, handler
         if when == "notebook":
             if not is_writer_doc or not document_has_notebook_registry(doc):
                 continue
-        if lookup(action) is None:
+        if get_action_handler(action) is None:
             log.warning("LibrePy hamburger action %s has no registered handler; skipping", action)
             continue
         filename = None
@@ -185,28 +163,6 @@ def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, handler
             filename = menu_icon_filename(icon)
         out.append((label, action, filename))
     return out
-
-
-def add_popup_item(menu: Any, label: str, action: str, pos: int, item_actions: dict[int, str], next_id: list[int], ctx: Any, command_prefix: str, icon_filename: str | None = None) -> None:
-    n_id = next_id[0]
-    next_id[0] += 1
-    menu.insertItem(n_id, label, 0, pos)
-    item_actions[n_id] = action
-    if hasattr(menu, "setCommand"):
-        menu.setCommand(n_id, command_prefix + action)
-    if icon_filename:
-        g = load_menu_graphic(ctx, icon_filename)
-        if g is not None:
-            if hasattr(menu, "setItemImage"):
-                try:
-                    menu.setItemImage(n_id, g, False)
-                except Exception as e:
-                    log.debug("setItemImage failed for %s: %s", icon_filename, e)
-            elif hasattr(menu, "setItemGraphic"):
-                try:
-                    menu.setItemGraphic(n_id, g)
-                except Exception as e:
-                    log.debug("setItemGraphic failed for %s: %s", icon_filename, e)
 
 
 def execute_popup_under_button(popup: Any, button_ctrl: Any) -> int:
@@ -266,13 +222,28 @@ def show_librepy_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         if popup is None:
             return
 
-        prefix = command_prefix_for_ctx(ctx)
+        from plugin.framework.uno_context import resolve_package_extension_id
+
+        prefix = resolve_package_extension_id(ctx) + ":"
         item_actions: dict[int, str] = {}
-        next_id = [1]
-        pos = 0
-        for label, action, icon in librepy_hamburger_actions(is_calc_doc=is_calc(model), is_writer_doc=is_writer(model), doc=model):
-            add_popup_item(popup, label, action, pos, item_actions, next_id, ctx, prefix, icon)
-            pos += 1
+        for pos, (label, action, icon) in enumerate(
+            librepy_hamburger_actions(
+                is_calc_doc=is_calc(model),
+                is_writer_doc=is_writer(model),
+                doc=model,
+            )
+        ):
+            n_id = pos + 1
+            popup.insertItem(n_id, label, 0, pos)
+            item_actions[n_id] = action
+            popup.setCommand(n_id, prefix + action)
+            if icon:
+                graphic = load_menu_graphic(ctx, icon)
+                if graphic is not None:
+                    try:
+                        popup.setItemImage(n_id, graphic, False)
+                    except Exception as e:
+                        log.debug("setItemImage failed for %s: %s", icon, e)
 
         chosen_id = execute_popup_under_button(popup, button_ctrl)
         if chosen_id in item_actions:
@@ -327,36 +298,24 @@ def wire_sidebar_header_buttons(ctx: Any, frame: Any, controls: dict[str, Any], 
         third_icon = None
         third_label = "√x"
 
-    specs: list[tuple[str, str, str, str | None, str | None]] = [
-        ("btn_hdr_settings", "main.settings", _("Settings"), menu_icon_asset_rel("gear", ctx=ctx), ""),
-        ("btn_python", "scripting.run_python_dialog", _("Run Python Script..."), menu_icon_asset_rel("python", ctx=ctx), ""),
-        ("btn_latex", third_action, third_tip, third_icon, third_label),
+    specs: list[tuple[str, str, str | None, str | None, BaseActionListener]] = [
+        ("btn_hdr_settings", _("Settings"), menu_icon_asset_rel("gear", ctx=ctx), "", _DispatchActionListener("main.settings", frame)),
+        ("btn_python", _("Run Python Script..."), menu_icon_asset_rel("python", ctx=ctx), "", _DispatchActionListener("scripting.run_python_dialog", frame)),
+        ("btn_latex", third_tip, third_icon, third_label, _DispatchActionListener(third_action, frame)),
+        ("btn_hamburger", _("More actions..."), None, None, _HamburgerListener(ctx, frame)),
     ]
-    for btn_id, action, tooltip, icon_rel, label_text in specs:
+    for btn_id, tooltip, icon_rel, label_text, listener in specs:
         btn_ctrl = controls.get(btn_id)
         if not btn_ctrl:
             continue
         try:
-            if hasattr(btn_ctrl, "getModel"):
-                btn_m = btn_ctrl.getModel()
-                if btn_m:
-                    if hasattr(btn_m, "HelpText"):
-                        btn_m.HelpText = tooltip
-                    if label_text is not None and hasattr(btn_m, "Label"):
-                        btn_m.Label = label_text
-                    if icon_rel and ext_url and hasattr(btn_m, "ImageURL"):
-                        btn_m.ImageURL = ext_url.rstrip("/") + "/" + icon_rel
-            btn_ctrl.addActionListener(_DispatchActionListener(action, frame))
+            btn_m = btn_ctrl.getModel()
+            if btn_m:
+                btn_m.HelpText = tooltip
+                if label_text is not None:
+                    btn_m.Label = label_text
+                if icon_rel and ext_url:
+                    btn_m.ImageURL = ext_url.rstrip("/") + "/" + icon_rel
+            btn_ctrl.addActionListener(listener)
         except Exception:
             log.exception("Header button %s wiring error", btn_id)
-
-    ham = controls.get("btn_hamburger")
-    if ham:
-        try:
-            if hasattr(ham, "getModel"):
-                btn_m = ham.getModel()
-                if btn_m and hasattr(btn_m, "HelpText"):
-                    btn_m.HelpText = _("More actions...")
-            ham.addActionListener(_HamburgerListener(ctx, frame))
-        except Exception:
-            log.exception("Hamburger button wiring error")

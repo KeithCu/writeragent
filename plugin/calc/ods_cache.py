@@ -30,8 +30,6 @@ log = logging.getLogger(__name__)
 ODS_CACHE_DIRNAME = "writeragent_ods_cache"
 CACHE_FORMAT_VERSION = 1
 EXCEL_EXTENSIONS = (".xlsx", ".xls")
-# Schema key lives on the calc module (module.yaml). Plan name was duckdb.ods_cache_enabled.
-ODS_CACHE_ENABLED_KEY = "calc.ods_cache_enabled"
 
 
 def normalize_source_path(source_path: str) -> str:
@@ -48,19 +46,13 @@ def source_stat(source_path: str) -> tuple[str, int, int]:
     """Return ``(abs_path, mtime_ns, size)`` for the cache key."""
     abs_path = normalize_source_path(source_path)
     st = os.stat(abs_path)
-    mtime_ns = int(st.st_mtime_ns)
-    return abs_path, mtime_ns, int(st.st_size)
+    return abs_path, st.st_mtime_ns, st.st_size
 
 
 def cache_key(abs_path: str, mtime_ns: int, size: int) -> str:
     """Hash of path + mtime + size; a content change that keeps both goes undetected."""
     payload = f"{abs_path}\n{mtime_ns}\n{size}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
-
-
-def ods_cache_dir(source_path: str) -> Path:
-    """``writeragent_ods_cache/`` beside the scoped folder that holds *source_path*."""
-    return Path(normalize_source_path(source_path)).parent / ODS_CACHE_DIRNAME
 
 
 class OdsCacheEntry(NamedTuple):
@@ -78,7 +70,7 @@ def cache_entry(source_path: str) -> OdsCacheEntry | None:
     except OSError:
         return None
     key = cache_key(abs_path, mtime_ns, size)
-    folder = ods_cache_dir(source_path)
+    folder = Path(abs_path).parent / ODS_CACHE_DIRNAME
     return OdsCacheEntry(folder / f"{key}.ods", folder / f"{key}.meta.json", abs_path, mtime_ns, size)
 
 
@@ -144,16 +136,3 @@ def write_sidecar_meta(meta_path: Path, abs_path: str, mtime_ns: int, size: int)
         tmp_path.unlink(missing_ok=True)
         raise
 
-
-def ods_cache_enabled() -> bool:
-    """Settings ``calc.ods_cache_enabled``.
-
-    Default is the module.yaml value (true). ``get_config_bool_safe`` returns
-    that default for a bad stored value. An unknown key returns False.
-    Other exceptions propagate.
-    """
-    # Bugfix: except Exception returned True, so a bug in config I/O enabled
-    # the cache. The schema default is already what get_config_bool_safe uses.
-    from plugin.framework.config import get_config_bool_safe
-
-    return get_config_bool_safe(ODS_CACHE_ENABLED_KEY)

@@ -18,7 +18,6 @@ SSML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 OFFICE_DOC_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 PYTHON_SCRIPT_REL_TYPE = "http://schemas.microsoft.com/office/2022/relationships/pythonScript"
 CALC_CHAIN_REL_TYPE_SUFFIX = "/calcChain"
 
@@ -33,7 +32,7 @@ def xml_namespace_lock() -> threading.RLock:
 STANDARD_OOXML_NAMESPACES: dict[str, str] = {
     "": SSML_NS,
     "r": OFFICE_DOC_REL_NS,
-    "mc": MC_NS,
+    "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
     "x14ac": "http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac",
     "x14": "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main",
     "x15": "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main",
@@ -87,10 +86,7 @@ def find_all(parent: ET.Element, name: str) -> list[ET.Element]:
 
 def find_child(parent: ET.Element, name: str) -> ET.Element | None:
     """Find the first direct child whose local tag matches *name*."""
-    for child in list(parent):
-        if local_name(child.tag) == name:
-            return child
-    return None
+    return next((child for child in parent if local_name(child.tag) == name), None)
 
 
 def parse_and_extract_namespaces(data: bytes) -> tuple[ET.Element, dict[str, str]]:
@@ -101,10 +97,9 @@ def parse_and_extract_namespaces(data: bytes) -> tuple[ET.Element, dict[str, str
         if event == "start-ns":
             prefix, uri = item  # type: ignore[assignment]
             ns_map[prefix] = uri
-        elif event == "end":
+        else:
             root = item
-    if root is None:
-        raise ValueError("empty or invalid XML document")
+    assert root is not None  # iterparse raises ParseError unless a root element closed
     return root, ns_map
 
 
@@ -123,13 +118,11 @@ def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: d
             for prefix, uri in original_namespaces.items():
                 ET.register_namespace(prefix, uri)
         out = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    ns_map = dict(STANDARD_OOXML_NAMESPACES)
-    if original_namespaces:
-        ns_map.update(original_namespaces)
+    ns_map = {**STANDARD_OOXML_NAMESPACES, **(original_namespaces or {})}
 
     ignorable_prefixes: set[str] = set()
     for k, v in root.attrib.items():
-        if k.endswith("}Ignorable") or k == "mc:Ignorable":
+        if k.endswith("}Ignorable"):
             ignorable_prefixes.update(v.split())
 
     if not ignorable_prefixes:
@@ -137,8 +130,6 @@ def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: d
 
     start = out.find(b"<", 5) if out.startswith(b"<?xml") else 0
     tag_end = out.find(b">", start)
-    if tag_end == -1:
-        return out
     is_self_closing = out[tag_end - 1 : tag_end] == b"/"
     insert_pos = tag_end - 1 if is_self_closing else tag_end
     root_tag_bytes = out[start:tag_end]

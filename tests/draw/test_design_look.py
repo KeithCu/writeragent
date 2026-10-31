@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from plugin.draw.design_look import (
-    _MAX_XML_SAMPLES,
+    _MAX_SAMPLED_PIXELS,
     _MAX_XML_SVG_MEMBERS,
     _xml_color_samples,
     decode_png_rgb,
@@ -284,7 +284,7 @@ def test_many_cap_sized_svgs_keep_color_fallback_bounded(tmp_path):
 
     with zipfile.ZipFile(path) as zf:
         samples = _xml_color_samples(zf, zf.namelist())
-    assert 0 < len(samples) <= _MAX_XML_SAMPLES
+    assert 0 < len(samples) <= _MAX_SAMPLED_PIXELS
 
 
 def test_svg_color_inside_member_cap_sets_look_and_past_it_does_not(tmp_path):

@@ -21,11 +21,10 @@ _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "spreadsheet_
 
 
 def test_classify_empty():
-    cell_type, value, formula, error = classify_cell(None, "")
+    cell_type, value, formula = classify_cell(None, "")
     assert cell_type == "empty"
     assert value is None
     assert formula is None
-    assert error is None
 
 
 @pytest.mark.parametrize(
@@ -36,13 +35,13 @@ def test_classify_empty():
     ],
 )
 def test_classify_constant_number(value_2, expected):
-    cell_type, value, formula, _ = classify_cell(value_2, "")
+    cell_type, value, formula = classify_cell(value_2, "")
     assert cell_type == "constant"
     assert value == expected
     assert formula is None
 
 def test_classify_sum_formula():
-    cell_type, value, formula, _ = classify_cell(10.0, "=SUM(A1:A3)")
+    cell_type, value, formula = classify_cell(10.0, "=SUM(A1:A3)")
     assert cell_type == "formula"
     assert value == 10.0
     assert formula == "=SUM(A1:A3)"
@@ -58,28 +57,25 @@ def test_classify_sum_formula():
     ],
 )
 def test_classify_py_formula(value, value_2, expected, expected_2):
-    cell_type, _, formula, _ = classify_cell(value, value_2)
+    cell_type, unused_val, formula = classify_cell(value, value_2)
     assert cell_type == expected
     assert formula == expected_2
 
 def test_classify_error_display():
-    cell_type, value, formula, error = classify_cell("#DIV/0!", "=A1/0")
+    cell_type, value, formula = classify_cell("#DIV/0!", "=A1/0")
     assert cell_type == "error"
     assert value == "#DIV/0!"
     assert formula == "=A1/0"
-    assert error == "#DIV/0!"
 
-    cell_type, value, formula, error = classify_cell("Err:519", "=A1")
+    cell_type, value, formula = classify_cell("Err:519", "=A1")
     assert cell_type == "error"
     assert value == "Err:519"
     assert formula == "=A1"
-    assert error == "Err:519"
 
-    cell_type, value, formula, error = classify_cell("hello", "=A1")
+    cell_type, value, formula = classify_cell("hello", "=A1")
     assert cell_type == "formula"
     assert value == "hello"
     assert formula == "=A1"
-    assert error is None
 
 
 def test_ingest_precedents_extraction_and_scope():
@@ -136,8 +132,6 @@ def test_ingest_golden_budget_grid():
     assert model.cells["C2"].type == "formula"
     assert model.cells["C2"].precedents == ["B2"]
     assert model.cells["D2"].precedents == ["B2", "C2"]
-    # B4 has no formula precedents (only constants), so it sorts before C2/C3.
-    assert model.formula_order == ["B4", "C2", "C3", "D2", "D3", "D4"]
 
 
 def test_ingest_precedents_exclude_out_of_scope():
@@ -162,7 +156,7 @@ def test_sheet_model_asdict_keys():
         formula_array=[[""]],
     )
     payload = asdict(model)
-    assert set(payload) == {"sheet_name", "used_range", "cells", "formula_order", "circular_groups"}
+    assert set(payload) == {"sheet_name", "used_range", "cells", "circular_groups"}
     assert payload["cells"]["A1"]["type"] == "constant"
 
 
@@ -175,7 +169,6 @@ def test_fixture_simple_budget_snapshot():
         data_array=raw["data_array"],
         formula_array=raw["formula_array"],
     )
-    assert model.formula_order == raw["expected_formula_order"]
     for addr, expected_type in raw["expected_types"].items():
         assert model.cells[addr].type == expected_type
 

@@ -138,7 +138,6 @@ def test_python_specialized_sub_agent_hint_includes_full_policy(value, value_2, 
 def test_tool_note_includes_sandbox_prefix():
     import plugin.framework.prompts as prompts
 
-    prompts._ensure_venv_import_policy_strings()
     assert prompts.PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE.startswith("PYTHON VENV SANDBOX:")
 
 
@@ -156,14 +155,13 @@ def test_matplotlib_plot_hint_writer():
 
 
 def test_matplotlib_plot_hint_draw():
-    hint = format_matplotlib_plot_hint(agent_label="Draw")
+    hint = format_matplotlib_plot_hint(doc_type="draw")
     assert "image_insert" in hint
     assert "slide" in hint.lower() or "page" in hint.lower()
 
 
 def test_matplotlib_plot_hint_impress_matches_draw():
     assert format_matplotlib_plot_hint(doc_type="impress") == format_matplotlib_plot_hint(doc_type="draw")
-    assert format_matplotlib_plot_hint(doc_type="impress") == format_matplotlib_plot_hint(agent_label="Draw")
 
 
 def test_matplotlib_plot_hint_unknown_empty():
@@ -183,7 +181,6 @@ def test_venv_policy_does_not_advertise_duckdb():
         python_specialized_sub_agent_hint,
     )
 
-    prompts._ensure_venv_import_policy_strings()
     compact = format_venv_import_policy_for_prompt(compact=True)
     full = format_venv_import_policy_for_prompt(compact=False)
     surfaces = (

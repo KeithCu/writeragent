@@ -389,7 +389,7 @@ def test_menu_update_subscriber_runs_in_background(monkeypatch):
 def test_dispatch_command_handler_exception_reported_safely(monkeypatch):
     """Handler exceptions in _dispatch_command are caught and reported; command does not raise."""
     reported: list[tuple[str, BaseException]] = []
-    monkeypatch.setattr("plugin.framework.main_shared.report_action_failure", lambda cmd, exc: reported.append((cmd, exc)))
+    monkeypatch.setattr("plugin.main.report_action_failure", lambda cmd, exc: reported.append((cmd, exc)))
 
     def faulty_handler():
         raise ValueError("broken handler")
@@ -712,17 +712,17 @@ def test_icon_apply_signature_and_icons_unchanged():
     }
     stamp = main._icon_apply_signature(cmds, 16)
 
-    assert main._icons_unchanged(cmds, 16, stamp) is True
+    assert (main._icon_apply_signature(cmds, 16) == stamp) is True
 
     # Changed prefix -> False
     cmds_changed_prefix = {
         ".uno:Cmd1": ("writer", "prefix_c"),
         ".uno:Cmd2": ("calc", "prefix_b"),
     }
-    assert main._icons_unchanged(cmds_changed_prefix, 16, stamp) is False
+    assert (main._icon_apply_signature(cmds_changed_prefix, 16) == stamp) is False
 
     # Changed pixel size -> False
-    assert main._icons_unchanged(cmds, 24, stamp) is False
+    assert (main._icon_apply_signature(cmds, 24) == stamp) is False
 
 
 def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
@@ -856,10 +856,10 @@ def test_main_bootstrap_job_trigger_extend_selection_none_model():
     job = main.MainBootstrapJob(MagicMock())
     with (
         patch("plugin.main.get_active_document", return_value=None),
-        patch.object(job, "_handle_selection_actions") as mock_sel,
+        patch("plugin.chatbot.selection.do_selection_action_for_document") as mock_action,
     ):
         job.trigger("ExtendSelection")
-        mock_sel.assert_not_called()
+        mock_action.assert_not_called()
 
 
 # --- Bug 10 tests: TestTypes removed from framework actions ---
@@ -894,7 +894,7 @@ def test_trigger_body_exception_is_reported():
     err = RuntimeError("dispatch exploded")
     with (
         patch("plugin.main._dispatch_command", side_effect=err),
-        patch("plugin.framework.main_shared.report_action_failure") as mock_report,
+        patch("plugin.main.report_action_failure") as mock_report,
     ):
         job.trigger("main.settings")
         mock_report.assert_called_once_with("main.settings", err)
@@ -976,15 +976,16 @@ def test_command_from_dispatch_url_and_dispatch(monkeypatch):
     assert handler.queryDispatch(u7, "", 0) is None
 
 
-def test_split_command():
-    assert main._split_command("main.settings") == ("main", "settings")
-    assert main._split_command("chatbot.debug_sidebar.RECORD_CLICKED") == (
-        "chatbot",
+def test_module_for_command_splits_on_first_dot():
+    main._modules = []
+    assert main._module_for_command("noperiod") is None
+    assert main._module_for_command(".leading") is None
+    assert main._module_for_command("") is None
+    assert main._module_for_command("main.settings") == (None, "settings")
+    assert main._module_for_command("chatbot.debug_sidebar.RECORD_CLICKED") == (
+        None,
         "debug_sidebar.RECORD_CLICKED",
     )
-    assert main._split_command("noperiod") is None
-    assert main._split_command(".leading") is None
-    assert main._split_command("") is None
 
 
 def test_register_core_handlers_continues_after_optional_import_failure(

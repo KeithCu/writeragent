@@ -78,13 +78,11 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
             if is_real_disposal(exc):
                 raise
             log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
-            continue
     return ""
 
 
 class AddSlide(ToolBase):
     name: str | None = "add_slide"
-    intent: str | None = "edit"
     description: str = "Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master. Call list_placeholders before set_placeholder_text."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -106,10 +104,9 @@ class AddSlide(ToolBase):
         page_idx = kwargs.get("page")
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
-        is_impress = _is_impress_doc(ctx.doc)
 
-        layout_name = None
-        if is_impress:
+        layout_name: str | None = None
+        if _is_impress_doc(ctx.doc):
             raw = kwargs.get("layout")
             layout_name = _DEFAULT_IMPRESS_LAYOUT if raw is None or (isinstance(raw, str) and not raw.strip()) else str(raw).strip().lower()
             # Validate before insert so a bad name does not leave a stray page.
@@ -132,11 +129,10 @@ class AddSlide(ToolBase):
             # has a designed master (M1′). Copy the neighbor slide's MasterPage.
             # Pass the landed index: page=0 used to claim insert_at=0 while the
             # new page sat at 1, so the "neighbor" was the new page itself.
-            if is_impress:
+            if layout_name is not None:
                 inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
                 if inherited:
                     result["master"] = inherited
-            if is_impress and layout_name is not None:
                 result["placeholders_hint"] = "call list_placeholders on this page"
                 # blank/none are AUTOLAYOUT_NONE (20). insertNewByIndex already
                 # leaves that id with 0 shapes; assigning it keeps the page empty.
@@ -185,7 +181,6 @@ def _check_page_range(tool: ToolBase, pages: Any, page_idx: int) -> dict[str, An
 
 class DeleteSlide(_SlideMutationTool):
     name: str | None = "delete_slide"
-    intent: str | None = "edit"
     description: str = "Deletes the slide (page) at the specified index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
 
@@ -194,7 +189,6 @@ class DeleteSlide(_SlideMutationTool):
 
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs["page"]
-        assert page_idx is not None
         pages = bridge.get_pages()
         err = _check_page_range(self, pages, page_idx)
         if err is not None:
@@ -227,11 +221,8 @@ class ListPages(ToolBase):
         labels: list[str] = []
         count = pages.getCount()
         for i in range(count):
-            label = f"Page {i}"
-            name = pages.getByIndex(i).Name
-            if name is not None and str(name).strip():
-                label = str(name).strip()
-            labels.append(label)
+            name = str(pages.getByIndex(i).Name or "").strip()
+            labels.append(name or f"Page {i}")
         return {"status": "ok", "pages": labels, "count": count, "active_page_index": active_idx}
 
 
@@ -257,8 +248,7 @@ class ReadSlideText(ToolBase):
             try:
                 txt = shape.getString()
                 if txt and txt.strip():
-                    entry = {"index": i, "text": txt, "shape_name": shape.Name}
-                    texts.append(entry)
+                    texts.append({"index": i, "text": txt, "shape_name": shape.Name})
             except Exception as exc:
                 if is_disposed_exception(exc):
                     raise
@@ -294,11 +284,9 @@ class GetPresentationInfo(ToolBase):
             height_mm = p.Height // 100
 
         # Master pages
-        masters = []
-        mp = doc.getMasterPages()
-        for i in range(mp.getCount()):
-            m = mp.getByIndex(i)
-            masters.append(m.Name if hasattr(m, "Name") else "Master_%d" % i)
+        from plugin.draw.masters import _master_pages
+
+        masters = [m.Name if hasattr(m, "Name") else "Master_%d" % i for i, m in enumerate(_master_pages(doc))]
 
         from plugin.draw.bridge import resolve_page_and_bridge
 
@@ -310,7 +298,6 @@ class GetPresentationInfo(ToolBase):
 
 class SetActivePage(ToolBase):
     name: str | None = "set_active_page"
-    intent: str | None = "navigate"
     description: str = "Changes the currently active slide (page) in Draw/Impress."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
     uno_services: list[str] | None = _DRAW_UNO
@@ -325,7 +312,6 @@ class SetActivePage(ToolBase):
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
         idx = kwargs["page"]
-        assert idx is not None
         if idx < 0 or idx >= pages.getCount():
             return self._tool_error("Page index %d out of range." % idx)
 
@@ -340,7 +326,6 @@ class SetActivePage(ToolBase):
 
 class DuplicateSlide(_SlideMutationTool):
     name: str | None = "duplicate_slide"
-    intent: str | None = "edit"
     description: str = "Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "description": "Whether to switch the view to the new slide (default: true)"}}, "required": ["page"]}
     tier: str = "core"
@@ -349,7 +334,6 @@ class DuplicateSlide(_SlideMutationTool):
         from plugin.draw.bridge import DrawBridge
 
         page_idx = kwargs["page"]
-        assert page_idx is not None
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
         err = _check_page_range(self, pages, page_idx)
@@ -367,7 +351,6 @@ class DuplicateSlide(_SlideMutationTool):
 
 class MoveSlide(_SlideMutationTool):
     name: str | None = "move_slide"
-    intent: str | None = "edit"
     description: str = "Moves a slide from from_page to to_page (both 0-based). to_page is the destination index after removal of the source (insert-at that index)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"from_page": {"type": "integer", "description": "0-based source slide index"}, "to_page": {"type": "integer", "description": "0-based destination slide index"}}, "required": ["from_page", "to_page"]}
     tier: str = "core"
@@ -377,7 +360,6 @@ class MoveSlide(_SlideMutationTool):
 
         from_page = kwargs["from_page"]
         to_page = kwargs["to_page"]
-        assert from_page is not None and to_page is not None
         bridge = DrawBridge(ctx.doc)
         try:
             ok = bridge.move_slide(from_page, to_page)
@@ -393,7 +375,6 @@ class MoveSlide(_SlideMutationTool):
 
 class RenameSlide(_SlideMutationTool):
     name: str | None = "rename_slide"
-    intent: str | None = "edit"
     description: str = "Sets the Name property of a slide (0-based page index)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index"}, "name": {"type": "string", "description": "New slide name"}}, "required": ["page", "name"]}
     tier: str = "core"
@@ -403,7 +384,6 @@ class RenameSlide(_SlideMutationTool):
 
         page_idx = kwargs["page"]
         name = kwargs["name"]
-        assert page_idx is not None
         if not name:
             return self._tool_error("name is required.")
         bridge = DrawBridge(ctx.doc)

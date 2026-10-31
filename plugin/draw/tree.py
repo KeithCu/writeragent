@@ -140,7 +140,6 @@ def readable_control_type(model: Any) -> str:
             if is_real_disposal(exc):
                 raise
             log.debug("supportsService(%s) failed", service, exc_info=True)
-            continue
     return "unknown"
 
 
@@ -156,10 +155,6 @@ def _safe_attr(obj: Any, name: str, default: str = "") -> str:
         if is_real_disposal(exc):
             raise
         return default
-
-
-def _shape_name(shape: Any) -> str:
-    return _safe_attr(shape, "Name")
 
 
 def _shape_text(shape: Any) -> str:
@@ -179,30 +174,20 @@ def _shape_geometry(shape: Any) -> dict[str, int] | None:
     return {"x": int(pos.X), "y": int(pos.Y), "width": int(size.Width), "height": int(size.Height)}
 
 
-def _cx(g: dict[str, int]) -> float:
-    return g["x"] + g["width"] / 2.0
-
-
-def _cy(g: dict[str, int]) -> float:
-    return g["y"] + g["height"] / 2.0
-
-
-def _gap_left(label_g: dict[str, int], blank_g: dict[str, int]) -> int | None:
-    if label_g["x"] + label_g["width"] <= blank_g["x"] + _LABEL_ALIGN_SLACK and abs(_cy(label_g) - _cy(blank_g)) <= max(label_g["height"], blank_g["height"], 1):
-        return max(0, blank_g["x"] - (label_g["x"] + label_g["width"]))
-    return None
-
-
-def _gap_above(label_g: dict[str, int], blank_g: dict[str, int]) -> int | None:
-    if label_g["y"] + label_g["height"] <= blank_g["y"] + _LABEL_ALIGN_SLACK and abs(_cx(label_g) - _cx(blank_g)) <= max(label_g["width"], blank_g["width"], 1):
-        return max(0, blank_g["y"] - (label_g["y"] + label_g["height"]))
+def _gap(label_g: dict[str, int], blank_g: dict[str, int], *, horizontal: bool) -> int | None:
+    # Left: x/width, centers on y. Above: y/height, centers on x.
+    pos, size, cross_pos, cross_size = ("x", "width", "y", "height") if horizontal else ("y", "height", "x", "width")
+    label_c = label_g[cross_pos] + label_g[cross_size] / 2.0
+    blank_c = blank_g[cross_pos] + blank_g[cross_size] / 2.0
+    if label_g[pos] + label_g[size] <= blank_g[pos] + _LABEL_ALIGN_SLACK and abs(label_c - blank_c) <= max(label_g[cross_size], blank_g[cross_size], 1):
+        return max(0, blank_g[pos] - (label_g[pos] + label_g[size]))
     return None
 
 
 def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) -> str | None:
     """Return text of the nearest left-or-above labeled sibling, or None.
 
-    *candidates* should already be filtered to nodes with non-empty text.
+    *candidates* should already be filtered to nodes with non-empty text and geometry.
     Left is priority 0, above is priority 1 (left beats above even with a
     larger gap).
     """
@@ -212,14 +197,10 @@ def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) 
     best_text: str | None = None
     best_key: tuple[int, int] | None = None
     for cand in candidates:
-        if cand is blank:
-            continue
-        text = (cand.get("text") or "").strip()
-        geom = cand.get("geometry")
-        if not text or not geom:
-            continue
-        left = _gap_left(geom, blank_g)
-        gap = left if left is not None else _gap_above(geom, blank_g)
+        text = cand["text"]
+        geom = cand["geometry"]
+        left = _gap(geom, blank_g, horizontal=True)
+        gap = left if left is not None else _gap(geom, blank_g, horizontal=False)
         if gap is None:
             continue
         key = (0 if left is not None else 1, gap)
@@ -231,7 +212,7 @@ def nearest_label_hint(blank: dict[str, Any], candidates: list[dict[str, Any]]) 
 
 def attach_label_hints(nodes: list[dict[str, Any]]) -> None:
     """Set ``label_hint`` on fillable siblings. One level; ``build_shape_tree`` calls this per group."""
-    labeled = [n for n in nodes if (n.get("text") or "").strip() and not n.get("fillable")]
+    labeled = [n for n in nodes if (n.get("text") or "").strip() and n.get("geometry") and not n.get("fillable")]
     for node in nodes:
         if node.get("fillable"):
             hint = nearest_label_hint(node, labeled)
@@ -304,17 +285,12 @@ def find_shape_on_page(
     parent: the page or the GroupShape. None only on error.
     """
     if index is not None:
-        if isinstance(index, bool):
+        if isinstance(index, bool) or not isinstance(index, (int, str)):
             return None, None, None, "Invalid shape index: %s" % index
-        if isinstance(index, int):
-            seg_ints = [index]
-        elif isinstance(index, str):
-            parts = index.split(".")
-            if not parts or any(not p.isdigit() for p in parts):
-                return None, None, None, "Invalid shape index: %s" % index
-            seg_ints = [int(p) for p in parts]
-        else:
+        parts = str(index).split(".")
+        if any(not p.isdigit() for p in parts):
             return None, None, None, "Invalid shape index: %s" % index
+        seg_ints = [int(p) for p in parts]
 
         curr: Any = page
         parent: Any = None
@@ -324,15 +300,8 @@ def find_shape_on_page(
 
             try:
                 count = curr.getCount()
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    raise
-                return None, None, None, "Failed to find shape at index %s: %s" % (index, exc)
-
-            if seg_idx < 0 or seg_idx >= count:
-                return None, None, None, "Invalid shape index: %s" % index
-
-            try:
+                if seg_idx >= count:
+                    return None, None, None, "Invalid shape index: %s" % index
                 child = curr.getByIndex(seg_idx)
             except Exception as exc:
                 if is_disposed_exception(exc):
@@ -355,7 +324,7 @@ def find_shape_on_page(
     # path and the GroupShape as parent, so edit and delete reach the child.
     for path, shape, parent_obj in iter_shape_addresses(page):
         hit_addr: int | str = path if "." in path else int(path)
-        if _shape_name(shape) == wanted:
+        if _safe_attr(shape, "Name") == wanted:
             name_hits.append((hit_addr, shape, parent_obj))
             continue
         shape_type = uno_read(lambda: shape.getShapeType(), "")
@@ -387,7 +356,7 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
         else:
             node["path_index"] = current_index
 
-        name = _shape_name(shape)
+        name = _safe_attr(shape, "Name")
         text = _shape_text(shape)
         text_capable = is_text_capable_shape_type(shape_type)
         control = is_control_shape_type(shape_type)
@@ -407,12 +376,10 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
             # A non-disposal snapshot failure still degrades to "unknown" (as before); disposal leaves.
             node["control"] = uno_read(lambda: control_snapshot(model), unknown) if model is not None else unknown
 
-        desc = _safe_attr(shape, "Description")
-        if desc:
-            node["alt_description"] = desc
-        title = _safe_attr(shape, "Title")
-        if title:
-            node["alt_title"] = title
+        for attr, key in (("Description", "alt_description"), ("Title", "alt_title")):
+            attr_val = _safe_attr(shape, attr)
+            if attr_val:
+                node[key] = attr_val
 
         geom = _shape_geometry(shape)
         if geom:
@@ -422,7 +389,7 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
             for prop, key in (("StartShape", "connected_start"), ("EndShape", "connected_end")):
                 linked: Any = uno_read(lambda: shape.getPropertyValue(prop), None)
                 if linked:
-                    node[key] = {"name": _shape_name(linked), "text": _shape_text(linked).strip()}
+                    node[key] = {"name": _safe_attr(linked, "Name"), "text": _shape_text(linked).strip()}
 
         style: dict[str, Any] = {}
         for prop in ["FillColor", "LineColor", "ZOrder", "RotateAngle", "LineWidth"]:
@@ -453,7 +420,6 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
 
 class GetDrawTree(ToolBase):
     name: str | None = "get_draw_tree"
-    intent: str | None = "read"
     description: str = (
         "Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. "
         "Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a "

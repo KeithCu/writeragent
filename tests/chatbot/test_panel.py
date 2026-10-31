@@ -64,8 +64,8 @@ class TestQueryEnterSend:
 def _live_bus_callbacks(bus: Any, event: str) -> list[Any]:
     subs = bus._subscribers.get(event) or []
     live: list[Any] = []
-    for callback, is_weak in subs:
-        resolved = bus._resolve(callback, is_weak)
+    for entry in subs:
+        resolved = bus._deref(entry)
         if resolved is not None:
             live.append(resolved)
     return live
@@ -479,7 +479,7 @@ class TestSendDispose:
             posted.append(fn)
 
         mock_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
-        mock_turn._alive = True
+        mock_turn.alive = True
         listener._last_mcp_turn = {"": mock_turn}
 
         with (
@@ -501,7 +501,7 @@ class TestSendDispose:
         listener._append_response = MagicMock()
 
         mock_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
-        mock_turn._alive = True
+        mock_turn.alive = True
         listener._last_mcp_turn = {"": mock_turn}
 
         with (
@@ -2085,7 +2085,7 @@ def test_mcp_turn_mutations_hold_the_lock() -> None:
             return super().clear()
 
     turn = TurnController(session=MagicMock(), mode="chat")
-    turn._alive = True
+    turn.alive = True
     listener._last_mcp_turn = _Guarded({"orig": turn})
 
     with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=turn):
@@ -2132,7 +2132,7 @@ def test_mcp_request_waits_then_sees_teardown() -> None:
 
     finished = threading.Event()
     turn = TurnController(session=MagicMock(), mode="chat")
-    turn._alive = True
+    turn.alive = True
 
     def target() -> None:
         with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=turn):
