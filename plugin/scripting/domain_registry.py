@@ -12,6 +12,7 @@ Writer/Draw inserters are ``(ctx, doc, result)``. ``DomainWiring.insert`` keeps 
 
 from __future__ import annotations
 
+import importlib
 import logging
 import re
 import time
@@ -34,24 +35,10 @@ SCRIPT_ORIGIN_USER = "user"
 SCRIPT_ORIGIN_DOCUMENT = "document"
 SCRIPT_ORIGIN_ANALYSIS = "analysis"
 SCRIPT_ORIGIN_VISION = "vision"
-SCRIPT_ORIGIN_VIZ = "viz"
-SCRIPT_ORIGIN_MATH = "math"
-SCRIPT_ORIGIN_UNITS = "units"
-SCRIPT_ORIGIN_QUANT = "quant"
-SCRIPT_ORIGIN_OPTIMIZE = "optimize"
-SCRIPT_ORIGIN_FORECAST = "forecast"
-SCRIPT_ORIGIN_SQL = "sql"
 
 DOC_SCRIPT_DISPLAY_PREFIX = "[Doc] "
 ANALYSIS_SCRIPT_DISPLAY_PREFIX = "[Analysis] "
 VISION_SCRIPT_DISPLAY_PREFIX = "[Vision] "
-VIZ_SCRIPT_DISPLAY_PREFIX = "[Viz] "
-MATH_SCRIPT_DISPLAY_PREFIX = "[Math] "
-UNITS_SCRIPT_DISPLAY_PREFIX = "[Units] "
-QUANT_SCRIPT_DISPLAY_PREFIX = "[Quant] "
-OPTIMIZE_SCRIPT_DISPLAY_PREFIX = "[Optimize] "
-FORECAST_SCRIPT_DISPLAY_PREFIX = "[Forecast] "
-SQL_SCRIPT_DISPLAY_PREFIX = "[SQL] "
 
 
 
@@ -64,8 +51,6 @@ FormatOkKind = Literal["generic", "plot", "symbolic", "units", "vision", "rows"]
 
 
 def _resolve_module_attr(target: str) -> Any:
-    import importlib
-
     mod_name, attr_name = target.rsplit(":", 1)
     return getattr(importlib.import_module(mod_name), attr_name)
 
@@ -314,15 +299,15 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         templates_ref="plugin.vision.vision_templates:get_vision_script_templates",
     ),
     PickerWiring(
-        origin=SCRIPT_ORIGIN_MATH,
-        display_prefix=MATH_SCRIPT_DISPLAY_PREFIX,
+        origin="math",
+        display_prefix="[Math] ",
         title=N_("Math Helpers"),
         supports_ref="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
         templates_ref="plugin.scripting.symbolic:get_math_script_templates",
     ),
     PickerWiring(
-        origin=SCRIPT_ORIGIN_UNITS,
-        display_prefix=UNITS_SCRIPT_DISPLAY_PREFIX,
+        origin="units",
+        display_prefix="[Units] ",
         title=N_("Units Helpers"),
         supports_ref="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
         templates_ref="plugin.scripting.units:get_units_script_templates",
@@ -335,22 +320,22 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         templates_ref="plugin.scripting.analysis:get_analysis_script_templates",
     ),
     PickerWiring(
-        origin=SCRIPT_ORIGIN_SQL,
-        display_prefix=SQL_SCRIPT_DISPLAY_PREFIX,
+        origin="sql",
+        display_prefix="[SQL] ",
         title=N_("SQL Helpers"),
         supports_ref="plugin.doc.doc_type:is_calc",
         templates_ref="plugin.scripting.duckdb_sql:get_sql_script_templates",
     ),
     PickerWiring(
-        origin=SCRIPT_ORIGIN_VIZ,
-        display_prefix=VIZ_SCRIPT_DISPLAY_PREFIX,
+        origin="viz",
+        display_prefix="[Viz] ",
         title=N_("Viz Helpers"),
         supports_ref="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
         templates_ref="plugin.scripting.viz:get_viz_script_templates",
     ),
     PickerWiring(
-        origin=SCRIPT_ORIGIN_QUANT,
-        display_prefix=QUANT_SCRIPT_DISPLAY_PREFIX,
+        origin="quant",
+        display_prefix="[Quant] ",
         title=N_("Quant Helpers"),
         # What was wrong: supports_quant_manual is Calc-or-Writer, but quant is
         # post_venv_calc_only and the only inserter is insert_quant_result_into_calc.
@@ -363,15 +348,15 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         templates_ref="plugin.scripting.quant:get_quant_script_templates",
     ),
     PickerWiring(
-        origin=SCRIPT_ORIGIN_OPTIMIZE,
-        display_prefix=OPTIMIZE_SCRIPT_DISPLAY_PREFIX,
+        origin="optimize",
+        display_prefix="[Optimize] ",
         title=N_("Optimize Helpers"),
         supports_ref="plugin.doc.doc_type:is_calc",
         templates_ref="plugin.scripting.optimize:get_optimize_script_templates",
     ),
     PickerWiring(
-        origin=SCRIPT_ORIGIN_FORECAST,
-        display_prefix=FORECAST_SCRIPT_DISPLAY_PREFIX,
+        origin="forecast",
+        display_prefix="[Forecast] ",
         title=N_("Forecast Helpers"),
         supports_ref="plugin.doc.doc_type:is_calc",
         templates_ref="plugin.scripting.forecast:get_forecast_script_templates",
