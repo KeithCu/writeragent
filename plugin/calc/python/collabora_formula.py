@@ -126,17 +126,13 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     # rewrite clears that flag.
     was_modified: bool | None = None
     try:
-        if hasattr(doc, "isModified"):
-            was_modified = bool(doc.isModified())
+        was_modified = bool(doc.isModified())
     except Exception:
         log.debug("collabora PY rewrite: isModified failed", exc_info=True)
     changed = 0
-    controllers_locked = False
     # A scan failure used to be logged and swallowed here. auto_open already logs it.
+    doc.lockControllers()
     try:
-        if hasattr(doc, "lockControllers"):
-            doc.lockControllers()
-            controllers_locked = True
         # Reuses the shared hidden/locked undo context; do not create a new undo-context module.
         from plugin.calc.python.function import _undo_lock
 
@@ -145,11 +141,10 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
             for i in range(int(sheets.getCount())):
                 changed += _rewrite_sheet_formulas(sheets.getByIndex(i))
     finally:
-        if controllers_locked:
-            try:
-                doc.unlockControllers()
-            except Exception:
-                log.debug("collabora PY rewrite: unlockControllers failed", exc_info=True)
+        try:
+            doc.unlockControllers()
+        except Exception:
+            log.debug("collabora PY rewrite: unlockControllers failed", exc_info=True)
         if changed:
             log.info("collabora PY rewrite: updated %s formula cell(s) to writeragent PY", changed)
             best_effort(lambda: doc.calculateAll(), "calculateAll after Collabora PY rewrite")
