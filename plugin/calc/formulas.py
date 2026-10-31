@@ -38,7 +38,7 @@ from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.array_formula import returns_array
 from plugin.calc.calc_utils import cell_value_and_type, resolve_sheet
 from plugin.calc.error_detector import ERROR_TYPES
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception, uno_probe
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -48,20 +48,6 @@ from plugin.calc.base import ToolCalcErrorBase
 from plugin.calc.manipulator import _quiet_probe_cleanup
 
 log = logging.getLogger("writeragent.calc")
-
-
-def _context_position(cell_address: str) -> tuple[int, int]:
-    """Bare column and row for the formula context on the temporary sheet.
-
-    ``split_sheet_prefix`` drops the sheet (the copy is already the active
-    sheet), ``parse_address`` rejects a name that is not one cell, and the
-    caller writes with ``getCellByPosition``. ``getCellRangeByName`` is not
-    limited to the sheet it is called on, so ``Sheet1.C5`` and a defined
-    name hit the live document. The ``finally`` block only deletes the
-    temporary copy.
-    """
-    _prefix, local = split_sheet_prefix((cell_address or "").strip())
-    return parse_address(local.replace("$", ""))
 
 
 class _EvaluationUndoGuard:
@@ -77,20 +63,11 @@ class _EvaluationUndoGuard:
 
     def __enter__(self) -> _EvaluationUndoGuard:
         doc = self.doc
-        if hasattr(doc, "isModified"):
-            try:
-                self.was_modified = bool(doc.isModified())
-            except Exception as e:
-                if is_disposed_exception(e):
-                    raise
+        self.was_modified = uno_probe(lambda: bool(doc.isModified()), False)
         if hasattr(doc, "getUndoManager"):
             self.undo_mgr = doc.getUndoManager()
         if self.undo_mgr:
-            try:
-                self.was_possible = bool(self.undo_mgr.isUndoPossible())
-            except Exception as e:
-                if is_disposed_exception(e):
-                    raise
+            self.was_possible = uno_probe(lambda: bool(self.undo_mgr.isUndoPossible()), False)
             if self.was_possible:
                 try:
                     self.undo_mgr.enterHiddenUndoContext()
@@ -216,7 +193,8 @@ class EvaluateFormula(ToolCalcErrorBase):
         # Reject a defined name before copying a sheet. A sheet prefix is
         # dropped here; only the bare coordinate is used below.
         try:
-            col, row = _context_position(cell_address)
+            _prefix, local = split_sheet_prefix(cell_address)
+            col, row = parse_address(local.replace("$", ""))
         except ValueError as e:
             return self._tool_error(f"Invalid cell context address '{cell_address}': {e}")
 

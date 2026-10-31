@@ -9,7 +9,6 @@ from __future__ import annotations
 import pytest
 
 from plugin.calc.formula_fill import (
-    _RefKind,
     adjust_a1_formula,
     expand_single_formula,
 )
@@ -144,12 +143,3 @@ def test_sheet_qualified_common_forms():
 
 def test_single_cell_expand_is_identity():
     assert expand_single_formula("=H2", 1, 1) == ["=H2"]
-
-
-def test_enums():
-    # Item 63: _RefKind enum
-    assert _RefKind.CELL.value == "cell"
-    assert _RefKind.RANGE.value == "range"
-
-
-

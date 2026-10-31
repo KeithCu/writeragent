@@ -15,18 +15,10 @@ verbatim so a block like ``A1:H1517`` is not walked down the column.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import enum
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, index_to_column
 from plugin.calc.array_formula import skip_quoted
 from plugin.calc.python.formula_edit import py_call_open_end
-
-
-class _RefKind(enum.Enum):
-    CELL = "cell"
-    RANGE = "range"
-    WHOLE_COL = "whole_col"
-    WHOLE_ROW = "whole_row"
 
 
 @dataclass(frozen=True)
@@ -57,7 +49,6 @@ class _Ref:
 
     sheet1: str
     sheet2: str
-    kind: _RefKind
     start: _Part
     end: _Part | None
 
@@ -83,23 +74,22 @@ def expand_single_formula(formula: str, num_rows: int, num_cols: int) -> list[st
 
 
 def _ref_crosses_axis(ref: _Ref, axis: str) -> bool:
-    """True if ref's span crosses the fill axis."""
+    """True when *ref* spans the fill axis and must stay verbatim.
+
+    ``_try_match_ref`` only builds a lone cell (no end), a cell range, a
+    whole column (row omitted), or a whole row (column omitted).
+    ``None != None`` would miss a whole column on a vertical fill.
+    """
     if axis == "rows":
-        if ref.kind == _RefKind.WHOLE_COL:
+        if ref.end is not None and ref.start.row is None:
             return True
-        if ref.end is not None and ref.start.row is not None and ref.end.row is not None and ref.start.row != ref.end.row:
-            return True
-        return False
+        return ref.end is not None and ref.start.row != ref.end.row
     if axis == "cols":
-        if ref.kind == _RefKind.WHOLE_ROW:
+        if ref.end is not None and ref.start.col is None:
             return True
-        if ref.end is not None and ref.start.col is not None and ref.end.col is not None and ref.start.col != ref.end.col:
-            return True
-        return False
+        return ref.end is not None and ref.start.col != ref.end.col
     if axis == "both":
-        if ref.kind != _RefKind.CELL:
-            return True
-        return False
+        return ref.end is not None
     return False
 
 
@@ -231,31 +221,23 @@ def _try_sheet_prefix(s: str, i: int) -> tuple[str, int] | None:
         if j >= n:
             return None
         j += 1
-        j = _skip_ws(s, j)
-        if j >= n or s[j] not in ".!":
+    else:
+        j = i
+        if s[j] == "$":
+            j += 1
+        start = j
+        while j < n and s[j] not in ".!'" and not s[j].isspace() and s[j] not in "(),;+-*/&=<>^%:":
+            j += 1
+        if j == start:
             return None
-        j += 1
-        j = _skip_ws(s, j)
-        if j >= n or not (s[j] == "$" or _is_letter(s[j]) or _is_digit(s[j])):
-            return None
-        return s[i:j], j
-
-    j = i
-    if s[j] == "$":
-        j += 1
-    start = j
-    while j < n and s[j] not in ".!'" and not s[j].isspace() and s[j] not in "(),;+-*/&=<>^%:":
-        j += 1
-    if j == start:
+    j = _skip_ws(s, j)
+    if j >= n or s[j] not in ".!":
         return None
-    k = _skip_ws(s, j)
-    if k >= n or s[k] not in ".!":
+    j += 1
+    j = _skip_ws(s, j)
+    if j >= n or not (s[j] == "$" or _is_letter(s[j]) or _is_digit(s[j])):
         return None
-    k += 1
-    k = _skip_ws(s, k)
-    if k >= n or not (s[k] == "$" or _is_letter(s[k]) or _is_digit(s[k])):
-        return None
-    return s[i:k], k
+    return s[i:j], j
 
 
 def _try_part(s: str, i: int) -> tuple[_Part, int] | None:
@@ -306,15 +288,15 @@ def _try_match_ref(s: str, i: int) -> tuple[int, _Ref] | None:
             if _next_is_open_paren(s, end):
                 return None
             if part.is_cell and other.is_cell:
-                return end, _Ref(sheet1, sheet2, _RefKind.RANGE, part, other)
+                return end, _Ref(sheet1, sheet2, part, other)
             if part.is_col_only and other.is_col_only:
-                return end, _Ref(sheet1, sheet2, _RefKind.WHOLE_COL, part, other)
+                return end, _Ref(sheet1, sheet2, part, other)
             if part.is_row_only and other.is_row_only:
-                return end, _Ref(sheet1, sheet2, _RefKind.WHOLE_ROW, part, other)
+                return end, _Ref(sheet1, sheet2, part, other)
     if part.is_cell:
         if _next_is_open_paren(s, j):
             return None
-        return j, _Ref(sheet1, "", _RefKind.CELL, part, None)
+        return j, _Ref(sheet1, "", part, None)
     return None
 
 
@@ -334,8 +316,7 @@ def _shift_part(part: _Part, dcol: int, drow: int) -> _Part | None:
 def _format_part(part: _Part) -> str:
     out = ""
     if part.col is not None:
-        letters = index_to_column(part.col)
-        out += ("$" if part.col_abs else "") + letters
+        out += ("$" if part.col_abs else "") + index_to_column(part.col)
     if part.row is not None:
         out += ("$" if part.row_abs else "") + str(part.row + 1)
     return out

@@ -101,10 +101,7 @@ def _scan_calls(formula: str) -> Iterator[tuple[str, int]]:
     n = len(text)
     while i < n:
         ch = text[i]
-        if ch == '"':
-            i = skip_quoted(text, i)
-            continue
-        if ch == "'":
+        if ch in "\"'":
             i = skip_quoted(text, i)
             continue
         if ch == "(":
@@ -126,16 +123,6 @@ def _scan_calls(formula: str) -> Iterator[tuple[str, int]]:
         i += 1
 
 
-def top_level_calls(formula: str) -> list[str]:
-    """Names of the functions called at the outermost level of *formula*.
-
-    ``=SUM(FILTER(A1:A9;B1:B9>0))`` → ``["SUM"]``: FILTER's array is
-    consumed by SUM, so the formula as a whole returns one value.
-    Double-quoted strings (Calc ``""`` escape) and single-quoted sheet names are not calls.
-    """
-    return [name for name, depth in _scan_calls(formula) if depth == 0]
-
-
 def returns_array(formula: str, forced: bool | None = None) -> bool:
     """True when *formula* should be entered as an array formula.
 
@@ -148,26 +135,12 @@ def returns_array(formula: str, forced: bool | None = None) -> bool:
         return bool(forced)
     if not isinstance(formula, str) or not formula.startswith("=") or len(formula) <= 1:
         return False
-    top_array = False
-    top_passthrough = False
-    any_array = False
-    for name, depth in _scan_calls(formula):
-        if name in ARRAY_FUNCTIONS:
-            any_array = True
-            if depth == 0:
-                top_array = True
-        if depth == 0 and name in _ARRAY_PASSTHROUGH:
-            top_passthrough = True
-    return top_array or (top_passthrough and any_array)
-
-
-def result_range(col: int, row: int, rows: int, cols: int) -> CellRect:
-    """``(first_col, first_row, last_col, last_row)`` of a result at (*col*, *row*)."""
-    end_col = col + cols - 1
-    end_row = row + rows - 1
-    if end_col > MAX_COL or end_row > MAX_ROW:
-        raise CalcError(f"Result range passes sheet bounds: column {end_col} > {MAX_COL} or row {end_row} > {MAX_ROW}.")
-    return CellRect(col, row, end_col, end_row)
+    calls = list(_scan_calls(formula))
+    top = {name for name, depth in calls if depth == 0}
+    names = {name for name, _depth in calls}
+    return bool(top & ARRAY_FUNCTIONS) or (
+        bool(top & _ARRAY_PASSTHROUGH) and bool(names & ARRAY_FUNCTIONS)
+    )
 
 
 def plan_target(c1: int, r1: int, c2: int, r2: int, rows: int, cols: int) -> tuple[CellRect, list[str]]:
@@ -176,8 +149,6 @@ def plan_target(c1: int, r1: int, c2: int, r2: int, rows: int, cols: int) -> tup
     notes: list[str] = []
     if explicit:
         height, width = r2 - r1 + 1, c2 - c1 + 1
-        if height * width > MAX_ARRAY_CELLS:
-            raise CalcError(f"The target range is {height} x {width} cells, over the {MAX_ARRAY_CELLS}-cell limit.")
         if rows > height or cols > width:
             notes.append(f"The result is {rows} x {cols} but the range is {height} x {width}: the rest is cut (result_does_not_fit).")
         elif rows < height or cols < width:
@@ -186,5 +157,9 @@ def plan_target(c1: int, r1: int, c2: int, r2: int, rows: int, cols: int) -> tup
     else:
         if rows * cols > MAX_ARRAY_CELLS:
             raise CalcError(f"The result is {rows} x {cols} cells, over the {MAX_ARRAY_CELLS}-cell limit.")
-        target = result_range(c1, r1, rows, cols)
+        end_col = c1 + cols - 1
+        end_row = r1 + rows - 1
+        if end_col > MAX_COL or end_row > MAX_ROW:
+            raise CalcError(f"Result range passes sheet bounds: column {end_col} > {MAX_COL} or row {end_row} > {MAX_ROW}.")
+        target = CellRect(c1, r1, end_col, end_row)
     return target, notes
