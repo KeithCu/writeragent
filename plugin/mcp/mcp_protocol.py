@@ -682,7 +682,7 @@ class MCPProtocolHandler:
             raise ValueError("protocolVersion must be a string")
         if client_version not in _SUPPORTED_HTTP_PROTOCOL_VERSIONS:
             client_version = wire_types.MCP_PROTOCOL_VERSION
-        return wire_types.initialize_result(protocol_version=wire_types.MCP_PROTOCOL_VERSION, client_protocol_version=client_version, server_version=self.version, instructions=build_initialize_instructions(self._tool_exposure_mode()))
+        return wire_types.initialize_result(protocol_version=client_version, server_version=self.version, instructions=build_initialize_instructions(self._tool_exposure_mode()))
 
     def _mcp_ping(self, params: Any) -> Any:
         return {}
@@ -908,8 +908,8 @@ class MCPProtocolHandler:
             return None
 
         parsed = wire_types.parse_jsonrpc_request(msg)
-        if isinstance(parsed, wire_types.JsonRpcParseError):
-            return (400, wire_types.jsonrpc_failure(_echoable_jsonrpc_id(msg), parsed.code, parsed.message))
+        if parsed is None:
+            return (400, wire_types.jsonrpc_failure(_echoable_jsonrpc_id(msg), wire_types.INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"))
 
         method = parsed.method
         params = parsed.params
