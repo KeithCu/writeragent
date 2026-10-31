@@ -86,10 +86,7 @@ def find_all(parent: ET.Element, name: str) -> list[ET.Element]:
 
 def find_child(parent: ET.Element, name: str) -> ET.Element | None:
     """Find the first direct child whose local tag matches *name*."""
-    for child in list(parent):
-        if local_name(child.tag) == name:
-            return child
-    return None
+    return next((child for child in parent if local_name(child.tag) == name), None)
 
 
 def parse_and_extract_namespaces(data: bytes) -> tuple[ET.Element, dict[str, str]]:
@@ -100,10 +97,9 @@ def parse_and_extract_namespaces(data: bytes) -> tuple[ET.Element, dict[str, str
         if event == "start-ns":
             prefix, uri = item  # type: ignore[assignment]
             ns_map[prefix] = uri
-        elif event == "end":
+        else:
             root = item
-    if root is None:
-        raise ValueError("empty or invalid XML document")
+    assert root is not None  # iterparse raises ParseError unless a root element closed
     return root, ns_map
 
 
@@ -134,8 +130,6 @@ def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: d
 
     start = out.find(b"<", 5) if out.startswith(b"<?xml") else 0
     tag_end = out.find(b">", start)
-    if tag_end == -1:
-        return out
     is_self_closing = out[tag_end - 1 : tag_end] == b"/"
     insert_pos = tag_end - 1 if is_self_closing else tag_end
     root_tag_bytes = out[start:tag_end]
