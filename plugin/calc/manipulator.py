@@ -27,7 +27,7 @@ import csv
 import io
 import logging
 import sys
-from typing import TYPE_CHECKING, Any, Callable, NamedTuple
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple, TypeGuard
 
 if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
@@ -75,7 +75,6 @@ class _CellWrite(NamedTuple):
     kind: str
     input_category: str | None
     detected_key: int | None
-    restore_format: bool
 
 
 def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, rows: int, cols: int) -> str:
@@ -105,7 +104,7 @@ def _coerce_array_flag(array: Any) -> bool | None:
     return bool(array)
 
 
-def _requests_array_formula(formula_or_values: Any, array: Any) -> bool:
+def _requests_array_formula(formula_or_values: Any, array: Any) -> TypeGuard[str]:
     # Bugfix: string array flags like "false" were passed uncoerced to returns_array(forced=...),
     # which evaluated bool("false") as True and wrongly forced array formulas.
     # Coerce to bool | None here so "false" becomes False and "true" becomes True.
@@ -158,6 +157,28 @@ def _clear_array_range(rng: Any) -> None:
     rng.clearContents(23)
 
 
+def _range_has_blank_cell(sheet: Any, start: tuple[int, int], end: tuple[int, int]) -> bool:
+    """True when any cell in the inclusive box is blank.
+
+    setDataArray undo does not clear a cell that was empty before the write,
+    so a small range that overlaps a blank cell has to be written per cell.
+    """
+    try:
+        from com.sun.star.table import CellContentType
+
+        empty_type: Any = CellContentType.EMPTY
+    except ImportError:
+        empty_type = None
+    for r in range(start[1], end[1] + 1):
+        for c in range(start[0], end[0] + 1):
+            cell = sheet.getCellByPosition(c, r)
+            if empty_type is not None and cell.getType() == empty_type:
+                return True
+            if cell.getFormula() == "" and cell.getString() == "" and cell.getValue() == 0.0:
+                return True
+    return False
+
+
 def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) -> list[Any] | None:
     """Parse *formula_or_values* when it arrives as a JSON string or as a
     raw semicolon-separated string.
@@ -178,46 +199,39 @@ def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) 
         A flat list of values, or *None* if *s* should be treated as a
         single literal value.
     """
-    if not isinstance(s, str):
-        return None
-
     s_strip = s.strip()
     if not s_strip:
         return None
 
     # Case 1: JSON array e.g. ["a"; "b"] or ["a", "b"]
     if s_strip.startswith("["):
-        try:
-            # Replace semicolons NOT inside double quotes with commas.
-            normalized_list = []
-            in_quotes = False
-            escaped = False
-            for char in s_strip:
-                if char == '"' and not escaped:
-                    in_quotes = not in_quotes
-                if char == ";" and not in_quotes:
-                    normalized_list.append(",")
-                else:
-                    normalized_list.append(char)
-                if char == "\\" and not escaped:
-                    escaped = True
-                else:
-                    escaped = False
+        # Replace semicolons NOT inside double quotes with commas.
+        normalized_list = []
+        in_quotes = False
+        escaped = False
+        for char in s_strip:
+            if char == '"' and not escaped:
+                in_quotes = not in_quotes
+            if char == ";" and not in_quotes:
+                normalized_list.append(",")
+            else:
+                normalized_list.append(char)
+            if char == "\\" and not escaped:
+                escaped = True
+            else:
+                escaped = False
 
-            normalized = "".join(normalized_list)
-            data = safe_json_loads(normalized)
-            if data is not None:
-                if isinstance(data, list):
-                    return data
-        except TypeError:
-            pass
+        normalized = "".join(normalized_list)
+        data = safe_json_loads(normalized)
+        if isinstance(data, list):
+            return data
 
     # Case 2: Raw semicolon-separated string or multiline CSV
     # Only if it is not a formula (starting with =)
     if not s_strip.startswith("="):
         # Could be multiline CSV or single line with delimiter
         delimiter = ","
-        first_line = s.split("\n")[0] if s else ""
+        first_line = s.split("\n")[0]
         if ";" in first_line and "," not in first_line:
             delimiter = ";"
 
@@ -226,38 +240,31 @@ def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) 
             try:
                 reader = csv.reader(io.StringIO(s), delimiter=delimiter, skipinitialspace=True)
                 rows = list(reader)
-                if rows:
-                    if len(rows) == 1:
-                        # Case 2a: single logical CSV row (possibly multiple fields).
-                        #
-                        # Bug we fix: csv.reader splits on the data delimiter, so a
-                        # one-cell write like "Hello, world" becomes two fields and
-                        # write_formula_range then errors ("Array has N values but range
-                        # has 1 cells") or would mis-split if we padded silently.
-                        #
-                        # When *single_cell_range* is True, a single line with multiple
-                        # fields is ambiguous (real CSV row vs sentence with commas /
-                        # semicolons). We treat it as literal text for that one cell.
-                        #
-                        # Tradeoff: you cannot use a raw comma-separated *row* string
-                        # to mean "many columns" into a single cell—use a contiguous
-                        # range (e.g. A1:B1) or a JSON array for exact per-cell values.
-                        #
-                        # Multiline CSV is unchanged: len(rows) > 1 still returns a 2D
-                        # list below and write_formula_range expands the anchor cell.
-                        #
-                        # Future: optional tool flag (csv_mode / literal_string);
-                        # tighter heuristics (quoted fields, uniform column counts, tabs);
-                        # JSON arrays remain the precise N-value path.
-                        if single_cell_range and len(rows[0]) > 1:
-                            return None
-                        return [val.strip() for val in rows[0]]
-                    else:
-                        # 2D array representing multiline CSV
-                        return [[val.strip() for val in row] for row in rows]
+                if len(rows) == 1:
+                    # Case 2a: single logical CSV row (possibly multiple fields).
+                    #
+                    # Bug we fix: csv.reader splits on the data delimiter, so a
+                    # one-cell write like "Hello, world" becomes two fields and
+                    # write_formula_range then errors ("Array has N values but range
+                    # has 1 cells") or would mis-split if we padded silently.
+                    #
+                    # When *single_cell_range* is True, a single line with multiple
+                    # fields is ambiguous (real CSV row vs sentence with commas /
+                    # semicolons). We treat it as literal text for that one cell.
+                    #
+                    # Tradeoff: you cannot use a raw comma-separated *row* string
+                    # to mean "many columns" into a single cell—use a contiguous
+                    # range (e.g. A1:B1) or a JSON array for exact per-cell values.
+                    #
+                    # Multiline CSV is unchanged: len(rows) > 1 still returns a 2D
+                    # list below and write_formula_range expands the anchor cell.
+                    if single_cell_range and len(rows[0]) > 1:
+                        return None
+                    return [val.strip() for val in rows[0]]
+                else:
+                    # 2D array representing multiline CSV
+                    return [[val.strip() for val in row] for row in rows]
             except Exception as e:
-                if is_disposed_exception(e):
-                    raise
                 log.debug("Failed to read sample csv: %s", e)
 
     return None
@@ -290,15 +297,14 @@ class CellManipulator:
         cursor.gotoEndOfUsedArea(False)
         used = cursor.getRangeAddress()
 
-        c0, r0 = start_col, start_row
         c1, r1 = min(end_col, used.EndColumn), min(end_row, used.EndRow)
 
-        if c0 > c1 or r0 > r1:
+        if start_col > c1 or start_row > r1:
             return
 
         # Only formula cells can belong to an array, so probe just those
         # (CellFlags.FORMULA = 16) instead of every cell: a big clear stays cheap.
-        formula_ranges = sheet.getCellRangeByPosition(c0, r0, c1, r1).queryContentCells(16)
+        formula_ranges = sheet.getCellRangeByPosition(start_col, start_row, c1, r1).queryContentCells(16)
         contained: list[Any] = []
         for fa in formula_ranges.getRangeAddresses():
             for r in range(fa.StartRow, fa.EndRow + 1):
@@ -529,8 +535,6 @@ class CellManipulator:
             if type(ascending) is not bool or type(has_header) is not bool:
                 raise CalcError("ascending and has_header must be booleans")
 
-            import uno  # noqa: F401  # pyright: ignore[reportUnusedImport] – needed in UNO context
-
             sort_desc = list(cell_range.createSortDescriptor())
 
             sort_field = TableSortField()
@@ -599,32 +603,32 @@ class CellManipulator:
     ) -> _CellWrite:
         """Classify one write input into data/formula/meta for the ISO write path."""
         if value is None or value == "":
-            return _CellWrite("", "", "empty", None, None, False)
+            return _CellWrite("", "", "empty", None, None)
 
         if literal_text:
-            return _CellWrite(value if isinstance(value, str) else str(value), "", "forced_text", None, None, False)
+            return _CellWrite(value if isinstance(value, str) else str(value), "", "forced_text", None, None)
 
         # Bugfix: bool is a subclass of int, and str(True) is the text "True".
         # JSON arrays round-trip true/false to real bools. Classifying bool as
         # numeric 1.0 or 0.0 stores real boolean numbers in Calc cells.
         if isinstance(value, bool):
-            return _CellWrite(1.0 if value else 0.0, "", "number", None, None, False)
+            return _CellWrite(1.0 if value else 0.0, "", "number", None, None)
 
         if isinstance(value, (int, float)):
-            return _CellWrite(value, "", "number", None, None, False)
+            return _CellWrite(value, "", "number", None, None)
 
         if not isinstance(value, str):
-            return _CellWrite(str(value), "", "text", None, None, True)
+            return _CellWrite(str(value), "", "text", None, None)
 
         if data_text and value.startswith(("=", "'")):
-            return _CellWrite(value, "", "forced_text", None, None, False)
+            return _CellWrite(value, "", "forced_text", None, None)
 
         if value.startswith("="):
-            return _CellWrite("", value, "formula", None, None, False)
+            return _CellWrite("", value, "formula", None, None)
 
         # Leading apostrophe forces literal text and leaves @ (S18) — no S29 restore.
         if value.startswith("'"):
-            return _CellWrite(value[1:], "", "forced_text", None, None, False)
+            return _CellWrite(value[1:], "", "forced_text", None, None)
 
         stripped = value.strip()
         # Duration is WriterAgent arithmetic (isodate); Calc's formatter does not parse PT….
@@ -635,28 +639,28 @@ class CellManipulator:
                 if is_disposed_exception(e):
                     raise
                 log.debug("Duration convert failed for %r: %s", stripped, e)
-                return _CellWrite(value, "", "text", None, None, True)
-            return _CellWrite(float(serial), "", "temporal", "duration", int(elapsed_format_key), False)
+                return _CellWrite(value, "", "text", None, None)
+            return _CellWrite(float(serial), "", "temporal", "duration", int(elapsed_format_key))
 
         input_category = match_iso_temporal(stripped)
         if input_category is not None and formatter is not None:
             try:
                 detected_key = formatter.detectNumberFormat(std_key, stripped)
                 serial = formatter.convertStringToNumber(std_key, stripped)
-                return _CellWrite(float(serial), "", "temporal", input_category, int(detected_key), False)
+                return _CellWrite(float(serial), "", "temporal", input_category, int(detected_key))
             except Exception as e:
                 if is_disposed_exception(e):
                     raise
                 # NotNumericException and peers → ordinary text fallback (S4).
                 if "NotNumeric" not in type(e).__name__:
                     log.debug("ISO convert failed for %r: %s", stripped, e)
-                return _CellWrite(value, "", "text", None, None, True)
+                return _CellWrite(value, "", "text", None, None)
 
         try:
             num = float(value)
-            return _CellWrite(num, "", "number", None, None, False)
+            return _CellWrite(num, "", "number", None, None)
         except ValueError:
-            return _CellWrite(value, "", "text", None, None, True)
+            return _CellWrite(value, "", "text", None, None)
 
     def _find_column_temporal_templates(self, sheet: Any, formats: Any, columns_needing_templates: dict[int, str], scan_start_row: int, category_cache: dict[int, str | None], max_scan: int = 100) -> dict[int, int]:
         """Find inherited NumberFormat keys by scanning upward in each column (P1).
@@ -749,9 +753,7 @@ class CellManipulator:
                 undo_mgr.enterHiddenUndoContext()
                 hidden_context_entered = True
             except Exception as e:
-                if "EmptyUndoStackException" in type(e).__name__:
-                    pass
-                else:
+                if "EmptyUndoStackException" not in type(e).__name__:
                     raise
         try:
             c2, r2 = end
@@ -843,10 +845,9 @@ class CellManipulator:
             # used to return ok and show one value (nelson-mcp afc8cbd8 / #2631).
             # Detect top-level array functions and enter setArrayFormula
             # instead of fill-down. =SUM(FILTER()) stays scalar.
-            if not literal_text and not data_text and isinstance(formula_or_values, str):
-                if _requests_array_formula(formula_or_values, array):
-                    sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
-                    return self._write_array_formula(sheet, formula_or_values, start, end, premeasured_array_size=premeasured_array_size)
+            if not literal_text and not data_text and _requests_array_formula(formula_or_values, array):
+                sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
+                return self._write_array_formula(sheet, formula_or_values, start, end, premeasured_array_size=premeasured_array_size)
 
             if isinstance(formula_or_values, (list, tuple)):
                 if len(formula_or_values) > 0 and isinstance(formula_or_values[0], (list, tuple)):
@@ -879,10 +880,7 @@ class CellManipulator:
                     elif r_cnt != num_rows or c_cnt != num_cols:
                         raise CalcError(f"Array is {r_cnt}x{c_cnt} but range is {num_rows}x{num_cols}.")
 
-                    flat_vals = []
-                    for r in formula_or_values:
-                        flat_vals.extend(r)
-                    formula_or_values = flat_vals
+                    formula_or_values = [v for r in formula_or_values for v in r]
 
                 if len(formula_or_values) != total_cells:
                     raise CalcError(_values_length_mismatch_message(range_str, len(formula_or_values), total_cells, num_rows, num_cols))
@@ -975,10 +973,10 @@ class CellManipulator:
             for row in range(start[1], end[1] + 1):
                 for col in range(start[0], end[0] + 1):
                     meta = cell_metas[cell_idx]
-                    if meta.restore_format or (any_temporal and meta.kind == "temporal"):
+                    if meta.kind == "text" or (any_temporal and meta.kind == "temporal"):
                         cell = sheet.getCellByPosition(col, row)
                         key = uno_probe(lambda: int(cell.getPropertyValue("NumberFormat")), 0)
-                        if meta.restore_format:
+                        if meta.kind == "text":
                             s29_snapshots.append((col, row, key))
                         if meta.kind == "temporal":
                             if key not in category_cache:
@@ -986,48 +984,19 @@ class CellManipulator:
                             dest_categories[(col, row)] = category_cache[key]
                     cell_idx += 1
 
-            # We write cell by cell, not plain setDataArray, because LO's setDataArray
-            # undo does not clear previously-empty cells; threshold 2000 trades undo
-            # correctness for speed on big writes.
-            UNDO_CLEAR_THRESHOLD = 2000
-            use_set_data_array = True
-
-            if total_cells <= UNDO_CLEAR_THRESHOLD:
-                # Check if there's any empty cell in the target range
-                has_empty = False
-                try:
-                    from com.sun.star.table import CellContentType
-                    empty_type = CellContentType.EMPTY
-                except ImportError:
-                    empty_type = None
-
-                for r in range(start[1], end[1] + 1):
-                    for c in range(start[0], end[0] + 1):
-                        cell = sheet.getCellByPosition(c, r)
-                        if empty_type is not None and cell.getType() == empty_type:
-                            has_empty = True
-                            break
-                        elif cell.getFormula() == "" and cell.getString() == "" and cell.getValue() == 0.0:
-                            has_empty = True
-                            break
-                    if has_empty:
-                        break
-
-                if has_empty:
-                    use_set_data_array = False
-
-            if use_set_data_array:
+            # setDataArray undo does not clear previously-empty cells.
+            # Above 2000 cells, speed wins over that undo quirk.
+            if total_cells > 2000 or not _range_has_blank_cell(sheet, start, end):
                 cell_range.setDataArray(tuple(tuple(r) for r in data_array))
             else:
                 for r_idx, row in enumerate(range(start[1], end[1] + 1)):
                     for c_idx, col in enumerate(range(start[0], end[0] + 1)):
                         val = data_array[r_idx][c_idx]
-                        if val == "":
-                            sheet.getCellByPosition(col, row).setString("")
-                        elif isinstance(val, (int, float)):
-                            sheet.getCellByPosition(col, row).setValue(float(val))
+                        cell = sheet.getCellByPosition(col, row)
+                        if isinstance(val, (int, float)):
+                            cell.setValue(float(val))
                         else:
-                            sheet.getCellByPosition(col, row).setString(str(val))
+                            cell.setString(str(val))
 
             for col, row, key in s29_snapshots:
                 sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
@@ -1147,15 +1116,13 @@ class CellManipulator:
         rows 0–1 of the user's last column. Place the probe on the two
         rows under the used area instead.
         """
-        max_col = MAX_COL  # XFD
-        max_row = MAX_ROW
-        col = min(max(int(used.EndColumn), avoid_col) + 2, max_col)
+        col = min(max(used.EndColumn, avoid_col) + 2, MAX_COL)
         row = 0
-        overlaps_used = col <= int(used.EndColumn) and int(used.StartRow) <= 1 and int(used.EndRow) >= 0
+        overlaps_used = col <= used.EndColumn and used.StartRow <= 1 and used.EndRow >= 0
         overlaps_target = col <= avoid_col and avoid_start_row <= 1 and avoid_end_row >= 0
         if overlaps_used or overlaps_target:
-            row = max(int(used.EndRow), avoid_end_row) + 1
-            if row + 1 > max_row:
+            row = max(used.EndRow, avoid_end_row) + 1
+            if row + 1 > MAX_ROW:
                 raise CalcError("Cannot measure the array formula: no free cells below the used area in column XFD.")
         return col, row
 
@@ -1327,25 +1294,22 @@ class CellManipulator:
             start: For rows, row number (1-based); for columns, column letter.
             count: Number to delete.
         """
-        if structure_type == "rows" or structure_type == "columns":
-            try:
-                sheet = self.bridge.get_active_sheet()
-                if structure_type == "rows":
-                    sheet.getRows().removeByIndex(start - 1, count)
-                    log.info("%d row(s) deleted starting from row %d.", count, start)
-                    return f"{count} row(s) deleted starting from row {start}."
-                col = start.upper()
-                sheet.getColumns().removeByIndex(column_to_index(col), count)
-                log.info("%d column(s) deleted starting from column %s.", count, col)
-                return f"{count} column(s) deleted starting from column {col}."
-            except Exception as e:
-                if is_disposed_exception(e):
-                    raise
-                # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
-                if structure_type == "rows":
-                    log.exception("Row deletion failed")
-                else:
-                    log.exception("Column deletion failed")
-                raise
-        else:
+        if structure_type != "rows" and structure_type != "columns":
             raise CalcError(f"Invalid structure_type: {structure_type}. Must be 'rows' or 'columns'.")
+        try:
+            sheet = self.bridge.get_active_sheet()
+            if structure_type == "rows":
+                sheet.getRows().removeByIndex(start - 1, count)
+                kind, where = "row", start
+            else:
+                where = start.upper()
+                kind = "column"
+                sheet.getColumns().removeByIndex(column_to_index(where), count)
+            log.info("%d %s(s) deleted starting from %s %s.", count, kind, kind, where)
+            return f"{count} {kind}(s) deleted starting from {kind} {where}."
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
+            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
+            log.exception("%s deletion failed", "Row" if structure_type == "rows" else "Column")
+            raise
