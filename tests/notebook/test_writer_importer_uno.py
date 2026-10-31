@@ -310,7 +310,7 @@ def test_debug_menu_import_and_run_small_numpy_notebook(ctx, doc):
 
 def _debug_menu_import_and_run(ctx, doc) -> None:
     from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
-    from plugin.notebook.form_lookup import index_form_control_models
+    from plugin.notebook.form_lookup import build_control_index
     from plugin.notebook.notebook_controls import (
         ensure_form_design_mode_off,
         wire_all_notebook_run_buttons,
@@ -383,7 +383,7 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
         run_name = f"nb_run_{cell_id_to_hex(cell.cell_id)}"
         assert run_name in draw_names, f"{run_name} missing from draw page: {draw_names}"
 
-    models = index_form_control_models(doc)
+    models = build_control_index(doc).models_by_name
     for field in field_names:
         assert field in models, f"form lookup missed {field}"
 

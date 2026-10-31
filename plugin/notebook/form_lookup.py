@@ -15,16 +15,6 @@ from plugin.framework.errors import best_effort
 
 _CONTROL_SHAPE_TYPE = "com.sun.star.drawing.ControlShape"
 
-__all__ = [
-    "ControlIndex",
-    "build_control_index",
-    "control_lookup_scope",
-    "index_form_control_models",
-    "find_form_control_model_by_name",
-    "find_control_shape_by_name",
-    "read_code_from_field",
-]
-
 
 @dataclass
 class ControlIndex:
@@ -73,10 +63,8 @@ def build_control_index(doc: Any) -> ControlIndex:
     models: dict[str, Any] = {}
     shapes: dict[str, Any] = {}
     for name, model, shape in _iter_control_shapes(doc):
-        if name not in models:
-            models[name] = model
-        if name not in shapes:
-            shapes[name] = shape
+        models.setdefault(name, model)
+        shapes.setdefault(name, shape)
     if not models:
         _collect_models_from_text(doc, models)
     return ControlIndex(doc=doc, models_by_name=models, shapes_by_name=shapes)
@@ -155,32 +143,17 @@ def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
                 by_name[name] = model
 
 
-def index_form_control_models(doc: Any) -> dict[str, Any]:
-    """Map form control ``Name`` → model for all notebook fields and ▶ buttons."""
-    return _index_for(doc).models_by_name
-
-
 def find_form_control_model_by_name(doc: Any, control_name: str) -> Any | None:
-    if not control_name:
-        return None
     return _index_for(doc).models_by_name.get(control_name)
 
 
 def find_control_shape_by_name(doc: Any, control_name: str) -> Any | None:
-    """Return the draw-page ``ControlShape`` with ``Name == control_name``, or None.
+    """Draw-page ControlShape for *control_name*, or None.
 
-    Used to reach ``shape.getAnchor()`` (paragraph of an in-flow field). Text-portion
-    fallback in ``index_form_control_models`` has no shape, so this is draw-page only.
+    Text-portion fallback stores models only, so a name that exists only
+    there still has no shape. Callers use ``shape.getAnchor()``.
     """
-    if not control_name:
-        return None
-    idx = _current_control_index()
-    if idx is not None and idx.doc is doc:
-        return idx.shapes_by_name.get(control_name)
-    for name, _model, shape in _iter_control_shapes(doc):
-        if name == control_name:
-            return shape
-    return None
+    return _index_for(doc).shapes_by_name.get(control_name)
 
 
 def read_code_from_field(doc: Any, field_name: str) -> str | None:

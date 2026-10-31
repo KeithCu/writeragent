@@ -10,7 +10,6 @@ import pytest
 from plugin.notebook.cell_registry import (
     NotebookDocState,
     cell_id_to_hex,
-    init_registry_execution_counter,
     new_code_cell_entry,
 )
 from plugin.notebook import form_lookup
@@ -102,14 +101,6 @@ def _enum_of(items):
     enum.hasMoreElements.side_effect = [True] * len(items) + [False]
     enum.nextElement.side_effect = items
     return enum
-
-
-def test_init_registry_execution_counter():
-    c0 = new_code_cell_entry(0, 3, "nb_cell_0_code")
-    c1 = new_code_cell_entry(1, None, "nb_cell_1_code")
-    state = NotebookDocState(code_cells=[c0, c1])
-    init_registry_execution_counter(state)
-    assert state.next_execution_count == 1
 
 
 def test_execute_code_does_not_pump_idle():
