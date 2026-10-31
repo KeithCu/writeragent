@@ -69,7 +69,8 @@ def test_clear_sheet_filter_disposal_propagates():
 
 def test_get_sheet_filter_disposal_propagates():
     ctx = SimpleNamespace(doc=MagicMock())
-    with patch("plugin.calc.sheet_filter._get_filterable_for_range", side_effect=DisposedException("gone")):
+    with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_range_or_address.side_effect = DisposedException("gone")
         tool = GetSheetFilter()
         with pytest.raises(DisposedException):
             tool.execute(ctx, range=["A1:B2"])
@@ -124,6 +125,7 @@ def test_field_to_dict_enum_connection():
 
 def test_get_sheet_filter_contains_header_disposal_propagates():
     ctx = SimpleNamespace(doc=MagicMock())
+    cell_range = MagicMock()
     xf = MagicMock()
     fd = MagicMock()
     xf.createFilterDescriptor.return_value = fd
@@ -135,14 +137,17 @@ def test_get_sheet_filter_contains_header_disposal_propagates():
     ps.getPropertyValue.side_effect = DisposedException("gone")
 
     def fake_query_interface(obj, iface_name):
+        if iface_name == "com.sun.star.sheet.XSheetFilterable":
+            return xf
         if iface_name == "com.sun.star.sheet.XSheetFilterDescriptor2":
             return fd2
         if iface_name == "com.sun.star.beans.XPropertySet":
             return ps
         return None
 
-    with patch("plugin.calc.sheet_filter._get_filterable_for_range", return_value=xf), \
+    with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
          patch("plugin.calc.sheet_filter._query_interface", side_effect=fake_query_interface):
+        bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
         tool = GetSheetFilter()
         with pytest.raises(DocumentDisposedError):
             tool.execute(ctx, range=["A1:B2"])

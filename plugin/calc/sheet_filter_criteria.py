@@ -81,20 +81,6 @@ def _deal_filter_connection_ok_crosshair(name: object) -> bool:
 _deal_filter_connection_ok = _profile(_deal_filter_connection_ok_crosshair, _deal_filter_connection_ok_pytest)
 
 
-def _deal_filter_code_ok_pytest(code: object) -> bool:
-    # A code outside the small CrossHair window still has a string label.
-    # The range cap raised PreContractError before ``str(int(code))``.
-    return isinstance(code, int)
-
-
-def _deal_filter_code_ok_crosshair(code: object) -> bool:
-    return isinstance(code, int) and -8 <= code < 32
-
-
-_deal_filter_code_ok = _profile(_deal_filter_code_ok_crosshair, _deal_filter_code_ok_pytest)
-
-
-@deal.pre(lambda code: _deal_filter_code_ok(code))
 def filter_operator2_code_to_name(code: int) -> str:
     """Map UNO ``FilterOperator2`` *code* (long) to a stable string label."""
     # crosshair: off
@@ -113,14 +99,8 @@ def filter_operator2_name_to_code(name: str) -> int | None:
     return _NAME_TO_CODE.get(_normalize_operator_name(name))
 
 
-_OP_VALUE_KIND = {
-    "EMPTY": "none",
-    "NOT_EMPTY": "none",
-    "TOP_VALUES": "numeric",
-    "TOP_PERCENT": "numeric",
-    "BOTTOM_VALUES": "numeric",
-    "BOTTOM_PERCENT": "numeric",
-}
+_OPS_NO_VALUE = frozenset(("EMPTY", "NOT_EMPTY"))
+_OPS_FORCE_NUMERIC = frozenset(("TOP_VALUES", "TOP_PERCENT", "BOTTOM_VALUES", "BOTTOM_PERCENT"))
 
 
 @deal.pre(lambda name: _deal_filter_connection_ok(name))
@@ -211,15 +191,14 @@ def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
         None if (is_first or raw.get("connection") is None) else str(raw["connection"])
     )
 
-    kind = _OP_VALUE_KIND.get(op_label, "text")
-    if kind == "none":
+    if op_label in _OPS_NO_VALUE:
         return FilterCriterion(field, op_code, conn, False, 0.0, "")
 
     v = raw.get("value")
     if isinstance(v, (list, dict)):
         raise UnoObjectError(f"Invalid filter 'value': {v!r}")
 
-    if kind == "numeric":
+    if op_label in _OPS_FORCE_NUMERIC:
         if v is None or str(v).strip() == "" or isinstance(v, bool):
             raise UnoObjectError(f"Operator {op_label} requires numeric 'value'.")
         try:

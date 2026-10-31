@@ -166,10 +166,9 @@ def _set_field_orientations(
             setattr(tff, "StringValue", str(pf_val))
             filter_fields.append(tff)
 
-        if filter_fields:
-            filter_desc = desc.getFilterDescriptor() if hasattr(desc, "getFilterDescriptor") else getattr(desc, "FilterDescriptor", None)
-            if filter_desc is not None:
-                filter_desc.setFilterFields(tuple(filter_fields))
+        filter_desc = desc.getFilterDescriptor()
+        if filter_desc is not None:
+            filter_desc.setFilterFields(tuple(filter_fields))
 
 
 def _find_pivot(doc: Any, name: str, sheet_name: str | None = None) -> tuple[Any, Any] | str:
