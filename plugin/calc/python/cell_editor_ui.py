@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, final
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent, TextEvent
@@ -54,7 +54,6 @@ def _status_text(body: str) -> str:
     return label if label.startswith(prefix) else f"{prefix} {label}"
 
 
-@final
 class NativePythonCellEditorDialog:
     """Modeless native twin of Monaco calc_cell mode. One instance; later opens retarget."""
 
