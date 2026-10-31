@@ -157,10 +157,9 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
             days += 1
         curr += dt.timedelta(days=1)
 
-    if h_dates:
-        for h in h_dates:
-            if sd <= h <= ed and h.weekday() not in wk_days:
-                days -= 1
+    for h in h_dates:
+        if sd <= h <= ed and h.weekday() not in wk_days:
+            days -= 1
 
     return float(sign * max(0, days))
 
@@ -530,10 +529,9 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
             return 1.0
         idx = np.searchsorted(d_sorted, val)
         if d_sorted[idx] == val:
-            count_less = np.sum(d < val)
-            res = count_less / (n - 1)
+            res = idx / (n - 1)
         else:
-            idx = np.searchsorted(d_sorted, val) - 1
+            idx -= 1
             x0, x1 = d_sorted[idx], d_sorted[idx + 1]
             r0, r1 = np.sum(d < x0) / (n - 1), np.sum(d < x1) / (n - 1)
             res = r0 + (r1 - r0) * (val - x0) / (x1 - x0)
@@ -871,12 +869,9 @@ def _calc_sort_key(val: Any) -> tuple[int, Any]:
         return (3, "")
     if isinstance(val, (bool, np.bool_)):
         return (2, int(val))
-    if isinstance(val, (int, float, np.integer, np.floating)):
+    if is_number(val):
         try:
-            fval = float(val)
-            if math.isnan(fval):
-                return (3, "")
-            return (0, fval)
+            return (0, float(val))
         except (ValueError, TypeError, OverflowError):
             return (3, "")
     return (1, str(val).casefold())
@@ -1022,8 +1017,7 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
         width = ncols if axis == "col" and ncols is not None else nrows
         order_list = list(range(width))
         for flat, asc in reversed(keys):
-            target_flat = flat
-            order_list.sort(key=lambda pos: _calc_sort_key(target_flat[pos]), reverse=not asc)
+            order_list.sort(key=lambda pos: _calc_sort_key(flat[pos]), reverse=not asc)
         if axis == "col":
             return arr[:, order_list].tolist()
         if arr.ndim == 1:
