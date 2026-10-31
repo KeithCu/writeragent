@@ -62,7 +62,7 @@ from plugin.framework.send_cancellation import get_current_send_cancellation
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
 from plugin.framework.errors import NetworkError, WriterAgentException, is_disposed_exception
-from plugin.framework.url_utils import get_api_version_suffix, normalize_endpoint_url
+from plugin.framework.url_utils import get_api_version_suffix, get_url_path_and_query, normalize_endpoint_url
 
 from plugin.framework.errors import format_error_message
 from .errors import (
@@ -543,7 +543,6 @@ class LlmClient:
         import os
         import base64
         from plugin.framework.client.model_fetcher import has_native_audio
-        from plugin.framework.url_utils import get_url_path_and_query
 
         # Determine model
         # Client dict may carry the Speech-tab key or the legacy top-level key.
