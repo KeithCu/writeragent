@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import copy
 import logging
+from types import SimpleNamespace
 from typing import Any, cast, Type, ClassVar
 
 from plugin.framework.errors import is_real_disposal
@@ -32,6 +33,10 @@ from plugin.framework.prompts import (
     DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
     images_specialized_sub_agent_hint,
     python_specialized_sub_agent_hint,
+    looks_like_peer_work_envelope,
+    get_document_research_workflow_hint,
+    annotate_outer_peer_delivery_pending,
+    annotate_outer_peer_wait,
 )
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
@@ -49,8 +54,6 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
     panel listener's active turn ``active_query_text`` and last user ``session.messages``
     entry; RuntimeUID lookup is UNO so marshal to the main thread.
     """
-    from plugin.framework.prompts import looks_like_peer_work_envelope
-
     def _probe() -> bool:
         from plugin.doc.live_panels import get_live_panel
         from plugin.framework.uno_context import get_runtime_uid
@@ -92,7 +95,7 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
         return False
 
 
-def _main_thread_or_warn(fn: Any, what: str, default: Any = "") -> Any:
+def _main_thread_or_warn(fn: Any, what: str) -> Any:
     """Marshal fn to the main thread. Re-raise real document disposal.
 
     Bugfix: a closed document raises DisposedException while reading the shapes
@@ -107,7 +110,7 @@ def _main_thread_or_warn(fn: Any, what: str, default: Any = "") -> Any:
         if is_real_disposal(e):
             raise
         log.warning("Failed to get %s for sub-agent: %s", what, e)
-        return default
+        return ""
 
 
 class DelegateToSpecializedBase(ToolBase):
@@ -209,8 +212,7 @@ class DelegateToSpecializedBase(ToolBase):
         if domain == "web_research":
             from plugin.chatbot.web_research import WebResearchTool
 
-            tool = WebResearchTool()
-            return tool.execute(ctx, query=task)
+            return WebResearchTool().execute(ctx, query=task)
 
         if domain == "vision":
             from plugin.vision.vision_availability import vision_venv_configured
@@ -228,8 +230,7 @@ class DelegateToSpecializedBase(ToolBase):
             if status_callback:
                 status_callback(_("Running local OCR on selected image(s)..."))
             # Gateway shortcut: no sub-agent parses task — always insert after graphic(s).
-            vision_tool = ExtractStructureFromImage()
-            return vision_tool.execute(ctx, insert_into_document=True)
+            return ExtractStructureFromImage().execute(ctx, insert_into_document=True)
 
         if domain == "document_research":
             try:
@@ -260,7 +261,6 @@ class DelegateToSpecializedBase(ToolBase):
             document_research_hint = ""
             if domain == "document_research":
                 from plugin.doc.document_research import filter_document_research_discovery_tools
-                from plugin.framework.prompts import get_document_research_workflow_hint
                 from plugin.doc.peer_message import (
                     PEER_TOOL_NAMES,
                     filter_peer_tools_for_specialized,
@@ -293,59 +293,43 @@ class DelegateToSpecializedBase(ToolBase):
         prev_active_domain = getattr(ctx, "active_domain", None)
         ctx.active_domain = domain
         # When an accepted inner peer send ran, the outer must Ready (not keep tooling).
-        peer_send_invoked = False
-        # Only an accepted send_peer_result counts as peer delivery on a
-        # Peer-work receiving turn. A model call that returns PEER_NOT_FOUND,
-        # PEER_SIDEBAR_NOT_OPEN, PEER_QUEUE_FULL, or PEER_NOT_CHAT_MODE is not
-        # delivery.
-        peer_result_send_invoked = False
         # Inner tool results that already carry web-research-style `instruction`
         # (create_sheet, etc.) so specialized finish can forward them to the outer.
-        captured_tool_results: list[Any] = []
-        create_sheet_ran = False
-        workflow_finished = False
-        inner_tool_errors: list[dict[str, Any]] = []
-
-        def _note_peer_send_result(name: str, result: Any) -> None:
-            """Record delivery only after the tool returns accepted.
-
-            peer_result_send_invoked is set only after the tool returns
-            accepted. Setting it when the model calls send_peer_result,
-            before the tool runs, treats a PEER_NOT_FOUND /
-            PEER_SIDEBAR_NOT_OPEN / PEER_QUEUE_FULL / PEER_NOT_CHAT_MODE
-            payload as delivery. annotate_outer_peer_wait then stamps
-            idle-after-send and skips delivery-still-required. The asking
-            peer waits for a reply that was never queued. The adapter sees
-            the real return value. Only status ok and accepted true counts.
-            """
-            nonlocal peer_send_invoked, peer_result_send_invoked
-            if domain != "document_research":
-                return
-            from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
-
-            if name not in PEER_TOOL_NAMES:
-                return
-            if not (
-                isinstance(result, dict)
-                and result.get("status") == "ok"
-                and result.get("accepted") is True
-            ):
-                return
-            peer_send_invoked = True
-            if name == PEER_RESULT_TOOL_NAME:
-                peer_result_send_invoked = True
+        cap = SimpleNamespace(
+            peer_send_invoked=False,
+            peer_result_send_invoked=False,
+            captured_tool_results=[],
+            create_sheet_ran=False,
+            workflow_finished=False,
+            inner_tool_errors=[],
+        )
 
         class _CaptureInstructionAdapter(SmolToolAdapter):
             def forward(self, *args: Any, **kwargs: Any) -> Any:
                 result = super().forward(*args, **kwargs)
                 if self.name == "specialized_workflow_finished":
-                    nonlocal workflow_finished
-                    workflow_finished = True
+                    cap.workflow_finished = True
                 if isinstance(result, dict) and result.get("status") == "error":
-                    inner_tool_errors.append(result)
+                    cap.inner_tool_errors.append(result)
                 if isinstance(result, dict) and result.get("instruction"):
-                    captured_tool_results.append(result)
-                _note_peer_send_result(self.name, result)
+                    cap.captured_tool_results.append(result)
+                if domain != "document_research":
+                    return result
+                from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
+
+                if self.name not in PEER_TOOL_NAMES:
+                    return result
+                # Delivery is recorded only after status == "ok" and accepted is True,
+                # not when the model calls the tool. PEER_NOT_FOUND, PEER_SIDEBAR_NOT_OPEN,
+                # PEER_QUEUE_FULL, and PEER_NOT_CHAT_MODE must leave both flags false.
+                if (
+                    isinstance(result, dict)
+                    and result.get("status") == "ok"
+                    and result.get("accepted") is True
+                ):
+                    cap.peer_send_invoked = True
+                    if self.name == PEER_RESULT_TOOL_NAME:
+                        cap.peer_result_send_invoked = True
                 return result
 
         try:
@@ -389,30 +373,25 @@ class DelegateToSpecializedBase(ToolBase):
 
             open_docs_context = ""
             if domain == "document_research":
-                try:
-                    from plugin.doc.document_research import get_open_documents
+                from plugin.doc.document_research import get_open_documents
 
-                    open_docs = queue_executor.execute_on_main_thread(lambda: get_open_documents(ctx.ctx, ctx.doc))
-                    if open_docs:
-                        lines = []
-                        for d in open_docs:
-                            path_or_url = d["path"] or d["url"] or "Untitled"
-                            doc_type = d["doc_type"]
-                            active_str = " (Active)" if d["is_active"] else ""
-                            lines.append(f"- {path_or_url} [{doc_type}]{active_str}")
-                        open_docs_context = (
-                            "\n\n[OPEN DOCUMENTS CONTEXT]\n"
-                            "Note: These are the currently open files in LibreOffice. "
-                            "Some of these files may be completely unrelated to the task at hand:\n"
-                            + "\n".join(lines)
-                        )
-                except Exception as e:
-                    # Bugfix: a document closed during the async run landed here; swallowing it
-                    # dropped the context and let the inner agent answer from a partial prompt.
-                    # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-                    if is_real_disposal(e):
-                        raise
-                    log.warning("Failed to get open documents for sub-agent: %s", e)
+                open_docs = _main_thread_or_warn(
+                    lambda: get_open_documents(ctx.ctx, ctx.doc),
+                    "open documents",
+                )
+                if open_docs:
+                    lines = []
+                    for d in open_docs:
+                        path_or_url = d["path"] or d["url"] or "Untitled"
+                        doc_type = d["doc_type"]
+                        active_str = " (Active)" if d["is_active"] else ""
+                        lines.append(f"- {path_or_url} [{doc_type}]{active_str}")
+                    open_docs_context = (
+                        "\n\n[OPEN DOCUMENTS CONTEXT]\n"
+                        "Note: These are the currently open files in LibreOffice. "
+                        "Some of these files may be completely unrelated to the task at hand:\n"
+                        + "\n".join(lines)
+                    )
 
             images_hint = images_specialized_sub_agent_hint() if domain == "images" else ""
             python_hint = python_specialized_sub_agent_hint(self._agent_label) if domain == "python" else ""
@@ -426,11 +405,11 @@ class DelegateToSpecializedBase(ToolBase):
             document_open_step_index = 0
 
             def tool_call_handler(step: Any) -> None:
-                nonlocal document_open_step_index, create_sheet_ran
+                nonlocal document_open_step_index
                 if step.name == "create_sheet":
-                    create_sheet_ran = True
-                # Peer delivery is recorded in _note_peer_send_result from the
-                # tool return, not from this pre-execution call.
+                    cap.create_sheet_ran = True
+                # Peer delivery is recorded in _CaptureInstructionAdapter.forward from
+                # the tool return, not from this pre-execution call.
                 if domain == "document_research" and step.name == "delegate_read_document" and chat_append_callback:
                     from plugin.chatbot.web_research_chat import document_open_step_chat_text
 
@@ -468,27 +447,23 @@ class DelegateToSpecializedBase(ToolBase):
             payload = {"status": "ok", "message": _("Specialized task ({domain}) completed.").format(domain=domain), "result": str(final_ans)}
         # Outer never sees create_sheet's inner-only ok string; forward the same
         # `instruction` field web research uses when empty tabs were created.
-        if domain == "sheets" or create_sheet_ran or captured_tool_results:
+        if domain == "sheets" or cap.create_sheet_ran or cap.captured_tool_results:
             payload = attach_sheets_create_completion_instruction(
                 payload,
-                create_sheet_ran=create_sheet_ran,
-                tool_results=captured_tool_results,
+                create_sheet_ran=cap.create_sheet_ran,
+                tool_results=cap.captured_tool_results,
             )
 
         # Peer-work receiving turn: nested specialize (or research without an
         # accepted send_peer_result) is not delivery — stamp still-required
         # before Ready. A failed send_peer_result leaves this flag false so
         # the inner agent can retry. send_peer_work alone is not delivery.
-        if not peer_result_send_invoked and _outer_turn_is_peer_work(ctx):
-            from plugin.framework.prompts import annotate_outer_peer_delivery_pending
-
+        if not cap.peer_result_send_invoked and _outer_turn_is_peer_work(ctx):
             payload = annotate_outer_peer_delivery_pending(payload)
 
         elif domain == "document_research":
-            from plugin.framework.prompts import annotate_outer_peer_wait
-
             # Idle-after-send for ask / accepted delivery sends.
-            payload = annotate_outer_peer_wait(payload, peer_send_invoked=peer_send_invoked)
+            payload = annotate_outer_peer_wait(payload, peer_send_invoked=cap.peer_send_invoked)
 
         # Discussion #2029:
         # What was wrong: non-dict final answers (free text from subagents) and runs
@@ -501,10 +476,10 @@ class DelegateToSpecializedBase(ToolBase):
         # in answer only; message and error carry just the tool-error text. Runs without
         # specialized_workflow_finished returning and without tool errors become status: "incomplete"
         # with code SPECIALIZED_WORKFLOW_INCOMPLETE and the model text on message.
-        is_finished = workflow_finished or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
-        if inner_tool_errors:
+        is_finished = cap.workflow_finished or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
+        if cap.inner_tool_errors:
             combined_message = "; ".join(
-                str(e.get("message") or e.get("error") or e) for e in inner_tool_errors
+                str(e.get("message") or e.get("error") or e) for e in cap.inner_tool_errors
             )
             payload["status"] = "error"
             payload["code"] = "SPECIALIZED_TOOL_ERROR"
