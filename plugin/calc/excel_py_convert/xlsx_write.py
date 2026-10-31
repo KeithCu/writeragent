@@ -65,6 +65,15 @@ log = logging.getLogger(__name__)
 _INVALID_XML_CHARS_RE = re.compile(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
 
 
+def _xml_tag(el: ET.Element, ns: str, name: str) -> str:
+    # Un-namespaced fixtures use local names; package parts use Clark notation.
+    return f"{{{ns}}}{name}" if el.tag.startswith("{") else name
+
+
+def _defined_name_pairs(wb_root: ET.Element) -> list[tuple[str, str]]:
+    return [((dn.attrib.get("name") or ""), "".join(dn.itertext()).strip()) for dn in find_all(wb_root, "definedName")]
+
+
 def _norm_a1(a1: str) -> str:
     return a1.replace("$", "").upper()
 
@@ -142,7 +151,7 @@ def _patch_content_types(
             root.remove(child)
             changed = True
     existing = {(c.attrib.get("PartName") or "") for c in root if local_name(c.tag) == "Override"}
-    tag = f"{{{CONTENT_TYPES_NS}}}Override" if root.tag.startswith("{") else "Override"
+    tag = _xml_tag(root, CONTENT_TYPES_NS, "Override")
     for part in add_sheet_parts:
         if part not in existing:
             ET.SubElement(
@@ -201,12 +210,10 @@ def _strip_rels_python(data: bytes, *, strip_python: bool = True) -> bytes:
 
 
 def _ensure_sheet_data(ws_root: ET.Element) -> ET.Element:
-    for child in list(ws_root):
-        if local_name(child.tag) == "sheetData":
-            return child
-    tag = f"{{{SSML_NS}}}sheetData" if ws_root.tag.startswith("{") else "sheetData"
-    el = ET.SubElement(ws_root, tag)
-    return el
+    found = find_child(ws_root, "sheetData")
+    if found is not None:
+        return found
+    return ET.SubElement(ws_root, _xml_tag(ws_root, SSML_NS, "sheetData"))
 
 
 def _row_num(el: ET.Element, prev: int) -> int:
@@ -276,8 +283,7 @@ class _WorksheetCellIndex:
         # 1. Locate or insert <row> in ascending order
         row_el = self.rows.get(target_row)
         if row_el is None:
-            row_tag = f"{{{SSML_NS}}}row" if self.sheet_data.tag.startswith("{") else "row"
-            row_el = ET.Element(row_tag, attrib={"r": str(target_row)})
+            row_el = ET.Element(_xml_tag(self.sheet_data, SSML_NS, "row"), attrib={"r": str(target_row)})
 
             # Ascending inserts rescanned every sibling, so a new bank column was quadratic
             # (about 2s for 5000 rows); append is valid only when the parent has no extLst
@@ -313,8 +319,7 @@ class _WorksheetCellIndex:
         col_str = col_index_to_letters(target_col)
         a1_canonical = f"{col_str}{target_row}"
 
-        c_tag = f"{{{SSML_NS}}}c" if row_el.tag.startswith("{") else "c"
-        cell = ET.Element(c_tag, attrib={"r": a1_canonical})
+        cell = ET.Element(_xml_tag(row_el, SSML_NS, "c"), attrib={"r": a1_canonical})
 
         max_col = self.max_col_by_row.get(row_el, 0)
         has_non_c = self.has_non_c_by_row.get(row_el, False)
@@ -368,8 +373,7 @@ def _set_cell_xlws_formula(
     cell.attrib.pop("t", None)
     f = find_child(cell, "f")
     if f is None:
-        f_tag = f"{{{SSML_NS}}}f" if cell.tag.startswith("{") else "f"
-        f = ET.Element(f_tag)
+        f = ET.Element(_xml_tag(cell, SSML_NS, "f"))
         _insert_before(cell, f, ("v", "is", "extLst"))
     body = formula[1:] if formula.startswith("=") else formula
     f.text = body
@@ -426,8 +430,7 @@ def _ensure_workbook_full_calc_on_load(wb: ET.Element) -> None:
     if calc_pr is not None:
         calc_pr.attrib["fullCalcOnLoad"] = "1"
         return
-    tag = f"{{{SSML_NS}}}calcPr" if wb.tag.startswith("{") else "calcPr"
-    calc_pr = ET.Element(tag, attrib={"fullCalcOnLoad": "1"})
+    calc_pr = ET.Element(_xml_tag(wb, SSML_NS, "calcPr"), attrib={"fullCalcOnLoad": "1"})
     _insert_before(wb, calc_pr, _WORKBOOK_AFTER_CALC_PR)
 
 
@@ -476,10 +479,9 @@ def _drop_py_code_sheets_from_workbook(
     has_py_rel = any(local_name(r.tag) == "Relationship" and _is_python_script_rel(r) for r in rels)
     if not has_py_rel:
         next_rid = f"rId{_next_rid_num(rels)}"
-        tag = f"{{{PACKAGE_REL_NS}}}Relationship" if rels.tag.startswith("{") else "Relationship"
         ET.SubElement(
             rels,
-            tag,
+            _xml_tag(rels, PACKAGE_REL_NS, "Relationship"),
             attrib={
                 "Id": next_rid,
                 "Type": PYTHON_SCRIPT_REL_TYPE,
@@ -599,11 +601,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
 
         # 2. Bank sheet discovery via defined names / ZZ1 note
         wb_root = ET.fromstring(zin.read("xl/workbook.xml"))
-        defined_names: list[tuple[str, str]] = []
-        for dn in find_all(wb_root, "definedName"):
-            name = dn.attrib.get("name") or ""
-            val = "".join(dn.itertext()).strip()
-            defined_names.append((name, val))
+        defined_names = _defined_name_pairs(wb_root)
         shared_strs = shared_strings(zin)
 
         code_sheets = [s for s in sheets if s.title.startswith(CODE_SHEET_PREFIX)]
@@ -735,9 +733,7 @@ def write_dag_formulas_xlsx(
         wb_root, wb_ns = parse_and_extract_namespaces(zin.read("xl/workbook.xml"))
         rels_root, rels_ns = parse_and_extract_namespaces(zin.read("xl/_rels/workbook.xml.rels"))
 
-        defined_names: list[tuple[str, str]] = []
-        for dn in find_all(wb_root, "definedName"):
-            defined_names.append((dn.attrib.get("name") or "", "".join(dn.itertext()).strip()))
+        defined_names = _defined_name_pairs(wb_root)
         shared_strs = shared_strings(zin)
 
         # Collision check: existing sheet with bank prefix must be a verified script bank sheet.
@@ -823,14 +819,11 @@ def write_dag_formulas_xlsx(
                 next_rid_num += 1
 
                 if sheets_el is None:
-                    sheets_tag = f"{{{SSML_NS}}}sheets" if wb_root.tag.startswith("{") else "sheets"
-                    sheets_el = ET.SubElement(wb_root, sheets_tag)
-                sheet_tag = f"{{{SSML_NS}}}sheet" if sheets_el.tag.startswith("{") else "sheet"
+                    sheets_el = ET.SubElement(wb_root, _xml_tag(wb_root, SSML_NS, "sheets"))
                 r_id_attr = f"{{{OFFICE_DOC_REL_NS}}}id" if wb_root.tag.startswith("{") else "r:id"
-                sheets_el.append(ET.Element(sheet_tag, attrib={"name": code_sheet, "sheetId": str(cur_sheet_id), r_id_attr: cur_rid}))
+                sheets_el.append(ET.Element(_xml_tag(sheets_el, SSML_NS, "sheet"), attrib={"name": code_sheet, "sheetId": str(cur_sheet_id), r_id_attr: cur_rid}))
 
-                rel_tag = f"{{{PACKAGE_REL_NS}}}Relationship" if rels_root.tag.startswith("{") else "Relationship"
-                rels_root.append(ET.Element(rel_tag, attrib={
+                rels_root.append(ET.Element(_xml_tag(rels_root, PACKAGE_REL_NS, "Relationship"), attrib={
                     "Id": cur_rid,
                     "Type": f"{OFFICE_DOC_REL_NS}/worksheet",
                     "Target": f"worksheets/{Path(part_name).name}",
@@ -840,16 +833,14 @@ def write_dag_formulas_xlsx(
             def_name = bank_defined_name_for(code_sheet)
             dn_container = find_child(wb_root, "definedNames")
             if dn_container is None:
-                dn_tag = f"{{{SSML_NS}}}definedNames" if wb_root.tag.startswith("{") else "definedNames"
-                dn_container = ET.Element(dn_tag)
+                dn_container = ET.Element(_xml_tag(wb_root, SSML_NS, "definedNames"))
                 _insert_before(wb_root, dn_container, _WORKBOOK_AFTER_DEFINED_NAMES)
             has_dn = any(
                 local_name(dn.tag) == "definedName" and (dn.attrib.get("name") or "").lower() == def_name.lower()
                 for dn in dn_container
             )
             if not has_dn:
-                dn_tag = f"{{{SSML_NS}}}definedName" if dn_container.tag.startswith("{") else "definedName"
-                dn_el = ET.SubElement(dn_container, dn_tag, attrib={"name": def_name})
+                dn_el = ET.SubElement(dn_container, _xml_tag(dn_container, SSML_NS, "definedName"), attrib={"name": def_name})
                 dn_el.text = f"'{code_sheet}'!$A$1"
 
             bank_entries = dict(sheet_bank)
@@ -865,10 +856,8 @@ def write_dag_formulas_xlsx(
                 c_el.attrib["t"] = "inlineStr"
                 for child in list(c_el):
                     c_el.remove(child)
-                is_tag = f"{{{SSML_NS}}}is" if c_el.tag.startswith("{") else "is"
-                t_tag = f"{{{SSML_NS}}}t" if c_el.tag.startswith("{") else "t"
-                is_el = ET.SubElement(c_el, is_tag)
-                t_el = ET.SubElement(is_el, t_tag)
+                is_el = ET.SubElement(c_el, _xml_tag(c_el, SSML_NS, "is"))
+                t_el = ET.SubElement(is_el, _xml_tag(c_el, SSML_NS, "t"))
                 t_el.text = text
                 if text.startswith((" ", "\t", "\n", "\r")) or text.endswith((" ", "\t", "\n", "\r")):
                     t_el.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
