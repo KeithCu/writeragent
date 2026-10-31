@@ -56,7 +56,7 @@ _CONTROL_IDS = (
 )
 
 
-def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, tuple[int, int, int, int]], *, bottom_margin: int = _BOTTOM_MARGIN, min_flex_height: int = _MIN_FLEX_HEIGHT, right_margin: int = _RIGHT_MARGIN) -> dict[str, tuple[int, int, int, int]]:
+def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, tuple[int, int, int, int]]) -> dict[str, tuple[int, int, int, int]]:
     """Distribute height among flex fields and stretch/tile controls across the width."""
     if width <= 0 or height <= 0 or not snapshot:
         return {}
@@ -66,14 +66,14 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
 
     content_bottom = max(rect[1] + rect[3] for rect in snapshot.values())
     flex_sum = sum(snapshot[name][3] for name in flex_names)
-    leftover = height - bottom_margin - (content_bottom - flex_sum)
+    leftover = height - _BOTTOM_MARGIN - (content_bottom - flex_sum)
     # What was wrong: short sidebar panels overflowed the bottom margin because clamping to min flex height exceeded leftover space.
     # How it happened: each flex control clamped independently to min_flex_height without checking the total deck budget.
     # Why this change: scale against leftover budget and shrink from the bottom controls backward so controls fit within height.
     budget = max(0, leftover)
     new_heights: dict[str, int]
     if flex_sum <= 0:
-        new_heights = {name: max(min_flex_height, snapshot[name][3]) for name in flex_names}
+        new_heights = {name: max(_MIN_FLEX_HEIGHT, snapshot[name][3]) for name in flex_names}
     else:
         new_heights = {}
         remaining = budget
@@ -84,10 +84,10 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
             else:
                 share = budget * snapshot[name][3] // flex_sum
                 remaining -= share
-            new_heights[name] = max(min_flex_height, share)
+            new_heights[name] = max(_MIN_FLEX_HEIGHT, share)
 
     excess = sum(new_heights.values()) - budget
-    for floor in (min_flex_height, 0):
+    for floor in (_MIN_FLEX_HEIGHT, 0):
         if excess <= 0:
             break
         for name in reversed(flex_names):
@@ -101,7 +101,7 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
                 break
 
     left_margin = _LEFT_MARGIN
-    content_right = max(20, width - right_margin)
+    content_right = max(20, width - _RIGHT_MARGIN)
     content_width = max(20, content_right - left_margin)
     gap = _CONTROL_GAP
 
@@ -173,17 +173,11 @@ def _invoke_cleared(callback: Any, message: str) -> None:
 class _PanelResizeListener(BaseWindowListener):
     """Repositions Python sidebar controls when the panel root is resized."""
 
-    _c: dict[str, Any]
-    _on_dispose: Any
-    _in_relayout: bool
-    _root_window: Any
-
     def __init__(self, controls: dict[str, Any], on_dispose: Any = None) -> None:
-        self._c = controls
-        self._on_dispose = on_dispose
+        self._c: dict[str, Any] = controls
+        self._on_dispose: Any = on_dispose
         self._snapshot: dict[str, tuple[int, int, int, int]] | None = None
-        self._in_relayout = False
-        self._root_window = None
+        self._in_relayout: bool = False
 
     def on_disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
         # LibreOffice queries XComponent for dispose. This element is
@@ -201,7 +195,29 @@ class _PanelResizeListener(BaseWindowListener):
             return
         try:
             self._in_relayout = True
-            self._relayout(win)
+            r = win.getPosSize()
+            w, h = int(r.Width), int(r.Height)
+            if w <= 0 or h <= 0:
+                return
+            if self._snapshot is None:
+                self._capture_snapshot(win)
+            snapshot = self._snapshot
+            if not snapshot:
+                log.warning("python sidebar _relayout: no snapshot, skip")
+                return
+            layouts = compute_python_sidebar_layout(w, h, snapshot)
+            if not layouts:
+                return
+            for name, (nx, ny, nw, nh) in layouts.items():
+                ctrl = self._c.get(name)
+                if ctrl is None:
+                    continue
+                cur = ctrl.getPosSize()
+                if cur.X != nx or cur.Y != ny or cur.Width != nw or cur.Height != nh:
+                    ctrl.setPosSize(nx, ny, nw, nh, 15)
+
+            max_right = max((entry[0] + entry[2] for entry in layouts.values()), default=0)
+            log.debug("[LIBREPY LAYOUT] relayout w=%d h=%d max_child_right=%d overflow=%s", w, h, max_right, "YES" if max_right > w - 2 else "no")
         except Exception:
             log.exception("python sidebar relayout_now failed")
         finally:
@@ -224,39 +240,12 @@ class _PanelResizeListener(BaseWindowListener):
             return
         self._snapshot = snapshot
 
-    def _relayout(self, win: Any) -> None:
-        r = win.getPosSize()
-        w, h = int(r.Width), int(r.Height)
-        if w <= 0 or h <= 0:
-            return
-        if self._snapshot is None:
-            self._capture_snapshot(win)
-        snapshot = self._snapshot
-        if not snapshot:
-            log.warning("python sidebar _relayout: no snapshot, skip")
-            return
-        layouts = compute_python_sidebar_layout(w, h, snapshot)
-        if not layouts:
-            return
-        for name, (nx, ny, nw, nh) in layouts.items():
-            ctrl = self._c.get(name)
-            if ctrl is None:
-                continue
-            cur = ctrl.getPosSize()
-            if cur.X != nx or cur.Y != ny or cur.Width != nw or cur.Height != nh:
-                ctrl.setPosSize(nx, ny, nw, nh, 15)
-
-        max_right = max((entry[0] + entry[2] for entry in layouts.values()), default=0)
-        log.debug("[LIBREPY LAYOUT] relayout w=%d h=%d max_child_right=%d overflow=%s", w, h, max_right, "YES" if max_right > w - 2 else "no")
-
 
 class _Activation(BaseActivationEventListener):
     """Sheet-activation listener that calls handler() whenever the active sheet changes."""
 
-    _handler: Any
-
     def __init__(self, handler: Any) -> None:
-        self._handler = handler
+        self._handler: Any = handler
 
     def on_active_spreadsheet_changed(self, aEvent: object) -> None:
         self._handler()
@@ -313,42 +302,25 @@ def _filter_from_combo(control: Any) -> DiagnosticFilter:
 class PythonSidebarController:
     """Wires XDL controls for the LibrePy Python sidebar panel."""
 
-    ctx: Any
-    root: Any
-    frame: Any
-    _calc_panel: bool
-    _store: Any
-    _on_diag: Any
-    _activation_listener: Any
-    _disposed: bool
-    _refresh_pending: bool
-    _pending_full: bool
-    _suppress_diag_nav: bool
-    _controls: dict[str, Any]
-    _last_cell_lines: list[str] | None
-    _last_diag_detail_text: str | None
-    _on_torn_down: Any
-    resize_listener: _PanelResizeListener | None
-
     def __init__(self, ctx: Any, root_window: Any, frame: Any = None, on_torn_down: Any = None) -> None:
-        self.ctx = ctx
-        self.root = root_window
-        self.frame = frame
-        self._on_torn_down = on_torn_down
-        self._calc_panel = self._calc_document() is not None
+        self.ctx: Any = ctx
+        self.root: Any = root_window
+        self.frame: Any = frame
+        self._on_torn_down: Any = on_torn_down
+        self._calc_panel: bool = self._calc_document() is not None
         self._cells: list[PythonCellInfo] = []
         self._diags: list[DiagnosticEntry] = []
-        self._store = get_diagnostics_store()
-        self._on_diag = lambda entry=None: self._schedule_refresh(entry, full=False)
-        self._disposed = False
-        self._refresh_pending = False
-        self._pending_full = False
-        self._suppress_diag_nav = False
-        self._controls = {}
-        self._last_cell_lines = None
-        self._last_diag_detail_text = None
-        self.resize_listener = None
-        self._activation_listener = None
+        self._store: Any = get_diagnostics_store()
+        self._on_diag: Any = lambda entry=None: self._schedule_refresh(entry, full=False)
+        self._disposed: bool = False
+        self._refresh_pending: bool = False
+        self._pending_full: bool = False
+        self._suppress_diag_nav: bool = False
+        self._controls: dict[str, Any] = {}
+        self._last_cell_lines: list[str] | None = None
+        self._last_diag_detail_text: str | None = None
+        self.resize_listener: _PanelResizeListener | None = None
+        self._activation_listener: _Activation | None = None
 
         translate_dialog(root_window)
         if not self._calc_panel:
@@ -388,10 +360,8 @@ class PythonSidebarController:
         if rl is not None:
             self.resize_listener = None
             rl._on_dispose = None
-            root = rl._root_window
-            if not from_window and root is not None:
-                root.removeWindowListener(rl)
-            rl._root_window = None
+            if not from_window and self.root is not None:
+                self.root.removeWindowListener(rl)
         try:
             self._store.remove_listener(self._on_diag)
         except Exception:
@@ -421,11 +391,9 @@ class PythonSidebarController:
             ids = _CONTROL_IDS if self._calc_panel else tuple(cid for cid in _CONTROL_IDS if cid not in _CALC_ONLY_IDS)
             controls = {cid: self._ctrl(cid) for cid in ids}
             listener = _PanelResizeListener(controls, on_dispose=lambda: self.disposing(from_window=True))
-            listener._root_window = self.root
             if self.root is not None:
                 self.root.addWindowListener(listener)
             self.resize_listener = listener
-            listener._capture_snapshot(self.root)
             listener.relayout_now(self.root)
         except Exception:
             log.debug("sidebar resize listener attach failed", exc_info=True)
@@ -607,12 +575,8 @@ class PythonSidebarController:
             self._last_cell_lines = cell_lines
             _populate_listbox(cells_ctrl, cell_lines)
 
-        if selected_address and cells_ctrl is not None:
-            try:
-                target_pos = cell_lines.index(selected_address)
-                cells_ctrl.selectItemPos(target_pos, True)
-            except ValueError:
-                pass
+        if selected_address and cells_ctrl is not None and selected_address in cell_lines:
+            cells_ctrl.selectItemPos(cell_lines.index(selected_address), True)
 
         self._refresh_diagnostics(doc)
 
@@ -706,20 +670,16 @@ class PythonSidebarController:
 
 
 class _Action(BaseActionListener):
-    _callback: Any
-
     def __init__(self, callback: Any) -> None:
-        self._callback = callback
+        self._callback: Any = callback
 
     def on_action_performed(self, rEvent: Any) -> None:
         self._callback()
 
 
 class _Item(BaseItemListener):
-    _callback: Any
-
     def __init__(self, callback: Any) -> None:
-        self._callback = callback
+        self._callback: Any = callback
 
     def on_item_state_changed(self, rEvent: Any) -> None:
         self._callback(rEvent)
