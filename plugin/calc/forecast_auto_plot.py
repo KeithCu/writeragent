@@ -9,14 +9,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.calc.viz_auto_plot import task_hint_implies_plot
 from plugin.framework.errors import reraise_if_disposed
 
 log = logging.getLogger(__name__)
-
-
-def should_auto_plot(*, helper: str, auto_plot: bool, task_hint: str | None) -> bool:
-    return helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(task_hint))
 
 
 def _forecast_table(forecast_result: dict[str, Any]) -> dict[str, Any] | None:
@@ -99,29 +94,11 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
     return [plot_cols, *hist_rows, *fc_rows]
 
 
-def build_viz_request(*, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None) -> tuple[str, dict[str, Any]] | None:
-    """Return (viz_helper, viz_params) for a completed forecast result."""
-    forecast_table = _forecast_table(forecast_result)
-    if forecast_table is None:
-        return None
-
-    value_col = str((forecast_params or {}).get("value_col", "Value"))
-    columns = forecast_table.get("columns") or []
-    viz_params: dict[str, Any] = {"date_col": "date", "value_col": value_col, "forecast_col": "forecast"}
-    if "lower" in columns:
-        viz_params["lower_col"] = "lower"
-    if "upper" in columns:
-        viz_params["upper_col"] = "upper"
-    return "time_series_plot", viz_params
-
-
 def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None, data_range: str | None, task_hint: str | None) -> dict[str, Any] | None:
     """Run time_series_plot with merged history + forecast."""
     try:
-        request = build_viz_request(forecast_result=forecast_result, forecast_params=forecast_params)
-        if request is None:
+        if _forecast_table(forecast_result) is None:
             return {"status": "error", "message": f"No plot mapping for forecast helper {forecast_helper!r}"}
-        viz_helper, viz_params = request
 
         from plugin.calc.calc_addin_data import _resolve_python_data
         from plugin.framework.queue_executor import run_on_main
@@ -137,9 +114,16 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         if merged is None:
             return {"status": "error", "message": "Could not merge forecast history with the forecast table"}
 
+        header = merged[0]
+        viz_params: dict[str, Any] = {"date_col": "date", "value_col": header[1], "forecast_col": "forecast"}
+        if "lower" in header:
+            viz_params["lower_col"] = "lower"
+        if "upper" in header:
+            viz_params["upper_col"] = "upper"
+
         from plugin.scripting.viz import run_trusted_viz
 
-        return run_trusted_viz(uno_ctx, doc, helper=viz_helper, params=viz_params, data=merged, data_range=None, task_hint=task_hint)
+        return run_trusted_viz(uno_ctx, doc, helper="time_series_plot", params=viz_params, data=merged, data_range=None, task_hint=task_hint)
     except Exception as exc:
         reraise_if_disposed(exc, object_type="calc")
         log.exception("Forecast auto-plot failed")
