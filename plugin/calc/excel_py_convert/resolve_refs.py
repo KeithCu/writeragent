@@ -70,14 +70,11 @@ def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "")
 
     addr = cleaned.replace("$", "").strip()
     if sheet_hint:
-        raw_hint = f"{sheet_hint}!{addr}"
-        val = lookup(raw_hint)
-        if val is not None:
-            return val
-        quoted_hint = "'" + sheet_hint.replace("'", "''") + f"'!{addr}"
-        val = lookup(quoted_hint)
-        if val is not None:
-            return val
+        quoted = "'" + sheet_hint.replace("'", "''") + "'"
+        for hint in (sheet_hint, quoted):
+            val = lookup(f"{hint}!{addr}")
+            if val is not None:
+                return val
 
     if not sheet_hint or len(getattr(model, "sheets", ()) or ()) <= 1:
         return lookup(addr)
