@@ -63,16 +63,6 @@ _OUT_PROMPT_RE = re.compile(r"^Out \[[0-9 ]*\]:")
 _LEGACY_CHROME_RE = re.compile(r"^Cell \d+: (Markdown|Raw|Code)\b")
 
 
-def _enum_has_more(enum: Any) -> bool:
-    """``hasMoreElements`` is True or 1 on UNO. Anything else means stop.
-
-    MagicMock returns another MagicMock, which is neither, so unit tests
-    that never configure an enumeration terminate instead of spinning.
-    """
-    more = enum.hasMoreElements()
-    return more is True or more == 1
-
-
 # ---------------------------------------------------------------------------
 # Data Models & Process Execution State
 # ---------------------------------------------------------------------------
@@ -254,12 +244,12 @@ def _paragraph_has_frame(cursor: Any) -> bool:
     para_rng.gotoStartOfParagraph(False)
     para_rng.gotoEndOfParagraph(True)
     paras = para_rng.createEnumeration()
-    if not _enum_has_more(paras):
+    if not form_lookup._enum_has_more(paras):
         return False
     para = paras.nextElement()
     portions = para.createEnumeration()
     steps = 0
-    while steps < 64 and _enum_has_more(portions):
+    while steps < 64 and form_lookup._enum_has_more(portions):
         steps += 1
         portion = portions.nextElement()
         if str(portion.getPropertyValue("TextPortionType") or "") == "Frame":
@@ -334,7 +324,7 @@ def _is_foreign_control_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any)
     return not _is_this_cell_field_paragraph(doc, cell, cursor)
 
 
-def _is_output_bookmark_home(cursor: Any, doc: Any | None = None, cell: NotebookCodeCell | None = None) -> bool:
+def _is_output_bookmark_home(cursor: Any, doc: Any, cell: NotebookCodeCell) -> bool:
     """True when *cursor* is in *this* cell's code-field row (or leftover Output).
 
     Any ``In [n]:`` used to count as home. Consecutive code cells (medium In[2]
@@ -344,16 +334,10 @@ def _is_output_bookmark_home(cursor: Any, doc: Any | None = None, cell: Notebook
     content = _paragraph_string(cursor).strip()
     if content == "Output":
         return True
-    if doc is not None and cell is not None:
-        if _is_this_cell_field_paragraph(doc, cell, cursor):
-            return True
-        # No code field (UNO tests that only insert a bookmark): In [n]: is home.
-        if _IN_PROMPT_RE.match(content) and _code_field_paragraph_end(doc, cell) is None:
-            return True
-        return False
-    if _IN_PROMPT_RE.match(content):
+    if _is_this_cell_field_paragraph(doc, cell, cursor):
         return True
-    if _paragraph_has_frame(cursor):
+    # No code field (UNO tests that only insert a bookmark): In [n]: is home.
+    if _IN_PROMPT_RE.match(content) and _code_field_paragraph_end(doc, cell) is None:
         return True
     return False
 
@@ -696,13 +680,7 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
         last_empty_before_boundary = text.createTextCursorByRange(end)
     found_boundary = False
     while end.gotoNextParagraph(False):
-        if _is_next_cell_boundary(_para_style_name(end), _paragraph_string(end), notebook_in):
-            if last_empty_before_boundary is not None:
-                end.gotoRange(last_empty_before_boundary, False)
-            end.gotoStartOfParagraph(False)
-            found_boundary = True
-            break
-        if _is_foreign_control_paragraph(doc, cell, end):
+        if _is_next_cell_boundary(_para_style_name(end), _paragraph_string(end), notebook_in) or _is_foreign_control_paragraph(doc, cell, end):
             if last_empty_before_boundary is not None:
                 end.gotoRange(last_empty_before_boundary, False)
             end.gotoStartOfParagraph(False)
@@ -866,13 +844,13 @@ def _leading_text_cursor(text: Any, para: Any) -> Any | None:
     # cursor's elements raised UnknownPropertyException, the catch hid it,
     # and this always returned None.
     paras = para.createEnumeration()
-    if not _enum_has_more(paras):
+    if not form_lookup._enum_has_more(paras):
         return None
     paragraph = paras.nextElement()
     enum = paragraph.createEnumeration()
     first = None
     last = None
-    while _enum_has_more(enum):
+    while form_lookup._enum_has_more(enum):
         portion = enum.nextElement()
         ptype = str(portion.getPropertyValue("TextPortionType") or "")
         if ptype == "Frame":
@@ -981,10 +959,7 @@ def _execute_and_apply(ctx: Any, doc: Any, state: NotebookDocState, cell: Notebo
         # In [n] / outputs only for cells that actually finished.
         return RunResult("stopped", None, "Stopped.", cells_run=0)
 
-    if result.get("status") == "ok":
-        cell.last_run_status = "ok"
-    else:
-        cell.last_run_status = "error"
+    cell.last_run_status = "ok" if result.get("status") == "ok" else "error"
 
     execution_count = state.next_execution_count
     cell.execution_count = execution_count
@@ -1162,13 +1137,11 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
             return RunResult("busy", None, "A cell is already running.")
         executed = 0
         last_count: int | None = None
-        stopped = False
         try:
             cells = list(state.code_cells[max(0, start_index) :])
             for cell in cells:
                 if _is_stop_requested(busy_key):
-                    stopped = True
-                    break
+                    return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
                 code = form_lookup.read_code_from_field(doc, cell.code_field_name)
                 if code is None:
                     log.warning("notebook run: code field %r missing for cell %d; skipping", cell.code_field_name, cell.index)
@@ -1180,28 +1153,22 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                     # Stop clicks are delivered here; check the flag before the next cell.
                     _pump_between_notebook_cells(ctx)
                 if is_document_disposed(doc) or _is_stop_requested(busy_key):
-                    stopped = True
-                    break
+                    return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
                 try:
                     one = _execute_and_apply(ctx, doc, state, cell, code)
                 except Exception as exc:
                     # Tip: stop quietly only when the document is gone; a live RuntimeException propagates.
                     if is_document_disposed(doc) or is_real_disposal(exc):
-                        stopped = True
-                        break
+                        return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
                     raise
                 if one.status == "stopped":
-                    stopped = True
-                    break
+                    return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
                 executed += 1
                 last_count = one.execution_count
                 if one.status == "fatal":
                     return RunResult("error", one.execution_count, one.message, cells_run=executed)
                 if _is_stop_requested(busy_key):
-                    stopped = True
-                    break
-            if stopped:
-                return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
+                    return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
             return RunResult("ok", last_count, cells_run=executed)
         finally:
             _end_run(busy_key)

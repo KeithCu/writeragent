@@ -603,10 +603,13 @@ def test_clear_cell_output_skips_control_row_then_clears_stdout():
 def test_is_output_bookmark_home_empty_text_body_not_heading():
     from plugin.notebook.notebook_runner import _is_output_bookmark_home
 
+    doc = MagicMock()
+    cell = new_code_cell_entry(2, 2, "nb_cell_2_code")
+
     control = MagicMock()
     control.ParaStyleName = "Text Body"
     control.getString.return_value = ""
-    assert _is_output_bookmark_home(control) is False
+
     from plugin.notebook.notebook_runner import _is_leftover_empty_paragraph
 
     assert _is_leftover_empty_paragraph(control) is True
@@ -614,19 +617,21 @@ def test_is_output_bookmark_home_empty_text_body_not_heading():
     heading = MagicMock()
     heading.ParaStyleName = "Heading 2"
     heading.getString.return_value = ""
-    assert _is_output_bookmark_home(heading) is False
 
     stdout = MagicMock()
     stdout.ParaStyleName = "Preformatted Text"
     stdout.getString.return_value = ""
-    assert _is_output_bookmark_home(stdout) is False
 
     prompt = MagicMock()
     prompt.ParaStyleName = "WriterAgent Notebook In"
     prompt.getString.return_value = "In [1]:"
-    assert _is_output_bookmark_home(prompt) is True
 
-    cell = new_code_cell_entry(2, 2, "nb_cell_2_code")
+    with patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=None):
+        assert _is_output_bookmark_home(control, doc, cell) is False
+        assert _is_output_bookmark_home(heading, doc, cell) is False
+        assert _is_output_bookmark_home(stdout, doc, cell) is False
+        assert _is_output_bookmark_home(prompt, doc, cell) is True
+
     nxt = MagicMock()
     nxt.ParaStyleName = "WriterAgent Notebook In"
     nxt.getString.return_value = "In [3]:"
