@@ -35,7 +35,7 @@ def test_sheet_rename_migrates_modify_listener_and_spill(ctx, doc):
     sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
     # Pass the spill registry key (RuntimeUID), like the real caller. A pooled doc can
     # be a saved file, and its URL would not match, so the spill would be skipped.
-    perform_deferred_spill(ctx, _spill_registry_doc_key(doc), original_name, 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=sheet, code=code)
+    perform_deferred_spill(_spill_registry_doc_key(doc), original_name, 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=sheet, code=code)
 
     assert sheet.getCellByPosition(1, 0).getValue() == 2.0
     assert sheet.getCellByPosition(0, 1).getValue() == 3.0

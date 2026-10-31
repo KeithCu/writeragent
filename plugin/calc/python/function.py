@@ -190,10 +190,7 @@ def _calc_code_for_helper_error(code: str) -> int:
     token_code = calc_error_code_for_token(code)
     if token_code is not None:
         return token_code
-    exc_code = _WORKER_EXC_CODES.get(code.strip())
-    if exc_code is not None:
-        return exc_code
-    return _ERR_VALUE
+    return _WORKER_EXC_CODES.get(code.strip(), _ERR_VALUE)
 
 
 def _helper_error_log_message(err: dict[str, Any]) -> str:
@@ -621,7 +618,7 @@ class SpillRecord:
 SPILL_REGISTRY: dict[tuple[str, str, int, int], SpillRecord] = {}
 LOADED_DOCUMENTS: set[str] = set()
 _PENDING_SPILL_LOCK = threading.Lock()
-_PENDING_SPILL_TIMERS: list[tuple[str, threading.Timer]] = []
+_PENDING_SPILL_TIMERS: dict[threading.Timer, tuple[str, str]] = {}
 
 # One listener per sheet — SheetModifyDispatcher is the registered listener.
 # CalcSpillModifyListener is only constructed to run modified().
@@ -980,19 +977,12 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
 
     Returns (calc_val, meta) where meta has 'is_temporal', 'input_category', 'serial'.
     """
-    if val is None:
+    if val is None or type(val).__name__ in ("NaTType", "NAType"):
         return "", {"is_temporal": False, "is_empty": True}
-    if isinstance(val, bool):
-        return (1.0 if val else 0.0), {"is_temporal": False, "is_empty": False}
-
-    tname = type(val).__name__
-    if tname in ("NaTType", "NAType"):
-        return "", {"is_temporal": False, "is_empty": True}
-
-    # Bugfix: What was wrong: Large integers (> float64 max) raised OverflowError when converting to float.
-    # How it happened: float(val) was called directly on integer values without handling OverflowError.
-    # Why this change fixes it: OverflowError falls back to returning the decimal string str(val).
-    if isinstance(val, (int, float)) and not isinstance(val, bool):
+    if isinstance(val, int):
+        # bool is an int. to_calc_compatible maps it to 1.0/0.0 and OverflowError to decimal text.
+        return to_calc_compatible(val), {"is_temporal": False, "is_empty": False}
+    if isinstance(val, float):
         try:
             return float(val), {"is_temporal": False, "is_empty": False}
         except OverflowError:
@@ -1084,14 +1074,13 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
 
 
 def perform_deferred_spill(
-    ctx: Any,
     doc_url: str,
     sheet_name: str,
     formula_row: int,
     formula_col: int,
     grid: list[list[Any]],
     doc: Any | None = None,
-    sheet: Any | None = None,
+    sheet: Any = None,
     *,
     code: str = "",
     lifecycle_key: str = "",
@@ -1133,21 +1122,17 @@ def perform_deferred_spill(
                     log.debug("perform_deferred_spill: lifecycle key check failed", exc_info=True)
                     return
 
-            target_sheet: Any = None
+            resolved_sheet = sheet
             try:
                 if hasattr(doc, "getSheets"):
-                    target_sheet = doc.getSheets().getByName(sheet_name)
-            except Exception:
-                target_sheet = None
-
-            if target_sheet is None and sheet is not None:
-                target_sheet = sheet
-
-            if target_sheet is None:
+                    named = doc.getSheets().getByName(sheet_name)
+                    if named is not None:
+                        resolved_sheet = named
+            except Exception:  # noqa: S110
+                pass
+            if resolved_sheet is None:
                 return
-
-            sheet = target_sheet
-            assert sheet is not None
+            sheet = resolved_sheet
             live_sheet_name = ""
             try:
                 # Disposed sheet: getName raises. Do not write this spill.
@@ -1209,17 +1194,38 @@ def perform_deferred_spill(
                 coerced_grid: list[list[Any]] = []
                 cell_metas: list[list[dict[str, Any]]] = []
                 has_any_temporal = False
+                new_cells: list[SpillCell] = []
+                error_writes: list[tuple[int, int, int]] = []
 
-                for row in grid:
+                for r_offset, row in enumerate(grid):
                     coerced_row: list[Any] = []
                     meta_row: list[dict[str, Any]] = []
-                    for col_idx in range(num_cols):
-                        val = row[col_idx] if col_idx < len(row) else None
+                    for c_offset in range(num_cols):
+                        val = row[c_offset] if c_offset < len(row) else None
                         calc_val, meta = _coerce_spill_value(val, null_dt)
                         if meta.get("is_temporal"):
                             has_any_temporal = True
                         coerced_row.append(calc_val)
                         meta_row.append(meta)
+                        if (r_offset, c_offset) == (0, 0):
+                            continue
+                        stored_val: float | str | int | None = None
+                        if meta.get("is_calc_error"):
+                            kind = "err"
+                            stored_val = int(meta["error_code"])
+                            if meta.get("error_code") != _ERR_NA:
+                                error_writes.append((formula_col + c_offset, formula_row + r_offset, int(meta["error_code"])))
+                        elif meta.get("is_empty"):
+                            kind = "e"
+                        elif isinstance(calc_val, float):
+                            kind = "n"
+                            stored_val = calc_val
+                        elif isinstance(calc_val, str):
+                            kind = "s"
+                            stored_val = calc_val
+                        else:
+                            kind = "e"
+                        new_cells.append(SpillCell(row=formula_row + r_offset, col=formula_col + c_offset, kind=kind, value=stored_val))
                     coerced_grid.append(coerced_row)
                     cell_metas.append(meta_row)
 
@@ -1233,43 +1239,8 @@ def perform_deferred_spill(
                     remaining_range = sheet.getCellRangeByPosition(formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1)
                     remaining_range.setDataArray(tuple(tuple(row) for row in coerced_grid[1:]))
 
-                for r_offset in range(num_rows):
-                    for c_offset in range(num_cols):
-                        if (r_offset, c_offset) == (0, 0):
-                            continue
-                        meta = cell_metas[r_offset][c_offset]
-                        if meta.get("is_calc_error") and meta.get("error_code") != _ERR_NA:
-                            sheet.getCellByPosition(formula_col + c_offset, formula_row + r_offset).setFormula(
-                                f"=#ERR{int(meta['error_code'])}!"
-                            )
-
-                new_cells: list[SpillCell] = []
-                for r_offset in range(num_rows):
-                    for c_offset in range(num_cols):
-                        if (r_offset, c_offset) == (0, 0):
-                            continue
-                        r = formula_row + r_offset
-                        c = formula_col + c_offset
-                        meta = cell_metas[r_offset][c_offset]
-                        calc_val = coerced_grid[r_offset][c_offset]
-                        stored_val: float | str | int | None = None
-                        if meta.get("is_calc_error"):
-                            kind = "err"
-                            stored_val = int(meta["error_code"])
-                        elif meta.get("is_empty"):
-                            kind = "e"
-                            stored_val = None
-                        elif isinstance(calc_val, float):
-                            kind = "n"
-                            stored_val = calc_val
-                        elif isinstance(calc_val, str):
-                            kind = "s"
-                            stored_val = calc_val
-                        else:
-                            kind = "e"
-                            stored_val = None
-                        new_cells.append(SpillCell(row=r, col=c, kind=kind, value=stored_val))
-
+                for err_col, err_row, err_code in error_writes:
+                    sheet.getCellByPosition(err_col, err_row).setFormula(f"=#ERR{err_code}!")
                 SPILL_REGISTRY[reg_key] = SpillRecord(code=code, cells=new_cells)
                 save_spill_registry_for_doc(doc)
 
@@ -1441,18 +1412,14 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     return PreparedSpill(doc_key, sheet_name, formula_row, formula_col, sheet=sheet)
 
 
-def _queue_deferred_spill_write(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: PreparedSpill) -> None:
+def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: PreparedSpill) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
     from plugin.framework.queue_executor import post_to_main_thread
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
     spill_lifecycle = _lifecycle_key(target_doc)
-
-    def _deferred_spill_on_main() -> None:
-        post_to_main_thread(lambda: perform_deferred_spill(ctx, prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, lifecycle_key=spill_lifecycle))
-
     token = f"{prepared.sheet_name}:{prepared.formula_row}:{prepared.formula_col}"
-    t = _new_spill_timer(0.1, _deferred_spill_on_main)
+    t = _new_spill_timer(0.1, lambda: post_to_main_thread(lambda: perform_deferred_spill(prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, lifecycle_key=spill_lifecycle)))
     _register_spill_timer(spill_lifecycle, t, token=token)
     t.start()
 
@@ -1469,9 +1436,8 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     log.debug("Spill: scheduling off-main deferred locate code=%r", code)
 
     def _on_main() -> None:
-        target_doc = doc
         try:
-            prepared = _prepare_auto_spill(ctx, code, grid_to_spill, target_doc)
+            prepared = _prepare_auto_spill(ctx, code, grid_to_spill, doc)
         except Exception:
             log.exception("Error checking spill collision or locating formula cell")
             return
@@ -1479,10 +1445,7 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
             return
         from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-        perform_deferred_spill(ctx, prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, lifecycle_key=_lifecycle_key(target_doc))
-
-    def _deferred() -> None:
-        post_to_main_thread(_on_main)
+        perform_deferred_spill(prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=doc, sheet=prepared.sheet, code=code, lifecycle_key=_lifecycle_key(doc))
 
     # The key was cached on the UI thread; do not call _lifecycle_key here.
     # Registering under an empty string means unload's cancel (keyed by
@@ -1492,7 +1455,7 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     from plugin.calc.python.workbook_lifecycle import off_main_spill_lifecycle_key
 
     lkey = off_main_spill_lifecycle_key(doc)
-    t = _new_spill_timer(0.1, _deferred)
+    t = _new_spill_timer(0.1, lambda: post_to_main_thread(_on_main))
     if lkey:
         _register_spill_timer(lkey, t, token=f"code:{code}")
     t.start()
@@ -1523,17 +1486,16 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
             # AST lint only treats a bare ``if on_main_thread():`` as a guard.
             if on_main_thread():
                 try:
-                    target_doc = doc
-                    if target_doc is not None:
+                    if doc is not None:
                         # Bugfix: What was wrong: UI selection check ran before formula locator; if user had selected multiple cells elsewhere on the sheet, single-cell =PY() was mistakenly treated as a matrix formula.
                         # How it happened: _selection_is_multi_cell was checked first to "avoid locator scan".
                         # Why this change fixes it: We locate the actual formula cell first and check _cell_is_matrix; selection is only checked as fallback when locator returns None.
-                        located = locate_formula_cell_in_doc(ctx, target_doc, code)
+                        located = locate_formula_cell_in_doc(ctx, doc, code)
                         if located is not None:
                             sheet, cell, _coord = located
                             is_matrix = _cell_is_matrix(sheet, cell)
                         else:
-                            is_matrix = _selection_is_multi_cell(target_doc)
+                            is_matrix = _selection_is_multi_cell(doc)
                 except Exception:
                     log.debug("matrix check failed", exc_info=True)
         else:
@@ -1554,13 +1516,12 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                         # We return the corner as py_addin_cell_value (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
                         return py_addin_cell_value(grid_to_spill[0][0])
 
-                    target_doc = doc
-                    if target_doc is not None:
-                        prepared = _prepare_auto_spill(ctx, code, grid_to_spill, target_doc)
+                    if doc is not None:
+                        prepared = _prepare_auto_spill(ctx, code, grid_to_spill, doc)
                         if prepared == "#SPILL!":
                             return "#SPILL!"
                         if isinstance(prepared, PreparedSpill):
-                            _queue_deferred_spill_write(ctx, code, grid_to_spill, target_doc, prepared)
+                            _queue_deferred_spill_write(code, grid_to_spill, doc, prepared)
                             # We return the corner as py_addin_cell_value (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
                             return py_addin_cell_value(grid_to_spill[0][0])
                 except Exception:
@@ -1683,13 +1644,15 @@ def _spill_timer_finished(timer: Any) -> bool:
 
 def _prune_finished_spill_timers_locked() -> None:
     """Drop fired/cancelled timers. Caller holds ``_PENDING_SPILL_LOCK``."""
-    _PENDING_SPILL_TIMERS[:] = [(key, timer) for key, timer in _PENDING_SPILL_TIMERS if not _spill_timer_finished(timer)]
+    for timer in [t for t in _PENDING_SPILL_TIMERS if _spill_timer_finished(t)]:
+        del _PENDING_SPILL_TIMERS[timer]
 
 
 def _forget_spill_timer(timer: threading.Timer) -> None:
     """Remove *timer* when its callback starts so the closure can be collected."""
     with _PENDING_SPILL_LOCK:
-        _PENDING_SPILL_TIMERS[:] = [(key, existing) for key, existing in _PENDING_SPILL_TIMERS if existing is not timer and not _spill_timer_finished(existing)]
+        _PENDING_SPILL_TIMERS.pop(timer, None)
+        _prune_finished_spill_timers_locked()
 
 
 def _new_spill_timer(delay_sec: float, callback: Any) -> threading.Timer:
@@ -1717,19 +1680,16 @@ def _new_spill_timer(delay_sec: float, callback: Any) -> threading.Timer:
 
 
 def _register_spill_timer(lifecycle_key: str, timer: threading.Timer, *, token: str = "") -> None:
-    setattr(timer, "_wa_spill_token", token)
     with _PENDING_SPILL_LOCK:
         _prune_finished_spill_timers_locked()
-        keep: list[tuple[str, threading.Timer]] = []
-        for key, existing in _PENDING_SPILL_TIMERS:
-            if existing is timer:
-                continue
-            if token and key == lifecycle_key and getattr(existing, "_wa_spill_token", "") == token:
-                existing.cancel()
-                continue
-            keep.append((key, existing))
-        _PENDING_SPILL_TIMERS[:] = keep
-        _PENDING_SPILL_TIMERS.append((lifecycle_key, timer))
+        if token:
+            for existing, (key, existing_token) in list(_PENDING_SPILL_TIMERS.items()):
+                if existing is timer:
+                    continue
+                if key == lifecycle_key and existing_token == token:
+                    existing.cancel()
+                    _PENDING_SPILL_TIMERS.pop(existing, None)
+        _PENDING_SPILL_TIMERS[timer] = (lifecycle_key, token)
 
 
 def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key: str = "") -> threading.Timer:
@@ -1753,15 +1713,11 @@ def cancel_pending_spill_timers(lifecycle_key: str) -> None:
     key. Those entries kept their closures after the callback returned.
     """
     with _PENDING_SPILL_LOCK:
-        keep: list[tuple[str, threading.Timer]] = []
-        for key, timer in _PENDING_SPILL_TIMERS:
-            finished = _spill_timer_finished(timer)
-            if key == lifecycle_key or finished:
-                if key == lifecycle_key and not finished:
-                    timer.cancel()
-                continue
-            keep.append((key, timer))
-        _PENDING_SPILL_TIMERS[:] = keep
+        _prune_finished_spill_timers_locked()
+        for timer, (key, _token) in list(_PENDING_SPILL_TIMERS.items()):
+            if key == lifecycle_key:
+                timer.cancel()
+                _PENDING_SPILL_TIMERS.pop(timer, None)
 
 
 def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -> None:

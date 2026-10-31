@@ -672,7 +672,6 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
         # be a saved file, and its URL would not match, so the spill would be skipped.
         doc_url = _spill_registry_doc_key(doc)
         perform_deferred_spill(
-            ctx,
             doc_url,
             sheet.Name,
             2,
