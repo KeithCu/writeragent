@@ -211,8 +211,6 @@ def locate_formula_cell_in_doc(doc: Any, code_str: str) -> _Location | None:
                     continue
                 seen.add(key)
                 collected.append((sheet, cell, (r, c)))
-                if len(collected) > 1:
-                    break
             if len(collected) > 1:
                 break
 

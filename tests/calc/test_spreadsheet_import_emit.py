@@ -6,11 +6,24 @@
 
 from __future__ import annotations
 
-from plugin.calc.python.formula_edit import inline_py_code_has_lexer_collisions
+import re
+
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model, emit_py_formula
 from plugin.calc.spreadsheet_import.extract import py_formula_semantics
 from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
 from plugin.calc.spreadsheet_import.translate import translate_formula
+
+_LEXER_COLLISIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("float", re.compile(r"\bfloat\s*\(")),
+    ("int", re.compile(r"\bint\s*\(")),
+    ("str", re.compile(r"\bstr\s*\(")),
+    ("calc.text", re.compile(r"\bcalc\.text\s*\(")),
+)
+
+
+def _lexer_collision_names(code: str) -> list[str]:
+    """Token names that #NAME? if the quotes around PY code are lost."""
+    return [name for name, pattern in _LEXER_COLLISIONS if pattern.search(code)]
 
 
 def test_emit_py_formula_semicolons():
@@ -24,7 +37,7 @@ def test_emit_py_formula_semicolons():
 def test_emit_multi_range():
     formula = emit_py_formula("data[0] + data[1]", ["B2", "C2"])
     assert ";B2;C2)" in formula
-    assert not inline_py_code_has_lexer_collisions(formula)
+    assert not _lexer_collision_names(formula)
 
 
 def test_emit_cross_sheet_range_quotes():
