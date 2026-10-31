@@ -10,8 +10,8 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 from decimal import Decimal, InvalidOperation, Overflow, ROUND_HALF_UP, localcontext
-import functools
 import math
+import operator
 import re
 from typing import Any, Callable, Sequence
 
@@ -53,10 +53,7 @@ def _serial_to_date(serial: Any) -> dt.date | None:
 
 def _date_to_serial(d: dt.date) -> float:
     """Convert a datetime.date object to Excel serial date number (-693594 offset)."""
-    try:
-        return float(d.toordinal() - _SERIAL_OFFSET)
-    except (AttributeError, ValueError, TypeError, OverflowError):
-        return float("nan")
+    return float(d.toordinal() - _SERIAL_OFFSET)
 
 
 def _days360(sd: dt.date, ed: dt.date, european: bool = False) -> float:
@@ -370,7 +367,25 @@ def _wildcard_fullmatch(pattern: str, text: str) -> bool:
     return re.fullmatch(regex_pat, text, flags=re.IGNORECASE) is not None
 
 
-@functools.lru_cache(maxsize=512)
+_CMP = {
+    "=": operator.eq,
+    "<>": operator.ne,
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+}
+
+
+def _to_float_or_none(value: Any) -> float | None:
+    # NaN is a successful float. Criterion "nan" must stay NaN so a non-numeric
+    # value still takes `op == "<>"` instead of a string compare.
+    try:
+        return float(value)
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
 def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
     """Parse an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=') into a matcher callable."""
     if is_missing_value(crit):
@@ -397,17 +412,12 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
         crit_is_bool = True
         bool_val = val_str.upper() == "TRUE"
 
-    c_num: float | None = None
     if val_str is not None:
-        try:
-            c_num = float(val_str)
-        except (ValueError, TypeError, OverflowError):
-            c_num = None
+        c_num = _to_float_or_none(val_str)
     elif isinstance(crit, (int, float, np.integer, np.floating)):
-        try:
-            c_num = float(crit)
-        except (ValueError, TypeError, OverflowError):
-            c_num = None
+        c_num = _to_float_or_none(crit)
+    else:
+        c_num = None
 
     c_pattern = val_str if val_str is not None else str(crit)
 
@@ -436,28 +446,12 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
         if val_is_bool:
             return op == "<>"
 
-        v_num: float | None = None
-        if isinstance(val, (int, float, np.integer, np.floating)):
-            try:
-                v_num = float(val)
-                if math.isnan(v_num):
-                    v_num = None
-            except (ValueError, TypeError, OverflowError):
-                v_num = None
+        v_num = _to_float_or_none(val) if isinstance(val, (int, float, np.integer, np.floating)) else None
+        if v_num is not None and math.isnan(v_num):
+            v_num = None
 
         if c_num is not None and v_num is not None:
-            if op == "=":
-                return v_num == c_num
-            if op == "<>":
-                return v_num != c_num
-            if op == "<":
-                return v_num < c_num
-            if op == "<=":
-                return v_num <= c_num
-            if op == ">":
-                return v_num > c_num
-            if op == ">=":
-                return v_num >= c_num
+            return _CMP[op](v_num, c_num)
 
         v_str = str(val)
         if c_num is not None and v_num is None:
@@ -476,36 +470,18 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
 
         v_fold = v_str.casefold()
         c_fold = c_pattern.casefold()
-        if op == "<":
-            return v_fold < c_fold
-        if op == "<=":
-            return v_fold <= c_fold
-        if op == ">":
-            return v_fold > c_fold
-        if op == ">=":
-            return v_fold >= c_fold
-
-        return False
+        return _CMP[op](v_fold, c_fold)
 
     return matcher
 
 
-def _criterion_matcher(crit: Any) -> Callable[[Any], bool]:
-    # lru_cache raises TypeError when the criterion is unhashable.
-    try:
-        return _parse_criterion(crit)
-    except TypeError:
-        return _parse_criterion.__wrapped__(crit)
-
-
 def match_criteria(val: Any, crit: Any) -> bool:
     """Evaluate an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=')."""
-    return _criterion_matcher(crit)(val)
+    return _parse_criterion(crit)(val)
 
 
 def _extract_numeric_array(
     *args: Any,
-    ignore_text: bool = True,
     ignore_bool: bool = True,
     propagate_nan: bool = True,
 ) -> np.ndarray:
@@ -519,7 +495,7 @@ def _extract_numeric_array(
                 continue
             if ignore_bool and isinstance(x, (bool, np.bool_)):
                 continue
-            if ignore_text and isinstance(x, str):
+            if isinstance(x, str):
                 continue
             try:
                 v = float(x)
@@ -564,17 +540,8 @@ def _find_text_cut(
     # into the lowered string no longer lines up with s: textbefore of
     # "aİb" on "b" included the b. rfind also sees overlapping matches
     # ("aaa" / "aa" at 1) that the split count above it did not.
-    if match_mode == 1:
-        spans = [(m.start(), m.end()) for m in re.finditer(re.escape(delim), s, flags=re.IGNORECASE)]
-    else:
-        spans = []
-        start = 0
-        while True:
-            found = s.find(delim, start)
-            if found < 0:
-                break
-            spans.append((found, found + len(delim)))
-            start = found + len(delim)
+    flags = re.IGNORECASE if match_mode == 1 else 0
+    spans = [(m.start(), m.end()) for m in re.finditer(re.escape(delim), s, flags=flags)]
 
     n_matches = len(spans)
     abs_inst = abs(inst)
@@ -591,23 +558,10 @@ def _find_text_cut(
     return s, inst, idx, False
 
 
-def _criteria_numbers(
-    r: Any,
-    crit: Any = None,
-    val_range: Any | None = None,
-    *,
-    pairs: Sequence[tuple[Any, Any]] | None = None,
-) -> list[float] | None:
-    """Collect matching numeric values for criteria-based functions (averageif, averageifs, sumif, sumifs)."""
-    if pairs is None:
-        r_arr = np.asarray(r, dtype=object)
-        v_arr = np.asarray(val_range, dtype=object) if val_range is not None else r_arr
-        if val_range is not None and v_arr.shape != r_arr.shape:
-            return None
-        pairs = [(r, crit)]
-    else:
-        v_arr = np.asarray(r, dtype=object)
-    mask = _multi_criteria_mask(pairs, base_len=len(v_arr.ravel()), base_shape=v_arr.shape)
+def _criteria_numbers(values: Any, pairs: Sequence[tuple[Any, Any]]) -> list[float] | None:
+    """Matching numbers for one or more (range, criterion) pairs. ``pairs`` is non-empty."""
+    v_arr = np.asarray(values, dtype=object)
+    mask = _multi_criteria_mask(pairs, base_shape=v_arr.shape)
     if mask is None:
         return None
     # Defaults keep error cells and NaN (SUMIFS) and skip text and bools.
@@ -656,19 +610,15 @@ def _from_complex(c: complex, suffix: str = "i") -> str:
 
 def _multi_criteria_mask(
     pairs: Sequence[tuple[Any, Any]],
-    base_len: int | None = None,
     base_shape: tuple[int, ...] | None = None,
 ) -> np.ndarray | None:
     """Evaluate multiple (criteria_range, criterion) pairs.
 
-    Returns a 1D boolean mask, or None when a range differs in shape or
-    length. Excel COUNTIFS / AVERAGEIFS / SUMIFS need the same number of
+    Returns a 1D boolean mask, or None when a range differs in shape.
+    Excel COUNTIFS / AVERAGEIFS / SUMIFS need the same number of
     rows and columns. Ravelling first made a 2x3 range and a 3x2 range look
     equal. None tells the caller to return #VALUE! instead of truncating.
     """
-    if not pairs:
-        return np.ones(base_len, dtype=bool) if base_len is not None else np.array([], dtype=bool)
-
     cond_ranges: list[np.ndarray] = []
     criteria: list[Any] = []
     shapes: list[tuple[int, ...]] = []
@@ -682,17 +632,11 @@ def _multi_criteria_mask(
     if any(shape != target for shape in shapes):
         return None
     width = len(cond_ranges[0])
-    # base_len can disagree with the shape (callers pass it alone).
-    if base_len is not None and width != base_len:
-        return None
-    expected_len = width
 
-    mask = np.ones(expected_len, dtype=bool)
+    mask = np.ones(width, dtype=bool)
     for cr, crit in zip(cond_ranges, criteria):
-        matcher = _criterion_matcher(crit)
-        for idx in range(expected_len):
-            if mask[idx] and not matcher(cr[idx]):
-                mask[idx] = False
+        matcher = _parse_criterion(crit)
+        mask &= np.fromiter((matcher(v) for v in cr), dtype=bool, count=width)
 
     return mask
 

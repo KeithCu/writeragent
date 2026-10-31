@@ -613,7 +613,7 @@ def kurt(*args: Any) -> float:
     # is #DIV/0!. This is the unbiased excess kurtosis. scipy.stats.kurtosis
     # (bias=False) is the same expression, and a missing scipy used to make
     # every call NaN.
-    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True)
+    arr = _extract_numeric_array(*args)
     count = len(arr)
     if count < 4:
         return float("nan")
@@ -917,7 +917,7 @@ def mode(*args: Any) -> Any:
     # numbers only. mode(1, 2, 2) used to raise TypeError. Text is not a
     # candidate. A Calc bool is a numeric cell, so True and 1 are the same
     # value and must stay merged.
-    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=False, propagate_nan=False)
+    arr = _extract_numeric_array(*args, ignore_bool=False, propagate_nan=False)
     if not arr.size:
         return float("nan")
     counts = Counter(arr.tolist())

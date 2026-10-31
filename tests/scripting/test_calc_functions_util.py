@@ -308,17 +308,17 @@ def test_bessel_kn_yn():
 
 def test_criteria_numbers():
     # Same range for criteria and values
-    assert _criteria_numbers([10, 20, 30, 40], ">20") == [30.0, 40.0]
+    assert _criteria_numbers([10, 20, 30, 40], [([10, 20, 30, 40], ">20")]) == [30.0, 40.0]
 
     # Separate value range with text and NaN filtering
     cond = ["yes", "no", "yes", "yes"]
     vals = [10.0, 20.0, "bad", 30.0]
-    assert _criteria_numbers(cond, "yes", vals) == [10.0, 30.0]
+    assert _criteria_numbers(vals, [(cond, "yes")]) == [10.0, 30.0]
 
     # No matches returns empty list
-    assert _criteria_numbers([1, 2, 3], ">10") == []
+    assert _criteria_numbers([1, 2, 3], [([1, 2, 3], ">10")]) == []
     # Numeric text and bools are not numbers in the value range.
-    assert _criteria_numbers(["yes", "yes", "yes"], "yes", ["5", True, 4.0]) == [4.0]
+    assert _criteria_numbers(["5", True, 4.0], [(["yes", "yes", "yes"], "yes")]) == [4.0]
 
 
 def test_dollar_fraction_terms():
@@ -513,14 +513,13 @@ def test_multi_criteria_mask():
 
     # Matching lengths
     pairs = [([1, 2, 3], ">1"), (["a", "b", "c"], "<>a")]
-    mask = _multi_criteria_mask(pairs, base_len=3)
+    mask = _multi_criteria_mask(pairs)
     assert mask is not None
     assert list(mask) == [False, True, True]
 
     # Mismatched lengths returns None
     pairs_bad = [([1, 2], ">0"), ([1, 2, 3], ">0")]
     assert _multi_criteria_mask(pairs_bad) is None
-    assert _multi_criteria_mask(pairs, base_len=2) is None
 
     # Same cell count, different shape. 2x3 and 3x2 both ravel to 6.
     wide = [[1, 2, 3], [4, 5, 6]]

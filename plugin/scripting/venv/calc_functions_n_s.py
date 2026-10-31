@@ -1191,7 +1191,7 @@ def subtotal(fn_num: Any, r: Any) -> float:
 
 
 def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
-    vals = _criteria_numbers(r, crit, sr)
+    vals = _criteria_numbers(r if sr is None else sr, [(r, crit)])
     if vals is None:
         return float("nan")
     return float(sum(vals))
@@ -1208,7 +1208,7 @@ def sumifs(sr: Any, *args: Any) -> float:
     if isinstance(sr, str):
         return 0.0
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
-    vals = _criteria_numbers(sr, pairs=pairs)
+    vals = _criteria_numbers(sr, pairs)
     if vals is None:
         return float("nan")
     return float(sum(vals))

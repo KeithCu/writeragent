@@ -416,7 +416,7 @@ def delta(n1: Any, n2: Any = 0) -> float:
 
 
 def devsq(*args: Any) -> float:
-    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
+    arr = _extract_numeric_array(*args, propagate_nan=False)
     if not arr.size:
         return float("nan")
     # Overflow on huge inputs yields inf like LibreOffice; silence numpy's RuntimeWarning.
@@ -890,8 +890,8 @@ def frequency(data: Any, bins: Any) -> Any:
     # Numeric cells only, bins sorted, counts from searchsorted, plus the
     # overflow bin. A text cell is skipped, not an empty result.
     try:
-        data_arr = _extract_numeric_array(data, ignore_text=True, ignore_bool=True, propagate_nan=False)
-        bins_arr = _extract_numeric_array(bins, ignore_text=True, ignore_bool=True, propagate_nan=False)
+        data_arr = _extract_numeric_array(data, propagate_nan=False)
+        bins_arr = _extract_numeric_array(bins, propagate_nan=False)
         if bins_arr.size == 0:
             return [int(data_arr.size)]
         sorted_bins = np.sort(bins_arr)
@@ -992,7 +992,7 @@ def gauss(x: Any) -> float:
 
 def geomean(*args: Any) -> float:
     # exp(mean(log(arr))). Same result as scipy.stats.gmean, without the import.
-    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
+    arr = _extract_numeric_array(*args, propagate_nan=False)
     if not arr.size or np.any(arr <= 0):
         return float("nan")
     return float(np.exp(np.mean(np.log(arr))))
@@ -1040,7 +1040,7 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
 
 def harmean(*args: Any) -> float:
     # len(arr) / sum(1/arr). Same result as scipy.stats.hmean, without the import.
-    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
+    arr = _extract_numeric_array(*args, propagate_nan=False)
     if not arr.size or np.any(arr <= 0):
         return float("nan")
     return float(len(arr) / np.sum(1.0 / arr))
