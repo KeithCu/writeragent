@@ -94,26 +94,23 @@ def pack_calc_range_envelope(
     grid: Any,
     *,
     address: str | None = None,
-    pack_inner: Any | None = None,
 ) -> dict[str, Any]:
     """Build a ``calc_range`` wire envelope around an already-packed or raw grid.
 
     A scalar, a flat sequence, or a 2D grid is accepted; ``ensure_rectangular_2d``
-    runs once here. *pack_inner*, when provided, is a callable ``(grid) -> wire``
-    (typically ``host_pack_data``). When omitted, the rectangular list is stored as-is.
+    runs once here.
     """
     # crosshair: off
     rows = ensure_rectangular_2d(grid)
     nrows = len(rows)
     ncols = len(rows[0]) if rows else 0
-    inner = pack_inner(rows) if callable(pack_inner) else rows
     envelope: dict[str, Any] = {
         "__wa_payload__": PAYLOAD_CALC_RANGE,
         "shape": [nrows, ncols],
-        "data": inner,
+        "data": rows,
     }
     if address:
-        envelope["address"] = str(address)
+        envelope["address"] = address
     return envelope
 
 
@@ -424,14 +421,6 @@ class CalcRange:
         # crosshair: off
         return math.trunc(self.__float__())
 
-    def __floor__(self) -> int:
-        # crosshair: off
-        return math.floor(self.__float__())
-
-    def __ceil__(self) -> int:
-        # crosshair: off
-        return math.ceil(self.__float__())
-
     # Dispatchers
     def _binary_op(self, other: Any, op: Any, *, is_reverse: bool = False) -> Any:
         # crosshair: off
@@ -497,10 +486,7 @@ def materialize_calc_range(wire: Any) -> CalcRange:
         # __init__ calls _materialize_inner_grid. Unpacking here first built
         # the rectangular list, then __init__ walked every cell again.
         cr = CalcRange(inner, address=addr)
-        if "shape" in wire:
-            assert cr.shape == tuple(wire["shape"]), f"Shape mismatch: {cr.shape} != {tuple(wire['shape'])}"
-        elif "rows" in wire and "cols" in wire:
-            assert cr.shape == (wire["rows"], wire["cols"]), f"Shape mismatch: {cr.shape} != ({wire['rows']}, {wire['cols']})"
+        assert cr.shape == tuple(wire["shape"]), f"Shape mismatch: {cr.shape} != {tuple(wire['shape'])}"
         return cr
 
     # Legacy / test wires: bare split_grid or nested list (no calc_range wrapper).
@@ -700,18 +686,13 @@ def dataframe_to_labeled_grid(
     # crosshair: off
     """Build a Calc-ready grid from a dataframe envelope (starts with header row)."""
     body: list[list[Any]]
-    if data is None:
-        body = []
-    elif isinstance(data, list):
-        if not data:
-            body = []
-        elif isinstance(data[0], (list, tuple)):
-            body = [list(row) for row in data]
-        else:
-            # 1D / Series body → one column
-            body = [[cell] for cell in data]
+    if not isinstance(data, list) or not data:
+        body = [] if isinstance(data, list) or data is None else [[data]]
+    elif isinstance(data[0], (list, tuple)):
+        body = [list(row) for row in data]
     else:
-        body = [[data]]
+        # 1D / Series body → one column
+        body = [[cell] for cell in data]
     header = [str(c) for c in columns]
     if body and len(body[0]) != len(header):
         # Pad/truncate header to body width if inconsistent.
@@ -730,8 +711,6 @@ def _host_ndarray_as_list(value: Any) -> list[Any] | None:
     one cell, and ``to_calc_compatible`` then returns the array's text.
     Pandas objects are left alone (their module is not ``numpy``).
     """
-    if isinstance(value, (str, bytes, bytearray, list, tuple, dict)) or value is None:
-        return None
     module = getattr(type(value), "__module__", "")
     if not (isinstance(module, str) and (module == "numpy" or module.startswith("numpy."))):
         return None
@@ -765,14 +744,12 @@ def result_to_calc_grid(result: Any) -> Any:
     listed = _host_ndarray_as_list(result)
     if listed is not None:
         return listed
-    if isinstance(result, (str, bytes, bytearray, dict)):
+    if isinstance(result, (str, bytes, bytearray, dict)) or not hasattr(result, "__iter__"):
         return result
-    if hasattr(result, "__iter__"):
-        try:
-            return list(result)
-        except Exception:
-            return result
-    return result
+    try:
+        return list(result)
+    except Exception:
+        return result
 
 
 __all__ = [
