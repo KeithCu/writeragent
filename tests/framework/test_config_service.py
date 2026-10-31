@@ -141,7 +141,7 @@ def test_bootstrap_loads_public_config_flags(monkeypatch) -> None:
 
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
-    monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: None)
+    monkeypatch.setattr("plugin.main.get_ctx", lambda: None)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])

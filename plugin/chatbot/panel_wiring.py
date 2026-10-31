@@ -460,9 +460,10 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     # so logging is initialized and AsyncCallback/msgbox are reliable.
     try:
         init_logging(self.ctx)
-        from plugin.main import _schedule_extension_update_check_once
+        from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
+        from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 
-        _schedule_extension_update_check_once(self.ctx)
+        schedule_extension_update_check_once(self.ctx, EXTENSION_ID_WRITERAGENT)
     except Exception as e:
         log.warning("extension update check schedule failed: %s", e)
 
