@@ -58,13 +58,6 @@ class DiagnosticEntry:
     def is_error(self) -> bool:
         return self.status != "ok"
 
-    def matches_filter(self, filt: DiagnosticFilter) -> bool:
-        if filt == "errors":
-            return self.is_error
-        if filt == "output":
-            return self.has_output or self.is_error
-        return True
-
     def summary_line(self) -> str:
         """One-line label for list controls."""
         where = self.address or "(unknown cell)"
@@ -121,7 +114,11 @@ class PythonDiagnosticsStore:
         with self._lock:
             bucket = list(self._by_workbook.get(key, ()))
         bucket.reverse()
-        return [e for e in bucket if e.matches_filter(filt)]
+        if filt == "errors":
+            return [e for e in bucket if e.is_error]
+        if filt == "output":
+            return [e for e in bucket if e.has_output or e.is_error]
+        return bucket
 
     def latest_for_code(self, workbook_key: str, code: str) -> DiagnosticEntry | None:
         """Return the newest entry for exactly *code* (both sides clipped to 240 chars).
