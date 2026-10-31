@@ -709,7 +709,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
     action), not a hidden-under-nothing no-op and not a fragment per cell.
     """
     from plugin.calc.python.geometric_recalc import (
-        reconcile_geometric_document,
+        reconcile,
         reset_geometric_runtime_for_tests,
     )
     from plugin.tests.testing_utils import _clear_undo
@@ -752,7 +752,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
             % _undo_titles(um)
         )
         locked_before = _undo_titles(um)
-        reconcile_geometric_document(ctx, doc)
+        reconcile(ctx, doc)
         assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
         assert _pred(str(a5_setup.getFormula() or "")) == "A3", a5_setup.getFormula()
         locked_after = _undo_titles(um)
@@ -854,7 +854,7 @@ def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
         a1.setFormula('=PY("first")')
         a3.setFormula('=PY("third")')
         # Direct document reconcile: _DISPATCHING stays false.
-        geo.reconcile_geometric_document(ctx, doc)
+        geo.reconcile(ctx, doc)
         assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
         _progress(
             "geometric reenter apply=%s repair=%s listener_hits=%s nested_growth=%s"
