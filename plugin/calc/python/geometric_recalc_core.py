@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from typing import Literal, Mapping
 
 from plugin.calc.address_utils import format_address, parse_address, parse_range_string, split_sheet_prefix
-from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import (
     assemble_python_formula,
     escape_code_for_formula,
@@ -29,16 +28,12 @@ from plugin.calc.python.formula_edit import (
     py_code_arg_is_cell_ref,
     py_formula_has_unquoted_code_ref,
 )
-from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
-GEOMETRIC_DISCOVERY_CAP = _MAX_PYTHON_CELLS_FOUND
 GEOMETRIC_REGISTRY_PROP = "WriterAgentGeometricRegistry"
 CONFIG_KEY = "scripting.python_geometric_recalc_order"
 FEATURE_TITLE = "Geometric Recalc Order (Experimental)"
-
-GeometricAction = Literal["append", "replace", "remove"]
 
 
 @dataclass(frozen=True)
@@ -64,7 +59,7 @@ class GeometricPatch:
     address: str
     old_formula: str
     new_formula: str
-    action: GeometricAction
+    action: Literal["append", "replace", "remove"]
     predecessor: str | None
 
 
@@ -85,7 +80,6 @@ class EvalIndexKey:
 class SheetRepairResult:
     """Patch list + post-repair map for one sheet."""
 
-    skipped: bool
     patches: tuple[GeometricPatch, ...]
     records: dict[str, GeometricRecord]
 
@@ -144,16 +138,6 @@ def formula_data_args(formula: str) -> list[str] | None:
     return parse_data_binding_text(format_data_binding_display(parts.data_suffix))
 
 
-def resolved_code_for_formula(formula: str) -> str:
-    """Quoted ``=PY`` source, or ``""`` when the formula does not parse.
-
-    An unquoted code ref returns the token. ``_resolved_code_for_discovered``
-    reads the cell text for the eval index.
-    """
-    parts = parse_python_formula(formula)
-    return parts.code if parts is not None else ""
-
-
 def _geometric_data_suffix(old_args: list[str], new_args: list[str]) -> str:
     """Join existing user args verbatim; format only a new/replaced last pred.
 
@@ -165,7 +149,7 @@ def _geometric_data_suffix(old_args: list[str], new_args: list[str]) -> str:
         return ")"
     emitted: list[str] = []
     for i, tok in enumerate(new_args):
-        if i < len(old_args) and (tok == old_args[i] or same_cell_ref(tok, old_args[i])):
+        if i < len(old_args) and same_cell_ref(tok, old_args[i]):
             emitted.append(old_args[i])
             continue
         if i == len(new_args) - 1:
@@ -189,13 +173,6 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
     if py_formula_has_unquoted_code_ref(formula):
         return assemble_python_formula(parts.prefix, parts.code, suffix, quoted=False)
     return assemble_python_formula(parts.prefix, escape_code_for_formula(parts.code), suffix, quoted=True)
-
-
-def geometric_cap_hit_user_message(sheet_name: str) -> str:
-    """User-facing text when a sheet is left unchained."""
-    return _(
-        "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more Python cells (discovery cap). The sheet was left unchained so a partial list is not treated as complete."
-    ) % {"sheet": sheet_name, "cap": GEOMETRIC_DISCOVERY_CAP}
 
 
 def _last_cell_ref(args: list[str]) -> str | None:
@@ -273,18 +250,6 @@ def _plan_cell(
     return "append", data_args + [desired]
 
 
-def _a1_shift(address: str, dcol: int, drow: int) -> str | None:
-    """Apply a col/row delta to a sheet-local A1 token. ``None`` if unusable."""
-    parsed = _parse_local(address)
-    if parsed is None:
-        return None
-    col, row = parsed
-    ncol, nrow = col + dcol, row + drow
-    if ncol < 0 or nrow < 0:
-        return None
-    return format_address(ncol, nrow)
-
-
 def _rule2_candidate_score(old: str, rec: GeometricRecord, live: str, desired: str) -> tuple[int, int] | None:
     """``pred + (live − old)`` equals *desired* — the cell moved with its formula."""
     parsed_old = _parse_local(old)
@@ -296,31 +261,15 @@ def _rule2_candidate_score(old: str, rec: GeometricRecord, live: str, desired: s
     dcol, drow = lcol - ocol, lrow - orow
     if not (dcol or drow):
         return None
-    shifted = _a1_shift(rec.predecessor, dcol, drow)
-    if shifted is not None and same_cell_ref(shifted, desired):
+    parsed_pred = _parse_local(rec.predecessor)
+    if parsed_pred is None:
+        return None
+    pcol, prow = parsed_pred
+    ncol, nrow = pcol + dcol, prow + drow
+    if ncol < 0 or nrow < 0:
+        return None
+    if same_cell_ref(format_address(ncol, nrow), desired):
         return (0, abs(dcol) + abs(drow))
-    return None
-
-
-def _rehome_candidate_score(
-    old: str,
-    rec: GeometricRecord,
-    live: str,
-    desired: str,
-    live_keys: set[str],
-) -> tuple[int, int] | None:
-    """Match a homeless incoming record to a live noop cell. Lower is better.
-
-    Rule 2 (0, absdelta): ``pred + (live - old)`` equals *desired* — the cell
-    moved and Calc already shifted the formula pred. Rule 1 (1, 0): pred
-    already equals *desired*, but **only** when *old* is gone from the
-    sheet (true orphan).
-    """
-    rule2 = _rule2_candidate_score(old, rec, live, desired)
-    if rule2 is not None:
-        return rule2
-    if same_cell_ref(rec.predecessor, desired) and old not in live_keys:
-        return (1, 0)
     return None
 
 
@@ -382,7 +331,10 @@ def _rehome_or_keep_record(
         # Gone, rule-2 moved, or overwritten. Live unclaimed keys stay for in-place.
         if old not in evicted and old in live_keys and old not in rule2_claimed:
             continue
-        score = _rehome_candidate_score(old, rec, key, desired, live_keys)
+        score = _rule2_candidate_score(old, rec, key, desired)
+        # Rule 1: pred already equals desired, and only when old is gone (true orphan).
+        if score is None and same_cell_ref(rec.predecessor, desired) and old not in live_keys:
+            score = (1, 0)
         if score is None:
             continue
         if best is None or score < best:
@@ -416,24 +368,17 @@ def compute_eval_index(
     then mark the group strip-safe after the user replaced the attached
     predecessor with real data, and that data would be stripped.
     """
-    def _is_ours(addr: str, args: list[str] | None) -> bool:
-        rec = records.get(addr)
-        if rec is None or not args:
-            return False
-        return _last_matches(args, rec.predecessor)
-
-    groups: dict[EvalIndexKey, list[tuple[str, list[str] | None]]] = {}
+    seen: set[EvalIndexKey] = set()
+    bad: set[EvalIndexKey] = set()
     for cell in cells:
         args = formula_data_args(cell.formula)
         n_args = 0 if args is None else len(args)
         key = EvalIndexKey(workbook_key, cell.resolved_code, n_args)
-        groups.setdefault(key, []).append((cell.address, args))
-
-    safe: set[EvalIndexKey] = set()
-    for key, items in groups.items():
-        if all(_is_ours(addr, args) for addr, args in items):
-            safe.add(key)
-    return frozenset(safe)
+        seen.add(key)
+        rec = records.get(cell.address)
+        if rec is None or not args or not _last_matches(args, rec.predecessor):
+            bad.add(key)
+    return frozenset(seen - bad)
 
 
 def compute_sheet_repair(
@@ -441,22 +386,13 @@ def compute_sheet_repair(
     records: Mapping[str, GeometricRecord] | None = None,
     *,
     sheet_name: str = "",
-    truncated: bool = False,
 ) -> SheetRepairResult:
     """List-diff + splice for one sheet. No UNO.
 
-    *cells* must already be row-major. Cap-hit (*truncated*) skips the whole
-    sheet: skipped=True, empty patches, and the incoming records.
-    An exact 100 with ``truncated=False`` is chained.
+    *cells* must already be row-major.
+    An exact 100 is chained.
     """
     incoming = {local_a1(k): v for k, v in (records or {}).items()}
-    if truncated:
-        return SheetRepairResult(
-            skipped=True,
-            patches=(),
-            records=dict(incoming),
-        )
-
     working = dict(incoming)
     patches: list[GeometricPatch] = []
     keys = [local_a1(cell.address) for cell in cells]
@@ -523,7 +459,6 @@ def compute_sheet_repair(
     working = {addr: rec for addr, rec in working.items() if addr in live_keys}
 
     return SheetRepairResult(
-        skipped=False,
         patches=tuple(patches),
         records=working,
     )
