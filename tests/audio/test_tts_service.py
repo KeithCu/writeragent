@@ -432,7 +432,7 @@ def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
 def test_ready_queue_backpressure_stops_past_the_cap():
     import plugin.audio.tts_service as tts
 
-    sentences = ["A.", "B.", "C.", "D.", "E."]
+    sentences = ["A.", "B.", "C.", "D.", "E.", "F.", "G.", "H.", "I."]
     started: list[str] = []
     release_play = threading.Event()
 
@@ -463,8 +463,6 @@ def test_ready_queue_backpressure_stops_past_the_cap():
                     1.0,
                     None,
                     generation,
-                    max_clips=2,
-                    max_bytes=10**9,
                 )
         finally:
             finished.set()
@@ -473,10 +471,10 @@ def test_ready_queue_backpressure_stops_past_the_cap():
     worker.start()
     try:
         deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and len(started) < 4:
+        while time.monotonic() < deadline and len(started) < 8:
             time.sleep(0.02)
         time.sleep(0.2)
-        assert started == sentences[:4]
+        assert started == sentences[:8]
         release_play.set()
         assert finished.wait(2)
     finally:
@@ -850,7 +848,7 @@ def test_run_synth_to_temp_returns_a_path_only_for_a_nonempty_file(tmp_path):
     with patch("plugin.audio.tts_service._run_synth", return_value=(0, '{"g2p": "espeak"}', "")), \
          patch("plugin.audio.tts_service._release_temp") as release:
         assert _run_synth_to_temp(
-            str(wav), ["cmd"], tts._speech_generation, label="T", capture_stdout=True
+            str(wav), ["cmd"], tts._speech_generation, label="T"
         ) == (str(wav), '{"g2p": "espeak"}')
     release.assert_not_called()
 
@@ -910,6 +908,7 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path):
     """A raise in playback must close the queue so prefetch is not stuck in put()."""
     import plugin.audio.tts_service as tts
 
+    sentences = ["A.", "B.", "C.", "D.", "E.", "F.", "G.", "H.", "I."]
     started: list[str] = []
     producer_threads: list[tuple[threading.Thread, threading.Event]] = []
 
@@ -923,7 +922,7 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path):
     def play(path, generation=None):
         del path, generation
         deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and len(started) < 3:
+        while time.monotonic() < deadline and len(started) < 8:
             time.sleep(0.02)
         time.sleep(0.15)
         raise RuntimeError("player exploded")
@@ -953,13 +952,12 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path):
              patch.object(tts, "_play_audio_file", side_effect=play):
             with pytest.raises(RuntimeError, match="player exploded"):
                 tts._run_sentence_pipeline(
-                    ["A.", "B.", "C.", "D.", "E."],
+                    sentences,
                     "kokoro",
                     "af_sky",
                     1.0,
                     None,
                     generation,
-                    max_clips=2,
                 )
         assert producer_threads
         thread, done = producer_threads[0]
@@ -1071,7 +1069,7 @@ def test_run_synth_uses_raw_spawn_and_returns_communicate_stderr() -> None:
     try:
         with patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
              patch("plugin.framework.managed_subprocess.start_stderr_drain", side_effect=AssertionError("drain")):
-            res = tts._run_synth(["piper", "--model", "m"], tts._speech_generation, stdin_text="hello", timeout=12.5, capture_stdout=True)
+            res = tts._run_synth(["piper", "--model", "m"], tts._speech_generation, stdin_text="hello", timeout=12.5)
 
         assert res == (7, "", "piper-err")
         assert fake_proc.communicate_calls == [("hello", 12.5)]
@@ -1423,14 +1421,20 @@ def test_stop_speech_reaps_inline_when_cleanup_thread_fails(tmp_path: Any) -> No
 
 def test_notify_kokoro_g2p_fallback():
     from plugin.audio.kokoro_g2p import g2p_fallback_warning
-    from plugin.audio.tts_service import _notify_kokoro_g2p_fallback
+    from plugin.audio.tts_service import (
+        _begin_utterance,
+        _notify_kokoro_g2p_fallback,
+        _remember_misaki_ready,
+    )
 
     messages: list[str] = []
+    generation = _begin_utterance()
 
     # warning with voice substitute, misaki_ready=False, g2p="misaki" -> list stays empty
     _notify_kokoro_g2p_fallback(
         "Kokoro voice 'jf_x' is not in /v; using af_sky",
-        False,
+        generation,
+        "ja",
         messages.append,
         g2p="misaki",
     )
@@ -1438,14 +1442,15 @@ def test_notify_kokoro_g2p_fallback():
 
     # warning with G2P_FAILED_MARK, misaki_ready=False, g2p="espeak" -> English-phonemes line
     warn = g2p_fallback_warning("ja", RuntimeError("boom"))
-    _notify_kokoro_g2p_fallback(warn, False, messages.append, g2p="espeak")
+    _notify_kokoro_g2p_fallback(warn, generation, "ja", messages.append, g2p="espeak")
     assert len(messages) == 1
     assert "Kokoro used English phonemes for non-English voice" in messages[0]
     assert "Misaki not found" not in messages[0]
 
     # warning="", misaki_ready=False, g2p=None -> "Misaki not found" line
     messages.clear()
-    _notify_kokoro_g2p_fallback("", False, messages.append, g2p=None)
+    _remember_misaki_ready(generation, "ja", False)
+    _notify_kokoro_g2p_fallback("", generation, "ja", messages.append, g2p=None)
     assert len(messages) == 1
     assert "Misaki not found; Kokoro used English phonemes" in messages[0]
 
