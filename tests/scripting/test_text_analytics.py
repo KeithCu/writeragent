@@ -313,7 +313,7 @@ def test_normalize_sentiment_label():
 
 
 def test_extract_sentiment_label_n_and_neutral_score(monkeypatch):
-    vta._SENTIMENT_PIPELINE.clear()
+    vta._sentiment_pipeline.cache_clear()
     import types
     fake_transformers = types.ModuleType("transformers")
     recorded: dict[str, Any] = {}
@@ -349,7 +349,7 @@ def test_extract_sentiment_label_n_and_neutral_score(monkeypatch):
 
 def test_sentiment_pipeline_is_cached_and_single_string_has_no_section_index(monkeypatch):
     import types
-    vta._SENTIMENT_PIPELINE.clear()
+    vta._sentiment_pipeline.cache_clear()
     fake_transformers = types.ModuleType("transformers")
     init_count = 0
 
