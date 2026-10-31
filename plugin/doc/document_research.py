@@ -262,7 +262,6 @@ def _scan_directory(
     filter_substring: str | None,
     exclude_path: str | None,
     open_paths: dict[str, str],
-    max_entries: int,
     stop_checker: Callable[[], bool] | None = None,
 ) -> tuple[list[FileEntry], bool]:
     exclude_norm = _normalize_path(exclude_path) if exclude_path else None
@@ -305,14 +304,13 @@ def _scan_directory(
             )
         )
 
-    return _cap_newest(entries, max_entries)
+    return _cap_newest(entries)
 
 
 def _entries_from_open_only(
     open_paths: dict[str, str],
     *,
     filter_substring: str | None,
-    max_entries: int,
 ) -> tuple[list[FileEntry], bool]:
     filter_lower = filter_substring.lower() if filter_substring else None
     entries: list[FileEntry] = []
@@ -324,7 +322,7 @@ def _entries_from_open_only(
             continue
         mtime, size = _mtime_size_or_zero(norm)
         entries.append(_make_entry(norm, name, url, mtime, size, is_open=True))
-    return _cap_newest(entries, max_entries)
+    return _cap_newest(entries)
 
 
 def _mtime_size_or_zero(path: str) -> tuple[float, int]:
@@ -336,10 +334,10 @@ def _mtime_size_or_zero(path: str) -> tuple[float, int]:
     return st.st_mtime, st.st_size
 
 
-def _cap_newest(entries: list[FileEntry], max_entries: int) -> tuple[list[FileEntry], bool]:
+def _cap_newest(entries: list[FileEntry]) -> tuple[list[FileEntry], bool]:
     """Newest-first stable slice (list.sort is stable)."""
     entries.sort(key=lambda entry: entry["modified"], reverse=True)
-    return entries[:max_entries], len(entries) > max_entries
+    return entries[:_DEFAULT_MAX_ENTRIES], len(entries) > _DEFAULT_MAX_ENTRIES
 
 
 def _make_entry(
@@ -385,7 +383,6 @@ def list_nearby_files(
     *,
     filter: str | None = None,
     file_kind: FileKind = "documents",
-    max_entries: int = _DEFAULT_MAX_ENTRIES,
     exclude_path: Any = _USE_DEFAULT,
     open_paths: Any = _USE_DEFAULT,
     listing_root: Any = _USE_DEFAULT,
@@ -406,11 +403,8 @@ def list_nearby_files(
         res_root = listing_root
 
         if res_exclude is _USE_DEFAULT:
-            if active_model is not None:
-                active_path = get_document_path(active_model)
-                res_exclude = _normalize_path(active_path) if active_path else None
-            else:
-                res_exclude = None
+            active_path = get_document_path(active_model) if active_model is not None else None
+            res_exclude = _normalize_path(active_path) if active_path else None
 
         if res_open is _USE_DEFAULT:
             res_open = _collect_open_file_urls(ctx, exclude_path=res_exclude, extensions=extensions)
@@ -436,7 +430,6 @@ def list_nearby_files(
                 filter_substring=filter,
                 exclude_path=exclude_path,
                 open_paths=open_paths,
-                max_entries=max_entries,
                 stop_checker=stop_checker,
             )
             return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root}
@@ -446,7 +439,7 @@ def list_nearby_files(
             return {"status": "error", "message": str(e), "details": {"path": listing_root}}
 
     # No directory: list other open documents only
-    files, truncated = _entries_from_open_only(open_paths, filter_substring=filter, max_entries=max_entries)
+    files, truncated = _entries_from_open_only(open_paths, filter_substring=filter)
     if not files:
         return {
             "status": "error",
@@ -651,6 +644,9 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
         assert_main_thread("document_research.get_open_documents")
         desktop = get_desktop(uno_ctx)
         comps = desktop.getComponents()
+        if not comps:
+            return []
+        enum = comps.createEnumeration()
     except Exception as exc:
         # A disposed desktop (and the main-thread guard, if it fires
         # under a later except Exception) is not "no documents".
@@ -659,31 +655,22 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
         # the classifier. ``[]`` stays the answer only when the desktop
         # has nothing to enumerate.
         reraise_listener_boundary(exc)
-    if not comps:
-        return []
-    try:
-        enum = comps.createEnumeration()
-    except Exception as exc:
-        reraise_listener_boundary(exc)
     docs = []
     # Real UNO hasMoreElements() is bool. unittest MagicMock is always truthy
     # and never becomes False, so `while enum.hasMoreElements()` spun forever.
     # That wedged unit pytest at ~99% after peer send tools started calling
     # this from list_v1_peers / chat prompts with ctx=MagicMock().
     while enum is not None:
-        more = False
         try:
             more = enum.hasMoreElements()
+            if more is not True and more != 1:
+                break
+            elem = enum.nextElement()
         except Exception as exc:
             # Same hole as getComponents: breaking here reported a dead
             # enumeration as the documents collected so far, often ``[]``.
-            # A runtime error took that path too. Empty is ``more`` false.
-            reraise_listener_boundary(exc)
-        if more is not True and more != 1:
-            break
-        try:
-            elem = enum.nextElement()
-        except Exception as exc:
+            # A runtime error took that path too. reraise_listener_boundary
+            # always raises, so this is never an empty document list.
             reraise_listener_boundary(exc)
         model: Any = _office_model_from_desktop_element(elem)
         if model is None or not hasattr(model, "getURL"):
