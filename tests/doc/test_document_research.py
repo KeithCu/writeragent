@@ -498,7 +498,7 @@ def test_resolve_path_or_name_no_match_does_not_fall_back_to_only_file():
             patch("plugin.doc.document_research._collect_open_file_urls", return_value={}),
             patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp),
         ):
-            path, err = resolve_path_or_name(MagicMock(), model, "Report", filter="Budget")
+            path, err = resolve_path_or_name(MagicMock(), model, "Report")
     assert path is None
     assert err == "No file matching 'Report'"
 

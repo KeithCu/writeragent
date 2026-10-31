@@ -66,17 +66,15 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     except SendCancelled:
         return user_stopped_payload()
 
-    found = {t.name for t in tools if t.name}
-    missing = [name for name in allowlist if name not in found]
+    by_name = {t.name: t for t in tools}
+    ordered = [
+        by_name[name]
+        for name in (*allowlist, "specialized_workflow_finished")
+        if name in by_name
+    ]
+    missing = [name for name in allowlist if name not in by_name]
     if missing:
         log.warning("Inner document_research agent missing tools: %s", missing)
-
-    ordered = [
-        t
-        for name in (*allowlist, "specialized_workflow_finished")
-        for t in tools
-        if t.name == name
-    ]
 
     if not ordered:
         return {"status": "error", "message": "No read tools available for opened document"}

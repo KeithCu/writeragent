@@ -63,7 +63,7 @@ class ListNearbyFiles(ToolBase):
             ctx.ctx,
             ctx.doc,
             filter=kwargs.get("filter"),
-            file_kind=kwargs.get("file_kind") or "documents",
+            file_kind=kwargs.get("file_kind", "documents"),
             stop_checker=ctx.stop_checker,
         )
 
@@ -136,7 +136,6 @@ class GetGuidance(ToolBase):
 
         doc_type = doc_type_of(ctx.doc)
         raw = (kwargs.get("topic") or "").strip()
-        clock = _format_mcp_clock_context()
         if not raw:
             # Index call is a natural early MCP step — stamp the clock for hosts that ignore
             # initialize.instructions (#374 Bug 1).
@@ -145,7 +144,7 @@ class GetGuidance(ToolBase):
                 "doc_type": doc_type,
                 "topics": list_topics(doc_type),
                 "index": manual_index(doc_type),
-                "current_local_datetime": clock,
+                "current_local_datetime": _format_mcp_clock_context(),
             }
         section = get_section(raw, doc_type)
         if section is None:
