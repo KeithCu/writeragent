@@ -357,10 +357,10 @@ _status_listeners: list[tuple[Any, Any]] = []  # [(listener, url)]
 _status_lock = threading.Lock()
 
 
-def _module_for_command(command: str) -> tuple[ModuleBase | None, str] | None:
+def _module_for_command(command: str) -> tuple[ModuleBase | None, str]:
     dot = command.find(".")
     if dot <= 0:
-        return None
+        return None, ""
     mod_name, action = command[:dot], command[dot + 1 :]
     for mod in _modules:
         if mod.name == mod_name:
@@ -392,12 +392,10 @@ def _dispatch_command(command: str) -> None:
         return
 
     # If no handler, check for module delegation
-    target = _module_for_command(command)
-    if target is not None:
-        mod, action = target
-        if mod is not None:
-            mod.on_action(action)
-            return
+    mod, action = _module_for_command(command)
+    if mod is not None:
+        mod.on_action(action)
+        return
 
     if _bootstrap_error is not None:
         from plugin.framework.errors import WriterAgentException
@@ -407,7 +405,7 @@ def _dispatch_command(command: str) -> None:
             code="BOOTSTRAP_FAILED",
         ) from _bootstrap_error
 
-    if target is None:
+    if command.find(".") <= 0:
         log.warning("Unhandled command: %s", command)
         return
 
@@ -457,10 +455,9 @@ _STATIC_MENU_TITLES: dict[str, str] = {
 def get_menu_text(command: str) -> str | None:
     """Get dynamic menu text for a command, or None for default."""
     bootstrap()
-    target = _module_for_command(command)
-    if target is None:
+    mod, action = _module_for_command(command)
+    if mod is None and command.find(".") <= 0:
         return None
-    mod, action = target
 
     from plugin.framework.i18n import _
 
@@ -600,13 +597,10 @@ _IMAGE_MANAGER_MODULES = ("com.sun.star.text.TextDocument", "com.sun.star.sheet.
 def _get_menu_icon(command: str) -> str | None:
     """Get dynamic icon prefix for a command, or None."""
     bootstrap()
-    target = _module_for_command(command)
-    if target is None:
+    mod, action = _module_for_command(command)
+    if mod is None:
         return None
-    mod, action = target
-    if mod is not None:
-        return mod.get_menu_icon(action)
-    return None
+    return mod.get_menu_icon(action)
 
 
 def _collect_icon_commands() -> dict[str, tuple[str, str]]:
@@ -642,18 +636,11 @@ def _icon_apply_signature(
     return (tuple(sorted((url, prefix) for url, (_mod, prefix) in icon_cmds.items())), px)
 
 
-def _load_icon_graphic(module_name: str, icon_filename: str, ctx: Any | None = None) -> Any:
+def _load_icon_graphic(module_name: str, icon_filename: str, ctx: Any) -> Any:
     """Load a PNG icon from OXT assets/ as XGraphic."""
     try:
         from com.sun.star.beans import PropertyValue
 
-        # A bootstrap-less uno.getComponentContext() is a different context
-        # (no VCL, wrong package). get_ctx() is the context bootstrap stored.
-        if ctx is None:
-            ctx = get_ctx()
-        if ctx is None:
-            log.warning("_load_icon_graphic: get_ctx() returned None for %s/%s", module_name, icon_filename)
-            return None
         ctx_any = cast("Any", ctx)
         # What was wrong: getattr fallback evaluated getServiceManager on every call, and assert smgr is not None disappears under -O.
         # How it happened: ad-hoc getattr ladder was used instead of the standard get_service_manager helper.
@@ -779,7 +766,7 @@ def _update_menu_icons_impl() -> None:
                 apply_failed = True
                 log.warning("_update_menu_icons: failed to process ImageManager for %s: %s", mod_id, e)
 
-        if not apply_failed and len(key_graphics) == len(key_cmds):
+        if not apply_failed:
             _icon_apply_stamp = _icon_apply_signature(icon_cmds, icon_px)
     except Exception:
         # UNO boundary: outer ImageManager update
