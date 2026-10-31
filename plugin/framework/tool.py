@@ -820,11 +820,10 @@ class ToolRegistry:
         uno_services = kwargs.get("uno_services_supported") or uno_services_for_document(doc, doc_type)
         if protocol == "openai":
             from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
-            from plugin.vision.image_filter import filter_get_image_for_text_only_model
 
-            tools = filter_get_image_for_text_only_model(
-                tools, has_native_vision(get_text_model(), get_current_endpoint())
-            )
+            # Unknown (None) keeps get_image. Only a known text-only chat model drops it.
+            if has_native_vision(get_text_model(), get_current_endpoint()) is False:
+                tools = [t for t in tools if t.name != "get_image"]
             convert = to_openai_schema
             peer_domain: str | None = active_domain
         else:
