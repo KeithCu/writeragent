@@ -24,9 +24,9 @@ from plugin.notebook.notebook_controls import (
     _LINE_HEIGHT,
     _MAX_FIELD_HEIGHT,
     _MIN_FIELD_HEIGHT,
+    _cap_from_style,
     _height_for_text,
     _insert_code_input_in_flow,
-    _max_field_height_units,
     _page_style,
     _text_area_width_units,
     _text_width_from_style,
@@ -446,7 +446,7 @@ def test_page_style_shared_by_width_and_height():
 
     assert _page_style(None) is None
     assert "_page_style(doc)" in inspect.getsource(_text_area_width_units)
-    assert "_page_style(doc)" in inspect.getsource(_max_field_height_units)
+    assert "_page_style(doc)" in inspect.getsource(_height_for_text) and "_page_style(doc)" in inspect.getsource(_insert_code_input_in_flow)
 
     style = MagicMock()
     style.getPropertyValue.side_effect = lambda name: {
@@ -469,8 +469,8 @@ def test_page_style_shared_by_width_and_height():
 
     assert _page_style(doc) is style
     assert _text_area_width_units(doc) == 17000
-    assert _max_field_height_units(doc) == max(_MIN_FIELD_HEIGHT, 29700 - 2000 - 2000 - 1500)
-    assert _max_field_height_units(None) == _MAX_FIELD_HEIGHT
+    assert _cap_from_style(_page_style(doc)) == max(_MIN_FIELD_HEIGHT, 29700 - 2000 - 2000 - 1500)
+    assert _cap_from_style(None) == _MAX_FIELD_HEIGHT
 
 
 def test_page_style_reads_page_desc_name_from_first_paragraph():
@@ -509,7 +509,7 @@ def test_page_style_reads_page_desc_name_from_first_paragraph():
     assert _page_style(doc) is landscape
     cursor.gotoStart.assert_called_once_with(False)
     assert _text_area_width_units(doc) == 27700
-    assert _max_field_height_units(doc) == max(_MIN_FIELD_HEIGHT, 21000 - 1000 - 1000 - 1500)
+    assert _cap_from_style(_page_style(doc)) == max(_MIN_FIELD_HEIGHT, 21000 - 1000 - 1000 - 1500)
 
 
 def test_height_for_text_narrow_and_wide_field_w():
