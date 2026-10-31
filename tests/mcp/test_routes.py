@@ -124,13 +124,11 @@ def test_mcp_module_toggle_keeps_route_snapshots_consistent(monkeypatch) -> None
 
     saved = (
         mcp_mod._primary_http_module,
-        mcp_mod._shared_registry,
         mcp_mod._shared_http_server,
         mcp_mod._shared_tunnel,
     )
     with mcp_mod._http_peer_lock:
         mcp_mod._primary_http_module = None
-        mcp_mod._shared_registry = None
         mcp_mod._shared_http_server = None
         mcp_mod._shared_tunnel = None
 
@@ -189,7 +187,6 @@ def test_mcp_module_toggle_keeps_route_snapshots_consistent(monkeypatch) -> None
         with mcp_mod._http_peer_lock:
             (
                 mcp_mod._primary_http_module,
-                mcp_mod._shared_registry,
                 mcp_mod._shared_http_server,
                 mcp_mod._shared_tunnel,
             ) = saved

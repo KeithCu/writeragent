@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 from plugin.mcp.cors import reload_cors_policy_from_config
 from plugin.mcp.server import is_port_in_use_error, mcp_endpoint_url
 from plugin.mcp.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label, tunnel_status_line
+from plugin.version import EXTENSION_VERSION
 
 log = logging.getLogger("writeragent.http")
 
@@ -38,7 +39,6 @@ log = logging.getLogger("writeragent.http")
 # constructs a new McpModule(), which would otherwise create a second registry and try to
 # bind the same port. The first instance is canonical; later instances reuse its registry/server.
 _primary_http_module: "McpModule | None" = None
-_shared_registry: Any = None
 _shared_http_server: Any = None
 _shared_tunnel: TunnelManager | None = None
 _http_peer_lock = threading.Lock()
@@ -102,8 +102,7 @@ def _remove_debug_token_file() -> None:
     if not token_path:
         return
     try:
-        if os.path.exists(token_path):
-            os.remove(token_path)
+        os.remove(token_path)
     except OSError:
         pass
 
@@ -126,7 +125,7 @@ class McpModule(ModuleBase):
     _srv_lock: threading.Lock
 
     def initialize(self, services: Any) -> None:
-        global _primary_http_module, _shared_registry, _shared_http_server, _shared_tunnel
+        global _primary_http_module, _shared_http_server, _shared_tunnel
 
         from plugin.mcp.routes import HttpRouteRegistry
 
@@ -134,19 +133,16 @@ class McpModule(ModuleBase):
             if _primary_http_module is not None:
                 # Second (or later) bootstrap in this process: share registry and server state.
                 prim = _primary_http_module
-                self._registry = _shared_registry
+                self._registry = prim._registry
                 self._server = _shared_http_server
                 self._tunnel = _shared_tunnel or prim._tunnel
                 self._services = services
                 self._mcp_routes_registered = prim._mcp_routes_registered
                 self._srv_lock = prim._srv_lock
-                services.register("http_routes", self._registry)
                 log.info("McpModule initialize: reusing primary HTTP/MCP (mcp_enabled=%s, server=%s)", services.config.proxy_for(self.name).get("mcp_enabled"), "running" if (_shared_http_server and _shared_http_server.is_running()) else "stopped")
                 return
 
             self._registry = HttpRouteRegistry()
-            _shared_registry = self._registry
-            services.register("http_routes", self._registry)
             self._server = None
             self._tunnel = TunnelManager()
             _shared_tunnel = self._tunnel
@@ -178,6 +174,10 @@ class McpModule(ModuleBase):
             return _shared_http_server
         return self._server
 
+    def _server_running(self) -> bool:
+        bound = self._bound_http_server()
+        return bool(bound and bound.is_running())
+
     def start_background(self, services: Any) -> None:
         # We start automatically if MCP is enabled.
         if services.config.proxy_for(self.name).get("mcp_enabled"):
@@ -186,14 +186,12 @@ class McpModule(ModuleBase):
     def _on_config_changed(self, **data: Any) -> None:
         key = data.get("key", "")
         prefix = f"{self.name}."
-        # Ignore keys owned by other modules; empty key = bulk save (e.g. Settings OK).
-        if key and not key.startswith(prefix):
-            return
+        # Other modules' keys are ignored (startswith). Empty key is a bulk save.
+        # ConfigStore emits "" only when more than one key changes, so a port-only
+        # save is mcp.mcp_port and must rebind. Do not drop startswith: removeprefix
+        # leaves an unprefixed key unchanged, and "mcp_port" is in _LIFECYCLE_SUFFIXES.
         suffix = key.removeprefix(prefix) if key else ""
-        # Lifecycle suffixes, or a bulk save (key=""). ConfigStore emits "" only
-        # when more than one key changes, so a port-only save is mcp.mcp_port
-        # and must rebind or the listener stays on the old port.
-        if key and suffix not in _LIFECYCLE_SUFFIXES:
+        if key and (not key.startswith(prefix) or suffix not in _LIFECYCLE_SUFFIXES):
             return
 
         reload_cors_policy_from_config(self._services)
@@ -228,14 +226,6 @@ class McpModule(ModuleBase):
         # Tunnel-only toggles (or bulk save) while the server is already up.
         self._sync_tunnel()
 
-    def _clear_start_failure(self) -> None:
-        global _last_start_failure
-        _last_start_failure = None
-
-    def _record_start_failure(self, host: str, port: Any, exc: BaseException) -> None:
-        global _last_start_failure
-        _last_start_failure = (host or "localhost", port, exc)
-
     def _formatted_start_failure(self) -> str:
         if _last_start_failure is None:
             return ""
@@ -266,15 +256,14 @@ class McpModule(ModuleBase):
         if os.environ.get("WRITERAGENT_TESTING"):
             return True
 
-        global _shared_http_server
+        global _shared_http_server, _last_start_failure
         from plugin.mcp.server import HttpServer
 
         reload_cors_policy_from_config(services)
 
         with self._srv_lock:
-            bound = self._bound_http_server()
-            if bound is not None and bound.is_running():
-                self._clear_start_failure()
+            if self._server_running():
+                _last_start_failure = None
             else:
                 cfg = services.config.proxy_for(self.name)
                 event_bus = getattr(services, "events", None)
@@ -295,12 +284,12 @@ class McpModule(ModuleBase):
                         event_bus.emit("menu:update")
                     self._server = srv
                     _shared_http_server = srv
-                    self._clear_start_failure()
+                    _last_start_failure = None
                 except Exception as e:
                     # Stash for Toggle/Status/Settings UI — previously only log.exception left a trail
                     # and the dialog said "check the debug log" with no host/port or bind reason (#379).
                     log.exception("Failed to start HTTP server")
-                    self._record_start_failure(host, port, e)
+                    _last_start_failure = (host, port, e)
                     try:
                         srv.stop()
                     except Exception:
@@ -314,7 +303,8 @@ class McpModule(ModuleBase):
     def _stop_server(self) -> None:
         global _shared_http_server
         # Stop tunnel first so we do not keep advertising a dead local port.
-        self._stop_tunnel()
+        if self._tunnel is not None:
+            self._tunnel.stop()
         with self._srv_lock:
             srv = self._bound_http_server()
             if not srv:
@@ -329,15 +319,9 @@ class McpModule(ModuleBase):
             event_bus.emit("http:server_stopped", reason="shutdown")
             event_bus.emit("menu:update")
 
-    def _bound_tunnel(self) -> TunnelManager | None:
-        global _shared_tunnel
-        if _shared_tunnel is not None:
-            return _shared_tunnel
-        return self._tunnel
-
     def _sync_tunnel(self) -> None:
         """Start or stop the public tunnel to match MCP settings."""
-        tunnel = self._bound_tunnel()
+        tunnel = self._tunnel
         if tunnel is None:
             return
         cfg = self._services.config.proxy_for(self.name)
@@ -382,11 +366,6 @@ class McpModule(ModuleBase):
             run_in_background(_start, name="mcp-tunnel-sync", dedicated=True)
             return
         _start()
-
-    def _stop_tunnel(self) -> None:
-        tunnel = self._bound_tunnel()
-        if tunnel is not None:
-            tunnel.stop()
 
     def shutdown(self) -> None:
         self._stop_server()
@@ -433,8 +412,7 @@ class McpModule(ModuleBase):
         from plugin.framework.i18n import _
 
         if action == "toggle_server":
-            b = self._bound_http_server()
-            if b and b.is_running():
+            if self._server_running():
                 return _("Stop MCP Server")
             return _("Start MCP Server")
         return None
@@ -442,17 +420,14 @@ class McpModule(ModuleBase):
     def get_menu_icon(self, action: str) -> str | None:
         if action != "server_status":
             return None
-        b = self._bound_http_server()
-        running = b and b.is_running()
-        return "running" if running else "stopped"
+        return "running" if self._server_running() else "stopped"
 
     def _action_toggle_server(self) -> None:
         # No msgbox on success: modal boxes block the sidebar; the panel status line shows it.
         from plugin.framework.uno_context import get_ctx
 
         ctx = get_ctx()
-        b = self._bound_http_server()
-        if b and b.is_running():
+        if self._server_running():
             log.info("Stopping MCP server via toggle")
             self._stop_server()
         else:
@@ -464,8 +439,7 @@ class McpModule(ModuleBase):
                 if not self._mcp_routes_registered:
                     self._register_mcp_routes(self._services)
                 self._start_server(self._services)
-            b2 = self._bound_http_server()
-            if not (b2 and b2.is_running()):
+            if not self._server_running():
                 self._show_start_failure_dialog(ctx)
 
     def _not_running_status_message(self) -> str:
@@ -499,7 +473,7 @@ class McpModule(ModuleBase):
 
         local_url = status.get("mcp_url", status.get("url", "?"))
         routes = status.get("routes", 0)
-        tunnel = self._bound_tunnel()
+        tunnel = self._tunnel
         public_url = tunnel.mcp_public_url() if tunnel else None
         cfg = self._services.config.proxy_for(self.name)
         provider = cfg.get("tunnel_provider") or DEFAULT_PROVIDER
@@ -517,54 +491,45 @@ class McpModule(ModuleBase):
             fallback_msg = fallback_msg + "\n" + _("Public URL: {0}").format(public_url)
 
         try:
-            assert ctx is not None
             dlg = load_writeragent_dialog("ServerStatusDialog", ctx)
             if dlg is None:
                 msgbox(ctx, "WriterAgent", fallback_msg)
                 return
 
-            msg_ctrl = dlg.getControl("Msg")
-            if msg_ctrl is not None:
-                msg_ctrl.getModel().Label = msg
+            def set_ctl(name: str, *, label: str | None = None, text: str | None = None, visible: bool | None = None) -> None:
+                ctrl = dlg.getControl(name)
+                if ctrl is None:
+                    return
+                if text is not None:
+                    ctrl.setText(text)
+                if label is None and visible is None:
+                    return
+                model = ctrl.getModel()
+                if label is not None:
+                    model.Label = label
+                if visible is not None:
+                    model.Visible = visible
 
-            local_lbl = dlg.getControl("LocalUrlLabel")
-            if local_lbl is not None:
-                local_lbl.getModel().Label = _("Local Endpoint:")
-
-            url_ctrl = dlg.getControl("UrlField")
-            if url_ctrl is not None:
-                url_ctrl.setText(local_url)
-
-            tunnel_lbl = dlg.getControl("TunnelLabel")
-            tunnel_url_ctrl = dlg.getControl("TunnelUrlField")
-            tunnel_status_ctrl = dlg.getControl("TunnelStatusMsg")
-
+            set_ctl("Msg", label=msg)
+            set_ctl("LocalUrlLabel", label=_("Local Endpoint:"))
+            set_ctl("UrlField", text=local_url)
             if tunnel_enabled:
-                if tunnel_lbl is not None:
-                    tunnel_lbl.getModel().Label = _("Public Tunnel ({0}):").format(pname)
-                    tunnel_lbl.getModel().Visible = True
-
-                if tunnel_url_ctrl is not None:
-                    tunnel_url_ctrl.setText(public_url or "")
-                    tunnel_url_ctrl.getModel().Visible = True
-
-                if tunnel_status_ctrl is not None:
-                    if public_url:
-                        tstatus = _("Status: Active (connected)")
-                    elif tunnel and getattr(tunnel, "is_reconnecting", False):
-                        tstatus = _("Status: Reconnecting — {0}").format(tunnel.last_error or _("retrying…"))
-                    elif tunnel and tunnel.is_running:
-                        tstatus = _("Status: Starting tunnel…")
-                    elif tunnel and tunnel.last_error:
-                        tstatus = _("Status: Failed — {0}").format(tunnel.last_error)
-                    else:
-                        tstatus = _("Status: Not running (is {0} binary installed?)").format(pname)
-                    tunnel_status_ctrl.getModel().Label = tstatus
-                    tunnel_status_ctrl.getModel().Visible = True
+                set_ctl("TunnelLabel", label=_("Public Tunnel ({0}):").format(pname), visible=True)
+                set_ctl("TunnelUrlField", text=public_url or "", visible=True)
+                if public_url:
+                    tstatus = _("Status: Active (connected)")
+                elif tunnel and getattr(tunnel, "is_reconnecting", False):
+                    tstatus = _("Status: Reconnecting — {0}").format(tunnel.last_error or _("retrying…"))
+                elif tunnel and tunnel.is_running:
+                    tstatus = _("Status: Starting tunnel…")
+                elif tunnel and tunnel.last_error:
+                    tstatus = _("Status: Failed — {0}").format(tunnel.last_error)
+                else:
+                    tstatus = _("Status: Not running (is {0} binary installed?)").format(pname)
+                set_ctl("TunnelStatusMsg", label=tstatus, visible=True)
             else:
-                for ctrl in (tunnel_lbl, tunnel_url_ctrl, tunnel_status_ctrl):
-                    if ctrl is not None:
-                        ctrl.getModel().Visible = False
+                for name in ("TunnelLabel", "TunnelUrlField", "TunnelStatusMsg"):
+                    set_ctl(name, visible=False)
 
             copy_btn = dlg.getControl("CopyBtn")
             if copy_btn is not None:
@@ -587,8 +552,6 @@ class McpModule(ModuleBase):
     # ---- Built-in route handlers ----
 
     def _handle_health(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
-        from plugin.version import EXTENSION_VERSION
-
         return (200, {"status": "healthy", "server": "WriterAgent", "version": EXTENSION_VERSION})
 
     def _mcp_endpoint_from_config(self) -> str:
@@ -597,8 +560,6 @@ class McpModule(ModuleBase):
 
     def _handle_info(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
         log.info("Request: GET / (info) from %s", headers.get("User-Agent"))
-        from plugin.version import EXTENSION_VERSION
-
         routes = self._registry.list_routes()
         info = {"name": "WriterAgent", "version": EXTENSION_VERSION, "description": "WriterAgent HTTP server", "routes": ["%s %s" % (m, p) for m, p in sorted(routes)]}
         if self._mcp_routes_registered:

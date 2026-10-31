@@ -32,7 +32,6 @@ def mcp_server():
     def _reset_globals():
         with http_mod._http_peer_lock:
             http_mod._primary_http_module = None
-            http_mod._shared_registry = None
             http_mod._shared_http_server = None
 
     _reset_globals()
