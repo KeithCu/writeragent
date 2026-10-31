@@ -29,28 +29,6 @@ from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
-__all__ = [
-    "VoiceContext",
-    "canonical_voice_id",
-    "catalog_voice_display_label",
-    "clean_provider_name",
-    "clean_voice_name",
-    "get_default_voice_for_locale",
-    "get_scoped_tts_voice",
-    "get_voice_catalog",
-    "get_voice_family",
-    "is_kokoro_voice_id",
-    "match_voice_id",
-    "parse_tts_speed",
-    "pick_voice_id",
-    "resolve_voice_context",
-    "settings_voice_options",
-    "tts_test_sample",
-    "voice_choice_to_id",
-    "voice_options_for_provider",
-]
-
-
 @dataclass(frozen=True)
 class VoiceContext:
     family: str                 # kokoro|piper|openai|openrouter|together|system
@@ -588,11 +566,10 @@ def parse_tts_speed(val: Any) -> float:
     """Parse speech speed safely, enforcing a minimum of 0.25x."""
     if val is None or val == "":
         return 1.0
-    if isinstance(val, (int, float)):
-        return max(0.25, min(5.0, float(val)))
-    cleaned = str(val).split("(")[0].strip().rstrip("xX").strip().replace(",", ".")
-    try:
-        speed = float(cleaned)
-        return max(0.25, min(5.0, speed))
-    except (ValueError, TypeError):
-        return 1.0
+    if not isinstance(val, (int, float)):
+        cleaned = str(val).split("(")[0].strip().rstrip("xX").strip().replace(",", ".")
+        try:
+            val = float(cleaned)
+        except (ValueError, TypeError):
+            return 1.0
+    return max(0.25, min(5.0, float(val)))
