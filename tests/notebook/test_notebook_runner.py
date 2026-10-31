@@ -1839,10 +1839,8 @@ def test_request_stop_while_idle_creates_no_state():
 
     doc = MagicMock()
     doc.getURL.return_value = ""
-    notebook_runner._running_docs.clear()
     notebook_runner._stop_flags.clear()
     request_stop(doc)
-    assert notebook_runner._running_docs == set()
     assert notebook_runner._stop_flags == {}
 
 
@@ -1854,7 +1852,6 @@ def test_run_cell_leaves_no_stop_state():
     state = NotebookDocState(code_cells=[cell], next_execution_count=1)
     doc = MagicMock()
     doc.getURL.return_value = ""
-    notebook_runner._running_docs.clear()
     notebook_runner._stop_flags.clear()
     with (
         patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
@@ -1866,6 +1863,5 @@ def test_run_cell_leaves_no_stop_state():
         patch("plugin.notebook.notebook_runner.save_registry"),
     ):
         assert run_cell(ctx, doc, cell.cell_id).status == "ok"
-    assert notebook_runner._running_docs == set()
     assert notebook_runner._stop_flags == {}
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import re
 import threading
-import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,7 +21,7 @@ from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
 from plugin.notebook import form_lookup
 from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, _IN_PROMPT_RE, _format_in_prompt, _prepare_display_text, find_cell_by_hex, load_registry, save_registry
-from plugin.notebook.notebook_controls import _doc_key, _mono_ms
+from plugin.notebook.notebook_controls import _doc_key
 from plugin.notebook.writer_importer import (
     _PARAGRAPH_BREAK,
     _STYLE_MD_H1,
@@ -47,8 +46,7 @@ log = logging.getLogger("writeragent.notebook")
 # (RuntimeUID, then URL, then id) so two PyUNO wrappers of one document cannot
 # both pass. Run All holds this key for the whole sequence so a ▶ mid-batch
 # is skipped.
-_running_docs: set[str] = set()
-
+#
 # Stop is a separate signal so the busy guard never blocks it. The hamburger
 # sets the per-doc Event on the UI thread. Chat Stop only latches
 # SendCancellation on that same thread. ``execute_code`` waits without a VCL
@@ -61,7 +59,6 @@ _running_docs: set[str] = set()
 _stop_flags: dict[str, threading.Event] = {}
 _stop_lock = threading.Lock()
 
-_ENUM_SAFETY_CAP = 10000
 _OUT_PROMPT_RE = re.compile(r"^Out \[[0-9 ]*\]:")
 _LEGACY_CHROME_RE = re.compile(r"^Cell \d+: (Markdown|Raw|Code)\b")
 
@@ -96,9 +93,8 @@ def _begin_run(busy_key: str) -> bool:
     different threads; the check and the add must not interleave.
     """
     with _stop_lock:
-        if busy_key in _running_docs:
+        if busy_key in _stop_flags:
             return False
-        _running_docs.add(busy_key)
         _stop_flags[busy_key] = threading.Event()
         return True
 
@@ -106,11 +102,10 @@ def _begin_run(busy_key: str) -> bool:
 def _end_run(busy_key: str) -> None:
     """Drop the busy key and its stop Event; Stop while idle creates neither."""
     with _stop_lock:
-        _running_docs.discard(busy_key)
         _stop_flags.pop(busy_key, None)
 
 
-def _chat_stop_requested() -> bool:
+def _is_stop_requested(busy_key: str) -> bool:
     """True when sidebar Stop has latched the active send scope.
 
     Chat Stop cancels ``SendCancellation`` only. Run All must read that
@@ -118,30 +113,26 @@ def _chat_stop_requested() -> bool:
     The notebook Event is never set by that button, so watching it left
     the rest of a chat-owned Run All running.
     """
+    with _stop_lock:
+        ev = _stop_flags.get(busy_key)
+    if ev is not None and ev.is_set():
+        return True
     from plugin.framework.send_cancellation import get_current_send_cancellation
 
     scope = get_current_send_cancellation()
     return scope is not None and scope.is_cancelled()
 
 
-def _is_stop_requested(busy_key: str) -> bool:
-    with _stop_lock:
-        ev = _stop_flags.get(busy_key)
-    if ev is not None and ev.is_set():
-        return True
-    return _chat_stop_requested()
-
-
 def request_stop(doc: Any | None) -> None:
     """Ask the in-flight cell / remaining Run All sequence to stop.
 
-    Must not check ``_running_docs`` as a busy guard — Stop has to land while
+    Must not check ``_stop_flags`` as a busy guard — Stop has to land while
     that key is held. Only active runs get a signal; Stop while idle must not
     create state.
     """
     keys = [_doc_key(doc)] if doc is not None else []
     with _stop_lock:
-        keys.extend(k for k in _running_docs if k not in keys)
+        keys.extend(k for k in _stop_flags if k not in keys)
         events = [_stop_flags[k] for k in keys if k in _stop_flags]
     for ev in events:
         ev.set()
@@ -169,14 +160,17 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
 
     busy_key = _doc_key(doc)
 
-    def _stopped() -> bool:
-        return _is_stop_requested(busy_key)
-
     def _run() -> dict[str, Any]:
         try:
-            return run_code_in_user_venv(ctx, code, session_id=session_id, script_session_id=script_session_id, stop_checker=_stopped)
+            return run_code_in_user_venv(
+                ctx,
+                code,
+                session_id=session_id,
+                script_session_id=script_session_id,
+                stop_checker=lambda: _is_stop_requested(busy_key),
+            )
         except Exception:
-            if _stopped():
+            if _is_stop_requested(busy_key):
                 return {"status": "stopped", "message": "Stopped."}
             raise
         finally:
@@ -213,10 +207,6 @@ def _paragraph_string(cursor: Any) -> str:
     probe.gotoStartOfParagraph(False)
     probe.gotoEndOfParagraph(True)
     return _plain_text(probe.getString() or "")
-
-
-def _paragraph_is_empty(cursor: Any) -> bool:
-    return not _paragraph_string(cursor).strip()
 
 
 def _para_style_name(cursor: Any) -> str:
@@ -315,12 +305,6 @@ def _cursor_after_bookmark(doc: Any, bookmark_name: str) -> Any | None:
         return None
 
 
-def _bookmark_exists(doc: Any, bookmark_name: str) -> bool:
-    if not bookmark_name or not hasattr(doc, "getBookmarks"):
-        return False
-    return bool(doc.getBookmarks().hasByName(bookmark_name))
-
-
 def _code_field_paragraph_end(doc: Any, cell: NotebookCodeCell) -> Any | None:
     shape = form_lookup.find_control_shape_by_name(doc, cell.code_field_name)
     if shape is None:
@@ -407,11 +391,10 @@ def _is_next_cell_boundary(para_style: str, content: str, notebook_in_resolved: 
         return True
     if _style_is_heading12(para_style) and stripped:
         return True
-    compact = _style_compact(para_style)
     # Treat following markdown blockquote/list (and other non-output notebook body
     # that belongs to the next cell / markdown cell) as a stop boundary so clearing
     # outputs never deletes them.
-    if stripped and compact not in ("", "preformattedtext", "preformatted", "writeragentnotebookoutput"):
+    if stripped and _style_compact(para_style):
         return True
     return False
 
@@ -738,7 +721,8 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
         sel.setString("")
     except Exception:
         log.exception("notebook run: failed to clear output for cell %d", cell.index)
-    if not _bookmark_exists(doc, cell.output_start_bookmark):
+    name = cell.output_start_bookmark
+    if not name or not hasattr(doc, "getBookmarks") or not doc.getBookmarks().hasByName(name):
         _reanchor_output_bookmark(doc, cell)
 
 
@@ -804,7 +788,7 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
         _break_then_fill()
         return
 
-    if _paragraph_is_empty(cursor) and not _style_is_heading12(_para_style_name(cursor)):
+    if not _paragraph_string(cursor).strip() and not _style_is_heading12(_para_style_name(cursor)):
         # Leftover empty gap (Text Body) or empty Preformatted: fill in place.
         # Never write into a ▶+field paragraph (this cell or the next).
         if _paragraph_has_frame(cursor):
@@ -823,10 +807,7 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
             _finish()
             return
 
-    text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-    _enter_paragraph_after_break(cursor)
-    _fill(cursor)
-    _finish()
+    _break_then_fill()
 
 
 def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *, ctx: Any | None = None) -> None:
@@ -931,23 +912,22 @@ def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | No
     new_line = _format_in_prompt(execution_count)
     text = doc.getText()
 
-    para = None
     # Walk only the paragraph before this cell's code field. A document-wide
     # search for the first ``In [n]:`` rewrote cell 1's gutter when this
     # cell's ControlShape was missing (the importer no longer writes
     # ``Cell N: Code``).
     shape = form_lookup.find_control_shape_by_name(doc, cell.code_field_name)
-    if shape is not None:
-        anchor = shape.getAnchor()
-        cursor = text.createTextCursorByRange(anchor)
-        if cursor.gotoPreviousParagraph(False):
-            para_rng = text.createTextCursorByRange(cursor)
-            para_rng.gotoStartOfParagraph(False)
-            para_rng.gotoEndOfParagraph(True)
-            para = para_rng
-    if para is None:
-        log.warning("notebook run: could not find code field %r to update In prompt for cell %d", cell.code_field_name, cell.index)
+    cursor = text.createTextCursorByRange(shape.getAnchor()) if shape is not None else None
+    if cursor is None or not cursor.gotoPreviousParagraph(False):
+        log.warning(
+            "notebook run: could not find code field %r to update In prompt for cell %d",
+            cell.code_field_name,
+            cell.index,
+        )
         return
+    para = text.createTextCursorByRange(cursor)
+    para.gotoStartOfParagraph(False)
+    para.gotoEndOfParagraph(True)
     try:
         cursor = _gutter_text_cursor(text, para)
         if cursor is None:
@@ -1116,7 +1096,7 @@ def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:
     return len(cells)
 
 
-def flush_ui_idle(ctx: Any | None, *, log_phase: str | None = None) -> None:
+def flush_ui_idle(ctx: Any | None) -> None:
     """Pump VCL until idle. Do **not** call this after bulk notebook import.
 
     ``ProcessEventsToIdle`` waits for ``SwViewShell::LayoutIdle``. With hundreds of
@@ -1125,7 +1105,6 @@ def flush_ui_idle(ctx: Any | None, *, log_phase: str | None = None) -> None:
     """
     if ctx is None:
         return
-    t0 = time.monotonic()
     try:
         from plugin.framework.uno_context import process_events_to_idle
 
@@ -1133,8 +1112,6 @@ def flush_ui_idle(ctx: Any | None, *, log_phase: str | None = None) -> None:
     except Exception:
         log.debug("processEventsToIdle failed", exc_info=True)
         return
-    if log_phase:
-        log.info("notebook import %s elapsed_ms=%d", log_phase, _mono_ms(t0))
 
 
 def _pump_between_notebook_cells(ctx: Any) -> None:
@@ -1188,7 +1165,6 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
         stopped = False
         try:
             cells = list(state.code_cells[max(0, start_index) :])
-            need_drain = False
             for cell in cells:
                 if _is_stop_requested(busy_key):
                     stopped = True
@@ -1199,14 +1175,11 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                     continue
                 if not code.strip():
                     continue
-                if need_drain:
+                if executed > 0:
                     # LayoutIdle livelock is during execute, not this between-cell pump.
                     # Stop clicks are delivered here; check the flag before the next cell.
                     _pump_between_notebook_cells(ctx)
-                if is_document_disposed(doc):
-                    stopped = True
-                    break
-                if _is_stop_requested(busy_key):
+                if is_document_disposed(doc) or _is_stop_requested(busy_key):
                     stopped = True
                     break
                 try:
@@ -1220,12 +1193,10 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                 if one.status == "stopped":
                     stopped = True
                     break
-                if one.status == "fatal":
-                    executed += 1
-                    return RunResult("error", one.execution_count, one.message, cells_run=executed)
                 executed += 1
                 last_count = one.execution_count
-                need_drain = True
+                if one.status == "fatal":
+                    return RunResult("error", one.execution_count, one.message, cells_run=executed)
                 if _is_stop_requested(busy_key):
                     stopped = True
                     break
@@ -1258,15 +1229,6 @@ def run_all_for_doc(ctx: Any, doc: Any) -> RunResult | None:
     return run_cells(ctx, doc, start_index=0)
 
 
-def run_from_here_for_doc(ctx: Any, doc: Any) -> RunResult | None:
-    """Menu/toolbar: execute from the code cell at or after the selection."""
-    with form_lookup.control_lookup_scope(doc):
-        state = _notebook_doc_or_msgbox(ctx, doc)
-        if state is None:
-            return None
-        return run_cells(ctx, doc, start_index=find_run_from_here_index(doc, state))
-
-
 def _doc_from_frame(ctx: Any | None = None, frame: Any | None = None) -> tuple[Any, Any]:
     from plugin.framework.uno_context import get_ctx
 
@@ -1287,8 +1249,13 @@ def run_all_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
 
 
 def run_from_here_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
+    """Menu/toolbar: execute from the code cell at or after the selection."""
     resolved, doc = _doc_from_frame(ctx, frame)
-    run_from_here_for_doc(resolved, doc)
+    with form_lookup.control_lookup_scope(doc):
+        state = _notebook_doc_or_msgbox(resolved, doc)
+        if state is None:
+            return
+        run_cells(resolved, doc, start_index=find_run_from_here_index(doc, state))
 
 
 def stop_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
