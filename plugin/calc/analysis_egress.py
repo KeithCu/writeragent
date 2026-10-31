@@ -28,7 +28,5 @@ def format_analysis_for_calc(result: dict[str, Any]) -> list[list[Any]]:
 
 def insert_analysis_result_into_calc(doc: Any, uno_ctx: Any, result: dict[str, Any], *, sheet_name: str | None = None, start_col: int | None = None, start_row: int | None = None) -> int:
     """Write formatted analysis output starting at *start_col*/*start_row* (or selection). Returns row count."""
-    # Invariant: If Stop happens during a document mutation (inserting a picture, plot, or text),
-    # let that mutation finish. Do not guard right before the write.
     grid = format_analysis_for_calc(result)
     return insert_tabular_result_into_calc(doc, uno_ctx, grid, sheet_name=sheet_name, start_col=start_col, start_row=start_row)

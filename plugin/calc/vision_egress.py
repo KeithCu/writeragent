@@ -18,15 +18,6 @@ from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno
 from plugin.framework.i18n import _
 
 
-def _cell(value: Any) -> Any:
-    """Keep OCR cell text unchanged. Numeric coercion happens only at write time."""
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    return str(value)
-
-
 def _table_span_merges(
     table: dict[str, Any],
     *,
@@ -52,8 +43,6 @@ def _table_span_merges(
             rowspan = max(int(span.get("rowspan") or 1), 1)
             colspan = max(int(span.get("colspan") or 1), 1)
         except (TypeError, ValueError):
-            continue
-        if rowspan <= 1 and colspan <= 1:
             continue
         if row < 0 or col < 0 or col >= max_width:
             continue
@@ -103,7 +92,8 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
             _append_blank(rows)
             rows.append([str(table.get("name") or f"table_{table_count}")])
             header_grid_row = len(rows)
-            _append_table_rows(rows, columns, table_rows, _cell)
+            # OCR text stays a string here; numeric coercion happens only at write time.
+            _append_table_rows(rows, columns, table_rows, lambda value: "" if value is None else str(value))
             col_width = len(columns) if isinstance(columns, list) else 0
             row_widths = [len(r) if isinstance(r, list) else 1 for r in table_rows] if isinstance(table_rows, list) else []
             width = max([col_width, *row_widths], default=0)
@@ -165,11 +155,8 @@ def insert_vision_html_into_calc(doc: Any, uno_ctx: Any, html: str, *, image_nam
     insert_cell_html_rich(doc, uno_ctx, cell_address, html)
 
 
-def insert_vision_structure_into_calc(doc: Any, _uno_ctx: Any, result: dict[str, Any], *, image_name: str | None = None) -> int:
-    """Write extract_structure blocks/tables as native Calc cells below the graphic anchor.
-
-    The _uno_ctx parameter is unused; kept for the (doc, ctx, result) inserter signature.
-    """
+def insert_vision_structure_into_calc(doc: Any, result: dict[str, Any], *, image_name: str | None = None) -> int:
+    """Write extract_structure blocks/tables as native Calc cells below the graphic anchor."""
     sheet_name, col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
     grid, merges = _vision_structure_calc_layout(result)
     if len(grid) <= 1:

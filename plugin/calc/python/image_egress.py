@@ -45,30 +45,21 @@ def _plot_slot_name(image_index: int) -> str:
 
 
 def _plot_slot_index(name: str) -> int | None:
-    """Slot index for a plot shape: 0 for WriterAgentPlot, N-1 for WriterAgentPlot_N (N>=2).
+    """Slot index: 0 for WriterAgentPlot, N-1 for WriterAgentPlot_N (N>=2).
 
-    The suffix is a decimal integer N >= 2 with no sign, whitespace, underscore,
-    or leading zero. _plot_slot_name is the only writer of names that are
-    stored on the shape.
+    Bugfix: int() on the raw suffix treated WriterAgentPlot_1_0, WriterAgentPlot_+2,
+    and WriterAgentPlot_02 as slots (int("1_0") == 10). Only a full match of the
+    bare name, or _N with N>=2 and no sign, underscore, or leading zero, is a slot.
+    Names _plot_slot_name writes are unchanged.
     """
-    if name == _PLOT_SHAPE_NAME_PREFIX:
-        return 0
-    prefix = f"{_PLOT_SHAPE_NAME_PREFIX}_"
-    if name.startswith(prefix):
-        suffix = name[len(prefix):]
-        if not re.fullmatch(r"[1-9][0-9]*", suffix):
-            return None
-        # Bugfix: What was wrong: a shape named WriterAgentPlot_1_0, WriterAgentPlot_+2,
-        # or WriterAgentPlot_02 was treated as a plot slot and could be removed or reused.
-        # How it happened: int(suffix) accepts underscores, a leading plus, surrounding
-        # whitespace, and leading zeros (int("1_0") == 10, int("+2") == 2, int("02") == 2).
-        # Why this change fixes it: the suffix must be a full match of [1-9][0-9]* and
-        # the value must be >= 2. Names _plot_slot_name writes are unchanged, and those
-        # strings are what the document stores.
-        n = int(suffix)
-        if n >= 2:
-            return n - 1
-    return None
+    match = re.fullmatch(
+        rf"{re.escape(_PLOT_SHAPE_NAME_PREFIX)}(?:_([2-9]|[1-9][0-9]+))?",
+        name,
+    )
+    if match is None:
+        return None
+    suffix = match.group(1)
+    return 0 if suffix is None else int(suffix) - 1
 
 
 _SVG_UNIT_TO_MM = {
@@ -91,8 +82,6 @@ def _parse_svg_dimension(val_str: str) -> float | None:
 
 def _intrinsic_aspect(data: bytes) -> tuple[int, int] | None:
     """Parse intrinsic width and height from PNG or SVG image bytes."""
-    if not data or not isinstance(data, (bytes, bytearray)):
-        return None
     if len(data) >= 24 and data.startswith(b"\x89PNG\r\n\x1a\n") and data[12:16] == b"IHDR":
         w, h = struct.unpack(">II", data[16:24])
         if w > 0 and h > 0:
@@ -132,8 +121,6 @@ def _aspect_size(aspect: tuple[int, int] | None) -> Any:
     if aspect is None:
         return Size(DEFAULT_CHART_SIZE_WIDTH, DEFAULT_CHART_SIZE_HEIGHT)
     w, h = aspect
-    if w <= 0 or h <= 0:
-        return Size(DEFAULT_CHART_SIZE_WIDTH, DEFAULT_CHART_SIZE_HEIGHT)
     major = max(w, h)
     minor = min(w, h)
     short_side = max(1000, round(10000 * minor / major))
@@ -145,14 +132,11 @@ def _aspect_size(aspect: tuple[int, int] | None) -> Any:
 
 def _drop_extra_plot_slots(draw_page: Any, target_cell: Any, image_count: int) -> None:
     """Remove existing plot shapes on target_cell with slot index >= image_count."""
-    if draw_page is None or target_cell is None or not hasattr(draw_page, "remove"):
+    if draw_page is None or target_cell is None:
         return
     try:
-        raw_count = getattr(draw_page, "getCount", lambda: 0)()
-        if not isinstance(raw_count, int) or raw_count <= 0:
-            return
         to_remove = []
-        for index in range(raw_count):
+        for index in range(draw_page.getCount()):
             shape = draw_page.getByIndex(index)
             if not _supports_service(shape, _DRAW_GRAPHIC_SERVICE):
                 continue
@@ -200,19 +184,17 @@ def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_messa
     sheet, cell, _unused = located
     try:
         text = f"{_IMAGE_ANNOTATION_PREFIX}{error_message}"
-        ann = cell.getAnnotation() if hasattr(cell, "getAnnotation") else None
-        note_str = ""
-        if ann is not None and hasattr(ann, "getString"):
-            val = ann.getString()
-            if val is None:
-                note_str = ""
-            elif isinstance(val, str):
-                note_str = val
-            else:
-                log.debug("_set_image_cell_annotation: note text is not a string")
-                return
+        ann = cell.getAnnotation()
+        val = ann.getString() if ann is not None else ""
+        if val is None:
+            note_str = ""
+        elif isinstance(val, str):
+            note_str = val
+        else:
+            log.debug("_set_image_cell_annotation: note text is not a string")
+            return
 
-        if note_str.startswith(_IMAGE_ANNOTATION_PREFIX) and ann is not None and hasattr(ann, "setString"):
+        if note_str.startswith(_IMAGE_ANNOTATION_PREFIX) and ann is not None:
             ann.setString(text)
             return
 
@@ -231,10 +213,7 @@ def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_messa
             log.debug("_set_image_cell_annotation: user annotation left in place")
             return
 
-        if hasattr(sheet, "getAnnotations"):
-            annotations = sheet.getAnnotations()
-            if hasattr(annotations, "insertNew") and hasattr(cell, "getCellAddress"):
-                annotations.insertNew(cell.getCellAddress(), text)
+        sheet.getAnnotations().insertNew(cell.getCellAddress(), text)
     except Exception:
         log.debug("_set_image_cell_annotation failed", exc_info=True)
 
@@ -246,22 +225,19 @@ def _clear_image_cell_annotation(ctx: Any, doc: Any, code: str | None) -> None:
         return
     sheet, cell, (row, col) = located
     try:
-        ann = cell.getAnnotation() if hasattr(cell, "getAnnotation") else None
-        if ann is not None and hasattr(ann, "getString"):
+        ann = cell.getAnnotation()
+        if ann is not None:
             val = ann.getString() or ""
             if val.startswith(_IMAGE_ANNOTATION_PREFIX):
-                if hasattr(sheet, "getAnnotations"):
-                    annotations = sheet.getAnnotations()
-                    if hasattr(annotations, "getCount") and hasattr(annotations, "getByIndex") and hasattr(annotations, "removeByIndex"):
-                        for i in range(annotations.getCount()):
-                            item = annotations.getByIndex(i)
-                            pos = item.getPosition() if hasattr(item, "getPosition") else None
-                            if pos is not None and getattr(pos, "Column", None) == col and getattr(pos, "Row", None) == row:
-                                annotations.removeByIndex(i)
-                                break
-                        else:
-                            if hasattr(ann, "setString"):
-                                ann.setString("")
+                annotations = sheet.getAnnotations()
+                for i in range(annotations.getCount()):
+                    item = annotations.getByIndex(i)
+                    pos = item.getPosition() if hasattr(item, "getPosition") else None
+                    if pos is not None and getattr(pos, "Column", None) == col and getattr(pos, "Row", None) == row:
+                        annotations.removeByIndex(i)
+                        break
+                else:
+                    ann.setString("")
     except Exception:
         log.debug("_clear_image_cell_annotation failed", exc_info=True)
 
@@ -274,12 +250,9 @@ class ImageEgressError(Exception):
     """
 
 
-def _egress_fail(message: str, *, level: str = "debug") -> NoReturn:
+def _egress_fail(message: str) -> NoReturn:
     """Log *message* and raise so callers cannot report a successful insert."""
-    if level == "warning":
-        log.warning("insert_image_result_on_sheet: %s", message)
-    else:
-        log.debug("insert_image_result_on_sheet: %s", message)
+    log.debug("insert_image_result_on_sheet: %s", message)
     raise ImageEgressError(message)
 
 
@@ -450,19 +423,6 @@ def _insert_image_result_on_sheet_impl(
     tmp_path: str | None = None
     we_created_temp = False
     try:
-        from plugin.framework.thread_guard import on_main_thread
-
-        if not on_main_thread():
-            # A literal raise is the exit the thread-safety linter
-            # recognizes. _egress_fail raises at runtime but is only a Call
-            # in the AST, so the linter still flags the document access
-            # below as unguarded. This raise still refuses to touch the
-            # document off the main thread.
-            log.debug(
-                "insert_image_result_on_sheet: image insertion must run on the main thread"
-            )
-            raise ImageEgressError("image insertion must run on the main thread")
-
         from plugin.calc.calc_utils import get_cell_geometry
 
         # Callers pass the document (=PY() passes its caller argument). Do not
@@ -474,29 +434,18 @@ def _insert_image_result_on_sheet_impl(
         target_cell = None
 
         if code:
-            try:
-                from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
-
-                located = locate_formula_cell_in_doc(ctx, doc, code)
-                if located is not None:
-                    sheet, target_cell, _unused_anchor = located
-            except Exception:
-                log.debug("insert_image_result_on_sheet: locate_formula_cell_in_doc failed", exc_info=True)
-
+            located = _located_image_cell(ctx, doc, code)
+            if located is not None:
+                sheet, target_cell = located[0], located[1]
             if sheet is None or target_cell is None:
-                # Bugfix (#385/#389): When formula code is provided (=PYTHON / =PY), failing to locate
-                # the formula cell must NOT fall back to the controller's active sheet or active selection.
-                # Falling back causes plots to be inserted on whatever sheet/cell is active (e.g. analysis!A1
-                # during Ctrl+Shift+F9 recalc).
-                _egress_fail(
-                    "could not locate formula cell for formula code; image was not inserted",
-                    level="warning",
-                )
+                message = "could not locate formula cell for formula code; image was not inserted"
+                log.warning("insert_image_result_on_sheet: %s", message)
+                raise ImageEgressError(message)
 
-        ctrl = doc.getCurrentController() if hasattr(doc, "getCurrentController") else None
+        ctrl = doc.getCurrentController()
 
         if sheet is None:
-            if ctrl is not None and hasattr(ctrl, "getActiveSheet") and ctrl.getActiveSheet():
+            if ctrl is not None and ctrl.getActiveSheet():
                 sheet = ctrl.getActiveSheet()
             elif hasattr(doc, "getSheets") and doc.getSheets().getCount() > 0:
                 sheet = doc.getSheets().getByIndex(0)
@@ -533,21 +482,18 @@ def _insert_image_result_on_sheet_impl(
         shape = None
         if target_cell is not None:
             try:
-                raw_count = getattr(draw_page, "getCount", lambda: 0)()
-                if isinstance(raw_count, int) and raw_count > 0:
-                    for index in range(raw_count):
-                        candidate = draw_page.getByIndex(index)
-                        if _is_reusable_plot_shape(candidate, target_cell, slot_name=slot_name):
-                            shape = candidate
-                            break
+                for index in range(draw_page.getCount()):
+                    candidate = draw_page.getByIndex(index)
+                    if _is_reusable_plot_shape(candidate, target_cell, slot_name=slot_name):
+                        shape = candidate
+                        break
             except Exception:
                 shape = None
 
         created_shape = False
         if shape is None:
             shape = doc.createInstance(_DRAW_GRAPHIC_SERVICE)
-            if hasattr(shape, "setSize"):
-                shape.setSize(aspect_size)
+            shape.setSize(aspect_size)
             draw_page.add(shape)
             created_shape = True
             shape.setPropertyValue("Name", slot_name)
@@ -560,7 +506,7 @@ def _insert_image_result_on_sheet_impl(
             # The add already published the shape to the draw page; the GraphicURL
             # setter is what embeds the bitmap. If embedding fails on a shape we
             # just created, remove it so we do not leave an empty blank shape behind.
-            if created_shape and hasattr(draw_page, "remove"):
+            if created_shape:
                 best_effort(lambda: draw_page.remove(shape), "insert_image_result_on_sheet: failed to remove failed shape")
             raise
 
@@ -573,29 +519,25 @@ def _insert_image_result_on_sheet_impl(
                 is_large_placeholder = is_merged and width >= MIN_CHART_PLACEHOLDER_WIDTH and height >= MIN_CHART_PLACEHOLDER_HEIGHT
 
                 shape.setPropertyValue("Anchor", target_cell)
-                if hasattr(shape, "setPosition"):
-                    if image_index == 0:
-                        shape.setPosition(cell_pos)
-                    else:
-                        pos_x = getattr(cell_pos, "X", 0) + (image_index * aspect_size.Width)
-                        pos_y = getattr(cell_pos, "Y", 0)
-                        shape.setPosition(Point(pos_x, pos_y))
+                if image_index == 0:
+                    shape.setPosition(cell_pos)
+                else:
+                    pos_x = getattr(cell_pos, "X", 0) + (image_index * aspect_size.Width)
+                    pos_y = getattr(cell_pos, "Y", 0)
+                    shape.setPosition(Point(pos_x, pos_y))
 
                 if is_large_placeholder:
                     shape.setPropertyValue("ResizeWithCell", True)
-                    if hasattr(shape, "setSize"):
-                        shape.setSize(cell_size)
+                    shape.setSize(cell_size)
                 else:
                     shape.setPropertyValue("ResizeWithCell", False)
-                    if hasattr(shape, "setSize"):
-                        shape.setSize(aspect_size)
+                    shape.setSize(aspect_size)
             except Exception:
                 # Bugfix: What was wrong: Anchor failure on a newly created shape left a floating orphan shape on the draw page and reported success.
                 # How it happened: The anchor block caught all exceptions and logged a warning without raising or rolling back the added shape.
                 # Why this change fixes it: For shapes created in this call, we remove the shape from the draw page and raise ImageEgressError; reused shapes keep their existing position and only log a warning.
                 if created_shape:
-                    if hasattr(draw_page, "remove"):
-                        best_effort(lambda: draw_page.remove(shape), "insert_image_result_on_sheet: failed to remove failed shape")
+                    best_effort(lambda: draw_page.remove(shape), "insert_image_result_on_sheet: failed to remove failed shape")
                     raise ImageEgressError("could not anchor plot to the formula cell")
                 log.warning("insert_image_result_on_sheet: could not anchor to cell", exc_info=True)
 
