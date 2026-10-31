@@ -155,7 +155,8 @@ def test_list_nearby_files_filter():
         assert [f["name"] for f in result["files"]] == ["Budget.ods"]
 
 
-def test_list_nearby_truncated():
+def test_list_nearby_truncated(monkeypatch):
+    monkeypatch.setattr("plugin.doc.document_research._DEFAULT_MAX_ENTRIES", 2)
     with tempfile.TemporaryDirectory() as tmp:
         for i in range(5):
             with open(os.path.join(tmp, f"File{i}.odt"), "wb"):
@@ -165,7 +166,7 @@ def test_list_nearby_truncated():
         with patch("plugin.doc.document_research.get_document_path", return_value=None):
             with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
                 with patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp):
-                    result = list_nearby_files(ctx, model, max_entries=2)
+                    result = list_nearby_files(ctx, model)
         assert result["truncated"] is True
         assert len(result["files"]) == 2
 
