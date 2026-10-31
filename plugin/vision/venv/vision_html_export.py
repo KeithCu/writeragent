@@ -149,13 +149,15 @@ def _import_latex2mathml_convert() -> Any | None:
                 sys.path.remove(extra)
 
 
-def _latex_to_math_element(inner: str, *, display_block: bool, convert_fn: Any) -> str | None:
-    trimmed = (inner or "").strip()
+def _latex_to_math_element(inner: str, *, display_block: bool) -> str | None:
+    trimmed = inner.strip()
     if not trimmed:
         return None
-    display_mode = "block" if display_block else "inline"
+    convert_fn = _import_latex2mathml_convert()
+    if convert_fn is None:
+        return None
     try:
-        mathml = convert_fn(trimmed, display=display_mode)
+        mathml = convert_fn(trimmed, display="block" if display_block else "inline")
     except Exception as exc:
         log.debug("latex2mathml convert failed: %s", exc, exc_info=True)
         return None
@@ -174,7 +176,7 @@ def _looks_like_currency_dollar(s: str, idx: int) -> bool:
     return j < n and s[j].isdigit()
 
 
-def _convert_tex_in_text(text: str, convert_fn: Any) -> str:
+def _convert_tex_in_text(text: str) -> str:
     """Scan and convert TeX math within a single text run."""
     if not ("$" in text or r"\(" in text or r"\[" in text):
         return text
@@ -191,7 +193,7 @@ def _convert_tex_in_text(text: str, convert_fn: Any) -> str:
             if close_at != -1:
                 inner = text[i + len(opener) : close_at]
                 mathml = _latex_to_math_element(
-                    html_module.unescape(inner), display_block=display_block, convert_fn=convert_fn
+                    html_module.unescape(inner), display_block=display_block
                 )
                 if mathml is not None:
                     out.append(mathml)
@@ -209,9 +211,7 @@ def _convert_tex_in_text(text: str, convert_fn: Any) -> str:
                     inner = text[i + 1 : close_at]
                     unescaped = html_module.unescape(inner)
                     if "\\" in unescaped or "^" in unescaped or re.search(r"_[{\\A-Za-z]", unescaped):
-                        mathml = _latex_to_math_element(
-                            unescaped, display_block=False, convert_fn=convert_fn
-                        )
+                        mathml = _latex_to_math_element(unescaped, display_block=False)
                         if mathml is not None:
                             out.append(mathml)
                             i = close_at + 1
@@ -221,7 +221,7 @@ def _convert_tex_in_text(text: str, convert_fn: Any) -> str:
     return "".join(out)
 
 
-def _replace_tex_outside_tags(s: str, convert_fn: Any) -> str:
+def _replace_tex_outside_tags(s: str) -> str:
     """Turn ``$$…$$`` / ``\\[…\\]`` / ``\\(…\\)`` (and conservative ``$…$``) into ``<math>``."""
     # Match delimiters inside text runs only. Matching across tags swallows
     # markup, and TeX entities must be unescaped before MathML conversion.
@@ -245,7 +245,7 @@ def _replace_tex_outside_tags(s: str, convert_fn: Any) -> str:
         if in_code > 0:
             out.append(token)
         else:
-            out.append(_convert_tex_in_text(token, convert_fn))
+            out.append(_convert_tex_in_text(token))
 
     return "".join(out)
 
@@ -261,70 +261,47 @@ def convert_latex_delimiters_to_mathml(html: str) -> str:
     """
     if not ("$" in html or r"\(" in html or r"\[" in html):
         return html
-    convert_fn = _import_latex2mathml_convert()
-    if convert_fn is None:
+    if _import_latex2mathml_convert() is None:
         return html
     parts: list[str] = []
     pos = 0
     for math_match in _MATH_BLOCK_RE.finditer(html):
-        parts.append(_replace_tex_outside_tags(html[pos : math_match.start()], convert_fn))
+        parts.append(_replace_tex_outside_tags(html[pos : math_match.start()]))
         parts.append(math_match.group(0))
         pos = math_match.end()
-    parts.append(_replace_tex_outside_tags(html[pos:], convert_fn))
+    parts.append(_replace_tex_outside_tags(html[pos:]))
     return "".join(parts)
 
 
 def _promote_first_header_row(inner: str) -> str:
     """Move the first ``<th>`` row into ``<thead>`` so Writer can repeat header rows.
 
-    Retains any <caption> and <colgroup> elements before <thead>.
+    Keep leading ``<caption>`` / ``<colgroup>`` / ``<col>``. Rewrite only when the
+    rows sit in a single optional ``<tbody>``; an existing ``<thead>``, a
+    ``<tfoot>``, or another ``<tbody>`` is left unchanged so bodies are not nested.
     """
     if re.search(r"<thead\b", inner, flags=re.IGNORECASE):
         return inner
     tr_match = _TR_BLOCK_RE.search(inner)
-    if tr_match is None:
+    if tr_match is None or not re.search(r"<th\b", tr_match.group(0), flags=re.IGNORECASE):
         return inner
-    first = tr_match.group(0)
-    if not re.search(r"<th\b", first, flags=re.IGNORECASE):
+    first = re.sub(r"(</?)td\b", r"\1th", tr_match.group(0), flags=re.IGNORECASE)
+    prefix_match = _TABLE_PREFIX_RE.match(inner[: tr_match.start()])
+    prefix_end = prefix_match.end() if prefix_match else 0
+    before_rest = inner[prefix_end : tr_match.start()].strip()
+    opened = bool(re.match(r"(?is)^<tbody\b[^>]*>$", before_rest))
+    if before_rest and not opened:
         return inner
-    first = re.sub(r"(</?)td\b", r"\1th", first, flags=re.IGNORECASE)
-    before = inner[: tr_match.start()]
-    after = inner[tr_match.end() :]
-
-    # Keep <caption> and <colgroup> before <thead>. Putting them inside
-    # <tbody>, or rewriting tables that have <tfoot> or an orphan <tbody>,
-    # nests bodies. Rewrite only when the remaining prefix and suffix are
-    # a single optional <tbody></tbody> pair.
-    prefix_match = _TABLE_PREFIX_RE.match(before)
-    end = prefix_match.end() if prefix_match else 0
-    table_prefix = prefix_match.group(0) if prefix_match else ""
-    remaining_before = before[end:].strip()
-
-    after_stripped = after.strip()
-
-    # Reject if before has anything other than optional <tbody ...>
-    tbody_open = bool(re.match(r"(?is)^<tbody\b[^>]*>$", remaining_before))
-    if remaining_before and not tbody_open:
+    after = inner[tr_match.end() :].strip()
+    closed = bool(re.search(r"(?is)</tbody\s*>$", after))
+    if opened != closed:
         return inner
-
-    # Reject if after contains nested structural tags like <tfoot>, <thead>, or another <tbody>
-    tbody_close = bool(re.search(r"(?is)</tbody\s*>$", after_stripped))
-    if tbody_open != tbody_close:
+    body = re.sub(r"(?is)</tbody\s*>$", "", after).strip() if closed else after
+    if re.search(r"(?is)<(?:tbody|tfoot|thead)\b", body):
         return inner
-
-    if tbody_close:
-        body_rows = re.sub(r"(?is)</tbody\s*>$", "", after_stripped).strip()
-    else:
-        body_rows = after_stripped
-
-    # If body_rows contains <tfoot>, <thead>, or <tbody>, do not rewrite
-    if re.search(r"(?is)<(?:tbody|tfoot|thead)\b", body_rows):
-        return inner
-
+    prefix = prefix_match.group(0) if prefix_match else ""
     thead = f"<thead>{first}</thead>"
-    if body_rows:
-        return f"{table_prefix}{thead}<tbody>{body_rows}</tbody>"
-    return f"{table_prefix}{thead}"
+    return f"{prefix}{thead}<tbody>{body}</tbody>" if body else f"{prefix}{thead}"
 
 
 def promote_table_header_rows(html: str) -> str:
@@ -332,8 +309,7 @@ def promote_table_header_rows(html: str) -> str:
 
     def _repl(match: re.Match[str]) -> str:
         open_tag, inner, close_tag = match.group(1), match.group(2), match.group(3)
-        attrs = open_tag[6:-1] if len(open_tag) >= 7 else ""
-        if _style_has_border_none(attrs):
+        if _style_has_border_none(open_tag):
             return match.group(0)
         return f"{open_tag}{_promote_first_header_row(inner)}{close_tag}"
 
@@ -347,16 +323,15 @@ def augment_lo_table_styles(html: str) -> str:
         attrs = match.group(1) or ""
         if _style_has_border_none(attrs):
             return match.group(0)
+        attrs = re.sub(
+            r"""\bborder\s*=\s*(['"]?)0\1""",
+            'border="1"',
+            attrs,
+            count=1,
+            flags=re.IGNORECASE,
+        )
         if not re.search(r"\bborder\s*=", attrs, flags=re.IGNORECASE):
             attrs = f' border="1"{attrs}'
-        elif re.search(r"""\bborder\s*=\s*(['"]?)0\1""", attrs, flags=re.IGNORECASE):
-            attrs = re.sub(
-                r"""\bborder\s*=\s*(['"]?)0\1""",
-                'border="1"',
-                attrs,
-                count=1,
-                flags=re.IGNORECASE,
-            )
         return _merge_style_decls("table", attrs, _LO_TABLE_INLINE)
 
     def _cell_repl(match: re.Match[str]) -> str:
