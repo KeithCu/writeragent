@@ -84,9 +84,7 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
     try:
         return bool(queue_executor.execute_on_main_thread(_probe))
     except Exception as e:
-        # Cancelling peer-work must not log a warning with an empty
-        # message. str(CancelledError()) is "", and %s interpolates that
-        # to nothing. %r prints the exception class and repr.
+        # CancelledError stringifies to ""; %r keeps the class in the warning.
         log.warning("peer-work turn probe failed: %r", e)
         return False
 
@@ -118,13 +116,12 @@ class DelegateToSpecializedBase(ToolBase):
 
     is_mutation: bool | None = True
     long_running: bool = True
-    parameters: dict[str, Any] | None
 
     def __init__(self) -> None:
         super().__init__()
         # ctx=None and for_discovery=False: same exclusions as the chat enum.
         # for_discovery=True would put Calc-hidden domains back into the schema.
-        domains = {
+        self._domains: list[str] = sorted({
             e["domain"]
             for e in _catalog_entries_from_base(
                 self._special_base_class,
@@ -132,12 +129,12 @@ class DelegateToSpecializedBase(ToolBase):
                 ctx=None,
                 for_discovery=False,
             )
-        }
+        })
 
-        self.parameters = {
+        self.parameters: dict[str, Any] | None = {
             "type": "object",
             "properties": {
-                "domain": {"type": "string", "enum": sorted(domains), "description": "The specialized domain to activate."},
+                "domain": {"type": "string", "enum": self._domains, "description": "The specialized domain to activate."},
                 # python_tool_domain stays off this schema on purpose. delegate_tool_domains
                 # (plugin/doc/python_domain_specialized.py) sets ToolContext.python_tool_domain
                 # (delegated domains plus core, including "" during =PY()). A property here would be a second API.
@@ -155,15 +152,13 @@ class DelegateToSpecializedBase(ToolBase):
         not the doc_type label: Impress's label is the family "draw" too (K082 regression).
         """
         assert uno_services, "caller must skip narrowing when services are unknown"
-        assert self.parameters is not None
-        enum = self.parameters["properties"]["domain"]["enum"]
         supported = {
             str(domain)
             for cls in self._special_base_class.__subclasses__()
             if (domain := getattr(cls, "specialized_domain", None))
             and tool_supports_document(cast("ToolBase", cls), doc_type=None, uno_services_supported=uno_services)
         }
-        return [d for d in enum if d in supported]
+        return [d for d in self._domains if d in supported]
 
     def is_async(self) -> bool:
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
@@ -176,13 +171,9 @@ class DelegateToSpecializedBase(ToolBase):
 
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = field_from_tool_arguments(arguments, "domain")
-        # Bugfix: Model or client passed a non-string domain (e.g. a nested dict or list) in tool
-        # arguments. _prepare_mcp_execution calls requires_document_lock before schema validation, so
-        # `domain in self._READ_ONLY_DOMAINS`
-        # raised TypeError: unhashable type: 'dict'.
-        # Checking isinstance(domain, str) ensures non-string domains safely fall back to requiring
-        # the document lock (safe default), allowing execute() to subsequently return the standard
-        # invalid-domain error.
+        # Bugfix: a non-string domain (dict or list) is unhashable. requires_document_lock
+        # runs before schema validation, so `domain in _READ_ONLY_DOMAINS` raised TypeError.
+        # Non-strings keep the lock; execute() then returns the invalid-domain error.
         if isinstance(domain, str) and domain in self._READ_ONLY_DOMAINS:
             return False
         return super().requires_document_lock(arguments)
@@ -198,10 +189,6 @@ class DelegateToSpecializedBase(ToolBase):
             return self._tool_error(
                 f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered."
             )
-
-        status_callback = getattr(ctx, "status_callback", None)
-        append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
-        chat_append_callback = getattr(ctx, "chat_append_callback", None)
 
         if domain == "web_research":
             from plugin.chatbot.web_research import WebResearchTool
@@ -221,8 +208,8 @@ class DelegateToSpecializedBase(ToolBase):
                     code="VISION_UNAVAILABLE",
                 )
 
-            if status_callback:
-                status_callback(_("Running local OCR on selected image(s)..."))
+            if ctx.status_callback:
+                ctx.status_callback(_("Running local OCR on selected image(s)..."))
             # Gateway shortcut: no sub-agent parses task — always insert after graphic(s).
             return ExtractStructureFromImage().execute(ctx, insert_into_document=True)
 
@@ -235,8 +222,8 @@ class DelegateToSpecializedBase(ToolBase):
             except Exception:
                 log.debug("embeddings index wakeup failed", exc_info=True)
 
-        if status_callback:
-            status_callback(f"Delegating to specialized agent ({domain})...")
+        if ctx.status_callback:
+            ctx.status_callback(f"Delegating to specialized agent ({domain})...")
 
         # Gather tools for the requested domain (same rules as main chat ``active_domain``).
         # Must use ``ToolRegistry.get_tools(..., active_domain=...)`` so cross-app tools
@@ -344,14 +331,11 @@ class DelegateToSpecializedBase(ToolBase):
                 )
 
             if domain == "charts":
-                if self._agent_label == "Calc":
-                    hints.append(
-                        " When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
-                    )
-                elif self._agent_label in ("Writer", "Draw"):
-                    hints.append(
-                        " When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters."
-                    )
+                hints.append(
+                    " When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
+                    if self._agent_label == "Calc"
+                    else " When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters."
+                )
 
             # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running
             # worker. UNO reads stay inside _fetch_calc_context on the main thread.
@@ -372,17 +356,15 @@ class DelegateToSpecializedBase(ToolBase):
                     "open documents",
                 )
                 if open_docs:
-                    lines = []
-                    for d in open_docs:
-                        path_or_url = d["path"] or d["url"] or "Untitled"
-                        doc_type = d["doc_type"]
-                        active_str = " (Active)" if d["is_active"] else ""
-                        lines.append(f"- {path_or_url} [{doc_type}]{active_str}")
                     hints.append(
                         "\n\n[OPEN DOCUMENTS CONTEXT]\n"
                         "Note: These are the currently open files in LibreOffice. "
                         "Some of these files may be completely unrelated to the task at hand:\n"
-                        + "\n".join(lines)
+                        + "\n".join(
+                            f"- {d['path'] or d['url'] or 'Untitled'} [{d['doc_type']}]"
+                            f"{' (Active)' if d['is_active'] else ''}"
+                            for d in open_docs
+                        )
                     )
 
             if domain == "images":
@@ -404,17 +386,17 @@ class DelegateToSpecializedBase(ToolBase):
                     cap.create_sheet_ran = True
                 # Peer delivery is recorded in _CaptureInstructionAdapter.forward from
                 # the tool return, not from this pre-execution call.
-                if domain == "document_research" and step.name == "delegate_read_document" and chat_append_callback:
+                if domain == "document_research" and step.name == "delegate_read_document" and ctx.chat_append_callback:
                     from plugin.chatbot.web_research_chat import document_open_step_chat_text
 
                     val = field_from_tool_arguments(step.arguments, "path_or_name")
                     path_or_name = str(val) if val is not None else ""
-                    chat_append_callback(document_open_step_chat_text(path_or_name, document_open_step_index))
+                    ctx.chat_append_callback(document_open_step_chat_text(path_or_name, document_open_step_index))
                     document_open_step_index += 1
-                if append_thinking_callback:
-                    append_thinking_callback(f"Running specialized tool: {step.name} with {step.arguments}\n")
-                if status_callback:
-                    status_callback(f"Tool: {step.name}...")
+                if ctx.append_thinking_callback:
+                    ctx.append_thinking_callback(f"Running specialized tool: {step.name} with {step.arguments}\n")
+                if ctx.status_callback:
+                    ctx.status_callback(f"Tool: {step.name}...")
 
             final_ans = run_inner_tool_agent(
                 ctx,
