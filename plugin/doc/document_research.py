@@ -86,10 +86,8 @@ _EXTENSION_DOC_TYPE: dict[str, DocTypeGuess] = {
     ".odg": "draw",
     ".pptx": "draw",
     ".ppt": "draw",
+    **{ext: "image" for ext in NEARBY_IMAGE_EXTENSIONS},
 }
-
-for _image_ext in NEARBY_IMAGE_EXTENSIONS:
-    _EXTENSION_DOC_TYPE[_image_ext] = "image"
 
 
 def guess_doc_type_from_path(path: str) -> DocTypeGuess:
@@ -251,11 +249,9 @@ def _collect_open_file_urls(
                     type(exc).__name__,
                 )
                 continue
-    except Exception:
-        try:
-            log.exception("_collect_open_file_urls failed")
-        except Exception:  # noqa: S110  PyUNO traceback conversion raises inside log.exception (GHA 34593327841)
-            pass
+    except Exception as exc:
+        # log.debug, not log.exception: formatting a UNO traceback can raise (GHA 34593327841).
+        log.debug("_collect_open_file_urls failed (%s)", type(exc).__name__)
     return out
 
 
@@ -277,7 +273,7 @@ def _scan_directory(
     except OSError as e:
         raise OSError(f"Cannot list directory {directory!r}: {e}") from e
 
-    candidates: list[tuple[str, str, str, float, int]] = []
+    entries: list[FileEntry] = []
     for idx, name in enumerate(names):
         if idx % 50 == 0 and stop_checker and stop_checker():
             raise InterruptedError("USER_STOPPED")
@@ -289,10 +285,7 @@ def _scan_directory(
         if filter_lower and filter_lower not in name.lower():
             continue
         full = os.path.join(directory, name)
-        try:
-            if not os.path.isfile(full):
-                continue
-        except OSError:
+        if not os.path.isfile(full):
             continue
         norm = _normalize_path(full)
         if exclude_norm and norm == exclude_norm:
@@ -301,9 +294,18 @@ def _scan_directory(
             st = os.stat(full)
         except OSError:
             continue
-        candidates.append((norm, name, open_paths.get(norm) or path_to_file_url(norm), st.st_mtime, st.st_size))
+        entries.append(
+            _make_entry(
+                norm,
+                name,
+                open_paths.get(norm) or path_to_file_url(norm),
+                st.st_mtime,
+                st.st_size,
+                is_open=norm in open_paths,
+            )
+        )
 
-    return _finish_entries(candidates, open_paths, max_entries)
+    return _cap_newest(entries, max_entries)
 
 
 def _entries_from_open_only(
@@ -313,7 +315,7 @@ def _entries_from_open_only(
     max_entries: int,
 ) -> tuple[list[FileEntry], bool]:
     filter_lower = filter_substring.lower() if filter_substring else None
-    items: list[tuple[str, str, str, float, int]] = []
+    entries: list[FileEntry] = []
     for norm, url in open_paths.items():
         name = os.path.basename(norm)
         if _should_skip_filename(name):
@@ -321,8 +323,8 @@ def _entries_from_open_only(
         if filter_lower and filter_lower not in name.lower():
             continue
         mtime, size = _mtime_size_or_zero(norm)
-        items.append((norm, name, url, mtime, size))
-    return _finish_entries(items, open_paths, max_entries)
+        entries.append(_make_entry(norm, name, url, mtime, size, is_open=True))
+    return _cap_newest(entries, max_entries)
 
 
 def _mtime_size_or_zero(path: str) -> tuple[float, int]:
@@ -334,26 +336,10 @@ def _mtime_size_or_zero(path: str) -> tuple[float, int]:
     return st.st_mtime, st.st_size
 
 
-def _cap_newest(
-    items: list[tuple[str, str, str, float, int]],
-    max_entries: int,
-) -> tuple[list[tuple[str, str, str, float, int]], bool]:
+def _cap_newest(entries: list[FileEntry], max_entries: int) -> tuple[list[FileEntry], bool]:
     """Newest-first stable slice (list.sort is stable)."""
-    items.sort(key=lambda item: item[3], reverse=True)
-    return items[:max_entries], len(items) > max_entries
-
-
-def _finish_entries(
-    items: list[tuple[str, str, str, float, int]],
-    open_paths: dict[str, str],
-    max_entries: int,
-) -> tuple[list[FileEntry], bool]:
-    chosen, truncated = _cap_newest(items, max_entries)
-    entries = [
-        _make_entry(norm, name, url, mtime, size, is_open=norm in open_paths)
-        for norm, name, url, mtime, size in chosen
-    ]
-    return entries, truncated
+    entries.sort(key=lambda entry: entry["modified"], reverse=True)
+    return entries[:max_entries], len(entries) > max_entries
 
 
 def _make_entry(
@@ -473,9 +459,6 @@ def resolve_path_or_name(
     ctx: Any,
     active_model: Any,
     path_or_name: str,
-    *,
-    filter: str | None = None,
-    file_kind: FileKind = "documents",
 ) -> tuple[str | None, str | None]:
     """Resolve a path, file URL, or basename to an absolute path and file URL.
 
@@ -502,9 +485,7 @@ def resolve_path_or_name(
         norm = _normalize_path(raw)
         return norm, path_to_file_url(norm)
 
-    listing = list_nearby_files(
-        ctx, active_model, filter=filter or raw, file_kind=file_kind
-    )
+    listing = list_nearby_files(ctx, active_model, filter=raw)
     if listing.get("status") != "ok":
         return None, listing.get("message", "Could not resolve file")
 
@@ -655,12 +636,6 @@ def _is_same_document(model: Any, active_model: Any) -> bool:
     return bool(url) and url == str(getattr(active_model, "URL", "") or "")
 
 
-def _is_modified(model: Any) -> bool:
-    """doc.isModified() (XModifiable), best-effort. Lets an agent SEE unsaved changes so it can
-    tell the user to save. The agent never saves itself (user owns persistence)."""
-    return uno_read(lambda: bool(model.isModified()), False)
-
-
 def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str, Any]]:
     """Retrieve all open documents from the desktop context with metadata.
 
@@ -668,7 +643,6 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     leaves as ``ListenerBoundary``. A runtime error is re-raised as itself,
     not as disposal and not as ``[]``.
     """
-    from plugin.doc.doc_type import get_document_type
     from plugin.framework.thread_guard import assert_main_thread
     from plugin.framework.uno_context import get_desktop, get_runtime_uid
     from plugin.framework.uno_listeners import reraise_listener_boundary
@@ -742,7 +716,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             "path": path,
             "doc_type": doc_type_guess,
             "is_active": _is_same_document(model, active_model),
-            "modified": _is_modified(model)
+            # isModified (XModifiable), best-effort: show unsaved changes; the agent never saves.
+            "modified": uno_read(lambda: bool(model.isModified()), False),
         })
     return docs
 
