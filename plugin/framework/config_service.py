@@ -10,7 +10,7 @@ WriterAgent configuration service. There is no per-instance path.
 # crosshair: off
 from __future__ import annotations
 
-from typing import Any, final
+from typing import Any
 
 from plugin.framework.service import ServiceBase
 from plugin.framework.errors import ConfigError
@@ -53,7 +53,6 @@ class ConfigService(ServiceBase):
         return ModuleConfigProxy(self, module_name)
 
 
-@final
 class ModuleConfigProxy:
     def __init__(self, config_service: ConfigService, module_name: str) -> None:
         self._config = config_service
