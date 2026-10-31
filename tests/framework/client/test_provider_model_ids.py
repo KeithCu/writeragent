@@ -84,7 +84,7 @@ class TestPresetProviderDetection:
             normalized = normalize_endpoint_url(url)
             detected = get_provider_from_endpoint(normalized)
             assert (detected) is not None, normalized
-            resolved = _resolve_provider_id(normalized, detected)
+            resolved = _resolve_provider_id(normalized)
             assert (resolved) == (detected), normalized
 
 

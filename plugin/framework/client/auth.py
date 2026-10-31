@@ -33,9 +33,7 @@ class AuthError(ConfigError):
 
     provider: str
 
-    def __init__(self, message: str, *, provider: str = "", code: str | None = None) -> None:
-        if code is None:
-            code = "AUTH_ERROR"
+    def __init__(self, message: str, *, provider: str = "", code: str = "AUTH_ERROR") -> None:
         super().__init__(message, code=code, details={"provider": provider})
         self.provider = provider
 
@@ -58,30 +56,27 @@ class ProviderConfig:
 
 
 PROVIDERS: dict[str, ProviderConfig] = {
-    "openrouter": ProviderConfig(id="openrouter", header_style="bearer", model_id_style="slug", extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE}),
-    "together": ProviderConfig(id="together", header_style="bearer", model_id_style="slug"),
-    "mistral": ProviderConfig(id="mistral", header_style="bearer"),
-    "openai": ProviderConfig(id="openai", header_style="bearer"),
-    "deepseek": ProviderConfig(id="deepseek", header_style="bearer"),
-    "groq": ProviderConfig(id="groq", header_style="bearer"),
-    "cerebras": ProviderConfig(id="cerebras", header_style="bearer"),
-    "perplexity": ProviderConfig(id="perplexity", header_style="bearer"),
-    "xai": ProviderConfig(id="xai", header_style="bearer"),
+    "openrouter": ProviderConfig(id="openrouter", model_id_style="slug", extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE}),
+    "together": ProviderConfig(id="together", model_id_style="slug"),
+    "mistral": ProviderConfig(id="mistral"),
+    "openai": ProviderConfig(id="openai"),
+    "deepseek": ProviderConfig(id="deepseek"),
+    "groq": ProviderConfig(id="groq"),
+    "cerebras": ProviderConfig(id="cerebras"),
+    "perplexity": ProviderConfig(id="perplexity"),
+    "xai": ProviderConfig(id="xai"),
     "anthropic": ProviderConfig(id="anthropic", header_style="x-api-key", extra_headers={"anthropic-version": "2023-06-01"}),
-    "google": ProviderConfig(
-        id="google",
-        # Google's official OpenAI-compatible endpoint (/v1beta/openai) requires
-        # standard "Authorization: Bearer ***" headers.
-        header_style="bearer",
-    ),
+    # Google's official OpenAI-compatible endpoint (/v1beta/openai) requires
+    # standard "Authorization: Bearer ***" headers.
+    "google": ProviderConfig(id="google"),
     "ollama": ProviderConfig(id="ollama", header_style="none"),
     # Local LM Studio accepts an empty key the way Ollama does. A key, when
     # set, still becomes Authorization: Bearer via build_auth_headers fallback.
     "lmstudio": ProviderConfig(id="lmstudio", header_style="none"),
-    "zai": ProviderConfig(id="zai", header_style="bearer"),
-    "nvidia": ProviderConfig(id="nvidia", header_style="bearer"),
+    "zai": ProviderConfig(id="zai"),
+    "nvidia": ProviderConfig(id="nvidia"),
     # Fallback for endpoints we don't recognize explicitly.
-    "custom": ProviderConfig(id="custom", header_style="bearer"),
+    "custom": ProviderConfig(id="custom"),
 }
 
 
@@ -99,21 +94,13 @@ def _deal_provider_id_ok_crosshair(provider_id: object) -> bool:
 _deal_provider_id_ok = _deal_provider_id_ok_crosshair if UNDER_CROSSHAIR else _deal_provider_id_ok_pytest
 
 
-def _resolve_provider_id(endpoint: str, provider_hint: str | None = None) -> str:
-    """
-    Map an endpoint URL + optional hint to a provider id from PROVIDERS.
-    Falls back to "custom" when nothing matches.
+def _resolve_provider_id(endpoint: str) -> str:
+    """Provider id for an endpoint URL, or ``custom`` when the host is unknown.
 
-    Hostname equality via ``get_provider_from_endpoint``, not a substring of
-    the whole URL. ``ollama`` inside ``notollama.example`` used to match and
-    skip a required API key.
+    Hostname equality via ``get_provider_from_endpoint``, not a substring.
+    ``ollama`` inside ``notollama.example`` used to match and skip a required API key.
     """
     # crosshair: off  # URL parse + host match; finite endpoint enum still huge (cover-all).
-    if provider_hint:
-        normalized = provider_hint.strip().lower()
-        if normalized in PROVIDERS:
-            return normalized
-
     return get_provider_from_endpoint(endpoint) or "custom"
 
 
@@ -166,10 +153,7 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     if not endpoint:
         raise AuthError("No endpoint configured.", provider="", code="missing_endpoint")
 
-    # Use the consolidated detection helpers (2026 provider heuristic cleanup).
-    # Single provider detection: determine hint once, avoiding redundant calls.
-    provider_hint = "openrouter" if is_openrouter_endpoint(endpoint, explicit_is_openrouter=api_config.get("is_openrouter")) else None
-    provider_id = _resolve_provider_id(endpoint, provider_hint)
+    provider_id = "openrouter" if is_openrouter_endpoint(endpoint, explicit_is_openrouter=api_config.get("is_openrouter")) else _resolve_provider_id(endpoint)
     provider_cfg = PROVIDERS.get(provider_id, PROVIDERS["custom"])
 
     # For well-known hosted providers (OpenRouter, OpenAI, etc.), an API key

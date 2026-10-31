@@ -8,24 +8,6 @@ from plugin.framework.client.auth import (
     build_auth_headers,
 )
 
-@patch("plugin.framework.client.auth.normalize_endpoint_url")
-def test_resolve_provider_id_with_hint(mock_normalize):
-    """Test that explicit provider hint skips host detection."""
-    # The normalization logic should not even matter if a valid hint is provided
-    # However, _resolve_provider_id calls normalize_endpoint_url early.
-    mock_normalize.return_value = "https://something.else"
-
-    # Valid hint maps directly
-    assert _resolve_provider_id("https://something.else", "openrouter") == "openrouter"
-
-    # Hint is case-insensitive
-    assert _resolve_provider_id("https://something.else", " OPENROUTER ") == "openrouter"
-
-    # Invalid hint falls back to URL detection, which here is mocked to return something else.
-    # So we'll update the mock to return openai's url for this assert.
-    mock_normalize.return_value = "https://api.openai.com"
-    assert _resolve_provider_id("https://api.openai.com", "unknown_hint") == "openai"
-
 
 @patch("plugin.framework.client.auth.normalize_endpoint_url")
 def test_resolve_provider_id_by_url(mock_normalize):

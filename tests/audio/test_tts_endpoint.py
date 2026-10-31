@@ -30,7 +30,7 @@ from plugin.framework.client import model_fetcher as cfg
 
 
 def _speech_meta(body: bytes, content_type: str, status: int = 200):
-    from plugin.framework.client.requests import HttpResult
+    from plugin.framework.client.http_transport import HttpResult
 
     return HttpResult(status=status, body=body, content_type=content_type)
 
