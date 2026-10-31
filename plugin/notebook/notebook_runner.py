@@ -18,7 +18,7 @@ from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import best_effort, is_document_disposed, is_real_disposal
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_active_document
+from plugin.framework.uno_context import get_active_document, process_events_to_idle
 from plugin.notebook import form_lookup
 from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, _IN_PROMPT_RE, _format_in_prompt, _prepare_display_text, find_cell_by_hex, load_registry, save_registry
 from plugin.notebook.notebook_controls import _doc_key
@@ -117,13 +117,11 @@ def request_stop(doc: Any | None) -> None:
     """Ask the in-flight cell / remaining Run All sequence to stop.
 
     Must not check ``_stop_flags`` as a busy guard — Stop has to land while
-    that key is held. Only active runs get a signal; Stop while idle must not
-    create state.
+    that key is held. *doc* is not a filter; every in-flight run is signalled;
+    Stop while idle must not create state.
     """
-    keys = [_doc_key(doc)] if doc is not None else []
     with _stop_lock:
-        keys.extend(k for k in _stop_flags if k not in keys)
-        events = [_stop_flags[k] for k in keys if k in _stop_flags]
+        events = list(_stop_flags.values())
     for ev in events:
         ev.set()
 
@@ -717,30 +715,6 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
     """
     text = doc.getText()
 
-    def _fill(target: Any) -> None:
-        target.gotoStartOfParagraph(False)
-        # Only a paragraph that already had text can be mashed onto the next
-        # cell's chrome. On an empty output slot everything after the 32k
-        # insert cap is still our stdout; splitting it restyled the tail as
-        # Heading 2, which then stopped the next clear at that heading.
-        had_text = bool(_paragraph_string(target).strip())
-        _apply_para_style(target, output_style)
-        text.insertString(target, display, False)
-        if had_text:
-            _split_if_stdout_mashed_onto_chrome(doc, text, target, display, output_style, notebook_in)
-        else:
-            _ensure_one_spacer_before_next_cell(text, target, notebook_in)
-
-    def _finish() -> None:
-        _reanchor_output_bookmark(doc, cell)
-        _collapse_leading_empty_paragraphs(doc, cell, notebook_in)
-
-    def _break_then_fill() -> None:
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        _enter_paragraph_after_break(cursor)
-        _fill(cursor)
-        _finish()
-
     # Bookmark on the paragraph break reports as the following markdown. Snap
     # back so PARAGRAPH_BREAK does not split that heading and prepend stdout.
     field_end = _code_field_paragraph_end(doc, cell)
@@ -752,6 +726,7 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
             prev.gotoEndOfParagraph(False)
             cursor.gotoRange(prev, False)
 
+    target = None
     if _is_output_bookmark_home(cursor, doc, cell):
         cursor.gotoEndOfParagraph(False)
         nxt = text.createTextCursorByRange(cursor)
@@ -760,41 +735,47 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
             if not nxt_text.strip() and not _style_is_heading12(_para_style_name(nxt)) and not _is_next_cell_boundary(_para_style_name(nxt), nxt_text, notebook_in) and not _paragraph_has_frame(nxt):
                 # Import lead_break leaves an empty para after ▶+field. Fill it
                 # rather than inserting another break (field | blank | stdout).
-                _fill(nxt)
-                _finish()
-                return
-        _break_then_fill()
-        return
-
-    if not _paragraph_string(cursor).strip() and not _style_is_heading12(_para_style_name(cursor)):
+                target = nxt
+    elif not _paragraph_string(cursor).strip() and not _style_is_heading12(_para_style_name(cursor)):
         # Leftover empty gap (Text Body) or empty Preformatted: fill in place.
         # Never write into a ▶+field paragraph (this cell or the next).
         if _paragraph_has_frame(cursor):
             cursor.gotoEndOfParagraph(False)
-            _break_then_fill()
-            return
-        _fill(cursor)
-        _finish()
-        return
+        else:
+            target = cursor
+    else:
+        nxt = text.createTextCursorByRange(cursor)
+        if nxt.gotoNextParagraph(False):
+            nxt_text = _paragraph_string(nxt)
+            if not nxt_text.strip() and not _is_next_cell_boundary(_para_style_name(nxt), nxt_text, notebook_in) and not _paragraph_has_frame(nxt):
+                target = nxt
 
-    nxt = text.createTextCursorByRange(cursor)
-    if nxt.gotoNextParagraph(False):
-        nxt_text = _paragraph_string(nxt)
-        if not nxt_text.strip() and not _is_next_cell_boundary(_para_style_name(nxt), nxt_text, notebook_in) and not _paragraph_has_frame(nxt):
-            _fill(nxt)
-            _finish()
-            return
+    if target is None:
+        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        _enter_paragraph_after_break(cursor)
+        target = cursor
 
-    _break_then_fill()
+    target.gotoStartOfParagraph(False)
+    # Only a paragraph that already had text can be mashed onto the next
+    # cell's chrome. On an empty output slot everything after the 32k
+    # insert cap is still our stdout; splitting it restyled the tail as
+    # Heading 2, which then stopped the next clear at that heading.
+    had_text = bool(_paragraph_string(target).strip())
+    _apply_para_style(target, output_style)
+    text.insertString(target, display, False)
+    if had_text:
+        _split_if_stdout_mashed_onto_chrome(doc, text, target, display, output_style, notebook_in)
+    else:
+        _ensure_one_spacer_before_next_cell(text, target, notebook_in)
+    _reanchor_output_bookmark(doc, cell)
+    _collapse_leading_empty_paragraphs(doc, cell, notebook_in)
 
 
 def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *, ctx: Any | None = None) -> None:
     """Write stdout/errors/result and optional image after the output bookmark."""
     out_text = format_run_output_text(result, cell.execution_count)
     _reanchor_output_bookmark(doc, cell)
-    cursor = _cursor_after_bookmark(doc, cell.output_start_bookmark)
-    if cursor is None:
-        cursor = _find_cell_output_heading_end(doc, cell)
+    cursor = _cell_end_range(doc, cell)
     output_style = output_para_style(doc)
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
     if out_text.strip():
@@ -810,9 +791,7 @@ def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *
         images = find_image_payloads(wire)
         if not images:
             return
-        img_cursor = _cursor_after_bookmark(doc, cell.output_start_bookmark)
-        if img_cursor is None:
-            img_cursor = _code_field_paragraph_end(doc, cell)
+        img_cursor = _cell_end_range(doc, cell)
         text = doc.getText()
         for img in images:
             if img_cursor is None:
@@ -1081,12 +1060,9 @@ def flush_ui_idle(ctx: Any | None) -> None:
     if ctx is None:
         return
     try:
-        from plugin.framework.uno_context import process_events_to_idle
-
         process_events_to_idle(ctx)
     except Exception:
         log.debug("processEventsToIdle failed", exc_info=True)
-        return
 
 
 def _pump_between_notebook_cells(ctx: Any) -> None:
