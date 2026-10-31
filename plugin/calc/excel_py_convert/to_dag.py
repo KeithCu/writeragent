@@ -303,9 +303,8 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
 
 def analyze_xl_calls(code: str, *, num_deps: int) -> _XlAnalysis:
     """Perform AST analysis and validation of xl() calls, extracting header modes and fatal issues."""
-    calls, find_issues = _find_xl_calls(code)
-    issues = list(find_issues)
-    fatal = bool(find_issues)
+    calls, issues = _find_xl_calls(code)
+    fatal = bool(issues)
 
     header_modes: dict[int, str] = {}
 
@@ -417,21 +416,20 @@ def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str
             # Keep positional integrity until reject — do not shift later indices.
             continue
         key = r.a1
-        if key in a1_to_norm:
-            norm = a1_to_norm[key]
-            index_map[orig_i] = norm
+        hm = header_modes.get(orig_i, "omit")
+        norm = a1_to_norm.get(key)
+        if norm is None:
+            norm = len(bindings)
+            a1_to_norm[key] = norm
+            excel_deps.append((r.original or key).strip() or key)
+            bindings.append(BindingInfo(a1=key, header_mode=hm, role="data", original_indices=[orig_i]))
+        else:
             bindings[norm].original_indices.append(orig_i)
             excel_deps[norm] = _prefer_excel_dep_token(excel_deps[norm], r.original)
             # Prefer explicit headers=True over omit/false when merging.
-            hm = header_modes.get(orig_i, "omit")
             if hm == "true":
                 bindings[norm].header_mode = "true"
-            continue
-        norm = len(bindings)
-        a1_to_norm[key] = norm
         index_map[orig_i] = norm
-        excel_deps.append((r.original or key).strip() or key)
-        bindings.append(BindingInfo(a1=key, header_mode=header_modes.get(orig_i, "omit"), role="data", original_indices=[orig_i]))
     return bindings, index_map, excel_deps, issues
 
 

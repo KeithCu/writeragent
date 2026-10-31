@@ -14,6 +14,12 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     shared_strings,
     workbook_sheets,
 )
+from plugin.calc.excel_py_convert.parse_excel_ooxml import (
+    _col_row,
+    _shared_formula_map,
+    shift_xlws_py_dep,
+    shift_xlws_py_formula,
+)
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.python.formula_edit import (
     CALC_PYTHON_FN,
@@ -54,13 +60,6 @@ def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
 
 def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[str, str]]:
     """Map A1 → (formula_or_empty, string_value)."""
-    from plugin.calc.excel_py_convert.parse_excel_ooxml import (
-        _col_row,
-        _shared_formula_map,
-        shift_xlws_py_dep,
-        shift_xlws_py_formula,
-    )
-
     masters = _shared_formula_map(ws_root)
     out: dict[str, tuple[str, str]] = {}
     for c in find_all(ws_root, "c"):
