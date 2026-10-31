@@ -1580,7 +1580,7 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     bound = MagicMock()
     bound.is_running.return_value = True
     bound.port = 18765
-    mod._server = bound
+    monkeypatch.setattr(mcp_mod, "_shared_http_server", bound)
     tunnel = TunnelManager()
     mod._tunnel = tunnel
 

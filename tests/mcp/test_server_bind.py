@@ -114,7 +114,6 @@ def test_start_server_stashes_last_start_error(monkeypatch):
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
     mod._registry = MagicMock()
     mod._srv_lock = threading.Lock()
-    mod._server = None
     mod.name = "mcp"
 
     boom = OSError(98, "Address already in use")
@@ -240,7 +239,6 @@ def _module_with_listener(monkeypatch, listener, cfg_values, *, fail_start: Base
     mod._services = services
     mod._registry = MagicMock()
     mod._srv_lock = threading.Lock()
-    mod._server = listener
     mod._tunnel = None
     mod._mcp_routes_registered = True
     mod._mcp_protocol = None
