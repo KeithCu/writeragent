@@ -18,31 +18,13 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_URL, _profile, ascii_bounded, deal
-
-
-def _deal_url_ok_pytest(url: object) -> bool:
-    # Endpoint URLs with query strings exceed DEAL_MAX_URL, and IRI hosts
-    # are not ASCII. The cap raised PreContractError before normalize
-    # returned "". The body treats a non-str as empty. CrossHair keeps
-    # the short ASCII domain. ``url`` is unused on this profile.
-    return True
-
-
-def _deal_url_ok_crosshair(url: object) -> bool:
-    return url is None or ascii_bounded(url, DEAL_MAX_URL)
-
-
-_deal_url_ok = _profile(_deal_url_ok_crosshair, _deal_url_ok_pytest)
+from plugin.framework.deal_shim import deal
 
 
 def matches_extension_dispatch_url(url: Any, extension_id: str) -> bool:
     """Return True when *url* is an extension menu/protocol dispatch URL."""
-    proto = str(getattr(url, "Protocol", None) or "")
-    if proto.startswith(extension_id + ":"):
-        return True
-    complete = str(getattr(url, "Complete", None) or "")
-    return complete.startswith(extension_id + ":")
+    prefix = extension_id + ":"
+    return str(getattr(url, "Protocol", None) or "").startswith(prefix) or str(getattr(url, "Complete", None) or "").startswith(prefix)
 
 
 def dispatch_command_from_url(url: Any) -> str:
@@ -58,10 +40,8 @@ def dispatch_command_from_url(url: Any) -> str:
     path = str(getattr(url, "Path", None) or "").strip().lstrip("/")
     if path:
         return path
-    complete = str(getattr(url, "Complete", None) or "").strip()
-    if ":" in complete:
-        return complete.split(":", 1)[1].lstrip("/")
-    return complete
+    before, colon, after = str(getattr(url, "Complete", None) or "").strip().partition(":")
+    return after.lstrip("/") if colon else before
 
 
 def host_matches(host: str, *domains: str) -> bool:
@@ -70,7 +50,6 @@ def host_matches(host: str, *domains: str) -> bool:
     return any(h == domain or h.endswith("." + domain) for domain in domains)
 
 
-@deal.pre(lambda url, is_openwebui=False: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str) and result.startswith("/"))
 def get_api_version_suffix(url: Any, is_openwebui: bool = False) -> str:
     """Return the API version suffix (e.g. '/v1', '/v4', '/api/paas/v4') for a given endpoint URL."""
@@ -88,7 +67,6 @@ def get_api_version_suffix(url: Any, is_openwebui: bool = False) -> str:
     return "/v1"
 
 
-@deal.pre(lambda url, is_openwebui=False: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda url, is_openwebui=False, result="": bool(isinstance(url, str) and url.strip()) or result == "")
 def normalize_endpoint_url(url: Any, is_openwebui: bool = False) -> str:
@@ -100,76 +78,57 @@ def normalize_endpoint_url(url: Any, is_openwebui: bool = False) -> str:
     # pass (half-stripping to /api, then re-appending /api, yields /api/api/...).
     # Z.ai legacy presets stored https://api.z.ai/v4 before the general base
     # was /api/paas/v4. That /v4 is only a fallback after the live suffix.
-    suffixes: tuple[str, ...]
     if is_openwebui:
         suffixes = ("/api/v1", "/api", "/v1")
     else:
         host = get_url_hostname(url)
-        if host_matches(host, "generativelanguage.googleapis.com"):
-            suffixes = ("/v1beta/openai", "/v1beta", "/v1")
-        else:
-            suffixes = (get_api_version_suffix(url, is_openwebui=False),)
-            if host_matches(host, "z.ai"):
-                suffixes += ("/v4",)
-            suffixes += ("/v1",)
+        extra = ("/v1beta",) if host_matches(host, "generativelanguage.googleapis.com") else ("/v4",) if host_matches(host, "z.ai") else ()
+        suffixes = (get_api_version_suffix(url), *extra, "/v1")
     for suffix in suffixes:
         if url.lower().endswith(suffix):
             return url[: -len(suffix)]
     return url
 
 
-_EMPTY_PARSE = urllib.parse.urlparse("")
-
-
 def _parse(url: Any) -> urllib.parse.ParseResult:
-    if type(url) is not str:
-        return _EMPTY_PARSE
     try:
-        return urllib.parse.urlparse(url)
-    except (ValueError, TypeError, AttributeError):
-        return _EMPTY_PARSE
+        return urllib.parse.urlparse(url if type(url) is str else "")
+    except ValueError:
+        return urllib.parse.urlparse("")
 
 
-@deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_hostname(url: Any) -> str:
     """Return hostname from URL safely."""
     return _parse(url).hostname or ""
 
 
-@deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_domain(url: Any) -> str:
     """Return 'example.com' from 'https://api.example.com/v1'."""
     return ".".join(get_url_hostname(url).split(".")[-2:])
 
 
-@deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_path(url: Any) -> str:
     """Return path from URL safely."""
     return _parse(url).path
 
 
-@deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, dict))
 def get_url_query_dict(url: Any) -> dict[str, list[str]]:
     """Return query parameters as dict (values are lists)."""
     return urllib.parse.parse_qs(_parse(url).query)
 
 
-@deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_path_and_query(url: Any) -> str:
     """Return path + query string from URL."""
     parsed = _parse(url)
     path = parsed.path or "/"
-    if parsed.query:
-        return f"{path}?{parsed.query}"
-    return path
+    return f"{path}?{parsed.query}" if parsed.query else path
 
 
-@deal.pre(lambda url: _deal_url_ok(url))
 @deal.post(lambda result: isinstance(result, bool))
 def is_pdf_url(url: Any) -> bool:
     """Check for .pdf in the URL path safely."""
