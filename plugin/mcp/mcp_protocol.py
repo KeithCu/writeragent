@@ -46,7 +46,6 @@ import plugin.mcp.mcp_session as mcp_session
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
 from plugin.mcp.server import (
     forget_sse_keepalive,
-    note_sse_keepalive,
     read_json_body,
     try_reserve_sse,
     write_http_empty,
@@ -367,7 +366,7 @@ class MCPProtocolHandler:
         document_url = handler.headers.get("X-Document-URL") or None
 
         # POST threads are short-lived daemons. Registering them via
-        # note_sse_keepalive makes HttpServer.stop() join them. A POST waiting
+        # try_reserve_sse makes HttpServer.stop() join them. A POST waiting
         # on the main-thread queue while stop() runs on the main thread can
         # stall or deadlock. Only long-lived SSE streams need keepalive
         # tracking and shutdown.
@@ -454,9 +453,9 @@ class MCPProtocolHandler:
         """
         sock = handler.connection
         tcp_server = getattr(handler, "server", None)
-        if stop_event is None:
-            stop_event = note_sse_keepalive(tcp_server, sock)
-        if stop_event is None:
+        if stop_event is None and sock is not None:
+            stop_event = try_reserve_sse(tcp_server, sock)
+        if stop_event is None or sock is None:
             log.info("[SSE] GET stream closed")
             return
         try:

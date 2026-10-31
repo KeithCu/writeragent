@@ -9,12 +9,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from plugin.framework.http_server import format_bind_failure
-from plugin.mcp.server import (
-    HttpServer,
+from plugin.framework.http_server import (
     _PORT_IN_USE_GUIDANCE,
+    format_bind_failure,
     is_port_in_use_error,
 )
+from plugin.mcp.server import HttpServer
 
 
 def _free_port() -> int:

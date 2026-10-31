@@ -694,7 +694,7 @@ def test_sse_keepalive_readable_socket_uses_plain_recv():
     stop_event = threading.Event()
 
     with (
-        patch("plugin.mcp.mcp_protocol.note_sse_keepalive", return_value=stop_event),
+        patch("plugin.mcp.mcp_protocol.try_reserve_sse", return_value=stop_event),
         patch("plugin.mcp.mcp_protocol.forget_sse_keepalive") as mock_forget,
         patch("plugin.mcp.mcp_protocol.select.select", return_value=([sock], [], [])),
         patch("plugin.mcp.mcp_protocol.log.debug") as mock_log_debug,
@@ -991,20 +991,20 @@ def test_initialize_with_unsupported_version_returns_server_version(mcp_server, 
 
 
 def test_post_does_not_register_sse_keepalive(mcp_server, monkeypatch):
-    """POST /sse and /mcp must NOT register in note_sse_keepalive (only SSE stream threads are joined in stop)."""
+    """POST /sse and /mcp must NOT register in try_reserve_sse (only SSE stream threads are joined in stop)."""
     import urllib.request
     import json
 
     events = []
 
     import plugin.mcp.mcp_protocol as prot
-    orig_note = prot.note_sse_keepalive
+    orig_reserve = prot.try_reserve_sse
 
-    def fake_note(server, sock):
-        events.append("note")
-        return orig_note(server, sock)
+    def fake_reserve(server, sock=None):
+        events.append("reserve")
+        return orig_reserve(server, sock)
 
-    monkeypatch.setattr(prot, "note_sse_keepalive", fake_note)
+    monkeypatch.setattr(prot, "try_reserve_sse", fake_reserve)
 
     payload = {
         "jsonrpc": "2.0",
@@ -1017,7 +1017,7 @@ def test_post_does_not_register_sse_keepalive(mcp_server, monkeypatch):
         assert response.status == 200
 
     # POST handlers must not register keepalives
-    assert "note" not in events
+    assert "reserve" not in events
 
 
 def test_initialize_non_string_protocol_version_returns_invalid_params():
@@ -1174,7 +1174,7 @@ def test_sse_keepalive_unexpected_error_is_logged(caplog):
     http.server = object()
     stop_event = threading.Event()
     with (
-        patch("plugin.mcp.mcp_protocol.note_sse_keepalive", return_value=stop_event),
+        patch("plugin.mcp.mcp_protocol.try_reserve_sse", return_value=stop_event),
         patch("plugin.mcp.mcp_protocol.forget_sse_keepalive") as mock_forget,
         caplog.at_level(logging.ERROR, logger="writeragent.mcp.protocol"),
     ):
