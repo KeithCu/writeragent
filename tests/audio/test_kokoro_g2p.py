@@ -15,13 +15,13 @@ from plugin.audio.kokoro_g2p import (
     KOKORO_PIP_INSTALL,
     KOKORO_VOICE_PREFIX_TO_LANG,
     TTS_INSTALL_CMD,
+    _LANG_SPECS,
     _kokoro_lang_for_voice,
     clear_kokoro_misaki_probe_cache,
     ensure_kokoro_misaki,
     kokoro_g2p_lang,
     kokoro_lang_uses_misaki,
     kokoro_misaki_install_hint,
-    kokoro_misaki_packages,
     kokoro_misaki_probe_code,
     misaki_frontend,
 )
@@ -53,7 +53,8 @@ def _reset_probe_cache():
 )
 def test_misaki_lang_properties(lang: str, uses_misaki: bool, expected_pkgs: tuple[str, ...]):
     assert kokoro_lang_uses_misaki(lang) is uses_misaki
-    assert kokoro_misaki_packages(lang) == expected_pkgs
+    spec = _LANG_SPECS.get(lang)
+    assert (spec.packages if spec is not None else ()) == expected_pkgs
 
     code = kokoro_misaki_probe_code(lang)
     if not uses_misaki:
