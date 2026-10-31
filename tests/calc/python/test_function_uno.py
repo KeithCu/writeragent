@@ -129,7 +129,10 @@ def _wait_spill_settled(doc, timeout: float = 10.0) -> None:
     while time.monotonic() < deadline:
         pump_main_thread_work_queue(max_items=20)
         with python_function._PENDING_SPILL_LOCK:
-            pending = [t for k, t in python_function._PENDING_SPILL_TIMERS if k == key and not python_function._spill_timer_finished(t)]
+            pending = [
+                t for t, (k, _tok) in python_function._PENDING_SPILL_TIMERS.items()
+                if k == key and not python_function._spill_timer_finished(t)
+            ]
         if not pending:
             break
         time.sleep(0.05)
@@ -472,7 +475,6 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
             cell_a1.setFormula(f'=PY("{code}")')
             grid = [[1, "#VALUE!"], ["#N/A", "#DIV/0!"]]
             perform_deferred_spill(
-                ctx,
                 doc.getURL(),
                 sheet_name,
                 0,

@@ -720,14 +720,14 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
 
         # A scheduled identity from book 1 must not write book 2.
         python_function.perform_deferred_spill(
-            ctx2, "uid-spill-1", "Sheet1", 1, 1, [[8], [9]], doc=doc2, code="untitled_spill_b"
+            "uid-spill-1", "Sheet1", 1, 1, [[8], [9]], doc=doc2, code="untitled_spill_b"
         )
         assert sheet2.getCellByPosition(1, 2).getValue() in (0, 0.0)
         assert ("", "Sheet1", 1, 1) not in python_function.SPILL_REGISTRY
 
         # Legacy blank URL still spills this book under its lifecycle id.
         python_function.perform_deferred_spill(
-            ctx2, "", "Sheet1", 1, 1, [[3], [4]], doc=doc2, code="untitled_spill_b"
+            "", "Sheet1", 1, 1, [[3], [4]], doc=doc2, code="untitled_spill_b"
         )
         assert sheet2.getCellByPosition(1, 2).getValue() == 4.0
         assert ("", "Sheet1", 1, 1) not in python_function.SPILL_REGISTRY
@@ -1130,21 +1130,21 @@ def test_spill_timers_prune_on_fire_register_and_cancel(monkeypatch: pytest.Monk
     try:
         python_function.start_deferred_sheet_timer(0.1, lambda: ran.__setitem__("n", ran["n"] + 1), lifecycle_key="fired")
         assert ran["n"] == 1
-        assert python_function._PENDING_SPILL_TIMERS == []
+        assert python_function._PENDING_SPILL_TIMERS == {}
 
         dead = threading.Timer(60, lambda: None)
         dead.cancel()
-        python_function._PENDING_SPILL_TIMERS.append(("stale", dead))
+        python_function._PENDING_SPILL_TIMERS[dead] = ("stale", "")
         live = _HoldSpillTimer(0.1, lambda: None)
         python_function._register_spill_timer("live", live)
-        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["live"]
+        assert [key for _t, (key, _tok) in python_function._PENDING_SPILL_TIMERS.items()] == ["live"]
 
         other = _HoldSpillTimer(0.1, lambda: None)
         other.finished.set()
-        python_function._PENDING_SPILL_TIMERS.append(("other", other))
+        python_function._PENDING_SPILL_TIMERS[other] = ("other", "")
         python_function.cancel_pending_spill_timers("live")
         assert live.cancelled
-        assert python_function._PENDING_SPILL_TIMERS == []
+        assert python_function._PENDING_SPILL_TIMERS == {}
     finally:
         _clear_spill_timer_registry()
 
@@ -1172,15 +1172,15 @@ def test_off_main_spill_timer_registers_cached_lifecycle_key(monkeypatch: pytest
     try:
         python_function._queue_off_main_auto_spill(MagicMock(), "code", [[1, 2]], doc)
         assert calls["n"] == seen
-        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["uid-spill"]
-        timer = python_function._PENDING_SPILL_TIMERS[0][1]
+        assert [key for _t, (key, _tok) in python_function._PENDING_SPILL_TIMERS.items()] == ["uid-spill"]
+        timer = next(iter(python_function._PENDING_SPILL_TIMERS))
         python_function.cancel_pending_spill_timers("uid-spill")
         assert timer.cancelled
-        assert python_function._PENDING_SPILL_TIMERS == []
+        assert python_function._PENDING_SPILL_TIMERS == {}
 
         # No document object: do not guess a workbook key.
         python_function._queue_off_main_auto_spill(MagicMock(), "code", [[1]], None)
-        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == []
+        assert [key for _t, (key, _tok) in python_function._PENDING_SPILL_TIMERS.items()] == []
     finally:
         _clear_spill_timer_registry()
 
@@ -1200,9 +1200,9 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
         python_function._queue_off_main_auto_spill(MagicMock(), "a", [[1]], doc_a)
         python_function._queue_off_main_auto_spill(MagicMock(), "b", [[1]], doc_b)
         python_function._queue_off_main_auto_spill(MagicMock(), "none", [[1]], None)
-        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["uid-a", "uid-b"]
+        assert [key for _t, (key, _tok) in python_function._PENDING_SPILL_TIMERS.items()] == ["uid-a", "uid-b"]
         python_function.cancel_pending_spill_timers("uid-a")
-        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["uid-b"]
+        assert [key for _t, (key, _tok) in python_function._PENDING_SPILL_TIMERS.items()] == ["uid-b"]
     finally:
         _clear_spill_timer_registry()
 
@@ -1369,10 +1369,9 @@ def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest
     doc = CalcDocStub(url="file:///spill.ods")
     sheet = doc.getSheets().getByIndex(0)
     sheet.getCellByPosition(0, 0).setFormula("=SUM(A2)")
-    ctx = _ctx_with_doc(doc)
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
     python_function.perform_deferred_spill(
-        ctx, "file:///spill.ods", "Sheet1", 0, 0, [["x", "y"]], doc=doc, code="result = 1"
+        "file:///spill.ods", "Sheet1", 0, 0, [["x", "y"]], doc=doc, code="result = 1"
     )
     assert sheet.getCellByPosition(1, 0).getString() in ("", None) or not sheet.getCellByPosition(1, 0).getFormula()
 
@@ -1922,10 +1921,8 @@ def test_perform_deferred_spill_fallback_to_passed_sheet_when_getbyname_raises(m
     origin_cell.setFormula('=PY("result = [[1, 2], [3, 4]]")')
 
     grid = [[1, 2], [3, 4]]
-    ctx = _ctx_with_doc(doc)
 
     python_function.perform_deferred_spill(
-        ctx,
         "file:///spill_rename.ods",
         "Sheet1",
         0,
@@ -2259,7 +2256,7 @@ def test_second_spill_timer_cancels_the_first() -> None:
     t2.cancel.assert_not_called()
     t3.cancel.assert_not_called()
 
-    active_timers = [t for _k, t in python_function._PENDING_SPILL_TIMERS]
+    active_timers = list(python_function._PENDING_SPILL_TIMERS)
     assert t1 not in active_timers
     assert t2 in active_timers
     assert t3 in active_timers
