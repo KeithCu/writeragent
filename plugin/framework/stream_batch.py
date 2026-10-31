@@ -248,8 +248,6 @@ class BatchingStreamQueue:
     def flush(self) -> None:
         """Force immediate emission of any pending display text (one joined string per kind)."""
         with self._lock:
-            if self._dropped:
-                return
             self._emit_pending_locked()
 
     def discard(self) -> None:
