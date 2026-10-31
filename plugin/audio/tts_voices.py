@@ -16,11 +16,9 @@ from plugin.audio.kokoro_g2p import KOKORO_VOICE_PREFIX_TO_LANG
 from plugin.audio.voice_catalog import (
     DEFAULT_VOICE_FOR_FAMILY,
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
-    KOKORO_FALLBACK_VOICE as _KOKORO_FALLBACK_VOICE,
     KOKORO_OPENAI_ALIASES as _KOKORO_OPENAI_ALIASES,
     LOCALE_TO_KOKORO_DEFAULT as _LOCALE_TO_KOKORO_DEFAULT,
     LOCALE_TO_PIPER_DEFAULT as _LOCALE_TO_PIPER_DEFAULT,
-    PIPER_FALLBACK_VOICE as _PIPER_FALLBACK_VOICE,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
     VOICE_CATALOGS,
 )
@@ -34,7 +32,6 @@ class VoiceContext:
     family: str                 # kokoro|piper|openai|openrouter|together|system
     source: str                 # "catalog"|"harvested"|"unknown"
     rows: tuple[dict[str, str], ...]
-    editable: bool
 
 
 def is_kokoro_voice_id(voice: str) -> bool:
@@ -74,18 +71,16 @@ def _locale_language_stem(locale: str | None) -> str:
     return clean.split("_")[0] if clean else "en"
 
 
+# UI stems with no Piper pack of their own: Bokmål/Nynorsk -> Norwegian, Croatian -> Slovenian.
+_LANG_ALIASES = {"nb": "no", "nn": "no", "hr": "sl"}
+
+
 def _voice_lang_matches_ui(ui_stem: str, voice_lang: str) -> bool:
     """True if a voice language matches the active UI language stem."""
     if not voice_lang:
         return False
     v_stem = _locale_language_stem(voice_lang)
-    if v_stem == ui_stem:
-        return True
-    if ui_stem in ("nb", "nn") and v_stem == "no":
-        return True
-    if ui_stem == "hr" and v_stem == "sl":
-        return True
-    return False
+    return v_stem == ui_stem or v_stem == _LANG_ALIASES.get(ui_stem)
 
 
 def _label_says_female(label: str) -> bool:
@@ -111,7 +106,7 @@ def _first_matching(
     any_voice = ""
     for item in rows:
         if is_match(item):
-            voice_id = item["value"] if isinstance(item, dict) else item[0]
+            voice_id = item["value"]
             if is_preferred(item):
                 return voice_id
             if not any_voice:
@@ -194,12 +189,8 @@ def _buckets(
     en_voices: list[dict[str, str]] = []
     other_voices: list[dict[str, str]] = []
     for row in rows:
-        if isinstance(row, dict):
-            item = {"value": row["value"], "label": catalog_voice_display_label(row["label"])}
-            vid = row["value"]
-        else:
-            vid, model = row
-            item = {"value": vid, "label": catalog_voice_display_label(model[3])}
+        vid = row["value"]
+        item = {"value": vid, "label": catalog_voice_display_label(row["label"])}
         if is_locale(row):
             if preferred_id and vid == preferred_id:
                 locale_voices.insert(0, item)
@@ -212,29 +203,33 @@ def _buckets(
     return locale_voices + en_voices + other_voices
 
 
+def _piper_rows() -> list[dict[str, str]]:
+    return [{"value": vid, "label": model[3], "lang": model[2]} for vid, model in _PIPER_VOICE_MODELS.items()]
+
+
 def _piper_default_for_stem(stem: str) -> str:
     """Default Piper voice for the UI language stem (prefers JSON map, else female-first)."""
     if stem in _LOCALE_TO_PIPER_DEFAULT:
         return _LOCALE_TO_PIPER_DEFAULT[stem]
     return _first_matching(
-        _PIPER_VOICE_MODELS.items(),
-        lambda item: _voice_lang_matches_ui(stem, item[1][2]),
-        lambda item: _label_says_female(item[1][3]),
-        _PIPER_FALLBACK_VOICE,
+        _piper_rows(),
+        lambda item: _voice_lang_matches_ui(stem, item["lang"]),
+        lambda item: _label_says_female(item["label"]),
+        DEFAULT_VOICE_FOR_FAMILY["piper"],
     )
 
 
 def _kokoro_default_for_stem(stem: str) -> str:
     """Default Kokoro voice for the UI language stem (prefers female)."""
     if stem == "en":
-        return _KOKORO_FALLBACK_VOICE
+        return DEFAULT_VOICE_FOR_FAMILY["kokoro"]
     if stem in _LOCALE_TO_KOKORO_DEFAULT:
         return _LOCALE_TO_KOKORO_DEFAULT[stem]
     return _first_matching(
         _KOKORO_CATALOG_ITEMS,
         lambda opt: opt.get("lang") == stem,
         lambda opt: _kokoro_voice_is_female(opt["value"], opt["label"]),
-        _KOKORO_FALLBACK_VOICE,
+        DEFAULT_VOICE_FOR_FAMILY["kokoro"],
     )
 
 
@@ -275,11 +270,11 @@ def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, 
 
     preferred_default = _piper_default_for_stem(stem)
     return _buckets(
-        _PIPER_VOICE_MODELS.items(),
+        _piper_rows(),
         is_locale=lambda item: stem != "en" and (
-            item[0] == preferred_default or _voice_lang_matches_ui(stem, item[1][2])
+            item["value"] == preferred_default or _voice_lang_matches_ui(stem, item["lang"])
         ),
-        is_english=lambda item: _locale_language_stem(item[1][2]) == "en",
+        is_english=lambda item: _locale_language_stem(item["lang"]) == "en",
         preferred_id=preferred_default,
     )
 
@@ -293,11 +288,6 @@ def settings_voice_options(_services: Any = None) -> list[dict[str, str]]:
     except Exception as exc:
         log.warning("Could not determine dynamic TTS voice options: %s", exc)
         return get_voice_catalog("system")
-
-
-def _sort_voice_rows_by_label(rows: Sequence[dict[str, str]]) -> list[dict[str, str]]:
-    """Sort voice option dicts by localized display label."""
-    return sorted(rows, key=lambda row: row.get("label", "").casefold())
 
 
 def match_voice_id(voice: str, candidates: Iterable[str]) -> str | None:
@@ -330,12 +320,9 @@ def canonical_voice_id(family: str, voice: str) -> str:
 
     fam = _normalize_voice_family(family)
     if fam == "kokoro":
-        v_low = clean_v.lower()
-        alias_target = match_voice_id(v_low, _KOKORO_OPENAI_ALIASES)
+        alias_target = match_voice_id(clean_v, _KOKORO_OPENAI_ALIASES)
         if alias_target is not None:
             clean_v = _KOKORO_OPENAI_ALIASES[alias_target]
-        elif is_kokoro_voice_id(v_low):
-            clean_v = v_low
 
     if fam in ("kokoro", "piper", "openai", "system"):
         catalog_values = [opt["value"] for opt in get_voice_catalog(fam)]
@@ -380,9 +367,7 @@ def _voice_belongs_to_other_family(voice: str, current_family: str) -> bool:
 
 def _catalog_context(family: str, locale: str | None = None) -> VoiceContext:
     rows = get_voice_catalog(family, locale)
-    if family == "openai":
-        rows = _sort_voice_rows_by_label(rows)
-    return VoiceContext(family=family, source="catalog", rows=tuple(rows), editable=False)
+    return VoiceContext(family=family, source="catalog", rows=tuple(rows))
 
 
 def resolve_voice_context(
@@ -425,20 +410,18 @@ def resolve_voice_context(
             return VoiceContext(
                 family=fam,
                 source="harvested",
-                rows=tuple(_sort_voice_rows_by_label(harvested_rows)),
-                editable=False,
+                rows=tuple(sorted(harvested_rows, key=lambda row: row.get("label", "").casefold())),
             )
 
     if host == "together":
-        return VoiceContext(family="together", source="unknown", rows=(), editable=True)
+        return VoiceContext(family="together", source="unknown", rows=())
 
     if host == "openrouter":
         from plugin.framework.client.model_fetcher import cached_tts_models
 
         models = cached_tts_models(ep_str)
         if models is None or (m_str and match_voice_id(m_str, models) is not None):
-            return VoiceContext(family="openrouter", source="unknown", rows=(), editable=True)
-        return _catalog_context("openai", locale)
+            return VoiceContext(family="openrouter", source="unknown", rows=())
 
     return _catalog_context("openai", locale)
 
@@ -544,7 +527,7 @@ def get_scoped_tts_voice(
                 return matched
         return _preferred_harvested_voice(model, harvested_values)
 
-    if context.editable and family in ("openrouter", "together"):
+    if context.source == "unknown":
         for cand in (clean_scoped, clean_gen):
             if cand and not _voice_belongs_to_other_family(cand, family):
                 return cand
@@ -564,8 +547,6 @@ def get_scoped_tts_voice(
 
 def parse_tts_speed(val: Any) -> float:
     """Parse speech speed safely, enforcing a minimum of 0.25x."""
-    if val is None or val == "":
-        return 1.0
     if not isinstance(val, (int, float)):
         cleaned = str(val).split("(")[0].strip().rstrip("xX").strip().replace(",", ".")
         try:
