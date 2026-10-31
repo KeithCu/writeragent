@@ -33,16 +33,22 @@ _TTS_FORMAT_WORDS_RE = re.compile(r"\b(mp3|pcm|wav)\b")
 class _EndpointClip:
     audio: bytes
     suffix: str
-    request_format: str
 
 
-def _sniff_audio_format(audio_bytes: bytes) -> str | None:
-    """Sniff audio container format from magic bytes."""
+def _sniff_audio_format(audio_bytes: bytes, content_type: str = "") -> str | None:
+    """Magic bytes, then Content-Type. None when neither identifies a format."""
     if len(audio_bytes) >= 12 and audio_bytes.startswith(b"RIFF") and audio_bytes[8:12] == b"WAVE":
         return "wav"
     if audio_bytes.startswith(b"ID3"):
         return "mp3"
     if len(audio_bytes) >= 2 and audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0:
+        return "mp3"
+    ct = (content_type or "").lower()
+    if any(token in ct for token in ("audio/pcm", "audio/x-pcm", "audio/l16", "codec=pcm")):
+        return "pcm"
+    if any(token in ct for token in ("audio/wav", "audio/x-wav", "audio/wave")):
+        return "wav"
+    if "audio/mpeg" in ct or "audio/mp3" in ct:
         return "mp3"
     return None
 
@@ -159,20 +165,15 @@ def _speech_headers(endpoint_url: str, api_key: str) -> dict[str, str]:
 def _tts_format_key(endpoint_url: str, model: str) -> str:
     """Cache key for response_format, scoped to origin and model."""
     ep = (endpoint_url or "").strip()
-    m = (model or "").strip()
     try:
         parsed = urllib.parse.urlsplit(ep)
-        scheme = (parsed.scheme or "").lower()
         host = (parsed.hostname or "").lower()
-        if parsed.port is not None:
-            origin = f"{scheme}://{host}:{parsed.port}"
-        elif host:
-            origin = f"{scheme}://{host}"
-        else:
-            origin = ep
+        if host:
+            port = f":{parsed.port}" if parsed.port is not None else ""
+            ep = f"{(parsed.scheme or '').lower()}://{host}{port}"
     except ValueError:
-        origin = ep
-    return f"{origin}\n{m}"
+        pass
+    return f"{ep}\n{(model or '').strip()}"
 
 
 def _speech_failure_message(code: int, body: str) -> str:
@@ -189,16 +190,6 @@ def _speech_failure_message(code: int, body: str) -> str:
     return _("Speech request failed.")
 
 
-def _speech_read_timeout() -> float:
-    """Settings read budget. Connect stays on the shared short timeout."""
-    from plugin.framework.config import get_config_int_safe
-
-    timeout = get_config_int_safe("request_timeout")
-    if timeout <= 0:
-        return 120.0
-    return float(timeout)
-
-
 def _post_audio_speech(
     url: str,
     headers: dict[str, str],
@@ -209,8 +200,13 @@ def _post_audio_speech(
     """Execute the HTTP request, returning (audio_bytes, content_type, code, error_body)."""
     import json
 
+    from plugin.framework.config import get_config_int_safe
     from plugin.framework.client.requests import sync_request
     from plugin.framework.errors import NetworkError
+
+    # Read budget only. Connect stays on the shared short timeout inside sync_request.
+    timeout = get_config_int_safe("request_timeout")
+    read_timeout = float(timeout if timeout > 0 else 120)
 
     data = json.dumps(payload).encode("utf-8")
     try:
@@ -220,7 +216,7 @@ def _post_audio_speech(
             headers=headers,
             parse_json=False,
             method="POST",
-            timeout=_speech_read_timeout(),
+            timeout=read_timeout,
             stop_checker=stop_checker,
             include_meta=True,
             max_bytes=_SPEECH_RESPONSE_MAX_BYTES,
@@ -282,6 +278,7 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
     """
     from plugin.framework.client.model_fetcher import (
         cached_tts_response_format,
+        preferred_openrouter_tts_model_id,
         remember_tts_response_format,
     )
 
@@ -292,8 +289,6 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
     from plugin.framework.client.provider_detection import is_openrouter_endpoint
 
     if is_openrouter_endpoint(endpoint_url, explicit_is_openrouter=is_or):
-        from plugin.framework.client.model_fetcher import preferred_openrouter_tts_model_id
-
         model = preferred_openrouter_tts_model_id(model)
 
     url = _speech_url(endpoint_url)
@@ -336,8 +331,6 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
                     response_format, model, alt,
                 )
                 response_format = alt
-                if stop_checker and stop_checker():
-                    return None
                 continue
         break
 
@@ -350,20 +343,10 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
         _notify_tts_status(_("Speech endpoint returned no audio."), on_status)
         return None
 
-    # Sniff magic bytes first; then match Content-Type; fallback to requested format.
-    ct = (content_type or "").lower()
-    actual_format = _sniff_audio_format(audio_bytes)
-    if not actual_format:
-        if any(token in ct for token in ("audio/pcm", "audio/x-pcm", "audio/l16", "codec=pcm")):
-            actual_format = "pcm"
-        elif any(token in ct for token in ("audio/wav", "audio/x-wav", "audio/wave")):
-            actual_format = "wav"
-        elif "audio/mpeg" in ct or "audio/mp3" in ct:
-            actual_format = "mp3"
+    actual_format = _sniff_audio_format(audio_bytes, content_type)
     if actual_format:
         remember_tts_response_format(fmt_key, actual_format)
-    else:
-        actual_format = response_format
+    actual_format = actual_format or response_format
     if actual_format == "pcm":
         audio_bytes = _pcm_s16le_to_wav(audio_bytes, _pcm_rate_from_content_type(content_type))
     elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -375,5 +358,5 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
         log.info("TTS playback cancelled after download")
         return None
     suffix = ".mp3" if actual_format == "mp3" else ".wav"
-    return _EndpointClip(audio=audio_bytes, suffix=suffix, request_format=actual_format)
+    return _EndpointClip(audio=audio_bytes, suffix=suffix)
 
