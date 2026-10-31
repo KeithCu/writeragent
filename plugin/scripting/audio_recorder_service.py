@@ -42,16 +42,13 @@ _RECORDING_MONITOR_JOIN_SEC = 1.0
 _VENV_NOT_CONFIGURED = "Set the Python venv path in WriterAgent Settings → Python, then run 'uv pip install sounddevice' in that venv."
 
 
-def is_audio_recording_configured(ctx: Any) -> bool:
+def is_audio_recording_configured() -> bool:
     """True when Settings → Python points at a venv with a python executable."""
-    del ctx
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
-    return resolve_venv_python(venv_dir) is not None
+    return resolve_recording_python()[0] is not None
 
 
-def resolve_recording_python(ctx: Any) -> tuple[str | None, str]:
+def resolve_recording_python() -> tuple[str | None, str]:
     """Return (venv python executable, error message)."""
-    del ctx
     venv_dir = get_config_str("scripting.python_venv_path").strip()
     if not venv_dir:
         return None, _VENV_NOT_CONFIGURED
@@ -243,18 +240,15 @@ def _reap_recording_process(
     the drain at the same time filled the stderr pipe and stalled the child.
     """
     proc = _recording_popen(managed)
-    try:
-        proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        proc.terminate()
+    for wait_sec, escalate in ((timeout_sec, proc.terminate), (1.0, lambda: kill_process_tree(proc)), (2.0, None)):
         try:
-            proc.wait(timeout=1.0)
+            proc.wait(timeout=wait_sec)
+            break
         except subprocess.TimeoutExpired:
-            kill_process_tree(proc)
-            try:
-                proc.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
+            if escalate is None:
                 log.warning("audio recorder pid=%s still alive after kill", proc.pid)
+            else:
+                escalate()
     # Closing stdout unblocks a read, and joining first is what keeps that
     # close off the common path; the fatal ValueError remains for a join that
     # times out or a reap with no handoff.
@@ -273,21 +267,11 @@ def _reap_recording_process(
     _close_recording_pipe(proc.stderr, "stderr")
 
 
-def _known_path(handoff: RecordingStopHandoff, fallback_path: str | None) -> str | None:
-    known = handoff.snapshot_path()
-    if known:
-        return known
-    if isinstance(fallback_path, str) and fallback_path:
-        return fallback_path
-    return None
-
-
 def stop_recording_process(
     managed: ManagedSubprocess,
     *,
     handoff: RecordingStopHandoff,
     timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC,
-    fallback_path: str | None = None,
     monitor: BackgroundHandle | None = None,
 ) -> str:
     """Send the stop line and wait on the handoff for the WAV path.
@@ -303,7 +287,7 @@ def stop_recording_process(
         exited = proc.poll() is not None
         try:
             if exited:
-                known = _known_path(handoff, fallback_path)
+                known = handoff.snapshot_path()
                 if known:
                     return known
                 return handoff.wait_for_path(min(timeout_sec, 1.0))
@@ -315,7 +299,7 @@ def stop_recording_process(
                 raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
             return handoff.wait_for_path(timeout_sec)
         except RuntimeError:
-            known = _known_path(handoff, fallback_path)
+            known = handoff.snapshot_path()
             if known:
                 return known
             if exited:
@@ -476,8 +460,10 @@ def make_temp_wav_path() -> str:
     return path
 
 
-def check_host_audio_supported() -> bool:
-    """Check if host-side audio recording is supported by trying to import sounddevice."""
+def is_audio_recording_supported() -> bool:
+    """True when either the user venv is configured, or host-side audio libraries are installed."""
+    if is_audio_recording_configured():
+        return True
     ensure_native_binaries_on_path()
     try:
         import sounddevice as sd
@@ -486,13 +472,6 @@ def check_host_audio_supported() -> bool:
         return any(d.get("max_input_channels", 0) > 0 for d in devices)
     except Exception:
         return False
-
-
-def is_audio_recording_supported(ctx: Any) -> bool:
-    """True when either the user VENV is configured, or host-side audio libraries are installed."""
-    if is_audio_recording_configured(ctx):
-        return True
-    return check_host_audio_supported()
 
 
 def append_wav_as_input_audio(content_list: list[dict[str, Any]], wav_path: str) -> bool:

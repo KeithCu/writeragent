@@ -707,8 +707,7 @@ def _apply_fake_stt(mode: str) -> None:
             # Record only spawns the venv recorder when a venv python resolves.
             # The fake replaces the child command anyway, so hand back the
             # interpreter the fake children run under.
-            def fake_resolve_recording_python(ctx: Any) -> tuple[str | None, str]:
-                del ctx
+            def fake_resolve_recording_python() -> tuple[str | None, str]:
                 return _fake_child_python(), ""
 
             setattr(audio_recorder, "resolve_recording_python", fake_resolve_recording_python)

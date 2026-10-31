@@ -295,20 +295,6 @@ def test_monitor_recording_stdout_invokes_auto_stop_callback(tmp_path):
     assert progress == [500]
 
 
-def test_stop_recording_process_uses_fallback_when_child_already_exited(tmp_path):
-    from io import StringIO
-    from unittest.mock import MagicMock
-
-    from plugin.scripting.audio_recorder_service import RecordingStopHandoff, stop_recording_process
-
-    fallback_file = str(tmp_path / "fallback.wav")
-    proc = MagicMock()
-    proc.poll.return_value = 0
-    proc.stdout = StringIO("")
-    handoff = RecordingStopHandoff()
-    assert stop_recording_process(_recording_child(proc), fallback_path=fallback_file, handoff=handoff) == fallback_file
-
-
 def test_room_noise_below_loud_onset_adapts_and_then_auto_stops():
     detector = SilenceDetector(SilenceDetectorConfig(silence_stop_ms=200), sample_rate=16000)
     # 300 ms at amplitude 328 (30 chunks of 160 samples)

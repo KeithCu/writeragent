@@ -447,7 +447,7 @@ class SendButtonListener(BaseActionListener):
             )
         else:
             self.audio_recorder = None
-        audio_supported = HAS_RECORDING and is_audio_recording_supported(ctx)
+        audio_supported = HAS_RECORDING and is_audio_recording_supported()
 
         send_initial = SendButtonState(mode=SendMode.IDLE, has_text=False, has_audio=False, audio_supported=audio_supported)
         self.sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None)

@@ -48,18 +48,16 @@ def test_reap_kills_the_group_before_dropping_stderr(monkeypatch):
 
 
 def test_is_audio_recording_configured_true():
-    ctx = MagicMock()
     with (
         patch("plugin.scripting.audio_recorder_service.get_config_str", return_value="/venv"),
         patch("plugin.scripting.audio_recorder_service.resolve_venv_python", return_value="/venv/bin/python"),
     ):
-        assert is_audio_recording_configured(ctx) is True
+        assert is_audio_recording_configured() is True
 
 
 def test_is_audio_recording_configured_false_when_empty():
-    ctx = MagicMock()
     with patch("plugin.scripting.audio_recorder_service.get_config_str", return_value=""):
-        assert is_audio_recording_configured(ctx) is False
+        assert is_audio_recording_configured() is False
 
 
 def test_wait_for_recording_ready_accepts_ready_line():
@@ -152,9 +150,8 @@ def test_wait_for_recording_ready_eof_raises_runtime_error():
 
 
 def test_resolve_recording_python_requires_venv():
-    ctx = MagicMock()
     with patch("plugin.scripting.audio_recorder_service.get_config_str", return_value=""):
-        exe, err = resolve_recording_python(ctx)
+        exe, err = resolve_recording_python()
         assert exe is None
         assert "Settings" in err
 
