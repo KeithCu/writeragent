@@ -56,15 +56,12 @@ def _discover_statements(
     found: list[ast.stmt] = []
     parents: dict[ast.AST, ast.AST] = {}
 
-    class FindVisitor(ast.NodeVisitor):
-        def generic_visit(self, node: ast.AST) -> None:
-            if isinstance(node, ast.stmt) and should_remove(node):
-                found.append(node)
-            for child in ast.iter_child_nodes(node):
-                parents[child] = node
-                self.visit(child)
-
-    FindVisitor().visit(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.stmt) and should_remove(node):
+            found.append(node)
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+    found.sort(key=lambda node: (node.lineno, node.col_offset))
     return found, parents
 
 
@@ -173,9 +170,7 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
             # ``print(1); keep()`` shares a line. Deleting the whole line drops keep().
             if start_line == end_line and end_col is not None:
                 raw = lines[first_idx]
-                prefix = raw[:node.col_offset]
-                suffix = raw[end_col:]
-                if prefix.strip() or suffix.strip():
+                if raw[:node.col_offset].strip() or raw[end_col:].strip():
                     same_line_spans.setdefault(first_idx, []).append((node.col_offset, end_col))
                     continue
             for idx in range(first_idx, last_idx + 1):
