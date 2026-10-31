@@ -1447,53 +1447,35 @@ def _flatten_grid_to_components(
             return False
 
     if is_2d:
-        grid_2d = cast("list[list[Any]]", grid)
-        # Rectangular check already ran in _validate_rectangular_grid, before this
-        # accelerator. It used to run only on the stdlib branch, so a native
-        # packer could pad a jagged grid and skip the ValueError. A short or
-        # long accelerator buffer still raises inside the try so the except
-        # falls back to stdlib (buf_append still targets the original buffer).
-        use_stdlib = True
-        if fast_flatten_grid_2d is not None:
-            rows = [list(row) if type(row) is tuple else row for row in grid_2d]
-            use_stdlib = not _try_accel(
-                fast_flatten_grid_2d, (rows, ncols), nrows * ncols, label="accelerator"
-            )
-
-        if use_stdlib:
-            _stdlib_flatten_pass(_iter_split_grid_cells(grid_2d, is_2d=True))
+        cells = cast("list[list[Any]]", grid)
+        accel_fn = fast_flatten_grid_2d
+        accel_args: tuple[Any, ...] = (
+            ([list(row) if type(row) is tuple else row for row in cells], ncols)
+            if accel_fn is not None
+            else ()
+        )
+        expected = nrows * ncols
+        label = "accelerator"
     else:
-        grid_1d = cast("list[Any]", grid)
-        use_stdlib = True
-        if fast_flatten_grid_1d is not None:
-            use_stdlib = not _try_accel(
-                fast_flatten_grid_1d, (grid_1d,), len(grid_1d), label="1D accelerator"
-            )
-
-        if use_stdlib:
-            _stdlib_flatten_pass(_iter_split_grid_cells(grid_1d, is_2d=False))
+        cells = cast("list[Any]", grid)
+        accel_fn = fast_flatten_grid_1d
+        accel_args = (cells,)
+        expected = len(cells)
+        label = "1D accelerator"
+    # Jagged grids are already rejected by _validate_rectangular_grid.
+    # A short or long accelerator buffer falls back inside _try_accel.
+    if accel_fn is None or not _try_accel(accel_fn, accel_args, expected, label=label):
+        _stdlib_flatten_pass(_iter_split_grid_cells(cells, is_2d=is_2d))
 
     # Map the final column states to "int" / "float" / "bool" with single-pass promotions
     column_kinds: list[str] = []
     for c in range(num_cols):
         state = column_states[c]
-        if state == 3:
-            kind = "float"
-        elif state == 1:
-            kind = "bool"
-        elif state == 0:
-            # No numeric cell was seen (text-only, or blanks beside text).
-            # "int" was a lie for any consumer that trusts the tag. Decode
-            # still prefers the strings map, so cell values do not change.
-            kind = "float"
-        else:
-            kind = "int"
-
-        # If purely numeric grid (strings is empty), any column with None must be promoted to "float"
-        # to avoid NumPy casting errors on NaN values.
+        # 0 (no numeric cell) and 3 are float. 1 is bool. 2 is int.
+        # Empty used to be tagged "int", which lied for text-only columns.
+        kind = ("float", "bool", "int", "float")[state] if 0 <= state <= 3 else "int"
         if not strings and column_has_none[c]:
             kind = "float"
-
         column_kinds.append(kind)
 
     # The Cython accelerator can leave np.str_ in the map (it is a str subclass).
