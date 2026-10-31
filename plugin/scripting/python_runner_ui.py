@@ -207,6 +207,7 @@ class NativePythonScriptDialog:
         self._script_origin_map: dict[str, str] = {}
         self._closed = False
         self._top_listener: Any | None = None
+        self._open_failure_detail = None
         self._name_config_key = resolve_run_script_name_config_key(initial_doc)
 
     def close(self, *, toolkit_teardown: bool = False) -> None:
