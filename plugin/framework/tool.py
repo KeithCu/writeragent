@@ -502,7 +502,6 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"})
 # Sync tools that declare timeout= cannot enforce it. Warn once per name.
 _sync_timeout_warned: set[str] = set()
-_UNSET_EXCLUDE_TIERS = object()
 
 def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
     """Return True when *tool* is allowed on a document with the cached type/services."""
@@ -684,7 +683,7 @@ class ToolRegistry:
         doc_type: str | None = None,
         names: Any = None,
         filter_doc_type: bool = True,
-        exclude_tiers: Any = _UNSET_EXCLUDE_TIERS,
+        exclude_tiers: Any = _DEFAULT_EXCLUDE_TIERS,
         active_domain: str | None = None,
         uno_services_supported: Any = None,
         ctx: Any = None,
@@ -734,10 +733,7 @@ class ToolRegistry:
         # If we have an active domain, we want to include its tools (and the finish tool),
         # even if they are in the excluded tiers.
 
-        if exclude_tiers is _UNSET_EXCLUDE_TIERS:
-            to_exclude = _DEFAULT_EXCLUDE_TIERS
-        else:
-            to_exclude = frozenset(exclude_tiers) if exclude_tiers else frozenset()
+        to_exclude = frozenset(exclude_tiers) if exclude_tiers else frozenset()
 
         if active_domain:
             # Restrict the list to this domain, the finish tool, and names the
@@ -998,7 +994,6 @@ class ToolRegistry:
             tool_kwargs: Raw arguments passed by caller.
         """
         try:
-            kwargs = dict(tool_kwargs)
             tool = self._tools.get(tool_name)
             if tool is None:
                 # Return a structured error instead of raising KeyError so the model
@@ -1020,7 +1015,7 @@ class ToolRegistry:
                     tool_name=tool_name,
                 )
 
-            prepared = prepare_tool_call(tool, ctx, tool_name, kwargs)
+            prepared = prepare_tool_call(tool, ctx, tool_name, tool_kwargs)
             if prepared.error is not None:
                 return prepared.error
             kwargs, ignored, common_details = prepared.kwargs, prepared.ignored, prepared.details
@@ -1060,12 +1055,7 @@ class ToolRegistry:
             if isinstance(result, dict) and result.get("status") == "error":
                 result_details = result.get("details", {})
                 if isinstance(result_details, dict):
-                    # merge common_details into result_details without overwriting existing keys
-                    merged: dict[str, Any] = dict(result_details)
-                    for k, v in common_details.items():
-                        if k not in merged:
-                            merged[k] = v
-                    cast("dict[str, Any]", result)["details"] = merged
+                    cast("dict[str, Any]", result)["details"] = {**common_details, **result_details}
 
             # The dropped keys used to vanish silently: image_insert(paragraph_index=70) -- the
             # name image_list reports -- dropped the index and put the image at the view cursor
