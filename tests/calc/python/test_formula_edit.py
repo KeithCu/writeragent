@@ -259,7 +259,7 @@ def test_format_py_and_excel_data_range_real_sheets():
     assert format_py_data_range("!A1") == "''.A1"
     assert build_data_suffix(["Sheet.A1"]) == ";Sheet.A1)"
     assert build_data_suffix(["'My Sheet'.A1"]) == ";'My Sheet'.A1)"
-    assert build_data_suffix(["Sheet!A1"], separator=",", excel_ranges=True) == ",Sheet!A1)"
+    assert build_data_suffix(["Sheet!A1"], separator=",") == ",Sheet!A1)"
     assert build_data_suffix(["My Sheet.A1"], separator=",") == ",'My Sheet'!A1)"
 
 
@@ -298,7 +298,7 @@ def test_calc_escape_preserves_hand_written_code():
     code = "x = float(1)"
     assert escape_code_for_formula(code) == code
     calc = rebuild_python_formula_with_data(code, [])
-    xlsx = rebuild_python_formula_with_data(code, [], separator=",", excel_escape=True)
+    xlsx = rebuild_python_formula_with_data(code, [], separator=",")
     assert "float(1)" in calc
     assert "float(1)" in xlsx
     assert xlsx.startswith('=PY("')

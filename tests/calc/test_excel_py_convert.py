@@ -776,7 +776,7 @@ def test_excel_escape_skips_calc_sanitizer():
     code = "x = float(1)"
     assert escape_code_for_formula(code) == code
     calc = rebuild_python_formula_with_data(code, [])
-    xlsx = rebuild_python_formula_with_data(code, [], separator=",", excel_escape=True)
+    xlsx = rebuild_python_formula_with_data(code, [], separator=",")
     assert "float(1)" in calc
     assert "float(1)" in xlsx
     assert xlsx.endswith('")')

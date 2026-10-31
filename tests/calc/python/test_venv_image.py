@@ -235,7 +235,7 @@ def test_insert_image_result_on_sheet_uses_passed_doc_not_front_window():
         target.createInstance.return_value = MagicMock()
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=target)
     locate.assert_called()
-    assert locate.call_args[0][1] is target
+    assert locate.call_args[0][0] is target
 
 
 def test_insert_image_result_on_sheet_aborts_when_formula_location_fails_for_code():

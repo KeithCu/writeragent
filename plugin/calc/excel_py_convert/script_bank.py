@@ -111,20 +111,24 @@ def should_inline_code(code: str, data_args: Sequence[str] = ()) -> bool:
     return len(rebuild_python_formula_with_data(code or "", list(data_args))) <= INLINE_CODE_MAX_CHARS
 
 
-def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";", excel_escape: bool = False) -> str:
+def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";") -> str:
     """Build ``=PY`` for a converted cell.
 
     Inline when the escaped formula is <= 1000 chars; otherwise reference
     ``py_code_<Sheet>.A1`` (same address as the caller).
     """
     args = list(cell.data_args)
-    excel_syntax = excel_escape or separator == ","
+    excel_syntax = separator == ","
     if should_inline_code(cell.converted_code, args):
-        return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator, excel_escape=excel_escape)
+        return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator)
     if not cell.cell or not cell.sheet:
         raise ValueError(f"script too long ({len(cell.converted_code)} chars) to inline")
     try:
-        return rebuild_python_formula_with_code_ref(code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax), args, separator=separator, excel_ranges=excel_syntax)
+        return rebuild_python_formula_with_code_ref(
+            code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax),
+            args,
+            separator=separator,
+        )
     except ValueError as exc:
         raise ValueError(f"script too long ({len(cell.converted_code)} chars) and bank ref failed: {exc}") from exc
 

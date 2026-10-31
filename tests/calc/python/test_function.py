@@ -266,13 +266,12 @@ def test_locate_formula_cell_in_doc_finds_on_secondary_sheet() -> None:
     sheet1 = CalcSheetStub("Overview")
     sheet2 = CalcSheetStub("Viz_Gallery")
     doc = CalcDocStub(sheets=[sheet1, sheet2], active_sheet="Overview")
-    ctx = _ctx_with_doc(doc)
 
     code = "plt.plot([10, 20])"
     formula_cell = sheet2.getCellByPosition(3, 6)
     formula_cell.setFormula(f'=PY("{code}")')
 
-    located = python_function.locate_formula_cell_in_doc(ctx, doc, code)
+    located = python_function.locate_formula_cell_in_doc(doc, code)
     assert located is not None
     found_sheet, found_cell, coords = located
     assert found_sheet.getName() == "Viz_Gallery"
