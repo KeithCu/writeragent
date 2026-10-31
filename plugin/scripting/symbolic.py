@@ -96,11 +96,9 @@ def run_trusted_symbolic(
     if isinstance(params, dict) and params:
         spec["params"] = params
 
-    context: dict[str, Any] = {}
-    if task_hint:
-        context["task_hint"] = str(task_hint)
-
-    return client_run_symbolic(uno_ctx, spec, None, context=context or None)
+    return client_run_symbolic(
+        uno_ctx, spec, None, context={"task_hint": str(task_hint)} if task_hint else None
+    )
 
 
 # --- Egress ---

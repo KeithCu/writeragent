@@ -19,6 +19,8 @@ from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.venv.map_range import inspect_input, map_over_range
 from plugin.scripting.venv.trusted_dispatch import (
     error_result as _error_result,
+    is_blank_param,
+    missing_package_error,
     resolve_spec_helper,
 )
 
@@ -60,19 +62,9 @@ def _require_pint() -> Any | None:
     return pint
 
 
-def _missing_package(helper: str) -> dict[str, Any]:
-    return _error_result(
-        "MISSING_PACKAGE",
-        f"pint is required for {helper}.",
-        helper=helper,
-    )
-
-
 @lru_cache(maxsize=None)
 def _get_ureg() -> Any:
-    pint = _require_pint()
-    if pint is None:
-        raise RuntimeError("pint is required")
+    import pint
     return pint.UnitRegistry()
 
 
@@ -115,19 +107,6 @@ def _quantity_payload(qty: Any, *, helper: str, display_unit: str | None = None)
     return _ok_result(helper, magnitude=magnitude, units=units, formatted=formatted)
 
 
-def _is_blank_param(value: Any) -> bool:
-    """True for omitted helper args. Ranges and arrays must not use ``!= ""`` (numpy truthiness)."""
-    return value is None or (isinstance(value, str) and value == "")
-
-
-def _is_missing_unit(value: Any) -> bool:
-    # " " passed the None/"" guard, _required_unit_text raised, and
-    # map_over_range stored #VALUE!.
-    if _is_blank_param(value):
-        return True
-    return isinstance(value, str) and value.strip() == ""
-
-
 def _aliases_agree(left: Any, right: Any) -> bool:
     if isinstance(left, str) and isinstance(right, str):
         return left.strip() == right.strip()
@@ -148,8 +127,8 @@ def _resolve_unit_alias(primary: Any, alias: Any) -> tuple[Any, bool]:
     # How: each call site passed the keys to _first_nonblank in its own order.
     # Why this fixes it: both sites share this helper, and two non-blank aliases
     # that disagree are INVALID_SPEC instead of a silent pick.
-    primary_blank = _is_blank_param(primary)
-    alias_blank = _is_blank_param(alias)
+    primary_blank = is_blank_param(primary)
+    alias_blank = is_blank_param(alias)
     if primary_blank and alias_blank:
         return "", False
     if primary_blank:
@@ -186,9 +165,7 @@ def _finite_magnitude(value: Any, *, empty_message: str) -> float:
 
 
 def _required_unit_text(unit_text: Any) -> str:
-    if unit_text is None:
-        raise ValueError("missing units")
-    text = str(unit_text).strip()
+    text = "" if unit_text is None else str(unit_text).strip()
     if not text:
         raise ValueError("missing units")
     return text
@@ -266,7 +243,7 @@ def convert_quantity(
     """
     helper = "convert_quantity"
     if _require_pint() is None:
-        return _missing_package(helper)
+        return missing_package_error(helper, "pint")
 
     from_text, from_conflict = _resolve_unit_alias(from_unit, kwargs.get("from"))
     if from_conflict:
@@ -275,7 +252,7 @@ def convert_quantity(
     if to_conflict:
         return _error_result("INVALID_SPEC", "to and to_unit disagree", helper=helper)
 
-    if _is_missing_unit(from_text) or _is_missing_unit(to_text):
+    if is_blank_param(from_text, strip=True) or is_blank_param(to_text, strip=True):
         return _error_result("MISSING_PARAM", "from and to units are required", helper=helper)
 
     return map_over_range(
@@ -299,8 +276,8 @@ def parse_quantity(*, quantity: Any = "", **kwargs: Any) -> Any:
     del kwargs  # quantity is already keyword-only; extra keys must not TypeError
     helper = "parse_quantity"
     if _require_pint() is None:
-        return _missing_package(helper)
-    if _is_blank_param(quantity):
+        return missing_package_error(helper, "pint")
+    if is_blank_param(quantity):
         return _error_result("MISSING_PARAM", "quantity is required", helper=helper)
     return map_over_range(
         _scalar_parse,
@@ -329,8 +306,8 @@ def format_quantity(
     del kwargs
     helper = "format_quantity"
     if _require_pint() is None:
-        return _missing_package(helper)
-    if _is_missing_unit(units):
+        return missing_package_error(helper, "pint")
+    if is_blank_param(units, strip=True):
         return _error_result("MISSING_PARAM", "units is required", helper=helper)
     return map_over_range(
         _scalar_format,
@@ -350,7 +327,7 @@ def check_dimensionality(
 ) -> dict[str, Any]:
     helper = "check_dimensionality"
     if _require_pint() is None:
-        return _missing_package(helper)
+        return missing_package_error(helper, "pint")
     left, left_conflict = _resolve_unit_alias(quantity_a, unit_a)
     right, right_conflict = _resolve_unit_alias(quantity_b, unit_b)
     if left_conflict or right_conflict:
@@ -459,7 +436,7 @@ def _convert_formatted(flat: list[Any], suffixes: list[str]) -> list[Any]:
 def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
     name = "convert_quantity"
     if _require_pint() is None:
-        return _missing_package(name)
+        return missing_package_error(name, "pint")
     raw_from, from_conflict = _resolve_unit_alias(params.get("from_unit"), params.get("from"))
     if from_conflict:
         return _error_result("INVALID_SPEC", "from and from_unit disagree", helper=name)
@@ -468,8 +445,8 @@ def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
         return _error_result("INVALID_SPEC", "to and to_unit disagree", helper=name)
     raw_val = params.get("value")
     if inspect_input(raw_val).is_scalar and inspect_input(raw_from).is_scalar and inspect_input(raw_to).is_scalar:
-        from_text = "" if _is_blank_param(raw_from) else str(_scalar_cell(raw_from) or "").strip()
-        to_text = "" if _is_blank_param(raw_to) else str(_scalar_cell(raw_to) or "").strip()
+        from_text = "" if is_blank_param(raw_from) else str(_scalar_cell(raw_from) or "").strip()
+        to_text = "" if is_blank_param(raw_to) else str(_scalar_cell(raw_to) or "").strip()
         if not from_text or not to_text:
             return _error_result("MISSING_PARAM", "from and to units are required", helper=name)
 
@@ -505,7 +482,7 @@ def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
 def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
     name = "parse_quantity"
     if _require_pint() is None:
-        return _missing_package(name)
+        return missing_package_error(name, "pint")
     # What was wrong: parse_quantity("") and parse_quantity(quantity=None)
     # returned MISSING_PARAM, while run_units with quantity "" or None returned
     # PARSE_ERROR / empty quantity.
@@ -513,7 +490,7 @@ def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
     # and _guarded labeled it a parse error.
     # Why this fixes it: omitted quantity uses the same MISSING_PARAM check as
     # the direct function. Whitespace-only text is still parsed.
-    if _is_blank_param(params.get("quantity")):
+    if is_blank_param(params.get("quantity")):
         return _error_result("MISSING_PARAM", "quantity is required", helper=name)
     raw_qty = params.get("quantity")
     if inspect_input(raw_qty).is_scalar:
@@ -537,7 +514,7 @@ def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
 def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
     name = "format_quantity"
     if _require_pint() is None:
-        return _missing_package(name)
+        return missing_package_error(name, "pint")
     raw_mag = params.get("magnitude")
     raw_units = params.get("units")
     raw_spec = str(params.get("format_spec") or "")

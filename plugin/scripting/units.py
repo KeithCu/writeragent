@@ -25,13 +25,13 @@ from plugin.scripting.helper_domain import (
 from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
 
-_SHIPPED_TEMPLATES = frozenset({"convert_quantity", "parse_quantity", "check_dimensionality"})
-
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "convert_quantity": {"value": "data", "from": "m/s", "to": "km/h"},
     "parse_quantity": {"quantity": "data"},
     "check_dimensionality": {"quantity_a": "10 m/s", "quantity_b": "5 km/h"},
 }
+
+_SHIPPED_TEMPLATES = frozenset(_DEFAULT_PARAMS)
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {
     "convert_quantity": "Convert a numeric value between units.",
@@ -88,13 +88,9 @@ def extract_units_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     body_params = spec.get("params") if spec else None
     if not isinstance(body_params, dict):
         return {}
-    raw_style = body_params.get("output_style")
-    if raw_style is None:
-        return {}
-    output_style = str(raw_style).strip()
-    if output_style == "":
-        return {}
-    return {"output_style": output_style}
+    raw = body_params.get("output_style")
+    style = "" if raw is None else str(raw).strip()
+    return {"output_style": style} if style else {}
 
 
 # Ordinary dicts with formatted and magnitude are not units results:
