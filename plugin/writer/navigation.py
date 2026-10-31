@@ -42,7 +42,6 @@ def _nav_result(tool: ToolWriterStructuralBase, call: Callable[[], dict[str, Any
 
 class NavHeading(ToolWriterStructuralBase):
     name: str | None = "nav_heading"
-    intent: str | None = "navigate"
     is_mutation: bool | None = False
     description: str = (
         "Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. "
@@ -66,7 +65,6 @@ class NavHeading(ToolWriterStructuralBase):
 
 class NavSurroundings(ToolWriterStructuralBase):
     name: str | None = "nav_surroundings"
-    intent: str | None = "navigate"
     is_mutation: bool | None = False
     description: str = (
         "Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments. "
@@ -90,7 +88,6 @@ class NavSurroundings(ToolWriterStructuralBase):
 
 class NavHeadingChildren(ToolWriterStructuralBase):
     name: str | None = "nav_heading_children"
-    intent: str | None = "navigate"
     is_mutation: bool | None = False
     description: str = (
         "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark (exactly one). heading: is ordinal path among siblings, not Writer's chapter number. "

@@ -425,7 +425,6 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
 
 class GetDrawTree(ToolBase):
     name: str | None = "get_draw_tree"
-    intent: str | None = "read"
     description: str = (
         "Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. "
         "Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a "

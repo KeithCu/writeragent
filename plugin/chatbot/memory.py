@@ -237,7 +237,6 @@ class MemoryTool(ToolBase):
     )
     uno_services: list[str] | None = None
     tier: str = "core"
-    intent: str | None = "navigate"
     is_mutation: bool | None = False
 
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"key": {"type": "string", "description": "The key to update or insert (e.g., 'favorite_color')."}, "content": {"type": "string", "description": "The new value to associate with the key."}}, "required": ["key", "content"]}

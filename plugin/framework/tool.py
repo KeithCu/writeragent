@@ -126,26 +126,6 @@ class ToolContext:
     send_cancellation: Any | None
     uno_services_supported: frozenset[str]
 
-    __slots__: ClassVar[tuple[str, ...]] = (
-        "doc",
-        "ctx",
-        "doc_type",
-        "services",
-        "caller",
-        "active_page_index",
-        "status_callback",
-        "append_thinking_callback",
-        "stop_checker",
-        "approval_callback",
-        "chat_append_callback",
-        "set_active_domain_callback",
-        "active_domain",
-        "python_tool_domain",
-        "read_only_target",
-        "send_cancellation",
-        "uno_services_supported",
-    )
-
     def __init__(
         self,
         doc: Any,
@@ -193,8 +173,8 @@ class ToolContext:
             self.stop_checker = send_cancellation.is_cancelled
 
     def derive(self, **overrides: Any) -> ToolContext:
-        """Derive a new context copying every slot then applying overrides, with __init__ applying uno_services_supported and stop_checker rules."""
-        values = {name: getattr(self, name) for name in self.__slots__}
+        """Derive a new context copying instance attributes then applying overrides, with __init__ applying uno_services_supported and stop_checker rules."""
+        values = dict(vars(self))
         values.update(overrides)
         return ToolContext(**values)
 
@@ -272,8 +252,6 @@ class ToolBase(_ToolErrorMixin, ABC):
                      ``"specialized_control"`` (hidden from default lists via
                      ``exclude_tiers``). Sidebar-only tools use ``"chat"``
                      (on the chat wire; hidden from MCP). Default ``"core"``.
-        intent:      Optional group label (e.g. "navigate", "edit", "review",
-                     "media"). Registry lookup does not filter on it.
         is_mutation:  Whether the tool mutates the document.  ``None``
                      means auto-detect from a read prefix (``get_``,
                      ``list_``, …) or a later domain-verb token
@@ -286,7 +264,6 @@ class ToolBase(_ToolErrorMixin, ABC):
     parameters: dict[str, Any] | None = None
     uno_services: list[str] | None = None
     tier: str = "core"
-    intent: str | None = None
     is_mutation: bool | None = None
     long_running: bool = False
     is_final_answer_tool: bool = False
@@ -804,11 +781,10 @@ class ToolRegistry:
 
             doc_type = doc_type_str_from_doc(doc)
 
-        tools_kwargs = dict(kwargs)
         if doc_type is not None:
-            tools_kwargs["doc_type"] = doc_type
+            kwargs["doc_type"] = doc_type
 
-        tools = self.get_tools(active_domain=active_domain, **tools_kwargs)
+        tools = self.get_tools(active_domain=active_domain, **kwargs)
         # Probed services tell Impress (PresentationDocument) from Draw; both carry doc_type "draw".
         from plugin.doc.doc_type import uno_services_for_document
         from plugin.doc.specialized_base import narrow_delegate_domain_enums
@@ -857,10 +833,9 @@ class ToolRegistry:
             return 0.0
         return float(raw)
 
-    def _execute_with_timeout(self, func: Any, timeout: float, tool_name: str = "<unknown>", run_threaded: bool = True) -> Any:
+    def _execute_with_timeout(self, func: Any, timeout: float, tool_name: str = "<unknown>") -> Any:
         """Run *func* with an optional wall-clock timeout.
 
-        If ``run_threaded`` is False, the timeout is ignored and the function runs inline.
         Sync tools are marshaled to the main thread by ``ToolRegistry.execute`` before this runs.
 
         Timeout **abandons** the worker; it does not kill the dedicated thread.
@@ -871,15 +846,6 @@ class ToolRegistry:
         """
         # crosshair: off
         if timeout <= 0:
-            return func()
-
-        if not run_threaded:
-            # The timeout needs a thread, and execute hits this path on each
-            # run. One line per tool name is enough; warning every call
-            # floods the log for a sync tool with timeout=.
-            if tool_name not in _sync_timeout_warned:
-                _sync_timeout_warned.add(tool_name)
-                log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
             return func()
 
         result_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -1029,7 +995,6 @@ class ToolRegistry:
             # Sync tools are marshaled to the LO main thread so MCP long-running and any
             # other worker-thread caller cannot touch UNO off-thread.
             runner = tool.execute if bypass_thread_guard else tool.execute_safe
-            run_threaded = bypass_thread_guard or bool(tool.is_async())
             timeout = self._get_tool_timeout(tool)
 
             # Bugfix: A spread model dict (e.g. from MCP or host RPC) containing keys
@@ -1043,13 +1008,20 @@ class ToolRegistry:
                 return runner(ctx, **kwargs)
 
             if bypass_thread_guard or tool.is_async():
-                result = self._execute_with_timeout(_run_tool, timeout, tool_name, run_threaded)
+                result = self._execute_with_timeout(_run_tool, timeout, tool_name)
             else:
-                # We let the marshal TimeoutError become TOOL_REGISTRY_ERROR, not a
-                # TOOL_TIMEOUT/cancel path, because QueueExecutor raises it only for
-                # work that never started (started work is waited out), so nothing
-                # lands late and a retry is safe.
-                result = execute_on_main_thread(lambda: self._execute_with_timeout(_run_tool, timeout, tool_name, run_threaded))
+                def _run_sync() -> Any:
+                    if timeout > 0 and tool_name not in _sync_timeout_warned:
+                        _sync_timeout_warned.add(tool_name)
+                        log.warning(
+                            "Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. "
+                            "Set is_async() to True to enable timeout enforcement.",
+                            tool_name,
+                            timeout,
+                        )
+                    return _run_tool()
+
+                result = execute_on_main_thread(_run_sync)
 
             # Ensure any returned dict with status='error' includes full context details
             if isinstance(result, dict) and result.get("status") == "error":

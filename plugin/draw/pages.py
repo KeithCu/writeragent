@@ -84,7 +84,6 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
 
 class AddSlide(ToolBase):
     name: str | None = "add_slide"
-    intent: str | None = "edit"
     description: str = "Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master. Call list_placeholders before set_placeholder_text."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -185,7 +184,6 @@ def _check_page_range(tool: ToolBase, pages: Any, page_idx: int) -> dict[str, An
 
 class DeleteSlide(_SlideMutationTool):
     name: str | None = "delete_slide"
-    intent: str | None = "edit"
     description: str = "Deletes the slide (page) at the specified index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
 
@@ -304,7 +302,6 @@ class GetPresentationInfo(ToolBase):
 
 class SetActivePage(ToolBase):
     name: str | None = "set_active_page"
-    intent: str | None = "navigate"
     description: str = "Changes the currently active slide (page) in Draw/Impress."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
     uno_services: list[str] | None = _DRAW_UNO
@@ -333,7 +330,6 @@ class SetActivePage(ToolBase):
 
 class DuplicateSlide(_SlideMutationTool):
     name: str | None = "duplicate_slide"
-    intent: str | None = "edit"
     description: str = "Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "description": "Whether to switch the view to the new slide (default: true)"}}, "required": ["page"]}
     tier: str = "core"
@@ -359,7 +355,6 @@ class DuplicateSlide(_SlideMutationTool):
 
 class MoveSlide(_SlideMutationTool):
     name: str | None = "move_slide"
-    intent: str | None = "edit"
     description: str = "Moves a slide from from_page to to_page (both 0-based). to_page is the destination index after removal of the source (insert-at that index)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"from_page": {"type": "integer", "description": "0-based source slide index"}, "to_page": {"type": "integer", "description": "0-based destination slide index"}}, "required": ["from_page", "to_page"]}
     tier: str = "core"
@@ -384,7 +379,6 @@ class MoveSlide(_SlideMutationTool):
 
 class RenameSlide(_SlideMutationTool):
     name: str | None = "rename_slide"
-    intent: str | None = "edit"
     description: str = "Sets the Name property of a slide (0-based page index)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index"}, "name": {"type": "string", "description": "New slide name"}}, "required": ["page", "name"]}
     tier: str = "core"

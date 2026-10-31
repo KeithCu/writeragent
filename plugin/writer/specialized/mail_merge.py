@@ -99,7 +99,6 @@ class ListDataSources(ToolWriterMailMergeBase):
     """List all registered LibreOffice data sources and inspect tables and columns."""
 
     name: str | None = "mail_merge_list_sources"
-    intent: str | None = "examine"
     description: str = (
         "List all registered LibreOffice data sources (e.g. databases, registered spreadsheets, CSVs). "
         "Optionally inspect tables/sheets and columns by setting include_tables=True."
@@ -194,7 +193,6 @@ class RegisterDataSource(ToolWriterMailMergeBase):
     """Register or unregister an .odb database file in LibreOffice."""
 
     name: str | None = "mail_merge_register_source"
-    intent: str | None = "edit"
     description: str = (
         "Register or unregister an .odb database file as a named data source in LibreOffice, "
         "making it available for mail merge operations and merge fields."
@@ -301,7 +299,6 @@ class InsertField(ToolWriterMailMergeBase):
     """Insert a database mail merge field at the specified document location."""
 
     name: str | None = "mail_merge_insert_field"
-    intent: str | None = "edit"
     description: str = (
         "Insert a database mail merge field (e.g. <FirstName>, <Address>) at the specified position. "
         "Use target='beginning', 'end', or 'selection' to insert at those positions. "
@@ -431,7 +428,6 @@ class ListFields(ToolWriterMailMergeBase):
     """List all database mail merge fields placed in the active document."""
 
     name: str | None = "mail_merge_list_fields"
-    intent: str | None = "examine"
     description: str = (
         "List all database merge fields currently placed in the active Writer document, "
         "including their column names, data source names, and table names."
@@ -517,7 +513,6 @@ class RunMerge(ToolWriterMailMergeBase):
     """Execute mail merge workflow to files or printer using com.sun.star.text.MailMerge."""
 
     name: str | None = "mail_merge_run"
-    intent: str | None = "edit"
     description: str = (
         "Execute a mail merge operation using LibreOffice's native MailMerge engine. "
         "Merges data from a registered data source into the document template and generates "

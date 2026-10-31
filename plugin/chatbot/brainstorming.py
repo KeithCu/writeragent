@@ -80,7 +80,6 @@ class BrainstormResearchWeb(ToolWriterSpecialBase, SubAgentResearchWebBase):
 
     specialized_domain: ClassVar[str | None] = "brainstorming"
     required_core_tools: ClassVar[frozenset[str] | None] = _BRAINSTORMING_CORE_TOOLS
-    intent: str | None = "review"
     name: str | None = "brainstorm_research_web"
     description: str = "Search the public web for context during brainstorming. Reformats findings as HTML in reply_to_user."
 
@@ -90,7 +89,6 @@ class SaveDesignSpec(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "brainstorming"
     required_core_tools: ClassVar[frozenset[str] | None] = _BRAINSTORMING_CORE_TOOLS
-    intent: str | None = "review"
     name: str | None = "save_design_spec"
     description: str = (
         "Save the approved design spec to the active Writer document. "

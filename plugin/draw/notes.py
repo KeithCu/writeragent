@@ -32,7 +32,6 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     """Read speaker notes from a slide."""
 
     name: str | None = "get_speaker_notes"
-    intent: str | None = "navigate"
     description: str = "Read speaker notes from an Impress slide. Returns the notes text."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
@@ -50,7 +49,6 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     """Set speaker notes on a slide."""
 
     name: str | None = "set_speaker_notes"
-    intent: str | None = "edit"
     description: str = "Set or replace speaker notes on an Impress slide."
     parameters: dict[str, Any] | None = {
         "type": "object",

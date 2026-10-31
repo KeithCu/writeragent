@@ -621,7 +621,6 @@ class InsertCellHtml(ToolBase):
     """Insert HTML as rich text into a single cell (active sheet)."""
 
     name: str | None = "insert_cell_html"
-    intent: str | None = "edit"
     description: str = "Parses HTML with the same filter as Writer and pastes rich text into one cell on the active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded objects. Clears existing cell text. Use set_style for table-wide borders."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'}, "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."}}, "required": ["cell", "html"]}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -649,7 +648,6 @@ class SetCellStyle(ToolBase):
     """Apply style and formatting to cells or ranges."""
 
     name: str | None = "set_style"
-    intent: str | None = "edit"
     description: str = "Applies style and formatting to the specified cell(s) or range(s). Supports lists for non-contiguous areas."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -747,7 +745,6 @@ class MergeCells(ToolBase):
     """Merge a cell range."""
 
     name: str | None = "merge_cells"
-    intent: str | None = "edit"
     description: str = "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -782,7 +779,6 @@ class SortRange(ToolCalcRangeBase):
     """Sort a range by a column."""
 
     name: str | None = "sort_range"
-    intent: str | None = "edit"
     # Action-time key/direction and "use this tool, don't rewrite the
     # block" live here. Do not restack another SORT Don't/Do into
     # CALC_CORE (flash merges adjacent identical shapes).
@@ -840,7 +836,6 @@ class DeleteStructure(ToolBase):
     """Delete rows or columns."""
 
     name: str | None = "delete_structure"
-    intent: str | None = "edit"
     description: str = "Deletes rows or columns. Use for structural changes; prefer ranges for data operations."
     parameters: dict[str, Any] | None = {
         "type": "object",

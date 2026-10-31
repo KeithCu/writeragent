@@ -241,9 +241,8 @@ def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any
     types = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else None
     if not types or "null" in types or any(not isinstance(one, str) or one not in _SCALAR_TYPES for one in types):
         return prop_schema
-    scalar_types = list(types)
     out = copy.deepcopy(prop_schema)
-    out["type"] = [*scalar_types, "null"]
+    out["type"] = [*types, "null"]
     # Strict providers apply enum after type; JSON null must be in both.
     # The string "null" is a different value and fails the source enum.
     enum_val = out.get("enum")
@@ -264,9 +263,7 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
       ``items`` is kept when ``type`` is missing or includes ``array``.
     """
     # crosshair: off
-    if type(params) is not dict:
-        return params
-    if len(params) == 0:
+    if type(params) is not dict or len(params) == 0:
         return params
     # Dedupe only. One remaining name becomes a string. An empty list
     # becomes "string". Do not collapse a real union to one member:

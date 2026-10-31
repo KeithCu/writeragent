@@ -46,7 +46,6 @@ class CommentList(ToolWriterCommentBase):
     """List all comments (annotations) in the document."""
 
     name: str | None = "comment_list"
-    intent: str | None = "review"
     description: str = "List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -97,7 +96,6 @@ class AddComment(ToolBase):
     """Add a comment anchored to a search string, or reply via parent_name."""
 
     name: str | None = "add_comment"
-    intent: str | None = "review"
     description: str = (
         "Add a comment/annotation. For a new root comment, pass search (and optional occurrence) "
         "so the comment SPANS the matched passage. To reply without resolving, pass parent_name "
@@ -233,7 +231,6 @@ class CommentDelete(ToolWriterCommentBase):
     """Delete comments by name or author."""
 
     name: str | None = "comment_delete"
-    intent: str | None = "review"
     description: str = "Delete comments by name or author. Use name to delete a specific comment and its replies. Use author to delete ALL comments by that author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "The 'name' field returned by comment_list."}, "author": {"type": "string", "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW').")}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -325,7 +322,6 @@ class CommentResolve(ToolWriterCommentBase):
     """Resolve a comment with an optional reason."""
 
     name: str | None = "comment_resolve"
-    intent: str | None = "review"
     description: str = "Resolve a comment with an optional reason. Adds a reply with the resolution text, then marks as resolved."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -523,7 +519,6 @@ def _comment_check_stop(ctx: Any) -> dict[str, Any]:
 
 class CommentScanTasks(ToolWriterCommentBase):
     name: str | None = "comment_scan_tasks"
-    intent: str | None = "review"
     description: str = f"Find workflow tasks in comments ({', '.join(WORKFLOW_TASK_PREFIXES)} prefixes)."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -542,7 +537,6 @@ class CommentScanTasks(ToolWriterCommentBase):
 
 class CommentWorkflowGet(ToolWriterCommentBase):
     name: str | None = "comment_workflow_get"
-    intent: str | None = "review"
     description: str = "Read the MCP-WORKFLOW dashboard comment (key: value lines)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = _COMMENT_UNO
@@ -553,7 +547,6 @@ class CommentWorkflowGet(ToolWriterCommentBase):
 
 class CommentWorkflowSet(ToolWriterCommentBase):
     name: str | None = "comment_workflow_set"
-    intent: str | None = "review"
     description: str = "Write the MCP-WORKFLOW dashboard comment (key: value lines)."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -571,7 +564,6 @@ class CommentWorkflowSet(ToolWriterCommentBase):
 
 class CommentCheckStop(ToolWriterCommentBase):
     name: str | None = "comment_check_stop"
-    intent: str | None = "review"
     description: str = "Detect STOP/CANCEL comments or a dashboard value exactly equal to stop or pause in the MCP-WORKFLOW dashboard."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = _COMMENT_UNO

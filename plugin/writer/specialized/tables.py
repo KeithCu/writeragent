@@ -659,7 +659,6 @@ class ManageTableStructure(ToolWriterTableBase):
 
 class TableInsert(ToolWriterTableBase):
     name: str | None = "table_insert"
-    intent: str | None = "edit"
     description: str = (
         "Insert a table. Writer: text table at the view cursor (or document end); "
         "pass parent + cell to nest inside an existing table cell (inserts at the cell end). "
@@ -798,7 +797,6 @@ class TableInsert(ToolWriterTableBase):
 
 class TableDelete(ToolWriterTableBase):
     name: str | None = "table_delete"
-    intent: str | None = "edit"
     description: str = (
         "Delete a table by name. Writer: removes a top-level or nested TextTable from its "
         "containing XText. Nested children of the deleted table are removed with it — this is "

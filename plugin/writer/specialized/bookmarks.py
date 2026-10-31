@@ -716,7 +716,6 @@ class BookmarkResolve(ToolWriterBookmarkBase):
     """Resolve a bookmark to its paragraph index and heading text."""
 
     name: str | None = "bookmark_resolve"
-    intent: str | None = "navigate"
     is_mutation: bool | None = False
     description: str = "Resolve a bookmark to its current paragraph index and text. Most tools accept 'bookmark:NAME' as locator directly -- use bookmark_resolve only when you need the raw paragraph index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Bookmark name (e.g. _mcp_a1b2c3d4)."}}, "required": ["name"]}

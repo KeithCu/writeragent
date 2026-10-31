@@ -1241,7 +1241,6 @@ class ListDesigns(ToolBase):
     """Enumerate shipped Impress ``.otp`` designs via PathSettings."""
 
     name: str | None = "list_designs"
-    intent: str | None = "navigate"
     description: str = (
         "List shipped Impress .otp designs from LibreOffice PathSettings template "
         "directories (id, name, path, url, look). Read look to choose a design by "
@@ -1263,7 +1262,6 @@ class ApplyDesign(ToolBase):
     """Restyle the open Impress deck from a listed ``.otp`` (clone_master)."""
 
     name: str | None = "apply_design"
-    intent: str | None = "edit"
     description: str = (
         "Restyle the OPEN Impress deck from a listed .otp: Hidden-load the "
         "template, clone its master shapes and reimported graphics into this "
