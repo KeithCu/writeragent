@@ -29,7 +29,7 @@ def test_open_second_cell_reuses_running_editor_and_sends_load():
         return True
 
     with patch.object(pe, "get_active_session", return_value=existing_session):
-        with patch.object(pe, "_get_active_calc_cell", return_value=(doc_b, cell_b, "")):
+        with patch.object(pe, "_get_active_calc_cell", return_value=(doc_b, cell_b)):
             with patch.object(pe, "_load_cell_editor_code", return_value=("print(2)", None, None)):
                 with patch.object(pe, "monaco_editor_available", return_value=("/venv/bin/python", True)):
                     with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):

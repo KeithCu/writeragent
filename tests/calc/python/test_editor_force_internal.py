@@ -17,7 +17,7 @@ def test_open_python_cell_editor_native_when_force_internal():
     cell = MagicMock()
 
     with patch.object(pe, "get_active_session", return_value=None):
-        with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell, "")):
+        with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell)):
             with patch.object(pe, "_load_cell_editor_code", return_value=("print(1)", None, None)):
                 with patch.object(pe, "monaco_editor_available", return_value=(None, False)):
                     with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
@@ -41,7 +41,7 @@ def test_open_python_cell_editor_native_when_webview_missing():
     cell = MagicMock()
 
     with patch.object(pe, "get_active_session", return_value=None):
-        with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell, "")):
+        with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell)):
             with patch.object(pe, "_load_cell_editor_code", return_value=("", None, None)):
                 with patch.object(
                     pe, "monaco_editor_available", return_value=("/venv/bin/python", False)
@@ -64,7 +64,7 @@ def test_open_python_cell_editor_native_failure_msgbox():
     cell = MagicMock()
 
     with patch.object(pe, "get_active_session", return_value=None):
-        with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell, "")):
+        with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell)):
             with patch.object(pe, "_load_cell_editor_code", return_value=("x", None, None)):
                 with patch.object(pe, "monaco_editor_available", return_value=(None, False)):
                     with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
@@ -85,7 +85,7 @@ def test_open_python_cell_editor_launches_when_monaco_available():
     cell = MagicMock()
 
     with patch.object(pe, "get_active_session", return_value=None):
-        with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell, "")):
+        with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell)):
             with patch.object(pe, "_load_cell_editor_code", return_value=("print(1)", None, None)):
                 with patch.object(pe, "monaco_editor_available", return_value=("/venv/bin/python", True)):
                     with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
