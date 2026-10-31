@@ -41,9 +41,6 @@ _UNITS_VENV_EXPORTS = HELPER_NAMES | {"run_units"}
 
 install_lazy_exports(globals(), "units", _UNITS_VENV_EXPORTS)
 
-OUTPUT_STYLES = frozenset({"formatted", "detailed"})
-_FORMATTED_DEFAULT_HELPERS = frozenset({"convert_quantity", "parse_quantity"})
-
 
 # --- Templates ---
 
@@ -67,15 +64,6 @@ get_units_script_templates = _API.get_templates
 
 
 # --- Egress ---
-
-def resolve_output_style(helper: str, output_style: str | None) -> str:
-    """Resolve Calc egress layout: formatted (single cell) or detailed (key-value grid)."""
-    if output_style in OUTPUT_STYLES:
-        return output_style
-    if helper in _FORMATTED_DEFAULT_HELPERS:
-        return "formatted"
-    return "detailed"
-
 
 def extract_units_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     """Extract units insertion kwargs (e.g. output_style) from script code."""
@@ -115,7 +103,13 @@ def format_units_for_calc(result: dict[str, Any], *, output_style: str | None = 
 
     helper = str(result.get("helper") or "units")
     formatted = units_display_text(result)
-    style = resolve_output_style(helper, output_style)
+    # formatted: one cell. detailed: key/value rows. Unknown style uses the helper default.
+    if output_style in ("formatted", "detailed"):
+        style = output_style
+    elif helper in ("convert_quantity", "parse_quantity"):
+        style = "formatted"
+    else:
+        style = "detailed"
 
     head = formatted or helper
     if style == "formatted":

@@ -21,6 +21,7 @@ from plugin.scripting.venv.trusted_dispatch import (
     error_result as _error_result,
     is_blank_param,
     missing_package_error,
+    ok_result,
     resolve_spec_helper,
 )
 
@@ -28,43 +29,14 @@ class _FormatSpecError(Exception):
     """Invalid format specifier passed to format_quantity."""
 
 
-def _ok_result(
-    helper: str,
-    *,
-    magnitude: float | None = None,
-    units: str = "",
-    formatted: str = "",
-    **extra: Any,
-) -> dict[str, Any]:
-    out: dict[str, Any] = {
-        "status": "ok",
-        "helper": helper,
-        "formatted": formatted,
-        "text": formatted,
-        "writer_cleanup_hints": [],
-        **extra,
-    }
-    if magnitude is not None:
-        out["magnitude"] = magnitude
-    if units:
-        out["units"] = units
-    return out
-
-
 # The worker handles one request at a time; the cache remembers a failed import.
 @lru_cache(maxsize=None)
-def _require_pint() -> Any | None:
-    """Import pint once. Later calls reuse the module or the recorded miss."""
+def _get_ureg() -> Any:
+    """Pint registry, or None when pint is not installed."""
     try:
         import pint
     except ImportError:
         return None
-    return pint
-
-
-@lru_cache(maxsize=None)
-def _get_ureg() -> Any:
-    import pint
     return pint.UnitRegistry()
 
 
@@ -104,7 +76,15 @@ def _quantity_payload(qty: Any, *, helper: str, display_unit: str | None = None,
         formatted = f"{qty.magnitude:g} {display_unit}"
     else:
         formatted = _format_qty(qty, format_spec)
-    return _ok_result(helper, magnitude=magnitude, units=units, formatted=formatted)
+    payload: dict[str, Any] = {
+        "formatted": formatted,
+        "text": formatted,
+        "writer_cleanup_hints": [],
+        "magnitude": magnitude,
+    }
+    if units:
+        payload["units"] = units
+    return ok_result(helper, **payload)
 
 
 def _aliases_agree(left: Any, right: Any) -> bool:
@@ -186,8 +166,8 @@ def _convert_to(qty: Any, to_text: Any) -> Any:
     except Exception as exc:
         # A dimension mismatch parsed both units. Keep it as UNITS_ERROR.
         # An unknown target unit is a parse error, same as an unknown source.
-        pint = _require_pint()
-        if pint is not None and isinstance(exc, pint.errors.DimensionalityError):
+        import pint
+        if isinstance(exc, pint.errors.DimensionalityError):
             raise
         raise ValueError(str(exc)) from exc
 
@@ -220,11 +200,6 @@ def _parse_unit_or_quantity(ureg: Any, text: str, *, param: str) -> Any:
         return _parse_quantity_value(ureg, raw)
 
 
-def _scalar_convert(val: Any, from_u: Any, to_u: Any) -> float:
-    """Convert one scalar. ``map_over_range`` turns a ValueError into ``#VALUE!``."""
-    return float(_converted_quantity(val, from_u, to_u).magnitude)
-
-
 def convert_quantity(
     value: Any,
     from_unit: Any = "",
@@ -237,7 +212,7 @@ def convert_quantity(
     ``from`` is a Python keyword, so ``**{"from": ..., "to": ...}`` is the alias.
     """
     helper = "convert_quantity"
-    if _require_pint() is None:
+    if _get_ureg() is None:
         return missing_package_error(helper, "pint")
 
     from_text, from_conflict = _resolve_unit_alias(from_unit, kwargs.get("from"))
@@ -250,8 +225,9 @@ def convert_quantity(
     if is_blank_param(from_text, strip=True) or is_blank_param(to_text, strip=True):
         return _error_result("MISSING_PARAM", "from and to units are required", helper=helper)
 
+    # map_over_range turns a ValueError from one cell into "#VALUE!".
     return map_over_range(
-        _scalar_convert,
+        lambda val, from_u, to_u: float(_converted_quantity(val, from_u, to_u).magnitude),
         value,
         from_text,
         to_text,
@@ -270,7 +246,7 @@ def parse_quantity(*, quantity: Any = "", **kwargs: Any) -> Any:
     """Parse a quantity string or a range of quantity strings into magnitudes."""
     del kwargs  # quantity is already keyword-only; extra keys must not TypeError
     helper = "parse_quantity"
-    if _require_pint() is None:
+    if _get_ureg() is None:
         return missing_package_error(helper, "pint")
     if is_blank_param(quantity):
         return _error_result("MISSING_PARAM", "quantity is required", helper=helper)
@@ -300,7 +276,7 @@ def format_quantity(
     """Format magnitude and units for a scalar or a range."""
     del kwargs
     helper = "format_quantity"
-    if _require_pint() is None:
+    if _get_ureg() is None:
         return missing_package_error(helper, "pint")
     if is_blank_param(units, strip=True):
         return _error_result("MISSING_PARAM", "units is required", helper=helper)
@@ -321,7 +297,7 @@ def check_dimensionality(
     unit_b: str = "",
 ) -> dict[str, Any]:
     helper = "check_dimensionality"
-    if _require_pint() is None:
+    if _get_ureg() is None:
         return missing_package_error(helper, "pint")
     left, left_conflict = _resolve_unit_alias(quantity_a, unit_a)
     right, right_conflict = _resolve_unit_alias(quantity_b, unit_b)
@@ -338,9 +314,11 @@ def check_dimensionality(
         qty_b = _parse_unit_or_quantity(ureg, right_text, param="quantity_b")
         compatible = qty_a.dimensionality == qty_b.dimensionality
         text = "compatible" if compatible else "incompatible"
-        return _ok_result(
+        return ok_result(
             helper,
             formatted=text,
+            text=text,
+            writer_cleanup_hints=[],
             compatible=compatible,
             dimensionality_a=str(qty_a.dimensionality),
             dimensionality_b=str(qty_b.dimensionality),
@@ -430,8 +408,6 @@ def _convert_formatted(flat: list[Any], suffixes: list[str]) -> list[Any]:
 
 def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
     name = "convert_quantity"
-    if _require_pint() is None:
-        return missing_package_error(name, "pint")
     raw_from, from_conflict = _resolve_unit_alias(params.get("from_unit"), params.get("from"))
     if from_conflict:
         return _error_result("INVALID_SPEC", "from and from_unit disagree", helper=name)
@@ -476,8 +452,6 @@ def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
 
 def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
     name = "parse_quantity"
-    if _require_pint() is None:
-        return missing_package_error(name, "pint")
     # What was wrong: parse_quantity("") and parse_quantity(quantity=None)
     # returned MISSING_PARAM, while run_units with quantity "" or None returned
     # PARSE_ERROR / empty quantity.
@@ -508,8 +482,6 @@ def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
 
 def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
     name = "format_quantity"
-    if _require_pint() is None:
-        return missing_package_error(name, "pint")
     raw_mag = params.get("magnitude")
     raw_units = params.get("units")
     raw_spec = str(params.get("format_spec") or "").strip()
@@ -573,6 +545,8 @@ def run_units(
     # output_style is host egress only. Pop it so it is not a helper argument.
     clean = dict(params)
     clean.pop("output_style", None)
+    if _get_ureg() is None:
+        return missing_package_error(helper, "pint")
     assert helper in _DISPATCH, helper
     result = _DISPATCH[helper](clean)
     if result.get("status") == "ok" and context and "task_hint" in context:

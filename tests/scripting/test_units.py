@@ -17,7 +17,6 @@ from plugin.scripting.units import (
     format_units_for_calc,
     insert_units_result_into_writer,
     is_units_result,
-    resolve_output_style,
     units_display_text,
 )
 from plugin.scripting.units import run_units
@@ -134,10 +133,26 @@ def test_direct_format_quantity_scalar_and_vector():
 
 
 def test_resolve_output_style_defaults():
-    assert resolve_output_style("convert_quantity", None) == "formatted"
-    assert resolve_output_style("parse_quantity", None) == "formatted"
-    assert resolve_output_style("check_dimensionality", None) == "detailed"
-    assert resolve_output_style("convert_quantity", "detailed") == "detailed"
+    res_conv = {"status": "ok", "helper": "convert_quantity", "formatted": "10 km/h", "magnitude": 10.0}
+    assert format_units_for_calc(res_conv) == [["10 km/h"]]
+
+    res_parse = {"status": "ok", "helper": "parse_quantity", "formatted": "5 m", "magnitude": 5.0}
+    assert format_units_for_calc(res_parse) == [["5 m"]]
+
+    res_dim = {
+        "status": "ok",
+        "helper": "check_dimensionality",
+        "formatted": "compatible",
+        "compatible": True,
+        "dimensionality_a": "[length]",
+        "dimensionality_b": "[length]",
+    }
+    dim_grid = format_units_for_calc(res_dim)
+    assert dim_grid[0] == ["compatible"]
+    assert ["Compatible", True] in dim_grid
+
+    res_conv_detailed = format_units_for_calc(res_conv, output_style="detailed")
+    assert ["Magnitude", 10.0] in res_conv_detailed
 
 
 def test_extract_units_insert_kwargs():
@@ -231,7 +246,7 @@ def test_run_units_check_dimensionality_compatible(value, value_2, expected):
     assert result["compatible"] is expected
 
 def test_run_units_missing_package():
-    with patch("plugin.scripting.venv.units._require_pint", return_value=None):
+    with patch("plugin.scripting.venv.units._get_ureg", return_value=None):
         result = run_units({"helper": "convert_quantity", "params": {"value": "1", "from_unit": "m", "to_unit": "ft"}}, None, {})
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"
