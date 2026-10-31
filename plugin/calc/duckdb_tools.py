@@ -333,8 +333,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
     Sheet → current used range. named_range → current NamedRanges /
     DatabaseRanges bounds. range → the frozen A1 the caller stored.
     """
-    from plugin.calc.bridge import CalcBridge, find_named_range
-    from plugin.calc.spreadsheet_import.ingest import _used_range_address
+    from plugin.calc.bridge import CalcBridge, find_named_range, used_range_address
 
     kind = parsed.get("kind")
     if kind == "sheet":
@@ -350,7 +349,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
             if sheets.getCount() < 1:
                 raise ToolExecutionError("workbook has no sheets", code="DUCKDB_SQL_ERROR")
             target = sheets.getByIndex(0)
-        addr = _used_range_address(target)
+        addr = used_range_address(target)
         return qualify_a1(str(target.getName()), format_range_address(addr, collapse_single=True))
 
     if kind == "named_range":

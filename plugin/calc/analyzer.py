@@ -33,12 +33,16 @@ from plugin.framework.errors import (
     check_disposed,
     is_disposed_exception,
     is_real_disposal,
-    safe_call,
     uno_read,
 )
 from plugin.framework.thread_guard import main_thread_only
 from plugin.calc.address_utils import format_range, format_range_address
-from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_visible_sheet
+from plugin.calc.bridge import (
+    CalcBridge,
+    filter_agent_sheet_names,
+    is_agent_visible_sheet,
+    used_range_address,
+)
 
 log = logging.getLogger("writeragent.calc")
 
@@ -127,11 +131,7 @@ class SheetAnalyzer:
             else:
                 sheet = self.bridge.get_active_sheet()
 
-            cursor = sheet.createCursor()
-            cursor.gotoStartOfUsedArea(False)
-            cursor.gotoEndOfUsedArea(True)
-
-            range_addr = cursor.getRangeAddress()
+            range_addr = used_range_address(sheet)
             start_col = range_addr.StartColumn
             start_row = range_addr.StartRow
             end_col = range_addr.EndColumn
@@ -222,25 +222,24 @@ def get_calc_context_for_chat(
         # Add selection context if available
         if vs.active_is_visible:
             try:
-                controller = safe_call(model.getCurrentController, "Get current controller")
-                selection = safe_call(controller.getSelection, "Get selection") if controller is not None else None
-                if selection:
-                    if hasattr(selection, "getRangeAddress"):
-                        addr = safe_call(selection.getRangeAddress, "Get range address")
-                        if addr is not None:
-                            sel_range = format_range_address(addr)
-                            ctx_str += f"Current Selection: {sel_range}\n"
+                controller = model.getCurrentController()
+                selection = controller.getSelection() if controller is not None else None
+                if selection and hasattr(selection, "getRangeAddress"):
+                    addr = selection.getRangeAddress()
+                    if addr is not None:
+                        sel_range = format_range_address(addr)
+                        ctx_str += f"Current Selection: {sel_range}\n"
 
-                            # Check for selected values if small
-                            if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
-                                from plugin.calc.inspector import CellInspector
+                        # Check for selected values if small
+                        if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
+                            from plugin.calc.inspector import CellInspector
 
-                                inspector = CellInspector(vs.bridge)
-                                # LLM-facing context: enrich dates like read_cell_range (#374 Bug 3).
-                                cells = inspector.read_range(sel_range, include_format_info=True)
-                                ctx_str += "Selection Content (CSV-like):\n"
-                                for row in cells:
-                                    ctx_str += ", ".join([str(c["value"]) if c["value"] is not None else "" for c in row]) + "\n"
+                            inspector = CellInspector(vs.bridge)
+                            # LLM-facing context: enrich dates like read_cell_range (#374 Bug 3).
+                            cells = inspector.read_range(sel_range, include_format_info=True)
+                            ctx_str += "Selection Content (CSV-like):\n"
+                            for row in cells:
+                                ctx_str += ", ".join([str(c["value"]) if c["value"] is not None else "" for c in row]) + "\n"
             except DocumentDisposedError:
                 raise
             except Exception as exc:

@@ -26,6 +26,7 @@ import logging
 from typing import Any
 
 from plugin.calc.address_utils import A1_CELL_RE, format_address, parse_address, parse_range_string, qualify_a1
+from plugin.calc.bridge import used_range_address
 from plugin.framework.errors import reraise_if_disposed, uno_probe
 
 try:
@@ -150,10 +151,7 @@ class ErrorDetector:
             end_col, end_row = end
         else:
             sheet = self.bridge.get_active_sheet()
-            cursor = sheet.createCursor()
-            cursor.gotoStartOfUsedArea(False)
-            cursor.gotoEndOfUsedArea(True)
-            addr = cursor.getRangeAddress()
+            addr = used_range_address(sheet)
             start_col = addr.StartColumn
             start_row = addr.StartRow
             end_col = addr.EndColumn
@@ -200,17 +198,14 @@ class ErrorDetector:
         if not error_info:
             return {"address": display_address, "formula": formula, "error": None, "precedents": [], "suggestion": "No error detected in this cell."}
 
-        precedent_details = []
-        for prec_addr in precedent_addrs:
-            def _read_prec(addr: str = prec_addr) -> dict[str, Any]:
-                # Bare refs live on the error cell's sheet, not the active one.
-                return self.inspector.read_cell(qualify_a1(sheet_name, addr))
-
-            prec_info = uno_probe(
-                _read_prec,
+        # Bare refs live on the error cell's sheet, not the active one.
+        precedent_details = [
+            uno_probe(
+                lambda: self.inspector.read_cell(qualify_a1(sheet_name, prec_addr)),
                 {"address": prec_addr, "value": "UNREADABLE", "type": "unknown"},
             )
-            precedent_details.append(prec_info)
+            for prec_addr in precedent_addrs
+        ]
 
         suggestion = self._generate_suggestion(error_info, precedent_details)
 
