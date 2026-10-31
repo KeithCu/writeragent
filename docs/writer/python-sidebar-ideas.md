@@ -30,7 +30,7 @@ Run Python Script already merges **document scripts**, **user scripts**, and **d
 |--------|------|-------------------|
 | Document | Named scripts on this `.odt` (`WriterAgentDocumentPythonScripts`) | `SCRIPT_ORIGIN_DOCUMENT` |
 | User | Global named scripts in config | `SCRIPT_ORIGIN_USER` |
-| Helpers | Shipped templates (vision, math, units, viz, quant, text analytics) | picker origins / `get_picker_domains()` |
+| Helpers | Shipped templates (vision, math, units, viz, quant, text analytics) | picker origins / `PICKER_WIRING` |
 
 Reuse the existing picker merge and display prefixes (`Units: convert_quantity`, etc.). Filter with the same `supports_*` predicates as Run Python Script so Calc-only sections (SQL, optimize, forecast, sheet analysis) stay out.
 
@@ -91,7 +91,7 @@ These were brainstormed as extra panes; they should **not** become extra lists i
 - Chat, embeddings, MCP on this deck.
 - Writer Navigator / heading outline.
 - Showing Calc `=PY()` cells or another open spreadsheet.
-- A fourth domain/helper registry (`get_picker_domains` is the list).
+- A fourth domain/helper registry (`PICKER_WIRING` is the list).
 
 ---
 

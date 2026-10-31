@@ -34,10 +34,10 @@ from plugin.framework.i18n import _
 from plugin.framework.uno_context import _enumeration_should_continue, get_desktop, normalize_doc_url
 from plugin.scripting.domain_registry import (
     DOC_SCRIPT_DISPLAY_PREFIX,
+    PICKER_WIRING,
     SCRIPT_ORIGIN_DOCUMENT,
     SCRIPT_ORIGIN_USER,
     domain_template_entries,
-    get_picker_domains,
     is_reserved_script_name,
     parse_picker_display_name,
     picker_display_name,
@@ -455,7 +455,7 @@ def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -
     if origin == SCRIPT_ORIGIN_DOCUMENT:
         real = parse_document_script_display_name(display_name)
         return (real or display_name, SCRIPT_ORIGIN_DOCUMENT)
-    for domain in get_picker_domains():
+    for domain in PICKER_WIRING:
         if origin == domain.origin:
             real = parse_picker_display_name(domain.display_prefix, display_name)
             return (real or display_name, domain.origin)
@@ -690,7 +690,7 @@ def delete_user_script(name: str) -> DocumentScriptError | None:
 
 def is_picker_template_name(name: str) -> bool:
     """True for a read-only built-in picker label such as ``[Vision] …``."""
-    return any(parse_picker_display_name(domain.display_prefix, name) for domain in get_picker_domains())
+    return any(parse_picker_display_name(domain.display_prefix, name) for domain in PICKER_WIRING)
 
 
 def save_selected_script(

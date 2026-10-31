@@ -55,7 +55,7 @@ from plugin.scripting.helper_domain import (
 )
 
 if TYPE_CHECKING:
-    from plugin.scripting.domain_registry import RpsDomainSpec
+    from plugin.scripting.domain_registry import DomainWiring
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -475,7 +475,7 @@ def _finish_vision_execution(prepared: dict[str, Any], response: dict[str, Any])
 
 
 def try_rps_post_venv(
-    spec: "RpsDomainSpec",
+    spec: "DomainWiring",
     *,
     ctx: Any,
     doc: Any,
@@ -490,8 +490,8 @@ def try_rps_post_venv(
     if not spec.is_result(result_data):
         return None
     insert_kwargs: dict[str, Any] = {}
-    if spec.insert_kwargs_fn is not None and code:
-        insert_kwargs = spec.insert_kwargs_fn(ctx, code)
+    if code:
+        insert_kwargs = spec.insert_kwargs(ctx, code)
     try:
         row_count = spec.insert(ctx, doc, result_data, **insert_kwargs)
     except Exception as e:

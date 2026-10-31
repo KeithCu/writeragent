@@ -16,10 +16,7 @@ from typing import Any
 from plugin.doc.text_helpers import iter_heading_nodes
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.helper_domain import (
-    DomainFacadeConfig,
-    make_template_api,
-)
+from plugin.scripting.helper_domain import DomainFacadeConfig
 
 _TEXT_VENV_EXPORTS = frozenset({"analyze_text", "check_diagnostics", "run_text_analytics"})
 
@@ -45,20 +42,18 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
 
 _SHIPPED_TEMPLATES = HELPER_NAMES - {"diagnostics", "check"}
 
-_API = make_template_api(
-    DomainFacadeConfig(
-        tag="text",
-        helper_names=HELPER_NAMES,
-        default_params=_DEFAULT_PARAMS,
-        descriptions=_HELPER_DESCRIPTIONS,
-        import_module="writeragent.scripting.text_analytics",
-        run_name="run_text_analytics",
-        shipped_templates=_SHIPPED_TEMPLATES,
-        data_expr="text",
-        context_expr="document_context",
-        invoke="runner",
-        extra_comment_lines=("# Works on Writer documents (document text is injected on Run).",),
-    )
+_API = DomainFacadeConfig(
+    tag="text",
+    helper_names=HELPER_NAMES,
+    default_params=_DEFAULT_PARAMS,
+    descriptions=_HELPER_DESCRIPTIONS,
+    import_module="writeragent.scripting.text_analytics",
+    run_name="run_text_analytics",
+    shipped_templates=_SHIPPED_TEMPLATES,
+    data_expr="text",
+    context_expr="document_context",
+    invoke="runner",
+    extra_comment_lines=("# Works on Writer documents (document text is injected on Run).",),
 )
 
 get_text_analytics_script_templates = _API.get_templates

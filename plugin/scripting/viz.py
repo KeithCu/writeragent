@@ -55,22 +55,20 @@ install_lazy_exports(globals(), "viz", _VIZ_VENV_EXPORTS)
 
 # --- Templates ---
 
-from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api, run_trusted_calc_data_helper
+from plugin.scripting.helper_domain import DomainFacadeConfig, run_trusted_calc_data_helper
 
 
-_API = make_template_api(
-    DomainFacadeConfig(
-        tag="viz",
-        helper_names=HELPER_NAMES,
-        default_params=_DEFAULT_PARAMS,
-        descriptions=_HELPER_DESCRIPTIONS,
-        import_module="writeragent.scripting.viz",
-        run_name="run_viz",
-        shipped_templates=HELPER_NAMES - {"plot_data"},
-        data_expr="data",
-        leading_data=True,
-        extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
-    )
+_API = DomainFacadeConfig(
+    tag="viz",
+    helper_names=HELPER_NAMES,
+    default_params=_DEFAULT_PARAMS,
+    descriptions=_HELPER_DESCRIPTIONS,
+    import_module="writeragent.scripting.viz",
+    run_name="run_viz",
+    shipped_templates=HELPER_NAMES - {"plot_data"},
+    data_expr="data",
+    leading_data=True,
+    extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
 )
 
 get_viz_script_templates = _API.get_templates

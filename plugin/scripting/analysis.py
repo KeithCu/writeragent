@@ -12,10 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.helper_domain import (
-    DomainFacadeConfig,
-    make_template_api,
-)
+from plugin.scripting.helper_domain import DomainFacadeConfig
 
 # --- Constants & Common ---
 
@@ -60,16 +57,14 @@ install_lazy_exports(
 # --- Templates ---
 
 
-_API = make_template_api(
-    DomainFacadeConfig(
-        tag="analysis",
-        helper_names=HELPER_NAMES,
-        default_params=_DEFAULT_PARAMS,
-        descriptions=_HELPER_DESCRIPTIONS,
-        import_module="writeragent.scripting.analysis",
-        run_name="run_analysis",
-        leading_data=True,
-    )
+_API = DomainFacadeConfig(
+    tag="analysis",
+    helper_names=HELPER_NAMES,
+    default_params=_DEFAULT_PARAMS,
+    descriptions=_HELPER_DESCRIPTIONS,
+    import_module="writeragent.scripting.analysis",
+    run_name="run_analysis",
+    leading_data=True,
 )
 
 get_analysis_script_templates = _API.get_templates

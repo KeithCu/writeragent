@@ -143,6 +143,10 @@ def _literal_value(node: ast.AST) -> Any:
     return _UNRESOLVED
 
 
+def _bound_alias_names(aliases: list[ast.alias]) -> set[str]:
+    return {alias.asname or alias.name for alias in aliases} - {"", "*"}
+
+
 def _writeragent_imported_names(tree: ast.AST) -> set[str]:
     """Names brought in by ``from writeragent... import``.
 
@@ -156,10 +160,7 @@ def _writeragent_imported_names(tree: ast.AST) -> set[str]:
         module = node.module or ""
         if module != "writeragent" and not module.startswith("writeragent."):
             continue
-        for alias in node.names:
-            bound = alias.asname or alias.name
-            if bound and bound != "*":
-                names.add(bound)
+        names.update(_bound_alias_names(node.names))
     return names
 
 
@@ -279,10 +280,7 @@ def _ast_needs_data_binding(tree: ast.AST) -> bool:
         if isinstance(node, ast.ImportFrom):
             mod = node.module or ""
             if mod in _IMPORT_DATA_BINDING:
-                for alias in node.names:
-                    bound = alias.asname or alias.name
-                    if bound and bound != "*":
-                        imported_names.add(bound)
+                imported_names.update(_bound_alias_names(node.names))
             elif mod == "writeragent.scripting":
                 for alias in node.names:
                     if f"writeragent.scripting.{alias.name}" in _IMPORT_DATA_BINDING:
@@ -378,39 +376,38 @@ def build_helper_script_template(
     invoke: str = "direct",
 ) -> str:
     """Build a Run Python Script template body."""
-    def _format_param_val(key: str, val: Any) -> str:
-        # Bare data identifier only for the injected data argument (data, value, quantity).
-        # Real string values like column="data" or dict keys must remain quoted.
-        if (key in ("data", "value", "quantity") and data_expr != "None") and val == "data":
-            return data_expr
-        return _python_literal(val)
-
-    parts: list[str] = []
-    if leading_data:
-        parts.append(data_expr)
-    for key in positional_args:
-        if key in params:
-            parts.append(_format_param_val(key, params[key]))
-    kw_parts = [
-        f"{key}={_format_param_val(key, val)}"
-        for key, val in params.items()
-        if key not in positional_args
-    ]
-    args_str = ", ".join([*parts, *kw_parts])
-
-    import_name = run_name if invoke == "runner" else helper
     if invoke == "runner":
         spec_obj: dict[str, Any] = {"helper": helper}
         if params:
             spec_obj["params"] = params
+        imported = run_name
         call = f"{run_name}({_python_literal(spec_obj)}, {data_expr}, {context_expr})"
     else:
-        call = f"{helper}({args_str})"
+        def _format_param_val(key: str, val: Any) -> str:
+            # Bare data identifier only for the injected data argument (data, value, quantity).
+            # Real string values like column="data" or dict keys must remain quoted.
+            if key in ("data", "value", "quantity") and data_expr != "None" and val == "data":
+                return data_expr
+            return _python_literal(val)
+
+        parts: list[str] = []
+        if leading_data:
+            parts.append(data_expr)
+        for key in positional_args:
+            if key in params:
+                parts.append(_format_param_val(key, params[key]))
+        kw_parts = [
+            f"{key}={_format_param_val(key, val)}"
+            for key, val in params.items()
+            if key not in positional_args
+        ]
+        imported = helper
+        call = f"{helper}({', '.join([*parts, *kw_parts])})"
 
     body_lines = [
         f"# {description}",
         *extra_comment_lines,
-        f"from {import_module} import {import_name}\n",
+        f"from {import_module} import {imported}\n",
         f"result = {call}",
         "",
     ]
@@ -549,7 +546,6 @@ def plot_insert_ok_outcome(
 
 # --- Host Facade Factory ---
 
-from types import SimpleNamespace
 
 @dataclass(frozen=True)
 class DomainFacadeConfig:
@@ -570,52 +566,46 @@ class DomainFacadeConfig:
     leading_data: bool = False
     invoke: str = "direct"
 
-
-def make_template_api(cfg: DomainFacadeConfig) -> Any:
-    """Build _template_body, get_templates, and parse_header functions dynamically."""
     # crosshair: off
-    def _template_body(helper: str, params: dict[str, Any]) -> str:
-        desc = cfg.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
-        pos = cfg.positional_args.get(helper, ()) if cfg.positional_args else ()
+    def _template_body(self, helper: str, params: dict[str, Any]) -> str:
+        desc = self.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
+        pos = self.positional_args.get(helper, ()) if self.positional_args else ()
         return build_helper_script_template(
             helper=helper,
             params=params,
             description=desc,
-            import_module=cfg.import_module,
-            run_name=cfg.run_name,
-            data_expr=cfg.data_expr,
-            context_expr=cfg.context_expr,
-            extra_comment_lines=cfg.extra_comment_lines,
+            import_module=self.import_module,
+            run_name=self.run_name,
+            data_expr=self.data_expr,
+            context_expr=self.context_expr,
+            extra_comment_lines=self.extra_comment_lines,
             positional_args=pos,
-            leading_data=cfg.leading_data,
-            invoke=cfg.invoke,
+            leading_data=self.leading_data,
+            invoke=self.invoke,
         )
 
-    def get_templates() -> dict[str, str]:
-        shipped = cfg.shipped_templates if cfg.shipped_templates is not None else cfg.helper_names
+    # crosshair: off
+    def get_templates(self) -> dict[str, str]:
+        shipped = self.shipped_templates if self.shipped_templates is not None else self.helper_names
         return {
-            helper: _template_body(helper, dict(cfg.default_params.get(helper, {})))
+            helper: self._template_body(helper, dict(self.default_params.get(helper, {})))
             for helper in sorted(shipped)
-            if helper in cfg.helper_names
+            if helper in self.helper_names
         }
 
-    def parse_header(code: str) -> HelperScriptMeta | None:
+    # crosshair: off
+    def parse_header(self, code: str) -> HelperScriptMeta | None:
         return parse_helper_script_header(
             code,
-            tag=cfg.tag,
-            helper_names=cfg.helper_names,
+            tag=self.tag,
+            helper_names=self.helper_names,
         )
 
-    def template_for(helper: str) -> str | None:
-        if helper not in cfg.helper_names:
+    # crosshair: off
+    def template_for(self, helper: str) -> str | None:
+        if helper not in self.helper_names:
             return None
-        return _template_body(helper, dict(cfg.default_params.get(helper, {})))
-
-    return SimpleNamespace(
-        get_templates=get_templates,
-        parse_header=parse_header,
-        template_for=template_for,
-    )
+        return self._template_body(helper, dict(self.default_params.get(helper, {})))
 
 
 def is_status_helper_result(
