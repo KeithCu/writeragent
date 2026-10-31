@@ -40,15 +40,6 @@ def _resolve_sheet(doc: Any, sheet_name: str) -> Any | None:
     return None
 
 
-def _clear_spill_uno(sheet: Any, array_ref: str) -> None:
-    bounds = a1_span_bounds(array_ref)
-    assert bounds is not None, array_ref
-    (c1, r1), (c2, r2) = bounds
-    if c1 == c2 and r1 == r2:
-        return
-    sheet.getCellRangeByName(array_ref).clearContents(_SPILL_CLEAR_FLAGS)
-
-
 def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[str]:
     """Write script bank + converted formulas onto *doc*. Returns error strings.
 
@@ -97,55 +88,33 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
             ):
                 errors.append(f"{cell.sheet}!{cell.cell}: invalid array_ref {array_ref!r}")
                 continue
+            (c1, r1), (c2, r2) = bounds
+            if c1 == c2 and r1 == r2:
+                array_ref = ""
         planned_cells.append((sheet, cell.cell, formula, array_ref))
 
     if errors:
         return errors
 
     # 2. Write with rollback tracking
-    inserted_sheets: list[str] = []
-    added_defined_names: list[str] = []
-    overwritten_bank_strings: list[tuple[Any, str, str]] = []
-    overwritten_formulas: list[tuple[Any, str, str]] = []
+    journal: list[tuple[str, str, Any]] = []
     named_ranges = getattr(doc, "NamedRanges", None)
 
     def _rollback() -> list[str]:
         failed: list[str] = []
-
-        def _undo(label: str, detail: str, fn: Any) -> None:
+        for label, detail, fn in reversed(journal):
             try:
                 fn()
             except Exception as exc:
                 log.warning("excel_py apply: rollback %s failed for %s: %s", label, detail, exc)
                 failed.append(f"rollback incomplete: {label} {detail}: {exc}")
-
-        for sh, a1, prev in reversed(overwritten_formulas):
-            _undo("setFormula", a1, lambda sh=sh, a1=a1, prev=prev: sh.getCellRangeByName(a1).setFormula(prev))
-        for sh, a1, prev in reversed(overwritten_bank_strings):
-            _undo("setString", a1, lambda sh=sh, a1=a1, prev=prev: sh.getCellRangeByName(a1).setString(prev))
-        if named_ranges is not None:
-            nr = named_ranges
-            for name in reversed(added_defined_names):
-                _undo(
-                    "removeByName",
-                    name,
-                    lambda name=name, nr=nr: nr.removeByName(name) if nr.hasByName(name) else None,
-                )
-        for sh_name in reversed(inserted_sheets):
-            _undo(
-                "remove sheet",
-                sh_name,
-                lambda sh_name=sh_name: sheets.removeByName(sh_name) if sheets.hasByName(sh_name) else None,
-            )
         return failed
 
     try:
         for code_sheet, sheet_bank in sorted(bank.items()):
-            if not sheet_bank:
-                continue
             if not sheets.hasByName(code_sheet):
                 sheets.insertNewByName(code_sheet, sheets.getCount())
-                inserted_sheets.append(code_sheet)
+                journal.append(("remove sheet", code_sheet, lambda sh_name=code_sheet: sheets.removeByName(sh_name) if sheets.hasByName(sh_name) else None))
             bank_sheet = sheets.getByName(code_sheet)
 
             if named_ranges is not None:
@@ -155,18 +124,18 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
 
                     addr = uno.createUnoStruct("com.sun.star.table.CellAddress")
                     named_ranges.addNewByName(expected_def, f"'{code_sheet}'.$A$1", addr, 0)
-                    added_defined_names.append(expected_def)
+                    journal.append(("removeByName", expected_def, lambda name=expected_def, nr=named_ranges: nr.removeByName(name) if nr.hasByName(name) else None))
 
             if CODE_SHEET_NOTE_CELL not in sheet_bank:
                 note_cell = bank_sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL)
                 prev_note = note_cell.getString()
-                overwritten_bank_strings.append((bank_sheet, CODE_SHEET_NOTE_CELL, prev_note))
+                journal.append(("setString", CODE_SHEET_NOTE_CELL, lambda c=note_cell, prev=prev_note: c.setString(prev)))
                 note_cell.setString(CODE_SHEET_NOTE)
 
             for a1, code in sorted(sheet_bank.items()):
                 cell_obj = bank_sheet.getCellRangeByName(a1)
                 prev_code = cell_obj.getString()
-                overwritten_bank_strings.append((bank_sheet, a1, prev_code))
+                journal.append(("setString", a1, lambda c=cell_obj, prev=prev_code: c.setString(prev)))
                 cell_obj.setString(code)
     except Exception as exc:
         errors = [f"script bank write failed: {exc}"]
@@ -178,9 +147,9 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
         try:
             uno_cell = sheet.getCellRangeByName(coord)
             prev_formula = uno_cell.getFormula()
-            overwritten_formulas.append((sheet, coord, prev_formula))
+            journal.append(("setFormula", coord, lambda c=uno_cell, prev=prev_formula: c.setFormula(prev)))
             if array_ref:
-                _clear_spill_uno(sheet, array_ref)
+                sheet.getCellRangeByName(array_ref).clearContents(_SPILL_CLEAR_FLAGS)
             uno_cell.setFormula(formula)
         except Exception as exc:
             errors.append(f"{sheet.getName()}!{coord}: {exc}")
