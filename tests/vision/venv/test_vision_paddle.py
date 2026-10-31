@@ -389,7 +389,7 @@ def test_get_paddle_ocr_constructor_error(monkeypatch: MonkeyPatch):
 
 def test_html_from_paddle_regions_escapes_and_wraps():
     with patch(
-        "plugin.vision.venv.vision_paddle.prepare_html_for_lo_import",
+        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
         side_effect=lambda html: html,
     ):
         html = html_from_paddle_regions([{"text": "Line & one"}, {"text": "Line two"}])
@@ -400,7 +400,7 @@ def test_html_from_paddle_regions_escapes_and_wraps():
 
 def test_html_from_paddle_structure_table_and_heading():
     with patch(
-        "plugin.vision.venv.vision_paddle.prepare_html_for_lo_import",
+        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
         side_effect=lambda html: html,
     ):
         html = html_from_paddle_structure(
@@ -419,7 +419,7 @@ def test_html_from_paddle_structure_skips_escaped_table_paragraph():
     """Raw PP-Structure ``<table>`` block text must not sit beside the real table."""
     raw_table = "<table><tr><td>Widget</td><td>2</td></tr></table>"
     with patch(
-        "plugin.vision.venv.vision_paddle.prepare_html_for_lo_import",
+        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
         side_effect=lambda html: html,
     ):
         html = html_from_paddle_structure(
@@ -437,7 +437,7 @@ def test_html_from_paddle_structure_skips_escaped_table_paragraph():
 
 def test_html_from_paddle_structure_keeps_plain_table_text():
     with patch(
-        "plugin.vision.venv.vision_paddle.prepare_html_for_lo_import",
+        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
         side_effect=lambda html: html,
     ):
         html = html_from_paddle_structure(

@@ -371,11 +371,15 @@ def prepare_html_for_lo_import(html: str) -> str:
     return augment_lo_table_styles(with_thead)
 
 
-def _wrap_html_fragment(body: str) -> str:
-    return (
+def _finalize_fragment(parts: list[str]) -> str:
+    body = "\n".join(part for part in parts if part)
+    if not body.strip():
+        return ""
+    wrapped = (
         "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">"
         f"{_HTML_FRAGMENT_STYLE}</head><body>{body}</body></html>"
     )
+    return prepare_html_for_lo_import(wrapped)
 
 
 def _blocks_from_vision_result(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -501,7 +505,4 @@ def _tables_to_html(tables: list[dict[str, Any]] | None) -> list[str]:
 def structured_html_from_vision_result(result: dict[str, Any]) -> str:
     """Build bbox layout HTML from blocks/regions; must run in the user venv (needs css-inline)."""
     body = html_from_layout_blocks(_blocks_from_vision_result(result))
-    body = "\n".join(part for part in (body, *_tables_to_html(result.get("tables"))) if part)
-    if not body.strip():
-        return ""
-    return prepare_html_for_lo_import(_wrap_html_fragment(body))
+    return _finalize_fragment([body, *_tables_to_html(result.get("tables"))])

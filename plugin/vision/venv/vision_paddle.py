@@ -14,9 +14,8 @@ from typing import Any
 
 from plugin.vision.venv.vision_html_export import (
     _blocks_from_vision_result,
+    _finalize_fragment,
     _tables_to_html,
-    _wrap_html_fragment,
-    prepare_html_for_lo_import,
 )
 from plugin.vision.venv.vision_layout_html import _block_to_html
 from plugin.vision.vision_common import (
@@ -234,9 +233,7 @@ def html_from_paddle_regions(regions: list[dict[str, Any]]) -> str:
     """Minimal HTML from Paddle OCR line regions (reading order), css-inlined for LO."""
     blocks = _blocks_from_vision_result({"regions": regions})
     parts = [fragment for block in blocks if (fragment := _block_to_html(block))]
-    if not parts:
-        return ""
-    return prepare_html_for_lo_import(_wrap_html_fragment("\n".join(parts)))
+    return _finalize_fragment(parts)
 
 
 def decode_image_bytes(image: Any, *, scale: float = 1.0) -> Any:
@@ -734,10 +731,7 @@ def html_from_paddle_structure(
             parts.append(fragment)
 
     parts.extend(_tables_to_html(tables))
-
-    if not parts:
-        return ""
-    return prepare_html_for_lo_import(_wrap_html_fragment("\n".join(parts)))
+    return _finalize_fragment(parts)
 
 
 def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
