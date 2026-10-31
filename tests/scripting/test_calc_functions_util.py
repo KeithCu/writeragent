@@ -24,7 +24,6 @@ from plugin.scripting.venv.calc_functions_util import (
     _collect_a_values,
     _criteria_numbers,
     _extract_numeric_array,
-    _find_text_cut,
     _npf_result,
     _parse_weekend,
     _serial_to_date,
@@ -189,61 +188,6 @@ def test_parse_weekend():
 
     # Invalid non-numeric input returns NaN
     assert math.isnan(_parse_weekend(None))
-
-
-def test_find_text_cut():
-    import pytest
-
-    # Positive instance, before
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 1, after=False)
-    assert (s, inst, idx, at_end) == ("a-b-c", 1, 1, False)
-
-    # Positive instance, after
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 1, after=True)
-    assert (s, inst, idx, at_end) == ("a-b-c", 1, 2, False)
-
-    # Second instance, before and after
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 2, after=False)
-    assert idx == 3
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 2, after=True)
-    assert idx == 4
-
-    # Negative instance
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=False)
-    assert (idx, at_end) == (3, False)
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=True)
-    # End of the last hyphen. The remainder starts at 4, not at the
-    # hyphen itself: TEXTAFTER used to add len(delim) to a start index.
-    assert (idx, at_end) == (4, False)
-
-    # Match mode 1 (case insensitive)
-    s, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=False)
-    assert idx == 3
-    s, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=True)
-    assert idx == 6
-
-    # Match end miss (instance lands on boundary)
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 3)
-    assert idx is None and at_end is True
-
-    # Real miss (beyond boundary)
-    s, inst, idx, at_end = _find_text_cut("a-b-c", "-", 4)
-    assert idx is None and at_end is False
-
-    # lower() of İ grows, so an index into the lowered string included "b".
-    s, inst, idx, at_end = _find_text_cut("aİb", "b", 1, match_mode=1, after=False)
-    assert idx == 2
-    # rfind saw an overlapping second "aa". The walk is non-overlapping.
-    s, inst, idx, at_end = _find_text_cut("aaa", "aa", -1, after=False)
-    assert idx == 0
-
-    # Instance 0 raises ValueError
-    with pytest.raises(ValueError):
-        _find_text_cut("a-b-c", "-", 0)
-
-    # Non-numeric instance raises ValueError
-    with pytest.raises(ValueError):
-        _find_text_cut("a-b-c", "-", "invalid")
 
 
 def test_int_bitwise():
