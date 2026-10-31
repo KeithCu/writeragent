@@ -80,16 +80,12 @@ def detect_vectorized_columns(model: SheetModel) -> dict[str, list[str]]:
     return vector_groups
 
 
-def _shift_a1_rows(addr: str, row_delta: int) -> str:
+def vectorize_range(a1_range: str, row_delta: int) -> str:
+    """Expand an A1 ref or range down by *row_delta* rows."""
     def repl(match: re.Match[str]) -> str:
         return f"{match.group(2)}{int(match.group(4)) + row_delta}"
 
-    return _A1_REF_RE.sub(repl, addr)
-
-
-def vectorize_range(a1_range: str, row_delta: int) -> str:
-    """Expand an A1 ref or range down by *row_delta* rows."""
     if ":" in a1_range:
         start, end = a1_range.split(":", 1)
-        return f"{start}:{_shift_a1_rows(end, row_delta)}"
-    return f"{a1_range}:{_shift_a1_rows(a1_range, row_delta)}"
+        return f"{start}:{_A1_REF_RE.sub(repl, end)}"
+    return f"{a1_range}:{_A1_REF_RE.sub(repl, a1_range)}"

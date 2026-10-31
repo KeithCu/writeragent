@@ -29,16 +29,15 @@ def find_circular_groups(graph: dict[str, list[str]]) -> list[list[str]]:
     A cell that merely depends on a cycle is a singleton SCC with no
     self-edge, so it is omitted and still converts.
     """
-    nodes = set(graph)
     return [
         group
-        for group in _strongly_connected_groups(nodes, graph)
+        for group in _strongly_connected_groups(graph)
         if len(group) > 1 or group[0] in graph.get(group[0], ())
     ]
 
 
-def _strongly_connected_groups(nodes: set[str], graph: dict[str, list[str]]) -> list[list[str]]:
-    """Tarjan SCCs of *nodes*, following the precedent edges inside *nodes*."""
+def _strongly_connected_groups(graph: dict[str, list[str]]) -> list[list[str]]:
+    """Tarjan SCCs over formula-graph keys, following precedent edges that are themselves keys."""
     # Iterative Tarjan SCC using an explicit work stack to prevent recursion limits
     # on sheets with deep formula dependency chains.
     index: dict[str, int] = {}
@@ -55,11 +54,10 @@ def _strongly_connected_groups(nodes: set[str], graph: dict[str, list[str]]) -> 
         counter += 1
         scc_stack.append(node)
         on_stack.add(node)
-        # graph.get and `p in nodes` stay: a precedent can be on the sheet and
-        # still not be a formula-graph node.
-        return iter(sorted({p for p in graph.get(node, ()) if p in nodes}))
+        # A precedent can sit on the sheet without being a formula-graph node.
+        return iter(sorted({p for p in graph.get(node, ()) if p in graph}))
 
-    for root in sorted(nodes):
+    for root in sorted(graph):
         if root in index:
             continue
         work_stack: list[tuple[str, Iterator[str]]] = [(root, visit(root))]
