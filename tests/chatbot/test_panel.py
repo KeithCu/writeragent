@@ -64,8 +64,8 @@ class TestQueryEnterSend:
 def _live_bus_callbacks(bus: Any, event: str) -> list[Any]:
     subs = bus._subscribers.get(event) or []
     live: list[Any] = []
-    for callback, is_weak in subs:
-        resolved = bus._resolve(callback, is_weak)
+    for entry in subs:
+        resolved = bus._deref(entry)
         if resolved is not None:
             live.append(resolved)
     return live

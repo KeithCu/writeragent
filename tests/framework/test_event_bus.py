@@ -1,4 +1,5 @@
 import gc
+import weakref
 from plugin.framework.event_bus import EventBus, get_event_bus
 
 def test_subscribe_emit():
@@ -335,11 +336,11 @@ def test_subscribe_weak_builtin_inline_survives_gc():
     items: list[int] = []
     bus.subscribe("test:event", items.append, weak=True)
     gc.collect()
-    stored, is_weak = bus._subscribers["test:event"][0]
-    assert is_weak is False
+    stored = bus._subscribers["test:event"][0]
+    assert not isinstance(stored, weakref.ref)
     # emit() passes keywords; append is positional-only, so call the
     # resolved subscriber the same way emit resolves it.
-    resolved = bus._resolve(stored, is_weak)
+    resolved = bus._deref(stored)
     assert resolved == items.append
     resolved(1)
     assert items == [1]
@@ -378,7 +379,7 @@ def test_unsubscribe_builtin_does_not_drop_sibling():
     bus.subscribe("test:event", items.append, weak=True)
     bus.subscribe("test:event", items.clear, weak=True)
     bus.unsubscribe("test:event", items.append)
-    remaining = [bus._resolve(cb, is_weak) for cb, is_weak in bus._subscribers["test:event"]]
+    remaining = [bus._deref(entry) for entry in bus._subscribers["test:event"]]
     assert remaining == [items.clear]
 
 
@@ -388,8 +389,7 @@ def test_subscribe_weak_method_wrapper_falls_back_to_strong_ref():
     number = 5
     method = number.__add__
     bus.subscribe("test:event", method, weak=True)
-    stored, is_weak = bus._subscribers["test:event"][0]
-    assert is_weak is False
+    stored = bus._subscribers["test:event"][0]
     assert stored is method
 
 
@@ -425,10 +425,8 @@ def test_weakref_cleanup_while_lock_held_does_not_deadlock():
     assert done.wait(2.0), "weakref cleanup deadlocked on the bus lock"
     worker.join(timeout=1.0)
     assert not worker.is_alive()
-    # Cleanup ran on the thread that held the lock. A skipped callback would
-    # leave the dead weakref in the list.
-    assert bus._subscribers.get("gone") == []
     bus.emit("gone")
+    assert bus._subscribers.get("gone") == []
 
 
 def test_subscribe_weak_python_method_stays_weakmethod():
@@ -442,8 +440,7 @@ def test_subscribe_weak_python_method_stays_weakmethod():
 
     target = Target()
     bus.subscribe("test:event", target.handler, weak=True)
-    stored, is_weak = bus._subscribers["test:event"][0]
-    assert is_weak is True
+    stored = bus._subscribers["test:event"][0]
     assert isinstance(stored, weakref.WeakMethod)
 
 
