@@ -204,6 +204,15 @@ def wait_for_recording_ready(managed: ManagedSubprocess, *, timeout_sec: float =
 def _close_recording_pipe(stream: Any, label: str) -> None:
     if stream is None:
         return
+    fileno_fn = getattr(stream, "fileno", None)
+    if not callable(fileno_fn):
+        return
+    try:
+        fd = fileno_fn()
+    except (OSError, ValueError):
+        return
+    if not isinstance(fd, int) or isinstance(fd, bool):
+        return
     try:
         stream.close()
     except (OSError, ValueError) as exc:
@@ -244,7 +253,7 @@ def _reap_recording_process(
         drain.join(timeout=1.0)
     # Bugfix: the monitor closure holds proc, so the fds stayed open until
     # GC; closing the read end also unblocks a monitor stuck in os.read after
-    # the child is gone.
+    # the child is gone. Do not close streams whose fileno is not an int.
     _close_recording_pipe(proc.stdin, "stdin")
     _close_recording_pipe(proc.stdout, "stdout")
     _close_recording_pipe(proc.stderr, "stderr")

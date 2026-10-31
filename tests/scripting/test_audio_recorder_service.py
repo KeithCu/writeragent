@@ -22,12 +22,6 @@ def _recording_child(proc: MagicMock, drain: object | None = None) -> ManagedSub
     return ManagedSubprocess.wrap_existing(proc, label="audio-recorder", stderr_tail=drain)  # type: ignore[arg-type]
 
 
-class _StopStdin(io.StringIO):
-    def close(self) -> None:
-        # Reap closes stdin. The assertion still reads the stop line.
-        return
-
-
 def test_reap_kills_the_group_before_dropping_stderr(monkeypatch):
     from plugin.scripting.audio_recorder_service import _reap_recording_process
 
@@ -95,7 +89,7 @@ def test_stop_recording_process_uses_json_stop_command():
 
     proc = MagicMock()
     proc.poll.return_value = None
-    proc.stdin = _StopStdin()
+    proc.stdin = StringIO()
     proc.wait.return_value = 0
     handoff = RecordingStopHandoff()
     handoff.note_ok("/tmp/x.wav")
@@ -180,7 +174,7 @@ def test_stop_gets_ok_path_already_consumed_by_stdout_monitor():
     )
     proc = MagicMock()
     proc.poll.return_value = None
-    proc.stdin = _StopStdin()
+    proc.stdin = StringIO()
     proc.stdout = stdout
     proc.wait.return_value = 0
     child = _recording_child(proc)
