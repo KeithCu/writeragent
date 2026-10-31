@@ -148,13 +148,10 @@ def _line_display_cols(line: str, *, max_cols: int | None = None) -> int:
 
 def _raw_height_for_text(
     text: str,
-    doc: Any | None = None,
     *,
     field_w: int | None = None,
     cap: int | None = None,
 ) -> int:
-    if field_w is None and doc is not None:
-        field_w = _text_area_width_units(doc)
     if field_w is None:
         cols = 80
     else:
@@ -178,7 +175,9 @@ def _raw_height_for_text(
 
 def _height_for_text(text: str, doc: Any | None = None, *, field_w: int | None = None, cap: int | None = None) -> int:  # pyright: ignore[reportUnusedFunction]
     """Shape height in 1/100 mm so every source line is visible (no clipped last line)."""
-    raw = _raw_height_for_text(text, doc, field_w=field_w, cap=cap)
+    if field_w is None and doc is not None:
+        field_w = _text_area_width_units(doc)
+    raw = _raw_height_for_text(text, field_w=field_w, cap=cap)
     if cap is None:
         cap = _cap_from_style(_page_style(doc))
     return max(_MIN_FIELD_HEIGHT, min(cap, raw))
@@ -453,35 +452,12 @@ def form_run_listeners(doc: Any | None = None) -> list[Any]:
     return [lis for lis in out if getattr(lis, "_doc_key_val", None) == key]
 
 
-@main_thread_only
-def get_control_view_for_model(doc: Any, model: Any) -> Any | None:
-    """Resolve the live control view for a form model (required for listeners)."""
-    try:
-        controller = doc.getCurrentController()
-        if controller is None:
-            return None
-        # SwXTextView exposes getControl on XControlAccess; PyUNO needs getTypeByName for QI.
-        if hasattr(controller, "getControl"):
-            view = best_effort(lambda: controller.getControl(model), "notebook controls: controller.getControl failed")
-            if view is not None:
-                return view
-        access = _query_interface(controller, "com.sun.star.view.XControlAccess")
-        if access is None:
-            log.debug("notebook controls: controller has no XControlAccess")
-            return None
-        return access.getControl(model)
-    except Exception:
-        log.debug("notebook controls: getControl failed", exc_info=True)
-        return None
-
-
 def prune_dead_listeners() -> None:
     """Remove listeners whose target document is closed/gone."""
     from plugin.framework.thread_guard import on_main_thread
 
     if not on_main_thread():
         return
-    global _listener_refs
     with _lock:
         refs = list(_listener_refs)
     survivors = [
@@ -493,7 +469,7 @@ def prune_dead_listeners() -> None:
         # Dummy-2 prune must not drop a Dummy-3 wire_all append that landed
         # after the snapshot.
         added = [lis for lis in _listener_refs if lis not in refs]
-        _listener_refs = survivors + added
+        _listener_refs[:] = survivors + added
 
 
 class NotebookFormRunListener(BaseActionListener):
@@ -615,10 +591,9 @@ class NotebookFormContainerListener(BaseContainerListener):
         _attach_action_listener(getattr(Event, "Element", None), self._form_listener)
 
     def on_disposing(self, Source: Any) -> None:
-        global _listener_refs
         with _lock:
             pair = {self, self._form_listener}
-            _listener_refs = [lis for lis in _listener_refs if lis not in pair]
+            _listener_refs[:] = [lis for lis in _listener_refs if lis not in pair]
 
 
 def _attach_action_listener(control: Any, listener: NotebookFormRunListener) -> bool:
@@ -712,7 +687,6 @@ def forget_document_wiring(doc: Any) -> None:
     """Drop ▶ listeners and registry bookkeeping for *doc* on unload."""
     if doc is None:
         return
-    global _listener_refs
     doc_key = _doc_key(doc)
     with _lock:
         _warned_no_container.discard(doc_key)
@@ -727,7 +701,7 @@ def forget_document_wiring(doc: Any) -> None:
             )
     with _lock:
         drop_set = set(to_drop)
-        _listener_refs = [lis for lis in _listener_refs if lis not in drop_set]
+        _listener_refs[:] = [lis for lis in _listener_refs if lis not in drop_set]
 
 
 def _container_wired(doc_key: str, container: Any | None = None) -> bool:

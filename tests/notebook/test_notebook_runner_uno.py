@@ -163,6 +163,34 @@ def _assert_stdout_own_paragraph(doc) -> None:
     assert "Before code" in body
 
 
+def _control_view_for_model(doc, model):
+    """Click-test resolver. Production wiring must not call getControl per button.
+
+    getControl may return None. The view is on XControlAccess, and PyUNO
+    queryInterface needs uno.getTypeByName.
+    """
+    from plugin.framework.errors import best_effort
+    from plugin.notebook.notebook_controls import _query_interface
+
+    try:
+        controller = doc.getCurrentController()
+        if controller is None:
+            return None
+        if hasattr(controller, "getControl"):
+            view = best_effort(
+                lambda: controller.getControl(model),
+                "notebook controls: controller.getControl failed",
+            )
+            if view is not None:
+                return view
+        access = _query_interface(controller, "com.sun.star.view.XControlAccess")
+        if access is None:
+            return None
+        return access.getControl(model)
+    except Exception:
+        return None
+
+
 def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
     """Click ▶ through the live control view. Returns how the click was delivered."""
     import uno
@@ -171,13 +199,12 @@ def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
     from plugin.notebook.notebook_controls import (
         _query_interface,
         form_run_listeners,
-        get_control_view_for_model,
         prune_dead_listeners,
     )
 
     model = find_form_control_model_by_name(doc, f"nb_run_{hex_id}")
     assert model is not None, f"no form model nb_run_{hex_id}"
-    control = get_control_view_for_model(doc, model)
+    control = _control_view_for_model(doc, model)
     assert control is not None, "getControl returned no live view for ▶"
     btn = _query_interface(control, "com.sun.star.awt.XButton")
     assert btn is not None, "live view is not XButton"
@@ -208,9 +235,7 @@ def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
 
     ipynb = _tiny_ipynb_path()
     try:
-        with patch("plugin.notebook.notebook_controls.get_control_view_for_model") as get_view:
-            get_view.side_effect = AssertionError("import must not call getControl per ▶")
-            import_ipynb_to_writer(doc, str(ipynb), ctx=ctx)
+        import_ipynb_to_writer(doc, str(ipynb), ctx=ctx)
         flush_ui_idle(ctx)
         state = load_registry(doc)
         assert state is not None and len(state.code_cells) == 1
