@@ -85,15 +85,13 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
                 parts = parse_python_formula(master_body)
                 if parts is not None:
                     shifted_args: list[str] = []
-                    ok = True
                     # PythonFormulaParts has no data_args; re-parse the trailing arg text and keep parts.prefix.
                     for arg in parse_data_binding_text(format_data_binding_display(parts.data_suffix)):
                         s_arg = shift_xlws_py_dep(arg, delta_r, delta_c)
                         if s_arg is None:
-                            ok = False
                             break
                         shifted_args.append(s_arg)
-                    if ok:
+                    else:
                         formula = rebuild_python_formula_with_data(parts.code, shifted_args, parts=parts)
 
         if formula and not formula.startswith("="):
