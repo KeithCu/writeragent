@@ -136,14 +136,13 @@ def is_400_input_validation(err: Any) -> bool:
     # Bugfix: "400" in str(err) is true for any payload whose text happens
     # to contain those digits, including a non-400 body. The HTTP status is
     # already on details["status"] from handle_http_status via format_error_payload.
-    details = err.get("details") if isinstance(err, dict) else getattr(err, "details", None)
+    if not isinstance(err, dict):
+        return False
+    details = err.get("details")
     status = details.get("status") if isinstance(details, dict) else None
     if not isinstance(status, int) or isinstance(status, bool) or status != 400:
         return False
-    if isinstance(err, dict):
-        msg = str(err.get("message") or "").lower()
-    else:
-        msg = str(getattr(err, "message", None) or err).lower()
+    msg = str(err.get("message") or "").lower()
     return "input validation" in msg or "bad request" in msg
 
 
