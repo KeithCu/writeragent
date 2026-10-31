@@ -96,6 +96,10 @@ def _is_tag_start(ch: str) -> bool:
     return ch.isalpha() or ch in "/!?"
 
 
+def _tag_rejected(buf: str) -> bool:
+    return (len(buf) == 2 and not _is_tag_start(buf[1])) or len(buf) > _TAG_BUFFER_LIMIT
+
+
 def _parse_tag(buf: str) -> _Tag:
     """Return parsed tag attributes for a tag buffer without ``>``."""
     inner = buf[1:] if buf.startswith("<") else buf
@@ -145,7 +149,6 @@ def escape_prose_angle_brackets(text: str) -> str:
         if not tag_buffer:
             if char == "<":
                 tag_buffer = "<"
-                quote = ""
             else:
                 out.append(char)
         elif quote:
@@ -160,20 +163,16 @@ def escape_prose_angle_brackets(text: str) -> str:
         elif char == "<":
             out.append("&lt;" + tag_buffer[1:])
             tag_buffer = "<"
-            quote = ""
         elif char == ">":
             buf = tag_buffer
             tag_buffer = ""
-            quote = ""
             if _parse_tag(buf).is_real:
                 out.append(buf + ">")
             else:
                 out.append("&lt;" + buf[1:] + "&gt;")
         else:
             tag_buffer += char
-            if len(tag_buffer) == 2 and not _is_tag_start(tag_buffer[1]):
-                abort()
-            elif len(tag_buffer) > _TAG_BUFFER_LIMIT:
+            if _tag_rejected(tag_buffer):
                 abort()
 
     if tag_buffer:
@@ -248,7 +247,6 @@ class StreamingHTMLStripper:
         buf = self.tag_buffer
         tag = _parse_tag(buf)
         self.tag_buffer = ""
-        self._quote = ""
         if tag.is_real:
             self.dropped_real_tag = True
         if self._discard_until:
@@ -280,7 +278,6 @@ class StreamingHTMLStripper:
             if not self.tag_buffer:
                 if char == "<":
                     self.tag_buffer = "<"
-                    self._quote = ""
                 elif not self._discard_until:
                     out.append(char)
                 else:
@@ -301,7 +298,6 @@ class StreamingHTMLStripper:
                 if not self._discard_until:
                     out.append(self.tag_buffer)
                 self.tag_buffer = "<"
-                self._quote = ""
             elif char == ">":
                 self._end_tag(out)
             else:
@@ -338,10 +334,7 @@ class StreamingHTMLStripper:
         if not chunk:
             return ""
         size = DEAL_MAX_HTML_CHUNK
-        if len(chunk) <= size:
-            raw = self._feed_chunk(chunk)
-        else:
-            raw = "".join(self._feed_chunk(chunk[i : i + size]) for i in range(0, len(chunk), size))
+        raw = "".join(self._feed_chunk(chunk[i : i + size]) for i in range(0, len(chunk), size))
         return self._unescape_emitted(raw, hold_tail=True)
 
     @deal.post(lambda result: isinstance(result, str))
@@ -453,11 +446,9 @@ def html_to_search_text(text: str) -> str:
         elif char == "<":
             parts.append(tag_buf)
             tag_buf = "<"
-            quote = ""
         elif char == ">":
             buf_str = tag_buf
             tag_buf = ""
-            quote = ""
             tag = _parse_tag(buf_str)
             if discard_until:
                 if tag.is_real and tag.is_close and tag.name == discard_until:
@@ -476,10 +467,7 @@ def html_to_search_text(text: str) -> str:
                 flush_block()
         else:
             tag_buf += char
-            if len(tag_buf) == 2 and not _is_tag_start(tag_buf[1]):
-                parts.append(tag_buf)
-                tag_buf = ""
-            elif len(tag_buf) > _TAG_BUFFER_LIMIT:
+            if _tag_rejected(tag_buf):
                 parts.append(tag_buf)
                 tag_buf = ""
 
