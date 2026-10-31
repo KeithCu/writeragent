@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from plugin.framework.config import LRU_MAX_ITEMS
 from plugin.framework.model_lru import (
     _is_model_combobox_placeholder,
     _sanitize_model_combobox_value,
@@ -31,14 +32,15 @@ class TestModelLru:
         assert lru_config_key("prompt_lru", "") == "prompt_lru"
 
     def test_next_lru_list_skips_blank_and_head_and_promotes(self):
-        assert next_lru_list(["a"], None, 10) is None
-        assert next_lru_list(["first"], "  ", 10) is None
-        assert next_lru_list(["first", "second"], "first", 10) is None
-        assert next_lru_list(["first", "second"], "second", 10) == ["second", "first"]
-        assert next_lru_list("", "new", 10) == ["new"]
-        assert next_lru_list(["a", "b", "c"], "d", 3) == ["d", "a", "b"]
-        assert next_lru_list(["a", "b", "a"], "c", 10) == ["c", "a", "b"]
-        assert next_lru_list(["a", "b", "a"], "b", 10) == ["b", "a"]
+        assert next_lru_list(["a"], None) is None
+        assert next_lru_list(["first"], "  ") is None
+        assert next_lru_list(["first", "second"], "first") is None
+        assert next_lru_list(["first", "second"], "second") == ["second", "first"]
+        assert next_lru_list("", "new") == ["new"]
+        full = [f"old{i}" for i in range(LRU_MAX_ITEMS)]
+        assert next_lru_list(full, "new") == ["new"] + full[:LRU_MAX_ITEMS - 1]
+        assert next_lru_list(["a", "b", "a"], "c") == ["c", "a", "b"]
+        assert next_lru_list(["a", "b", "a"], "b") == ["b", "a"]
 
     def test_update_lru_history(self):
         config_data = {}
@@ -74,11 +76,11 @@ class TestModelLru:
             assert config_data.get("model_lru@http://localhost") == ["item1"]
             update_lru_history("item2", "prompt_lru", "")
             assert config_data.get("prompt_lru") == ["item2"]
-            for i in range(5):
-                update_lru_history(f"item{i}", "test_lru", "ep", max_items=3)
-            assert config_data.get("test_lru@ep") == ["item4", "item3", "item2"]
-            update_lru_history("item2", "test_lru", "ep", max_items=3)
-            assert config_data.get("test_lru@ep") == ["item2", "item4", "item3"]
+            for i in range(LRU_MAX_ITEMS + 2):
+                update_lru_history(f"item{i}", "test_lru", "ep")
+            assert config_data.get("test_lru@ep") == [f"item{i}" for i in range(LRU_MAX_ITEMS + 1, 1, -1)]
+            update_lru_history("item2", "test_lru", "ep")
+            assert config_data.get("test_lru@ep") == ["item2"] + [f"item{i}" for i in range(LRU_MAX_ITEMS + 1, 2, -1)]
 
     def test_update_lru_history_skips_when_list_unchanged(self):
         config_data = {"prompt_lru": ["first", "second"]}

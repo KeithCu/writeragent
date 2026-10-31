@@ -52,11 +52,10 @@ def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | No
     (``:nitro``, ``:floor``, …) fall back to the base slug.
     """
     mid = str(model_id or "").strip()
-    catalog = set(catalog_ids) if catalog_ids is not None else None
-    if catalog is not None and mid in catalog:
+    if catalog_ids is not None and mid in catalog_ids:
         return mid
     base = _split_suffix(mid)
-    if base != mid and (catalog is None or base in catalog):
+    if base != mid and (catalog_ids is None or base in catalog_ids):
         return base
     return mid
 

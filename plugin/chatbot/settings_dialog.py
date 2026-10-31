@@ -409,11 +409,10 @@ def _stage_lru(dest: dict[str, Any], val: Any, lru_key: str, endpoint: str) -> N
     current list, so two fields that share a list compose in one dict.
     """
     from plugin.framework.model_lru import lru_config_key, next_lru_list
-    from plugin.framework.config import LRU_MAX_ITEMS
 
     scoped = lru_config_key(lru_key, endpoint)
     current = dest[scoped] if scoped in dest else get_config(scoped)
-    updated = next_lru_list(current, val, LRU_MAX_ITEMS)
+    updated = next_lru_list(current, val)
     if updated is not None:
         dest[scoped] = updated
 

@@ -3,7 +3,6 @@ UI population helpers for LibreOffice dialogs and Settings.
 """
 from typing import Any
 from plugin.framework.config import (
-    LRU_MAX_ITEMS,
     get_config,
     set_configs,
     get_current_endpoint,
@@ -18,6 +17,7 @@ from plugin.framework.client.model_fetcher import (
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.default_models import (
     DEFAULT_MODELS,
+    _catalog_id_matches,
     merge_provider_default_models,
     together_speech_ids,
 )
@@ -47,16 +47,6 @@ def _prefer_openrouter_api_id(to_show: list[str], api_id: str) -> None:
     to_show[:] = kept
 
 
-def _catalog_mid_matches(model_id: str, catalog_mid: str, provider: str | None) -> bool:
-    if catalog_mid == model_id:
-        return True
-    if provider == "openrouter":
-        from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
-
-        return openrouter_model_ids_equivalent(catalog_mid, model_id)
-    return False
-
-
 def _is_model_id_associated_with_other_provider(model_id: str, current_provider: str | None) -> bool:
     """True if model_id is a known default for SOME provider, but NOT the current_provider.
 
@@ -74,7 +64,7 @@ def _is_model_id_associated_with_other_provider(model_id: str, current_provider:
     for m in DEFAULT_MODELS:
         ids = m.get("ids", {})
         for pid, mid in ids.items():
-            if not _catalog_mid_matches(model_id, str(mid), pid if pid == "openrouter" else None):
+            if not _catalog_id_matches(pid if pid == "openrouter" else None, str(mid), model_id):
                 continue
             if pid == current_provider:
                 is_known_here = True
@@ -374,7 +364,7 @@ def _sync_sidebar_model(
 
     if update_lru:
         lru_key = lru_config_key(lru_base, get_current_endpoint())
-        updated = next_lru_list(get_config(lru_key), txt, LRU_MAX_ITEMS)
+        updated = next_lru_list(get_config(lru_key), txt)
         if updated is not None:
             patch[lru_key] = updated
 
