@@ -314,23 +314,13 @@ def _tool_calls_from_content_blocks(content_parts: list[dict[str, Any]]) -> list
 
 
 def _thinking_text(content_parts: list[dict[str, Any]]) -> str | None:
-    """Join sync ``thinking`` blocks. The stream path already returns thinking_delta."""
-    parts: list[str] = []
-    for part in content_parts:
-        if part.get("type") != "thinking":
-            continue
-        text = part.get("thinking")
-        if isinstance(text, str) and text:
-            parts.append(text)
-    if not parts:
-        return None
-    return "\n\n".join(parts)
+    """Join sync thinking blocks. The stream path already returns thinking_delta."""
+    parts = [text for part in content_parts if part.get("type") == "thinking" and isinstance(text := part.get("thinking"), str) and text]
+    return "\n\n".join(parts) if parts else None
 
 
 class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
-
-    _effort_provider: str | None = "anthropic"
 
     def _tool_delta(self, block_index: Any, *, arguments: str, indexes: dict[int, int], tool_id: Any = None, name: str | None = None) -> dict[str, Any] | None:
         """One streamed tool-call fragment. ``arguments`` is a piece, not the final object.
@@ -471,5 +461,4 @@ class AnthropicShim(BaseProviderShim):
         content, finish_reason, _thinking, delta = self.parse_response_chunk(response_data, {})
         tool_calls = delta.get("tool_calls")
         usage = _normalize_usage(response_data.get("usage") or {})
-        images = delta.get("images") or []
-        return content, finish_reason, tool_calls, usage, images, delta
+        return content, finish_reason, tool_calls, usage, [], delta
