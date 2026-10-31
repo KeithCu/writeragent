@@ -41,11 +41,9 @@ _LISTENERS: dict[str, "_CalcPythonUnloadListener"] = {}
 # look this up and must not call getPropertyValue / getURL on the cached model.
 # Weak keys so a collected document cannot leave an id that a new object reuses.
 _LIFECYCLE_KEYS: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()
-_LIFECYCLE_REFS_BY_KEY: dict[str, list[weakref.ReferenceType[Any]]] = {}
 # PyUNO objects often reject weakref. Those ids are stored with a strong reference
 # to the object so Python cannot reuse the id for a different document before unload.
 _LIFECYCLE_KEY_BY_DOC_ID: dict[int, tuple[str, Any]] = {}
-_DOC_IDS_BY_LIFECYCLE_KEY: dict[str, set[int]] = {}
 
 
 def _doc_objects(doc: Any) -> list[Any]:
@@ -66,24 +64,15 @@ def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
         for obj in objects:
             try:
                 previous = _LIFECYCLE_KEYS.get(obj)
-                if previous and previous != key:
-                    _rekey_listener(previous, key)
                 _LIFECYCLE_KEYS[obj] = key
             except TypeError:
                 doc_id = id(obj)
-                # Store (key, obj) so obj stays alive. When a PyUNO object
-                # rejects weakref, id(obj) alone can be reused for a
-                # different document and cancel the wrong spill timer.
                 entry = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
                 previous = entry[0] if entry is not None else None
-                if previous and previous != key:
-                    _rekey_listener(previous, key)
+                # Strong ref: PyUNO often rejects weakref, and id() can be reused.
                 _LIFECYCLE_KEY_BY_DOC_ID[doc_id] = (key, obj)
-                _DOC_IDS_BY_LIFECYCLE_KEY.setdefault(key, set()).add(doc_id)
-                continue
-            refs = _LIFECYCLE_REFS_BY_KEY.setdefault(key, [])
-            if not any(existing() is obj for existing in refs):
-                refs.append(weakref.ref(obj))
+            if previous and previous != key:
+                _rekey_listener(previous, key)
 
 
 def _forget_doc_lifecycle_key(key: str) -> None:
@@ -91,18 +80,16 @@ def _forget_doc_lifecycle_key(key: str) -> None:
     if not key:
         return
     with _LOCK:
-        for ref in _LIFECYCLE_REFS_BY_KEY.pop(key, ()):
-            obj = ref()
-            if obj is not None and _LIFECYCLE_KEYS.get(obj) == key:
+        for obj, stored in list(_LIFECYCLE_KEYS.items()):
+            if stored == key:
                 _LIFECYCLE_KEYS.pop(obj, None)
-        for doc_id in _DOC_IDS_BY_LIFECYCLE_KEY.pop(key, ()):
-            entry = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
-            if entry is not None and entry[0] == key:
+        for doc_id, entry in list(_LIFECYCLE_KEY_BY_DOC_ID.items()):
+            if entry[0] == key:
                 _LIFECYCLE_KEY_BY_DOC_ID.pop(doc_id, None)
 
 
 def _rekey_listener(old: str, new: str) -> None:
-    """Move a listener and its alias bookkeeping to a document's upgraded key.
+    """Move the unload listener when a document's key is upgraded.
 
     Caller holds ``_LOCK``. Without the move the old key kept a listener, the
     new key installed a second one, and unload forgot only the new alias.
@@ -111,12 +98,6 @@ def _rekey_listener(old: str, new: str) -> None:
     if listener is not None:
         listener._lifecycle_key = new
         _LISTENERS[new] = listener
-    refs = _LIFECYCLE_REFS_BY_KEY.pop(old, None)
-    if refs:
-        _LIFECYCLE_REFS_BY_KEY.setdefault(new, []).extend(refs)
-    doc_ids = _DOC_IDS_BY_LIFECYCLE_KEY.pop(old, None)
-    if doc_ids:
-        _DOC_IDS_BY_LIFECYCLE_KEY.setdefault(new, set()).update(doc_ids)
 
 
 def lifecycle_key_if_known(doc: Any | None) -> str:
@@ -381,15 +362,6 @@ def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any) -> None:
     _register(doc, key, lambda: _CalcPythonUnloadListener(ctx, session_id, key, doc_url=doc_url), lambda existing: existing.note_calc_identity(session_id, doc_url))
 
 
-def _script_lifecycle_key(doc: Any, session_id: str) -> str:
-    """Stable listener key that does not record a Calc session for Writer/Draw."""
-    # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute and accepted non-strings. _read_runtime_uid walks method, attribute, then property, and keeps only str or int, with no thread check.
-    from plugin.framework.uno_context import _read_runtime_uid
-
-    uid = _read_runtime_uid(doc)
-    return f"py:{uid or session_id}"
-
-
 def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str | None) -> None:
     """Drop *session_id* when *doc* closes.
 
@@ -401,5 +373,9 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
     if session_id.startswith("calc:"):
         ensure_calc_workbook_unload_resets_python(ctx, doc)
         return
-    key = _script_lifecycle_key(doc, session_id)
+    # Writer/Draw key. Must not record a Calc session id. Same RuntimeUID ladder as _lifecycle_key.
+    from plugin.framework.uno_context import _read_runtime_uid
+
+    uid = _read_runtime_uid(doc)
+    key = f"py:{uid or session_id}"
     _register(doc, key, lambda: _CalcPythonUnloadListener(ctx, session_id, key, calc_cleanup=False), lambda existing: existing.note_session(session_id))
