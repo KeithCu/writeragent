@@ -11,7 +11,6 @@ import logging
 from typing import Any
 
 from plugin.scripting.sheet_layout import extract_sheet_layout
-from plugin.scripting.trusted_action_registry import _SPEC_DOMAINS
 from plugin.scripting.venv.coerce import coerce_bool, coerce_int
 
 log = logging.getLogger(__name__)
@@ -58,10 +57,7 @@ def _sheet_layout_flags(spec_dict: dict[str, Any]) -> tuple[bool, int] | dict[st
     """Extract and validate sheet layout flags (headers, header_row) from spec_dict."""
     try:
         headers = coerce_bool(spec_dict.get("headers"), name="headers", default=True)
-        if "header_row" in spec_dict:
-            header_row = coerce_int(spec_dict["header_row"], name="header_row")
-        else:
-            header_row = 0
+        header_row = coerce_int(spec_dict["header_row"], name="header_row") if "header_row" in spec_dict else 0
     except ValueError as exc:
         return error_result("INVALID_SPEC", str(exc))
     return headers, header_row
@@ -103,7 +99,6 @@ def resolve_spec_helper(
     spec: dict[str, Any] | str,
     *,
     helper_names: frozenset[str] | set[str],
-    missing_code: str = "MISSING_HELPER",
 ) -> tuple[str, dict[str, Any]] | dict[str, Any]:
     """Extract helper name and spec dict from spec, or return an error dict."""
     if isinstance(spec, str):
@@ -115,7 +110,7 @@ def resolve_spec_helper(
 
     helper = str(spec_dict.get("helper") or "").strip()
     if not helper:
-        return error_result(missing_code, "helper is required")
+        return error_result("MISSING_HELPER", "helper is required")
     if helper not in helper_names:
         return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
     return helper, spec_dict
@@ -200,8 +195,6 @@ def _packet_parts(data: dict[str, Any]) -> tuple[dict[str, Any], Any, dict[str, 
 # this (spec, data, context) shape.
 def dispatch_spec_domain(data: dict[str, Any]) -> Any:
     domain = data.get("domain")
-    # Harness lookup used this same domain string. A miss is a direct call.
-    assert isinstance(domain, str) and domain in _SPEC_DOMAINS, domain
     mod = importlib.import_module(f"plugin.scripting.venv.{domain}")
     spec, data_range, context = _packet_parts(data)
     return getattr(mod, f"run_{domain}")(spec, data_range, context)
