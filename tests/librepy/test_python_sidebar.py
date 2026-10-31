@@ -405,13 +405,11 @@ def test_resize_listener_disposing_runs_callback_once_without_removing():
     calls: list[str] = []
     listener = _PanelResizeListener({}, on_dispose=lambda: calls.append("dispose"))
     root = MagicMock()
-    listener._root_window = root
 
     listener.disposing(root)
 
     assert calls == ["dispose"]
     root.removeWindowListener.assert_not_called()
-    assert listener._root_window is root
     listener.disposing(root)
     assert calls == ["dispose"]
 
@@ -473,15 +471,14 @@ def test_explicit_disposing_detaches_live_window_listener():
     ctrl._activation_listener = activation
     ctrl.frame = MagicMock()
     root = MagicMock()
+    ctrl.root = root
     listener = _PanelResizeListener({}, on_dispose=lambda: ctrl.disposing(from_window=True))
-    listener._root_window = root
     ctrl.resize_listener = listener
 
     ctrl.disposing()
 
     root.removeWindowListener.assert_called_once_with(listener)
     assert listener._on_dispose is None
-    assert listener._root_window is None
     assert ctrl.resize_listener is None
     assert ctrl._activation_listener is None
     ctrl._store.remove_listener.assert_called_once_with(ctrl._on_diag)
@@ -964,8 +961,8 @@ def test_disposing_twice_detaches_listener_once():
     ctrl._on_diag = object()
     ctrl._on_torn_down = None
     root = MagicMock()
+    ctrl.root = root
     listener = _PanelResizeListener({}, on_dispose=None)
-    listener._root_window = root
     ctrl.resize_listener = listener
     ctrl._activation_listener = None
     ctrl.frame = None
