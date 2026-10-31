@@ -48,6 +48,7 @@ MCP_HTTP_MAX_BODY_BYTES = 4 * 1024 * 1024
 MCP_HTTP_SOCKET_TIMEOUT_SEC = 30.0
 
 from plugin.framework.thread_guard import background
+import contextlib
 import json
 import logging
 import socket
@@ -86,10 +87,7 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
     body = json.dumps(data, ensure_ascii=False, default=str, indent=indent).encode("utf-8")
     handler._response_started = True
     handler.send_response(status)
-    if extra_headers is not None:
-        extra_headers(handler)
-    else:
-        send_cors_headers(handler, preflight=False)
+    (extra_headers or send_cors_headers)(handler)
     handler.send_header("Content-Type", "application/json")
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
@@ -241,20 +239,10 @@ def _shutdown_sse_socket(sock: Any) -> None:
     the fd can be reused under that wait. shutdown(SHUT_RDWR) marks the
     socket readable so the keepalive loop returns and checks the stop flag.
     """
-    shutdown = getattr(sock, "shutdown", None)
-    if callable(shutdown):
-        try:
-            shutdown(socket.SHUT_RDWR)
-        except OSError:
-            # Already-closed socket. Other exceptions are bugs.
-            pass
-    close = getattr(sock, "close", None)
-    if callable(close):
-        try:
-            close()
-        except OSError:
-            # Already-closed socket. Other exceptions are bugs.
-            pass
+    with contextlib.suppress(OSError):
+        sock.shutdown(socket.SHUT_RDWR)
+    with contextlib.suppress(OSError):
+        sock.close()
 
 
 def stop_sse_keepalives(tcp_server: Any) -> None:
@@ -302,7 +290,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
     def handle_one_request(self) -> None:
         """A client that goes away while the response is written is a closed request.
 
-        What was wrong: the 404 ``_send_json`` in ``_dispatch`` is outside the
+        What was wrong: the 404 ``write_http_json`` in ``_dispatch`` is outside the
         ``try`` that swallows ``OSError`` on the 500 write. ``do_GET`` returns
         into ``BaseHTTPRequestHandler.handle_one_request``, which only catches
         ``TimeoutError`` and then flushes ``wfile`` again. ``BrokenPipeError``
@@ -313,7 +301,6 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         Why: those disconnects are ``ConnectionError``. Any other exception
         still propagates.
         """
-        self._response_started = False
         try:
             super().handle_one_request()
         except ConnectionError:
@@ -353,7 +340,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         if route is None:
             log_no_route(self, method, path)
             err = WriterAgentException("Not found", code="NOT_FOUND", details={"path": path})
-            self._send_json(404, format_error_payload(err))
+            write_http_json(self, 404, format_error_payload(err))
             return
 
         try:
@@ -366,7 +353,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                 query = get_url_query_dict(self.path)
                 result = route.handler(body, self.headers, query)
                 status, data = cast("tuple[int, Any]", result)
-                self._send_json(status, data)
+                write_http_json(self, status, data)
         except ConnectionError:
             # Peer went away (RST/EPIPE) during the body read or a write.
             # That is a closed request, not a server bug: no 500, no traceback.
@@ -376,7 +363,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             log.exception("%s %s failed", method, path)
             if not self._response_started:
                 try:
-                    self._send_json(500, format_error_payload(e))
+                    write_http_json(self, 500, format_error_payload(e))
                 except OSError:
                     pass
 
@@ -384,12 +371,9 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         data, rejected = read_json_body(self)
         if rejected is not None:
             status, err = rejected
-            self._send_json(status, format_error_payload(err))
+            write_http_json(self, status, format_error_payload(err))
             return None
         return data
-
-    def _send_json(self, status: int, data: Any) -> None:
-        write_http_json(self, status, data)
 
     def log_message(self, format: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], format % args)
@@ -398,24 +382,16 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 class HttpServer:
     """Generic threaded HTTP server with optional TLS."""
 
-    route_registry: Any
-    port: int
-    host: str
-    use_ssl: bool
-    ssl_cert: str
-    ssl_key: str
-    _running: bool
-
     def __init__(self, route_registry: Any, port: int, host: str = "localhost", use_ssl: bool = False, ssl_cert: str = "", ssl_key: str = "") -> None:
-        self.route_registry = route_registry
-        self.port = port
-        self.host = host
-        self.use_ssl = use_ssl
-        self.ssl_cert = ssl_cert
-        self.ssl_key = ssl_key
+        self.route_registry: Any = route_registry
+        self.port: int = port
+        self.host: str = host
+        self.use_ssl: bool = use_ssl
+        self.ssl_cert: str = ssl_cert
+        self.ssl_key: str = ssl_key
         self._server: Any = None
         self._thread: Any = None
-        self._running = False
+        self._running: bool = False
 
     def start(self) -> None:
         if self._running:

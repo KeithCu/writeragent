@@ -158,11 +158,9 @@ def normalize_cors_origin(value: str | None) -> str | None:
 def normalize_origins_list(value: Any) -> list[str]:
     # crosshair: off
     """Coerce config value to a deduped list of normalized origin strings."""
-    if value is None:
-        return []
     if isinstance(value, str):
         value = [value]
-    if not isinstance(value, list):
+    elif not isinstance(value, list):
         return []
     out: list[str] = []
     for item in value:
@@ -185,8 +183,7 @@ def is_private_browser_origin(origin: str) -> bool:
     host = urlparse(normalized).hostname
     if not host:
         return False
-    h = host.lower()
-    if h.endswith(_PRIVATE_SUFFIXES):
+    if host.endswith(_PRIVATE_SUFFIXES):
         return True
     try:
         ip = ipaddress.ip_address(host)
@@ -221,20 +218,8 @@ def set_allow_private_origins(allow: bool) -> None:
 @deal.post(lambda result: isinstance(result, bool))
 def is_extra_allowed_origin(origin: str) -> bool:
     # crosshair: off
-    if len(origin) == 0:
-        return False
     normalized = normalize_cors_origin(origin)
     return normalized is not None and normalized in _extra_allowed_origins
-
-
-def _is_loopback_origin(origin: str) -> bool:
-    # crosshair: off
-    """True for http(s) localhost / 127.0.0.1 / ::1 (optional port). No regex."""
-    normalized = normalize_cors_origin(origin)
-    if normalized is None:
-        return False
-    host = urlparse(normalized).hostname
-    return host is not None and host.lower() in _SAFE_LOOPBACK_HOSTS
 
 
 def reload_cors_policy_from_config(services: Any) -> None:
@@ -259,9 +244,11 @@ def reload_cors_policy_from_config(services: Any) -> None:
 def is_safe_origin(origin: str) -> bool:
     # crosshair: off
     """True when Origin may receive Access-Control-Allow-Origin reflection."""
-    if len(origin) == 0:
+    normalized = normalize_cors_origin(origin)
+    if normalized is None:
         return False
-    if _is_loopback_origin(origin):
+    host = urlparse(normalized).hostname
+    if host is not None and host in _SAFE_LOOPBACK_HOSTS:
         return True
     if is_extra_allowed_origin(origin):
         return True
@@ -412,14 +399,12 @@ def reject_forbidden_host(handler: Any) -> bool:
 def merge_allow_headers(access_control_request_headers: str | None) -> str:
     # crosshair: off
     """Build Access-Control-Allow-Headers: base list union preflight request list."""
-    merged: dict[str, str] = {}
-    for header in _BASE_ALLOW_HEADERS:
-        merged[header.lower()] = header
-    if access_control_request_headers is not None and len(access_control_request_headers) > 0:
-        for header in (h.strip() for h in access_control_request_headers.split(",") if h.strip()):
-            key = header.lower()
-            if key not in merged:
-                merged[key] = header
+    merged: dict[str, str] = {header.lower(): header for header in _BASE_ALLOW_HEADERS}
+    for raw in (access_control_request_headers or "").split(","):
+        header = raw.strip()
+        key = header.lower()
+        if key and key not in merged:
+            merged[key] = header
     return ", ".join(merged.values())
 
 
