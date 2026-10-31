@@ -90,15 +90,13 @@ def build_cloudflare_command(port: int, provider_token: str = "") -> list[str]:
     return ["cloudflared", "tunnel", "--no-autoupdate", "--url", "http://localhost:%s" % int(port)]
 
 
-_CLOUDFLARE_IGNORED_HOSTS = frozenset({"cloudflare.com", "www.cloudflare.com", "developers.cloudflare.com", "blog.cloudflare.com", "pkg.cloudflare.com", "github.com", "api.trycloudflare.com"})
+_CLOUDFLARE_IGNORED_HOSTS = frozenset({"cloudflare.com", "github.com", "api.trycloudflare.com"})
 
 
 def _cloudflare_host_ok(url: str) -> bool:
     """True when *url* is a tunnel hostname, not an IP, doc host, or Cloudflare site."""
     host = url.split("://", 1)[-1].split("/")[0].split(":")[0].lower()
-    if not host or host in _CLOUDFLARE_IGNORED_HOSTS or host.endswith(".cloudflare.com"):
-        return False
-    if "." not in host:
+    if not host or "." not in host or host in _CLOUDFLARE_IGNORED_HOSTS or host.endswith(".cloudflare.com"):
         return False
     try:
         ipaddress.ip_address(host)
@@ -276,10 +274,7 @@ def _tailscale_arm_path() -> str | None:
 
 def _tailscale_arm_file_exists() -> bool:
     path = _tailscale_arm_path()
-    # bool(path) does not narrow str | None for mypy, so isfile saw str | None.
-    if not path:
-        return False
-    return os.path.isfile(path)
+    return path is not None and os.path.isfile(path)
 
 
 def _write_tailscale_arm() -> None:
@@ -383,7 +378,6 @@ def _build_provider_env(provider: str, provider_token: str) -> dict[str, str]:
     return env
 
 
-
 class TunnelManager:
     """Owns a single tunnel subprocess for the selected provider with pure FSM state."""
 
@@ -428,8 +422,6 @@ class TunnelManager:
     @property
     def provider(self) -> Optional[str]:
         return self._state.provider if self._state.desired_running else None
-
-
 
     @property
     def is_running(self) -> bool:
@@ -505,9 +497,7 @@ class TunnelManager:
         if provider:
             self._retire_snippet_provider(provider)
 
-    def _tailscale_reset_done(self, provider: str) -> None:
-        if provider != "tailscale":
-            return
+    def _tailscale_reset_done(self) -> None:
         with self._lock:
             if self._tailscale_resets_in_flight <= 0:
                 log.error("Tailscale reset in-flight count already zero")
@@ -517,8 +507,7 @@ class TunnelManager:
     def _schedule_post_stop_unlocked(self, provider: str, port: int) -> None:
         """Run provider post_stop off the manager lock, unless a newer session started.
 
-        The defaults bind this call's generation and a non-optional post_stop
-        for the nested function. StartProcessEffect bumps it before spawning a
+        StartProcessEffect bumps `_tunnel_generation` before spawning a
         provider whose reset would destroy that new session. The background
         thread re-checks under _provider_cfg_lock so a reset that already
         passed the check cannot overlap the next pre_start/spawn: that start
@@ -537,29 +526,29 @@ class TunnelManager:
         # START_REQUESTED has already overwritten self._state.port, and the log
         # must name the session being left.
 
-        def _safe_post_stop(expected: int = generation, fn: Callable[[int], bool] = post_stop, prov: str = provider, p: int = port) -> None:
+        def _safe_post_stop() -> None:
             ok = False
             try:
                 with cfg_lock:
                     with self._lock:
-                        stale = expected != self._tunnel_generation
+                        stale = generation != self._tunnel_generation
                     if stale:
-                        log.info("Ignoring stale MCP tunnel post_stop for %s", prov)
+                        log.info("Ignoring stale MCP tunnel post_stop for %s", provider)
                     else:
                         try:
-                            ok = fn(p) is True
+                            ok = post_stop(port) is True
                         except Exception:
-                            log.exception("Tunnel post_stop failed for %s", prov)
+                            log.exception("Tunnel post_stop failed for %s", provider)
                     # The old latch was set at schedule time and never cleared,
                     # and the marker was deleted whenever _tailscale_reset returned
                     # without raising. Exit 0 is the only delete. The count, not a
                     # sticky bool, is what blocks a second idle reset while a body
                     # is still running.
                     with self._lock:
-                        if ok and prov == "tailscale" and expected == self._tunnel_generation:
+                        if ok and provider == "tailscale" and generation == self._tunnel_generation:
                             _clear_tailscale_arm()
             finally:
-                self._tailscale_reset_done(prov)
+                self._tailscale_reset_done()
 
         from plugin.framework.worker_pool import run_in_background
 
@@ -573,7 +562,7 @@ class TunnelManager:
             # finally never runs. The caller usually already holds _lock;
             # _lock is an RLock, so taking it again does not deadlock.
             # Why: the same under-zero guard as the body, under the same lock.
-            self._tailscale_reset_done(provider)
+            self._tailscale_reset_done()
             raise
 
     def _finish_pending_launch(self, effect: StartProcessEffect, epoch: int, generation: int) -> None:
@@ -700,8 +689,6 @@ class TunnelManager:
                 # provider and port (the session that owned this process), or
                 # Tailscale off hits the new port or the wrong provider.
                 provider = effect.provider or self._state.provider
-                # The effect carries the provider and port that owned this process.
-                # Reading TunnelState here is the post-transition value.
                 port = effect.port
                 # RECONNECTING and FAILED already cleared _process in _on_exit.
                 # Requiring a live process skipped Tailscale funnel/serve reset
@@ -974,7 +961,6 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
     pname = provider_label(provider)
     binary = info["version_args"][0]
 
-    # 1. Check binary availability and version
     try:
         res = subprocess.run(info["version_args"], capture_output=True, text=True, timeout=5, **get_subprocess_creationflags())
         version_str = (res.stdout or res.stderr or "").strip().splitlines()[0] if (res.stdout or res.stderr) else ""
@@ -983,10 +969,8 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
     except Exception as exc:
         return False, _("Failed to execute {0} binary ({1}): {2}").format(pname, binary, exc), None
 
-    # 2. Check if local MCP server is running on port
     local_running = _health_probe_ok(f"http://localhost:{port}/health", 1.5)
 
-    # 3. Check if an active tunnel is already running in LibreOffice
     from plugin.mcp import _shared_tunnel
 
     if _shared_tunnel and _shared_tunnel.is_running:
