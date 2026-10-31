@@ -11,8 +11,8 @@ from unittest.mock import patch
 import pytest
 
 from plugin.scripting.venv.trusted_dispatch import (
+    _packet_parts,
     _require_str,
-    _trusted_action_spec,
     dispatch_spec_domain,
     dispatch_sql,
     dispatch_text,
@@ -22,7 +22,7 @@ from plugin.scripting.venv.trusted_dispatch import (
 
 def test_trusted_action_spec_copies_params() -> None:
     packet = {"helper": "convert_quantity", "params": {"value": "1"}, "headers": False}
-    spec = _trusted_action_spec(packet["helper"], packet["params"], packet)
+    spec, _data_range, _context = _packet_parts(packet)
     assert spec["params"] == {"value": "1"}
     assert spec["params"] is not packet["params"]
     spec["params"]["value"] = "2"
@@ -33,10 +33,11 @@ def test_trusted_action_spec_copies_params() -> None:
 
 def test_trusted_action_spec_rejects_non_dict_params() -> None:
     with pytest.raises(ValueError, match="params must be a dict"):
-        _trusted_action_spec("convert_quantity", ["value"], {})
+        _packet_parts({"helper": "convert_quantity", "params": ["value"]})
     with pytest.raises(ValueError, match="params must be a dict"):
         dispatch_text({"helper": "full", "params": "x", "text": "t"})
-    assert _trusted_action_spec("convert_quantity", None, {})["params"] == {}
+    spec, _data_range, _context = _packet_parts({"helper": "convert_quantity", "params": None})
+    assert spec["params"] == {}
 
 
 def test_require_str_rejects_blank_and_keeps_padding() -> None:

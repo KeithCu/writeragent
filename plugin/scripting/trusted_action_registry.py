@@ -56,14 +56,12 @@ class TrustedActionWiring:
 
 _VENV_DISPATCH = "plugin.scripting.venv.trusted_dispatch:"
 
+_SPEC_DOMAINS: tuple[str, ...] = (
+    "units", "symbolic", "viz", "analysis", "forecast", "optimize", "quant",
+)
+
 _TRUSTED_ACTION_WIRING: tuple[TrustedActionWiring, ...] = (
-    TrustedActionWiring("units", f"{_VENV_DISPATCH}dispatch_spec_domain"),
-    TrustedActionWiring("symbolic", f"{_VENV_DISPATCH}dispatch_spec_domain"),
-    TrustedActionWiring("viz", f"{_VENV_DISPATCH}dispatch_spec_domain"),
-    TrustedActionWiring("analysis", f"{_VENV_DISPATCH}dispatch_spec_domain"),
-    TrustedActionWiring("forecast", f"{_VENV_DISPATCH}dispatch_spec_domain"),
-    TrustedActionWiring("optimize", f"{_VENV_DISPATCH}dispatch_spec_domain"),
-    TrustedActionWiring("quant", f"{_VENV_DISPATCH}dispatch_spec_domain"),
+    *(TrustedActionWiring(domain, f"{_VENV_DISPATCH}dispatch_spec_domain") for domain in _SPEC_DOMAINS),
     TrustedActionWiring("text", f"{_VENV_DISPATCH}dispatch_text"),
     TrustedActionWiring("vision", f"{_VENV_DISPATCH}dispatch_vision"),
     TrustedActionWiring("sql", f"{_VENV_DISPATCH}dispatch_sql"),
