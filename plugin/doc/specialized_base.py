@@ -74,8 +74,7 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
         turn = current_turn(listener)
         if turn is not None and looks_like_peer_work_envelope(getattr(turn, "active_query_text", None)):
             return True
-        session = getattr(listener, "session", None)
-        messages = getattr(session, "messages", None) if session is not None else None
+        messages = getattr(getattr(listener, "session", None), "messages", None)
         if not messages:
             return False
         last_user = next((m for m in reversed(list(messages)) if isinstance(m, dict) and m.get("role") == "user"), None)
@@ -185,10 +184,9 @@ class DelegateToSpecializedBase(ToolBase):
         # Bugfix: Non-string domain (e.g. unhashable dict or None) cannot match any registered
         # domain and would fail inside ToolRegistry.get_tools frozenset lookups. Return the
         # standard invalid-domain error directly.
+        no_tools = f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered."
         if not isinstance(domain, str):
-            return self._tool_error(
-                f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered."
-            )
+            return self._tool_error(no_tools)
 
         if domain == "web_research":
             from plugin.chatbot.web_research import WebResearchTool
@@ -266,7 +264,7 @@ class DelegateToSpecializedBase(ToolBase):
         )
 
         if not domain_tools:
-            return self._tool_error(f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered.")
+            return self._tool_error(no_tools)
 
         # Specialized execute must see document_research so peer send tools'
         # caller guard allows this loop (not only ctx.caller == "chat").
@@ -338,14 +336,11 @@ class DelegateToSpecializedBase(ToolBase):
                 )
 
             # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running
-            # worker. UNO reads stay inside _fetch_calc_context on the main thread.
+            # worker. The spreadsheet read stays inside the lambda, on the main thread.
             if self._agent_label == "Calc" and getattr(ctx, "doc", None) is not None:
                 from plugin.calc.analyzer import get_calc_context_for_chat
 
-                def _fetch_calc_context() -> str:
-                    return "\n\n[SPREADSHEET CONTEXT]\n" + get_calc_context_for_chat(ctx.doc, ctx=ctx.ctx)
-
-                hints.append(_main_thread_or_warn(_fetch_calc_context, "Calc context"))
+                hints.append(_main_thread_or_warn(lambda: "\n\n[SPREADSHEET CONTEXT]\n" + get_calc_context_for_chat(ctx.doc, ctx=ctx.ctx), "Calc context"))
 
             hints.append(document_research_hint)
             if domain == "document_research":
