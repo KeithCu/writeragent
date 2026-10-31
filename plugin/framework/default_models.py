@@ -165,26 +165,20 @@ _COMBO_CAP = {
 }
 
 
-def catalog_speech_ids(provider: str, kind: str) -> list[str]:
-    """Every TTS or STT catalog id for ``provider``, not only the default."""
-    pred = _row_is_tts if kind == "tts" else _row_is_stt
-    out: list[str] = []
-    for model in DEFAULT_MODELS:
-        if not pred(model):
-            continue
-        effective_id = resolve_model_id(model, provider)
-        if effective_id and effective_id not in out:
-            out.append(effective_id)
-    return out
-
-
 def together_speech_ids(kind: str, remote_models: list[str] | None = None) -> list[str]:
     """Together Speech-tab ids: full serverless catalog, plus prefix matches.
 
     ``remote_models`` may be the raw ``GET /v1/models`` array. Chat rows are
     dropped. There is no Together ``output_modalities`` query.
     """
-    out = catalog_speech_ids("together", kind)
+    pred = _row_is_tts if kind == "tts" else _row_is_stt
+    out: list[str] = []
+    for model in DEFAULT_MODELS:
+        if not pred(model):
+            continue
+        effective_id = resolve_model_id(model, "together")
+        if effective_id and effective_id not in out:
+            out.append(effective_id)
     prefixes = _TOGETHER_TTS_PREFIXES if kind == "tts" else _TOGETHER_STT_PREFIXES
     seen = {mid.casefold() for mid in out}
     for raw in remote_models or []:
