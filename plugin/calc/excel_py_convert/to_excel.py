@@ -36,7 +36,7 @@ from plugin.calc.excel_py_convert.to_dag import (
     analyze_xl_calls,
     format_python_syntax_issue,
 )
-from plugin.calc.python.formula_edit import parse_python_formula
+from plugin.calc.python.formula_edit import format_data_binding_display, parse_data_binding_text, parse_python_formula
 from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
 
 # Calc ``Sheet.A1`` → Excel ``Sheet!A1`` for _xlws.PY deps (leave ranges without a sheet alone).
@@ -83,6 +83,18 @@ def _collect_legacy_spans(
     spans: list[tuple[int, int, str]] = []
     handled: set[int] = set()
 
+    def _emit_walk(node: ast.AST, idx: int, mode: HeaderMode, issue: str) -> None:
+        nonlocal fatal
+        for descendant in ast.walk(node):
+            handled.add(id(descendant))
+        if idx >= len(deps):
+            issues.append(issue)
+            fatal = True
+            return
+        start, end = node_span(node, src, line_starts)
+        if start >= 0 and end > start:
+            spans.append((start, end, _xl_expr(idx, mode)))
+
     for node in ast.walk(tree):
         # 1. pd.DataFrame(data[1:], columns=data[0]) or data[i] form
         if isinstance(node, ast.Call):
@@ -128,15 +140,7 @@ def _collect_legacy_spans(
                             cols_ok = True
 
                         if cols_ok:
-                            for descendant in ast.walk(node):
-                                handled.add(id(descendant))
-                            if idx >= len(deps):
-                                issues.append(f"DataFrame pattern references data[{idx}] but only {len(deps)} deps")
-                                fatal = True
-                            else:
-                                start, end = node_span(node, src, line_starts)
-                                if start >= 0 and end > start:
-                                    spans.append((start, end, _xl_expr(idx, "true")))
+                            _emit_walk(node, idx, "true", f"DataFrame pattern references data[{idx}] but only {len(deps)} deps")
                             continue
 
             # 2. (ranges|data)(?:[i])?.to_pandas(...)
@@ -154,15 +158,7 @@ def _collect_legacy_spans(
                     tp_idx = _data_index(target, ("data", "ranges"))
 
                     if tp_idx is not None:
-                        for descendant in ast.walk(node):
-                            handled.add(id(descendant))
-                        if tp_idx >= len(deps):
-                            issues.append(f"to_pandas pattern references index {tp_idx} but only {len(deps)} deps")
-                            fatal = True
-                        else:
-                            start, end = node_span(node, src, line_starts)
-                            if start >= 0 and end > start:
-                                spans.append((start, end, _xl_expr(tp_idx, header_mode)))
+                        _emit_walk(node, tp_idx, header_mode, f"to_pandas pattern references index {tp_idx} but only {len(deps)} deps")
                         continue
 
     # 3. Subscripts data[i] / ranges[i] and bare data
@@ -180,8 +176,7 @@ def _collect_legacy_spans(
                 else:
                     start, end = node_span(node, src, line_starts)
                     if start >= 0 and end > start:
-                        hm: HeaderMode = modes[sub_idx] if sub_idx < len(modes) else "omit"
-                        spans.append((start, end, _xl_expr(sub_idx, hm)))
+                        spans.append((start, end, _xl_expr(sub_idx, modes[sub_idx])))
                 continue
 
         if isinstance(node, ast.Name) and node.id == "data" and isinstance(node.ctx, ast.Load):
@@ -190,8 +185,7 @@ def _collect_legacy_spans(
                 handled.add(id(node))
                 start, end = node_span(node, src, line_starts)
                 if start >= 0 and end > start:
-                    hm0: HeaderMode = modes[0] if modes else "omit"
-                    spans.append((start, end, _xl_expr(0, hm0)))
+                    spans.append((start, end, _xl_expr(0, modes[0])))
 
     return spans, issues, fatal
 
@@ -323,8 +317,6 @@ def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: s
     parts = parse_python_formula(formula)
     if parts is None:
         return ConvertedCell(sheet=sheet, cell=cell, direction="excel", original_code=formula, converted_code="", issues=["not a =PY/=PYTHON formula"], converted=False, return_type=return_type)
-
-    from plugin.calc.python.formula_edit import format_data_binding_display, parse_data_binding_text
 
     meta = meta or {}
     rt = int(meta.get("return_type", return_type) or 0)
