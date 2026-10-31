@@ -98,7 +98,7 @@ class TestHamburgerMenu:
             patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
             patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
-            patch("plugin.chatbot.hamburger_menu._load_graphic", return_value=graphic) as load_g,
+            patch("plugin.librepy.sidebar_menus.load_menu_graphic", return_value=graphic) as load_g,
         ):
             show_hamburger_menu(ctx, MagicMock(), button_ctrl)
 
