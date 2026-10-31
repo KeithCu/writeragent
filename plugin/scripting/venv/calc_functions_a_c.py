@@ -5,6 +5,8 @@
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
+Type errors are left to the worker exception path, which returns #VALUE!.
+ZeroDivisionError is left to that path as well, which returns #DIV/0!.
 """
 
 from __future__ import annotations
@@ -109,7 +111,6 @@ def _accrued(
     getAccrint also requires frequency in (1, 2, 4). Pass frequency only for that
     function. basis in (0..4), rate > 0, par > 0, issue < settlement.
     """
-    # type errors are left to the worker exception path, which returns #VALUE!
     f_rate = float(rate)
     f_par = float(par) if par is not None else 1000.0
     b = int(float(basis))
@@ -147,7 +148,6 @@ def accrintm(issue: Any, settlement: Any, rate: Any, par: Any = 1000.0, basis: A
     return _accrued(issue, settlement, rate, par, basis)
 
 
-# type errors are left to the worker exception path, which returns #VALUE!
 def acot(x: Any) -> float:
     xv = float(x)
     return float(math.pi / 2 - math.atan(xv))
@@ -202,7 +202,6 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
     # number for the numeric reductions (float(True) would be 1.0). COUNTA
     # still counts a bool. Do not share this switch with subtotal(): that
     # helper counts True as 1, which test_aggregate_stubs_and_bools forbids.
-    # non-numeric function_num/options are left to the worker exception path, which returns #VALUE!
     fn = int(float(function_num))
     opt = int(float(options))
     assert 1 <= fn <= 13
@@ -310,7 +309,6 @@ def _parse_amor(
     basis: Any,
 ) -> tuple[float, float, float, float, int, float, int] | None:
     """Shared AMORDEGRC / AMORLINC argument check. None means #NUM!."""
-    # type errors are left to the worker exception path, which returns #VALUE!
     f_cost = float(cost)
     d_purch = float(date_purchased)
     d_first = float(first_period)
@@ -486,7 +484,6 @@ def areas(r: Any) -> float:
 def asc(text: Any) -> str:
     # Full-width ASCII (U+FF01–U+FF5E) to ASCII, and ideographic space
     # U+3000 to a normal space. Half-width katakana is not converted.
-    # type errors are left to the worker exception path, which returns #VALUE!
     if text is None:
         return ""
     s = str(text)
@@ -566,14 +563,7 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
         # Excel cells hold 32767 characters.
         if n < 0 or r < 2 or r > 36 or m < 0 or m > 32767:
             return "#NUM!"
-        if n == 0:
-            return "0".zfill(m)
-        digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        res = ""
-        while n > 0:
-            res = digits[n % r] + res
-            n //= r
-        return res.zfill(m)
+        return np.base_repr(n, r).zfill(m)
     except (ValueError, TypeError, OverflowError):
         return "#NUM!"
 
@@ -694,7 +684,7 @@ def binomdist(*args: Any) -> float:
         int(float(args[0])),
         int(float(args[1])),
         float(args[2]),
-        False if (args[3] is None or args[3] == "") else _as_nonzero(args[3]),
+        _as_nonzero(args[3]),
     ))
     if got is None:
         return float("nan")
@@ -713,7 +703,6 @@ _MAX_BIT_VALUE: int = (1 << 48) - 1
 def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
     """Apply a binary integer bitwise operator to n1 and n2 within [0, 2^48 - 1]."""
     # Non-negative integers below 2^48. Excel and Calc return #NUM! otherwise.
-    # type errors are left to the worker exception path, which returns #VALUE!
     # ValueError and TypeError propagate (#VALUE! on the worker). OverflowError is #NUM!.
     # Convert n1 before n2.
     try:
@@ -730,7 +719,6 @@ def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
     """Integer bit shift within [0, 2^48 - 1] and shift magnitude <= 53."""
     # Shift at most 53 bits (Excel) and the number stays in [0, 2^48 - 1].
     # A shift of 1e9 builds an integer large enough to hang or raise MemoryError.
-    # type errors are left to the worker exception path, which returns #VALUE!
     # With those bounds the result is at most 101 bits, so MemoryError cannot happen.
     try:
         n = int(float(number))
@@ -740,8 +728,7 @@ def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
     if n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
         return float("nan")
     mag = abs(s)
-    # bool(left) keeps today's truthiness. left == (s >= 0) differs for non-bool left.
-    if (s >= 0) == bool(left):
+    if (s >= 0) == left:
         return float(n << mag)
     return float(n >> mag)
 
@@ -816,7 +803,6 @@ def choose(index: Any, *args: Any) -> Any:
 
 
 def clean(text: Any) -> str | float:
-    # type errors are left to the worker exception path, which returns #VALUE!
     if text is None:
         return ""
     if isinstance(text, float) and math.isnan(text):
@@ -831,7 +817,6 @@ def code(s: Any) -> float:
     # ScCode pushes 0 for an empty string. Excel CODE("") is #VALUE!.
     # This helper follows Calc. str(None) is "None", so a missing object
     # stays the code point of "N"; do not treat None as blank here.
-    # type errors are left to the worker exception path, which returns #VALUE!
     ss = str(s)
     if not ss:
         return 0.0
@@ -906,12 +891,10 @@ def confidence(alpha: Any, stddev: Any, size: Any) -> float:
     return float(stats.norm.ppf(1 - a / 2.0) * sd / math.sqrt(n))
 
 
-# ZeroDivisionError is left to the worker exception path, which returns #DIV/0!. Type errors return #VALUE!.
 def cot(x: Any) -> float:
     return float(1.0 / math.tan(float(x)))
 
 
-# ZeroDivisionError is left to the worker exception path, which returns #DIV/0!. Type errors return #VALUE!.
 def coth(x: Any) -> float:
     return float(1.0 / math.tanh(float(x)))
 
@@ -1044,7 +1027,6 @@ def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
     return float(stats.binom.ppf(a, n, p))
 
 
-# ZeroDivisionError is left to the worker exception path, which returns #DIV/0!. Type errors return #VALUE!.
 def csc(x: Any) -> float:
     return float(1.0 / math.sin(float(x)))
 
@@ -1069,7 +1051,6 @@ def _cum_payment(
 ) -> float:
     """Shared body of CUMIPMT and CUMPRINC. kind is "ipmt" or "ppmt"."""
     # rate must be > 0. Zero is #NUM!, same as a negative rate.
-    # type errors are left to the worker exception path, which returns #VALUE!
     r = float(rate)
     # getCumipmt takes sal_Int32 nNumPeriods (financial.cxx). Leaving nper
     # as a float made numpy-financial price a different loan: nper 12.2
