@@ -150,42 +150,31 @@ _cache: OrderedDict[str, HotEntry] = OrderedDict()
 
 @functools.cache
 def _fingerprint(names: tuple[str, ...]) -> str:
-    return "\n".join(sorted(set(names)))
-
-
-@deal.pre(lambda authorized_imports: _deal_sandbox_imports_ok(authorized_imports))
-def _imports_fingerprint(authorized_imports: Sequence[str]) -> str:
-    # crosshair: off
     # LocalPythonExecutor.authorized_imports is a set union, so order is not
     # the policy. Sort and dedupe or the same allowlist misses the cache.
     # Names are joined with newline. A newline or NUL in a name would alias
-    # two allowlists; test_allowlist_entries_fit_cache_key locks that out.
+    # two allowlists; test_blocked_entries_fit_cache_key locks that out.
     # _cache_key then joins source and this fingerprint with NUL.
-    return _fingerprint(tuple(authorized_imports))
-
-
-def _blocked_fingerprint(blocked_imports: Sequence[str] | None) -> str:
-    blocked = active_blocked_imports() if blocked_imports is None else blocked_imports
-    return _fingerprint(tuple(blocked))
+    return "\n".join(sorted(set(names)))
 
 
 def _args_ok(code: object, authorized_imports: object, blocked_imports: object = None) -> bool:
     return _deal_sandbox_policy_ok(authorized_imports, blocked_imports) and _deal_sandbox_code_ok(code)
 
 
-@deal.pre(_args_ok)
 def _cache_key(
     code: str,
     authorized_imports: Sequence[str],
     blocked_imports: Sequence[str] | None = None,
 ) -> str:
     # crosshair: off
+    blocked = active_blocked_imports() if blocked_imports is None else blocked_imports
     material = (
         code
         + "\0"
-        + _imports_fingerprint(authorized_imports)
+        + _fingerprint(tuple(authorized_imports))
         + "\0"
-        + _blocked_fingerprint(blocked_imports)
+        + _fingerprint(tuple(blocked))
     )
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
@@ -207,7 +196,6 @@ def _format_syntax_error(exc: SyntaxError) -> str:
     )
 
 
-@deal.pre(_args_ok)
 def _build_entry(
     code: str,
     authorized_imports: Sequence[str],
@@ -220,8 +208,6 @@ def _build_entry(
     try:
         try:
             module = ast.parse(code)
-        except SyntaxError as exc:
-            return HotEntry(module=None, error=_format_syntax_error(exc))
         except ValueError as exc:
             # What was wrong: ast.parse raises ValueError for a null byte on
             # CPython before 3.12 (gh-96670). LibreOffice 24.8 ships Python 3.9
@@ -236,12 +222,13 @@ def _build_entry(
                 module=None,
                 error=f"Code parsing failed due to: {type(exc).__name__}: {exc}",
             )
-        try:
-            compile(module, "<sandbox>", "exec", dont_inherit=True)
-        except SyntaxError as exc:
-            return HotEntry(module=None, error=_format_syntax_error(exc))
-        validation_error = validate_sandbox_ast(module, authorized_imports, blocked_imports=blocked_imports)
+        compile(module, "<sandbox>", "exec", dont_inherit=True)
+        validation_error = validate_sandbox_ast(
+            module, authorized_imports, blocked_imports=blocked_imports
+        )
         return HotEntry(module=module, error=validation_error)
+    except SyntaxError as exc:
+        return HotEntry(module=None, error=_format_syntax_error(exc))
     except RecursionError:
         return HotEntry(module=None, error="Code parsing failed: expression is too deeply nested")
 
@@ -263,9 +250,6 @@ def get_hot_entry(
             return _cache[key]
     entry = _build_entry(code, authorized_imports, blocked_imports=blocked_imports)
     with _lock:
-        if key in _cache:
-            _cache.move_to_end(key)
-            return _cache[key]
         _cache[key] = entry
         if len(_cache) > _DEFAULT_MAX_ENTRIES:
             _cache.popitem(last=False)

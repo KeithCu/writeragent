@@ -277,7 +277,7 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
     )
     policy = format_venv_import_policy_for_prompt(compact=False)
 
-    plot_hint = format_matplotlib_plot_hint(agent_label=agent_label)
+    plot_hint = format_matplotlib_plot_hint(doc_type=agent_label.lower())
     plot_suffix = f" {plot_hint}" if plot_hint else ""
     units_hint = format_units_helper_hint()
     if agent_label == "Calc":
