@@ -42,7 +42,7 @@ from typing import Any, Iterator, final
 
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 from plugin.contrib.nbformat import read_ipynb
 from plugin.notebook.cell_registry import NotebookDocState, _coerce_notebook_text, _format_in_prompt, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
 from plugin.notebook.notebook_controls import (
@@ -56,7 +56,6 @@ from plugin.notebook.notebook_controls import (
     _text_area_width_units,
     _text_width_from_style,
 )
-from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, _mm_to_units, insert_image_at_locator
 
 log = logging.getLogger("writeragent.notebook")
@@ -64,7 +63,6 @@ log = logging.getLogger("writeragent.notebook")
 _PROGRESS_EVERY_N_CELLS = 10
 _MAX_OUTPUTS_PER_CELL = 200
 _MAX_IMAGE_DECODE_BYTES = 8 * 1024 * 1024
-_MAX_IMAGE_DISPLAY_WIDTH_MM = 170
 _DEFAULT_IMAGE_HEIGHT_MM = 80
 _IMAGE_MIME_SUFFIX = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/webp": ".webp", "image/gif": ".gif", "image/svg+xml": ".svg"}
 _NOTEBOOK_IN_CHAR_COLOR = 0x307FC1
@@ -136,22 +134,18 @@ def _batch_document_updates(doc: Any) -> Iterator[None]:
     """
     locked = False
     try:
-        lock = getattr(doc, "lockControllers", None)
-        if callable(lock):
-            try:
-                lock()
-                locked = True
-                log.info("notebook import lockControllers")
-            except Exception:
-                log.debug("notebook import lockControllers failed", exc_info=True)
+        try:
+            doc.lockControllers()
+            locked = True
+            log.info("notebook import lockControllers")
+        except Exception:
+            log.debug("notebook import lockControllers failed", exc_info=True)
         yield
     finally:
         if locked:
             try:
-                unlock = getattr(doc, "unlockControllers", None)
-                if callable(unlock):
-                    unlock()
-                    log.info("notebook import unlockControllers")
+                doc.unlockControllers()
+                log.info("notebook import unlockControllers")
             except Exception:
                 log.debug("notebook import unlockControllers failed", exc_info=True)
 
@@ -167,15 +161,7 @@ def _scroll_view_to_start(doc: Any) -> None:
         controller = doc.getCurrentController()
         if controller is None:
             return
-        get_vc = getattr(controller, "getViewCursor", None)
-        if not callable(get_vc):
-            return
-        vc = get_vc()
-        goto_range = getattr(vc, "gotoRange", None)
-        if not callable(goto_range):
-            return
-        start = doc.getText().getStart()
-        goto_range(start, False)
+        controller.getViewCursor().gotoRange(doc.getText().getStart(), False)
         log.info("notebook import view_to_start")
 
     best_effort(scroll, "notebook import view_to_start failed")
@@ -247,14 +233,18 @@ def _no_spellcheck_locale() -> Any:
     return SimpleNamespace(Language="zxx", Country="")
 
 
+def _set_prop_map(obj: Any, props: dict[str, Any], fail_fmt: str, *fail_args: Any) -> None:
+    for name, val in props.items():
+        try:
+            obj.setPropertyValue(name, val)
+        except Exception:
+            log.debug(fail_fmt, name, *fail_args, exc_info=True)
+
+
 def _apply_no_spellcheck_for_import(doc: Any) -> None:
     """Notebook bodies are code/markdown — suppress spellcheck for imported content."""
     loc = _no_spellcheck_locale()
-    for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
-        try:
-            doc.setPropertyValue(prop, loc)
-        except Exception:
-            log.debug("notebook import could not set document %s", prop, exc_info=True)
+    _set_prop_map(doc, {"CharLocale": loc, "CharLocaleAsian": loc, "CharLocaleComplex": loc}, "notebook import could not set document %s")
     para_styles = _get_para_styles(doc)
     if para_styles is None:
         return
@@ -265,17 +255,11 @@ def _apply_no_spellcheck_for_import(doc: Any) -> None:
         if not resolved:
             continue
         try:
-            if not para_styles.hasByName(resolved):
-                continue
             style = para_styles.getByName(resolved)
         except Exception:
             log.debug("notebook import could not open style %r", resolved, exc_info=True)
             continue
-        for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
-            try:
-                style.setPropertyValue(prop, loc)
-            except Exception:
-                log.debug("notebook import could not set %s on %r", prop, resolved, exc_info=True)
+        _set_prop_map(style, {"CharLocale": loc, "CharLocaleAsian": loc, "CharLocaleComplex": loc}, "notebook import could not set %s on %r", resolved)
 
 
 def _create_import_para_style(doc: Any, para_styles: Any, style_name: str, *, parent_style: str, property_updates: dict[str, Any]) -> bool:
@@ -291,11 +275,7 @@ def _create_import_para_style(doc: Any, para_styles: Any, style_name: str, *, pa
             new_style.setParentStyle(resolved_parent)
         except Exception:
             log.debug("notebook import parent %r for %r failed", resolved_parent, style_name, exc_info=True)
-        for prop_name, prop_val in property_updates.items():
-            try:
-                new_style.setPropertyValue(prop_name, prop_val)
-            except Exception:
-                log.debug("notebook import could not set %s on %r", prop_name, style_name, exc_info=True)
+        _set_prop_map(new_style, property_updates, "notebook import could not set %s on %r", style_name)
         para_styles.insertByName(style_name, new_style)
         from plugin.writer.styles import _CREATED_STYLE_KEEPALIVE
         _CREATED_STYLE_KEEPALIVE.append(new_style)
@@ -423,13 +403,12 @@ def _unglue_last_paragraph(doc: Any) -> None:
     keep-with-next is ``ParaKeepTogether``; the old ``ParaKeepWithNext`` set
     ran first, raised UnknownPropertyException and skipped the real unglue.
     """
-    best_effort(lambda: _clear_keep_at_body_end(doc), "notebook import unglue last paragraph failed")
+    def unglue() -> None:
+        cursor = doc.getText().createTextCursor()
+        cursor.gotoEnd(False)
+        cursor.setPropertyValue("ParaKeepTogether", False)
 
-
-def _clear_keep_at_body_end(doc: Any) -> None:
-    cursor = doc.getText().createTextCursor()
-    cursor.gotoEnd(False)
-    cursor.setPropertyValue("ParaKeepTogether", False)
+    best_effort(unglue, "notebook import unglue last paragraph failed")
 
 
 def _style_control_paragraph(doc: Any) -> None:
@@ -466,9 +445,7 @@ def _copy_previous_outer_list(cursor: Any) -> bool:
     prev = uno_read(lambda: cursor.getText().createTextCursorByRange(cursor), None)
     if prev is None:
         return False
-    steps = 0
-    while steps < 32:
-        steps += 1
+    for _unused in range(32):
         try:
             if not prev.gotoPreviousParagraph(False):
                 return False
@@ -523,9 +500,7 @@ def _last_nonempty_para_cursor(text: Any) -> Any | None:
     cursor = uno_read(end_cursor, None)
     if cursor is None:
         return None
-    steps = 0
-    while steps < 16:
-        steps += 1
+    for _unused in range(16):
         if not _cursor_para_is_empty(cursor):
             return cursor
         try:
@@ -612,12 +587,10 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
             return
         portions = uno_read(lambda: para_rng.createEnumeration(), None)
         if portions:
-            psteps = 0
-            while psteps < 64:
+            for _unused in range(64):
                 pmore = portions.hasMoreElements()
                 if pmore is not True and pmore != 1:
                     break
-                psteps += 1
                 portion = portions.nextElement()
                 ptype = uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), None)
                 if ptype is None:
@@ -790,43 +763,35 @@ def _md_indent_cols(prefix: str) -> int:
     return len((prefix or "").expandtabs(4))
 
 
-def _list_block_to_html(items: list[Any]) -> str:
+def _list_block_to_html(items: list[tuple[int, str, int | None, str]]) -> str:
     """Nested ``<ul>``/``<ol start=N>`` from ``(indent, kind, start, text)`` rows."""
-    normalized: list[tuple[int, str, int | None, str]] = []
-    for item in items:
-        if isinstance(item, tuple) and len(item) >= 4:
-            start = item[2]
-            start_n = int(start) if isinstance(start, int) else None
-            normalized.append((int(item[0]), str(item[1]), start_n, str(item[3])))
-        else:
-            normalized.append((0, "ul", None, str(item)))
-    if not normalized:
+    if not items:
         return ""
 
     def build(index: int, min_indent: int) -> tuple[str, int]:
-        if index >= len(normalized) or normalized[index][0] < min_indent:
+        if index >= len(items) or items[index][0] < min_indent:
             return "", index
-        indent, kind, start, _text = normalized[index]
+        indent, kind, start, _text = items[index]
         if kind == "ol" and isinstance(start, int) and start > 1:
             open_tag = f'<ol start="{start}">'
         else:
             open_tag = f"<{kind}>"
         parts: list[str] = [open_tag]
         i = index
-        while i < len(normalized) and normalized[i][0] == indent and normalized[i][1] == kind:
-            inner = _inline_markdown_to_html(normalized[i][3])
+        while i < len(items) and items[i][0] == indent and items[i][1] == kind:
+            inner = _inline_markdown_to_html(items[i][3])
             i += 1
             nested = ""
-            if i < len(normalized) and normalized[i][0] > indent:
+            if i < len(items) and items[i][0] > indent:
                 nested, i = build(i, indent + 1)
             parts.append(f"<li>{inner}{nested}</li>")
         parts.append(f"</{kind}>")
-        if i < len(normalized) and normalized[i][0] == indent:
+        if i < len(items) and items[i][0] == indent:
             rest, i = build(i, min_indent)
             parts.append(rest)
         return "".join(parts), i
 
-    html, _end = build(0, normalized[0][0])
+    html, _end = build(0, items[0][0])
     return html
 
 
@@ -878,6 +843,16 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
             blocks.append(("blockquote", "\n".join(quote)))
             quote.clear()
 
+    def flush_all() -> None:
+        flush_para()
+        flush_list()
+        flush_quote()
+
+    def emit_open_fence() -> None:
+        body = "\n".join(fence_lines)
+        if body.strip():
+            blocks.append(("pre", body))
+
     for raw_line in (source or "").splitlines():
         line = raw_line.rstrip()
         if fence is not None:
@@ -889,9 +864,7 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
                 strip_count += 1
             rem = line[strip_count:].rstrip(" ")
             if rem and all(c == fence_char for c in rem) and len(rem) >= opener_len:
-                body = "\n".join(fence_lines)
-                if body.strip():
-                    blocks.append(("pre", body))
+                emit_open_fence()
                 fence = None
                 fence_lines.clear()
                 continue
@@ -903,9 +876,7 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
 
         fence_match = _FENCE_OPEN_RE.match(line)
         if fence_match:
-            flush_para()
-            flush_list()
-            flush_quote()
+            flush_all()
             opener = fence_match.group(1)
             fence = (opener[0], len(opener))
             fence_lines = []
@@ -914,27 +885,17 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
 
         match = _ATX_HEADING_RE.match(line)
         if match:
-            flush_para()
-            flush_list()
-            flush_quote()
+            flush_all()
             title = (match.group(2) or "").strip()
             if title:
                 kind = "h1" if len(match.group(1)) <= 1 else "h2"
                 blocks.append((kind, title))
             continue
-        img_line = _MD_IMAGE_LINE_RE.match(line.strip())
+        stripped = line.strip()
+        img_line = _MD_IMAGE_LINE_RE.match(stripped) or _MD_LINKED_IMAGE_LINE_RE.match(stripped)
         if img_line:
-            flush_para()
-            flush_list()
-            flush_quote()
+            flush_all()
             blocks.append(("img", (img_line.group(1) or "", img_line.group(2).strip())))
-            continue
-        linked_img = _MD_LINKED_IMAGE_LINE_RE.match(line.strip())
-        if linked_img:
-            flush_para()
-            flush_list()
-            flush_quote()
-            blocks.append(("img", (linked_img.group(1) or "", linked_img.group(2).strip())))
             continue
         ul_match = _MD_UL_RE.match(line)
         if ul_match:
@@ -961,20 +922,14 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
             list_items[-1] = (indent, kind, start, prev_text + " " + line.strip())
             continue
         if not line.strip():
-            flush_para()
-            flush_list()
-            flush_quote()
+            flush_all()
             continue
         flush_list()
         flush_quote()
         para.append(line)
-    flush_para()
-    flush_list()
-    flush_quote()
+    flush_all()
     if fence is not None:
-        body = "\n".join(fence_lines)
-        if body.strip():
-            blocks.append(("pre", body))
+        emit_open_fence()
     return blocks
 
 
@@ -1049,17 +1004,11 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
             # would delete the code block on cell re-run. Non-empty Text Body acts as a cell boundary.
             _append_body_paragraph(doc, str(payload), _STYLE_BODY, lead_break=block_lead)
         elif kind in ("ul", "ol"):
-            items = payload if isinstance(payload, list) else [payload]
-            html = _list_block_to_html(items)
+            html = _list_block_to_html(payload)
             if not _insert_html_at_body_end(doc, html, lead_break=block_lead, exit_list=True):
-                for i, item in enumerate(items):
-                    if isinstance(item, tuple) and len(item) >= 4:
-                        text = str(item[3])
-                        item_kind = str(item[1])
-                        start = item[2] if isinstance(item[2], int) else i + 1
-                    else:
-                        text = str(item)
-                        item_kind = kind
+                for i, item in enumerate(payload):
+                    _indent, item_kind, start, text = item
+                    if not isinstance(start, int):
                         start = i + 1
                     prefix = "• " if item_kind == "ul" else f"{start}. "
                     _append_body_paragraph(doc, prefix + text, _STYLE_BODY, lead_break=block_lead if i == 0 else True)
@@ -1067,11 +1016,9 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
             body = str(payload)
             # Separate multiple paragraphs within blockquotes if present (> \n >).
             b_paras = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
-            if len(b_paras) > 1:
-                inner_p = "".join(f"<p>{_inline_markdown_to_html(p)}</p>".replace("\n", "<br/>") for p in b_paras)
-                html = f"<blockquote>{inner_p}</blockquote>"
-            else:
-                html = "<blockquote><p>" + _inline_markdown_to_html(body).replace("\n", "<br/>") + "</p></blockquote>"
+            parts = b_paras if len(b_paras) > 1 else [body]
+            inner = "".join("<p>" + _inline_markdown_to_html(p).replace("\n", "<br/>") + "</p>" for p in parts)
+            html = f"<blockquote>{inner}</blockquote>"
             if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
                 for p_idx, p_text in enumerate(b_paras or [body]):
                     _append_body_paragraph(doc, p_text, _STYLE_BODY, lead_break=block_lead if p_idx == 0 else True)
@@ -1081,6 +1028,14 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
                 fallback = alt or src
                 _append_body_paragraph(doc, str(fallback), _STYLE_BODY, lead_break=block_lead)
         else:
+            def emit_text(piece: str, lead: bool) -> None:
+                if _paragraph_needs_html(piece):
+                    html = f"<p>{_inline_markdown_to_html(piece)}</p>"
+                    if not _insert_html_at_body_end(doc, html, lead_break=lead):
+                        _append_body_paragraph(doc, piece, _STYLE_BODY, lead_break=False)
+                else:
+                    _append_body_paragraph(doc, piece, _STYLE_BODY, lead_break=lead)
+
             p_str = str(payload)
             if _MD_IMAGE_RE.search(p_str):
                 last_idx = 0
@@ -1088,12 +1043,7 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
                 for match in _MD_IMAGE_RE.finditer(p_str):
                     text_piece = p_str[last_idx : match.start()]
                     if text_piece.strip():
-                        if _paragraph_needs_html(text_piece):
-                            html = f"<p>{_inline_markdown_to_html(text_piece)}</p>"
-                            if not _insert_html_at_body_end(doc, html, lead_break=lead):
-                                _append_body_paragraph(doc, text_piece, _STYLE_BODY, lead_break=False)
-                        else:
-                            _append_body_paragraph(doc, text_piece, _STYLE_BODY, lead_break=lead)
+                        emit_text(text_piece, lead)
                         lead = True
                     alt = match.group(1) or ""
                     dest = match.group(2)
@@ -1104,18 +1054,9 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
                     last_idx = match.end()
                 tail_piece = p_str[last_idx:]
                 if tail_piece.strip():
-                    if _paragraph_needs_html(tail_piece):
-                        html = f"<p>{_inline_markdown_to_html(tail_piece)}</p>"
-                        if not _insert_html_at_body_end(doc, html, lead_break=lead):
-                            _append_body_paragraph(doc, tail_piece, _STYLE_BODY, lead_break=False)
-                    else:
-                        _append_body_paragraph(doc, tail_piece, _STYLE_BODY, lead_break=lead)
-            elif _paragraph_needs_html(p_str):
-                html = f"<p>{_inline_markdown_to_html(p_str)}</p>"
-                if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
-                    _append_body_paragraph(doc, p_str, _STYLE_BODY, lead_break=False)
+                    emit_text(tail_piece, lead)
             else:
-                _append_body_paragraph(doc, p_str, _STYLE_BODY, lead_break=block_lead)
+                emit_text(p_str, block_lead)
 
 
 # ---------------------------------------------------------------------------
@@ -1254,25 +1195,22 @@ def _image_mime_from_bytes(raw: bytes, path: str) -> str:
     return "image/png"
 
 
-def _display_size_units(raw: bytes, mime: str, *, max_width_mm: float | None = None) -> tuple[int, int]:
-    """Map decoded image bytes to Writer size in 1/100 mm (capped width, keep aspect)."""
-    cap_mm = float(max_width_mm) if max_width_mm and max_width_mm > 0 else float(_MAX_IMAGE_DISPLAY_WIDTH_MM)
-    px_size = None
-    if mime == "image/png":
-        px_size = _png_pixel_size(raw)
-    elif mime in ("image/jpeg", "image/jpg"):
-        px_size = _jpeg_pixel_size(raw)
-    elif mime == "image/webp":
-        px_size = _webp_pixel_size(raw)
-    elif mime == "image/gif":
-        px_size = _gif_pixel_size(raw)
-    elif mime == "image/svg+xml":
-        px_size = _svg_pixel_size(raw)
-    if px_size is not None:
-        px_w, px_h = px_size
-    else:
-        px_w, px_h = None, None
-    if px_w and px_h:
+_PIXEL_SIZERS = {
+    "image/png": _png_pixel_size,
+    "image/jpeg": _jpeg_pixel_size,
+    "image/jpg": _jpeg_pixel_size,
+    "image/webp": _webp_pixel_size,
+    "image/gif": _gif_pixel_size,
+    "image/svg+xml": _svg_pixel_size,
+}
+
+
+def _display_size_units(raw: bytes, mime: str, *, max_width_mm: float) -> tuple[int, int]:
+    cap_mm = float(max_width_mm)
+    sizer = _PIXEL_SIZERS.get(mime)
+    px = sizer(raw) if sizer is not None else None
+    if px is not None:
+        px_w, px_h = px
         w_mm = px_w * 25.4 / 96
         h_mm = px_h * 25.4 / 96
         if w_mm > cap_mm:
@@ -1307,11 +1245,7 @@ def _decode_notebook_image(b64_data: str) -> bytes | None:
 
 def _apply_notebook_image_flow(graphic: Any) -> None:
     """AS_CHARACTER already in-flow; pin wrap off so plots do not float beside text."""
-    for name, val in (("TextWrap", 0), ("SurroundContour", False)):
-        try:
-            graphic.setPropertyValue(name, val)
-        except Exception:
-            log.debug("notebook image wrap property %s not applied", name, exc_info=True)
+    _set_prop_map(graphic, {"TextWrap": 0, "SurroundContour": False}, "notebook image wrap property %s not applied")
 
 
 def _insert_image_in_flow(
@@ -1336,11 +1270,8 @@ def _insert_image_in_flow(
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(raw)
             tmp_path = tmp.name
-        if field_w is not None:
-            max_w_mm = field_w / 100.0
-        else:
-            max_w_mm = _text_area_width_units(doc) / 100.0
-        w_units, h_units = _display_size_units(raw, mime, max_width_mm=max_w_mm)
+        width_units = field_w if field_w is not None else _text_area_width_units(doc)
+        w_units, h_units = _display_size_units(raw, mime, max_width_mm=width_units / 100.0)
         w_mm = w_units / 100.0
         h_mm = h_units / 100.0
         text = doc.getText()
@@ -1350,7 +1281,6 @@ def _insert_image_in_flow(
             cursor = text.createTextCursor()
             cursor.gotoEnd(False)
         t_add = time.monotonic()
-        graphic = None
         if ctx is not None:
             graphic = insert_image_at_locator(ctx, doc, tmp_path, width_mm=w_mm, height_mm=h_mm, title="Notebook output", description=mime, text_cursor=cursor)
             if graphic is None:
@@ -1360,10 +1290,8 @@ def _insert_image_in_flow(
             _apply_graphic_properties(image, width=w_units, height=h_units, title="Notebook output", description=mime, anchor_type=AS_CHARACTER, inside="writer")
             text.insertTextContent(cursor, image, False)
             graphic = image
-        if graphic is not None:
-            _apply_notebook_image_flow(graphic)
-        add_ms = _mono_ms(t_add)
-        _log_shape_add(step="image", text_chars=len(raw), shape_h=h_units, shapes_before=images_before, create_ms=_mono_ms(t0), add_ms=add_ms)
+        _apply_notebook_image_flow(graphic)
+        _log_shape_add(step="image", text_chars=len(raw), shape_h=h_units, shapes_before=images_before, create_ms=_mono_ms(t0), add_ms=_mono_ms(t_add))
         return True
     except Exception:
         log.exception("Failed to insert notebook image in document flow")
@@ -1382,16 +1310,13 @@ def insert_run_image(doc: Any, payload: dict[str, Any], *, ctx: Any, images_befo
     if not isinstance(raw, (bytes, bytearray)):
         return False
     fmt = str(payload.get("format") or "png").lower()
-    if fmt == "svg":
-        mime = "image/svg+xml"
-    elif fmt in ("jpg", "jpeg"):
-        mime = "image/jpeg"
-    elif fmt == "webp":
-        mime = "image/webp"
-    elif fmt == "gif":
-        mime = "image/gif"
-    else:
-        mime = "image/png"
+    mime = {
+        "svg": "image/svg+xml",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "webp": "image/webp",
+        "gif": "image/gif",
+    }.get(fmt, "image/png")
     return _insert_image_in_flow(doc, raw=bytes(raw), mime=mime, images_before=images_before, ctx=ctx, text_cursor=text_cursor)
 
 
@@ -1605,11 +1530,6 @@ def format_output_text(output: Any, execution_count: Any | None = None) -> str:
     return str(output)
 
 
-def format_all_outputs(outputs: list[Any]) -> str:
-    parts = [format_output_text(o) for o in (outputs or [])]
-    return "\n\n".join(p for p in parts if p.strip())
-
-
 def _output_image_payload(output: Any) -> tuple[str, str] | None:
     output_type = getattr(output, "output_type", None) or output.get("output_type", "")
     if output_type not in ("display_data", "execute_result"):
@@ -1701,7 +1621,6 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
             doc,
             nb,
             stats,
-            cell_count,
             run_t0,
             ctx=ctx,
             notebook_in=notebook_in,
@@ -1735,12 +1654,11 @@ def _import_cells(
     doc: Any,
     nb: Any,
     stats: dict[str, int],
-    cell_count: int,
     run_t0: float,
     ctx: Any | None = None,
     *,
+    registry_state: NotebookDocState,
     notebook_in: str | None = None,
-    registry_state: NotebookDocState | None = None,
     notebook_dir: str | None = None,
     budget: _RemoteImageBudget | None = None,
 ) -> None:
@@ -1749,6 +1667,7 @@ def _import_cells(
     field_w = _text_width_from_style(page_style)
     cap = _cap_from_style(page_style)
     first_cell = True
+    n_cells = len(nb.cells)
     for idx, cell in enumerate(nb.cells):
         cell_t0 = time.monotonic()
         stats["cells"] += 1
@@ -1774,15 +1693,14 @@ def _import_cells(
                 _append_body_paragraph(doc, title, notebook_in, lead_break=lead)
                 # Pin keep-with-next (ParaKeepTogether) off on the gutter
                 # paragraph too so In+field is not one unsplittable brick.
-                best_effort(lambda: _clear_keep_at_body_end(doc), "notebook import In gutter keep flags not applied")
+                _unglue_last_paragraph(doc)
                 field_name = f"nb_cell_{idx}_code"
-                if registry_state is not None:
-                    entry = new_code_cell_entry(idx, ec, field_name)
-                    registry_state.code_cells.append(entry)
-                    # ▶ on the In [n]: row so it is not AS_CHARACTER-stacked under the
-                    # tall field. update_in_prompt rewrites leading Text only (stops at Frame).
-                    _insert_run_button_in_flow(doc, cell_id=entry.cell_id, controls_before=stats["shapes"])
-                    stats["shapes"] += 1
+                entry = new_code_cell_entry(idx, ec, field_name)
+                registry_state.code_cells.append(entry)
+                # ▶ on the In [n]: row so it is not AS_CHARACTER-stacked under the
+                # tall field. update_in_prompt rewrites leading Text only (stops at Frame).
+                _insert_run_button_in_flow(doc, cell_id=entry.cell_id, controls_before=stats["shapes"])
+                stats["shapes"] += 1
                 _append_paragraph_break_at_end(doc)
                 _style_control_paragraph(doc)
                 stats["code"] += 1
@@ -1790,24 +1708,21 @@ def _import_cells(
                 stats["shapes"] += 1
                 # Invisible output bookmark at the end of the field paragraph — not a
                 # visible "Output" heading. A bookmark inside "Output" leaked as "/" .
-                if registry_state is not None and registry_state.code_cells:
-                    cell_entry = registry_state.code_cells[-1]
-                    bm_name = cell_entry.output_start_bookmark
-                    if not insert_output_start_bookmark(doc, bm_name):
-                        # A saved name with no bookmark made later runs look for an
-                        # anchor that was never created and append output in the
-                        # wrong place. Drop the claim; the runner then uses the
-                        # code-field paragraph instead.
-                        log.warning("notebook import: output bookmark %r was not inserted for cell %d", bm_name, idx)
-                        cell_entry.output_start_bookmark = ""
+                bm_name = entry.output_start_bookmark
+                if not insert_output_start_bookmark(doc, bm_name):
+                    # A saved name with no bookmark made later runs look for an
+                    # anchor that was never created and append output in the
+                    # wrong place. Drop the claim; the runner then uses the
+                    # code-field paragraph instead.
+                    log.warning("notebook import: output bookmark %r was not inserted for cell %d", bm_name, idx)
+                    entry.output_start_bookmark = ""
                 # Interleave in notebook order. Used to dump all text, then all
                 # images, so [display image, print(...)] rendered print-then-image.
                 segments, n_text = _format_outputs_for_body(outputs, idx, execution_count=ec)
                 stats["outputs"] += n_text
                 for kind, payload in segments:
                     if kind == "text":
-                        if str(payload).strip():
-                            _append_body_text_block(doc, str(payload), output_style, lead_break=True)
+                        _append_body_text_block(doc, payload, output_style, lead_break=True)
                     else:
                         _append_paragraph_break_at_end(doc)
                         mime, b64 = payload
@@ -1835,5 +1750,5 @@ def _import_cells(
             )
 
         log.debug("notebook import cell done index=%d cell_ms=%d controls=%d", idx, _mono_ms(cell_t0), stats["shapes"])
-        if (idx + 1) % _PROGRESS_EVERY_N_CELLS == 0 or idx + 1 == cell_count:
-            log.info("notebook import progress cell=%d/%d controls=%d elapsed_ms=%d", idx + 1, cell_count, stats["shapes"], _mono_ms(run_t0))
+        if (idx + 1) % _PROGRESS_EVERY_N_CELLS == 0 or idx + 1 == n_cells:
+            log.info("notebook import progress cell=%d/%d controls=%d elapsed_ms=%d", idx + 1, n_cells, stats["shapes"], _mono_ms(run_t0))

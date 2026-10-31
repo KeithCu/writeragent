@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.notebook.cell_registry import (
+    NotebookDocState,
     _MAX_IMPORT_TEXT_CHARS,
     _TRUNCATION_SUFFIX,
     _coerce_notebook_text,
@@ -56,7 +57,6 @@ from plugin.notebook.writer_importer import (
     _webp_pixel_size,
     _trim_trailing_empty_paragraph,
     _unglue_last_paragraph,
-    format_all_outputs,
     format_output_text,
     import_ipynb_to_writer,
 )
@@ -188,7 +188,7 @@ def test_format_all_outputs_joins():
         {"output_type": "stream", "name": "stdout", "text": "a"},
         {"output_type": "execute_result", "data": {"text/plain": "b"}},
     ]
-    text = format_all_outputs(outputs)
+    text = "\n\n".join(p for p in (format_output_text(o) for o in outputs) if p.strip())
     assert "a" in text and "b" in text
 
 
@@ -1995,7 +1995,7 @@ def test_import_cells_closed_document_aborts(monkeypatch):
     doc = MagicMock()
     stats = {"cells": 0, "markdown": 0, "code": 0, "raw": 0, "shapes": 0, "images": 0, "outputs": 0, "controls": 0}
     with pytest.raises(DocumentDisposedError):
-        _import_cells(doc, _Nb(), stats, 2, 0.0)
+        _import_cells(doc, _Nb(), stats, 0.0, registry_state=NotebookDocState())
     # Counted before the try. The second cell must not run.
     assert stats["cells"] == 1
 
