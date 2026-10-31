@@ -23,7 +23,6 @@ from plugin.notebook.notebook_controls import (
     _LINE_HEIGHT,
     _MAX_FIELD_HEIGHT,
     _MIN_FIELD_HEIGHT,
-    _WRAP_SLACK,
     _height_for_text,
     _insert_code_input_in_flow,
     _max_field_height_units,
@@ -432,7 +431,6 @@ def test_height_for_text_includes_one_wrap_line():
     """Two source lines get a third visual line of pad (In[3] long print wraps)."""
     h = _height_for_text("line1\nline2")
     assert h == 3 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
-    assert _WRAP_SLACK == _LINE_HEIGHT
 
 
 def test_code_field_uses_full_text_area_width():
