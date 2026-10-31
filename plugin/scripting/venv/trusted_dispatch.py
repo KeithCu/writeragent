@@ -198,21 +198,13 @@ def _packet_parts(data: dict[str, Any]) -> tuple[dict[str, Any], Any, dict[str, 
 
 # text, vision, sql, languagetool, vale, embedding, and langdetect do not fit
 # this (spec, data, context) shape.
-_SPEC_DOMAIN_RUNNERS: dict[str, tuple[str, str]] = {
-    domain: (f"plugin.scripting.venv.{domain}", f"run_{domain}")
-    for domain in _SPEC_DOMAINS
-}
-
-
 def dispatch_spec_domain(data: dict[str, Any]) -> Any:
     domain = data.get("domain")
-    target = _SPEC_DOMAIN_RUNNERS.get(domain) if isinstance(domain, str) else None
     # Harness lookup used this same domain string. A miss is a direct call.
-    assert target is not None, domain
-    module_name, attr_name = target
-    mod = importlib.import_module(module_name)
+    assert isinstance(domain, str) and domain in _SPEC_DOMAINS, domain
+    mod = importlib.import_module(f"plugin.scripting.venv.{domain}")
     spec, data_range, context = _packet_parts(data)
-    return getattr(mod, attr_name)(spec, data_range, context)
+    return getattr(mod, f"run_{domain}")(spec, data_range, context)
 
 
 def dispatch_text(data: dict[str, Any]) -> Any:
