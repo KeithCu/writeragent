@@ -1623,14 +1623,14 @@ def test_on_main_thread_or_post_inlines_on_main_without_bg_task() -> None:
 
     with patch("plugin.framework.thread_guard.on_main_thread", return_value=True), \
          patch("plugin.framework.thread_guard.get_background_task_name", return_value=None), \
-         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
+         patch("plugin.framework.queue_executor.default_executor.post") as mock_post:
         result = on_main_thread_or_post(lambda x: x + 10, 5)
         assert result == 15
         mock_post.assert_not_called()
 
 
 def test_on_main_thread_or_post_posts_when_off_main() -> None:
-    from plugin.framework.queue_executor import on_main_thread_or_post
+    from plugin.framework.queue_executor import _SCOPE_UNSET, on_main_thread_or_post
 
     called = []
     def fn(arg: str) -> None:
@@ -1638,28 +1638,28 @@ def test_on_main_thread_or_post_posts_when_off_main() -> None:
 
     with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), \
          patch("plugin.framework.thread_guard.get_background_task_name", return_value=None), \
-         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
+         patch("plugin.framework.queue_executor.default_executor.post") as mock_post:
         result = on_main_thread_or_post(fn, "hello")
         assert result is None
-        mock_post.assert_called_once_with(fn, "hello")
+        mock_post.assert_called_once_with(fn, "hello", bound_scope=_SCOPE_UNSET)
 
 
 def test_on_main_thread_or_post_posts_when_bg_task_set() -> None:
-    from plugin.framework.queue_executor import on_main_thread_or_post
+    from plugin.framework.queue_executor import _SCOPE_UNSET, on_main_thread_or_post
 
     def fn() -> None:
         pass
 
     with patch("plugin.framework.thread_guard.on_main_thread", return_value=True), \
          patch("plugin.framework.thread_guard.get_background_task_name", return_value="mcp_worker"), \
-         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
+         patch("plugin.framework.queue_executor.default_executor.post") as mock_post:
         result = on_main_thread_or_post(fn)
         assert result is None
-        mock_post.assert_called_once_with(fn)
+        mock_post.assert_called_once_with(fn, bound_scope=_SCOPE_UNSET)
 
 
 def test_on_main_thread_or_post_uses_custom_executor() -> None:
-    from plugin.framework.queue_executor import on_main_thread_or_post
+    from plugin.framework.queue_executor import _SCOPE_UNSET, on_main_thread_or_post
 
     def fn() -> None:
         pass
@@ -1669,7 +1669,7 @@ def test_on_main_thread_or_post_uses_custom_executor() -> None:
          patch("plugin.framework.thread_guard.get_background_task_name", return_value=None):
         result = on_main_thread_or_post(fn, "arg1", executor=custom_exec, kw="val")
         assert result is None
-        custom_exec.post.assert_called_once_with(fn, "arg1", kw="val")
+        custom_exec.post.assert_called_once_with(fn, "arg1", kw="val", bound_scope=_SCOPE_UNSET)
 
 
 def test_on_main_thread_or_post_forwards_bound_scope() -> None:
@@ -1681,7 +1681,7 @@ def test_on_main_thread_or_post_forwards_bound_scope() -> None:
     scope = MagicMock()
     with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), \
          patch("plugin.framework.thread_guard.get_background_task_name", return_value=None), \
-         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
+         patch("plugin.framework.queue_executor.default_executor.post") as mock_post:
         on_main_thread_or_post(fn, bound_scope=scope)
         mock_post.assert_called_once_with(fn, bound_scope=scope)
 

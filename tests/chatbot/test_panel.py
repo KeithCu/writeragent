@@ -475,7 +475,7 @@ class TestSendDispose:
         listener._append_response = MagicMock()
         posted: list[Any] = []
 
-        def _capture(fn: Any, *args: Any) -> None:
+        def _capture(fn: Any, *args: Any, **kwargs: Any) -> None:
             posted.append(fn)
 
         mock_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
@@ -486,7 +486,7 @@ class TestSendDispose:
             patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=mock_turn),
             patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value="mcp"),
-            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_capture),
+            patch("plugin.framework.queue_executor.default_executor.post", side_effect=_capture),
         ):
             listener._events._on_mcp_result(tool="echo", result_snippet="hi")
         assert len(posted) == 1
@@ -2095,7 +2095,7 @@ def test_mcp_turn_mutations_hold_the_lock() -> None:
     with (
         patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
         patch("plugin.framework.thread_guard.get_background_task_name", return_value="mcp"),
-        patch("plugin.framework.queue_executor.post_to_main_thread", lambda fn: None),
+        patch("plugin.framework.queue_executor.default_executor.post", lambda *args, **kwargs: None),
     ):
         listener._events._on_mcp_result(tool="echo", result_snippet="x", req_id="a")
     assert "a" not in listener._last_mcp_turn
