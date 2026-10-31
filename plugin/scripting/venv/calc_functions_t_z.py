@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
+from functools import wraps
 import math
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
@@ -75,53 +76,64 @@ __all__ = [
 ]
 
 
+# Whole-body handlers that return NaN for these three errors only.
+# Do not add ZeroDivisionError or re.error: xirr, xnpv, and textsplit catch more.
+_NAN_ON_ERROR = (ValueError, TypeError, OverflowError)
+
+
+def _nan_on_error(fn: Any) -> Any:
+    @wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        except _NAN_ON_ERROR:
+            return float("nan")
+
+    return wrapper
+
+
 def t(value: Any) -> str:
     if isinstance(value, str):
         return value
     return ""
 
 
+@_nan_on_error
 def tdist(x: Any, df: Any, tails: Any) -> float:
-    try:
-        val = float(x)
-        # ScTDist floors df (approxFloor) before the < 1 check. 2.7 was
-        # passed through to the t distribution.
-        d = math.floor(float(df))
-        # ``t`` is the public T() function. A local with that name would hide it.
-        tail_count = int(float(tails))
-        if d < 1 or tail_count not in (1, 2) or val < 0:
-            return float("nan")
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
-
-        # tdist in Calc/Excel returns 1 - cdf(val) for 1 tail
-        # and 2 * (1 - cdf(val)) for 2 tails
-        p = st.t.sf(val, d)
-        return float(p if tail_count == 1 else 2 * p)
-    except (ValueError, TypeError, OverflowError):
-        # int(float("inf")) on tails raises OverflowError. The handler only
-        # caught ValueError and TypeError, so TDIST(x, df, inf) raised instead
-        # of the NaN already returned for every other tail count outside 1 or 2.
+    val = float(x)
+    # ScTDist floors df (approxFloor) before the < 1 check. 2.7 was
+    # passed through to the t distribution.
+    d = math.floor(float(df))
+    # ``t`` is the public T() function. A local with that name would hide it.
+    # int(float("inf")) on tails raises OverflowError. The handler only
+    # caught ValueError and TypeError, so TDIST(x, df, inf) raised instead
+    # of the NaN already returned for every other tail count outside 1 or 2.
+    tail_count = int(float(tails))
+    if d < 1 or tail_count not in (1, 2) or val < 0:
         return float("nan")
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
+
+    # tdist in Calc/Excel returns 1 - cdf(val) for 1 tail
+    # and 2 * (1 - cdf(val)) for 2 tails
+    p = st.t.sf(val, d)
+    return float(p if tail_count == 1 else 2 * p)
 
 
 # Excel/Calc numeric formats, not Python format specs.
-_TEXT_NUMBER_FORMATS: dict[str, tuple[int, bool]] = {
-    "0": (0, False),
-    "0.0": (1, False),
-    "0.00": (2, False),
-    "0.000": (3, False),
-    "#,##0": (0, True),
-    "#,##0.0": (1, True),
-    "#,##0.00": (2, True),
-    "#,##0.000": (3, True),
-}
-
-_PERCENT_FORMATS: dict[str, int] = {
-    "0%": 0,
-    "0.0%": 1,
-    "0.00%": 2,
+_TEXT_NUMBER_FORMATS: dict[str, tuple[int, bool, int, str]] = {
+    "0": (0, False, 1, ""),
+    "0.0": (1, False, 1, ""),
+    "0.00": (2, False, 1, ""),
+    "0.000": (3, False, 1, ""),
+    "#,##0": (0, True, 1, ""),
+    "#,##0.0": (1, True, 1, ""),
+    "#,##0.00": (2, True, 1, ""),
+    "#,##0.000": (3, True, 1, ""),
+    "0%": (0, False, 100, "%"),
+    "0.0%": (1, False, 100, "%"),
+    "0.00%": (2, False, 100, "%"),
 }
 
 _DATE_FORMATS: dict[str, str] = {
@@ -178,16 +190,13 @@ def text(val: Any, fmt: Any) -> str | float:
     try:
         spec = _TEXT_NUMBER_FORMATS.get(fmt_str)
         if spec is not None:
-            places, grouped = spec
-            return _format_number_pattern(float(val), places, grouped)
-        if fmt_str in _PERCENT_FORMATS:
-            places = _PERCENT_FORMATS[fmt_str]
+            places, grouped, scale, suffix = spec
             number = float(val)
+            formatted = _format_number_pattern(number, places, grouped, scale=scale)
             # A non-finite value is not a percent. "inf%" would look formatted.
-            if not math.isfinite(number):
-                return str(number)
-            formatted = _format_number_pattern(number, places, False, scale=100)
-            return f"{formatted}%"
+            if suffix and math.isfinite(number):
+                return f"{formatted}{suffix}"
+            return formatted
         lower = fmt_str.lower()
         date_fmt = _DATE_FORMATS.get(lower)
         if date_fmt is not None or lower == "mmm d, yyyy":
@@ -201,11 +210,9 @@ def text(val: Any, fmt: Any) -> str | float:
                 return day.strftime(date_fmt)
             return f"{day.strftime('%b')} {day.day}, {day.year}"
         if lower == "hh:mm:ss":
-            total_sec = round(float(val) * 86400.0)
-            wrapped_sec = total_sec % 86400
-            h = wrapped_sec // 3600
-            m = (wrapped_sec % 3600) // 60
-            s = wrapped_sec % 60
+            total_sec = round(float(val) * 86400.0) % 86400
+            h, rem = divmod(total_sec, 3600)
+            m, s = divmod(rem, 60)
             return f"{h:02d}:{m:02d}:{s:02d}"
     except (ValueError, TypeError, OverflowError, InvalidOperation):
         return str(val)
@@ -227,31 +234,29 @@ def text(val: Any, fmt: Any) -> str | float:
 fmt = text
 
 
+@_nan_on_error
 def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mode: Any, match_end: Any, if_not_found: Any, *, after: bool) -> str | float:
-    try:
-        # bool("0") is true, so a zero flag invented a virtual delimiter.
-        # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
-        use_end = _as_nonzero(match_end)
-        s, inst, idx, match_end_miss = _find_text_cut(
-            text, delimiter, instance_num, match_mode, after=after
-        )
-        if idx is not None:
-            # The cut is already the end of the delimiter, including a
-            # negative instance. Adding len(delim) again skipped a second
-            # copy when the matched span was longer than the delimiter.
-            return s[idx:] if after else s[:idx]
-        if use_end and match_end_miss:
-            # Virtual delimiter is at 0 when the instance is negative, and
-            # at the end otherwise. Text after a leading one is the whole
-            # string; text before it is empty. The other sign is the opposite.
-            # Both signs used to return the same string.
-            return s if (inst < 0) == after else ""
-        return if_not_found
-    except (ValueError, TypeError, OverflowError):
-        # _find_text_cut does int(float(instance_num)). An infinite instance
-        # raises OverflowError, which this handler did not catch, so TEXTAFTER
-        # and TEXTBEFORE raised instead of the NaN used for any other invalid instance.
-        return float("nan")
+    # bool("0") is true, so a zero flag invented a virtual delimiter.
+    # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
+    use_end = _as_nonzero(match_end)
+    # _find_text_cut does int(float(instance_num)). An infinite instance
+    # raises OverflowError, which this handler did not catch, so TEXTAFTER
+    # and TEXTBEFORE raised instead of the NaN used for any other invalid instance.
+    s, inst, idx, match_end_miss = _find_text_cut(
+        text, delimiter, instance_num, match_mode, after=after
+    )
+    if idx is not None:
+        # The cut is already the end of the delimiter, including a
+        # negative instance. Adding len(delim) again skipped a second
+        # copy when the matched span was longer than the delimiter.
+        return s[idx:] if after else s[:idx]
+    if use_end and match_end_miss:
+        # Virtual delimiter is at 0 when the instance is negative, and
+        # at the end otherwise. Text after a leading one is the whole
+        # string; text before it is empty. The other sign is the opposite.
+        # Both signs used to return the same string.
+        return s if (inst < 0) == after else ""
+    return if_not_found
 
 
 def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
@@ -270,10 +275,6 @@ def _textjoin_piece(val: Any) -> str:
     joined as "1.0,2.0,3.0". A whole number prints without the trailing
     ".0". Bool stays "True". header_label would also strip the text.
     """
-    if isinstance(val, (bool, np.bool_)):
-        return str(bool(val))
-    if isinstance(val, (int, np.integer)):
-        return str(int(val))
     if isinstance(val, (float, np.floating)):
         # float() of a float/np.floating does not raise.
         number = float(val)
@@ -406,26 +407,24 @@ def timevalue(text: Any) -> float:
     return float("nan")
 
 
+@_nan_on_error
 def tinv(prob: Any, df: Any) -> float:
-    try:
-        p = float(prob)
-        # ScTInv floors df, same as ScTDist. A fractional df was used as-is.
-        d = math.floor(float(df))
-        if p <= 0 or p > 1 or d < 1:
-            return float("nan")
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
-
-        # TINV is the 2-tailed inverse. ppf(1 - p/2) rounds the
-        # probability to 1 once p is about 1e-16, so the result was inf.
-        # ScTInv inverts the t distribution; isf(p/2) is that upper tail.
-        # isf(0.5) is a tiny negative, and TINV is a non-negative critical value.
-        return float(abs(st.t.isf(p / 2, d)))
-    except (ValueError, TypeError, OverflowError):
-        # float(10**400) raises OverflowError. The handler only caught
-        # ValueError and TypeError, so TINV of a huge probability raised.
+    # float(10**400) raises OverflowError. The handler only caught
+    # ValueError and TypeError, so TINV of a huge probability raised.
+    p = float(prob)
+    # ScTInv floors df, same as ScTDist. A fractional df was used as-is.
+    d = math.floor(float(df))
+    if p <= 0 or p > 1 or d < 1:
         return float("nan")
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
+
+    # TINV is the 2-tailed inverse. ppf(1 - p/2) rounds the
+    # probability to 1 once p is about 1e-16, so the result was inf.
+    # ScTInv inverts the t distribution; isf(p/2) is that upper tail.
+    # isf(0.5) is a tiny negative, and TINV is a non-negative critical value.
+    return float(abs(st.t.isf(p / 2, d)))
 
 
 def trend(*args: Any) -> Any:
@@ -485,63 +484,59 @@ def trend(*args: Any) -> Any:
         return "#VALUE!"
 
 
+@_nan_on_error
 def trimmean(r: Any, percent: Any) -> float:
     # Skip blanks, text, and bools. A formula error (NaN) still propagates.
-    try:
-        arr = _extract_numeric_array(r, propagate_nan=True)
-        if len(arr) == 0 or np.any(np.isnan(arr)):
-            return float("nan")
-        p = float(percent)
-        if p < 0 or p >= 1:
-            return float("nan")
-        k = int(len(arr) * p / 2)
-        if k == 0:
-            return float(np.mean(arr))
-        arr.sort()
-        return float(np.mean(arr[k:-k]))
-    except (ValueError, TypeError, OverflowError):
-        # float(10**400) raises OverflowError. The handler only caught
-        # ValueError and TypeError, so TRIMMEAN of a huge percent raised.
+    arr = _extract_numeric_array(r, propagate_nan=True)
+    if len(arr) == 0 or np.any(np.isnan(arr)):
         return float("nan")
+    # float(10**400) raises OverflowError. The handler only caught
+    # ValueError and TypeError, so TRIMMEAN of a huge percent raised.
+    p = float(percent)
+    if p < 0 or p >= 1:
+        return float("nan")
+    k = int(len(arr) * p / 2)
+    if k == 0:
+        return float(np.mean(arr))
+    arr.sort()
+    return float(np.mean(arr[k:-k]))
 
 
+@_nan_on_error
 def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
-    try:
-        # ``t`` is the public T() function. A local with that name would hide it.
-        tail_count = int(float(tails))
-        type_num = int(float(type_))
-        if tail_count not in (1, 2) or type_num not in (1, 2, 3):
-            return float("nan")
-
-        if type_num == 1:
-            cleaned = _clean_paired_arrays(data1, data2)
-            if cleaned is None:
-                return float("nan")
-            d1_clean, d2_clean = cleaned
-        else:
-            d1_clean = _extract_numeric_array(data1, propagate_nan=False)
-            d2_clean = _extract_numeric_array(data2, propagate_nan=False)
-
-        if len(d1_clean) < 2 or len(d2_clean) < 2:
-            return float("nan")
-
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
-
-        if type_num == 1:
-            res = st.ttest_rel(d1_clean, d2_clean)
-        elif type_num == 2:
-            res = st.ttest_ind(d1_clean, d2_clean, equal_var=True)
-        else:
-            res = st.ttest_ind(d1_clean, d2_clean, equal_var=False)
-
-        p = float(cast("float", res[1]))
-        if tail_count == 1:
-            p /= 2.0
-        return float(p)
-    except (ValueError, TypeError, OverflowError):
+    # ``t`` is the public T() function. A local with that name would hide it.
+    tail_count = int(float(tails))
+    type_num = int(float(type_))
+    if tail_count not in (1, 2) or type_num not in (1, 2, 3):
         return float("nan")
+
+    if type_num == 1:
+        cleaned = _clean_paired_arrays(data1, data2)
+        if cleaned is None:
+            return float("nan")
+        d1_clean, d2_clean = cleaned
+    else:
+        d1_clean = _extract_numeric_array(data1, propagate_nan=False)
+        d2_clean = _extract_numeric_array(data2, propagate_nan=False)
+
+    if len(d1_clean) < 2 or len(d2_clean) < 2:
+        return float("nan")
+
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
+
+    if type_num == 1:
+        res = st.ttest_rel(d1_clean, d2_clean)
+    elif type_num == 2:
+        res = st.ttest_ind(d1_clean, d2_clean, equal_var=True)
+    else:
+        res = st.ttest_ind(d1_clean, d2_clean, equal_var=False)
+
+    p = float(cast("float", res[1]))
+    if tail_count == 1:
+        p /= 2.0
+    return float(p)
 
 
 def type(val: Any) -> float:
@@ -561,14 +556,12 @@ def type(val: Any) -> float:
     return 1.0
 
 
+@_nan_on_error
 def unichar(number: Any) -> str | float:
-    try:
-        val = int(float(number))
-        if val <= 0 or val > 0x10FFFF:
-            return float("nan")
-        return chr(val)
-    except (ValueError, TypeError, OverflowError):
+    val = int(float(number))
+    if val <= 0 or val > 0x10FFFF:
         return float("nan")
+    return chr(val)
 
 
 def unicode(text: Any) -> float:
@@ -608,18 +601,17 @@ def _unique_key(item: Any) -> Any:
 def _unique_items(items: list[Any], exactly_once: bool) -> list[Any]:
     # Dict insertion order is the first-seen order. The stored value is the
     # original cell, not the comparison key.
-    counts: dict[Any, int] = {}
-    first: dict[Any, Any] = {}
+    seen: dict[Any, list[Any]] = {}
     for item in items:
         key = _unique_key(item)
-        if key not in counts:
-            first[key] = item
-            counts[key] = 1
-        else:
-            counts[key] += 1
+        slot = seen.get(key)
+        if slot is None:
+            seen[key] = [item, 1]
+        elif exactly_once:
+            slot[1] += 1
     if exactly_once:
-        return [first[key] for key, count in counts.items() if count == 1]
-    return list(first.values())
+        return [item for item, count in seen.values() if count == 1]
+    return [item for item, _count in seen.values()]
 
 
 def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[Any] | str:
@@ -651,10 +643,7 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
         return [list(row) for row in _unique_items(rows, once)]
     cols = [tuple(data[:, i].tolist()) for i in range(data.shape[1])]
     kept = _unique_items(cols, once)
-    if not kept:
-        return []
-    height = len(kept[0])
-    return [[col[row] for col in kept] for row in range(height)]
+    return [list(row) for row in zip(*kept)]
 
 
 def vara(*args: Any) -> float:
@@ -749,26 +738,24 @@ def weeknum(serial: Any, return_type: int | float = 1) -> float:
     return float(_system1_week_number(day, start))
 
 
+@_nan_on_error
 def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
-    try:
-        val = float(x)
-        a = float(alpha)
-        b = float(beta)
-        if val < 0 or a <= 0 or b <= 0:
-            return float("nan")
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
-
-        # In scipy, c=alpha (shape), scale=beta. Note: Calc calls alpha shape and beta scale.
-        # bool("0") is true, so a zero flag returned the CDF.
-        # ScWeibull uses GetDouble() == 0 for the density.
-        if _as_nonzero(cumulative):
-            return float(st.weibull_min.cdf(val, a, scale=b))
-        return float(st.weibull_min.pdf(val, a, scale=b))
-    except (ValueError, TypeError, OverflowError):
-        # float(10**400) raises OverflowError, which this handler missed.
+    # float(10**400) raises OverflowError, which this handler missed.
+    val = float(x)
+    a = float(alpha)
+    b = float(beta)
+    if val < 0 or a <= 0 or b <= 0:
         return float("nan")
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
+
+    # In scipy, c=alpha (shape), scale=beta. Note: Calc calls alpha shape and beta scale.
+    # bool("0") is true, so a zero flag returned the CDF.
+    # ScWeibull uses GetDouble() == 0 for the density.
+    if _as_nonzero(cumulative):
+        return float(st.weibull_min.cdf(val, a, scale=b))
+    return float(st.weibull_min.pdf(val, a, scale=b))
 
 
 def _advance_workdays(
@@ -1056,31 +1043,6 @@ def _flatten_range(arg: Any) -> list[Any]:
     return flat
 
 
-def _xor_logical(val: Any, *, in_range: bool) -> tuple[str, bool | float | str]:
-    if isinstance(val, np.generic):
-        val = val.item()
-    if isinstance(val, bool):
-        return ("ok", bool(val))
-    if isinstance(val, int):
-        return ("ok", int(val) != 0)
-    if isinstance(val, (float, np.floating)):
-        number = float(val)
-        if math.isnan(number):
-            return ("err", float("nan"))
-        return ("ok", number != 0.0)
-    if isinstance(val, str):
-        token = val.strip()
-        if token in _LO_ERROR_TOKENS:
-            return ("err", token)
-        # Text and blanks inside a range do not count. A text argument is #VALUE!.
-        if in_range:
-            return ("skip", False)
-        return ("err", "#VALUE!")
-    if val is None:
-        return ("skip", False) if in_range else ("err", "#VALUE!")
-    return ("err", "#VALUE!")
-
-
 def xor(*args: Any) -> bool | float | str:
     # bool(list) is True for any non-empty list, so a range of two TRUEs was
     # True. bool(ndarray) raises ValueError ("ambiguous truth value"). Walk
@@ -1092,92 +1054,105 @@ def xor(*args: Any) -> bool | float | str:
         in_range = _is_calc_range(arg)
         values = _flatten_range(arg) if in_range else (arg,)
         for val in values:
-            kind, payload = _xor_logical(val, in_range=in_range)
-            if kind == "err":
-                return payload
-            if kind == "skip":
-                continue
+            # List cells and bare numpy scalars are not unwrapped by _flatten_range.
+            # np.longdouble.item() stays np.longdouble, so the float test stays.
+            if isinstance(val, np.generic):
+                val = val.item()
+            if isinstance(val, int):
+                bit = int(val) != 0
+            elif isinstance(val, (float, np.floating)):
+                number = float(val)
+                if math.isnan(number):
+                    return float("nan")
+                bit = number != 0.0
+            elif isinstance(val, str):
+                token = val.strip()
+                if token in _LO_ERROR_TOKENS:
+                    return token
+                if in_range:
+                    continue
+                return "#VALUE!"
+            elif val is None:
+                if in_range:
+                    continue
+                return "#VALUE!"
+            else:
+                return "#VALUE!"
             saw = True
-            if payload is True:
+            if bit:
                 trues += 1
     if not saw:
         return "#VALUE!"
     return trues % 2 == 1
 
 
+@_nan_on_error
 def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
     """Annual yield of a discounted security (e.g. Treasury bill)."""
-    try:
-        p = float(pr)
-        red = float(redemption)
-        b = int(float(basis))
-        settle = float(settlement)
-        mature = float(maturity)
-        # getYielddisc throws when settlement >= maturity. yearfrac swaps
-        # those dates, so a reversed pair used to return a positive yield.
-        if p <= 0 or red <= 0 or b < 0 or b > 4 or settle >= mature:
-            return float("nan")
-        yf = yearfrac(settle, mature, b)
-        if math.isnan(yf) or yf <= 0:
-            return float("nan")
-        return float(((red - p) / p) / yf)
-    except (ValueError, TypeError, OverflowError):
+    p = float(pr)
+    red = float(redemption)
+    b = int(float(basis))
+    settle = float(settlement)
+    mature = float(maturity)
+    # getYielddisc throws when settlement >= maturity. yearfrac swaps
+    # those dates, so a reversed pair used to return a positive yield.
+    if p <= 0 or red <= 0 or b < 0 or b > 4 or settle >= mature:
         return float("nan")
+    yf = yearfrac(settle, mature, b)
+    if math.isnan(yf) or yf <= 0:
+        return float("nan")
+    return float(((red - p) / p) / yf)
 
 
+@_nan_on_error
 def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, basis: Any = 0) -> float:
     """Annual yield of a security that pays interest at maturity."""
-    try:
-        r = float(rate)
-        p = float(pr)
-        b = int(float(basis))
-        settle = float(settlement)
-        mature = float(maturity)
-        issued = float(issue)
-        # getYieldmat throws when settlement >= maturity or settlement < issue.
-        # Equal issue and settlement is allowed. yearfrac would hide the order.
-        if r < 0 or p <= 0 or b < 0 or b > 4 or settle >= mature or settle < issued:
-            return float("nan")
-        dim_b = yearfrac(issued, mature, b)
-        dis_b = yearfrac(issued, settle, b)
-        dsm_b = yearfrac(settle, mature, b)
-        if math.isnan(dim_b) or math.isnan(dis_b) or math.isnan(dsm_b) or dsm_b <= 0:
-            return float("nan")
-        denom = (p / 100.0) + r * dis_b
-        if denom == 0:
-            return float("nan")
-        num = (1.0 + r * dim_b) / denom - 1.0
-        return float(num / dsm_b)
-    except (ValueError, TypeError, OverflowError):
+    r = float(rate)
+    p = float(pr)
+    b = int(float(basis))
+    settle = float(settlement)
+    mature = float(maturity)
+    issued = float(issue)
+    # getYieldmat throws when settlement >= maturity or settlement < issue.
+    # Equal issue and settlement is allowed. yearfrac would hide the order.
+    if r < 0 or p <= 0 or b < 0 or b > 4 or settle >= mature or settle < issued:
         return float("nan")
+    dim_b = yearfrac(issued, mature, b)
+    dis_b = yearfrac(issued, settle, b)
+    dsm_b = yearfrac(settle, mature, b)
+    if math.isnan(dim_b) or math.isnan(dis_b) or math.isnan(dsm_b) or dsm_b <= 0:
+        return float("nan")
+    denom = (p / 100.0) + r * dis_b
+    if denom == 0:
+        return float("nan")
+    num = (1.0 + r * dim_b) / denom - 1.0
+    return float(num / dsm_b)
 
 
+@_nan_on_error
 def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
-    try:
-        # ScZTest counts numeric cells, including TRUE as 1, and skips text
-        # and blanks. dtype=float raised on None, so one blank made the call
-        # NaN. isfinite then dropped error cells instead of propagating them.
-        # Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
-        d = _extract_numeric_array(data, ignore_bool=False, propagate_nan=True)
-        if len(d) < 2 or np.any(np.isnan(d)):
-            return float("nan")
-        val = float(x)
-        n = len(d)
-        m = np.mean(d)
-        if sigma is None:
-            s = np.std(d, ddof=1)
-        else:
-            s = float(sigma)
-
-        # sigma <= 0 is #NUM!. inf made z = 0 and the survival function 0.5.
-        if not math.isfinite(s) or s <= 0:
-            return float("nan")
-
-        z = (m - val) / (s / math.sqrt(n))
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
-
-        return float(st.norm.sf(z))
-    except (ValueError, TypeError, OverflowError):
+    # ScZTest counts numeric cells, including TRUE as 1, and skips text
+    # and blanks. dtype=float raised on None, so one blank made the call
+    # NaN. isfinite then dropped error cells instead of propagating them.
+    # Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
+    d = _extract_numeric_array(data, ignore_bool=False, propagate_nan=True)
+    if len(d) < 2 or np.any(np.isnan(d)):
         return float("nan")
+    val = float(x)
+    n = len(d)
+    m = np.mean(d)
+    if sigma is None:
+        s = np.std(d, ddof=1)
+    else:
+        s = float(sigma)
+
+    # sigma <= 0 is #NUM!. inf made z = 0 and the survival function 0.5.
+    if not math.isfinite(s) or s <= 0:
+        return float("nan")
+
+    z = (m - val) / (s / math.sqrt(n))
+    st = _scipy_stats()
+    if st is None:
+        return float("nan")
+
+    return float(st.norm.sf(z))

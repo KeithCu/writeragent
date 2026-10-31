@@ -294,6 +294,7 @@ def _serial(year: int, month: int, day: int) -> int:
 def test_text_percent_scales_in_decimal():
     # 0.285 * 100 is 28.499999999999996, which rounded to 28%.
     assert calc.text(0.285, "0%") == "29%"
+    assert calc.text(-0.285, "0%") == "-29%"
     assert calc.text(0.145, "0%") == "15%"
     assert calc.text(0.125, "0%") == "13%"
     assert calc.text(0.125, "0.0%") == "12.5%"
@@ -330,6 +331,8 @@ def test_textjoin_whole_numbers_drop_decimal():
     assert calc.textjoin(",", True, [1.0, 2.0, 3.0]) == "1,2,3"
     assert calc.textjoin(",", True, [1.5, 2.0]) == "1.5,2"
     assert calc.textjoin(",", True, [True, 1.0]) == "True,1"
+    assert calc.textjoin(",", True, [np.float32(1.0), np.float32(1.5), np.bool_(True)]) == "1,1.5,True"
+    assert calc.textjoin(",", True, [np.longdouble(2.0)]) == "2"
 
 
 def test_unique_casefold_bool_and_nan():
@@ -570,5 +573,6 @@ def test_text_date_time_formats():
     assert calc.text(d, "mmm d, yyyy") == "Jan 15, 2024"
     assert calc.text(0.5, "hh:mm:ss") == "12:00:00"
     assert calc.text(0.75, "hh:mm:ss") == "18:00:00"
+    assert calc.text(-0.25, "hh:mm:ss") == "18:00:00"
 
 
