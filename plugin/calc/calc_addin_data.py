@@ -168,7 +168,9 @@ def pack_calc_data_for_wire(py_data: list[list[Any]] | list[Any] | None, *, forc
     # that grid. Doing it here first copied every cell again on the =PY()
     # pack path. materialize_calc_range already stopped the matching double
     # walk on the way back in.
-    return pack_calc_range_envelope(py_data, address=address, pack_inner=lambda g: host_pack_data(g, force=force))
+    envelope = pack_calc_range_envelope(py_data, address=address)
+    envelope["data"] = host_pack_data(envelope["data"], force=force)
+    return envelope
 
 
 def check_python_multi_data_size(data: list[Any], *, max_cells: int) -> str | None:
