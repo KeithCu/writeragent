@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+from functools import wraps
 import logging
 from typing import Any, Callable, TypeVar, overload
 
@@ -31,21 +32,6 @@ from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 from plugin.framework.deal_shim import DEAL_MAX_MSGID, UNDER_CROSSHAIR, deal
-
-try:
-    from com.sun.star.lang import DisposedException
-
-    # isinstance must be DisposedException only. com.sun.star.uno.Exception is the
-    # parent of almost every UNO error, and IllegalArgumentException subclasses
-    # RuntimeException, so either of those bases reports a bad argument as disposal.
-    # RuntimeException still matches by type name below (bridge teardown, mocks).
-    # Drop the type when a test mock aliases it to builtins.Exception.
-    if isinstance(DisposedException, type) and issubclass(DisposedException, BaseException) and DisposedException is not Exception:
-        UNO_DISPOSED_EXCEPTIONS: tuple[type[BaseException], ...] = (DisposedException,)
-    else:
-        UNO_DISPOSED_EXCEPTIONS = ()
-except (ImportError, AttributeError):
-    UNO_DISPOSED_EXCEPTIONS = ()
 
 _FILESYSTEM_ERRNOS: frozenset[int] = frozenset(
     val
@@ -82,12 +68,7 @@ def is_disposed_exception(exc: BaseException) -> bool:
     bare RuntimeException is not reported as DOCUMENT_DISPOSED.
     `reraise_if_disposed` uses `is_real_disposal` and must not call this function.
     """
-    if isinstance(exc, DocumentDisposedError):
-        return True
-    if isinstance(exc, UNO_DISPOSED_EXCEPTIONS):
-        return True
-    name = type(exc).__name__
-    return "DisposedException" in name or "RuntimeException" in name
+    return is_real_disposal(exc) or "RuntimeException" in type(exc).__name__
 
 
 _T = TypeVar("_T")
@@ -393,34 +374,31 @@ def format_error_message(e: BaseException) -> str:
 
     is_fs = isinstance(e, _FILESYSTEM_CLASSES) or (getattr(e, "errno", None) in _FILESYSTEM_ERRNOS)
     if isinstance(e, (urllib.error.URLError, OSError)) and not is_fs:
-        is_transport = (
-            isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.gaierror, socket.herror))
-            or (getattr(e, "errno", None) in _TRANSPORT_ERRNOS)
-            or ("timed out" in reason.lower() and "formula" not in reason.lower())
-            or _is_connection_refused(e, reason)
-            or ("getaddrinfo failed" in reason.lower())
-        )
-        if is_transport:
-            # URLError is not itself a socket.timeout; the timeout is e.reason.
-            # Check that before the connection-error sentence, or a wrapped
-            # timeout tells the user the server is down.
-            if reason_obj is not None and isinstance(reason_obj, (socket.timeout, TimeoutError)):
-                if _is_socket_timeout_phrase(reason):
-                    return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
-                return reason
-            # urllib.request wraps a certificate failure as URLError(reason=SSLError).
-            # A direct SSLError is handled above. The wrapped form used to return "Connection Error"
-            # and hide the TLS sentence.
-            if isinstance(reason_obj, ssl.SSLError):
-                return _("TLS/SSL Error: {0}").format(reason)
-            if "timed out" in reason.lower() and "formula" not in reason.lower():
+        rl = reason.lower()
+        # URLError is not itself a socket.timeout; the timeout is e.reason.
+        # Check that before the connection-error sentence, or a wrapped
+        # timeout tells the user the server is down.
+        if reason_obj is not None and isinstance(reason_obj, (socket.timeout, TimeoutError)):
+            if _is_socket_timeout_phrase(reason):
                 return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
-            # Errno text and unrelated messages both contain "111" (port 1111).
-            # Match the errno or the words, not that substring.
-            if _is_connection_refused(e, reason):
-                return _("Connection Refused. Is your local AI server (Ollama/LM Studio) running?")
-            if "getaddrinfo failed" in reason.lower():
-                return _("DNS Error. Could not resolve the endpoint URL.")
+            return reason
+        # urllib.request wraps a certificate failure as URLError(reason=SSLError).
+        # A direct SSLError is handled above. The wrapped form used to return "Connection Error"
+        # and hide the TLS sentence.
+        if isinstance(reason_obj, ssl.SSLError):
+            return _("TLS/SSL Error: {0}").format(reason)
+        if "timed out" in rl and "formula" not in rl:
+            return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
+        # Errno text and unrelated messages both contain "111" (port 1111).
+        # Match the errno or the words, not that substring.
+        if _is_connection_refused(e, reason):
+            return _("Connection Refused. Is your local AI server (Ollama/LM Studio) running?")
+        if "getaddrinfo failed" in rl:
+            return _("DNS Error. Could not resolve the endpoint URL.")
+        if (
+            isinstance(e, (urllib.error.URLError, ConnectionError, TimeoutError, socket.gaierror, socket.herror))
+            or getattr(e, "errno", None) in _TRANSPORT_ERRNOS
+        ):
             return _("Connection Error: {0}").format(reason)
 
     lower = msg.lower()
@@ -460,8 +438,6 @@ def make_tool_error(message: Any, code: str = "TOOL_EXECUTION_ERROR", **details:
     through ``WriterAgentException``, which does not apply the gettext msgid
     length contract to that text.
     """
-    if not isinstance(message, str):
-        message = resolve_exception_message(message)
     if not isinstance(code, str) or not code:
         code = "TOOL_EXECUTION_ERROR"
     return format_error_payload(ToolExecutionError(message, code=code, details=details))
@@ -500,12 +476,6 @@ class ToolExecutionError(WriterAgentException):
     """Tool invocation and execution failures."""
 
     code: str = "TOOL_EXECUTION_ERROR"
-
-
-class ToolPermissionError(WriterAgentException):
-    """User rejected tool execution or permission denied."""
-
-    code: str = "PERMISSION_DENIED"
 
 
 class AgentParsingError(WriterAgentException):
@@ -626,8 +596,6 @@ def safe_uno_call(default: Any = None) -> Any:
     """
 
     def decorator(func: Any) -> Any:
-        from functools import wraps
-
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
@@ -655,7 +623,7 @@ def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
     except WriterAgentException:
         # Bugfix: safe_call previously caught all Exception instances and wrapped them
         # in UnoObjectError, converting WriterAgentException subclasses (like
-        # ToolPermissionError) into generic UNO errors and losing their error codes.
+        # ConfigError) into generic UNO errors and losing their error codes.
         # Catching WriterAgentException first preserves specific domain exceptions.
         raise
     except Exception as e:

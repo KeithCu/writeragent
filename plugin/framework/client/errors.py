@@ -180,8 +180,6 @@ def stream_error_message(chunk: dict[str, Any]) -> str | None:
 
 def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
     """Parse encoded chat JSON for diagnostics. Empty dict if unreadable."""
-    if not body:
-        return {}
     try:
         payload = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
     except (ValueError, TypeError, UnicodeDecodeError):
@@ -282,8 +280,6 @@ def _prompt_char_count(messages: Any) -> int:
 
 def _exit_code_from_provider_body(err_body: str) -> str | None:
     """Best-effort native exit code from an Ollama / llama-server 500 body."""
-    if not err_body:
-        return None
     matched = re.search(r"0x[0-9a-fA-F]+", err_body)
     if matched:
         return matched.group(0)
