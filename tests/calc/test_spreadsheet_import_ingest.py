@@ -132,8 +132,6 @@ def test_ingest_golden_budget_grid():
     assert model.cells["C2"].type == "formula"
     assert model.cells["C2"].precedents == ["B2"]
     assert model.cells["D2"].precedents == ["B2", "C2"]
-    # B4 has no formula precedents (only constants), so it sorts before C2/C3.
-    assert model.formula_order == ["B4", "C2", "C3", "D2", "D3", "D4"]
 
 
 def test_ingest_precedents_exclude_out_of_scope():
@@ -158,7 +156,7 @@ def test_sheet_model_asdict_keys():
         formula_array=[[""]],
     )
     payload = asdict(model)
-    assert set(payload) == {"sheet_name", "used_range", "cells", "formula_order", "circular_groups"}
+    assert set(payload) == {"sheet_name", "used_range", "cells", "circular_groups"}
     assert payload["cells"]["A1"]["type"] == "constant"
 
 
@@ -171,7 +169,6 @@ def test_fixture_simple_budget_snapshot():
         data_array=raw["data_array"],
         formula_array=raw["formula_array"],
     )
-    assert model.formula_order == raw["expected_formula_order"]
     for addr, expected_type in raw["expected_types"].items():
         assert model.cells[addr].type == expected_type
 
