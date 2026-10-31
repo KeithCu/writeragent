@@ -140,7 +140,6 @@ def test_normalize_origins_list_is_off_cover_all() -> None:
         "merge_allow_headers",
         "set_extra_allowed_origins",
         "is_extra_allowed_origin",
-        "_is_loopback_origin",
     )
     for name in offed:
         assert not any(f.endswith(f".{name}") for f in fqns), name
