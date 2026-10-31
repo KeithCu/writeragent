@@ -32,9 +32,9 @@ class TestGetProviderDefaults:
 
 
     def test_together_serverless_audio_catalog(self):
-        from plugin.framework.default_models import catalog_speech_ids, together_speech_ids
+        from plugin.framework.default_models import together_speech_ids
 
-        tts = catalog_speech_ids("together", "tts")
+        tts = together_speech_ids("tts")
         assert tts == [
             "hexgrad/Kokoro-82M",
             "cartesia/sonic",
@@ -42,7 +42,7 @@ class TestGetProviderDefaults:
             "cartesia/sonic-3",
             "canopylabs/orpheus-3b-0.1-ft",
         ]
-        stt = catalog_speech_ids("together", "stt")
+        stt = together_speech_ids("stt")
         assert stt == [
             "nvidia/parakeet-tdt-0.6b-v3",
             "openai/whisper-large-v3",
