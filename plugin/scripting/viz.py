@@ -36,8 +36,6 @@ from plugin.scripting.calc_functions_common import VIZ_HELPER_NAMES as HELPER_NA
 
 _DRAW_PLOT_SIZE = (400, 300)
 
-_SHIPPED_TEMPLATES = frozenset({"quick_plot", "correlation_heatmap", "time_series_plot"})
-
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "quick_plot": {},
     "correlation_heatmap": {"method": "pearson"},
@@ -68,7 +66,7 @@ _API = make_template_api(
         descriptions=_HELPER_DESCRIPTIONS,
         import_module="writeragent.scripting.viz",
         run_name="run_viz",
-        shipped_templates=_SHIPPED_TEMPLATES,
+        shipped_templates=HELPER_NAMES - {"plot_data"},
         data_expr="data",
         leading_data=True,
         extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),

@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from collections import Counter
-import logging
 import math
 from typing import Any
 
@@ -30,8 +29,6 @@ from plugin.scripting.venv.trusted_dispatch import (
     ok_result as _ok_result,
     run_trusted_spec,
 )
-
-log = logging.getLogger(__name__)
 
 # A typo in a param name used to be ignored and the helper auto-selected columns.
 _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
@@ -56,27 +53,25 @@ def _is_bound_scalar(x: Any) -> bool:
     return False
 
 
+def _is_bound_pair(item: Any) -> bool:
+    return (
+        isinstance(item, (list, tuple))
+        and len(item) == 2
+        and _is_bound_scalar(item[0])
+        and _is_bound_scalar(item[1])
+    )
+
+
 def _linprog_bounds(bounds: Any, n_vars: int) -> Any:
     if bounds is None:
         return None
     # A length-2 sequence of scalars is one pair for every variable, including when n_vars == 2.
-    if (
-        isinstance(bounds, (list, tuple))
-        and len(bounds) == 2
-        and _is_bound_scalar(bounds[0])
-        and _is_bound_scalar(bounds[1])
-    ):
+    if _is_bound_pair(bounds):
         return (bounds[0], bounds[1])
     if (
         isinstance(bounds, (list, tuple))
         and len(bounds) == n_vars
-        and all(
-            isinstance(item, (list, tuple))
-            and len(item) == 2
-            and _is_bound_scalar(item[0])
-            and _is_bound_scalar(item[1])
-            for item in bounds
-        )
+        and all(_is_bound_pair(item) for item in bounds)
     ):
         return [(item[0], item[1]) for item in bounds]
     raise ValueError(_BOUNDS_ERROR)
@@ -140,12 +135,10 @@ def linear_programming(
     except ImportError:
         return _missing_package_error(helper, "scipy")
 
-    if not isinstance(c_col, str) or not c_col.strip():
-        return _error_result("INVALID_PARAM", f"c_col must be a string, got {c_col!r}", helper=helper)
-    c_col = c_col.strip()
-    if not isinstance(b_col, str) or not b_col.strip():
-        return _error_result("INVALID_PARAM", f"b_col must be a string, got {b_col!r}", helper=helper)
-    b_col = b_col.strip()
+    for name, raw in (("c_col", c_col), ("b_col", b_col)):
+        if not isinstance(raw, str) or not raw.strip():
+            return _error_result("INVALID_PARAM", f"{name} must be a string, got {raw!r}", helper=helper)
+    c_col, b_col = c_col.strip(), b_col.strip()
 
     try:
         a_cols_list = coerce_str_list(a_cols, name="a_cols")
@@ -281,9 +274,7 @@ def optimize_portfolio(
     try:
         returns_col_list = coerce_str_list(returns_col, name="returns_col")
         target_return_val = coerce_optional_float(target_return, name="target_return")
-        rf_val = coerce_optional_float(risk_free_rate, name="risk_free_rate")
-        if rf_val is None:
-            rf_val = 0.0
+        rf_val = coerce_optional_float(risk_free_rate, name="risk_free_rate") or 0.0
     except ValueError as exc:
         return _error_result("INVALID_PARAM", str(exc), helper=helper)
 
@@ -315,11 +306,8 @@ def optimize_portfolio(
     cov_matrix = returns.cov().to_numpy()
     mean_returns = returns.mean().to_numpy()
 
-    if not np.isfinite(cov_matrix).all():
-        return _error_result("INSUFFICIENT_DATA", "Return covariance is not positive.", helper=helper)
-
     scale = float(np.mean(np.diag(cov_matrix)))
-    if not math.isfinite(scale) or scale <= 0:
+    if not np.isfinite(cov_matrix).all() or not math.isfinite(scale) or scale <= 0:
         return _error_result("INSUFFICIENT_DATA", "Return covariance is not positive.", helper=helper)
 
     scaled_cov = cov_matrix / scale
