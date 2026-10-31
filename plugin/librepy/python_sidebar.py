@@ -79,11 +79,8 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
         remaining = budget
         last = len(flex_names) - 1
         for i, name in enumerate(flex_names):
-            if i == last:
-                share = remaining
-            else:
-                share = budget * snapshot[name][3] // flex_sum
-                remaining -= share
+            share = remaining if i == last else budget * snapshot[name][3] // flex_sum
+            remaining -= share
             new_heights[name] = max(_MIN_FLEX_HEIGHT, share)
 
     excess = sum(new_heights.values()) - budget
@@ -112,6 +109,19 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
     # Filter label width
     filter_label_w = min(40, max(10, content_width // 4))
 
+    run_x = left_margin + 2 * (bw3 + gap)
+    filter_x = left_margin + filter_label_w + gap
+    reset_x = left_margin + bw2 + gap
+    placed: dict[str, tuple[int, int]] = {
+        "btn_refresh": (left_margin, bw3),
+        "btn_edit_cell": (left_margin + bw3 + gap, bw3),
+        "btn_run_script": (run_x, max(10, content_right - run_x)),
+        "btn_edit_init": (left_margin, bw2),
+        "filter_label": (left_margin, filter_label_w),
+        "filter_combo": (filter_x, max(10, content_right - filter_x)),
+        "btn_reset": (left_margin, content_width) if "btn_edit_init" not in snapshot else (reset_x, max(10, content_right - reset_x)),
+    }
+
     layouts: dict[str, tuple[int, int, int, int]] = {}
     for name, (origin_x, oy, origin_w, oh) in snapshot.items():
         shift = 0
@@ -119,37 +129,12 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
             if snapshot[fname][1] < oy:
                 shift += new_heights[fname] - snapshot[fname][3]
 
-        if name == "btn_refresh":
-            nx = left_margin
-            nw = bw3
-        elif name == "btn_edit_cell":
-            nx = left_margin + bw3 + gap
-            nw = bw3
-        elif name == "btn_run_script":
-            nx = left_margin + 2 * (bw3 + gap)
-            nw = max(10, content_right - nx)
-        elif name == "btn_edit_init":
-            nx = left_margin
-            nw = bw2
-        elif name == "btn_reset":
-            if "btn_edit_init" not in snapshot:
-                nx = left_margin
-                nw = content_width
-            else:
-                nx = left_margin + bw2 + gap
-                nw = max(10, content_right - nx)
-        elif name == "filter_label":
-            nx = left_margin
-            nw = filter_label_w
-        elif name == "filter_combo":
-            nx = left_margin + filter_label_w + gap
-            nw = max(10, content_right - nx)
+        if name in placed:
+            nx, nw = placed[name]
         elif name in HEADER_BUTTON_IDS:
-            nx = origin_x
-            nw = origin_w
+            nx, nw = origin_x, origin_w
         else:
-            nx = left_margin
-            nw = content_width
+            nx, nw = left_margin, content_width
 
         if nx >= content_right:
             nx = max(0, content_right - 10)
@@ -200,24 +185,17 @@ class _PanelResizeListener(BaseWindowListener):
             if w <= 0 or h <= 0:
                 return
             if self._snapshot is None:
-                self._capture_snapshot(win)
+                self._capture_snapshot()
             snapshot = self._snapshot
             if not snapshot:
                 log.warning("python sidebar _relayout: no snapshot, skip")
                 return
             layouts = compute_python_sidebar_layout(w, h, snapshot)
-            if not layouts:
-                return
             for name, (nx, ny, nw, nh) in layouts.items():
-                ctrl = self._c.get(name)
-                if ctrl is None:
-                    continue
+                ctrl = self._c[name]
                 cur = ctrl.getPosSize()
                 if cur.X != nx or cur.Y != ny or cur.Width != nw or cur.Height != nh:
                     ctrl.setPosSize(nx, ny, nw, nh, 15)
-
-            max_right = max((entry[0] + entry[2] for entry in layouts.values()), default=0)
-            log.debug("[LIBREPY LAYOUT] relayout w=%d h=%d max_child_right=%d overflow=%s", w, h, max_right, "YES" if max_right > w - 2 else "no")
         except Exception:
             log.exception("python sidebar relayout_now failed")
         finally:
@@ -226,10 +204,7 @@ class _PanelResizeListener(BaseWindowListener):
     def on_window_resized(self, rEvent: Any) -> None:
         self.relayout_now(rEvent.Source)
 
-    def _capture_snapshot(self, win: Any) -> None:
-        r = win.getPosSize()
-        if r.Width <= 0 or r.Height <= 0:
-            return
+    def _capture_snapshot(self) -> None:
         snapshot: dict[str, tuple[int, int, int, int]] = {}
         for name, ctrl in self._c.items():
             if not ctrl:
@@ -486,10 +461,7 @@ class PythonSidebarController:
     def _refresh_diagnostics(self, doc: Any) -> None:
         diag_ctrl = self._ctrl("diag_list")
         prev_idx = _selected_index(diag_ctrl)
-        prev_entry: DiagnosticEntry | None = None
-        prev_diags = self._diags
-        if 0 <= prev_idx < len(prev_diags):
-            prev_entry = prev_diags[prev_idx]
+        prev_entry = self._diags[prev_idx] if 0 <= prev_idx < len(self._diags) else None
 
         key = workbook_key_for_doc(doc)
         filt = _filter_from_combo(self._ctrl("filter_combo"))
@@ -589,14 +561,8 @@ class PythonSidebarController:
         if doc is None:
             return
         navigate_to_cell(doc, self.ctx, cell.address)
-        cell_code_prefix = cell.code[:240] if cell.code else ""
-        matched_diag = None
-        for entry in self._diags:
-            if (entry.code[:240] if entry.code else "") == cell_code_prefix:
-                if entry.address == cell.address or (entry.sheet and entry.sheet == cell.sheet):
-                    matched_diag = entry
-                    break
-        shown = matched_diag
+        cell_key = (cell.code or "")[:240]
+        shown = next((entry for entry in self._diags if (entry.code or "")[:240] == cell_key and (entry.address == cell.address or (entry.sheet and entry.sheet == cell.sheet))), None)
         if shown is None:
             shown = self._store.latest_for_code(workbook_key_for_doc(doc), cell.code)
         if shown is not None:
