@@ -1001,7 +1001,7 @@ class MCPProtocolHandler:
             # before waiting so other documents can take it.
             _tool_semaphore.release()
             holding = False
-            with document_mutation_gate._document_mutation_gate(prepared.doc_key, enabled=True):
+            with document_mutation_gate._document_mutation_gate(prepared.doc_key):
                 acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
                 if not acquired:
                     raise document_mutation_gate.BusyError(_BUSY_MESSAGE)
@@ -1138,7 +1138,7 @@ class MCPProtocolHandler:
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=send_cancellation, stop_checker=stop_checker)
-        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=document_mutation_gate._tool_needs_document_mutation_gate(tool, arguments), echo=_document_echo_payload(doc))
+        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=tool.requires_document_lock(arguments), echo=_document_echo_payload(doc))
 
     def _invoke_prepared_mcp_tool(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
         """Registry execute + elapsed/echo. Caller holds the mutation gate when the tool needs it.
@@ -1183,7 +1183,9 @@ class MCPProtocolHandler:
         prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation, session=session)
         if not isinstance(prepared, _PreparedMcpCall):
             return prepared
-        with document_mutation_gate._document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
+        if not prepared.needs_gate:
+            return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
+        with document_mutation_gate._document_mutation_gate(prepared.doc_key):
             return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 
     # ── Debug helpers ────────────────────────────────────────────────

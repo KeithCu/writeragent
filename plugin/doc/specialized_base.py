@@ -180,8 +180,8 @@ class DelegateToSpecializedBase(ToolBase):
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = field_from_tool_arguments(arguments, "domain")
         # Bugfix: Model or client passed a non-string domain (e.g. a nested dict or list) in tool
-        # arguments. When document_mutation_gate._tool_needs_document_mutation_gate checked
-        # requires_document_lock prior to schema validation, `domain in self._READ_ONLY_DOMAINS`
+        # arguments. _prepare_mcp_execution calls requires_document_lock before schema validation, so
+        # `domain in self._READ_ONLY_DOMAINS`
         # raised TypeError: unhashable type: 'dict'.
         # Checking isinstance(domain, str) ensures non-string domains safely fall back to requiring
         # the document lock (safe default), allowing execute() to subsequently return the standard
