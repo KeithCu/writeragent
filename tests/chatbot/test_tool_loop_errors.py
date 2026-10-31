@@ -836,7 +836,7 @@ def test_start_tool_calling_resets_overflow_attempts(test_instance):
         from plugin.chatbot.tool_loop_actions import begin_send_turn
         begin_send_turn(test_instance, "chat")
         test_instance._start_tool_calling_async(
-            MagicMock(), MagicMock(), 128, [], execute_fn
+            MagicMock(), MagicMock(), 128, [], execute_fn, max_tool_rounds=8
         )
     from plugin.chatbot.tool_loop_actions import current_turn
     assert current_turn(test_instance)._overflow_compact_attempts == 0

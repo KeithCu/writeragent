@@ -133,7 +133,7 @@ def test_stream_done_no_tools(mock_get_config, mock_get_config_int, mock_drain_l
     mock_drain_loop.side_effect = mock_drain_impl
 
     client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert results[0] is True
 
@@ -153,7 +153,7 @@ def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_get_config_int, m
     panel, _session = setup_mock_panel()
     mock_drain_loop.side_effect = lambda *a, **k: k.get("on_drain_started") and k["on_drain_started"]()
 
-    panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert panel._spawn_llm_worker.call_count >= 1
     # args: q, client, max_tokens, tools, round_num, …
@@ -181,7 +181,7 @@ def test_control_state_lives_only_on_sm_state(mock_get_config, mock_get_config_i
 
     mock_drain_loop.side_effect = mock_drain_impl
 
-    panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert seen["round_num"] == 0
     assert len(seen["pending_tools"]) == 1
@@ -203,7 +203,7 @@ def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_get_con
         on_stopped()
 
     mock_drain_loop.side_effect = mock_drain_impl
-    panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
     assert session.messages[-2]["role"] == "assistant"
     assert session.messages[-2]["content"] == "kept tokens"
     assert session.messages[-1]["role"] == "assistant"
@@ -236,7 +236,7 @@ def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_get_conf
 
     mock_drain_loop.side_effect = mock_drain_impl
 
-    panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
@@ -260,7 +260,7 @@ def test_stream_done_with_tools(mock_get_config, mock_get_config_int, mock_drain
     mock_drain_loop.side_effect = mock_drain_impl
 
     client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert results[0] is False
 
@@ -291,7 +291,7 @@ def test_stream_done_persisted_assistant_tool_calls_contain_no_parsed_args(mock_
 
     mock_drain_loop.side_effect = mock_drain_impl
     client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert len(session.messages) == 1
     persisted_msg = session.messages[0]
@@ -323,7 +323,7 @@ def test_next_tool_advances_round(mock_get_config, mock_get_config_int, mock_dra
     mock_drain_loop.side_effect = mock_drain_impl
 
     client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert results[0] is False
     # When pending_tools is empty, it advances the round and spawns another worker
@@ -363,7 +363,7 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_get
     execute_tool_mock.return_value = '{"success": true}'
 
     client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock, max_tool_rounds=10)
 
     assert results[0] is False
 
@@ -430,7 +430,7 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
     execute_tool_mock = Mock(side_effect=mock_execute_tool)
 
     client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock, max_tool_rounds=10)
 
     assert len(results) == 4
 
@@ -468,7 +468,7 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_ge
     execute_tool_mock = Mock()
 
     client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock, max_tool_rounds=10)
 
     assert results[0] is True
 
@@ -514,7 +514,7 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
     execute_tool_mock = Mock(side_effect=mock_execute_tool)
 
     client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock, max_tool_rounds=10)
 
     assert results[0] is False
 
@@ -578,7 +578,7 @@ def test_final_done_handling(mock_get_config, mock_get_config_int, mock_drain_lo
     mock_drain_loop.side_effect = mock_drain_impl
 
     client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert results[0] is True # Return true means exit loop
     assert panel._terminal_status == "Ready"
@@ -601,7 +601,7 @@ def test_error_handling_in_loop(mock_get_config, mock_get_config_int, mock_drain
     mock_drain_loop.side_effect = mock_drain_impl
 
     client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert results[0] is True # Should exit loop
 
@@ -1206,7 +1206,7 @@ def test_toolkit_none_starts_drain_and_first_worker():
          patch("plugin.chatbot.tool_loop.get_config", return_value=False), \
          patch("plugin.chatbot.tool_loop.run_stream_drain_loop", side_effect=mock_drain), \
          patch.object(panel, "_spawn_llm_worker", MagicMock()) as mock_spawn:
-        panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+        panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert recorded_kwargs.get("toolkit") is None
     mock_spawn.assert_called_once()
