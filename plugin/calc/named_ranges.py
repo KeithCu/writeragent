@@ -21,7 +21,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.address_utils import MAX_COL, column_to_index, format_range_address, index_to_column, parse_address, split_sheet_prefix
+from plugin.calc.address_utils import MAX_COL, column_to_index, format_address, format_range_address, parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, find_named_range, is_agent_visible_sheet
 from plugin.framework.errors import UnoObjectError, uno_read
@@ -101,17 +101,14 @@ _R1C1_CELL_NAME = re.compile(r"^(?:R[0-9]*C[0-9]*|R[0-9]+|C[0-9]+)$", re.IGNOREC
 def _defined_name_char_ok(ch: str, *, start: bool) -> bool:
     """Match ScCompiler::IsCharFlagAllConventions for CharName (start) or Name.
 
-    ASCII tables in compiler.cxx: CharName is a letter or '_'; Name also allows
-    digits and '?' (Excel). '.' is Name too, but IsNameValid rejects it first.
-    Non-ASCII uses CharClass::isLetterNumeric; letters may start a name, digits may not.
+    CharName is a letter or '_'; Name also allows digits and '?' (Excel).
+    '.' is Name too, but IsNameValid rejects it first. '_' and '?' are ASCII,
+    so one expression covers non-ASCII too (CharClass::isLetterNumeric):
+    letters may start a name, digits may not.
     """
-    if ord(ch) < 128:
-        if start:
-            return ch.isalpha() or ch == "_"
-        return ch.isalnum() or ch in "_?"
     if start:
-        return ch.isalpha()
-    return ch.isalnum()
+        return ch.isalpha() or ch == "_"
+    return ch.isalnum() or ch in "_?"
 
 
 def _is_calc_cell_ref_name(name: str) -> bool:
@@ -130,13 +127,8 @@ def _is_calc_cell_ref_name(name: str) -> bool:
 
 def _defined_name_error(name: str) -> str | None:
     """Return Calc's invalid-name message, or None when IsNameValid would accept *name*."""
-    if "." in name:
+    if "." in name or not name or not _defined_name_char_ok(name[0], start=True) or any(not _defined_name_char_ok(ch, start=False) for ch in name[1:]):
         return _NAME_BAD_STRING
-    if not name or not _defined_name_char_ok(name[0], start=True):
-        return _NAME_BAD_STRING
-    for ch in name[1:]:
-        if not _defined_name_char_ok(ch, start=False):
-            return _NAME_BAD_STRING
     if _is_calc_cell_ref_name(name):
         return _NAME_CELL_REF
     return None
@@ -148,20 +140,15 @@ def _resolve_container(doc: Any, scope: str | None) -> tuple[Any, str, Any | Non
     Returns:
         (container, effective_scope_str, sheet_obj_or_None)
     """
-    if scope is None or scope.strip() == "" or scope.strip().lower() == "global":
-        if not hasattr(doc, "NamedRanges"):
-            raise UnoObjectError("Document does not expose NamedRanges container.")
+    clean = (scope or "").strip()
+    if not clean or clean.lower() == "global":
         return doc.NamedRanges, "global", None
 
-    # Sheet-specific container
-    clean_scope = scope.strip()
-    if hasattr(doc, "getSheets"):
-        sheets = doc.getSheets()
-        if sheets.hasByName(clean_scope):
-            sheet = sheets.getByName(clean_scope)
-            if hasattr(sheet, "NamedRanges"):
-                return sheet.NamedRanges, sheet.getName(), sheet
-    raise UnoObjectError(f"No sheet found with name '{clean_scope}' for scoped named ranges.")
+    sheets = doc.getSheets()
+    if sheets.hasByName(clean):
+        sheet = sheets.getByName(clean)
+        return sheet.NamedRanges, sheet.getName(), sheet
+    raise UnoObjectError(f"No sheet found with name '{clean}' for scoped named ranges.")
 
 
 def _resolve_named_range_target(
@@ -188,35 +175,27 @@ def _resolve_named_range_target(
     return found
 
 
-def _sheet_index(doc: Any, name: str) -> int | None:
-    """Return the 0-based index of sheet *name*, or None if not found or doc has no sheets."""
-    if not hasattr(doc, "getSheets"):
-        return None
-    sheets = doc.getSheets()
-    for idx in range(sheets.getCount()):
-        if sheets.getByIndex(idx).getName() == name:
-            return idx
-    return None
+def _parse_base_address(doc: Any, base_cell: str | None, sheet_obj: Any = None) -> Any:
+    """Create a com.sun.star.table.CellAddress for the base reference.
 
+    *sheet_obj* is the scope sheet. None means global, sheet 0. A prefix on
+    *base_cell* overrides it. An unknown prefix is an error: sheet 0 would
+    anchor a relative name on the wrong sheet.
+    """
+    if sheet_obj is None:
+        sheet_idx = 0
+    else:
+        sheet_idx = sheet_obj.getRangeAddress().Sheet
 
-def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int = 0) -> Any:
-    """Create a com.sun.star.table.CellAddress structure for the base reference."""
-    sheet_idx = default_sheet_idx
     col_idx = 0
     row_idx = 0
-
     if base_cell and base_cell.strip():
         prefix, address = split_sheet_prefix(base_cell.strip())
         if prefix:
-            # A prefix that names no sheet is an error, same as a bad cell.
-            # Leaving sheet_idx at the default (usually 0) when the scan
-            # never matches anchors a relative name on the wrong sheet.
-            found_idx = _sheet_index(doc, prefix)
-            if found_idx is None:
+            sheets = doc.getSheets()
+            if not sheets.hasByName(prefix):
                 raise ValueError("No sheet named '%s'." % prefix)
-            sheet_idx = found_idx
-
-        # This will raise ValueError if invalid, instead of silently returning 0,0 (A1)
+            sheet_idx = sheets.getByName(prefix).getRangeAddress().Sheet
         col_idx, row_idx = parse_address(address)
 
     from com.sun.star.table import CellAddress
@@ -224,43 +203,39 @@ def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int 
     return CellAddress(Sheet=sheet_idx, Column=col_idx, Row=row_idx)
 
 
-def _extract_range_info(nr: Any, scope: str, doc: Any = None) -> dict[str, Any]:
+def _extract_range_info(nr: Any, scope: str, doc: Any) -> dict[str, Any]:
     """Extract structured metadata dictionary from an XNamedRange object."""
-    name = nr.getName() if hasattr(nr, "getName") else str(nr)
-    content = nr.getContent() if hasattr(nr, "getContent") else ""
-    type_code = int(nr.getType()) if hasattr(nr, "getType") else 0
-    flags = _format_flags(type_code)
+    type_code = int(nr.getType())
+    pos = nr.getReferencePosition()
+    info: dict[str, Any] = {
+        "name": nr.getName(),
+        "scope": scope,
+        "content": nr.getContent(),
+        "type_code": type_code,
+        "flags": _format_flags(type_code),
+        "base_position": {
+            "sheet_index": pos.Sheet,
+            "column": pos.Column,
+            "row": pos.Row,
+            "address": format_address(pos.Column, pos.Row),
+        },
+    }
 
-    base_info: dict[str, Any] = {"sheet_index": 0, "column": 0, "row": 0, "address": "A1"}
-    if hasattr(nr, "getReferencePosition"):
-        pos = nr.getReferencePosition()
-        s_idx = getattr(pos, "Sheet", 0)
-        c_idx = getattr(pos, "Column", 0)
-        r_idx = getattr(pos, "Row", 0)
-        base_info = {"sheet_index": s_idx, "column": c_idx, "row": r_idx, "address": f"{index_to_column(c_idx)}{r_idx + 1}"}
-
-    info: dict[str, Any] = {"name": name, "scope": scope, "content": content, "type_code": type_code, "flags": flags, "base_position": base_info}
-
-    # If this named range refers to concrete cells, resolve coordinates
-    if hasattr(nr, "getReferredCells"):
-        cells = uno_read(nr.getReferredCells, None)
-        if cells is not None and hasattr(cells, "getRangeAddress"):
-            addr = cells.getRangeAddress()
-            sheet_name = ""
-            if doc is not None and hasattr(doc, "getSheets"):
-                sheet_name = doc.getSheets().getByIndex(addr.Sheet).getName()
-            range_str = format_range_address(addr, collapse_single=True)
-            info["referred_range"] = {
-                "sheet": sheet_name or f"Sheet{addr.Sheet + 1}",
-                "address": range_str,
-                "start_column": addr.StartColumn,
-                "start_row": addr.StartRow,
-                "end_column": addr.EndColumn,
-                "end_row": addr.EndRow,
-                "rows": addr.EndRow - addr.StartRow + 1,
-                "columns": addr.EndColumn - addr.StartColumn + 1,
-            }
-
+    # getReferredCells is null for a formula name. A sheet range has getRangeAddress.
+    cells = uno_read(nr.getReferredCells, None)
+    if cells is not None and hasattr(cells, "getRangeAddress"):
+        addr = cells.getRangeAddress()
+        range_str = format_range_address(addr, collapse_single=True)
+        info["referred_range"] = {
+            "sheet": doc.getSheets().getByIndex(addr.Sheet).getName(),
+            "address": range_str,
+            "start_column": addr.StartColumn,
+            "start_row": addr.StartRow,
+            "end_column": addr.EndColumn,
+            "end_row": addr.EndRow,
+            "rows": addr.EndRow - addr.StartRow + 1,
+            "columns": addr.EndColumn - addr.StartColumn + 1,
+        }
     return info
 
 
@@ -282,18 +257,14 @@ class NamedRangeList(ToolCalcRangeBase):
         entries: list[tuple[Any, str]] = []
 
         if scope_clean.lower() == "all":
-            if hasattr(doc, "NamedRanges"):
-                entries.append((doc.NamedRanges, "global"))
-            if hasattr(doc, "getSheets"):
-                sheets = doc.getSheets()
-                for idx in range(sheets.getCount()):
-                    sheet = sheets.getByIndex(idx)
-                    if not hasattr(sheet, "NamedRanges"):
-                        continue
-                    s_name = sheet.getName() if hasattr(sheet, "getName") else ""
-                    if not is_agent_visible_sheet(s_name):
-                        continue
-                    entries.append((sheet.NamedRanges, s_name))
+            entries.append((doc.NamedRanges, "global"))
+            sheets = doc.getSheets()
+            for idx in range(sheets.getCount()):
+                sheet = sheets.getByIndex(idx)
+                s_name = sheet.getName()
+                if not is_agent_visible_sheet(s_name):
+                    continue
+                entries.append((sheet.NamedRanges, s_name))
         else:
             container, effective_scope, _sheet = _resolve_container(doc, scope_clean)
             entries.append((container, effective_scope))
@@ -370,11 +341,8 @@ class NamedRangeAdd(ToolCalcRangeBase):
             if container.hasByName(name):
                 return self._tool_error(f"A named range with the name '{name}' already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
 
-            sheet_idx = 0
-            if sheet_obj is not None:
-                sheet_idx = _sheet_index(doc, sheet_obj.getName()) or 0
             try:
-                pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+                pos = _parse_base_address(doc, base_cell, sheet_obj)
             except ValueError as ve:
                 return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
 
@@ -445,41 +413,31 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
             pos = None
             if base_cell is not None:
-                sheet_idx = 0
-                if sheet_obj is not None:
-                    sheet_idx = _sheet_index(doc, sheet_obj.getName()) or 0
                 try:
-                    pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+                    pos = _parse_base_address(doc, base_cell, sheet_obj)
                 except ValueError as ve:
                     return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
 
-            old_content = nr.getContent() if content is not None else None
-            old_type = nr.getType() if flags_arg is not None else None
-            old_pos = nr.getReferencePosition() if pos is not None else None
+            pending: list[tuple[str, Any, Any, Any]] = []
+            if content is not None:
+                pending.append(("content", nr.setContent, nr.getContent(), content))
+            if type_mask is not None:
+                pending.append(("type", nr.setType, nr.getType(), type_mask))
+            if pos is not None:
+                pending.append(("position", nr.setReferencePosition, nr.getReferencePosition(), pos))
 
             if new_clean:
                 nr.setName(new_clean)
 
-            applied: list[str] = []
+            done: list[tuple[str, Any, Any]] = []
             try:
-                if content is not None:
-                    nr.setContent(content.strip())
-                    applied.append("content")
-                if type_mask is not None:
-                    nr.setType(type_mask)
-                    applied.append("type")
-                if pos is not None:
-                    nr.setReferencePosition(pos)
-                    applied.append("position")
+                for field, setter, old, new in pending:
+                    setter(new.strip() if field == "content" else new)
+                    done.append((field, setter, old))
             except Exception:
-                undo = {
-                    "content": lambda: nr.setContent(old_content),
-                    "type": lambda: nr.setType(old_type),
-                    "position": lambda: nr.setReferencePosition(old_pos),
-                }
-                for field in reversed(applied):
+                for field, setter, old in reversed(done):
                     try:
-                        undo[field]()
+                        setter(old)
                     except Exception:
                         log.exception("Rollback of named range %s field %s failed", old_name, field)
                 if new_clean:
@@ -544,12 +502,11 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         range_arr = kwargs["range"]
-        assert isinstance(range_arr, list)
         if not range_arr:
             return self._tool_error("range is required", code="INVALID_ARGUMENT")
         range_str = range_arr[0].strip()
-        border_raw = kwargs.get("border", "top")
-        border_str = border_raw if border_raw is not None and str(border_raw).strip() else "top"
+        border_present = kwargs.get("border", "top")
+        border_str = "top" if border_present is None or not str(border_present).strip() else border_present
         border_clean = str(border_str).strip().upper()
         scope = kwargs.get("scope")
 
@@ -561,12 +518,11 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
             return self._tool_error(f"Invalid border '{border_str}'. Supported borders: 'top', 'bottom', 'left', 'right'.", code="INVALID_BORDER")
 
         try:
-            doc = bridge.doc
             sheet, address = bridge.resolve(range_str)
             cell_range = bridge.get_cell_range(sheet, address)
             range_addr = cell_range.getRangeAddress()
 
-            container, effective_scope, _ = _resolve_container(doc, scope)
+            container, effective_scope, _ = _resolve_container(ctx.doc, scope)
             container.addNewFromTitles(range_addr, border_map[border_clean])
 
             log.info("Named ranges created from titles: [%s] range=%s border=%s", effective_scope, range_str, border_clean)
