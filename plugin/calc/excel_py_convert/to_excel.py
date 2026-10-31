@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Any, Sequence, cast
+from typing import Any, Sequence
 
 from plugin.calc.excel_py_convert.models import (
     BindingInfo,
@@ -83,6 +83,11 @@ def _collect_legacy_spans(
     spans: list[tuple[int, int, str]] = []
     handled: set[int] = set()
 
+    def _add_span(node: ast.AST, repl: str) -> None:
+        start, end = node_span(node, src, line_starts)
+        if start >= 0 and end > start:
+            spans.append((start, end, repl))
+
     def _emit_walk(node: ast.AST, idx: int, mode: HeaderMode, issue: str) -> None:
         nonlocal fatal
         for descendant in ast.walk(node):
@@ -91,9 +96,7 @@ def _collect_legacy_spans(
             issues.append(issue)
             fatal = True
             return
-        start, end = node_span(node, src, line_starts)
-        if start >= 0 and end > start:
-            spans.append((start, end, _xl_expr(idx, mode)))
+        _add_span(node, _xl_expr(idx, mode))
 
     for node in ast.walk(tree):
         # 1. pd.DataFrame(data[1:], columns=data[0]) or data[i] form
@@ -174,18 +177,14 @@ def _collect_legacy_spans(
                     issues.append(f"{node.value.id}[{sub_idx}] with only {len(deps)} deps")
                     fatal = True
                 else:
-                    start, end = node_span(node, src, line_starts)
-                    if start >= 0 and end > start:
-                        spans.append((start, end, _xl_expr(sub_idx, modes[sub_idx])))
+                    _add_span(node, _xl_expr(sub_idx, modes[sub_idx]))
                 continue
 
         if isinstance(node, ast.Name) and node.id == "data" and isinstance(node.ctx, ast.Load):
             # Tip: bare ``data`` is a CalcRange only for a single formula arg; with several args it is the ranges list.
             if len(deps) == 1:
                 handled.add(id(node))
-                start, end = node_span(node, src, line_starts)
-                if start >= 0 and end > start:
-                    spans.append((start, end, _xl_expr(0, modes[0])))
+                _add_span(node, _xl_expr(0, modes[0]))
 
     return spans, issues, fatal
 
@@ -255,7 +254,7 @@ def rewrite_dag_code_to_excel(
         last_end = s[1]
 
     out = text
-    for start, end, repl in sorted(kept_spans, key=lambda s: s[0], reverse=True):
+    for start, end, repl in reversed(kept_spans):
         out = out[:start] + repl + out[end:]
 
     return out, deps, issues, False
@@ -368,15 +367,10 @@ def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: s
 def convert_dag_cells_to_excel(formulas: Sequence[DagFormulaItem], *, return_type: int = 0, report_meta: dict[str, Any] | None = None) -> ConversionReport:
     """Convert DAG workbook formulas / report cells to Excel-shaped export."""
     report = ConversionReport(direction="excel")
-    if report_meta and report_meta.get("source_path"):
-        report.source_path = str(report_meta.get("source_path") or "")
+    report.source_path = str((report_meta or {}).get("source_path") or "")
     for item in formulas:
-        sheet = item[0]
-        cell = item[1]
-        formula = item[2]
-        meta: dict[str, Any] = {}
-        if len(item) == 4:
-            meta = cast("tuple[str, str, str, dict[str, Any]]", item)[3]
+        sheet, cell, formula, *rest = item
+        meta: dict[str, Any] = rest[0] if rest else {}
         report.cells.append(convert_dag_formula_to_excel(formula, sheet=sheet, cell=cell, return_type=return_type, meta=meta))
     assign_script_bank(report.cells)
     return report
