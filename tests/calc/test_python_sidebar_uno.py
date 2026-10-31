@@ -22,7 +22,7 @@ def test_list_and_navigate_python_cell(ctx, doc):
     cell.setFormula('=PY("result = 42")')
     doc.calculateAll()
 
-    found = list_python_cells_in_doc(doc, active_sheet_only=True)
+    found = list_python_cells_in_doc(doc)
     assert any(c.address.endswith("B3") and "result = 42" in c.code for c in found), found
 
     assert navigate_to_cell(doc, ctx, "Data.B3") is True

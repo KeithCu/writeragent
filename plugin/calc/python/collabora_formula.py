@@ -62,8 +62,6 @@ def rewrite_collabora_addin_prefix(formula: str) -> str:
     The prefix (leading whitespace/optional ``{``, ``=``, spacing) is preserved,
     the argument text is copied byte-for-byte. Non-matching formulas are returned unchanged.
     """
-    if not formula:
-        return formula
     match = _COLLABORA_ADDIN_PREFIX.match(formula)
     if match is None:
         return formula
@@ -75,27 +73,17 @@ def _rewrite_sheet_formulas(sheet: Any) -> int:
     changed = 0
     try:
         formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        log.debug("collabora PY rewrite: queryContentCells failed", exc_info=True)
-        return 0
-    if formula_cells is None:
-        return 0
-    try:
+        if formula_cells is None:
+            return 0
         count = int(formula_cells.getCount())
     except Exception as exc:
         reraise_if_disposed(exc)
+        log.debug("collabora PY rewrite: queryContentCells failed", exc_info=True)
         return 0
 
     for i in range(count):
         try:
             cell_range = formula_cells.getByIndex(i)
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.debug("collabora PY rewrite: getByIndex(%s) failed", i, exc_info=True)
-            continue
-
-        try:
             for row, col, text in iter_range_formula_texts(sheet, cell_range, skip_cell_errors=True):
                 new = rewrite_collabora_addin_prefix(text)
                 if new == text:
@@ -109,7 +97,6 @@ def _rewrite_sheet_formulas(sheet: Any) -> int:
         except Exception as exc:
             reraise_if_disposed(exc)
             log.debug("collabora PY rewrite: formula range scan failed", exc_info=True)
-            continue
     return changed
 
 
