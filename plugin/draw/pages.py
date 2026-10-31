@@ -194,7 +194,6 @@ class DeleteSlide(_SlideMutationTool):
 
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs["page"]
-        assert page_idx is not None
         pages = bridge.get_pages()
         err = _check_page_range(self, pages, page_idx)
         if err is not None:
@@ -227,11 +226,8 @@ class ListPages(ToolBase):
         labels: list[str] = []
         count = pages.getCount()
         for i in range(count):
-            label = f"Page {i}"
-            name = pages.getByIndex(i).Name
-            if name is not None and str(name).strip():
-                label = str(name).strip()
-            labels.append(label)
+            name = str(pages.getByIndex(i).Name or "").strip()
+            labels.append(name or f"Page {i}")
         return {"status": "ok", "pages": labels, "count": count, "active_page_index": active_idx}
 
 
@@ -294,11 +290,9 @@ class GetPresentationInfo(ToolBase):
             height_mm = p.Height // 100
 
         # Master pages
-        masters = []
-        mp = doc.getMasterPages()
-        for i in range(mp.getCount()):
-            m = mp.getByIndex(i)
-            masters.append(m.Name if hasattr(m, "Name") else "Master_%d" % i)
+        from plugin.draw.masters import _master_pages
+
+        masters = [m.Name if hasattr(m, "Name") else "Master_%d" % i for i, m in enumerate(_master_pages(doc))]
 
         from plugin.draw.bridge import resolve_page_and_bridge
 
@@ -325,7 +319,6 @@ class SetActivePage(ToolBase):
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
         idx = kwargs["page"]
-        assert idx is not None
         if idx < 0 or idx >= pages.getCount():
             return self._tool_error("Page index %d out of range." % idx)
 
@@ -349,7 +342,6 @@ class DuplicateSlide(_SlideMutationTool):
         from plugin.draw.bridge import DrawBridge
 
         page_idx = kwargs["page"]
-        assert page_idx is not None
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
         err = _check_page_range(self, pages, page_idx)
@@ -377,7 +369,6 @@ class MoveSlide(_SlideMutationTool):
 
         from_page = kwargs["from_page"]
         to_page = kwargs["to_page"]
-        assert from_page is not None and to_page is not None
         bridge = DrawBridge(ctx.doc)
         try:
             ok = bridge.move_slide(from_page, to_page)
@@ -403,7 +394,6 @@ class RenameSlide(_SlideMutationTool):
 
         page_idx = kwargs["page"]
         name = kwargs["name"]
-        assert page_idx is not None
         if not name:
             return self._tool_error("name is required.")
         bridge = DrawBridge(ctx.doc)

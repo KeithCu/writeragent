@@ -39,13 +39,12 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
         doc = ctx.doc
         result = []
         for i, m in enumerate(_master_pages(doc)):
-            entry = {
+            result.append({
                 "index": i,
                 "name": getattr(m, "Name", ""),
                 "width_mm": m.Width // 100,
                 "height_mm": m.Height // 100,
-            }
-            result.append(entry)
+            })
         return {"status": "ok", "master_slides": result, "count": len(result)}
 
 
@@ -62,9 +61,7 @@ class GetSlideMaster(ToolDrawSlideMastersBase):
         if err:
             return self._tool_error(err)
         assert page is not None
-        master = page.MasterPage
-        name = getattr(master, "Name", "")
-        return {"status": "ok", "page": actual_idx, "master": name}
+        return {"status": "ok", "page": actual_idx, "master": getattr(page.MasterPage, "Name", "")}
 
 
 class SetSlideMaster(ToolDrawSlideMastersBase):

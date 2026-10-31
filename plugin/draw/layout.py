@@ -14,13 +14,6 @@ from math import ceil
 from typing import Any, Sequence
 
 
-def coerce_int(value: Any, default: int) -> int:
-    """Parse a tool arg as int, using ``default`` when missing/null."""
-    if value is None:
-        return default
-    return int(value)
-
-
 # Box: (x, y, width, height)
 Box = tuple[int, int, int, int]
 

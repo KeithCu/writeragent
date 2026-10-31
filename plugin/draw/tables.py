@@ -220,11 +220,17 @@ def manage_draw_structure(entry: dict[str, Any], action: str, axis_arg: str, idx
     return table_dims(model)
 
 
+def coerce_int(value: Any, default: int) -> int:
+    """Parse a tool arg as int, using ``default`` when missing/null."""
+    if value is None:
+        return default
+    return int(value)
+
+
 def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     """Create a TableShape on a Draw/Impress page. Returns a tool-result dict."""
     from com.sun.star.awt import Point, Size
     from plugin.draw.bridge import resolve_shape_page
-    from plugin.draw.layout import coerce_int
 
     rows = cast("int", kwargs.get("rows"))
     columns = cast("int", kwargs.get("columns"))
