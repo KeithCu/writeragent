@@ -126,6 +126,26 @@ class ToolContext:
     send_cancellation: Any | None
     uno_services_supported: frozenset[str]
 
+    __slots__: ClassVar[tuple[str, ...]] = (
+        "doc",
+        "ctx",
+        "doc_type",
+        "services",
+        "caller",
+        "active_page_index",
+        "status_callback",
+        "append_thinking_callback",
+        "stop_checker",
+        "approval_callback",
+        "chat_append_callback",
+        "set_active_domain_callback",
+        "active_domain",
+        "python_tool_domain",
+        "read_only_target",
+        "send_cancellation",
+        "uno_services_supported",
+    )
+
     def __init__(
         self,
         doc: Any,
@@ -173,8 +193,8 @@ class ToolContext:
             self.stop_checker = send_cancellation.is_cancelled
 
     def derive(self, **overrides: Any) -> ToolContext:
-        """Derive a new context copying instance attributes then applying overrides, with __init__ applying uno_services_supported and stop_checker rules."""
-        values = dict(vars(self))
+        """Derive a new context copying every slot then applying overrides, with __init__ applying uno_services_supported and stop_checker rules."""
+        values = {name: getattr(self, name) for name in self.__slots__}
         values.update(overrides)
         return ToolContext(**values)
 
