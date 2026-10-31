@@ -248,8 +248,6 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     """Locate direct ``xl(...)`` call expressions via AST after placeholder normalization."""
     issues: list[str] = []
     src = code or ""
-    if not src.strip():
-        return [], issues
     # Excel ``%Pn%`` is not valid Python; equal-length ``_Pn_`` lets us parse with AST.
     normalized = _normalize_excel_placeholders(src)
     try:
@@ -355,19 +353,12 @@ def apply_rewrite(src: str, calls: list[_XlCall], *, index_map: dict[int, int]) 
 def _excel_execution_order(model: ExcelWorkbookModel) -> list[ExcelPyCell]:
     """Workbook sheet order, then row, then column (Excel's documented PY order)."""
     order_map = model.sheet_order_map()
-    # Unknown sheets sort after known ones, stable by first appearance.
-    unknown: dict[str, int] = {}
-
-    def sheet_key(title: str) -> int:
-        if title in order_map:
-            return order_map[title]
-        if title not in unknown:
-            unknown[title] = len(order_map) + len(unknown)
-        return unknown[title]
-
-    cells = list(model.cells)
-    cells.sort(key=lambda c: (sheet_key(c.sheet), c.row or 10**9, c.col or 10**9, c.cell))
-    return cells
+    # Unknown sheets sort after known ones, stable by first appearance in model.cells.
+    unknown = {
+        title: len(order_map) + i
+        for i, title in enumerate(dict.fromkeys(c.sheet for c in model.cells if c.sheet not in order_map))
+    }
+    return sorted(model.cells, key=lambda c: (order_map[c.sheet] if c.sheet in order_map else unknown[c.sheet], c.row or 10**9, c.col or 10**9, c.cell))
 
 
 @deal.pre(lambda current, candidate: ascii_bounded(current or "", DEAL_MAX_SOURCE) and ascii_bounded(candidate or "", DEAL_MAX_SOURCE))
