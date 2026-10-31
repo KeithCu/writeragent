@@ -16,10 +16,13 @@ from plugin.calc.python.diagnostics import DiagnosticEntry, DiagnosticFilter, di
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_visible, translate_dialog
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
+from plugin.framework.main_shared import get_action_handler
+from plugin.framework.queue_executor import post_to_main_thread
+from plugin.framework.thread_guard import guard_uno
 from plugin.framework.uno_listeners import BaseActionListener, BaseActivationEventListener, BaseItemListener, BaseWindowListener
 from plugin.doc.doc_type import is_calc
 from plugin.scripting.sandbox import resolve_venv_python
-from plugin.librepy.sidebar_menus import HEADER_BUTTON_IDS, wire_sidebar_header_buttons
+from plugin.librepy.sidebar_menus import HEADER_BUTTON_IDS, invoke_action_handler, wire_sidebar_header_buttons
 from plugin.scripting.session_manager import existing_calc_session_id, python_session_mode
 
 log = logging.getLogger(__name__)
@@ -84,24 +87,18 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
             new_heights[name] = max(min_flex_height, share)
 
     excess = sum(new_heights.values()) - budget
-    if excess > 0:
+    for floor in (min_flex_height, 0):
+        if excess <= 0:
+            break
         for name in reversed(flex_names):
-            cur = new_heights[name]
-            if cur > min_flex_height:
-                reducible = cur - min_flex_height
-                reduce_by = min(excess, reducible)
-                new_heights[name] = cur - reduce_by
-                excess -= reduce_by
-                if excess <= 0:
-                    break
-        if excess > 0:
-            for name in reversed(flex_names):
-                cur = new_heights[name]
-                reduce_by = min(excess, cur)
-                new_heights[name] = cur - reduce_by
-                excess -= reduce_by
-                if excess <= 0:
-                    break
+            room = new_heights[name] - floor
+            if room <= 0:
+                continue
+            reduce_by = min(excess, room)
+            new_heights[name] -= reduce_by
+            excess -= reduce_by
+            if excess <= 0:
+                break
 
     left_margin = _LEFT_MARGIN
     content_right = max(20, width - right_margin)
@@ -164,6 +161,15 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
     return layouts
 
 
+def _invoke_cleared(callback: Any, message: str) -> None:
+    if not callable(callback):
+        return
+    try:
+        callback()
+    except Exception:
+        log.exception(message)
+
+
 class _PanelResizeListener(BaseWindowListener):
     """Repositions Python sidebar controls when the panel root is resized."""
 
@@ -188,11 +194,7 @@ class _PanelResizeListener(BaseWindowListener):
         # (same as the chat panel listener).
         callback = self._on_dispose
         self._on_dispose = None
-        if callable(callback):
-            try:
-                callback()
-            except Exception:
-                log.exception("python sidebar window dispose callback failed")
+        _invoke_cleared(callback, "python sidebar window dispose callback failed")
 
     def relayout_now(self, win: Any) -> None:
         if not win or self._in_relayout:
@@ -254,7 +256,6 @@ class _Activation(BaseActivationEventListener):
     _handler: Any
 
     def __init__(self, handler: Any) -> None:
-        super().__init__()
         self._handler = handler
 
     def on_active_spreadsheet_changed(self, aEvent: object) -> None:
@@ -287,10 +288,7 @@ def format_runtime_status(ctx: Any) -> str:
 def _populate_listbox(control: Any, lines: list[str]) -> None:
     if control is None:
         return
-    model = control.getModel() if hasattr(control, "getModel") else None
-    if model is None:
-        return
-    model.StringItemList = tuple(lines)
+    control.getModel().StringItemList = tuple(lines)
 
 
 def _selected_index(control: Any) -> int:
@@ -310,12 +308,6 @@ def _filter_from_combo(control: Any) -> DiagnosticFilter:
         if text == msgid:
             return filt
     return "all"
-
-
-def _select_diag_row(control: Any, index: int) -> None:
-    if control is None or not hasattr(control, "selectItemPos"):
-        return
-    control.selectItemPos(index, True)
 
 
 class PythonSidebarController:
@@ -343,7 +335,7 @@ class PythonSidebarController:
         self.root = root_window
         self.frame = frame
         self._on_torn_down = on_torn_down
-        self._calc_panel = self._frame_is_calc()
+        self._calc_panel = self._calc_document() is not None
         self._cells: list[PythonCellInfo] = []
         self._diags: list[DiagnosticEntry] = []
         self._store = get_diagnostics_store()
@@ -382,7 +374,7 @@ class PythonSidebarController:
             self._store.add_listener(self._on_diag)
 
     def disposing(self, *, from_window: bool = False) -> None:
-        if getattr(self, "_disposed", False):
+        if self._disposed:
             return
         self._disposed = True
         # Deck close never calls PythonPanelElement.disposing: the element is
@@ -392,44 +384,31 @@ class PythonSidebarController:
         # the root is still held, then the diagnostics and Calc activation
         # listeners; otherwise they run against a dead frame. Clear on_dispose
         # first so the window hook cannot re-enter.
-        rl = getattr(self, "resize_listener", None)
+        rl = self.resize_listener
         if rl is not None:
             self.resize_listener = None
             rl._on_dispose = None
-            root = getattr(rl, "_root_window", None)
-            if not from_window and root is not None and hasattr(root, "removeWindowListener"):
+            root = rl._root_window
+            if not from_window and root is not None:
                 root.removeWindowListener(rl)
             rl._root_window = None
-        store = getattr(self, "_store", None)
-        on_diag = getattr(self, "_on_diag", None)
-        if store is not None and on_diag is not None:
-            try:
-                store.remove_listener(on_diag)
-            except Exception:
-                log.debug("sidebar diagnostics listener remove failed", exc_info=True)
-        activation = getattr(self, "_activation_listener", None)
+        try:
+            self._store.remove_listener(self._on_diag)
+        except Exception:
+            log.debug("sidebar diagnostics listener remove failed", exc_info=True)
+        activation = self._activation_listener
         self._activation_listener = None
-        frame = getattr(self, "frame", None)
-        if activation is not None and frame is not None:
+        if activation is not None and self.frame is not None:
             try:
-                controller = frame.getController()
+                controller = self.frame.getController()
                 if controller is not None:
                     controller.removeActivationEventListener(activation)
             except Exception:
                 log.debug("sidebar activation listener remove failed", exc_info=True)
-        if hasattr(self, "_controls"):
-            self._controls.clear()
-        on_torn_down = getattr(self, "_on_torn_down", None)
-        if callable(on_torn_down):
-            self._on_torn_down = None
-            try:
-                on_torn_down()
-            except Exception:
-                log.exception("python sidebar on_torn_down callback failed")
-
-    def _release_on_window_dispose(self) -> None:
-        """Deck close never calls PythonPanelElement.disposing (not an XComponent)."""
-        self.disposing(from_window=True)
+        self._controls.clear()
+        on_torn_down = self._on_torn_down
+        self._on_torn_down = None
+        _invoke_cleared(on_torn_down, "python sidebar on_torn_down callback failed")
 
     def _ctrl(self, name: str) -> Any:
         if name not in self._controls:
@@ -441,9 +420,9 @@ class PythonSidebarController:
         try:
             ids = _CONTROL_IDS if self._calc_panel else tuple(cid for cid in _CONTROL_IDS if cid not in _CALC_ONLY_IDS)
             controls = {cid: self._ctrl(cid) for cid in ids}
-            listener = _PanelResizeListener(controls, on_dispose=self._release_on_window_dispose)
+            listener = _PanelResizeListener(controls, on_dispose=lambda: self.disposing(from_window=True))
             listener._root_window = self.root
-            if self.root is not None and hasattr(self.root, "addWindowListener"):
+            if self.root is not None:
                 self.root.addWindowListener(listener)
             self.resize_listener = listener
             listener._capture_snapshot(self.root)
@@ -452,16 +431,18 @@ class PythonSidebarController:
             log.debug("sidebar resize listener attach failed", exc_info=True)
 
     def _wire(self) -> None:
-        for cid in _CONTROL_IDS:
-            if cid not in self._controls:
-                self._controls[cid] = get_optional_control(self.root, cid)
-        filter_combo = self._ctrl("filter_combo") if self._calc_panel else None
-        if filter_combo is not None:
-            model = filter_combo.getModel()
-            choices = _filter_choices()
-            model.StringItemList = tuple(label for label, _filt in choices)
-            filter_combo.setText(choices[0][0])
-
+        if self._calc_panel:
+            filter_combo = self._ctrl("filter_combo")
+            if filter_combo is not None:
+                model = filter_combo.getModel()
+                choices = _filter_choices()
+                model.StringItemList = tuple(label for label, _filt in choices)
+                filter_combo.setText(choices[0][0])
+                filter_combo.addItemListener(_Item(self._on_filter_changed))
+            for cid, handler in (("cells_list", self._on_cell_selected), ("diag_list", self._on_diag_selected)):
+                ctrl = self._ctrl(cid)
+                if ctrl is not None:
+                    ctrl.addItemListener(_Item(handler))
         bindings: list[tuple[str, Any]] = [("btn_reset", self._on_reset), ("btn_settings", self._on_settings)]
         if self._calc_panel:
             bindings[0:0] = [("btn_refresh", self.refresh), ("btn_edit_cell", self._on_edit_cell), ("btn_run_script", self._on_run_script), ("btn_edit_init", self._on_edit_init)]
@@ -470,53 +451,34 @@ class PythonSidebarController:
             if ctrl is None:
                 continue
             ctrl.addActionListener(_Action(handler))
-
-        if self._calc_panel:
-            cells = self._ctrl("cells_list")
-            if cells is not None:
-                cells.addItemListener(_Item(self._on_cell_selected))
-
-            diags = self._ctrl("diag_list")
-            if diags is not None:
-                diags.addItemListener(_Item(self._on_diag_selected))
-
-            if filter_combo is not None:
-                filter_combo.addItemListener(_Item(self._on_filter_changed))
-
         try:
             header = {cid: self._ctrl(cid) for cid in HEADER_BUTTON_IDS}
             wire_sidebar_header_buttons(self.ctx, self.frame, header, calc_doc=self._calc_panel)
         except Exception:
             log.debug("wire header toolbar failed", exc_info=True)
 
-    def _active_workbook_key(self) -> str:
-        doc = self._calc_document()
-        return workbook_key_for_doc(doc)
-
     def _schedule_refresh(self, entry: DiagnosticEntry | None = None, *, full: bool = False) -> None:
         # What was wrong: inline refresh during diagnostic events scanned the sheet on every =PY() recalc.
         # How it happened: record() invokes listeners synchronously, triggering full sheet cell scans inline.
         # Why this change: coalesce refreshes and post to main thread, skipping if already disposed or pending.
-        if getattr(self, "_disposed", False):
+        if self._disposed:
             return
-        if entry is not None and getattr(entry, "workbook_key", None):
-            active_key = self._active_workbook_key()
+        if entry is not None and entry.workbook_key:
+            active_key = workbook_key_for_doc(self._calc_document())
             if active_key != "unknown" and entry.workbook_key != active_key:
                 return
         if full:
             self._pending_full = True
-        if getattr(self, "_refresh_pending", False):
+        if self._refresh_pending:
             return
         self._refresh_pending = True
-        from plugin.framework.queue_executor import post_to_main_thread
-
         post_to_main_thread(self._run_scheduled_refresh)
 
     def _run_scheduled_refresh(self) -> None:
         self._refresh_pending = False
-        if getattr(self, "_disposed", False):
+        if self._disposed:
             return
-        is_full = getattr(self, "_pending_full", False)
+        is_full = self._pending_full
         self._pending_full = False
         try:
             if is_full:
@@ -531,7 +493,8 @@ class PythonSidebarController:
     # What was wrong: _calc_document fell back to desktop active Calc document, binding wrong documents or Writer frames to Calc.
     # How it happened: get_calc_document_from_ctx was called when frame resolve failed or when resolving outside the frame.
     # Why this change: resolve only via frame.getController().getModel(), returning None if not Calc or resolve fails.
-    def _frame_calc_model(self) -> Any | None:
+    def _calc_document(self) -> Any | None:
+        """Return the Calc model for this sidebar frame, or None for Writer frames and failed resolves."""
         frame = self.frame
         if frame is None:
             return None
@@ -542,30 +505,21 @@ class PythonSidebarController:
             model = controller.getModel()
             if model is None:
                 return None
-            from plugin.framework.thread_guard import guard_uno
-
             guarded = guard_uno(model)
             return guarded if is_calc(guarded) else None
         except Exception:
             log.debug("LibrePy sidebar: frame document resolve failed", exc_info=True)
             return None
 
-    def _frame_is_calc(self) -> bool:
-        return self._frame_calc_model() is not None
-
     def _hide_calc_only_controls(self) -> None:
         for cid in _CALC_ONLY_IDS:
             set_control_visible(self._ctrl(cid), False)
-
-    def _calc_document(self) -> Any | None:
-        """Return the Calc model for this sidebar frame, or None for Writer frames and failed resolves."""
-        return self._frame_calc_model()
 
     def _refresh_diagnostics(self, doc: Any) -> None:
         diag_ctrl = self._ctrl("diag_list")
         prev_idx = _selected_index(diag_ctrl)
         prev_entry: DiagnosticEntry | None = None
-        prev_diags = getattr(self, "_diags", [])
+        prev_diags = self._diags
         if 0 <= prev_idx < len(prev_diags):
             prev_entry = prev_diags[prev_idx]
 
@@ -574,32 +528,24 @@ class PythonSidebarController:
         self._diags = self._store.list_entries(key, filt=filt, newest_first=True)
 
         # Attach addresses from cell list when codes match.
+        by_sheet: dict[tuple[str, str], list[str]] = {}
+        by_code: dict[str, list[str]] = {}
+        for cell in self._cells:
+            prefix = (cell.code or "")[:240]
+            if prefix:
+                by_code.setdefault(prefix, []).append(cell.address)
+                if cell.sheet:
+                    by_sheet.setdefault((cell.sheet, prefix), []).append(cell.address)
         enriched: list[DiagnosticEntry] = []
         for entry in self._diags:
-            if entry.address:
-                enriched.append(entry)
-                continue
-            chosen_addr = None
-            entry_sheet = entry.sheet
-            entry_code_prefix = entry.code[:240] if entry.code else ""
-            if entry_sheet and entry_code_prefix:
-                sheet_matches = [
-                    c.address for c in self._cells
-                    if c.sheet == entry_sheet and (c.code[:240] if c.code else "") == entry_code_prefix
-                ]
-                if len(sheet_matches) == 1:
-                    chosen_addr = sheet_matches[0]
-            if not chosen_addr and entry_code_prefix:
-                global_matches = [
-                    c.address for c in self._cells
-                    if (c.code[:240] if c.code else "") == entry_code_prefix
-                ]
-                if len(global_matches) == 1:
-                    chosen_addr = global_matches[0]
-            if chosen_addr:
-                enriched.append(replace(entry, address=chosen_addr))
-            else:
-                enriched.append(entry)
+            chosen = entry.address
+            prefix = (entry.code or "")[:240]
+            if not chosen and prefix:
+                sheet_hits = by_sheet.get((entry.sheet, prefix), []) if entry.sheet else []
+                hits = sheet_hits if len(sheet_hits) == 1 else by_code.get(prefix, [])
+                if len(hits) == 1:
+                    chosen = hits[0]
+            enriched.append(replace(entry, address=chosen) if chosen and chosen != entry.address else entry)
         self._diags = enriched
 
         diag_lines = [e.summary_line() for e in self._diags]
@@ -611,22 +557,20 @@ class PythonSidebarController:
             target_idx = 0
             if prev_entry is not None:
                 prev_key = (prev_entry.timestamp, prev_entry.code, prev_entry.address, prev_entry.status, prev_entry.message)
-                for idx, entry in enumerate(self._diags):
-                    if (entry.timestamp, entry.code, entry.address, entry.status, entry.message) == prev_key:
-                        target_idx = idx
-                        break
+                target_idx = next((i for i, entry in enumerate(self._diags) if (entry.timestamp, entry.code, entry.address, entry.status, entry.message) == prev_key), 0)
             selected_entry = self._diags[target_idx]
             self._set_diag_detail(diagnostics_detail_text(selected_entry))
             self._suppress_diag_nav = True
             try:
-                _select_diag_row(diag_ctrl, target_idx)
+                if diag_ctrl is not None:
+                    diag_ctrl.selectItemPos(target_idx, True)
             finally:
                 self._suppress_diag_nav = False
         else:
             self._set_diag_detail("")
 
     def _set_diag_detail(self, text: str) -> None:
-        if getattr(self, "_last_diag_detail_text", None) != text:
+        if self._last_diag_detail_text != text:
             self._last_diag_detail_text = text
             set_control_text(self._ctrl("diag_detail"), text)
 
@@ -650,7 +594,7 @@ class PythonSidebarController:
         selected_address = None
         if cells_ctrl is not None:
             idx = _selected_index(cells_ctrl)
-            cells_before = getattr(self, "_cells", [])
+            cells_before = self._cells
             if 0 <= idx < len(cells_before):
                 selected_address = cells_before[idx].address
 
@@ -659,11 +603,11 @@ class PythonSidebarController:
         if not cell_lines:
             cell_lines = [_("(no =PY() cells on active sheet)")]
 
-        if getattr(self, "_last_cell_lines", None) != cell_lines:
+        if self._last_cell_lines != cell_lines:
             self._last_cell_lines = cell_lines
             _populate_listbox(cells_ctrl, cell_lines)
 
-        if selected_address and cells_ctrl is not None and hasattr(cells_ctrl, "selectItemPos"):
+        if selected_address and cells_ctrl is not None:
             try:
                 target_pos = cell_lines.index(selected_address)
                 cells_ctrl.selectItemPos(target_pos, True)
@@ -688,12 +632,11 @@ class PythonSidebarController:
                 if entry.address == cell.address or (entry.sheet and entry.sheet == cell.sheet):
                     matched_diag = entry
                     break
-        if matched_diag is not None:
-            self._set_diag_detail(diagnostics_detail_text(matched_diag))
-        else:
-            latest = self._store.latest_for_code(workbook_key_for_doc(doc), cell.code)
-            if latest is not None:
-                self._set_diag_detail(diagnostics_detail_text(latest))
+        shown = matched_diag
+        if shown is None:
+            shown = self._store.latest_for_code(workbook_key_for_doc(doc), cell.code)
+        if shown is not None:
+            self._set_diag_detail(diagnostics_detail_text(shown))
 
     def _on_diag_selected(self, _event: Any = None) -> None:
         if self._suppress_diag_nav:
@@ -710,12 +653,8 @@ class PythonSidebarController:
             navigate_to_cell(doc, self.ctx, entry.address)
 
     def _run_action(self, command: str, fallback: Callable[[], None]) -> None:
-        from plugin.framework.main_shared import get_action_handler
-
         handler = get_action_handler(command)
         if handler:
-            from plugin.librepy.sidebar_menus import invoke_action_handler
-
             invoke_action_handler(handler, command=command)
             return
         fallback()
@@ -770,7 +709,6 @@ class _Action(BaseActionListener):
     _callback: Any
 
     def __init__(self, callback: Any) -> None:
-        super().__init__()
         self._callback = callback
 
     def on_action_performed(self, rEvent: Any) -> None:
@@ -781,7 +719,6 @@ class _Item(BaseItemListener):
     _callback: Any
 
     def __init__(self, callback: Any) -> None:
-        super().__init__()
         self._callback = callback
 
     def on_item_state_changed(self, rEvent: Any) -> None:
