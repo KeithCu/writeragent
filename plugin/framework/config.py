@@ -41,13 +41,13 @@ changed, it does not write or emit. A write of one or two real changes
 patches only those keys. It does not replace the file with a schema-wide
 ``to_dict()``.
 
-Concurrency: one ``ConfigStore`` is the only writer. ``update(key, fn)``
+Concurrency: the write helpers are the only writers. ``update(key, fn)``
 (``update_config``) holds ``_config_write_lock`` (an ``RLock``) across the
 read, ``fn``, and the patch, so a second writer cannot save a copy it
 loaded earlier and drop the first writer's keys. ``set_config`` /
 ``set_configs`` / ``remove_config`` / ``update_config_mapping`` and
 **GET-path** repairs (broken JSON, out-of-range numbers, old
-``calc_prompt_max_tokens``) go through that store. A ``set_configs`` value
+``calc_prompt_max_tokens``) go through those helpers. A ``set_configs`` value
 for ``api_keys_by_endpoint`` or ``reasoning_effort`` is a slot patch: those URL keys are merged
 into the map just read under the lock, so a one-slot Settings OK does not
 replace the map with a copy taken earlier. One ``config:changed``
@@ -368,7 +368,7 @@ def _commit_config_write(path: str, data: dict[str, Any], *, failed: str) -> Non
         raise ConfigError(f"{failed}: {e}", code="CONFIG_SAVE_ERROR") from e
 
 
-def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, persist_repair: bool = False, fail_on_unrepairable: bool = False) -> dict[str, Any]:
+def _load_config_dict(config_file_path: str, *, persist_repair: bool = False, fail_on_unrepairable: bool = False) -> dict[str, Any]:
     """Load writeragent.json as a dict. Optionally backup, repair, and persist small JSON typos."""
     if not config_file_path or not os.path.exists(config_file_path):
         return {}
@@ -383,31 +383,26 @@ def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, pers
     if data is not None:
         return data
 
-    backup_path: str | None = None
-    if allow_repair:
-        backup_path = _backup_config_file(config_file_path, reason="invalid-json")
-        data = _try_repair_config_dict(text)
-        if data is not None:
-            log.info("Auto-repaired invalid JSON in %s (backup: %s)", config_file_path, backup_path)
-            if persist_repair:
-                try:
-                    # GET-path persist must serialize with set_config (RLock if nested).
-                    with _config_write_lock:
-                        _write_config_file(config_file_path, data)
-                        _invalidate_config_cache()
-                except OSError as e:
-                    raise ConfigError(f"Failed to write repaired config: {e}", code="CONFIG_SAVE_ERROR", details={"path": config_file_path, "backup_path": backup_path}) from e
-            return data
-        if fail_on_unrepairable:
-            # A later set_config used to load this {} and os.replace the file,
-            # wiping every other setting. The GET path raises too, so a bad
-            # file is not cached as a fresh install with empty API keys.
-            log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s).", config_file_path, backup_path or "none")
-            raise ConfigError(f"Invalid JSON in {config_file_path} could not be repaired", code="CONFIG_INVALID_FORMAT", details={"path": config_file_path, "backup_path": backup_path})
-        log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s). Using empty dict for this load.", config_file_path, backup_path or "none")
-        return {}
-
-    log.warning("Invalid JSON in %s (repair disabled). Using empty dict for this load.", config_file_path)
+    backup_path = _backup_config_file(config_file_path, reason="invalid-json")
+    data = _try_repair_config_dict(text)
+    if data is not None:
+        log.info("Auto-repaired invalid JSON in %s (backup: %s)", config_file_path, backup_path)
+        if persist_repair:
+            try:
+                # GET-path persist must serialize with set_config (RLock if nested).
+                with _config_write_lock:
+                    _write_config_file(config_file_path, data)
+                    _invalidate_config_cache()
+            except OSError as e:
+                raise ConfigError(f"Failed to write repaired config: {e}", code="CONFIG_SAVE_ERROR", details={"path": config_file_path, "backup_path": backup_path}) from e
+        return data
+    if fail_on_unrepairable:
+        # A later set_config used to load this {} and os.replace the file,
+        # wiping every other setting. The GET path raises too, so a bad
+        # file is not cached as a fresh install with empty API keys.
+        log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s).", config_file_path, backup_path or "none")
+        raise ConfigError(f"Invalid JSON in {config_file_path} could not be repaired", code="CONFIG_INVALID_FORMAT", details={"path": config_file_path, "backup_path": backup_path})
+    log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s). Using empty dict for this load.", config_file_path, backup_path or "none")
     return {}
 
 
@@ -774,136 +769,131 @@ def _repaired_file_dict(loaded: dict[str, Any], config: _config_schema.WriterAge
     return out
 
 
-class ConfigStore:
-    """The only writer of ``writeragent.json``.
+def _update(key: str, fn: Callable[[Any], Any], *, event_key: str | None = None) -> None:
+    """Apply *fn* to one key. One event if the file changes."""
+    path = get_config_file_path()
+    if not path:
+        raise ConfigError("Config path is empty", code="CONFIG_PATH_ERROR")
+    _apply(path, [(key, fn)], event_key=event_key, batch=False)  # nothreadlint: avoid AST linter collision with unrelated inner _apply
 
-    ``update(key, fn)`` reads the current value, calls ``fn``, and patches
-    that key under ``_config_write_lock``. Callers do not load the JSON,
-    edit a copy, and write the blob back.
+
+def _update_many(values: dict[str, Any]) -> None:
+    """Set many keys with one load, one validate, one patch, one event."""
+    if not values:
+        return
+    path = get_config_file_path()
+    if not path:
+        raise ConfigError("Config path is empty", code="CONFIG_PATH_ERROR")
+
+    def _bind(key: str, stored: Any) -> Callable[[Any], Any]:
+        def _replace(current: Any) -> Any:
+            # Slot patch, not a whole-map replace. See _merge_api_key_slots.
+            if key == "api_keys_by_endpoint" and isinstance(stored, dict):
+                return _merge_api_key_slots(current, stored)
+            if key == "reasoning_effort" and isinstance(stored, dict):
+                return _merge_reasoning_effort_slots(current, stored)
+            return stored
+
+        return _replace
+
+    _apply(path, [(key, _bind(key, value)) for key, value in values.items()], batch=True)  # nothreadlint: avoid AST linter collision with unrelated inner _apply
+
+
+def _apply(
+    path: str,
+    updates: list[tuple[str, Callable[[Any], Any]]],
+    *,
+    event_key: str | None = None,
+    batch: bool = False,
+) -> bool:
+    """Patch *updates* into *path*. Return True when the file changed.
+
+    *fn* runs under the lock and must not call back into the store.
+    A no-op (value already on disk, or a missing key at its default)
+    does not validate, write, or emit.
     """
-
-    def update(self, key: str, fn: Callable[[Any], Any], *, event_key: str | None = None) -> None:
-        """Apply *fn* to one key. One event if the file changes."""
-        path = get_config_file_path()
-        if not path:
-            raise ConfigError("Config path is empty", code="CONFIG_PATH_ERROR")
-        self.apply(path, [(key, fn)], event_key=event_key, batch=False)
-
-    def update_many(self, values: dict[str, Any]) -> None:
-        """Set many keys with one load, one validate, one patch, one event."""
-        if not values:
-            return
-        path = get_config_file_path()
-        if not path:
-            raise ConfigError("Config path is empty", code="CONFIG_PATH_ERROR")
-
-        def _bind(key: str, stored: Any) -> Callable[[Any], Any]:
-            def _replace(current: Any) -> Any:
-                # Slot patch, not a whole-map replace. See _merge_api_key_slots.
-                if key == "api_keys_by_endpoint" and isinstance(stored, dict):
-                    return _merge_api_key_slots(current, stored)
-                if key == "reasoning_effort" and isinstance(stored, dict):
-                    return _merge_reasoning_effort_slots(current, stored)
-                return stored
-
-            return _replace
-
-        self.apply(path, [(key, _bind(key, value)) for key, value in values.items()], batch=True)
-
-    def apply(
-        self,
-        path: str,
-        updates: list[tuple[str, Callable[[Any], Any]]],
-        *,
-        event_key: str | None = None,
-        batch: bool = False,
-    ) -> bool:
-        """Patch *updates* into *path*. Return True when the file changed.
-
-        *fn* runs under the lock and must not call back into the store.
-        A no-op (value already on disk, or a missing key at its default)
-        does not validate, write, or emit.
-        """
-        effective: list[tuple[str, Any, Any]] | None = None
-        with _config_write_lock:
-            loaded = _load_config_dict(path, allow_repair=True, persist_repair=False, fail_on_unrepairable=True)
-            # Shallow copy: staging pops and replaces keys. *loaded* stays
-            # the bytes we read so an unchanged file is not rewritten.
-            staged = dict(loaded)
-            changed: list[tuple[str, Any, Any]] = []
-            for key, fn in updates:
-                proposed = fn(_value_for_update(loaded, key))
-                did_change, _coerced, previous = _stage_config_assignment(staged, key, proposed)
-                if did_change:
-                    changed.append((key, _coerced, previous))
-            if not changed:
-                return False
-            committed = _patch_changed_keys(loaded, staged, changed)
-            if committed is None:
-                return False
-            to_write, effective = committed
-            _commit_config_write(path, to_write, failed="Failed to save config")
-        if effective is not None:
-            _emit_pending(effective, event_key=event_key, batch=batch)
-        return True
-
-    def remove(self, path: str, key: str, *, event_key: str | None = None) -> bool:
-        """Drop *key* and its aliases. Leave every other key as it was read."""
-        if not path or not os.path.exists(path):
+    effective: list[tuple[str, Any, Any]] | None = None
+    with _config_write_lock:
+        loaded = _load_config_dict(path, persist_repair=False, fail_on_unrepairable=True)
+        # Shallow copy: staging pops and replaces keys. *loaded* stays
+        # the bytes we read so an unchanged file is not rewritten.
+        staged = dict(loaded)
+        changed: list[tuple[str, Any, Any]] = []
+        for key, fn in updates:
+            proposed = fn(_value_for_update(loaded, key))
+            did_change, _coerced, previous = _stage_config_assignment(staged, key, proposed)
+            if did_change:
+                changed.append((key, _coerced, previous))
+        if not changed:
             return False
-        did_remove = False
-        old_value: Any = None
-        with _config_write_lock:
-            try:
-                loaded = _load_config_dict(path, allow_repair=True, persist_repair=False, fail_on_unrepairable=True)
-            except ConfigError:
-                log.exception("remove_config skipped: config file could not be parsed")
-                return False
-            old_value = _value_for_update(loaded, key)
-            aliases = _alias_keys_for_write(key, honor_keep_flat=False)
-            remaining = dict(loaded)
-            removed = False
-            if key in remaining:
-                remaining.pop(key, None)
-                removed = True
-            for alias in aliases:
-                if alias in remaining:
-                    remaining.pop(alias, None)
-                    removed = True
-            if not removed or remaining == loaded:
-                return False
-            try:
-                cfg = _validated_config_for_write(remaining, key)
-            except ConfigValidationError as e:
-                log.warning("remove_config skipped write: remaining config is invalid: %s", e)
-                return False
-            to_write = _repaired_file_dict(loaded, cfg)
-            to_write.pop(key, None)
-            for alias in aliases:
-                to_write.pop(alias, None)
-            if to_write == loaded:
-                return False
-            _commit_config_write(path, to_write, failed="Failed to remove config key")
-            did_remove = True
-        if did_remove:
-            _emit_pending([(key, None, old_value)], event_key=event_key, batch=False)
-        return True
+        committed = _patch_changed_keys(loaded, staged, changed)
+        if committed is None:
+            return False
+        to_write, effective = committed
+        _commit_config_write(path, to_write, failed="Failed to save config")
+    if effective is not None:
+        _emit_pending(effective, event_key=event_key, batch=batch)
+    return True
 
-    def persist_load_repairs(self, path: str, loaded: dict[str, Any], config: _config_schema.WriterAgentConfig) -> dict[str, Any]:
-        """Write load-time repairs that changed a value. Return the file image.
 
-        Caller holds ``_config_write_lock`` (RLock). No ``config:changed``:
-        a read must not look like a settings save.
-        """
-        repaired = _repaired_file_dict(loaded, config)
-        if repaired == loaded:
-            return loaded
+def _remove(path: str, key: str, *, event_key: str | None = None) -> bool:
+    """Drop *key* and its aliases. Leave every other key as it was read."""
+    if not path or not os.path.exists(path):
+        return False
+    did_remove = False
+    old_value: Any = None
+    with _config_write_lock:
         try:
-            _write_config_file(path, repaired)
-        except (OSError, ConfigError) as write_err:
-            log.warning("Failed to persist coerced config: %s", write_err)
-            return loaded
-        return repaired
+            loaded = _load_config_dict(path, persist_repair=False, fail_on_unrepairable=True)
+        except ConfigError:
+            log.exception("remove_config skipped: config file could not be parsed")
+            return False
+        old_value = _value_for_update(loaded, key)
+        aliases = _alias_keys_for_write(key, honor_keep_flat=False)
+        remaining = dict(loaded)
+        removed = False
+        if key in remaining:
+            remaining.pop(key, None)
+            removed = True
+        for alias in aliases:
+            if alias in remaining:
+                remaining.pop(alias, None)
+                removed = True
+        if not removed or remaining == loaded:
+            return False
+        try:
+            cfg = _validated_config_for_write(remaining, key)
+        except ConfigValidationError as e:
+            log.warning("remove_config skipped write: remaining config is invalid: %s", e)
+            return False
+        to_write = _repaired_file_dict(loaded, cfg)
+        to_write.pop(key, None)
+        for alias in aliases:
+            to_write.pop(alias, None)
+        if to_write == loaded:
+            return False
+        _commit_config_write(path, to_write, failed="Failed to remove config key")
+        did_remove = True
+    if did_remove:
+        _emit_pending([(key, None, old_value)], event_key=event_key, batch=False)
+    return True
+
+
+def _persist_load_repairs(path: str, loaded: dict[str, Any], config: _config_schema.WriterAgentConfig) -> dict[str, Any]:
+    """Write load-time repairs that changed a value. Return the file image.
+
+    Caller holds ``_config_write_lock`` (RLock). No ``config:changed``:
+    a read must not look like a settings save.
+    """
+    repaired = _repaired_file_dict(loaded, config)
+    if repaired == loaded:
+        return loaded
+    try:
+        _write_config_file(path, repaired)
+    except (OSError, ConfigError) as write_err:
+        log.warning("Failed to persist coerced config: %s", write_err)
+        return loaded
+    return repaired
 
 
 def _emit_pending(
@@ -939,17 +929,14 @@ def _emit_pending(
     get_event_bus().emit("config:changed", **payload)
 
 
-_config_store = ConfigStore()
-
-
 def update_config(key: str, fn: Callable[[Any], Any], *, event_key: str | None = None) -> None:
-    """``ConfigStore.update``: one key, one lock, one event.
+    """``_update``: one key, one lock, one event.
 
     *fn* receives the current value (the schema default when the key is
     omitted) and returns the new value. No write and no ``config:changed``
     when that value already matches disk.
     """
-    _config_store.update(key, fn, event_key=event_key)
+    _update(key, fn, event_key=event_key)
 
 
 def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
@@ -963,11 +950,7 @@ def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
     ``event_key`` is the key listeners see. It differs from ``key`` when a
     settings field is stored under another name.
     """
-
-    def _replace(_current: Any) -> Any:
-        return value
-
-    _config_store.update(key, _replace, event_key=event_key)
+    _update(key, lambda _current: value, event_key=event_key)
 
 
 def set_configs(values: dict[str, Any]) -> None:
@@ -989,7 +972,7 @@ def set_configs(values: dict[str, Any]) -> None:
     carries ``keys`` (every changed name) so a listener can match one key
     inside that bulk save.
     """
-    _config_store.update_many(values)
+    _update_many(values)
 
 
 def remove_config(key: str, *, event_key: str | None = None) -> None:
@@ -997,7 +980,7 @@ def remove_config(key: str, *, event_key: str | None = None) -> None:
     config_file_path = get_config_file_path()
     if not config_file_path:
         raise ConfigError("Config path is empty", code="CONFIG_PATH_ERROR")
-    _config_store.remove(config_file_path, key, event_key=event_key)
+    _remove(config_file_path, key, event_key=event_key)
 
 
 def _config_stat_id(path: str) -> tuple[str, int, int] | None:
@@ -1063,7 +1046,7 @@ def _get_validated_config_dict() -> dict[str, Any]:
             return _cache.data
 
         try:
-            data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=True, fail_on_unrepairable=True)
+            data = _load_config_dict(config_file_path, persist_repair=True, fail_on_unrepairable=True)
 
             try:
                 current_mtime = os.path.getmtime(config_file_path)
@@ -1089,7 +1072,7 @@ def _get_validated_config_dict() -> dict[str, Any]:
             # calc_prompt_max_tokens below 100 rewritten to 4096) and leaves a
             # file that already matches untouched. A second parse-and-write,
             # or persisting to_dict(), drops every key the schema omits.
-            data = _config_store.persist_load_repairs(config_file_path, loaded, config)
+            data = _persist_load_repairs(config_file_path, loaded, config)
             if data is not loaded:
                 try:
                     current_mtime = os.path.getmtime(config_file_path)
@@ -1125,7 +1108,7 @@ def _get_validated_config_dict() -> dict[str, Any]:
 def _merge_api_key_slots(current: Any, patch: dict[str, Any]) -> dict[str, Any]:
     """Return *current* with only the URL slots in *patch* replaced.
 
-    ``ConfigStore.apply`` calls this on the value just read under
+    ``_apply`` calls this on the value just read under
     ``_config_write_lock``. Slots absent from *patch* stay as they were read.
     Callers pass only the slots they are setting. Replacing the map with a
     copy taken before the lock drops a key written for another endpoint
@@ -1150,7 +1133,7 @@ def _merge_reasoning_effort_slots(current: Any, patch: dict[str, Any]) -> dict[s
 
 
 def update_config_mapping(key: str, mutate: Callable[[dict[str, Any]], None], *, event_key: str | None = None) -> None:
-    """Read-modify-write one dict config value through ``ConfigStore.update``.
+    """Read-modify-write one dict config value through ``_update``.
 
     ``update_config`` calls ``mutate`` on the value just read, under the same
     lock as the patch. Editing a copy taken outside that lock, then replacing

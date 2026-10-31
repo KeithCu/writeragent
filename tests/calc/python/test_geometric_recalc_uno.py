@@ -210,7 +210,7 @@ def _patch_config_files(ctx, mutator) -> None:
     for path in _session_config_paths(ctx):
         data: dict = {}
         if os.path.exists(path):
-            loaded = _load_config_dict(path, allow_repair=True, persist_repair=False)
+            loaded = _load_config_dict(path, persist_repair=False)
             if isinstance(loaded, dict):
                 data = loaded
         mutator(data)

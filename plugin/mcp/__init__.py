@@ -180,7 +180,7 @@ class McpModule(ModuleBase):
         key = data.get("key", "")
         prefix = f"{self.name}."
         # Other modules' keys are ignored (startswith). Empty key is a bulk save.
-        # ConfigStore emits "" only when more than one key changes, so a port-only
+        # The config writer emits "" only when more than one key changes, so a port-only
         # save is mcp.mcp_port and must rebind. Do not drop startswith: removeprefix
         # leaves an unprefixed key unchanged, and "mcp_port" is in _LIFECYCLE_SUFFIXES.
         suffix = key.removeprefix(prefix) if key else ""
