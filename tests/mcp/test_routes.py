@@ -170,7 +170,7 @@ def test_mcp_module_toggle_keeps_route_snapshots_consistent(monkeypatch) -> None
         worker.start()
         try:
             for _unused in range(20):
-                mod._unregister_mcp_routes(services)
+                mod._unregister_mcp_routes()
                 mod._register_mcp_routes(services)
         finally:
             stop.set()
