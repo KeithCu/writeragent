@@ -58,6 +58,7 @@ from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework.tool_schema import (
     call_properties as call_properties,
     coerce_call_args as coerce_call_args,
+    required_keys,
     to_mcp_schema as to_mcp_schema,
     to_openai_schema as to_openai_schema,
     without_unknown_kwargs as without_unknown_kwargs,
@@ -330,12 +331,7 @@ class ToolBase(_ToolErrorMixin, ABC):
             (ok: bool, error_message: str | None)
         """
         schema = self.get_parameters(doc_type) or {}
-        # Bugfix: A schema with a non-list 'required' (e.g. required="name") previously caused
-        # iteration over string characters, demanding keys 'n', 'a', 'm', 'e'.
-        # Only iterate when 'required' is a list, matching _execute_impl.
-        required_raw = schema.get("required")
-        required = required_raw if isinstance(required_raw, list) else []
-        for key in required:
+        for key in required_keys(schema):
             if key not in kwargs:
                 return False, f"Missing required parameter: {key}"
         extra_ok = self.scripting_only_parameters or frozenset()
@@ -544,7 +540,6 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
     # from training memory when the property was removed from the schema
     # (see docs/calc/date-time-handling.md S26).
     kwargs = dict(tool_kwargs)
-    kwargs.pop("ctx", None)
     doc_type = getattr(ctx, "doc_type", None)
     caller = getattr(ctx, "caller", None)
 
@@ -555,15 +550,14 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
     ignored: list[str] = sorted(k for k in tool_kwargs if k not in kept)
     kwargs = kept
 
-    required = schema.get("required") or []
-    required_names = set(required) if isinstance(required, list) else set()
-    if any(v is None and k not in required_names for k, v in kwargs.items()):
+    required = required_keys(schema)
+    if any(v is None and k not in required for k, v in kwargs.items()):
         # Advertised schemas allow JSON null on optional scalars. Models
         # send null for an omitted optional, and validate() uses the
         # source schema, which rejects None. Drop those keys so the
         # tool sees the argument as omitted. A required null still
         # fails validation.
-        kwargs = {k: v for k, v in kwargs.items() if v is not None or k in required_names}
+        kwargs = {k: v for k, v in kwargs.items() if v is not None or k in required}
 
     kwargs = coerce_call_args(tool.name, props, kwargs)
 
@@ -1064,6 +1058,3 @@ class ToolRegistry:
     @property
     def tool_names(self) -> list[str]:
         return list(self._tools.keys())
-
-    def __len__(self) -> int:
-        return len(self._tools)

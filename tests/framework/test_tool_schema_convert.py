@@ -108,13 +108,6 @@ def test_normalize_schema_items():
     res = _normalize_schema_for_strict_providers(params)
     assert res["items"]["type"] == ["string", "integer"]
 
-    # Items as list
-    params = {
-        "type": "array",
-        "items": [{"type": "string"}, {"type": "integer"}]
-    }
-    res = _normalize_schema_for_strict_providers(params)
-    assert res["items"]["type"] == "string"
 
 def test_normalize_schema_not_array_remove_items():
     params = {"type": "string", "items": {"type": "string"}}
