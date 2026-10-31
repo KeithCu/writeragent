@@ -13,6 +13,7 @@ from __future__ import annotations
 import builtins
 import cmath
 import math
+import re
 import statistics
 import sys
 import unicodedata
@@ -110,9 +111,7 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
     # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
     try:
         val = f()
-        if _is_calc_error(val):
-            return alt
-        return val
+        return alt if _is_calc_error(val) else val
     except Exception:
         return alt
 
@@ -120,20 +119,9 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
     try:
         val = f()
-        if is_na_value(val):
-            return alt
-        return val
+        return alt if isna(val) else val
     except Exception:
         return alt
-
-
-def is_na_value(value: Any) -> bool:
-    """True for float or numpy NaN, or a stripped #N/A token."""
-    if isinstance(value, (float, np.floating)) and math.isnan(value):
-        return True
-    if isinstance(value, str) and value.strip().upper() == "#N/A":
-        return True
-    return False
 
 
 def _parse_complex(val: Any) -> tuple[builtins.complex, str]:
@@ -209,14 +197,8 @@ def _im_float(fn: Callable[[complex], float]) -> Callable[[Any], float]:
     return wrapper
 
 
-@_im_float
-def imabs(c: complex) -> float:
-    return abs(c)
-
-
-@_im_float
-def imaginary(c: complex) -> float:
-    return c.imag
+imabs = _im_float(abs)
+imaginary = _im_float(lambda c: c.imag)
 
 
 @_im_float
@@ -228,54 +210,16 @@ def imargument(c: complex) -> float:
     return cmath.phase(c)
 
 
-@_im_unary
-def imconjugate(c: complex) -> complex:
-    return c.conjugate()
-
-
-@_im_unary
-def imcos(c: complex) -> complex:
-    return cmath.cos(c)
-
-
-@_im_unary
-def imcosh(c: complex) -> complex:
-    return cmath.cosh(c)
-
-
-@_im_unary
-def imcot(c: complex) -> complex:
-    return 1.0 / cmath.tan(c)
-
-
-@_im_unary
-def imcsc(c: complex) -> complex:
-    return 1.0 / cmath.sin(c)
-
-
-@_im_unary
-def imcsch(c: complex) -> complex:
-    return 1.0 / cmath.sinh(c)
-
-
-@_im_binary
-def imdiv(c1: complex, c2: complex) -> complex:
-    return c1 / c2
-
-
-@_im_unary
-def imexp(c: complex) -> complex:
-    return cmath.exp(c)
-
-
-@_im_unary
-def imln(c: complex) -> complex:
-    return cmath.log(c)
-
-
-@_im_unary
-def imlog10(c: complex) -> complex:
-    return cmath.log10(c)
+imconjugate = _im_unary(complex.conjugate)
+imcos = _im_unary(cmath.cos)
+imcosh = _im_unary(cmath.cosh)
+imcot = _im_unary(lambda c: 1.0 / cmath.tan(c))
+imcsc = _im_unary(lambda c: 1.0 / cmath.sin(c))
+imcsch = _im_unary(lambda c: 1.0 / cmath.sinh(c))
+imdiv = _im_binary(lambda left, right: left / right)
+imexp = _im_unary(cmath.exp)
+imln = _im_unary(cmath.log)
+imlog10 = _im_unary(cmath.log10)
 
 
 @_im_unary
@@ -327,53 +271,21 @@ def improduct(*args: Any) -> str:
     return _im_fold(args, lambda left, right: left * right)
 
 
-@_im_float
-def imreal(c: complex) -> float:
-    return c.real
-
-
-@_im_unary
-def imsec(c: complex) -> complex:
-    return 1.0 / cmath.cos(c)
-
-
-@_im_unary
-def imsech(c: complex) -> complex:
-    return 1.0 / cmath.cosh(c)
-
-
-@_im_unary
-def imsin(c: complex) -> complex:
-    return cmath.sin(c)
-
-
-@_im_unary
-def imsinh(c: complex) -> complex:
-    return cmath.sinh(c)
-
-
-@_im_unary
-def imsqrt(c: complex) -> complex:
-    return cmath.sqrt(c)
-
-
-@_im_binary
-def imsub(c1: complex, c2: complex) -> complex:
-    return c1 - c2
+imreal = _im_float(lambda c: c.real)
+imsec = _im_unary(lambda c: 1.0 / cmath.cos(c))
+imsech = _im_unary(lambda c: 1.0 / cmath.cosh(c))
+imsin = _im_unary(cmath.sin)
+imsinh = _im_unary(cmath.sinh)
+imsqrt = _im_unary(cmath.sqrt)
+imsub = _im_binary(lambda left, right: left - right)
 
 
 def imsum(*args: Any) -> str:
     return _im_fold(args, lambda left, right: left + right)
 
 
-@_im_unary
-def imtan(c: complex) -> complex:
-    return cmath.tan(c)
-
-
-@_im_unary
-def imtanh(c: complex) -> complex:
-    return cmath.tanh(c)
+imtan = _im_unary(cmath.tan)
+imtanh = _im_unary(cmath.tanh)
 
 
 def intercept(data_y: Any, data_x: Any) -> float:
@@ -489,7 +401,7 @@ def isblank(val: Any) -> bool:
 
 def iserr(val: Any) -> bool:
     # Real Calc error tokens, excluding #N/A. '#hashtag' is text.
-    return _is_calc_error(val) and not is_na_value(val)
+    return _is_calc_error(val) and not isna(val)
 
 
 def iserror(val: Any) -> bool:
@@ -526,7 +438,12 @@ def islogical(val: Any) -> bool:
 
 
 def isna(val: Any) -> bool:
-    return is_na_value(val)
+    """True for float or numpy NaN, or a stripped #N/A token."""
+    if isinstance(val, (float, np.floating)) and math.isnan(val):
+        return True
+    if isinstance(val, str) and val.strip().upper() == "#N/A":
+        return True
+    return False
 
 
 def isnontext(val: Any) -> bool:
@@ -576,6 +493,11 @@ def istext(val: Any) -> bool:
     return isinstance(val, str) and not _is_calc_error(val)
 
 
+# A kana run is normalized together so ｶﾞ becomes ガ, not カ plus a mark.
+_JIS_KANA_RE = re.compile(r"[\uff61-\uff9f]+")
+_JIS_TRANS = str.maketrans({0x20: "\u3000", **{cp: chr(cp + 0xFEE0) for cp in range(0x21, 0x7F)}})
+
+
 def jis(text: Any) -> str:
     # Convert half-width ASCII (0x21-0x7E) to full-width (U+FF01-U+FF5E), space to
     # U+3000, and half-width katakana (U+FF61-U+FF9F) to full-width via NFKC.
@@ -586,26 +508,10 @@ def jis(text: Any) -> str:
         s = str(int(text))
     else:
         s = str(text)
-
-    out: list[str] = []
-    kana_buf: list[str] = []
-    for ch in s:
-        cp = ord(ch)
-        if 0xFF61 <= cp <= 0xFF9F:
-            kana_buf.append(ch)
-        else:
-            if kana_buf:
-                out.append(unicodedata.normalize("NFKC", "".join(kana_buf)))
-                kana_buf = []
-            if ch == " ":
-                out.append("\u3000")
-            elif 0x21 <= cp <= 0x7E:
-                out.append(chr(cp + 0xFEE0))
-            else:
-                out.append(ch)
-    if kana_buf:
-        out.append(unicodedata.normalize("NFKC", "".join(kana_buf)))
-    return "".join(out)
+    return _JIS_KANA_RE.sub(
+        lambda match: unicodedata.normalize("NFKC", match.group()),
+        s.translate(_JIS_TRANS),
+    )
 
 
 def kurt(*args: Any) -> float:
@@ -682,15 +588,11 @@ def _regression_inputs(
 
 def _fit_line(data_y: np.ndarray, data_x: np.ndarray, const: bool) -> list[float]:
     """Coefficients in ``[mk, …, m1, b]`` order. ``const=False`` forces ``b = 0``."""
-    if const:
-        coeffs = np.linalg.lstsq(np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None)[0]
-        slopes = coeffs[:-1]
-        intercept_b = float(coeffs[-1])
-    else:
-        coeffs = np.linalg.lstsq(data_x, data_y, rcond=None)[0]
-        slopes = coeffs
-        intercept_b = 0.0
-    return [float(v) for v in slopes[::-1]] + [intercept_b]
+    design = np.c_[data_x, np.ones(data_x.shape[0])] if const else data_x
+    coeffs = np.linalg.lstsq(design, data_y, rcond=None)[0]
+    n_slopes = data_x.shape[1]
+    intercept_b = float(coeffs[n_slopes]) if const else 0.0
+    return [float(v) for v in coeffs[:n_slopes][::-1]] + [intercept_b]
 
 
 def linest(*args: Any, **kwargs: Any) -> Any:
@@ -711,11 +613,7 @@ def logest(*args: Any, **kwargs: Any) -> Any:
         if np.any(data_y <= 0):
             return "#VALUE!"
         fitted = _fit_line(np.log(data_y), data_x, const)
-        # const=False stores a log-space intercept of 0. The multiplicative
-        # intercept is 1, not exp of a fitted b.
-        if const:
-            return [float(np.exp(v)) for v in fitted]
-        return [float(np.exp(v)) for v in fitted[:-1]] + [1.0]
+        return [float(np.exp(v)) for v in fitted]
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 
@@ -821,10 +719,7 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
         if isinstance(lookup_val, str) and lookup_val != "" and isinstance(value, str) and value != "":
             return value.casefold() <= lookup_val.casefold()
         return False
-    best_idx = None
-    for i, value in enumerate(vec):
-        if _matches(value):
-            best_idx = i
+    best_idx = max((i for i, value in enumerate(vec) if _matches(value)), default=None)
     if best_idx is None or best_idx >= len(result):
         return "#N/A"
     return result[best_idx]
@@ -940,10 +835,8 @@ def mround(number: Any, multiple: Any) -> float:
         return float("nan")
     # multiple 0 returns 0. LibreOffice analysis.cxx getMround
     # (if fMult == 0.0 return fMult) and Excel agree; it is not #DIV/0!.
-    if m == 0:
-        return 0.0
-    # 0 / negative is signed zero, so MROUND(0, -1) was -0.0.
-    if n == 0:
+    # n == 0 returns +0. 0 / negative is signed zero, so MROUND(0, -1) was -0.0.
+    if m == 0 or n == 0:
         return 0.0
     if (n > 0 and m < 0) or (n < 0 and m > 0):
         return float("nan")
@@ -1007,8 +900,7 @@ def multinomial(*args: Any) -> float:
         if acc.bit_length() > 1024:
             return float("nan")
         rest -= value
-    result = float(acc)
-    return result if math.isfinite(result) else float("nan")
+    return float(acc)
 
 
 def munit(dimension: Any) -> Any:
