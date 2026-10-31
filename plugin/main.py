@@ -65,7 +65,7 @@ try:
 except ImportError:
     pass
 
-from plugin.framework.logging import init_logging
+from plugin.framework.logging import init_logging, log_exception
 import uno
 
 from com.sun.star.task import XJobExecutor, XJob
@@ -95,7 +95,7 @@ _services = None
 log = logging.getLogger(__name__)
 
 from plugin.framework import main_shared
-from plugin.framework.main_shared import ExtensionProtocolHandler, get_action_handler
+from plugin.framework.main_shared import ExtensionProtocolHandler, get_action_handler, report_action_failure
 
 
 _tools: ToolRegistry | None = None
@@ -319,7 +319,6 @@ def bootstrap(ctx: Any | None = None) -> None:
                     _bootstrap_error = exc
 
         try:
-            # Wire event bus into config service
             # Subscribe to menu:update for dynamic menu text + icons.
             # execute runs this @background function on the main thread;
             # dispatch already queues it with run_in_background.
@@ -358,19 +357,11 @@ _status_listeners: list[tuple[Any, Any]] = []  # [(listener, url)]
 _status_lock = threading.Lock()
 
 
-def _split_command(command: str) -> tuple[str, str] | None:
-    """Split a command into (module_name, action) at the first dot, or None if dot <= 0."""
+def _module_for_command(command: str) -> tuple[ModuleBase | None, str] | None:
     dot = command.find(".")
     if dot <= 0:
         return None
-    return command[:dot], command[dot + 1 :]
-
-
-def _module_for_command(command: str) -> tuple[ModuleBase | None, str] | None:
-    parts = _split_command(command)
-    if parts is None:
-        return None
-    mod_name, action = parts
+    mod_name, action = command[:dot], command[dot + 1 :]
     for mod in _modules:
         if mod.name == mod_name:
             return mod, action
@@ -397,8 +388,6 @@ def _dispatch_command(command: str) -> None:
         try:
             handler()
         except Exception as e:
-            from plugin.framework.main_shared import report_action_failure
-
             report_action_failure(command, e)
         return
 
@@ -475,16 +464,11 @@ def get_menu_text(command: str) -> str | None:
 
     from plugin.framework.i18n import _
 
-    # Check if the module provides a dynamic text
-    if mod is not None:
-        text = mod.get_menu_text(action)
-        if text is not None:
-            return _(text)
-
-    msgid = _STATIC_MENU_TITLES.get(command)
-    if msgid is not None:
-        return _(msgid)
-
+    text = mod.get_menu_text(action) if mod is not None else None
+    if text is None:
+        text = _STATIC_MENU_TITLES.get(command)
+    if text is not None:
+        return _(text)
     return None
 
 
@@ -504,15 +488,30 @@ def _command_from_dispatch_url(url: Any) -> str:
     return command
 
 
+def _lookup_menu_text(url: Any, where: str) -> tuple[str, str | None] | None:
+    try:
+        command = _command_from_dispatch_url(url)
+        return command, get_menu_text(command)
+    except Exception:
+        log.exception("%s: menu text failed for %s", where, getattr(url, "Complete", ""))
+        return None
+
+
+def _drop_status_listeners(pairs: list[tuple[Any, Any]]) -> None:
+    # Caller holds _status_lock.
+    # What was wrong: 'is' never matched PyUNO listener proxies.
+    # How it happened: each UNO upcall is a new proxy for the same object.
+    # Why this change: uno_same plus Complete is the match used for documents.
+    _status_listeners[:] = [
+        (lstnr, u)
+        for lstnr, u in _status_listeners
+        if not any(uno_same(lstnr, fl) and u.Complete == fu.Complete for fl, fu in pairs)
+    ]
+
+
 def _prune_failed_status_listeners(failed: list[tuple[Any, Any]]) -> None:
     with _status_lock:
-        # What was wrong: prune used 'is' on PyUNO listener proxies, failing to match.
-        # How it happened: PyUNO creates different proxy instances for the same UNO object.
-        # Why this change: compare with uno_same and Complete URL matching.
-        _status_listeners[:] = [
-            (lstnr, u) for (lstnr, u) in _status_listeners
-            if not any(uno_same(lstnr, fl) and u.Complete == fu.Complete for (fl, fu) in failed)
-        ]
+        _drop_status_listeners(failed)
 
 
 @background
@@ -531,21 +530,15 @@ def notify_menu_update() -> None:
         snapshot = list(_status_listeners)
     failed = []
     for listener, url in snapshot:
-        command = ""
-        try:
-            # What was wrong: menu text retrieval and statusChanged were grouped in a single try block, so text errors treated the listener as dead.
-            # How it happened: get_menu_text exception caused the listener to be appended to failed and pruned from listeners.
-            # Why this change: isolate command/text lookup; log and skip on text failure without marking listener failed or pruning it.
-            command = _command_from_dispatch_url(url)
-            text = get_menu_text(command)
-        except Exception:
-            log.exception(
-                "notify_menu_update: menu text failed for %s",
-                getattr(url, "Complete", ""),
-            )
+        # What was wrong: menu text retrieval and statusChanged were grouped in a single try block, so text errors treated the listener as dead.
+        # How it happened: get_menu_text exception caused the listener to be appended to failed and pruned from listeners.
+        # Why this change: isolate command/text lookup; log and skip on text failure without marking listener failed or pruning it.
+        looked_up = _lookup_menu_text(url, "notify_menu_update")
+        if looked_up is None:
             continue
+        command, text = looked_up
         try:
-            _fire_status_event(listener, url, text)
+            _fire_status_event(listener, url, text, command)
         except Exception as e:
             # UNO boundary: listener.statusChanged callback
             failed.append((listener, url))
@@ -585,11 +578,10 @@ def notify_menu_update() -> None:
         run_in_background(_update_menu_icons)
 
 
-def _fire_status_event(listener: Any, url: Any, text: str | None) -> None:
+def _fire_status_event(listener: Any, url: Any, text: str | None, command: str) -> None:
     """Send a FeatureStateEvent to one listener."""
     ev = cast("Any", uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent"))
     ev.FeatureURL = url
-    command = _command_from_dispatch_url(url)
     ev.IsEnabled = True
     if command in {"main.RunFormatTests", "main.RunCalcTests", "main.RunCalcIntegrationTests", "main.RunDrawTests"}:
         ev.IsEnabled = main_shared.tests_bundled()
@@ -628,11 +620,10 @@ def _collect_icon_commands() -> dict[str, tuple[str, str]]:
         return {}
 
     result: dict[str, tuple[str, str]] = {}
-    import typing
 
     for m in cast("list[dict[str, Any]]", MODULES):
         mod_name = str(m["name"])
-        action_icons = typing.cast("typing.Dict[str, str]", m.get("action_icons", {}))
+        action_icons = cast("dict[str, str]", m.get("action_icons", {}))
         for action_name, default_icon in action_icons.items():
             cmd_url = "%s%s.%s" % (_DISPATCH_PROTOCOL, mod_name, action_name)
             # Ask the module for dynamic icon (may override the default)
@@ -881,8 +872,6 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
 
                 do_selection_action_for_document(self.ctx, model, input_box, Event == "EditSelection")
         except Exception as exc:  # UNO boundary: XJobExecutor.trigger entry point
-            from plugin.framework.main_shared import report_action_failure
-
             report_action_failure(str(Event or "trigger"), exc)
 
 
@@ -900,12 +889,9 @@ class DispatchHandler(ExtensionProtocolHandler):
 
     def dispatch(self, URL: UnoURL, Arguments: Any) -> None:
         command = _command_from_dispatch_url(URL)
-        from plugin.framework.logging import init_logging, log_exception
-
         try:
             init_logging(self.ctx)
             log.info(f"Dispatch entered: {command}")
-            # msgbox(self.ctx, "Dispatch", f"Command: {command}") # Temporary probe
             _dispatch_command(command)
             # After action, push updated menu text
             from plugin.framework.worker_pool import run_in_background
@@ -927,47 +913,27 @@ class DispatchHandler(ExtensionProtocolHandler):
             )
 
     def addStatusListener(self, Control: Any, URL: UnoURL) -> None:
-        listener = Control
-        url = URL
         with _status_lock:
             # What was wrong: re-registering a status listener for the same control and URL added duplicates.
             # How it happened: addStatusListener unconditionally appended without deduplication.
             # Why this change: drop existing entries matching uno_same and Complete URL before appending.
-            _status_listeners[:] = [
-                (lstnr, u)
-                for lstnr, u in _status_listeners
-                if not (uno_same(lstnr, listener) and u.Complete == url.Complete)
-            ]
-            _status_listeners.append((listener, url))
+            _drop_status_listeners([(Control, URL)])
+            _status_listeners.append((Control, URL))
         # Send current state immediately
-        try:
-            command = _command_from_dispatch_url(url)
-            text = get_menu_text(command)
-        except Exception:
-            log.exception(
-                "addStatusListener: menu text failed for %s",
-                getattr(url, "Complete", ""),
-            )
+        looked_up = _lookup_menu_text(URL, "addStatusListener")
+        if looked_up is None:
             return
+        command, text = looked_up
 
         if text is not None:
             try:
-                _fire_status_event(listener, url, text)
+                _fire_status_event(Control, URL, text, command)
             except Exception as e:  # UNO boundary: initial statusChanged callback
                 log.warning("addStatusListener: failed to fire initial status event for %s: %s", command, e)
 
     def removeStatusListener(self, Control: Any, URL: UnoURL) -> None:
-        listener = Control
-        url = URL
         with _status_lock:
-            # PyUNO hands removeStatusListener a new proxy for the same listener,
-            # so 'is' left the row in _status_listeners and every rebind appended another.
-            # uno_same is the identity ladder already used for document objects.
-            _status_listeners[:] = [
-                (lstnr, u)
-                for lstnr, u in _status_listeners
-                if not (uno_same(lstnr, listener) and u.Complete == url.Complete)
-            ]
+            _drop_status_listeners([(Control, URL)])
 
 
 # pythonloader loads a static g_ImplementationHelper variable
