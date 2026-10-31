@@ -358,6 +358,16 @@ def _invalidate_config_cache() -> None:
     _cache.unreadable = None
 
 
+def _commit_config_write(path: str, data: dict[str, Any], *, failed: str) -> None:
+    # Catch OSError only. _write_config_file raises ConfigError for a non-JSON value; wrapping that changes the message.
+    try:
+        _write_config_file(path, data)
+        _invalidate_config_cache()
+    except OSError as e:
+        log.exception("Error writing to %s", path)
+        raise ConfigError(f"{failed}: {e}", code="CONFIG_SAVE_ERROR") from e
+
+
 def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, persist_repair: bool = False, fail_on_unrepairable: bool = False) -> dict[str, Any]:
     """Load writeragent.json as a dict. Optionally backup, repair, and persist small JSON typos."""
     if not config_file_path or not os.path.exists(config_file_path):
@@ -832,12 +842,7 @@ class ConfigStore:
             if committed is None:
                 return False
             to_write, effective = committed
-            try:
-                _write_config_file(path, to_write)
-                _invalidate_config_cache()
-            except OSError as e:
-                log.exception("Error writing to %s", path)
-                raise ConfigError(f"Failed to save config: {e}", code="CONFIG_SAVE_ERROR") from e
+            _commit_config_write(path, to_write, failed="Failed to save config")
         if effective is not None:
             _emit_pending(effective, event_key=event_key, batch=batch)
         return True
@@ -878,12 +883,7 @@ class ConfigStore:
                 to_write.pop(alias, None)
             if to_write == loaded:
                 return False
-            try:
-                _write_config_file(path, to_write)
-                _invalidate_config_cache()
-            except OSError as e:
-                log.exception("Error writing to %s", path)
-                raise ConfigError(f"Failed to remove config key: {e}", code="CONFIG_SAVE_ERROR") from e
+            _commit_config_write(path, to_write, failed="Failed to remove config key")
             did_remove = True
         if did_remove:
             _emit_pending([(key, None, old_value)], event_key=event_key, batch=False)
