@@ -52,27 +52,30 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         python_tool_domain=None,
     )
 
-    def _fetch_inner_tools() -> tuple[list[ToolBase], list[ToolBase]]:
-        domain_tools = registry.get_tools(doc=opened_model, doc_type=doc_type, names=list(allowlist), exclude_tiers=())
-        finish_tools = registry.get_tools(names=["specialized_workflow_finished"], exclude_tiers=())
-        return domain_tools, finish_tools
+    def _fetch_inner_tools() -> list[ToolBase]:
+        return registry.get_tools(
+            doc=opened_model,
+            doc_type=doc_type,
+            names=[*allowlist, "specialized_workflow_finished"],
+            exclude_tiers=(),
+        )
 
     from plugin.framework.send_cancellation import SendCancelled
     try:
-        domain_tools, finish_tools = run_on_main(_fetch_inner_tools)
+        tools = run_on_main(_fetch_inner_tools)
     except SendCancelled:
-        return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+        return user_stopped_payload()
 
-    found = {t.name for t in domain_tools if t.name}
+    found = {t.name for t in tools if t.name}
     missing = [name for name in allowlist if name not in found]
     if missing:
         log.warning("Inner document_research agent missing tools: %s", missing)
 
-    tools_by_name = {t.name: t for t in domain_tools + finish_tools if t.name}
     ordered = [
-        tools_by_name[name]
+        t
         for name in (*allowlist, "specialized_workflow_finished")
-        if name in tools_by_name
+        for t in tools
+        if t.name == name
     ]
 
     if not ordered:
@@ -142,18 +145,12 @@ class DelegateReadDocument(ToolBase):
 
         try:
             path, url_or_err = resolve_path_or_name(ctx.ctx, ctx.doc, str(path_or_name))
-        except SendCancelled:
-            return user_stopped_payload()
-        if path is None:
-            return self._tool_error(url_or_err or "Could not resolve file", path_or_name=path_or_name)
-
-        target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
-
-        def _open_on_main() -> tuple[Any | None, str | None, str | None, bool]:
-            return open_document_for_read(ctx.ctx, target)
-
-        try:
-            model, doc_type, err, opened_for_document_research = run_on_main(_open_on_main)
+            if path is None:
+                return self._tool_error(url_or_err or "Could not resolve file", path_or_name=path_or_name)
+            target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
+            model, doc_type, err, opened_for_document_research = run_on_main(
+                open_document_for_read, ctx.ctx, target
+            )
         except SendCancelled:
             return user_stopped_payload()
         if model is None or doc_type is None:
