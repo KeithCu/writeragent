@@ -16,6 +16,7 @@ from typing import Any
 
 import uno
 
+from plugin.framework import thread_guard
 from plugin.framework.errors import (
     DocumentDisposedError,
     UnoObjectError,
@@ -41,31 +42,12 @@ def _udprops_step(msg: str) -> None:
 
 
 def _user_defined_property_exists(props: Any, name: str) -> bool:
-    """Return True iff ``name`` is already defined on ``UserDefinedProperties``.
-
-    ``UserDefinedProperties`` is a ``com.sun.star.beans.PropertyBag`` which
-    implements ``XPropertySet`` (offering ``getPropertySetInfo().hasPropertyByName``)
-    and ``XPropertyContainer`` (``addProperty``/``removeProperty``) — but not
-    ``XNameAccess``. So ``hasattr(props, "hasByName")`` is False, the old
-    ``not exists`` branch always fired, and the second save raised
-    ``Property name or handle already used``.
-    """
-    if hasattr(props, "getPropertySetInfo"):
-        try:
-            info = props.getPropertySetInfo()
-        except Exception:
-            info = None
-        if info is not None and hasattr(info, "hasPropertyByName"):
-            try:
-                return bool(info.hasPropertyByName(name))
-            except Exception as exc:
-                log.debug("hasPropertyByName failed for %s (%s)", name, type(exc).__name__)
-    if hasattr(props, "hasByName"):
-        try:
-            return bool(props.hasByName(name))
-        except Exception as exc:
-            log.debug("hasByName failed for %s (%s)", name, type(exc).__name__)
-    return False
+    """True iff ``name`` is on the PropertyBag (``XPropertySet``, not ``XNameAccess``)."""
+    try:
+        return bool(props.getPropertySetInfo().hasPropertyByName(name))
+    except Exception as exc:
+        log.debug("hasPropertyByName failed for %s (%s)", name, type(exc).__name__)
+        return False
 
 
 def _user_defined_properties(model: Any) -> Any:
@@ -74,16 +56,14 @@ def _user_defined_properties(model: Any) -> Any:
     PropertyBag hasPropertyByName / addProperty is unreliable through the
     guard proxy; unwrap the model then talk to the raw PropertyBag.
     """
-    from plugin.framework.thread_guard import _unwrap_uno
-
-    raw_model = _unwrap_uno(model)
+    raw_model = thread_guard._unwrap_uno(model)
     check_disposed(raw_model, "Document Model")
     if not hasattr(raw_model, "getDocumentProperties"):
         return None
     doc_props = safe_call(raw_model.getDocumentProperties, "Get document properties")
     if doc_props is None:
         return None
-    props = _unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
+    props = thread_guard._unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
     if props is not None:
         check_disposed(props, "UserDefinedProperties")
     return props
@@ -119,15 +99,9 @@ def set_document_property(model: Any, name: str, value: Any) -> bool:
 
     Same dispatch-thread note as get_document_property (notebook File Open).
     """
-    raw_model = model
     try:
-        from plugin.framework.thread_guard import _unwrap_uno
-
-        # Same PropertyBag unwrap as get_document_property.
-        raw_model = _unwrap_uno(model)
-        check_disposed(raw_model, "Document Model")
         _udprops_step("set_document_property: getDocumentProperties start name=%s" % name)
-        props = _user_defined_properties(raw_model)
+        props = _user_defined_properties(model)
         _udprops_step("set_document_property: getDocumentProperties done")
         if props is None:
             return False
@@ -151,6 +125,7 @@ def set_document_property(model: Any, name: str, value: Any) -> bool:
         doc_url = ""
         readonly = ""
         try:
+            raw_model = thread_guard._unwrap_uno(model)
             if hasattr(raw_model, "getURL"):
                 doc_url = raw_model.getURL() or ""
             if hasattr(raw_model, "isReadonly"):
