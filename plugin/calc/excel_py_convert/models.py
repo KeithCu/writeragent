@@ -202,9 +202,7 @@ class ConversionReport:
 
     @property
     def ok(self) -> bool:
-        if self.issues:
-            return False
-        return all(c.converted for c in self.cells)
+        return not self.issues and all(c.converted for c in self.cells)
 
     def to_dict(self) -> dict[str, Any]:
         return {"direction": self.direction, "source_path": self.source_path, "ok": self.ok, "issues": list(self.issues), "cells": [c.to_dict() for c in self.cells]}

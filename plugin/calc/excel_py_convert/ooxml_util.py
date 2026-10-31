@@ -18,7 +18,6 @@ SSML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 OFFICE_DOC_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 PYTHON_SCRIPT_REL_TYPE = "http://schemas.microsoft.com/office/2022/relationships/pythonScript"
 CALC_CHAIN_REL_TYPE_SUFFIX = "/calcChain"
 
@@ -33,7 +32,7 @@ def xml_namespace_lock() -> threading.RLock:
 STANDARD_OOXML_NAMESPACES: dict[str, str] = {
     "": SSML_NS,
     "r": OFFICE_DOC_REL_NS,
-    "mc": MC_NS,
+    "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
     "x14ac": "http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac",
     "x14": "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main",
     "x15": "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main",
@@ -123,13 +122,11 @@ def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: d
             for prefix, uri in original_namespaces.items():
                 ET.register_namespace(prefix, uri)
         out = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    ns_map = dict(STANDARD_OOXML_NAMESPACES)
-    if original_namespaces:
-        ns_map.update(original_namespaces)
+    ns_map = {**STANDARD_OOXML_NAMESPACES, **(original_namespaces or {})}
 
     ignorable_prefixes: set[str] = set()
     for k, v in root.attrib.items():
-        if k.endswith("}Ignorable") or k == "mc:Ignorable":
+        if k.endswith("}Ignorable"):
             ignorable_prefixes.update(v.split())
 
     if not ignorable_prefixes:
