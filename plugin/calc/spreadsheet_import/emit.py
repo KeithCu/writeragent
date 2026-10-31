@@ -58,14 +58,13 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
     circular = {addr for group in model.circular_groups for addr in group}
 
     vector_groups = detect_vectorized_columns(model) if vectorize else {}
-    vector_handled_cells: dict[str, str] = {}
+    cells: dict[str, OutputCell] = {}
 
     for first_addr, group in vector_groups.items():
         group_formulas: dict[str, str] = {}
         try:
             first_record = model.cells[first_addr]
-            if not first_record.formula:
-                continue
+            assert first_record.formula
             ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(first_record.formula)), "vector parse formula")
             if ast is None or not _has_function_node(ast):
                 continue
@@ -93,10 +92,9 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
         except Exception:
             log.exception("build_converted_output_model: vector group at %s failed", first_addr)
             continue
-        vector_handled_cells.update(group_formulas)
+        for addr, formula in group_formulas.items():
+            cells[addr] = OutputCell(address=addr, value=None, formula=formula, number_format=None)
         report.converted.extend(group_formulas)
-
-    cells: dict[str, OutputCell] = {}
 
     def _pass_through(addr: str, record: CellRecord, reason: str | None) -> None:
         report.pass_through.append(addr)
@@ -105,12 +103,11 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
         cells[addr] = output_cell_from_record(record)
 
     for addr in sorted(model.cells):
-        if addr in vector_handled_cells:
-            cells[addr] = OutputCell(address=addr, value=None, formula=vector_handled_cells[addr], number_format=None)
+        if addr in cells:
             continue
 
         record = model.cells[addr]
-        if record.type == "py_formula":
+        if record.type in ("py_formula", "empty", "constant") or not record.formula:
             cells[addr] = output_cell_from_record(record)
             continue
         if record.type == "prompt":
@@ -122,10 +119,6 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
         if addr in circular:
             _pass_through(addr, record, "CIRCULAR_REF")
             continue
-        # circular_groups contain only formula-like addresses (graph.py).
-        if record.type in ("empty", "constant") or not record.formula:
-            cells[addr] = output_cell_from_record(record)
-            continue
 
         ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(record.formula)), "parse formula")
         if ast is not None and not _has_function_node(ast):
@@ -134,7 +127,6 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
 
         try:
             translation = translate_formula(record.formula, cell_addr=addr)
-            log.debug("build_converted_output_model translate cell %s formula=%r translation.ok=%s reason=%s code=%r", addr, record.formula, translation.ok, translation.reason, translation.code)
             if translation.ok and translation.code and translation.data_ranges is not None:
                 cells[addr] = OutputCell(address=addr, value=None, formula=emit_py_formula(translation.code, translation.data_ranges, sheet_bounds=sheet_bounds, current_sheet=model.sheet_name), number_format=None)
                 report.converted.append(addr)

@@ -28,27 +28,18 @@ def classify_cell(raw_val: Any, raw_formula: str) -> tuple[CellType, Any, str | 
 
     Returns ``(type, value, formula)``.
     """
-    formula: str | None = None
-
     raw_text = str(raw_formula) if raw_formula else ""
     if raw_text.startswith("=") or (raw_text.startswith("{") and raw_text.endswith("}")):
-        formula = raw_text
-        value = raw_val
-
-        # Array formulas keep ``{=…}`` wrapper; normalize strips braces.
-        if formula.startswith("{") and formula.endswith("}"):
-            return "array_formula", value, formula
-
-        normalized = normalize_formula_string(formula)
-        if is_py_formula_text(formula):
-            return "py_formula", value, formula
-        if _PROMPT_HEAD_RE.match(normalized):
-            return "prompt", value, formula
-
-        if is_calc_error_display(value) is not None:
-            return "error", value, formula
-        return "formula", value, formula
-
+        # Array formulas keep the ``{=…}`` wrapper; normalize would strip the braces.
+        if raw_text.startswith("{") and raw_text.endswith("}"):
+            return "array_formula", raw_val, raw_text
+        if is_py_formula_text(raw_text):
+            return "py_formula", raw_val, raw_text
+        if _PROMPT_HEAD_RE.match(normalize_formula_string(raw_text)):
+            return "prompt", raw_val, raw_text
+        if is_calc_error_display(raw_val) is not None:
+            return "error", raw_val, raw_text
+        return "formula", raw_val, raw_text
     if raw_val is not None and raw_val != "":
         return "constant", raw_val, None
     return "empty", None, None
@@ -79,12 +70,11 @@ def ingest_from_arrays(*, sheet_name: str, start_col: int, start_row: int, data_
             cell_type, value, formula = classify_cell(raw_val, raw_formula)
             cells[address] = CellRecord(address=address, type=cell_type, value=value, formula=formula, number_format=None)
 
-    scope = frozenset(cells)
     for cell in cells.values():
         if cell.formula:
             found = [f"{col}{row}" for col, row in A1_CELL_RE.findall(cell.formula.upper())]
             # Self-refs (the cell's own address) and out-of-range refs are not precedents.
-            cell.precedents = list(dict.fromkeys(ref for ref in found if ref in scope and ref != cell.address))
+            cell.precedents = list(dict.fromkeys(ref for ref in found if ref in cells and ref != cell.address))
 
     model = SheetModel(sheet_name=sheet_name, used_range=used_range, cells=cells)
     return attach_graph_to_model(model)

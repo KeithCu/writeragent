@@ -25,4 +25,4 @@ def normalize_py_formula(formula: str) -> str | None:
     if semantics is None:
         return None
     code, data_args = semantics
-    return rebuild_python_formula_with_data(code, data_args, parts=None)
+    return rebuild_python_formula_with_data(code, data_args)

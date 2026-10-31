@@ -52,7 +52,7 @@ def _clip_one_range(range_ref: str, sheet_bounds: dict[str, tuple[int, int]], *,
     end_col, end_row = sheet_bounds[resolved_sheet]
 
     if sheet:
-        was_quoted = text.lstrip().startswith("'") or text.lstrip().startswith("$'")
+        was_quoted = text.startswith(("'", "$'"))
         quoted_name = _quote_sheet_reference(sheet, was_quoted)
         sep = "." if text[:text.rfind(address)].rstrip().endswith(".") else "!"
         prefix = f"{quoted_name}{sep}"

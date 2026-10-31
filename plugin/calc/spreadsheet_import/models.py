@@ -49,20 +49,12 @@ class OutputCell:
 
 
 def output_cell_from_record(cell: CellRecord) -> OutputCell:
-    if cell.type == "empty":
-        return OutputCell(address=cell.address, value=None, formula=None, number_format=None)
     if cell.type == "constant":
         return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=cell.number_format)
-    if cell.type == "py_formula":
-        formula = cell.formula
-        if formula:
-            normalized = normalize_py_formula(formula)
-            if normalized is not None:
-                formula = normalized
-        return OutputCell(address=cell.address, value=None, formula=formula, number_format=None)
-    if cell.formula:
-        return OutputCell(address=cell.address, value=None, formula=cell.formula, number_format=None)
-    return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=None)
+    formula = cell.formula
+    if cell.type == "py_formula" and formula:
+        formula = normalize_py_formula(formula) or formula
+    return OutputCell(address=cell.address, value=None, formula=formula, number_format=None)
 
 
 @dataclass
@@ -118,9 +110,6 @@ class VerifyMismatch:
     expected: Any
     actual: Any
     message: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
 
 
 @dataclass
