@@ -156,14 +156,13 @@ def test_matplotlib_plot_hint_writer():
 
 
 def test_matplotlib_plot_hint_draw():
-    hint = format_matplotlib_plot_hint(agent_label="Draw")
+    hint = format_matplotlib_plot_hint(doc_type="draw")
     assert "image_insert" in hint
     assert "slide" in hint.lower() or "page" in hint.lower()
 
 
 def test_matplotlib_plot_hint_impress_matches_draw():
     assert format_matplotlib_plot_hint(doc_type="impress") == format_matplotlib_plot_hint(doc_type="draw")
-    assert format_matplotlib_plot_hint(doc_type="impress") == format_matplotlib_plot_hint(agent_label="Draw")
 
 
 def test_matplotlib_plot_hint_unknown_empty():

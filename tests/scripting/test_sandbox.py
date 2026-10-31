@@ -480,7 +480,7 @@ def test_import_authorized_explicit_alias_without_plugin_entry() -> None:
     assert import_authorized("writeragent.framework.config", ()) is False
 
 
-def test_venv_allowlist_mirrors_plugin_entries_and_keeps_duckdb() -> None:
+def test_venv_allowlist_omits_mirrored_plugin_entries_and_keeps_duckdb() -> None:
     from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
 
     assert "writeragent.*" not in VENV_AUTHORIZED_IMPORTS
@@ -491,7 +491,7 @@ def test_venv_allowlist_mirrors_plugin_entries_and_keeps_duckdb() -> None:
     for entry in VENV_AUTHORIZED_IMPORTS:
         if entry.startswith("plugin."):
             mirror = "writeragent." + entry[len("plugin."):]
-            assert mirror in VENV_AUTHORIZED_IMPORTS
+            assert mirror not in VENV_AUTHORIZED_IMPORTS
     assert import_authorized("import-not-used", ()) is True
     assert import_authorized("subprocess", ()) is False
     assert import_authorized("writeragent.framework.config", ()) is False

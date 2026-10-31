@@ -66,22 +66,6 @@ except (ImportError, ModuleNotFoundError):
     )
 
 
-def _writeragent_alias_mirrors(entries: tuple[str, ...]) -> tuple[str, ...]:
-    """``writeragent.X`` spellings of plugin modules already on the allowlist.
-
-    AliasImporter maps ``writeragent.X`` to ``plugin.X``. A blanket
-    ``writeragent.*`` made that map every plugin module, so a sandboxed script
-    could import ``plugin.framework.config`` and ``LlmClient``. The runtime
-    checker now uses ``import_authorized``; the mirror strings stay so a
-    literal list match still sees them.
-    """
-    mirrors: list[str] = []
-    for entry in entries:
-        if entry.startswith("plugin."):
-            mirrors.append("writeragent." + entry[len("plugin."):])
-    return tuple(mirrors)
-
-
 # Curated by WriterAgent (see docs/enabling_numpy_in_libreoffice.md)—not "whatever is in the venv".
 # No ``writeragent.*``: that wildcard is not an allow. See ``import_authorized``.
 # These libraries (pandas.*, numpy.*, PIL.*, matplotlib.*) can read/write files
@@ -182,8 +166,6 @@ _VENV_PACKAGES: tuple[str, ...] = (
     "plugin.scripting.calc_functions.*",
 )
 
-_VENV_AUTHORIZED_IMPORT_BASE: tuple[str, ...] = _VENV_STDLIB + _VENV_PACKAGES
-
 # Script imports whose plugin path stays off the direct list.
 # vision: ``from writeragent.vision import run_vision`` (not plugin.vision.venv.vision).
 # duckdb_sql: SQL templates. ``plugin.scripting.duckdb_sql`` stays unlisted so
@@ -194,11 +176,9 @@ _ALIAS_ONLY_IMPORTS: tuple[str, ...] = (
     "writeragent.scripting.duckdb_sql",
 )
 
-VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
-    _VENV_AUTHORIZED_IMPORT_BASE
-    + _writeragent_alias_mirrors(_VENV_AUTHORIZED_IMPORT_BASE)
-    + _ALIAS_ONLY_IMPORTS
-)
+# writeragent.X is authorized by import_authorized via _alias_real_module
+# (plugin.X). Do not copy plugin entries into this tuple.
+VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = _VENV_STDLIB + _VENV_PACKAGES + _ALIAS_ONLY_IMPORTS
 
 
 def _alias_real_module(name: str) -> str | None:
@@ -434,25 +414,17 @@ def alias_has_authorized_child(fullname: str) -> bool:
     if not fullname:
         return False
     prefix = fullname + "."
-    real_prefix = (
-        fullname.replace("writeragent", "plugin", 1) + "."
-        if fullname.startswith("writeragent.")
-        else None
-    )
-    candidates = set(VENV_AUTHORIZED_IMPORTS)
-    for extra in active_extra_imports():
-        candidates.add(extra)
-        if extra.startswith("plugin."):
-            candidates.add("writeragent." + extra[len("plugin.") :])
-        elif extra.startswith("writeragent."):
-            candidates.add("plugin." + extra[len("writeragent.") :])
-
-    for entry in candidates:
-        if entry == "writeragent.*" or entry == "*":
-            continue
+    if fullname == "writeragent" or fullname.startswith("writeragent."):
+        other = "plugin" + fullname[len("writeragent"):]
+    elif fullname == "plugin" or fullname.startswith("plugin."):
+        other = "writeragent" + fullname[len("plugin"):]
+    else:
+        other = ""
+    other_prefix = (other + ".") if other else ""
+    for entry in (*VENV_AUTHORIZED_IMPORTS, *active_extra_imports()):
         if entry.endswith(".*"):
             entry = entry[:-2]
-        if entry.startswith(prefix) or (real_prefix is not None and entry.startswith(real_prefix)):
+        if entry.startswith(prefix) or (other_prefix and entry.startswith(other_prefix)):
             return True
     return False
 
@@ -726,9 +698,7 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
     out: dict[str, str] = {}
     for k, v in base.items():
         ku = k.upper()
-        if ku in _BLOCKED_ENV_EXACT:
-            continue
-        if _env_name_is_credential(k):
+        if ku in _BLOCKED_ENV_EXACT or _env_name_is_credential(k):
             continue
         out[k] = v
     # setdefault kept whatever the parent already had. Callers pass
@@ -818,8 +788,7 @@ def wrap_command_for_sandbox(
     if isinstance(cwd, str) and cwd:
         argv.append("--directory=" + cwd)
     if env is not None:
-        for key, value in env.items():
-            argv.append(f"--env={key}={value}")
+        argv.extend(f"--env={key}={value}" for key, value in env.items())
     argv.extend(cmd)
     return argv
 
@@ -1016,25 +985,14 @@ def resolve_libreoffice_python() -> str | None:
         neighbor = _python_beside_soffice(exe)
         if neighbor:
             return neighbor
-    for candidate in _bundled_lo_python_candidates():
-        if _is_usable_python_file(candidate):
-            return candidate
-    return None
+    return _first_executable_python(_bundled_lo_python_candidates())
 
 
 def _python_candidates_at_env_root(env_dir: str) -> list[str]:
     # crosshair: off
     """Return interpreter candidates at the env root (conda / pyenv-win layout)."""
-    if os.name == "nt":
-        return [
-            os.path.join(env_dir, "python.exe"),
-            os.path.join(env_dir, "python"),
-            os.path.join(env_dir, "python3"),
-        ]
-    return [
-        os.path.join(env_dir, "python"),
-        os.path.join(env_dir, "python3"),
-    ]
+    names = ("python.exe", "python", "python3") if os.name == "nt" else ("python", "python3")
+    return [os.path.join(env_dir, name) for name in names]
 
 
 def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
@@ -1043,14 +1001,13 @@ def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
     candidates = _python_candidates_at_env_root(bin_dir)
     # os.listdir raises OSError on a race or an unreadable directory. Same
     # guard as _bundled_lo_python_candidates.
-    if os.path.isdir(bin_dir):
-        try:
-            entries = sorted(os.listdir(bin_dir))
-        except OSError:
-            entries = []
-        for entry in entries:
-            if entry.startswith("python3."):
-                candidates.append(os.path.join(bin_dir, entry))
+    try:
+        entries = sorted(os.listdir(bin_dir))
+    except OSError:
+        entries = []
+    for entry in entries:
+        if entry.startswith("python3."):
+            candidates.append(os.path.join(bin_dir, entry))
     return candidates
 
 
@@ -1093,8 +1050,7 @@ def resolve_venv_python(venv_dir: str) -> str | None:
         bin_candidates = [os.path.join(expanded, "bin"), os.path.join(expanded, "Scripts")]
     candidates: list[str] = []
     for bin_dir in bin_candidates:
-        if os.path.isdir(bin_dir):
-            candidates.extend(_python_candidates_in_bin_dir(bin_dir))
+        candidates.extend(_python_candidates_in_bin_dir(bin_dir))
     # Prefer bin/Scripts; fall back to env-root python.exe (conda / pyenv-win).
     candidates.extend(_python_candidates_at_env_root(expanded))
     return _first_executable_python(candidates)
