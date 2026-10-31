@@ -326,11 +326,9 @@ def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] 
     call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
     raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
     params = merge_vision_params(ctx, raw_params)
-    image_name = str(params.get("image_name") or "").strip() or None
     helper_name = str(call_spec.get("helper") or "extract_text").strip() or "extract_text"
 
     return {
-        "early_outcome": None,
         "is_vision_selection": True,
         "ctx": ctx,
         "doc": doc,
@@ -338,7 +336,6 @@ def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] 
         "t0": t0,
         "helper_name": helper_name,
         "params": params,
-        "image_name": image_name,
     }
 
 
@@ -406,7 +403,6 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         return {"early_outcome": rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e))}
 
     return {
-        "early_outcome": None,
         "ctx": ctx,
         "doc": doc,
         "code": code,
@@ -423,20 +419,14 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
     if prepared.get("is_vision_selection"):
         from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
-        ctx = prepared["ctx"]
-        doc = prepared["doc"]
-        helper_name = prepared["helper_name"]
-        params = prepared["params"]
-        image_name = prepared.get("image_name")
-
-        params_dict = dict(params)
-        if image_name:
-            params_dict["image_name"] = image_name
-
         # run_and_insert_vision_for_selection safely marshals document operations to the main thread
         # while keeping the 120s OCR wait on this background thread.
         result = run_and_insert_vision_for_selection(
-            ctx, doc, helper=helper_name, params=params_dict, insert_into_document=False
+            prepared["ctx"],
+            prepared["doc"],
+            helper=prepared["helper_name"],
+            params=prepared["params"],
+            insert_into_document=False,
         )
 
         return {"status": "ok", "vision_selection_result": result}

@@ -366,16 +366,6 @@ class NativePythonScriptDialog:
         self._current_scripts[display_name] = t
         return _ScriptSaveResult(_("Script '%s' saved successfully.") % real_name, "ok")
 
-    def _prompt_new_script_name(self, **kwargs: Any) -> tuple[str, bool] | None:
-        res = show_new_script_dialog(self._ctx, doc=self._doc, **kwargs)
-        if not res:
-            return None
-        name, attach = res
-        name = name.strip()
-        if not name:
-            return None
-        return name, attach
-
     def _store_script(
         self,
         name: str,
@@ -445,20 +435,18 @@ class NativePythonScriptDialog:
                 # Why this change: builtin stays on the label through a successful
                 # finish; every other warning is a Save box before Running...
                 save_res = owner._save_current_script(t, only_if_changed=True)
-                save_channel = save_res.channel
-                save_text = save_res.text
 
-                if save_channel == "builtin":
-                    if save_text:
-                        set_control_text(lbl, save_text)
-                elif save_channel == "modal":
-                    if save_text:
-                        msgbox(ctx, _("Save"), save_text)
+                if save_res.channel == "builtin":
+                    if save_res.text:
+                        set_control_text(lbl, save_res.text)
+                elif save_res.channel == "modal":
+                    if save_res.text:
+                        msgbox(ctx, _("Save"), save_res.text)
 
                 btn_run = dlg.getControl("BtnRun")
                 set_control_enabled(btn_run, False)
 
-                if save_channel != "builtin":
+                if save_res.channel != "builtin":
                     set_control_text(lbl, _("Running..."))
 
                 def _on_complete(outcome: dict[str, Any]) -> None:
@@ -469,8 +457,8 @@ class NativePythonScriptDialog:
                         _report_run_outcome(ctx, lbl, outcome)
                         if not outcome.get("ok"):
                             set_control_text(lbl, str(outcome.get("message") or _("Execution Error")))
-                        elif save_channel == "builtin" and save_text:
-                            set_control_text(lbl, save_text)
+                        elif save_res.channel == "builtin" and save_res.text:
+                            set_control_text(lbl, save_res.text)
                     finally:
                         set_control_enabled(btn_run, True)
 
@@ -506,7 +494,9 @@ class NativePythonScriptDialog:
                     else ("", SCRIPT_ORIGIN_USER)
                 )
 
-                prompted = owner._prompt_new_script_name(
+                prompted = show_new_script_dialog(
+                    owner._ctx,
+                    doc=owner._doc,
                     default_name=real_curr,
                     title=_("Save Script As"),
                     default_attach=(curr_origin == SCRIPT_ORIGIN_DOCUMENT),
@@ -566,7 +556,7 @@ class NativePythonScriptDialog:
 
         def _on_new() -> None:
             try:
-                prompted = owner._prompt_new_script_name()
+                prompted = show_new_script_dialog(owner._ctx, doc=owner._doc)
                 if prompted is None:
                     return
                 name, attach_to_document = prompted
