@@ -224,7 +224,6 @@ def test_endpoint_pcm_failure_is_remembered_and_wrapped():
             )
             assert clip is not None
             assert clip.suffix == ".wav"
-            assert clip.request_format == "pcm"
             wav = clip.audio
         assert not statuses
         assert [item["response_format"] for item in calls] == ["mp3", "pcm"]
@@ -580,7 +579,7 @@ def test_speak_endpoint_chunks_long_text():
     def fake_download(chunk, *args, **kwargs):
         del args, kwargs
         downloads.append(chunk)
-        return _EndpointClip(b"RIFFfake", ".wav", "wav")
+        return _EndpointClip(b"RIFFfake", ".wav")
 
     with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
@@ -599,7 +598,7 @@ def test_speak_endpoint_short_reply_single_download():
     def fake_download(chunk, *args, **kwargs):
         del args, kwargs
         downloads.append(chunk)
-        return _EndpointClip(b"RIFFfake", ".wav", "wav")
+        return _EndpointClip(b"RIFFfake", ".wav")
 
     with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
@@ -619,7 +618,7 @@ def test_speak_endpoint_falls_back_with_unplayed_tail():
         del args, kwargs
         downloads.append(chunk)
         if len(downloads) == 1:
-            return _EndpointClip(b"RIFFfake", ".wav", "wav")
+            return _EndpointClip(b"RIFFfake", ".wav")
         return None
 
     with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
@@ -635,7 +634,7 @@ def test_speak_endpoint_falls_back_with_unplayed_tail():
 
 
 def test_speak_endpoint_playback_failure_uses_system_speech():
-    with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav", "wav")), \
+    with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=False), \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system, \
@@ -656,7 +655,7 @@ def test_speak_endpoint_stopped_during_playback_skips_system():
         return False
 
     try:
-        with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav", "wav")), \
+        with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
              patch("plugin.audio.tts_service._play_audio_file", side_effect=play), \
              patch("plugin.audio.tts_service._release_temp"), \
              patch("plugin.audio.tts_service._speak_system") as system:
@@ -671,7 +670,7 @@ def test_speak_endpoint_stopped_during_playback_skips_system():
 
 def test_speak_endpoint_save_temp_failure():
     statuses: list[str] = []
-    with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav", "wav")), \
+    with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
          patch("plugin.audio.tts_service._new_speech_temp", return_value=None), \
          patch("plugin.audio.tts_service._speak_system") as system, \
          patch("plugin.audio.tts_service._playback_blocked", return_value=False):
@@ -681,7 +680,7 @@ def test_speak_endpoint_save_temp_failure():
 
     # Blocked generation suppresses save error
     statuses.clear()
-    with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav", "wav")), \
+    with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
          patch("plugin.audio.tts_service._new_speech_temp", return_value=None), \
          patch("plugin.audio.tts_service._speak_system") as system_blocked, \
          patch("plugin.audio.tts_service._playback_blocked", return_value=True):
@@ -699,7 +698,7 @@ def test_speak_endpoint_prefetch_pipeline_overlap():
         download_calls += 1
         if download_calls == 2:
             chunk2_download_started.set()
-        return _EndpointClip(b"RIFFfake", ".wav", "wav")
+        return _EndpointClip(b"RIFFfake", ".wav")
 
     def fake_play(path, generation=None):
         del path, generation
@@ -750,7 +749,7 @@ def test_speak_endpoint_later_chunk_failure_still_reports_status():
         recorded_status.append(on_status)
         downloads.append(chunk)
         if len(downloads) == 1:
-            return _EndpointClip(b"RIFFfake", ".wav", "wav")
+            return _EndpointClip(b"RIFFfake", ".wav")
         return None
 
     sentinel_status = MagicMock()
