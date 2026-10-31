@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from weakref import WeakValueDictionary
@@ -53,9 +52,8 @@ def _get_document_mutation_gate(doc_key: str) -> threading.Lock:
 @contextmanager
 def _document_mutation_gate(doc_key: str, *, timeout: float = 30.0) -> Generator[None, None, None]:  # pyright: ignore[reportUnusedFunction]
     gate = _get_document_mutation_gate(doc_key)
-    started = time.monotonic()
     if not gate.acquire(timeout=timeout):
-        log.warning("MCP _document_mutation_gate timed out after %.2fs waiting for %s", time.monotonic() - started, doc_key)
+        log.warning("MCP _document_mutation_gate timed out after %.2fs waiting for %s", timeout, doc_key)
         raise BusyError("Timed out waiting for another edit to this document. Retry in a moment.")
     try:
         yield
