@@ -24,22 +24,18 @@ from plugin.framework.uno_bootstrap import register_alias_importer
 
 register_alias_importer()
 
-from typing import IO
-
 from plugin.scripting.audio_silence_detector import DEFAULT_SILENCE_STOP_MS, SilenceDetectorConfig
 from plugin.scripting.venv.audio_recorder import record_to_wav
 from plugin.scripting.ipc import claim_ipc_channel, get_child_ipc_stream, write_json_line
 
-_ipc_stream: IO[bytes] | None = None
 _emit_lock = threading.Lock()
 
 
 def _emit(payload: dict[str, object]) -> None:
     # Write only on the private dup'd IPC channel. Library prints and ALSA
     # logs on raw stdout break line-delimited JSON framing.
-    stream = _ipc_stream or get_child_ipc_stream() or sys.stdout
     with _emit_lock:
-        write_json_line(stream, payload)
+        write_json_line(get_child_ipc_stream(), payload)
 
 
 def _is_stop_command(line: str) -> bool:
@@ -75,8 +71,7 @@ def _stdin_stop_reader(stop_event: threading.Event) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global _ipc_stream
-    _ipc_stream = claim_ipc_channel()
+    claim_ipc_channel()
     if _SCRIPT_DIR in sys.path:
         sys.path.remove(_SCRIPT_DIR)
 
@@ -94,24 +89,18 @@ def main(argv: list[str] | None = None) -> int:
     reader = threading.Thread(target=_stdin_stop_reader, args=(stop_event,), daemon=True)
     reader.start()
 
-    def on_started() -> None:
-        _emit({"status": "ready"})
-
     try:
         auto_stopped = record_to_wav(
             output_path,
             stop_event,
-            on_stream_started=on_started,
+            on_stream_started=lambda: _emit({"status": "ready"}),
             silence_config=silence_config,
             on_ipc_emit=_emit,
         )
         _emit({"status": "ok", "path": output_path, "auto_stopped": auto_stopped})
         return 0
     except Exception as exc:
-        if isinstance(exc, RuntimeError):
-            message = str(exc)
-        else:
-            message = f"Audio recording failed: {exc}"
+        message = str(exc) if isinstance(exc, RuntimeError) else f"Audio recording failed: {exc}"
         _emit({"status": "error", "message": message})
         return 1
 
