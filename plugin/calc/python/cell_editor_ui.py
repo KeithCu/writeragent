@@ -57,6 +57,15 @@ def _status_text(body: str) -> str:
 class NativePythonCellEditorDialog:
     """Modeless native twin of Monaco calc_cell mode. One instance; later opens retarget."""
 
+    _ctx: Any
+    _doc: Any
+    _cell: Any
+    _parsed_parts: Any
+    _code_cell: Any
+    _code_ref: str | None
+    _dirty: bool
+    _loading: bool
+
     def __init__(self, ctx: Any, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> None:
         self._ctx = ctx
         self._set_target(doc=doc, cell=cell, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
