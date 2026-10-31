@@ -13,7 +13,6 @@ from typing import Any, Literal
 
 from plugin.vision.venv.vision_html_export import prepare_html_for_lo_import
 from plugin.vision.vision_common import (
-    MAX_TABLE_ROWS,
     bbox_to_xywh,
     css_inline_unavailable_result,
     detect_vision_input_format,
@@ -119,12 +118,11 @@ def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
                 "rapidocr_openvino": "openvino",
                 "rapidocr_torch": "torch",
             }
-            ocr_opts = rapid_cls(backend=backend_map[backend])
-            if hasattr(ocr_opts, "lang"):
-                ocr_opts.lang = [norm.lang]
-            if hasattr(ocr_opts, "text_score"):
-                ocr_opts.text_score = float(norm.text_score)
-            return ocr_opts
+            return rapid_cls(
+                backend=backend_map[backend],
+                lang=[norm.lang],
+                text_score=float(norm.text_score),
+            )
         except (ImportError, AttributeError) as exc:
             raise OcrBackendError(f"OCR backend {backend!r} is not available: {exc}") from exc
 
@@ -154,8 +152,6 @@ def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
 def _is_object_detection_layout(layout_opts: Any) -> bool:
     """True when layout_options expects ObjectDetectionModelSpec (Docling >= 2.118)."""
     if getattr(layout_opts, "kind", None) == "layout_object_detection":
-        return True
-    if type(layout_opts).__name__ == "LayoutObjectDetectionOptions":
         return True
     spec = getattr(layout_opts, "model_spec", None)
     if spec is None:
@@ -263,20 +259,13 @@ def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -
 def _apply_ocr_mode(pipeline_options: Any, norm: DoclingPipelineParams) -> None:
     """Prefer Docling ``OcrMode.FULL_PAGE`` over deprecated ``force_full_page_ocr``."""
     ocr_opts: Any = getattr(pipeline_options, "ocr_options", None)
-    want_full = norm.full_page_ocr
     pipeline_mod = importlib.import_module("docling.datamodel.pipeline_options")
     ocr_mode_cls = getattr(pipeline_mod, "OcrMode", None)
     if ocr_mode_cls is not None and hasattr(ocr_opts, "mode"):
-        full_page = getattr(ocr_mode_cls, "FULL_PAGE", None)
-        default_mode = getattr(ocr_mode_cls, "DEFAULT", None)
-        if want_full and full_page is not None:
-            ocr_opts.mode = full_page
-            return
-        if default_mode is not None:
-            ocr_opts.mode = default_mode
-            return
+        ocr_opts.mode = ocr_mode_cls.FULL_PAGE if norm.full_page_ocr else ocr_mode_cls.DEFAULT
+        return
     if hasattr(ocr_opts, "force_full_page_ocr"):
-        ocr_opts.force_full_page_ocr = want_full
+        ocr_opts.force_full_page_ocr = norm.full_page_ocr
 
 
 def _build_pipeline_options(norm: DoclingPipelineParams) -> Any:
@@ -337,14 +326,10 @@ def _convert_image_bytes(image: Any, params: dict[str, Any]) -> Any:
     stream = base_models.DocumentStream(name=stream_name, stream=buf)
     converter = _get_docling_converter(norm)
     result = converter.convert(stream)
-
-    document = getattr(result, "document", None)
-    if document is None:
-        raise RuntimeError("Docling conversion returned no document")
-    return document
+    return result.document
 
 
-def _page_height(document: Any, doc_dict: dict[str, Any], prov: Any) -> float | None:
+def _page_height(document: Any, prov: Any) -> float | None:
     if isinstance(prov, list) and prov:
         prov = prov[0]
     raw_page_no = prov.get("page_no") if isinstance(prov, dict) else getattr(prov, "page_no", None)
@@ -356,9 +341,6 @@ def _page_height(document: Any, doc_dict: dict[str, Any], prov: Any) -> float | 
         return None
     pages = getattr(document, "pages", None)
     page = pages.get(page_no) if isinstance(pages, dict) else None
-    if page is None:
-        doc_pages = doc_dict.get("pages") or {}
-        page = doc_pages.get(str(page_no), doc_pages.get(page_no))
     size = page.get("size") if isinstance(page, dict) else getattr(page, "size", None)
     height = size.get("height") if isinstance(size, dict) else getattr(size, "height", None)
     if height is None:
@@ -371,18 +353,9 @@ def _page_height(document: Any, doc_dict: dict[str, Any], prov: Any) -> float | 
 
 def _is_bottom_left_bbox(bbox: Any) -> bool:
     origin = bbox.get("coord_origin") if isinstance(bbox, dict) else getattr(bbox, "coord_origin", None)
-    if origin is not None:
-        origin_str = str(getattr(origin, "name", None) or getattr(origin, "value", None) or origin)
-        if origin_str.strip().upper().replace(" ", "").replace("_", "").replace("-", "") == "BOTTOMLEFT":
-            return True
-    t = bbox.get("t") if isinstance(bbox, dict) else getattr(bbox, "t", None)
-    b = bbox.get("b") if isinstance(bbox, dict) else getattr(bbox, "b", None)
-    if t is None or b is None:
+    if origin is None:
         return False
-    try:
-        return float(t) > float(b)
-    except (TypeError, ValueError):
-        return False
+    return str(getattr(origin, "name", origin)).strip().upper() == "BOTTOMLEFT"
 
 
 def prov_bbox_to_xywh(prov: Any, *, page_height: float | None = None) -> list[int]:
@@ -404,13 +377,12 @@ def _map_docling_document(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Export document dict once and map text regions, structure blocks, tables, and text parts."""
     doc_dict: dict[str, Any] = {}
-    if hasattr(document, "export_to_dict"):
-        try:
-            exported = document.export_to_dict()
-            if isinstance(exported, dict):
-                doc_dict = exported
-        except Exception:
-            log.debug("export_to_dict failed", exc_info=True)
+    try:
+        exported = document.export_to_dict()
+        if isinstance(exported, dict):
+            doc_dict = exported
+    except Exception:
+        log.debug("export_to_dict failed", exc_info=True)
 
     regions: list[dict[str, Any]] = []
     blocks: list[dict[str, Any]] = []
@@ -423,7 +395,7 @@ def _map_docling_document(
         text = str(item.get("text") or "").strip()
         if not text:
             continue
-        box = prov_bbox_to_xywh(item.get("prov"), page_height=_page_height(document, doc_dict, item.get("prov")))
+        box = prov_bbox_to_xywh(item.get("prov"), page_height=_page_height(document, item.get("prov")))
         confidence = float(item.get("confidence") or item.get("score") or 0.0)
         regions.append({"box": box, "text": text, "confidence": confidence})
         label = str(item.get("label") or item.get("type") or "text").strip().lower()
@@ -452,24 +424,12 @@ def _map_docling_document(
                 num_cols = data.get("num_cols")
                 if isinstance(cells, list) and cells and num_rows and num_cols:
                     table = table_from_span_cells(cells, int(num_rows), int(num_cols), name=f"table_{table_index}")
-                elif "grid" in data and isinstance(data["grid"], list) and data["grid"]:
-                    grid = data["grid"]
-                    cols = [str(c) for c in grid[0]]
-                    rows = [[str(c) for c in r] for r in grid[1:]]
-                    table = {
-                        "name": f"table_{table_index}",
-                        "columns": cols,
-                        "rows": rows[:MAX_TABLE_ROWS],
-                        "spans": [],
-                        "truncated": len(rows) > MAX_TABLE_ROWS,
-                        "total_rows": len(rows),
-                    }
 
         # TableItem has no export_to_dict; that call failed and boxes became
         # [0, 0, 0, 0]. Read coordinates from item.prov.
         prov = getattr(item, "prov", None) if not isinstance(item, dict) else item.get("prov")
         if prov:
-            box = prov_bbox_to_xywh(prov, page_height=_page_height(document, doc_dict, prov))
+            box = prov_bbox_to_xywh(prov, page_height=_page_height(document, prov))
 
         if table:
             tables.append(table)
