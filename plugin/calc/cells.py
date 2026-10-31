@@ -150,18 +150,9 @@ def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipula
     return CellManipulator(CalcBridge(ctx.doc)), _range_args(range_arg)
 
 
-def _get_undo_manager(doc: Any) -> Any:
-    if not hasattr(doc, "getUndoManager"):
-        return None
-    return doc.getUndoManager()
-
-
 def _undo_action_count(doc: Any) -> int:
     def _do() -> int:
-        um = _get_undo_manager(doc)
-        if um is None:
-            return 0
-        titles = um.getAllUndoActionTitles()
+        titles = doc.getUndoManager().getAllUndoActionTitles()
         return len(titles) if titles is not None else 0
 
     return uno_probe(_do, 0)
@@ -170,9 +161,7 @@ def _undo_action_count(doc: Any) -> int:
 def _undo_titled_group(doc: Any, title: str, prev_count: int = 0) -> bool:
     """Undo the group we just closed, only when its title is the newest one and count grew."""
     def _do_undo() -> bool:
-        um = _get_undo_manager(doc)
-        if um is None:
-            return False
+        um = doc.getUndoManager()
         titles = um.getAllUndoActionTitles()
         if titles and len(titles) > prev_count and titles[0] == title:
             um.undo()
@@ -313,13 +302,12 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
         entry: dict[str, Any] = {"column": label}
         if len(seen) > _DISTINCT_PEEK_HIGH_CARDINALITY:
             entry["unique_count"] = f"{_DISTINCT_PEEK_HIGH_CARDINALITY}+"
-            entry["skipped"] = "high cardinality"
         else:
             entry["unique_count"] = len(seen)
-            if len(seen) > _DISTINCT_PEEK_LIST_CAP:
-                entry["skipped"] = "high cardinality"
-            else:
-                entry["values"] = list(seen)
+        if len(seen) > _DISTINCT_PEEK_LIST_CAP:
+            entry["skipped"] = "high cardinality"
+        else:
+            entry["values"] = list(seen)
         out.append(entry)
     return out
 
@@ -605,43 +593,27 @@ class WriteCellRange(ToolBase):
             sz = manipulator.prepare_array_formula_if_needed(r, fov, array=array_flag, premeasured_array_size=first_sz)
             premeasured.append(sz)
 
-        idx = 0
-
-        def _apply_write(r: Any) -> Any:
-            nonlocal idx
-            sz = premeasured[idx]
-            idx += 1
-            return manipulator.write_formula_range(r, fov, array=array_flag, premeasured_array_size=sz)
+        sizes = iter(premeasured)
 
         def _format_write(results: list[Any]) -> dict[str, Any]:
-            if len(rn) == 1:
-                res = results[0]
-                if isinstance(res, dict):
-                    return {"status": "ok", **res}
-                return {"status": "ok", "message": res}
-
+            message = f"Wrote to {len(rn)} ranges"
             if any(isinstance(res, dict) for res in results):
-                ranges_payload: list[dict[str, Any]] = []
-                for r, res in zip(rn, results):
-                    if isinstance(res, dict):
-                        ranges_payload.append({"range": r, **res})
-                    else:
-                        ranges_payload.append({"range": r, "message": res})
-                return {
-                    "status": "ok",
-                    "message": f"Wrote to {len(rn)} ranges",
-                    "ranges": ranges_payload,
-                }
-            return {"status": "ok", "message": f"Wrote to {len(rn)} ranges"}
+                ranges_payload = [
+                    {"range": r, **(res if isinstance(res, dict) else {"message": res})}
+                    for r, res in zip(rn, results)
+                ]
+                return {"status": "ok", "message": message, "ranges": ranges_payload}
+            return {"status": "ok", "message": message}
 
         return _mutate_ranges(
             self,
             ctx.doc,
             rn,
             "WriterAgent: Write formulas",
-            _apply_write,
-            f"Wrote to {len(rn)} ranges",
-            format_result=_format_write,
+            lambda r: manipulator.write_formula_range(
+                r, fov, array=array_flag, premeasured_array_size=next(sizes)
+            ),
+            format_result=_format_write if len(rn) > 1 else None,
         )
 
 
@@ -854,15 +826,12 @@ class SortRange(ToolCalcRangeBase):
         has_header: bool = kwargs["has_header"]
         assert isinstance(has_header, bool)
 
-        def _apply_sort(r: Any) -> str:
-            return manipulator.sort_range(r, sort_column=sort_column, ascending=ascending, has_header=has_header)
-
         return _mutate_ranges(
             self,
             ctx.doc,
             rn,
             "WriterAgent: Sort range",
-            _apply_sort,
+            lambda r: manipulator.sort_range(r, sort_column=sort_column, ascending=ascending, has_header=has_header),
             f"Sorted {len(rn)} ranges",
         )
 

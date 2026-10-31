@@ -17,7 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Operations for Calc (Extend/Edit Selection)."""
 
-from typing import Any
+from typing import Any, Callable, cast
 
 from plugin.calc.calc_utils import TEXT
 from plugin.chatbot.dialogs import msgbox
@@ -84,11 +84,9 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
     cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
     formula_array = cell_range.getFormulaArray()
 
-    truncated = False
     for row_idx, row in enumerate(row_range):
         for col_idx, col in enumerate(col_range):
             if len(tasks) >= _MAX_CELLS:
-                truncated = True
                 break
             raw_val = formula_array[row_idx][col_idx]
 
@@ -99,17 +97,18 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
             if not cell_text:
                 continue
 
-            if not is_edit:
-                tasks.append(StreamCompletionTask(cell_text, extend_sys, extend_max, (col, row, None)))
-            else:
-                prompt = _build_calc_edit_prompt(cell_text, user_input)
-                max_tokens = len(cell_text) + edit_max
-                tasks.append(StreamCompletionTask(prompt, edit_sys, max_tokens, (col, row, cell_text)))
+            tasks.append(
+                StreamCompletionTask(
+                    _build_calc_edit_prompt(cell_text, user_input) if is_edit else cell_text,
+                    edit_sys if is_edit else extend_sys,
+                    len(cell_text) + edit_max if is_edit else extend_max,
+                    (col, row, cell_text if is_edit else None),
+                )
+            )
         if len(tasks) >= _MAX_CELLS:
-            truncated = True
             break
 
-    if truncated:
+    if len(tasks) >= _MAX_CELLS:
         msgbox(ctx, title, _("Only the first {0} non-empty cells are edited.").format(_MAX_CELLS))
 
     if not tasks:
@@ -126,9 +125,7 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
         cell_kind = cell.getType()
 
         # Keep Calc writes local to the cell adapter; the shared code only drives the stream.
-        accumulated_text = [""]
-        if not is_edit:
-            accumulated_text[0] = task.prompt
+        accumulated_text = [task.prompt if not is_edit else ""]
 
         # Only a text cell stays text; numbers and formulas go through setFormula
         # so an edited 42 -> 43 stays numeric.
@@ -155,11 +152,8 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
     # this step (WriterCompoundUndo).
     undo = WriterCompoundUndo(model, title)
 
-    def _close_undo() -> None:
-        undo.close()
-
     try:
-        stream_completion_tasks(ctx, client, tasks, prepare_task, _close_undo)
+        stream_completion_tasks(ctx, client, tasks, prepare_task, cast("Callable[[], None]", undo.close))
     except BaseException:
-        _close_undo()
+        undo.close()
         raise
