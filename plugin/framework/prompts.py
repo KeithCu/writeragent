@@ -488,41 +488,37 @@ WRITER_IMAGES_RULES = """IMAGES:
 WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan", "deep_research"})
 
 
-def _build_writer_chat_system_prompt_template() -> str:
-    """Assemble Writer main-chat system prompt in model-facing order.
-
-    HYBRID delivery of the shared pieces: the ambient prompt carries the original pieces plus
-    the safety-critical review-modes piece (a model must know it may not resolve its own
-    tracked changes BEFORE it acts — weaker models never ask first); the reference pieces
-    (search, navigation, images) are pulled on demand through the get_guidance tool, so every
-    turn stays lean. The MCP-only extras (e.g. the HTTP 429 concurrency contract) stay out of
-    this ambient prompt — the sidebar runs in-process; if a sidebar model pulls the concurrency
-    topic anyway it just reads an inert rule.
-
-    Apply-HTML and confirm-from-fields sit last on purpose (recency): last tokens in the
-    ambient prompt are what the model attends to. Same lesson as attaching
-    RESEARCH_COMPLETION_INSTRUCTION_WRITER to the web-research *tool result* instead of the
-    system prompt — do not paste that trailer into this ambient text. SIDEBAR_VS_DOCUMENT
-    sits with the apply block for the same reason (drafts go in the document)."""
-    return "\n\n".join(
-        [
-            WRITER_CHAT_PERSONA,
-            CHAT_RESPONSE_FORMAT,
-            "{core_directives}",
-            WRITER_CHAT_TOOLS_SECTION,
-            TRANSLATION_RULES,
-            TOOL_USAGE_PATTERNS,
-            WRITER_REVIEW_MODES_RULES,
-            "{specialized_delegation}",
-            MEMORY_GUIDANCE,
-            SIDEBAR_VS_DOCUMENT,
-            WRITER_APPLY_DOCUMENT_HTML_RULES,
-            CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
-        ]
-    )
-
-
-DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = _build_writer_chat_system_prompt_template()
+# Assemble Writer main-chat system prompt in model-facing order.
+#
+# HYBRID delivery of the shared pieces: the ambient prompt carries the original pieces plus
+# the safety-critical review-modes piece (a model must know it may not resolve its own
+# tracked changes BEFORE it acts — weaker models never ask first); the reference pieces
+# (search, navigation, images) are pulled on demand through the get_guidance tool, so every
+# turn stays lean. The MCP-only extras (e.g. the HTTP 429 concurrency contract) stay out of
+# this ambient prompt — the sidebar runs in-process; if a sidebar model pulls the concurrency
+# topic anyway it just reads an inert rule.
+#
+# Apply-HTML and confirm-from-fields sit last on purpose (recency): last tokens in the
+# ambient prompt are what the model attends to. Same lesson as attaching
+# RESEARCH_COMPLETION_INSTRUCTION_WRITER to the web-research *tool result* instead of the
+# system prompt — do not paste that trailer into this ambient text. SIDEBAR_VS_DOCUMENT
+# sits with the apply block for the same reason (drafts go in the document).
+DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
+    [
+        WRITER_CHAT_PERSONA,
+        CHAT_RESPONSE_FORMAT,
+        "{core_directives}",
+        WRITER_CHAT_TOOLS_SECTION,
+        TRANSLATION_RULES,
+        TOOL_USAGE_PATTERNS,
+        WRITER_REVIEW_MODES_RULES,
+        "{specialized_delegation}",
+        MEMORY_GUIDANCE,
+        SIDEBAR_VS_DOCUMENT,
+        WRITER_APPLY_DOCUMENT_HTML_RULES,
+        CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
+    ]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -795,17 +791,12 @@ PEER_INNER_CHOICE_RULES = (
 # Wording matches #782: say 0-based once; no sibling-tool list / "first page is 0".
 DRAW_GET_IMAGE_TOOL_LINE = "- get_image: page=N (0-based) renders that page as a PNG so a vision model can see the layout. Use alongside get_draw_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape."
 
-DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = (
-    """You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
+DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
 Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
 
-"""
-    + CHAT_RESPONSE_FORMAT
-    + """
+{CHAT_RESPONSE_FORMAT}
 
-"""
-    + GENERIC_EDIT_CONFIRMATION_RULES
-    + """
+{GENERIC_EDIT_CONFIRMATION_RULES}
 
 WORKFLOW:
 1. Understand the user's request.
@@ -827,9 +818,7 @@ READ:
 - read_slide_text: Extract text content and speaker notes from a slide.
 - get_presentation_info: Slide count, dimensions, master slide names, and Impress status.
 - get_draw_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
-"""
-    + DRAW_GET_IMAGE_TOOL_LINE
-    + """
+{DRAW_GET_IMAGE_TOOL_LINE}
 - list_placeholders: List text placeholders (title, subtitle, body) on a slide (Impress).
 - get_placeholder_text: Get text from a slide placeholder by role or index.
 
@@ -840,25 +829,29 @@ WRITE:
 - set_active_page: Switch active slide/page.
 - set_placeholder_text: Set text on a slide placeholder by role or index (Impress).
 
-{specialized_delegation}
+{{specialized_delegation}}
 
-{core_directives}"""
-)
+{{core_directives}}"""
 
 
 # ---------------------------------------------------------------------------
 # Assembly (dispatch)
 # ---------------------------------------------------------------------------
 
-def peer_outer_delegate_tool_name(model: Any) -> str:
-    """Writer / Calc / Draw specialized gateway used for document_research peer work."""
+def _agent_for_model(model: Any) -> str:
+    # Unknown and None stay Writer, same as the previous else branches.
     from plugin.doc.doc_type import is_calc, is_draw
 
     if is_calc(model):
-        return "delegate_to_specialized_calc_toolset"
+        return "Calc"
     if is_draw(model):
-        return "delegate_to_specialized_draw_toolset"
-    return "delegate_to_specialized_writer_toolset"
+        return "Draw"
+    return "Writer"
+
+
+def peer_outer_delegate_tool_name(model: Any) -> str:
+    """Writer / Calc / Draw specialized gateway used for document_research peer work."""
+    return f"delegate_to_specialized_{_agent_for_model(model).lower()}_toolset"
 
 
 def format_peer_outer_delegate_hint(model: Any) -> str:
@@ -979,18 +972,10 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     shapes a chat prompt, so discovery covers everything the flat tool list exposes. The
     no-document merge uses the same flag as the per-app branches.
     """
-    if agent_label in ("Writer", "Calc", "Draw"):
-        entries = _catalog_entries_from_base(
-            _special_base(agent_label),
-            agent_label=agent_label,
-            ctx=ctx,
-            for_discovery=for_discovery,
-        )
-        entries.sort(key=lambda e: e["domain"])
-        return entries
+    labels = (agent_label,) if agent_label in ("Writer", "Calc", "Draw") else ("Writer", "Calc", "Draw")
     seen: dict[str, str] = {}
-    for label in ("Writer", "Calc", "Draw"):
-        # Merge must forward for_discovery. python is hidden on Calc chat only.
+    # for_discovery must be forwarded. python is hidden on Calc chat only.
+    for label in labels:
         for entry in _catalog_entries_from_base(
             _special_base(label), agent_label=label, ctx=ctx, for_discovery=for_discovery,
         ):
@@ -1072,14 +1057,13 @@ def get_greeting_for_document(model: Any) -> str:
     extract-strings, so JA/ES UI kept showing English welcome text.
     """
     from plugin.framework.i18n import _
-    from plugin.doc.doc_type import is_calc, is_draw
 
-    if is_calc(model):
+    agent = _agent_for_model(model)
+    if agent == "Calc":
         return _("AI: I can help you with formulas, data analysis, and colorful charts. Try me!")
-    elif is_draw(model):
+    if agent == "Draw":
         return _("AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!")
-    else:
-        return _("AI: I can edit or translate your document instantly with professional formatting and color. Try me!")
+    return _("AI: I can edit or translate your document instantly with professional formatting and color. Try me!")
 
 
 # Spoken chat only. Verbatim so every endpoint sees the same brevity rules.
@@ -1205,13 +1189,9 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
     Same Writer/Calc/Draw assembly as ``get_chat_system_prompt_for_document`` with
     ``ctx=None`` (no vision / peer / memory injection).
     """
-    label = (kind or "writer").strip().lower()
-    if label == "calc":
-        agent = "Calc"
-    elif label in ("draw", "impress"):
-        agent = "Draw"
-    else:
-        agent = "Writer"
+    from plugin.doc.doc_type import agent_label_for_doc_type
+
+    agent = agent_label_for_doc_type(kind) or "Writer"
     delegation = get_specialized_delegation_tool_hint(_special_base(agent), agent, ctx=ctx)
     base = _assemble_chat_prompt(agent.lower(), delegation)
     return _append_additional_instructions(base, additional_instructions) + tts_short_answers_prompt_suffix()
@@ -1234,14 +1214,7 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
     """Single source of truth for chat system prompt. Use this so Writer vs Calc prompt cannot be mixed.
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.
     Callers must pass the document that is being chatted about."""
-    from plugin.doc.doc_type import is_calc, is_draw
-
-    if is_calc(model):
-        agent = "Calc"
-    elif is_draw(model):
-        agent = "Draw"
-    else:
-        agent = "Writer"
+    agent = _agent_for_model(model)
     delegation = get_specialized_delegation_tool_hint(_special_base(agent), agent, ctx=ctx)
     base = _assemble_chat_prompt(agent.lower(), delegation)
 
