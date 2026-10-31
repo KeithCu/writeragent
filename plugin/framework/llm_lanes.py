@@ -91,16 +91,12 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
             yield
         return
     global _GRAMMAR_INFLIGHT_COUNT
-    deadline = time.monotonic() + timeout
     with _GRAMMAR_INFLIGHT_CV:
-        # Bugfix: wait(timeout=timeout) restarted the full timeout whenever a wakeup
-        # still saw a full gate (spurious wake, or a new caller took the slot before
-        # reacquire). One deadline from entry; a wakeup that finds a free slot still takes it.
-        while _GRAMMAR_INFLIGHT_COUNT >= max_in_flight:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not _GRAMMAR_INFLIGHT_CV.wait(timeout=remaining):
-                log.warning("grammar_llm_request_gate timed out after %ss waiting for slot", timeout)
-                raise TimeoutError("Timed out waiting for grammar request gate slot after %ss" % timeout)
+        # Bugfix: wait(timeout=timeout) restarted the full timeout on every full-gate
+        # wakeup. wait_for keeps one deadline from entry and still takes a free slot.
+        if not _GRAMMAR_INFLIGHT_CV.wait_for(lambda: _GRAMMAR_INFLIGHT_COUNT < max_in_flight, timeout):
+            log.warning("grammar_llm_request_gate timed out after %ss waiting for slot", timeout)
+            raise TimeoutError("Timed out waiting for grammar request gate slot after %ss" % timeout)
         _GRAMMAR_INFLIGHT_COUNT += 1
     try:
         yield
