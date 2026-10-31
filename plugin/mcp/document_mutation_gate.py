@@ -25,7 +25,7 @@ import logging
 import threading
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from weakref import WeakValueDictionary
 
 if TYPE_CHECKING:
@@ -50,24 +50,11 @@ def _get_document_mutation_gate(doc_key: str) -> threading.Lock:
         return gate
 
 
-def _tool_needs_document_mutation_gate(tool: Any, arguments: Any = None) -> bool:  # pyright: ignore[reportUnusedFunction]
-    if tool is None:
-        return True  # unknown tool -> be safe
-    # A broken requires_document_lock must not silently switch to
-    # detects_mutation. ToolBase.requires_document_lock already calls that.
-    # An override that raises is a bug and must surface.
-    return bool(tool.requires_document_lock(arguments))
-
-
 @contextmanager
-def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.0) -> Generator[None, None, None]:  # pyright: ignore[reportUnusedFunction]
-    if not enabled:
-        yield
-        return
+def _document_mutation_gate(doc_key: str, *, timeout: float = 30.0) -> Generator[None, None, None]:  # pyright: ignore[reportUnusedFunction]
     gate = _get_document_mutation_gate(doc_key)
     started = time.monotonic()
-    acquired = gate.acquire(timeout=timeout)
-    if not acquired:
+    if not gate.acquire(timeout=timeout):
         log.warning("MCP _document_mutation_gate timed out after %.2fs waiting for %s", time.monotonic() - started, doc_key)
         raise BusyError("Timed out waiting for another edit to this document. Retry in a moment.")
     try:
