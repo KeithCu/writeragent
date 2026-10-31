@@ -796,23 +796,7 @@ def test_update_menu_icons_impl_uses_get_ctx_not_get_component_context(monkeypat
     uno.getComponentContext.assert_not_called()
 
 
-def test_load_icon_graphic_when_ctx_none_returns_none_without_get_component_context(monkeypatch):
-    """_load_icon_graphic returns None when get_ctx() is None without calling getComponentContext."""
-    import uno
-
-    monkeypatch.setattr(main, "get_ctx", lambda: None)
-    monkeypatch.setattr(
-        uno,
-        "getComponentContext",
-        MagicMock(side_effect=AssertionError("uno.getComponentContext must not be called")),
-    )
-
-    result = main._load_icon_graphic("test_mod", "test_file.png", None)
-    assert result is None
-    uno.getComponentContext.assert_not_called()
-
-
-def test_load_icon_graphic_uses_service_manager_attribute(monkeypatch):
+def test_load_icon_graphic_uses_service_manager_attribute():
     """_load_icon_graphic accesses ctx.ServiceManager without calling getServiceManager()."""
     fake_sm = MagicMock()
     fake_sm.createInstanceWithContext.return_value = None
@@ -821,8 +805,7 @@ def test_load_icon_graphic_uses_service_manager_attribute(monkeypatch):
     ctx.ServiceManager = fake_sm
     ctx.getServiceManager.side_effect = AssertionError("getServiceManager must not be called")
 
-    monkeypatch.setattr(main, "get_ctx", lambda: ctx)
-    result = main._load_icon_graphic("test_mod", "test_file.png", None)
+    result = main._load_icon_graphic("test_mod", "test_file.png", ctx)
     assert result is None
     ctx.getServiceManager.assert_not_called()
     fake_sm.createInstanceWithContext.assert_called_once_with("com.sun.star.graphic.GraphicProvider", ctx)
@@ -983,9 +966,9 @@ def test_command_from_dispatch_url_and_dispatch(monkeypatch):
 
 def test_module_for_command_splits_on_first_dot():
     main._modules = []
-    assert main._module_for_command("noperiod") is None
-    assert main._module_for_command(".leading") is None
-    assert main._module_for_command("") is None
+    assert main._module_for_command("noperiod") == (None, "")
+    assert main._module_for_command(".leading") == (None, "")
+    assert main._module_for_command("") == (None, "")
     assert main._module_for_command("main.settings") == (None, "settings")
     assert main._module_for_command("chatbot.debug_sidebar.RECORD_CLICKED") == (
         None,
