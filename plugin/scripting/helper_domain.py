@@ -188,12 +188,11 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
     {"quantity": "data"}.
     """
     params: dict[str, Any] = {}
-    if node.keywords and any(kw.arg is None for kw in node.keywords):
-        for kw in node.keywords:
-            if kw.arg is None:
-                val = _literal_value(kw.value)
-                if isinstance(val, dict):
-                    params.update(val)
+    for kw in node.keywords:
+        if kw.arg is None:
+            val = _literal_value(kw.value)
+            if isinstance(val, dict):
+                params.update(val)
     for kw in node.keywords:
         if kw.arg is not None:
             val = _literal_value(kw.value)
@@ -369,20 +368,16 @@ def build_helper_script_template(
     helper: str,
     params: dict[str, Any],
     description: str,
-    import_module: str | None = None,
+    import_module: str,
     run_name: str | None = None,
     data_expr: str = "data",
     context_expr: str = "{}",
-    extra_comment_lines: tuple[str, ...] = (),
-    positional_args: tuple[str, ...] | None = None,
+    extra_comment_lines: tuple[str, ...] = ("# Edit the call below, then Run.",),
+    positional_args: tuple[str, ...] = (),
     leading_data: bool = False,
     invoke: str = "direct",
 ) -> str:
     """Build a Run Python Script template body."""
-    if not import_module:
-        raise ValueError("import_module required")
-    default_extra = extra_comment_lines or ("# Edit the call below, then Run.",)
-
     def _format_param_val(key: str, val: Any) -> str:
         # Bare data identifier only for the injected data argument (data, value, quantity).
         # Real string values like column="data" or dict keys must remain quoted.
@@ -390,17 +385,16 @@ def build_helper_script_template(
             return data_expr
         return _python_literal(val)
 
-    pos_keys = positional_args or ()
     parts: list[str] = []
     if leading_data:
         parts.append(data_expr)
-    for key in pos_keys:
+    for key in positional_args:
         if key in params:
             parts.append(_format_param_val(key, params[key]))
     kw_parts = [
         f"{key}={_format_param_val(key, val)}"
         for key, val in params.items()
-        if key not in pos_keys
+        if key not in positional_args
     ]
     args_str = ", ".join([*parts, *kw_parts])
 
@@ -415,7 +409,7 @@ def build_helper_script_template(
 
     body_lines = [
         f"# {description}",
-        *default_extra,
+        *extra_comment_lines,
         f"from {import_module} import {import_name}\n",
         f"result = {call}",
         "",
@@ -445,13 +439,6 @@ def format_elapsed_time(seconds: float) -> str:
     return f"{int(ms)} ms"
 
 
-def _append_took(message: str, elapsed: float) -> str:
-    err_msg = str(message)
-    if "timed out" in err_msg.lower() or "timeout" in err_msg.lower():
-        return err_msg
-    return f"{err_msg} (took {format_elapsed_time(elapsed)})"
-
-
 def _elapsed_since(t0: float) -> float:
     """Seconds since *t0*, or 0 while CrossHair is loaded."""
     if UNDER_CROSSHAIR:
@@ -465,11 +452,7 @@ def _exception_detail(error: BaseException) -> str:
     UNO often leaves ``str(exc)`` empty (or only a method name). An empty
     string rendered as "Failed to insert result:  (took ...)".
     """
-    detail = str(error).strip()
-    if detail:
-        return detail
-    fallback = repr(error).strip()
-    return fallback or type(error).__name__
+    return str(error).strip() or repr(error).strip() or type(error).__name__
 
 
 def rps_error_outcome(
@@ -480,7 +463,10 @@ def rps_error_outcome(
 ) -> dict[str, Any]:
     """Standard ``{ok: False, message}`` with elapsed time when not a timeout."""
     elapsed = _elapsed_since(t0)
-    out: dict[str, Any] = {"ok": False, "message": _append_took(message, elapsed)}
+    err_msg = str(message)
+    if "timed out" not in err_msg.lower() and "timeout" not in err_msg.lower():
+        err_msg = f"{err_msg} (took {format_elapsed_time(elapsed)})"
+    out: dict[str, Any] = {"ok": False, "message": err_msg}
     if traceback is not None:
         out["traceback"] = traceback
     return out
@@ -499,13 +485,11 @@ def rps_insert_failed_outcome(error: BaseException, *, t0: float) -> dict[str, A
         exc_info=error,
     )
 
-    elapsed_total = _elapsed_since(t0)
-    formatted_time_total = format_elapsed_time(elapsed_total)
     return {
         "ok": False,
         "message": _("Failed to insert result: {error} (took {time})").format(
             error=_exception_detail(error),
-            time=formatted_time_total,
+            time=format_elapsed_time(_elapsed_since(t0)),
         ),
     }
 
@@ -535,8 +519,7 @@ def preview_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    elapsed = _elapsed_since(t0)
-    formatted_time = format_elapsed_time(elapsed)
+    formatted_time = format_elapsed_time(_elapsed_since(t0))
     preview = preview_text[:80] + ("…" if len(preview_text) > 80 else "")
     status_ok = _("{domain} '{helper}' completed. Inserted: {preview} (took {time})").format(
         domain=domain_label,
@@ -555,8 +538,7 @@ def plot_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    elapsed = _elapsed_since(t0)
-    formatted_time = format_elapsed_time(elapsed)
+    formatted_time = format_elapsed_time(_elapsed_since(t0))
     msg = _("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time)
     if helper:
         status_ok = _("Viz '{helper}' completed. {msg}").format(helper=helper, msg=msg)
@@ -594,7 +576,7 @@ def make_template_api(cfg: DomainFacadeConfig) -> Any:
     # crosshair: off
     def _template_body(helper: str, params: dict[str, Any]) -> str:
         desc = cfg.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
-        pos = cfg.positional_args.get(helper) if cfg.positional_args else None
+        pos = cfg.positional_args.get(helper, ()) if cfg.positional_args else ()
         return build_helper_script_template(
             helper=helper,
             params=params,
