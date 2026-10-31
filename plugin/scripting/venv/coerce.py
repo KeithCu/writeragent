@@ -21,14 +21,6 @@ from typing import Any, cast
 from plugin.framework.deal_shim import deal
 from plugin.scripting.calc_range import CalcRange, ensure_rectangular_2d
 
-_NUMERIC_PROFILE_KEYS = (
-    ("mean", "mean"),
-    ("std", "std"),
-    ("min", "min"),
-    ("max", "max"),
-    ("median", "50%"),
-)
-
 _LO_ERROR_TOKENS = frozenset(
     {
         "#N/A",
@@ -258,18 +250,6 @@ def _is_date_like_column_name(name: str) -> bool:
     return any(tok in _DATE_NAME_TOKENS for tok in tokens)
 
 
-def _is_numeric_dtype(dtype: Any) -> bool:
-    import pandas as pd
-
-    return bool(pd.api.types.is_numeric_dtype(dtype) and not pd.api.types.is_bool_dtype(dtype))
-
-
-def _is_datetime_dtype(dtype: Any) -> bool:
-    import pandas as pd
-
-    return bool(pd.api.types.is_datetime64_any_dtype(dtype))
-
-
 def _date_cols_items(date_cols: Any) -> list[Any] | None:
     if date_cols is True:
         return None
@@ -360,13 +340,15 @@ def _build_metadata(df: Any, *, sheet_hint: str | None, dropped_rows: int) -> di
     # How: df[col] is a DataFrame when that label appears twice.
     # Why this fixes it: df.dtypes has one dtype per column position, so duplicate
     # labels are classified instead of looked up by name.
+    import pandas as pd
+
     numeric_cols: list[str] = []
     categorical_cols: list[str] = []
     datetime_cols: list[str] = []
     for label, dtype in zip(_column_labels(df), df.dtypes):
-        if _is_datetime_dtype(dtype):
+        if bool(pd.api.types.is_datetime64_any_dtype(dtype)):
             datetime_cols.append(label)
-        elif _is_numeric_dtype(dtype):
+        elif bool(pd.api.types.is_numeric_dtype(dtype) and not pd.api.types.is_bool_dtype(dtype)):
             numeric_cols.append(label)
         else:
             categorical_cols.append(label)
@@ -538,17 +520,13 @@ def coerce_int(value: Any, name: str = "value") -> int:
         whole = _whole_number(value)
         if whole is not None:
             return whole
-        raise ValueError(f"{name} must be an integer, got {value!r}")
-    if isinstance(value, str):
-        stripped = value.strip()
-        if stripped:
-            try:
-                whole = _whole_number(float(stripped))
-                if whole is not None:
-                    return whole
-            except (ValueError, TypeError):
-                pass
-        raise ValueError(f"{name} must be an integer, got {value!r}")
+    elif isinstance(value, str):
+        try:
+            whole = _whole_number(float(value.strip()))
+            if whole is not None:
+                return whole
+        except (ValueError, TypeError):
+            pass
     raise ValueError(f"{name} must be an integer, got {value!r}")
 
 
@@ -571,13 +549,11 @@ def _coerce_number(value: Any) -> float | None:
         parsed = _parse_numeric_string(value)
         if parsed is not None:
             return parsed
-        stripped = value.strip()
-        if stripped:
-            try:
-                f = float(stripped)
-                return f if math.isfinite(f) else None
-            except (ValueError, TypeError):
-                pass
+        try:
+            f = float(value.strip())
+            return f if math.isfinite(f) else None
+        except (ValueError, TypeError):
+            pass
     return None
 
 
@@ -723,8 +699,6 @@ def numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:
     """Return *columns* when given (an empty list returns []), else all numeric column names. Unknown names raise."""
     if isinstance(columns, str):
         columns = [columns]
-    elif isinstance(columns, tuple):
-        columns = list(columns)
     existing_labels = set(_column_labels(df))
     if columns is not None:
         missing = [c for c in columns if c not in existing_labels and c not in df.columns]

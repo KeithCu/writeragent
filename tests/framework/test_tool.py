@@ -865,7 +865,7 @@ class TestSchemas:
         assert s["name"] == "fake_tool"
         assert "inputSchema" in s
 
-    @patch("plugin.scripting.venv_diagnostics.probe_vision_packages")
+    @patch("plugin.scripting.venv_diagnostics._run_named_json_probe")
     def test_get_schemas_openai_does_not_subprocess_probe_vision(self, mock_probe):
         """Regression: Send path must not import-probe the venv on get_schemas."""
         reg = _make_registry(FakeTool())

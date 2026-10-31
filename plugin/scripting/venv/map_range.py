@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 from plugin.scripting.calc_range import (
     CalcRange,
@@ -44,33 +44,12 @@ def _scalar(val: Any) -> InspectedInput:
     return InspectedInput(flat_items=[val], is_scalar=True, is_python_1d=False, nrows=1, ncols=1)
 
 
-class BroadcastResult(tuple[Any, ...]):
-    """A 3-tuple (primary, b_args, b_kwargs) so callers can unpack, and it
-    carries vector_arg_indices and vector_kwarg_keys because map_over_range
-    needs them on the same object. broadcast_args always returns this type.
-    """
-
+class BroadcastResult(NamedTuple):
     primary: InspectedInput
     b_args: list[list[Any]]
     b_kwargs: dict[str, list[Any]]
     vector_arg_indices: list[int]
     vector_kwarg_keys: list[str]
-
-    def __new__(
-        cls,
-        primary: InspectedInput,
-        b_args: list[list[Any]],
-        b_kwargs: dict[str, list[Any]],
-        vector_arg_indices: list[int],
-        vector_kwarg_keys: list[str],
-    ) -> BroadcastResult:
-        instance = super().__new__(cls, (primary, b_args, b_kwargs))
-        instance.primary = primary
-        instance.b_args = b_args
-        instance.b_kwargs = b_kwargs
-        instance.vector_arg_indices = vector_arg_indices
-        instance.vector_kwarg_keys = vector_kwarg_keys
-        return instance
 
 
 def _to_plain_sequence(val: Any) -> Any:
@@ -188,10 +167,10 @@ def broadcast_args(
         for name, insp in vector_named[1:]:
             if (insp.nrows, insp.ncols) != target_shape:
                 has_grid = (insp.nrows > 1 and insp.ncols > 1) or (target_shape[0] > 1 and target_shape[1] > 1)
+                prefix = f"{name} has shape {insp.nrows}×{insp.ncols}, expected {target_shape[0]}×{target_shape[1]}"
                 if has_grid:
                     raise ValueError(
-                        f"{name} has shape {insp.nrows}×{insp.ncols}, expected {target_shape[0]}×{target_shape[1]}; "
-                        "Cannot pair an M×N grid with a vector parameter; broadcast only with scalars."
+                        f"{prefix}; Cannot pair an M×N grid with a vector parameter; broadcast only with scalars."
                     )
                 if insp.length != target_length:
                     raise ValueError(
@@ -199,10 +178,7 @@ def broadcast_args(
                         f"expected {target_shape[0]}×{target_shape[1]} (length {target_length}); "
                         "Vector length mismatch; transpose it or pass a scalar."
                     )
-                raise ValueError(
-                    f"{name} has shape {insp.nrows}×{insp.ncols}, expected {target_shape[0]}×{target_shape[1]}; "
-                    "Vector orientation mismatch; transpose it or pass a scalar."
-                )
+                raise ValueError(f"{prefix}; Vector orientation mismatch; transpose it or pass a scalar.")
     else:
         primary = inspected_args[0] if inspected_args else (list(inspected_kwargs.values())[0] if inspected_kwargs else inspect_input(None))
         target_length = primary.length
@@ -238,7 +214,9 @@ def map_over_range(
         Scalar or list/nested list matching the primary vector shape.
     """
     broadcast = broadcast_args(*args, **kwargs)
-    primary, b_args, b_kwargs = broadcast
+    primary = broadcast.primary
+    b_args = broadcast.b_args
+    b_kwargs = broadcast.b_kwargs
     vector_arg_indices = broadcast.vector_arg_indices
     vector_kwarg_keys = broadcast.vector_kwarg_keys
     n_items = primary.length
