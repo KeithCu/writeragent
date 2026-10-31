@@ -222,7 +222,7 @@ Module: [`plugin/framework/errors.py`](../../plugin/framework/errors.py) — UNO
 |--------|---------|
 | `UnoObjectError` | Stale docs / missing properties (`UNO_OBJECT_ERROR`). |
 | `DocumentDisposedError` | Disposed object (`DOCUMENT_DISPOSED`). |
-| `is_disposed_exception` | `DisposedException` / `RuntimeException` name heuristic + UNO types (UI lifecycle). |
+| `is_disposed_exception` | `DisposedException` / `RuntimeException` type-name heuristic (UI lifecycle). |
 | `is_real_disposal` | True only for `DisposedException` / `DocumentDisposedError`. |
 | `is_tool_document_disposed` | `execute_safe` mapping: live-doc bare `RuntimeException` is not `DOCUMENT_DISPOSED`. |
 | `suppress_disposed` | UI lifecycle: swallow disposal (and optionally other `Exception`s). `KeyboardInterrupt`, `SystemExit`, and `GeneratorExit` propagate. |

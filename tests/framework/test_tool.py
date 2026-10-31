@@ -1055,7 +1055,7 @@ class TestToolIsolation:
         assert result["details"]["original_error"] == "Document bridge disposed"
 
     def test_execute_safe_keeps_writeragent_exception_code(self):
-        from plugin.framework.errors import ToolPermissionError
+        from plugin.framework.errors import ConfigError
 
         class DeniedTool(ToolBase):
             name = "test_denied"
@@ -1066,7 +1066,7 @@ class TestToolIsolation:
                 return True
 
             def execute(self, ctx, **kwargs):
-                raise ToolPermissionError("nope", details={"reason": "user"})
+                raise ConfigError("nope", details={"reason": "user"})
 
         class DummyContext:
             doc = None
@@ -1075,7 +1075,7 @@ class TestToolIsolation:
 
         result = DeniedTool().execute_safe(DummyContext())
         assert result["status"] == "error"
-        assert result["code"] == "PERMISSION_DENIED"
+        assert result["code"] == "CONFIG_ERROR"
         assert result["message"] == "nope"
         assert result["details"]["reason"] == "user"
 
