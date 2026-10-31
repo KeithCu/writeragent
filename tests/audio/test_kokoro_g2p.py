@@ -291,9 +291,9 @@ def _fake_stack(g2p_calls: list, create_calls: list, voices: dict[str, int]):
     }
 
 
-def test_misaki_phonemes_helper_uses_the_same_snippets(monkeypatch):
+def test_misaki_frontend_helper_uses_the_same_snippets(monkeypatch):
     """The warm worker calls this helper; it must match the one-shot script."""
-    from plugin.audio.kokoro_g2p import _g2p_cache, misaki_phonemes
+    from plugin.audio.kokoro_g2p import _g2p_cache, misaki_frontend
 
     _g2p_cache.clear()
     try:
@@ -302,15 +302,15 @@ def test_misaki_phonemes_helper_uses_the_same_snippets(monkeypatch):
         for name, module in modules.items():
             monkeypatch.setitem(sys.modules, name, module)
 
-        assert misaki_phonemes("非常に強力", "ja") == "JA:非常に強力"
-        assert misaki_phonemes("Hello", "en-us") == ""
+        assert misaki_frontend("非常に強力", "ja") == ("JA:非常に強力", "")
+        assert misaki_frontend("Hello", "en-us") == ("", "")
         assert g2p_calls == [("ja", "非常に強力")]
     finally:
         _g2p_cache.clear()
 
 
-def test_misaki_phonemes_caches_g2p_per_lang(monkeypatch):
-    from plugin.audio.kokoro_g2p import _g2p_cache, misaki_phonemes
+def test_misaki_frontend_caches_g2p_per_lang(monkeypatch):
+    from plugin.audio.kokoro_g2p import _g2p_cache, misaki_frontend
 
     _g2p_cache.clear()
     try:
@@ -352,13 +352,13 @@ def test_misaki_phonemes_caches_g2p_per_lang(monkeypatch):
         monkeypatch.setitem(sys.modules, "misaki.zh", zh)
         monkeypatch.setitem(sys.modules, "misaki.espeak", espeak)
 
-        assert misaki_phonemes("text_ja1", "ja") == "P:text_ja1"
-        assert misaki_phonemes("text_ja2", "ja") == "P:text_ja2"
-        assert misaki_phonemes("text_zh1", "zh") == "P:text_zh1"
-        assert misaki_phonemes("text_zh2", "zh") == "P:text_zh2"
-        assert misaki_phonemes("text_es1", "es") == "P:text_es1"
-        assert misaki_phonemes("text_es2", "es") == "P:text_es2"
-        assert misaki_phonemes("text_en", "en-us") == ""
+        assert misaki_frontend("text_ja1", "ja") == ("P:text_ja1", "")
+        assert misaki_frontend("text_ja2", "ja") == ("P:text_ja2", "")
+        assert misaki_frontend("text_zh1", "zh") == ("P:text_zh1", "")
+        assert misaki_frontend("text_zh2", "zh") == ("P:text_zh2", "")
+        assert misaki_frontend("text_es1", "es") == ("P:text_es1", "")
+        assert misaki_frontend("text_es2", "es") == ("P:text_es2", "")
+        assert misaki_frontend("text_en", "en-us") == ("", "")
 
         assert len(ja_inits) == 1
         assert zh_inits == [None]
@@ -368,8 +368,8 @@ def test_misaki_phonemes_caches_g2p_per_lang(monkeypatch):
         _g2p_cache.clear()
 
 
-def test_misaki_phonemes_does_not_cache_a_failed_construct(monkeypatch):
-    from plugin.audio.kokoro_g2p import _g2p_cache, misaki_phonemes
+def test_get_misaki_g2p_does_not_cache_a_failed_construct(monkeypatch):
+    from plugin.audio.kokoro_g2p import _g2p_cache, _get_misaki_g2p
 
     _g2p_cache.clear()
     try:
@@ -384,11 +384,11 @@ def test_misaki_phonemes_does_not_cache_a_failed_construct(monkeypatch):
         monkeypatch.setitem(sys.modules, "misaki.ja", ja)
 
         with pytest.raises(RuntimeError, match="no dict"):
-            misaki_phonemes("a", "ja")
+            _get_misaki_g2p("ja")
         assert "ja" not in _g2p_cache
 
         with pytest.raises(RuntimeError, match="no dict"):
-            misaki_phonemes("a", "ja")
+            _get_misaki_g2p("ja")
         assert "ja" not in _g2p_cache
     finally:
         _g2p_cache.clear()
@@ -550,21 +550,21 @@ def test_misaki_frontend_english_and_non_misaki():
 
 
 def test_misaki_frontend_success():
-    with patch("plugin.audio.kokoro_g2p.misaki_phonemes", return_value="k o n n i c h i w a"):
+    with patch("plugin.audio.kokoro_g2p._get_misaki_g2p", return_value=lambda text: ("k o n n i c h i w a", None)):
         phonemes, warning = misaki_frontend("こんにちは", "ja")
     assert phonemes == "k o n n i c h i w a"
     assert warning == ""
 
 
 def test_misaki_frontend_empty_phonemes_warning():
-    with patch("plugin.audio.kokoro_g2p.misaki_phonemes", return_value="   "):
+    with patch("plugin.audio.kokoro_g2p._get_misaki_g2p", return_value=lambda text: ("   ", None)):
         phonemes, warning = misaki_frontend("こんにちは", "ja")
     assert phonemes == ""
     assert "ja" in warning
 
 
 def test_misaki_frontend_exception_warning():
-    with patch("plugin.audio.kokoro_g2p.misaki_phonemes", side_effect=RuntimeError("G2P crash")):
+    with patch("plugin.audio.kokoro_g2p._get_misaki_g2p", side_effect=RuntimeError("G2P crash")):
         phonemes, warning = misaki_frontend("Bonjour", "fr-fr")
     assert phonemes == ""
     assert "fr-fr" in warning
