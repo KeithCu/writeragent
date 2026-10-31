@@ -36,9 +36,6 @@ from .calc_functions_util import (
 )
 from .coerce import is_missing_value
 
-_PERCENTRANK_MAX_SIG = 15
-
-
 
 __all__ = [
     "n",
@@ -422,9 +419,7 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     if isinstance(tail, complex) or tail == 0:
         return float("nan")
     price += red / tail
-    if isinstance(price, complex) or not math.isfinite(price):
-        return float("nan")
-    return float(price)
+    return float(price) if math.isfinite(price) else float("nan")
 
 
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
@@ -510,7 +505,7 @@ def pearson(data1: Any, data2: Any) -> float:
 
 
 def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
-    # Truncate at 10^sig (Excel/Calc), and sig must be >= 1. round() is not truncate.
+    # Truncate at 10^sig (Excel/Calc), and sig must be 1..15. round() is not truncate.
     try:
         d = np.asarray(data, dtype=float).ravel()
         d = d[np.isfinite(d)]
@@ -518,7 +513,7 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
             return float("nan")
         val = float(x)
         sig = int(float(significance))
-        if sig < 1 or sig > _PERCENTRANK_MAX_SIG:
+        if sig < 1 or sig > 15:
             return float("nan")
         d_sorted = np.sort(d)
         if val < d_sorted[0] or val > d_sorted[-1]:
@@ -757,7 +752,6 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
 # How it happened: the constant copied the LO interpreter limit.
 # Why this change fixes it: the cap is Excel's 32767. The failure value
 # stays nan, same as a negative count. Length is Python len (code points).
-_MAX_REPT_CHARS = 32767
 
 
 def rept(text: Any, n: Any) -> str | float:
@@ -772,7 +766,7 @@ def rept(text: Any, n: Any) -> str | float:
         return float("nan")
     body = str(text)
     # Check before allocating. Exactly 32767 characters is allowed.
-    if count and body and count > _MAX_REPT_CHARS // len(body):
+    if count and body and count > 32767 // len(body):
         return float("nan")
     return body * count
 
@@ -812,9 +806,7 @@ def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
             if isinstance(term, complex):
                 return float("nan")
             res += term
-        if isinstance(res, complex) or not math.isfinite(res):
-            return float("nan")
-        return float(res)
+        return float(res) if math.isfinite(res) else float("nan")
     except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return float("nan")
 
@@ -997,13 +989,9 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
             if int(flat.size) != nrows:
                 return float("nan")
             this_axis = "row"
-        elif (
-            ncols is not None
-            and key_arr.ndim == 2
-            and tuple(key_arr.shape) == (1, ncols)
-        ):
+        elif tuple(key_arr.shape) == (1, ncols):
             this_axis = "col"
-        elif key_arr.ndim == 2 and tuple(key_arr.shape) == (nrows, 1):
+        elif tuple(key_arr.shape) == (nrows, 1):
             this_axis = "row"
         else:
             return float("nan")
