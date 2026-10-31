@@ -397,10 +397,7 @@ def parse_picker_display_name(prefix: str, display: str) -> str | None:
 def domain_template_entries(doc: Any | None) -> list[tuple[Any, dict[str, str]]]:
     """Return [(domain, {display_name: code})] for picker domains supporting *doc*."""
     results: list[tuple[Any, dict[str, str]]] = []
-    domains: Any = getattr(PICKER_WIRING, "return_value", None)
-    if domains is None:
-        domains = PICKER_WIRING
-    for domain in domains:
+    for domain in PICKER_WIRING:
         if not domain.supports(doc):
             continue
         try:
