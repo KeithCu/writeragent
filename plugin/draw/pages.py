@@ -19,6 +19,8 @@
 import logging
 from typing import Any
 
+from plugin.draw.bridge import resolve_page_and_bridge
+from plugin.draw.masters import _master_pages
 from plugin.framework.errors import is_real_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import uno_same
@@ -214,8 +216,6 @@ class ListPages(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import resolve_page_and_bridge
-
         bridge, active_idx = resolve_page_and_bridge(ctx, {})
         pages = bridge.get_pages()
         labels: list[str] = []
@@ -236,7 +236,7 @@ class ReadSlideText(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge, find_notes_shape, resolve_page_and_bridge
+        from plugin.draw.bridge import DrawBridge, find_notes_shape
         from plugin.framework.errors import is_disposed_exception, uno_probe
 
         _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
@@ -284,16 +284,11 @@ class GetPresentationInfo(ToolBase):
             height_mm = p.Height // 100
 
         # Master pages
-        from plugin.draw.masters import _master_pages
-
         masters = [m.Name if hasattr(m, "Name") else "Master_%d" % i for i, m in enumerate(_master_pages(doc))]
 
-        from plugin.draw.bridge import resolve_page_and_bridge
-
         _bridge, active_idx = resolve_page_and_bridge(ctx, {})
-        is_impress = _is_impress_doc(doc)
 
-        return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress, "active_page_index": active_idx}
+        return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": _is_impress_doc(doc), "active_page_index": active_idx}
 
 
 class SetActivePage(ToolBase):
@@ -310,10 +305,10 @@ class SetActivePage(ToolBase):
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
-        pages = bridge.get_pages()
         idx = kwargs["page"]
-        if idx < 0 or idx >= pages.getCount():
-            return self._tool_error("Page index %d out of range." % idx)
+        err = _check_page_range(self, bridge.get_pages(), idx)
+        if err is not None:
+            return err
 
         # Bugfix: this reimplemented setCurrentPage and caught every exception,
         # so a disposed controller became a normal tool error instead of
@@ -335,8 +330,7 @@ class DuplicateSlide(_SlideMutationTool):
 
         page_idx = kwargs["page"]
         bridge = DrawBridge(ctx.doc)
-        pages = bridge.get_pages()
-        err = _check_page_range(self, pages, page_idx)
+        err = _check_page_range(self, bridge.get_pages(), page_idx)
         if err is not None:
             return err
         activate = kwargs.get("activate", True)
@@ -387,8 +381,7 @@ class RenameSlide(_SlideMutationTool):
         if not name:
             return self._tool_error("name is required.")
         bridge = DrawBridge(ctx.doc)
-        pages = bridge.get_pages()
-        err = _check_page_range(self, pages, page_idx)
+        err = _check_page_range(self, bridge.get_pages(), page_idx)
         if err is not None:
             return err
         ok = bridge.rename_slide(page_idx, str(name))
