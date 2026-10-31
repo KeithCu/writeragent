@@ -911,7 +911,6 @@ class ApplyStyle(FrameworkToolBase):
     """Apply a paragraph or character style."""
 
     name: str | None = "apply_style"
-    intent: str | None = "edit"
     description: str = (
         "Apply a style to a target. Use family='ParagraphStyles' for paragraph "
         "styles (e.g. Heading 1) or family='CharacterStyles' for character "
@@ -1179,7 +1178,6 @@ class StyleUpdate(ToolWriterStyleBase):
     """Update properties of an existing paragraph or character style."""
 
     name: str | None = "style_update"
-    intent: str | None = "edit"
     description: str = (
         "Update the properties of an existing style. "
         "Provide 'family' (ParagraphStyles or CharacterStyles), 'style_name', and "
@@ -1303,7 +1301,6 @@ class StyleCreate(ToolWriterStyleBase):
     """Create a new paragraph or character style."""
 
     name: str | None = "style_create"
-    intent: str | None = "edit"
     description: str = (
         "Create a new paragraph or character style with optional inheritance "
         "and property settings. For paragraph styles, you can also define "
@@ -1439,7 +1436,6 @@ class StyleClone(ToolWriterStyleBase):
     """Clone a paragraph, character, or page style under a new name."""
 
     name: str | None = "style_clone"
-    intent: str | None = "edit"
     description: str = (
         "Clone a paragraph, character, or page style into a new name. "
         "Paragraph and character clones share the source parent and copy direct "
@@ -1523,7 +1519,6 @@ class StyleImport(ToolWriterStyleBase):
     """Import styles from an external document or template."""
 
     name: str | None = "style_import"
-    intent: str | None = "edit"
     description: str = (
         "Import styles from an external document or template (.odt, .ott). "
         "Specify which style types to load (paragraph, page, etc.) and "

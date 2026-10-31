@@ -52,7 +52,6 @@ class DeepResearchWebTool(SubAgentResearchWebBase):
     specialized_cross_cutting: ClassVar[bool] = True
     required_core_tools: ClassVar[frozenset[str] | None] = _DEEP_RESEARCH_CORE_TOOLS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
-    intent: str | None = "review"
     name: str | None = "deep_research_web"
     description: str = (
         "Run breadth/depth public web research on a topic. Returns plain text; "

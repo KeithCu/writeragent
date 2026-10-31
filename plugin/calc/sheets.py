@@ -85,7 +85,6 @@ class SwitchSheet(ToolCalcSheetBase):
     """Switch to a specified sheet."""
 
     name: str | None = "switch_sheet"
-    intent: str | None = "edit"
     description: str = "Switches to the specified sheet (makes it active)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to switch to"}}, "required": ["sheet"]}
     is_mutation: bool | None = True
@@ -105,7 +104,6 @@ class CreateSheet(ToolCalcSheetBase):
     """Create a new sheet."""
 
     name: str | None = "create_sheet"
-    intent: str | None = "edit"
     description: str = "Creates a new empty sheet (tab exists; no cells copied). create_sheet is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -147,7 +145,6 @@ class RenameSheet(ToolCalcSheetBase):
     """Rename an existing sheet."""
 
     name: str | None = "rename_sheet"
-    intent: str | None = "edit"
     description: str = "Renames an existing sheet."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"old_name": {"type": "string", "description": "Current name of the sheet"}, "new_name": {"type": "string", "description": "New name for the sheet"}}, "required": ["old_name", "new_name"]}
     is_mutation: bool | None = True
@@ -175,7 +172,6 @@ class DeleteSheet(ToolCalcSheetBase):
     """Delete an existing sheet."""
 
     name: str | None = "delete_sheet"
-    intent: str | None = "edit"
     description: str = "Deletes an existing sheet by name."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to delete"}}, "required": ["sheet"]}
     is_mutation: bool | None = True
@@ -200,7 +196,6 @@ class ProtectSheet(ToolCalcSheetBase):
     """Protect or unprotect a sheet."""
 
     name: str | None = "protect_sheet"
-    intent: str | None = "edit"
     description: str = "Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}, "protect": {"type": "boolean", "description": "True to protect, False to unprotect (default: True)"}}, "required": []}
     is_mutation: bool | None = True

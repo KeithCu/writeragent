@@ -26,7 +26,6 @@ class TransformDocumentStructure(ToolBase, ToolBaseDummy):  # type: ignore[misc]
     """
 
     name: str | None = "transform_document_structure"
-    intent: str | None = "edit"
     tier: str = "core"
     is_mutation: bool | None = True
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]

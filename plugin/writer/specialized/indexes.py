@@ -325,7 +325,6 @@ def set_bibliography_field_values(field: Any, pairs: list[tuple[str, Any]]) -> N
 
 class IndexesUpdateAll(ToolWriterIndexBase):
     name: str | None = "indexes_update_all"
-    intent: str | None = "navigate"
     description: str = (
         "Refresh all document indexes (TOC, alphabetical, bibliography table). "
         "Call after inserting or editing bibliography cites so the reference list updates. "
@@ -888,7 +887,6 @@ def _remove_paragraph(text: Any, para: Any, anchor: Any = None) -> None:
 
 class IndexesRefreshTocEntry(ToolWriterIndexBase):
     name: str | None = "indexes_refresh_toc_entry"
-    intent: str | None = "edit"
     description: str = (
         "Replace one substring inside a single table-of-contents entry and, when that "
         "text sits in one outline hyperlink (#…|outline), update that URL. "
@@ -1023,7 +1021,6 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
 
 class IndexesDeleteTocEntry(ToolWriterIndexBase):
     name: str | None = "indexes_delete_toc_entry"
-    intent: str | None = "edit"
     description: str = (
         "Delete one table-of-contents entry (the whole paragraph). "
         "Identify it the same way as indexes_refresh_toc_entry: old_content matched "
@@ -1092,7 +1089,6 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
 
 class IndexesInsertTocEntry(ToolWriterIndexBase):
     name: str | None = "indexes_insert_toc_entry"
-    intent: str | None = "edit"
     description: str = (
         "Insert one new row into an existing table of contents. "
         "Does not call index update(), and does not modify neighboring entries. "
@@ -1305,7 +1301,6 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
 
 class IndexesList(ToolWriterIndexBase):
     name: str | None = "indexes_list"
-    intent: str | None = "navigate"
     description: str = (
         "List document indexes (TOC, alphabetical, user, bibliography tables). "
         "type matches indexes_create kind (bibliography via getServiceName). "
@@ -1335,7 +1330,6 @@ class IndexesList(ToolWriterIndexBase):
 
 class IndexesListTocEntries(ToolWriterIndexBase):
     name: str | None = "indexes_list_toc_entries"
-    intent: str | None = "examine"
     description: str = (
         "List table-of-contents rows by reading the index paragraphs. "
         "Each row is the visible text, the outline level (Contents 1-10), "
@@ -1386,7 +1380,6 @@ class IndexesListTocEntries(ToolWriterIndexBase):
 
 class IndexesListCites(ToolWriterIndexBase):
     name: str | None = "indexes_list_cites"
-    intent: str | None = "examine"
     description: str = (
         "List native bibliography cite fields (TextField.Bibliography). "
         "Returns identifier, key Fields (Author, Title, Year, Pages, type), and location. "
@@ -1432,7 +1425,6 @@ class IndexesListCites(ToolWriterIndexBase):
 
 class IndexesCreate(ToolWriterIndexBase):
     name: str | None = "indexes_create"
-    intent: str | None = "edit"
     description: str = (
         "Create a document index (toc, alphabetical, user, illustration, table, object, bibliography). "
         "kind=bibliography inserts the reference table (com.sun.star.text.Bibliography); "
@@ -1511,7 +1503,6 @@ class IndexesCreate(ToolWriterIndexBase):
 
 class IndexesAddMark(ToolWriterIndexBase):
     name: str | None = "indexes_add_mark"
-    intent: str | None = "edit"
     description: str = (
         "Insert an index mark or a bibliography cite at target. "
         "kind=alphabetical|user creates DocumentIndexMark / UserIndexMark (primary_key/secondary_key). "

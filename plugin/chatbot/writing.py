@@ -57,7 +57,6 @@ class WritingResearchWeb(ToolWriterSpecialBase, SubAgentResearchWebBase):
 
     specialized_domain: ClassVar[str | None] = "writing_plan"
     required_core_tools: ClassVar[frozenset[str] | None] = _WRITING_PLAN_CORE_TOOLS
-    intent: str | None = "edit"
     name: str | None = "writing_research_web"
     description: str = "Search the public web for context during document writing. Reformats findings as HTML in reply_to_user."
 
@@ -67,7 +66,6 @@ class WriteDocumentSection(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "writing_plan"
     required_core_tools: ClassVar[frozenset[str] | None] = _WRITING_PLAN_CORE_TOOLS
-    intent: str | None = "edit"
     name: str | None = "write_document_section"
     description: str = "Insert or replace a section of document content with formatted HTML."
     is_mutation: bool | None = True

@@ -159,7 +159,6 @@ class ListPlaceholders(ToolBase):
     """List all text placeholders on a slide."""
 
     name: str | None = "list_placeholders"
-    intent: str | None = "navigate"
     description: str = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before set_placeholder_text. If count=0, delegate domain=slide_layouts with layout='text', then retry."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
@@ -176,7 +175,6 @@ class GetPlaceholderText(ToolBase):
     """Get text from a slide placeholder by role or shape index."""
 
     name: str | None = "get_placeholder_text"
-    intent: str | None = "navigate"
     description: str = "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Prefer list_placeholders first; use index when roles are missing."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -210,7 +208,6 @@ class SetPlaceholderText(ToolBase):
     """Set text on a slide placeholder by role or shape index."""
 
     name: str | None = "set_placeholder_text"
-    intent: str | None = "edit"
     description: str = "Set text on a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Prefer list_placeholders first; prefer index when role lookup fails. Empty available means the slide lacks a text layout — set layout 'text' then retry, not a missing argument."
     parameters: dict[str, Any] | None = {
         "type": "object",

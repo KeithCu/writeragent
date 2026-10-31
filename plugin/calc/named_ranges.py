@@ -243,7 +243,6 @@ class NamedRangeList(ToolCalcRangeBase):
     """List all named ranges in the workbook or for a specific sheet scope."""
 
     name: str | None = "named_range_list"
-    intent: str | None = "navigate"
     description: str = "Lists named ranges and their formulas/reference targets. Supports filtering by scope ('global', 'all', or a specific sheet name)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"scope": {"type": "string", "description": "Scope to list: 'global' (default), 'all' (global + visible sheets; skips _-prefixed generated sheets), or a specific sheet name."}}}
     is_mutation: bool | None = False
@@ -282,7 +281,6 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
     """Get detailed metadata for a specific named range."""
 
     name: str | None = "named_range_get_info"
-    intent: str | None = "navigate"
     description: str = "Retrieves detailed metadata, reference coordinates, flags, and base address for a specific named range."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -305,7 +303,6 @@ class NamedRangeAdd(ToolCalcRangeBase):
     """Add a new named range to the workbook or specific sheet."""
 
     name: str | None = "named_range_add"
-    intent: str | None = "edit"
     description: str = "Defines a new named range or formula expression in the workbook (global) or specific sheet. Can specify base reference cell and type flags (e.g. 'print_area', 'filter_criteria')."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -358,7 +355,6 @@ class NamedRangeEdit(ToolCalcRangeBase):
     """Edit an existing named range: rename, change content, change base position, or change flags."""
 
     name: str | None = "named_range_edit"
-    intent: str | None = "edit"
     description: str = "Modifies an existing named range: rename, update formula/range content, change base reference position, or update flags."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -458,7 +454,6 @@ class NamedRangeDelete(ToolCalcRangeBase):
     """Delete an existing named range from the workbook or specific sheet."""
 
     name: str | None = "named_range_delete"
-    intent: str | None = "edit"
     description: str = "Deletes an existing named range from global or sheet-specific scope."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the range to delete."}, "scope": {"type": "string", "description": "Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container."}}, "required": ["name"]}
     is_mutation: bool | None = True
@@ -486,7 +481,6 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
     """Batch-create named ranges from header row/column titles."""
 
     name: str | None = "named_range_create_from_titles"
-    intent: str | None = "edit"
     description: str = "Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. Border specifies where headers are located ('top', 'bottom', 'left', 'right')."
     parameters: dict[str, Any] | None = {
         "type": "object",

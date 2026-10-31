@@ -103,7 +103,6 @@ class ListConditionalFormats(ToolCalcConditionalBase):
     """List conditional formatting rules on a cell range."""
 
     name: str | None = "list_conditional_formats"
-    intent: str | None = "navigate"
     description: str = "List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range (e.g. ["A1:D10"]). If omitted, scans used area.'}}, "required": []}
 
@@ -140,7 +139,6 @@ class AddConditionalFormat(ToolCalcConditionalBase):
     """Add a conditional formatting rule to a cell range."""
 
     name: str | None = "add_conditional_format"
-    intent: str | None = "edit"
     description: str = (
         "Add a conditional formatting rule to a Calc cell range. "
         "Applies a cell style when the condition is met. "
@@ -224,7 +222,6 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
     """Remove or clear conditional formatting rules from a cell range."""
 
     name: str | None = "remove_conditional_formats"
-    intent: str | None = "edit"
     description: str = "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices."
     parameters: dict[str, Any] | None = {
         "type": "object",

@@ -1598,7 +1598,6 @@ class ManageCharts(ToolCalcChartBase):
     """
 
     name: str | None = "manage_charts"
-    intent: str | None = "edit"
     description: str = "Manage charts: list, get_info, create, edit, or delete a chart in the current context (active sheet, document, or slide)."
     parameters: dict[str, Any] | None = {
         "type": "object",
