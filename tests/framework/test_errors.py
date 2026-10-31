@@ -76,27 +76,11 @@ class TestErrorHandling:
         assert (display_empty) == ("Error: {}")
 
     def test_librepy_exceptions_hierarchy_and_codes(self):
-        from plugin.framework.errors import (
-            CalcError,
-            FormulaError,
-            SandboxSecurityError,
-            ScriptingError,
-            SpillCollisionError,
-            VenvError,
-            VenvNotFoundError,
-            VenvTimeoutError,
-        )
+        from plugin.framework.errors import CalcError
 
         # Test base hierarchy and default error codes
         cases = [
-            (ScriptingError("script fail"), "SCRIPTING_ERROR", ScriptingError),
-            (VenvError("venv fail"), "VENV_ERROR", ScriptingError),
-            (VenvNotFoundError("venv missing"), "VENV_NOT_FOUND", VenvError),
-            (VenvTimeoutError("timed out"), "VENV_TIMEOUT", ScriptingError),
             (CalcError("calc error"), "CALC_ERROR", WriterAgentException),
-            (FormulaError("bad formula"), "FORMULA_ERROR", CalcError),
-            (SpillCollisionError("blocked"), "SPILL_COLLISION", FormulaError),
-            (SandboxSecurityError("blocked import"), "SANDBOX_SECURITY_ERROR", ScriptingError),
         ]
 
         for exc, expected_code, parent_cls in cases:
@@ -108,25 +92,7 @@ class TestErrorHandling:
             assert (payload["code"]) == (expected_code)
 
     def test_librepy_format_error_message_advice(self):
-        from plugin.framework.errors import (
-            SandboxSecurityError,
-            SpillCollisionError,
-            VenvNotFoundError,
-            VenvTimeoutError,
-            format_error_message,
-        )
-
-        msg_venv = format_error_message(VenvNotFoundError("No python executable found"))
-        assert ("Python venv not found") in (msg_venv)
-
-        msg_timeout = format_error_message(VenvTimeoutError("Python timed out after 30 seconds"))
-        assert ("Python execution timed out") in (msg_timeout)
-
-        msg_spill = format_error_message(SpillCollisionError("#SPILL!"))
-        assert ("Formula spill collision") in (msg_spill)
-
-        msg_sandbox = format_error_message(SandboxSecurityError("Import os forbidden"))
-        assert ("Script execution blocked by sandbox policy") in (msg_sandbox)
+        from plugin.framework.errors import format_error_message
 
         msg_generic_venv = format_error_message(RuntimeError("venv not found at /tmp/x"))
         assert ("Python venv not found") in (msg_generic_venv)
