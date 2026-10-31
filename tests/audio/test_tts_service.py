@@ -429,9 +429,12 @@ def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
     assert long_started.is_set()
 
 
-def test_ready_queue_backpressure_stops_past_the_cap():
+@pytest.mark.parametrize("max_clips", [2, None])
+def test_ready_queue_backpressure_stops_past_the_cap(max_clips):
+    """Prefetch stops one clip past the cap: one playing, max_clips queued, one blocked in put()."""
     import plugin.audio.tts_service as tts
 
+    cap = tts.SPEECH_READY_MAX_CLIPS if max_clips is None else max_clips
     sentences = ["A.", "B.", "C.", "D.", "E.", "F.", "G.", "H.", "I."]
     started: list[str] = []
     release_play = threading.Event()
@@ -453,9 +456,11 @@ def test_ready_queue_backpressure_stops_past_the_cap():
 
     def run() -> None:
         try:
-            with patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(
-                tts, "_play_audio_file", side_effect=play
-            ), patch.object(tts, "_speak_system", side_effect=speak_system):
+            with patch.object(tts, "SPEECH_READY_MAX_CLIPS", cap), patch.object(
+                tts, "_synthesize_sentence_clip", side_effect=synth
+            ), patch.object(tts, "_play_audio_file", side_effect=play), patch.object(
+                tts, "_speak_system", side_effect=speak_system
+            ):
                 tts._run_sentence_pipeline(
                     sentences,
                     "kokoro",
@@ -471,10 +476,10 @@ def test_ready_queue_backpressure_stops_past_the_cap():
     worker.start()
     try:
         deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and len(started) < 8:
+        while time.monotonic() < deadline and len(started) < cap + 2:
             time.sleep(0.02)
         time.sleep(0.2)
-        assert started == sentences[:8]
+        assert started == sentences[: cap + 2]
         release_play.set()
         assert finished.wait(2)
     finally:
@@ -904,9 +909,57 @@ def test_chunk_text_prefers_sentence_boundary():
     assert _chunk_text("hi") == ["hi"]
 
 
-def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path):
+def test_ready_queue_byte_cap_blocks_below_the_clip_cap():
+    """The byte budget blocks put() even when fewer than max_clips are queued.
+
+    The first two clips are always accepted (the two-clip floor), whatever
+    their size, so playback never stalls on one huge sentence.
+    """
+    import plugin.audio.tts_service as tts
+    from plugin.audio.tts_service import _ReadyClip
+
+    generation = tts._begin_utterance()
+    try:
+        floor = tts._ReadyQueue()
+        floor.max_bytes = 100
+        assert floor.put(_ReadyClip(None, "big1", 500), generation)
+        assert floor.put(_ReadyClip(None, "big2", 500), generation)
+
+        ready = tts._ReadyQueue()
+        ready.max_bytes = 100
+        for text in ("A", "B", "C"):
+            assert ready.put(_ReadyClip(None, text, 10), generation)
+        assert len(ready._clips) < ready.max_clips
+
+        result: list[bool] = []
+        done = threading.Event()
+
+        def put_big() -> None:
+            result.append(ready.put(_ReadyClip(None, "D", 80), generation))
+            done.set()
+
+        producer = threading.Thread(target=put_big)
+        producer.start()
+        # 30 + 80 bytes is over the 100-byte budget while only 3 of 6 clips are queued.
+        assert not done.wait(0.3)
+        clip = ready.get(generation)
+        assert clip is not None and clip.text == "A"
+        # 20 + 80 fits exactly, so D is admitted by bytes (not the two-clip floor).
+        assert done.wait(2)
+        producer.join(1)
+        assert result == [True]
+        assert [c.text for c in ready._clips] == ["B", "C", "D"]
+        assert ready._bytes == 100
+    finally:
+        tts.stop_speech()
+
+
+@pytest.mark.parametrize("max_clips", [2, None])
+def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path, max_clips):
     """A raise in playback must close the queue so prefetch is not stuck in put()."""
     import plugin.audio.tts_service as tts
+
+    cap = tts.SPEECH_READY_MAX_CLIPS if max_clips is None else max_clips
 
     sentences = ["A.", "B.", "C.", "D.", "E.", "F.", "G.", "H.", "I."]
     started: list[str] = []
@@ -922,7 +975,7 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path):
     def play(path, generation=None):
         del path, generation
         deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and len(started) < 8:
+        while time.monotonic() < deadline and len(started) < cap + 2:
             time.sleep(0.02)
         time.sleep(0.15)
         raise RuntimeError("player exploded")
@@ -947,7 +1000,8 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path):
 
     generation = tts._begin_utterance()
     try:
-        with patch.object(tts, "run_in_background", side_effect=track_bg), \
+        with patch.object(tts, "SPEECH_READY_MAX_CLIPS", cap), \
+             patch.object(tts, "run_in_background", side_effect=track_bg), \
              patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), \
              patch.object(tts, "_play_audio_file", side_effect=play):
             with pytest.raises(RuntimeError, match="player exploded"):

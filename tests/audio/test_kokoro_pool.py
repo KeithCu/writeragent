@@ -106,9 +106,8 @@ def test_idle_reaper_leaves_a_warm_child_before_ttl():
         def is_alive(self) -> bool:
             return True
 
-        def kill(self) -> bool:
+        def kill(self) -> None:
             self.kills += 1
-            return True
 
     # None keeps the background reaper off. The TTL is set after init so
     # this call is the only tick.
@@ -237,13 +236,13 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
     class _Stuck:
         def __init__(self) -> None:
             self.kills = 0
+            self.signals = 0
 
         def signal(self) -> None:
-            pass
+            self.signals += 1
 
-        def kill(self) -> bool:
+        def kill(self) -> None:
             self.kills += 1
-            return True
 
         def is_alive(self) -> bool:
             return False
@@ -262,8 +261,8 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
             del timeout_sec
             return {"status": "ok", "echo": payload.get("text")}
 
-        def kill(self) -> bool:
-            return True
+        def kill(self) -> None:
+            return None
 
     monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _Replacement)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
@@ -274,6 +273,7 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
     try:
         pool.cancel_inflight(token)
         assert pool._worker is None
+        assert stuck.signals == 1
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline and stuck.kills == 0:
             time.sleep(0.01)
@@ -315,8 +315,8 @@ def test_failed_handshake_is_not_executed_and_a_later_job_may_spawn(monkeypatch)
             self.executes += 1
             return {"status": "ok"}
 
-        def kill(self) -> bool:
-            return True
+        def kill(self) -> None:
+            return None
 
     monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _DeadSpawn)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
@@ -356,9 +356,8 @@ def test_dead_warm_child_is_retired_and_replaced(monkeypatch) -> None:
             self.executes += 1
             return {"status": "ok"}
 
-        def kill(self) -> bool:
+        def kill(self) -> None:
             self.kills += 1
-            return True
 
     class _Replacement:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -374,8 +373,8 @@ def test_dead_warm_child_is_retired_and_replaced(monkeypatch) -> None:
             del timeout_sec
             return {"status": "ok", "echo": payload.get("text")}
 
-        def kill(self) -> bool:
-            return True
+        def kill(self) -> None:
+            return None
 
     monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _Replacement)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
@@ -454,14 +453,14 @@ def test_cancel_inflight_returns_while_reap_blocks() -> None:
     class _SlowKill:
         def __init__(self) -> None:
             self.kills = 0
+            self.signals = 0
 
         def signal(self) -> None:
-            pass
+            self.signals += 1
 
-        def kill(self) -> bool:
+        def kill(self) -> None:
             time.sleep(2)
             self.kills += 1
-            return True
 
         def is_alive(self) -> bool:
             return True
@@ -477,6 +476,7 @@ def test_cancel_inflight_returns_while_reap_blocks() -> None:
         elapsed = time.monotonic() - t0
         assert elapsed < 0.3
         assert pool._worker is None
+        assert slow.signals == 1
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline and slow.kills == 0:
             time.sleep(0.02)
@@ -565,9 +565,8 @@ def test_cancel_check_true_keeps_warm_worker() -> None:
         def is_alive(self) -> bool:
             return True
 
-        def kill(self) -> bool:
+        def kill(self) -> None:
             self.kills += 1
-            return True
 
         def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
             del timeout_sec
@@ -622,8 +621,8 @@ def test_execute_logs_each_warning_once(caplog) -> None:
         def is_alive(self) -> bool:
             return True
 
-        def kill(self) -> bool:
-            return True
+        def kill(self) -> None:
+            return None
 
         def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
             del payload, timeout_sec
@@ -738,10 +737,9 @@ def test_respawn_uses_clock_and_expires(monkeypatch):
         def is_alive(self):
             return self._alive
 
-        def kill(self):
+        def kill(self) -> None:
             kills.append(True)
             self._alive = False
-            return True
 
         def execute(self, payload, timeout_sec):
             executes.append(True)
