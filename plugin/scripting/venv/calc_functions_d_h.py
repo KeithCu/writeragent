@@ -13,6 +13,7 @@ import calendar
 import datetime as dt
 from decimal import Decimal
 import math
+import urllib.parse
 from typing import Any, Callable
 
 import numpy as np
@@ -182,9 +183,7 @@ def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
     # equal, before it checks the unit. Any other unknown unit is
     # PushIllegalArgument. The fall-through used to return the day count
     # for "X" as well.
-    if sd == ed:
-        return 0.0
-    return float("nan")
+    return 0.0 if sd == ed else float("nan")
 
 
 def datevalue(text: Any) -> float:
@@ -197,8 +196,8 @@ def datevalue(text: Any) -> float:
     return float("nan")
 
 
-def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) -> list[Any] | None:
-    """Shared helper for D* functions (DSUM, DAVERAGE, DMAX, DMIN, etc.)."""
+def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[Any] | None:
+    """Shared row match for D* functions. Values are the raw cells."""
     db_arr = np.asarray(db, dtype=object)
     if db_arr.ndim != 2 or db_arr.shape[0] == 0 or db_arr.shape[1] == 0:
         return None
@@ -256,26 +255,7 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
             for i in range(1, crit_arr.shape[0])
         ):
             continue
-        val = row[f_idx]
-        if not as_float:
-            matching_vals.append(val)
-            continue
-        # Strings are not numbers. ScDBQueryParamBase starts with
-        # mbSkipString true (queryparam.cxx). DSUM uses that iterator.
-        # DCOUNTA sets the flag false and calls this with
-        # as_float=False, so text still counts there. float("5") used
-        # to add the text. A bool stays: Calc stores TRUE as a numeric
-        # cell, so float(True) is 1. NaN is missing (is_missing_value)
-        # and must not poison the aggregate.
-        if isinstance(val, str):
-            continue
-        try:
-            num = float(val)
-        except (ValueError, TypeError, OverflowError):
-            continue
-        if math.isnan(num):
-            continue
-        matching_vals.append(num)
+        matching_vals.append(row[f_idx])
     return matching_vals
 
 
@@ -296,9 +276,26 @@ def _dagg(
     is how many numbers ``reduce`` needs. ``np.prod([])`` is 1, so DPRODUCT
     uses ``min_n`` 1 and ``empty`` 0 instead of calling prod on nothing.
     """
-    vals = _eval_d_criteria(database, field, criteria)
-    if vals is None:
+    matched = _eval_d_criteria(database, field, criteria)
+    if matched is None:
         return float("nan")
+    # Strings are not numbers. ScDBQueryParamBase starts with
+    # mbSkipString true (queryparam.cxx). DSUM uses that iterator.
+    # DCOUNTA and DGET do not come through here, so text still counts
+    # there. float("5") used to add the text. A bool stays: Calc stores
+    # TRUE as a numeric cell, so float(True) is 1. NaN is missing
+    # (is_missing_value) and must not poison the aggregate.
+    vals: list[float] = []
+    for val in matched:
+        if isinstance(val, str):
+            continue
+        try:
+            num = float(val)
+        except (ValueError, TypeError, OverflowError):
+            continue
+        if math.isnan(num):
+            continue
+        vals.append(num)
     if len(vals) < min_n:
         return empty
     return float(reduce(vals))
@@ -362,7 +359,7 @@ def dcount(db: Any, field: Any, criteria: Any) -> float:
 
 
 def dcounta(db: Any, field: Any, criteria: Any) -> float:
-    vals = _eval_d_criteria(db, field, criteria, as_float=False)
+    vals = _eval_d_criteria(db, field, criteria)
     return float(sum(1 for v in vals if v is not None and v != "")) if vals is not None else float("nan")
 
 
@@ -425,7 +422,7 @@ def devsq(*args: Any) -> float:
 
 
 def dget(db: Any, field: Any, criteria: Any) -> Any:
-    vals = _eval_d_criteria(db, field, criteria, as_float=False)
+    vals = _eval_d_criteria(db, field, criteria)
     if vals is None:
         return "#VALUE!"
     if len(vals) == 1:
@@ -450,9 +447,7 @@ def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 
     if math.isnan(yf) or yf <= 0:
         return float("nan")
     result = (red - p) / red / yf
-    if not math.isfinite(result):
-        return float("nan")
-    return float(result)
+    return float(result) if math.isfinite(result) else float("nan")
 
 
 def dmax(db: Any, field: Any, criteria: Any) -> float:
@@ -488,13 +483,6 @@ def dollar(number: Any, decimals: Any = 2) -> str | float:
     return f"-${magnitude}" if q < 0 else f"${magnitude}"
 
 
-def _fractional_dollar_digits(fraction: int) -> int:
-    """Digits Excel/Calc use when reading a fractional dollar price."""
-    if fraction <= 1:
-        return 0
-    return math.ceil(math.log10(fraction))
-
-
 def _dollar_fraction_terms(
     amount: Any, fraction: Any
 ) -> tuple[float, float, float, int, int] | None:
@@ -517,7 +505,8 @@ def _dollar_fraction_terms(
     amt = abs(amt)
     i_part = math.floor(amt)
     f_part = amt - i_part
-    scale = 10 ** _fractional_dollar_digits(f)
+    # Excel/Calc digit count is ceil(log10(f)). A fraction of 1 has scale 1.
+    scale = 1 if f <= 1 else 10 ** math.ceil(math.log10(f))
     return sign, float(i_part), f_part, f, scale
 
 
@@ -615,10 +604,8 @@ def _month_shift_serial(start_date: Any, months: Any, *, end_of_month: bool) -> 
         return float("nan")
     # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
     month_delta = int(float(months))
-    y, m = sd.year, sd.month
-    m += month_delta
-    y += (m - 1) // 12
-    m = (m - 1) % 12 + 1
+    y, m = divmod(sd.year * 12 + sd.month - 1 + month_delta, 12)
+    m += 1
     try:
         dim = calendar.monthrange(y, m)[1]
         d = dim if end_of_month else min(sd.day, dim)
@@ -649,8 +636,6 @@ def effect(nominal_rate: Any, npery: Any) -> float:
 
 def encodeurl(text: Any) -> str:
     # type errors are left to the worker exception path, which returns #VALUE!
-    import urllib.parse
-
     return urllib.parse.quote(str(text), safe="")
 
 
@@ -836,9 +821,7 @@ def finv(p: Any, r1: Any, r2: Any) -> float:
     if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1:
         return float("nan")
     result = float(st.f.isf(prob, df1, df2))
-    if not math.isfinite(result):
-        return float("nan")
-    return result
+    return result if math.isfinite(result) else float("nan")
 
 
 def fisher(x: Any) -> float:
@@ -968,9 +951,7 @@ def gammainv(p: Any, alpha: Any, beta: Any) -> float:
     if prob < 0 or prob >= 1 or a <= 0 or b <= 0:
         return float("nan")
     result = float(st.gamma.ppf(prob, a, scale=b))
-    if not math.isfinite(result):
-        return float("nan")
-    return result
+    return result if math.isfinite(result) else float("nan")
 
 
 def gammaln(x: Any) -> float:

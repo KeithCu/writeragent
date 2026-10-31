@@ -17,10 +17,7 @@ from plugin.scripting.venv.calc_functions_a_c import (
     _int_bitwise,
     _int_shift,
 )
-from plugin.scripting.venv.calc_functions_d_h import (
-    _dollar_fraction_terms,
-    _fractional_dollar_digits,
-)
+from plugin.scripting.venv.calc_functions_d_h import _dollar_fraction_terms
 from plugin.scripting.venv.calc_functions_t_z import _find_match_index
 from plugin.scripting.venv.calc_functions_util import (
     _build_holiday_set,
@@ -322,11 +319,6 @@ def test_criteria_numbers():
 
 
 def test_dollar_fraction_terms():
-    assert _fractional_dollar_digits(1) == 0
-    assert _fractional_dollar_digits(4) == 1
-    assert _fractional_dollar_digits(16) == 2
-    assert _fractional_dollar_digits(32) == 2
-
     # dollarde terms
     terms = _dollar_fraction_terms(1.02, 4)
     assert terms is not None
@@ -483,7 +475,7 @@ def test_eval_d_criteria():
     # Match Pear
     crit = [["Tree"], ["Pear"]]
     vals = _eval_d_criteria(db, "Height", crit)
-    assert vals == [15.0]
+    assert vals == [15]
 
     # No match returns empty list []
     crit_none = [["Tree"], ["Orange"]]
@@ -498,7 +490,9 @@ def test_eval_d_criteria():
     # Text is skipped, TRUE is 1, NaN is missing. An unknown header is an error.
     mixed = [["Name", "Score"], ["A", "5"], ["B", True], ["C", 2.0], ["D", float("nan")]]
     mixed_crit = [["Name"], ["A"], ["B"], ["C"], ["D"]]
-    assert _eval_d_criteria(mixed, "Score", mixed_crit) == [1.0, 2.0]
+    raw = _eval_d_criteria(mixed, "Score", mixed_crit)
+    assert raw[:3] == ["5", True, 2.0]
+    assert len(raw) == 4 and isinstance(raw[3], float) and math.isnan(raw[3])
     assert _eval_d_criteria(mixed, "Score", [["Nope"], ["A"]]) is None
 
     # Duplicate database headers: the name is the first column. Index 2 is the second.
