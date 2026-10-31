@@ -95,34 +95,28 @@ __all__ = [
 ]
 
 
-_EURO_RATES: dict[str, float] = {
-    "EUR": 1.0,
-    "ATS": 13.7603,
-    "BEF": 40.3399,
-    "DEM": 1.95583,
-    "ESP": 166.386,
-    "FIM": 5.94573,
-    "FRF": 6.55957,
-    "IEP": 0.787564,
-    "ITL": 1936.27,
-    "LUF": 40.3399,
-    "NLG": 2.20371,
-    "PTE": 200.482,
-    "GRD": 340.750,
-    "SIT": 239.640,
-    "CYP": 0.585274,
-    "MTL": 0.429300,
-    "SKK": 30.1260,
-    "EEK": 15.6466,
-    "LVL": 0.702804,
-    "LTL": 3.45280,
-}
-
-_EURO_DECIMALS: dict[str, int] = {
-    "EUR": 2, "ATS": 2, "BEF": 0, "DEM": 2, "ESP": 0, "FIM": 2,
-    "FRF": 2, "IEP": 2, "ITL": 0, "LUF": 0, "NLG": 2, "PTE": 0,
-    "GRD": 0, "SIT": 2, "CYP": 2, "MTL": 2, "SKK": 2, "EEK": 2,
-    "LVL": 2, "LTL": 2,
+# (rate to EUR, display decimals)
+_EURO: dict[str, tuple[float, int]] = {
+    "EUR": (1.0, 2),
+    "ATS": (13.7603, 2),
+    "BEF": (40.3399, 0),
+    "DEM": (1.95583, 2),
+    "ESP": (166.386, 0),
+    "FIM": (5.94573, 2),
+    "FRF": (6.55957, 2),
+    "IEP": (0.787564, 2),
+    "ITL": (1936.27, 0),
+    "LUF": (40.3399, 0),
+    "NLG": (2.20371, 2),
+    "PTE": (200.482, 0),
+    "GRD": (340.750, 0),
+    "SIT": (239.640, 2),
+    "CYP": (0.585274, 2),
+    "MTL": (0.429300, 2),
+    "SKK": (30.1260, 2),
+    "EEK": (15.6466, 2),
+    "LVL": (0.702804, 2),
+    "LTL": (3.45280, 2),
 }
 
 
@@ -179,10 +173,7 @@ def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
         if u == "YM":
             return float(months % 12)
         if u == "YD":
-            if (ed.month, ed.day) >= (sd.month, sd.day):
-                year = ed.year
-            else:
-                year = ed.year - 1
+            year = ed.year - ((ed.month, ed.day) < (sd.month, sd.day))
             anchor = _roll_ymd(year, sd.month, sd.day)
             return float((ed - anchor).days)
     except (ValueError, OverflowError):
@@ -200,8 +191,7 @@ def datevalue(text: Any) -> float:
     s = str(text).strip().strip('"')
     for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%b-%Y"):
         try:
-            parsed = dt.datetime.strptime(s, fmt)
-            return _date_to_serial(parsed)
+            return _date_to_serial(dt.datetime.strptime(s, fmt))
         except ValueError:
             continue
     return float("nan")
@@ -220,22 +210,18 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
         header_index.setdefault(name, idx)
 
     f_idx = -1
-    if isinstance(field, str) or isinstance(field, bool):
-        # bool is an int subclass. int(True) - 1 would select column 0 when
-        # the label "TRUE" is missing. A bool field is the header text.
-        f_name = header_label(field).upper()
-        if f_name in header_index:
-            f_idx = header_index[f_name]
-    elif isinstance(field, (int, float)):
+    # bool is an int subclass. int(True) - 1 would select column 0 when
+    # the label "TRUE" is missing. A bool field is the header text.
+    if isinstance(field, (int, float)) and not isinstance(field, bool):
         try:
             f_idx = int(field) - 1
         except (ValueError, TypeError, OverflowError):
             f_idx = -1
-    elif field is not None and field != "":
+    elif field is not None:
         f_name = header_label(field).upper()
         if f_name in header_index:
             f_idx = header_index[f_name]
-        else:
+        elif not isinstance(field, (str, bool)):
             try:
                 f_idx = int(float(field)) - 1
             except (ValueError, TypeError, OverflowError):
@@ -247,15 +233,14 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
     crit_arr = np.asarray(criteria, dtype=object)
     if crit_arr.ndim != 2:
         return None
-    crit_headers = [header_label(h).upper() for h in crit_arr[0]]
 
     # lcl_createExcelQuery (doubleref.cxx) requires every criteria header
     # to name a database column. A miss makes createQueryParam return
     # nullptr, and DBIterator sets IllegalParameter. Skipping the column
     # used to match every row.
     crit_cols: list[int] = []
-    for c_header in crit_headers:
-        col = header_index.get(c_header)
+    for h in crit_arr[0]:
+        col = header_index.get(header_label(h).upper())
         if col is None:
             return None
         crit_cols.append(col)
@@ -263,41 +248,34 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
     matching_vals: list[Any] = []
     for r_idx in range(1, db_arr.shape[0]):
         row = db_arr[r_idx]
-        match_any_row = False
-        for c_row_idx in range(1, crit_arr.shape[0]):
-            match_all_cols = True
-            for c_col_idx in range(crit_arr.shape[1]):
-                c_val = crit_arr[c_row_idx, c_col_idx]
-                if is_missing_value(c_val):
-                    continue
-                if not match_criteria(row[crit_cols[c_col_idx]], c_val):
-                    match_all_cols = False
-                    break
-            if match_all_cols:
-                match_any_row = True
-                break
-
-        if match_any_row:
-            val = row[f_idx]
-            if as_float:
-                # Strings are not numbers. ScDBQueryParamBase starts with
-                # mbSkipString true (queryparam.cxx). DSUM uses that iterator.
-                # DCOUNTA sets the flag false and calls this with
-                # as_float=False, so text still counts there. float("5") used
-                # to add the text. A bool stays: Calc stores TRUE as a numeric
-                # cell, so float(True) is 1. NaN is missing (is_missing_value)
-                # and must not poison the aggregate.
-                if isinstance(val, str):
-                    continue
-                try:
-                    num = float(val)
-                except (ValueError, TypeError, OverflowError):
-                    continue
-                if math.isnan(num):
-                    continue
-                matching_vals.append(num)
-            else:
-                matching_vals.append(val)
+        if not any(
+            all(
+                is_missing_value(c) or match_criteria(row[crit_cols[j]], c)
+                for j, c in enumerate(crit_arr[i])
+            )
+            for i in range(1, crit_arr.shape[0])
+        ):
+            continue
+        val = row[f_idx]
+        if not as_float:
+            matching_vals.append(val)
+            continue
+        # Strings are not numbers. ScDBQueryParamBase starts with
+        # mbSkipString true (queryparam.cxx). DSUM uses that iterator.
+        # DCOUNTA sets the flag false and calls this with
+        # as_float=False, so text still counts there. float("5") used
+        # to add the text. A bool stays: Calc stores TRUE as a numeric
+        # cell, so float(True) is 1. NaN is missing (is_missing_value)
+        # and must not poison the aggregate.
+        if isinstance(val, str):
+            continue
+        try:
+            num = float(val)
+        except (ValueError, TypeError, OverflowError):
+            continue
+        if math.isnan(num):
+            continue
+        matching_vals.append(num)
     return matching_vals
 
 
@@ -498,12 +476,6 @@ def _format_quantized(q: Decimal, decimals: int, *, commas: bool) -> str:
     return f"{q:,.{places}f}" if commas else f"{q:.{places}f}"
 
 
-def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
-    """Format ``val`` after rounding half-up to ``decimals`` places."""
-    # Half away from zero (2.5 -> 3, -2.5 -> -3). Python round() is half-to-even.
-    return _format_quantized(_round_half_up(val, decimals), decimals, commas=commas)
-
-
 def dollar(number: Any, decimals: Any = 2) -> str | float:
     # The minus sits before the dollar sign (-$1,234.57), after half-up rounding.
     # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf decimals) is #NUM! on that path.
@@ -691,9 +663,8 @@ def erf(lower: Any, upper: Any | None = None) -> float:
     # type errors are left to the worker exception path, which returns #VALUE!
     lo = float(lower)
     if upper is None:
-        return float(math.erf(lo))
-    u = float(upper)
-    return float(math.erf(u) - math.erf(lo))
+        return math.erf(lo)
+    return math.erf(float(upper)) - math.erf(lo)
 
 
 def erfc(x: Any) -> float:
@@ -707,7 +678,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     from_curr = str(from_currency).upper().strip()
     to_curr = str(to_currency).upper().strip()
 
-    if from_curr not in _EURO_RATES or to_curr not in _EURO_RATES:
+    if from_curr not in _EURO or to_curr not in _EURO:
         return float("nan")
 
     if from_curr == to_curr:
@@ -716,7 +687,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     if from_curr == "EUR":
         eur_val = val
     else:
-        eur_val = val / _EURO_RATES[from_curr]
+        eur_val = val / _EURO[from_curr][0]
         if triangulation_precision is not None:
             try:
                 sig_f = float(triangulation_precision)
@@ -730,7 +701,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     if to_curr == "EUR":
         res = eur_val
     else:
-        res = eur_val * _EURO_RATES[to_curr]
+        res = eur_val * _EURO[to_curr][0]
 
     try:
         is_full = _as_nonzero(full_precision)
@@ -742,7 +713,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
 
     if not is_full:
         # Half away from zero, same as FIXED and DOLLAR. Python round() is half-to-even.
-        res = float(_round_half_up(res, _EURO_DECIMALS[to_curr]))
+        res = float(_round_half_up(res, _EURO[to_curr][1]))
     return res
 
 
@@ -818,41 +789,33 @@ def fdist(x: Any, r1: Any, r2: Any) -> float:
 def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
     # An (n, 1) include filters rows; a (1, m) include filters columns.
     # Treating either as an elementwise mask raises IndexError.
+    # On a square range a length-n vector filters rows and a (1, n)
+    # include filters columns. Those shapes are checked before a size tie.
     try:
         arr = np.asarray(range_arr)
         crit = np.asarray(criteria)
-        if arr.ndim == 1:
-            crit_flat = crit.ravel()
-            if len(crit_flat) != len(arr):
-                return "#VALUE!"
-            mask = np.asarray([_as_nonzero(x) for x in crit_flat])
-            out = arr[mask]
-        elif arr.ndim == 2:
-            if crit.ndim == 1:
-                if len(crit) == arr.shape[0]:
-                    mask = np.asarray([_as_nonzero(x) for x in crit])
-                    out = arr[mask]
-                elif len(crit) == arr.shape[1]:
-                    mask = np.asarray([_as_nonzero(x) for x in crit])
-                    out = arr[:, mask]
-                else:
-                    return "#VALUE!"
-            elif crit.ndim == 2:
-                if crit.shape == (arr.shape[0], 1):
-                    mask = np.asarray([_as_nonzero(x) for x in crit.ravel()])
-                    out = arr[mask]
-                elif crit.shape == (1, arr.shape[1]):
-                    mask = np.asarray([_as_nonzero(x) for x in crit.ravel()])
-                    out = arr[:, mask]
-                elif crit.shape == arr.shape:
-                    mask = np.asarray([_as_nonzero(x) for x in crit.ravel()]).reshape(crit.shape)
-                    out = arr[mask]
-                else:
-                    return "#VALUE!"
-            else:
-                return "#VALUE!"
+        if arr.ndim == 1 and crit.size == arr.size:
+            axis = "flat"
+        elif arr.ndim == 2 and crit.ndim == 1 and crit.size == arr.shape[0]:
+            axis = "row"
+        elif arr.ndim == 2 and crit.ndim == 1 and crit.size == arr.shape[1]:
+            axis = "col"
+        elif arr.ndim == 2 and crit.ndim == 2 and crit.shape == (arr.shape[0], 1):
+            axis = "row"
+        elif arr.ndim == 2 and crit.ndim == 2 and crit.shape == (1, arr.shape[1]):
+            axis = "col"
+        elif arr.ndim == 2 and crit.ndim == 2 and crit.shape == arr.shape:
+            axis = "elem"
         else:
             return "#VALUE!"
+        source = crit if axis != "flat" and crit.ndim == 1 else crit.ravel()
+        mask = np.asarray([_as_nonzero(x) for x in source])
+        if axis == "elem":
+            out = arr[mask.reshape(arr.shape)]
+        elif axis == "col":
+            out = arr[:, mask]
+        else:
+            out = arr[mask]
     except (ValueError, TypeError, IndexError, OverflowError):
         return "#VALUE!"
     if out.size == 0:
@@ -902,7 +865,8 @@ def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float
     # Non-finite input is #NUM!. _round_half_up(inf) raises ValueError (#VALUE!).
     if not math.isfinite(val):
         return float("nan")
-    return _format_rounded(val, dec, commas=not nc)
+    # Half away from zero (2.5 -> 3, -2.5 -> -3). Python round() is half-to-even.
+    return _format_quantized(_round_half_up(val, dec), dec, commas=not nc)
 
 
 def forecast(x: Any, data_y: Any, data_x: Any) -> float:
