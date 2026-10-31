@@ -86,7 +86,6 @@ class _KokoroWorker:
 
     _ready_timeout_sec: float
     _managed: ManagedSubprocess
-    _shutting_down: bool
     _killed: bool
 
     def __init__(
@@ -107,7 +106,6 @@ class _KokoroWorker:
             stderr_name_with_pid=True,
             label="Kokoro",
         )
-        self._shutting_down = False
         self._killed = False
 
     def stderr_tail(self) -> str:
@@ -117,7 +115,7 @@ class _KokoroWorker:
         return text.strip()[-500:]
 
     def respawn(self) -> None:
-        if self._shutting_down:
+        if self._killed:
             return
         try:
             self._managed.start()
@@ -126,11 +124,9 @@ class _KokoroWorker:
             self.kill()
             return
 
-        if self._shutting_down:
+        if self._killed:
             self.kill()
             return
-
-        proc = self._managed.popen
 
         stdout = self._managed.stdout
         if stdout is None:
@@ -150,7 +146,7 @@ class _KokoroWorker:
                 return
             log.info(
                 "Kokoro worker spawned (pid=%s, status=%s)",
-                ready_data.get("pid", getattr(proc, "pid", None)),
+                ready_data.get("pid", self._managed.pid),
                 ready_data.get("status"),
             )
         except Exception as exc:
@@ -210,13 +206,7 @@ class _KokoroWorker:
     def is_alive(self) -> bool:
         return not self._killed and self._managed.is_alive()
 
-    def is_shutting_down(self) -> bool:
-        return self._shutting_down
-
-    def request_shutdown(self) -> None:
-        self._shutting_down = True
-
-    def kill(self) -> bool:
+    def kill(self) -> None:
         # What was wrong: when spawn failed (missing script), respawn() called
         # kill(), which signaled and abandoned the process to the background
         # reaper without waiting for it to be reaped. is_alive() returned True
@@ -228,13 +218,12 @@ class _KokoroWorker:
         # immediately, surfacing spawn failures as WORKER_SPAWN_FAILED.
         self._killed = True
         self._managed.kill_tree()
-        if not bool(self._managed.is_alive()):
+        if not self._managed.is_alive():
             self._managed.close_stdio()
             if self._managed.wait_once():
                 self._managed.unregister()
-                return True
+                return
         self._managed.abandon()
-        return True
 
     def signal(self) -> None:
         """Signal the child process directly without waiting or closing stdin.
@@ -247,6 +236,9 @@ class _KokoroWorker:
         Windows); the job thread unblocks on EPIPE/EOF and leaves the pipe; kill
         still does not close pipes.
         """
+        # Popen may not have published popen yet. _killed is what makes
+        # respawn kill that child after start() returns.
+        self._killed = True
         proc = self._managed.popen
         if proc is None:
             return
@@ -345,7 +337,7 @@ class KokoroProcessPool:
                 existing = self._worker
                 # A dead slot is not warm. kill() has already dropped a child it
                 # could not reap, so is_alive() is false and this job may spawn.
-                reuse = existing is not None and existing.is_alive() and not existing.is_shutting_down()
+                reuse = existing is not None and existing.is_alive()
 
             deadline = Deadline(eff_timeout)
             token_stolen = False
@@ -353,7 +345,7 @@ class KokoroProcessPool:
             spawned_worker: _KokoroWorker | None = None
             try:
                 if existing is not None and not reuse:
-                    self._retire_worker(existing)
+                    existing.kill()
                     with self._lock:
                         if self._worker is existing:
                             self._worker = None
@@ -397,9 +389,8 @@ class KokoroProcessPool:
                             failed = False
                             with self._lock:
                                 # Token drop means Stop or shutdown. A crashed handshake
-                                # kills the child without setting ``_shutting_down``, so
-                                # that flag is not "cancelled": a real spawn failure must
-                                # stay WORKER_SPAWN_FAILED and fall back to the one-shot clip.
+                                # calls kill(), so a real spawn failure must stay
+                                # WORKER_SPAWN_FAILED and fall back to the one-shot clip.
                                 spawn_cancelled = self._shutdown or self._exec_token is not token
                                 # A handshake that could not reap has already dropped the
                                 # child, so is_alive() is false and this stays a failed spawn.
@@ -407,7 +398,7 @@ class KokoroProcessPool:
                                 if failed and self._worker is spawned:
                                     self._worker = None
                             if failed:
-                                self._retire_worker(spawned)
+                                spawned.kill()
                                 if spawn_cancelled:
                                     result = error_dict(WORKER_CANCELLED, "Kokoro worker spawn was cancelled.")
                                 elif deadline.left() < _MIN_SPAWN_REMAINING_SEC:
@@ -416,7 +407,7 @@ class KokoroProcessPool:
                                     result = _error_with_tail("WORKER_SPAWN_FAILED", "Kokoro worker could not be started.", spawned.stderr_tail())
                             else:
                                 if deadline.left() <= 0:
-                                    self._retire_worker(spawned)
+                                    spawned.kill()
                                     with self._lock:
                                         if self._worker is spawned:
                                             self._worker = None
@@ -468,8 +459,8 @@ class KokoroProcessPool:
         """Kill the child only when a job is running. Idle warm processes stay up.
 
         Drop ``_exec_token`` so the spawner cannot adopt the child, and kill
-        the process if it has already been published. ``request_shutdown``
-        makes an in-flight ``respawn`` discard the child instead of
+        the process if it has already been published. ``signal()`` sets
+        ``_killed`` so an in-flight ``respawn`` discards the child instead of
         publishing it. The worker is stored before ``respawn`` so Stop
         during the ready handshake still finds it.
         """
@@ -483,7 +474,6 @@ class KokoroProcessPool:
             self._exec_token = None
         if worker is not None:
             log.info("Cancelling in-flight Kokoro synthesis")
-            worker.request_shutdown()
             worker.signal()
             # close() waits up to 3 seconds and then up to 1 second on the
             # stderr drain; stop_speech runs on the UI thread and already reaps
@@ -508,17 +498,7 @@ class KokoroProcessPool:
         if not expired:
             return
         log.info("Kokoro worker idle for >%.0fs; releasing the ONNX model", ttl)
-        self._retire_worker(worker)
-
-    def _retire_worker(self, worker: _KokoroWorker) -> None:
-        """request_shutdown plus kill calls kill_tree then abandon (group SIGKILL, no pipe close, no wait on this thread; the abandon reaper does the five 1s passes). It is not close() and it is not the compute handshake."""
-        worker.request_shutdown()
         worker.kill()
-
-    def token_if_inflight(self) -> object | None:
-        """Return the active job's token when a job is inflight, else None."""
-        with self._lock:
-            return self._exec_token
 
     def shutdown(self) -> None:
         self._reaper_stop.set()
@@ -530,7 +510,7 @@ class KokoroProcessPool:
             # does not fall through to a one-shot Kokoro clip.
             self._exec_token = None
         if worker is not None:
-            self._retire_worker(worker)
+            worker.kill()
 
 
 _POOL: KokoroProcessPool | None = None
@@ -586,9 +566,10 @@ def get_kokoro_inflight_token() -> object | None:
     """Return an opaque token for the active job, or None."""
     with _POOL_LOCK:
         pool = _POOL
-    if pool is not None:
-        return pool.token_if_inflight()
-    return None
+    if pool is None:
+        return None
+    with pool._lock:
+        return pool._exec_token
 
 
 def cancel_kokoro_inflight(token: object | None = None) -> None:

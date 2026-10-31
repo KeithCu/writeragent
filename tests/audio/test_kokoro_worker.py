@@ -18,9 +18,6 @@ from plugin.audio import kokoro_worker
 
 def _install_fake_kokoro(monkeypatch, inits: list[tuple[str, str]]):
     kokoro_worker._loaded = None
-    kokoro_worker._loaded_key = None
-    kokoro_worker._kokoro_cls = None
-    kokoro_worker._soundfile = None
     kokoro_worker._import_failure = None
 
     class Kokoro:
@@ -29,7 +26,7 @@ def _install_fake_kokoro(monkeypatch, inits: list[tuple[str, str]]):
         def __init__(self, model_path: str, voices_path: str) -> None:
             inits.append((model_path, voices_path))
 
-        def create(self, text: str, voice: str, speed: float, lang: str):
+        def create(self, text: str, voice: str, speed: float, lang: str, is_phonemes: bool = False):
             assert voice == "af_bella"
             assert lang == "en-us"
             return [0.0, float(len(text))], 24000
@@ -232,9 +229,6 @@ def test_handle_kokoro_job_rejects_empty_samples(tmp_path, monkeypatch):
 
 def test_handle_kokoro_job_cached_import_failure(monkeypatch, tmp_path):
     kokoro_worker._loaded = None
-    kokoro_worker._loaded_key = None
-    kokoro_worker._kokoro_cls = None
-    kokoro_worker._soundfile = None
     kokoro_worker._import_failure = None
     call_count = 0
     orig_import = __import__
@@ -267,9 +261,6 @@ def test_handle_kokoro_job_cached_import_failure(monkeypatch, tmp_path):
         assert call_count == 1
     finally:
         kokoro_worker._loaded = None
-        kokoro_worker._loaded_key = None
-        kokoro_worker._kokoro_cls = None
-        kokoro_worker._soundfile = None
         kokoro_worker._import_failure = None
 
 
@@ -280,9 +271,6 @@ def test_handle_kokoro_job_rejects_missing_path():
 
 def _install_voice_kokoro(monkeypatch, voices: list[str], seen: list[dict]):
     kokoro_worker._loaded = None
-    kokoro_worker._loaded_key = None
-    kokoro_worker._kokoro_cls = None
-    kokoro_worker._soundfile = None
     kokoro_worker._import_failure = None
 
     class Kokoro:
@@ -455,9 +443,6 @@ def test_fallback_voice_npz_without_af_sky(tmp_path, monkeypatch):
 
     seen: list[dict] = []
     kokoro_worker._loaded = None
-    kokoro_worker._loaded_key = None
-    kokoro_worker._kokoro_cls = None
-    kokoro_worker._soundfile = None
     kokoro_worker._import_failure = None
 
     class Kokoro:
@@ -524,9 +509,6 @@ def test_fallback_voice_empty_container(tmp_path, monkeypatch):
 
 def test_speed_zero_is_kept(tmp_path, monkeypatch):
     kokoro_worker._loaded = None
-    kokoro_worker._loaded_key = None
-    kokoro_worker._kokoro_cls = None
-    kokoro_worker._soundfile = None
     kokoro_worker._import_failure = None
     recorded_speed = []
 
@@ -536,7 +518,7 @@ def test_speed_zero_is_kept(tmp_path, monkeypatch):
         def __init__(self, model_path: str, voices_path: str) -> None:
             del model_path, voices_path
 
-        def create(self, text: str, voice: str, speed: float, lang: str):
+        def create(self, text: str, voice: str, speed: float, lang: str, is_phonemes: bool = False):
             recorded_speed.append(speed)
             return [0.0], 24000
 
