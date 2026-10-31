@@ -160,8 +160,6 @@ KOKORO_FALLBACK_VOICE = _parsed["fallbacks"]["kokoro"]
 KOKORO_OPENAI_ALIASES = _parsed["kokoro_aliases"]
 VOICE_CATALOGS = _parsed["voice_catalogs"]
 DEFAULT_VOICE_FOR_FAMILY = {
-    "kokoro": KOKORO_FALLBACK_VOICE,
-    "piper": PIPER_FALLBACK_VOICE,
     "openai": _parsed["fallbacks"]["openai"],
     "system": _parsed["fallbacks"]["system"],
 }
@@ -173,22 +171,4 @@ def voice_short_name(voice_id: str) -> str:
     """Human name from the catalog, e.g. Thorsten for ``de_DE-thorsten-medium``."""
     # Deliberately uses first segment before ' (' rather than a trailing paren group
     clean = (voice_id or "").split(" (")[0].strip()
-    named = _SHORT_NAMES.get(clean)
-    if named:
-        return named
-    return clean or voice_id
-
-
-__all__ = [
-    "CATALOG_PATH",
-    "DEFAULT_VOICE_FOR_FAMILY",
-    "KOKORO_CATALOG_ITEMS",
-    "KOKORO_FALLBACK_VOICE",
-    "KOKORO_OPENAI_ALIASES",
-    "LOCALE_TO_KOKORO_DEFAULT",
-    "LOCALE_TO_PIPER_DEFAULT",
-    "PIPER_FALLBACK_VOICE",
-    "PIPER_VOICE_MODELS",
-    "VOICE_CATALOGS",
-    "voice_short_name",
-]
+    return _SHORT_NAMES.get(clean) or clean or voice_id
