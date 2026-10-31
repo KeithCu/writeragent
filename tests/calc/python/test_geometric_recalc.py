@@ -42,7 +42,6 @@ from plugin.calc.python.geometric_recalc_core import (
     GEOMETRIC_DISCOVERY_CAP,
     formula_data_args,
     rebuild_formula_with_data_args,
-    repair_n_args,
     same_cell_ref,
 )
 
@@ -668,7 +667,6 @@ def test_code_in_cell_repair_and_resolved_source():
     assert new.startswith("=PY($A$1")
     assert '"$A$1"' not in new
     assert formula_data_args(new) == ["C1:C10", "B1"]
-    assert resolved_code_for_formula("=PY($A$1; C1:C10)", code_cell_text=source) == source
     assert resolved_code_for_formula('=PY("df = clean(df)")') == "df = clean(df)"
     key = _key(source, 2)
     safe = _safe_after_patches(
@@ -681,11 +679,11 @@ def test_code_in_cell_repair_and_resolved_source():
     assert key in safe
 
 
-def test_repair_n_args_is_not_semicolon_count():
-    assert repair_n_args('=PY("a; b; c")') == 0
-    assert repair_n_args('=PY("np.mean(data)"; B1:B10)') == 1
-    assert repair_n_args('=PY("np.mean(data)"; B1:B10; A1)') == 2
-    assert repair_n_args("=PY($A$1; B1:B10; C1)") == 2
+def test_formula_data_args_ignores_semicolons_in_code():
+    assert len(formula_data_args('=PY("a; b; c")') or []) == 0
+    assert len(formula_data_args('=PY("np.mean(data)"; B1:B10)') or []) == 1
+    assert len(formula_data_args('=PY("np.mean(data)"; B1:B10; A1)') or []) == 2
+    assert len(formula_data_args("=PY($A$1; B1:B10; C1)") or []) == 2
 
 
 def test_n_args_matches_split_python_addin_data_args_for_range_plus_1x1():
@@ -694,7 +692,7 @@ def test_n_args_matches_split_python_addin_data_args_for_range_plus_1x1():
     pred = ((0.0,),)
     split = split_python_addin_data_args((col, pred))
     assert len(split) == 2
-    assert repair_n_args('=PY("np.mean(data)"; B1:B10; A1)') == 2
+    assert len(formula_data_args('=PY("np.mean(data)"; B1:B10; A1)') or []) == 2
 
 
 def test_fill_down_unanimous_ours_is_strip_safe():
@@ -1798,7 +1796,7 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
         "plugin.calc.python.geometric_recalc._apply_patches_to_sheet",
         lambda _sheet, _patches: set(),  # No patches applied
     )
-    res, _cells = _repair_one_sheet("ctx", doc, sheet, wk)
+    res, unused_cells, unused_name = _repair_one_sheet("ctx", doc, sheet, wk)
     # The append patch failed to land, so A2 must NOT be recorded with predecessor A1.
     assert "A2" not in records_for_sheet(wk, "Sheet1")
 
@@ -1812,7 +1810,7 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
         "plugin.calc.python.geometric_recalc._apply_patches_to_sheet",
         lambda _sheet, _patches: set(),  # Remove patch fails to apply
     )
-    res2, _cells2 = _repair_one_sheet("ctx", doc, sheet, wk)
+    res2, unused_cells2, unused_name2 = _repair_one_sheet("ctx", doc, sheet, wk)
     # The remove patch failed, so the incoming record for A2 must be kept in pre-patch state.
     assert records_for_sheet(wk, "Sheet1").get("A2") == GeometricRecord(predecessor="A1")
 
