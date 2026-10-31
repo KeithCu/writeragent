@@ -123,6 +123,9 @@ def _sheet_with_precedent_ranges(monkeypatch, range_addresses, calls: list[tuple
     cell_range.queryInterface.return_value = _Query()
 
     class _Sheet:
+        def getName(self) -> str:
+            return ""
+
         def getCellRangeByPosition(self, *_args):
             return cell_range
 
@@ -351,13 +354,13 @@ def test_cell_snapshot_formula_text_and_error(monkeypatch):
 
     # Formula cell with getValue() == 0.0 and getString() == "hello" expects "hello"
     text_cell = _FormulaCell(0.0, "hello")
-    snap_text = _cell_snapshot(_Sheet(text_cell), 0, 0)
+    snap_text = _cell_snapshot(_Sheet(text_cell), 0, 0, "Sheet1")
     assert snap_text["formula"] == '="hello"'
     assert snap_text["value"] == "hello"
 
     # Error cell expects display string plus error_code
     err_cell = _FormulaCell(0.0, "#DIV/0!", err=532)
-    snap_err = _cell_snapshot(_Sheet(err_cell), 0, 0)
+    snap_err = _cell_snapshot(_Sheet(err_cell), 0, 0, "Sheet1")
     assert snap_err["error_code"] == 532
     assert snap_err["formula"] == "=1/0"
     assert snap_err["value"] == "#DIV/0!"
@@ -393,7 +396,7 @@ def test_cell_snapshot_quotes_sheet_name(sheet_name: str, expected_addr: str):
         def getCellByPosition(self, _col: int, _row: int) -> _ValueCell:
             return _ValueCell()
 
-    snap = _cell_snapshot(_FakeSheet(), 0, 0)
+    snap = _cell_snapshot(_FakeSheet(), 0, 0, sheet_name=sheet_name)
     assert snap["address"] == expected_addr
 
 
