@@ -31,8 +31,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_DRAW_SHAPE_DOCS = list(SHAPE_TOOL_UNO_SERVICES)
-
 
 class _AnyDocumentShapeTool(ToolDrawShapeBase):
     """Writer and Calc as well as Draw and Impress.
@@ -41,7 +39,7 @@ class _AnyDocumentShapeTool(ToolDrawShapeBase):
     and diagram stay on that base.
     """
 
-    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
+    uno_services: list[str] | None = SHAPE_TOOL_UNO_SERVICES
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
