@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from plugin.scripting.sheet_layout import extract_sheet_layout
+from plugin.scripting.trusted_action_registry import _SPEC_DOMAINS
 from plugin.scripting.venv.coerce import coerce_bool, coerce_int
 
 log = logging.getLogger(__name__)
@@ -149,20 +150,6 @@ def run_trusted_spec(
     return result
 
 
-def _trusted_action_spec(helper: Any, params: Any, packet: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Build a spec dict for spec-driven venv dispatchers."""
-    # What was wrong: non-dict params became {}, so a malformed packet ran
-    # the helper with defaults and reported a misleading helper-level error.
-    # How it happened: the boundary coerced any non-dict value instead of rejecting it.
-    # Why this change: fail at the boundary like _require_str does for bad fields.
-    if params is not None and not isinstance(params, dict):
-        raise ValueError("params must be a dict")
-    coerced_params = dict(params or {})
-    spec: dict[str, Any] = {"helper": str(helper or ""), "params": coerced_params}
-    spec.update(extract_sheet_layout(packet))
-    return spec
-
-
 def _require_str(value: Any, label: str) -> str:
     # Blank and whitespace-only values are rejected. The original string is
     # returned: LanguageTool and Vale offsets point into this text, and
@@ -185,22 +172,25 @@ def _require_str_list(value: Any, label: str) -> list[str]:
 
 def _packet_parts(data: dict[str, Any]) -> tuple[dict[str, Any], Any, dict[str, Any]]:
     """Return ``(spec, data_range, context)`` from a trusted-action packet."""
-    spec = _trusted_action_spec(data.get("helper"), data.get("params"), data)
+    # What was wrong: non-dict params became {}, so a malformed packet ran
+    # the helper with defaults and reported a misleading helper-level error.
+    # How it happened: the boundary coerced any non-dict value instead of rejecting it.
+    # Why this change: fail at the boundary like _require_str does for bad fields.
+    params = data.get("params")
+    if params is not None and not isinstance(params, dict):
+        raise ValueError("params must be a dict")
+    spec: dict[str, Any] = {"helper": str(data.get("helper") or ""), "params": dict(params or {})}
+    spec.update(extract_sheet_layout(data))
     raw_ctx = data.get("context")
     context = raw_ctx if isinstance(raw_ctx, dict) else {}
     return spec, data.get("data_range"), context
 
 
-# Same seven domains as the spec rows in trusted_action_registry.
-# text, vision, sql, languagetool, vale, embedding, and langdetect do not fit.
+# text, vision, sql, languagetool, vale, embedding, and langdetect do not fit
+# this (spec, data, context) shape.
 _SPEC_DOMAIN_RUNNERS: dict[str, tuple[str, str]] = {
-    "units": ("plugin.scripting.venv.units", "run_units"),
-    "symbolic": ("plugin.scripting.venv.symbolic", "run_symbolic"),
-    "viz": ("plugin.scripting.venv.viz", "run_viz"),
-    "analysis": ("plugin.scripting.venv.analysis", "run_analysis"),
-    "forecast": ("plugin.scripting.venv.forecast", "run_forecast"),
-    "optimize": ("plugin.scripting.venv.optimize", "run_optimize"),
-    "quant": ("plugin.scripting.venv.quant", "run_quant"),
+    domain: (f"plugin.scripting.venv.{domain}", f"run_{domain}")
+    for domain in _SPEC_DOMAINS
 }
 
 

@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -16,8 +15,6 @@ from plugin.framework.constants import WORKER_POOL_DEFAULT
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.venv_worker import run_code_in_user_venv
-
-log = logging.getLogger(__name__)
 
 
 @deal.pre(
@@ -109,11 +106,6 @@ def run_trusted_worker_action(
     if header_row is not None:
         payload["header_row"] = header_row
 
-    def _on_heartbeat(hb: dict[str, Any]) -> None:
-        if heartbeat_fn:
-            heartbeat_fn(hb)
-        log.debug("trusted action heartbeat domain=%s helper=%s: %s", domain, helper, hb)
-
     response = run_code_in_user_venv(
         ctx,
         code=None,
@@ -123,7 +115,7 @@ def run_trusted_worker_action(
         worker_pool=worker_pool,
         action="run_trusted_action",
         allow_heartbeat=allow_heartbeat,
-        on_heartbeat=_on_heartbeat if allow_heartbeat else None,
+        on_heartbeat=heartbeat_fn if allow_heartbeat else None,
         stop_checker=stop_checker,
         cancellation_scope=cancellation_scope,
     )
