@@ -665,3 +665,31 @@ def test_unparsed_table_does_not_add_empty_block(mock_convert, _mock_html):
     result = extract_structure(b"png", {"ocr_backend": "rapidocr_paddle"})
     assert result["metrics"]["block_count"] == 0
     assert not any(b.get("type") == "table" for b in result["blocks"])
+
+
+@pytest.mark.parametrize("result", [SimpleNamespace(document=None), SimpleNamespace()])
+def test_extract_text_docling_returned_no_document(result):
+    """Regression (#2688): a conversion with no document must be a clear error."""
+    import importlib as _importlib
+
+    real_import = _importlib.import_module
+    converter = MagicMock()
+    converter.convert.return_value = result
+
+    def fake_import(name, *args, **kwargs):
+        if name == "docling.datamodel.base_models":
+            return MagicMock()
+        return real_import(name, *args, **kwargs)
+
+    with (
+        patch.object(docling_mod.importlib, "import_module", side_effect=fake_import),
+        patch.object(docling_mod, "_get_docling_converter", return_value=converter),
+        patch.object(docling_mod, "export_docling_to_html") as mock_html,
+    ):
+        with pytest.raises(RuntimeError, match="returned no document"):
+            docling_mod._convert_image_bytes(b"png", {})
+        out = extract_text(b"png", {})
+
+    assert out["status"] == "error"
+    assert "returned no document" in out["message"]
+    mock_html.assert_not_called()
