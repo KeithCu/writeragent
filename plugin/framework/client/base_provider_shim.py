@@ -329,14 +329,13 @@ class BaseProviderShim:
         provider = self.client._get_provider()
         return provider if isinstance(provider, str) and provider else "custom"
 
-    def _endpoint_reasoning_effort(self) -> str:
+    def _client_config(self) -> dict[str, Any]:
         config = getattr(self.client, "config", None)
-        if not isinstance(config, dict):
-            return ""
-        raw = config.get("reasoning_effort")
-        if not isinstance(raw, str):
-            return ""
-        return raw.strip()
+        return config if isinstance(config, dict) else {}
+
+    def _endpoint_reasoning_effort(self) -> str:
+        raw = self._client_config().get("reasoning_effort")
+        return raw.strip() if isinstance(raw, str) else ""
 
     def _requested_effort_level(self, chat_extra: dict[str, Any] | None) -> str:
         if isinstance(chat_extra, dict):
@@ -348,8 +347,7 @@ class BaseProviderShim:
         return self._endpoint_reasoning_effort()
 
     def _openrouter_chat(self) -> bool:
-        config = getattr(self.client, "config", None)
-        return bool(config.get("is_openrouter")) if isinstance(config, dict) else False
+        return bool(self._client_config().get("is_openrouter"))
 
     def _url(self, suffix: str) -> str:
         """``endpoint + api_path + suffix``. Ollama and Google build their own URLs."""
@@ -402,12 +400,8 @@ class BaseProviderShim:
                     data["reasoning"] = dict(fragment["reasoning"])
             elif "reasoning_effort" in fragment:
                 data["reasoning_effort"] = fragment["reasoning_effort"]
-                if not openrouter and "reasoning" in data:
-                    data.pop("reasoning", None)
-        if isinstance(chat_extra, dict) and chat_extra:
-            payload_extra = {k: v for k, v in chat_extra.items() if k != "reasoning"}
-            if payload_extra:
-                merge_openrouter_chat_extra(data, payload_extra)
+        if isinstance(chat_extra, dict) and (payload_extra := {k: v for k, v in chat_extra.items() if k != "reasoning"}):
+            merge_openrouter_chat_extra(data, payload_extra)
         return data
 
     def build_chat_request(
