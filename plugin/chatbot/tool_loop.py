@@ -41,6 +41,7 @@ from plugin.framework.config import (
     get_config_int,
     validate_api_config,
 )
+from plugin.framework.client import model_fetcher
 from plugin.framework.client.model_fetcher import (
     resolve_context_window,
     set_image_model,
@@ -52,6 +53,7 @@ from plugin.framework.llm_lanes import llm_request_lane
 from plugin.framework.send_cancellation import capture_send_stop, send_stopped
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
+from plugin.doc.peer_message import log_peer_tool_on_wire
 
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.uno_context import get_toolkit
@@ -61,6 +63,7 @@ from plugin.chatbot.tool_loop_actions import (
     abort_turn,
     build_tool_execute_fn,
     current_turn,
+    finalize_sidebar_assistant_response,
     note_stop_partial,
     persist_assistant_on_turn,
     put_for_turn,
@@ -113,9 +116,7 @@ class ToolLoopHost(Protocol):
     sidebar_state: Any
     _terminal_status: str
 
-    _assistant_stream_start_len: int | None
     _record_assistant_start: bool
-    _tool_loop_interpreter: ToolLoopEffectInterpreter | None
     _turn: Any
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
@@ -132,7 +133,7 @@ class ToolLoopHost(Protocol):
         ...
 
     # Mixin methods called on self
-    def _start_tool_calling_async(self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int | None = None, query_text: str | None = None) -> None: ...
+    def _start_tool_calling_async(self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int, query_text: str | None = None) -> None: ...
     def _spawn_llm_worker(self, q: "queue.Queue[Any] | BatchingStreamQueue", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None, force_compact: bool = False) -> None: ...
     def _spawn_final_stream(self, q: "queue.Queue[Any] | BatchingStreamQueue", client: "LlmClient", max_tokens: int) -> None: ...
     def _create_event_from_stream_item(self, item: Any) -> ToolLoopEvent | None: ...
@@ -144,7 +145,6 @@ class ToolLoopHost(Protocol):
     def _apply(self, event: ToolLoopEvent) -> bool: ...
     def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
     def _refresh_active_tools_for_session(self) -> None: ...
-    def rerender_rich_text_session(self) -> bool: ...
 
 
 def _last_user_message_with_image(session: Any) -> dict[str, Any] | None:
@@ -171,6 +171,17 @@ def _strip_user_image(session: Any, msg: dict[str, Any], fallback_text: str) -> 
         msg["content"] = rest
     if getattr(session, "db", None) is not None:
         session.db.update_last_user_content(msg["content"])
+
+
+def _parsed_tool_call_args(tc: object) -> dict[str, Any]:
+    """Arguments for one streamed tool call. Missing, non-dict, and bad JSON are {}."""
+    func = tc.get("function") if isinstance(tc, dict) else None
+    raw_args = func.get("arguments") if isinstance(func, dict) else None
+    if isinstance(raw_args, dict):
+        return raw_args
+    if isinstance(raw_args, str):
+        return object_dict_or_empty(safe_json_loads(raw_args))
+    return {}
 
 
 def _live_text(turn: Any, callback: Callable[[str], None]) -> Callable[[str], None]:
@@ -354,7 +365,6 @@ class ToolCallingMixin:
     sidebar_state: Any = None
     _terminal_status: str = "Ready"
     _record_assistant_start: bool = False
-    _tool_loop_interpreter: ToolLoopEffectInterpreter | None = None
     _turn: Any = None
 
     @property
@@ -367,10 +377,6 @@ class ToolCallingMixin:
     @_sm_state.setter
     def _sm_state(self: ToolLoopHost, value: ToolLoopState | None) -> None:  # pyright: ignore[reportPropertyTypeMismatch]  # clear session with None
         self._panel.sidebar_state = dataclasses.replace(self._panel.sidebar_state, tool_loop=value)
-
-    def rerender_rich_text_session(self: ToolLoopHost) -> bool:
-        """Re-render session with HTML formatting. Overridden in SendButtonListener."""
-        return False
 
     def _do_send_chat_with_tools(self: ToolLoopHost, query_text: str, model: Any, doc_type_str: str, skip_append_user: bool = False) -> None:
         # The send already called begin_send_turn. A mode click inside
@@ -424,8 +430,6 @@ class ToolCallingMixin:
                 ctx=self._panel.ctx,
                 doc=model,
             )
-            from plugin.doc.peer_message import log_peer_tool_on_wire
-
             log_peer_tool_on_wire(active_tools)
             execute_fn = build_tool_execute_fn(self._panel, doc_type_str, active_domain, python_tool_domain, set_active_domain)
 
@@ -446,11 +450,8 @@ class ToolCallingMixin:
                 set_image_model(selected_image_model)
                 log.debug("_do_send: image model updated to %s" % selected_image_model)
 
-        max_context = CHAT_DOCUMENT_CONTEXT_MAX_CHARS
         max_tokens = get_config_int("chat_max_tokens")
-        log.debug("_do_send: config loaded: max_tokens=%d, max_context=%d" % (max_tokens, max_context))
-
-        use_tools = True
+        log.debug("_do_send: config loaded: max_tokens=%d, max_context=%d" % (max_tokens, CHAT_DOCUMENT_CONTEXT_MAX_CHARS))
 
         api_config = get_api_config()
         ok, err_msg = validate_api_config(api_config)
@@ -471,19 +472,15 @@ class ToolCallingMixin:
             self._panel.client.config = api_config
             # New send: clear Stop latch from a prior turn (UI thread only).
             self._panel.client.clear_stop()
-            # Reused clients registered on the previous send's scope; Stop on
-            # this send must close HTTP via the current SendCancellation.
-            reuse_scope = get_current_send_cancellation()
-            if reuse_scope is not None:
-                reuse_scope.register_client(self._panel.client)
         assert self._panel.client is not None
-        # Fresh client also: if Stop already fired before register, abort now.
-        scope = get_current_send_cancellation()
-        if scope is not None and not self._panel.client._stopped:
-            # New clients register in __init__; ensure late Stop before spawn still latches.
-            if scope.is_cancelled():
-                self._panel.client.stop()
         client = self._panel.client
+        # A duplicate hook does not stop again. clear_stop() just cleared the
+        # latch, so a scope that is already cancelled must stop here.
+        scope = get_current_send_cancellation()
+        if scope is not None:
+            scope.register_client(client)
+            if scope.is_cancelled() and not client._stopped:
+                client.stop()
 
         self._panel._set_status("Reading document...")
         started = running_turn(self._panel)
@@ -499,7 +496,7 @@ class ToolCallingMixin:
             turn_session.refresh_document_context(model, self._panel.ctx)
             doc_text = turn_session.document_context
             log.debug("_do_send: document context length=%d" % len(doc_text))
-            agent_log("tool_loop.py:doc_context", "Document context for AI", data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": max_context}, hypothesis_id="B")
+            agent_log("tool_loop.py:doc_context", "Document context for AI", data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": CHAT_DOCUMENT_CONTEXT_MAX_CHARS}, hypothesis_id="B")
         except UnoObjectError:
             log.exception("Document unavailable")
             self._panel._append_response("\n[Document closed or unavailable.]\n")
@@ -532,10 +529,9 @@ class ToolCallingMixin:
             # without blocking. Capture unless it is a known no; round 0 of
             # the LLM worker resolves it and drops the image unless True.
             b64_image = None
-            from plugin.framework.client.model_fetcher import has_native_vision
             text_model_id = str(api_config.get("model") or "")
             typed_key = str(api_config.get("api_key") or "").strip()
-            vision = has_native_vision(text_model_id, client._endpoint(), api_key_override=typed_key or None)
+            vision = model_fetcher.has_native_vision(text_model_id, client._endpoint(), api_key_override=typed_key or None)
             if vision is not False:
                 doc = self._panel._get_document_model()
                 if doc:
@@ -607,8 +603,8 @@ class ToolCallingMixin:
         self._panel._append_response("\n[Using chat model.]\n")
         log.info("_do_send: using chat model")
 
-        self._panel._set_status("Connecting to AI (tools=%s)..." % use_tools)
-        log.debug("_do_send: calling AI, use_tools=%s, messages=%d" % (use_tools, len(turn_session.messages)))
+        self._panel._set_status("Connecting to AI (tools=True)...")
+        log.debug("_do_send: calling AI, use_tools=True, messages=%d" % len(turn_session.messages))
 
         max_tool_rounds = cast("int", api_config["chat_max_tool_rounds"])
         self._start_tool_calling_async(client, model, max_tokens, active_tools, execute_fn, max_tool_rounds, query_text=query_text)
@@ -640,8 +636,6 @@ class ToolCallingMixin:
                 ctx=getattr(self._panel, "ctx", None),
                 doc=refresh_doc,
             )
-            from plugin.doc.peer_message import log_peer_tool_on_wire
-
             log_peer_tool_on_wire(turn.active_tools)
         except Exception as e:
             log.warning("Failed to refresh active tools: %s", e)
@@ -710,8 +704,7 @@ class ToolCallingMixin:
                 if image_msg is not None:
                     client_config = getattr(client, "config", None)
                     typed_key = str(client_config.get("api_key") or "").strip() if isinstance(client_config, dict) else ""
-                    from plugin.framework.client.model_fetcher import has_native_vision
-                    if has_native_vision(turn.text_model, turn.endpoint, api_key_override=typed_key or None) is not True:
+                    if model_fetcher.has_native_vision(turn.text_model, turn.endpoint, api_key_override=typed_key or None) is not True:
                         _strip_user_image(session, image_msg, turn.active_query_text or "")
 
                 with llm_request_lane(status_callback=status_cb, resume_status=resume_status):
@@ -854,25 +847,8 @@ class ToolCallingMixin:
 
         if kind == StreamQueueKind.STREAM_DONE:
             response = data
-            parsed_tool_args: list[dict[str, Any]] = []
-            if isinstance(response, dict):
-                tool_calls = response.get("tool_calls")
-                if isinstance(tool_calls, list):
-                    for tc in tool_calls:
-                        if isinstance(tc, dict):
-                            func = tc.get("function")
-                            if isinstance(func, dict):
-                                raw_args = func.get("arguments")
-                                if isinstance(raw_args, str):
-                                    parsed_tool_args.append(object_dict_or_empty(safe_json_loads(raw_args)))
-                                elif isinstance(raw_args, dict):
-                                    parsed_tool_args.append(raw_args)
-                                else:
-                                    parsed_tool_args.append({})
-                            else:
-                                parsed_tool_args.append({})
-                        else:
-                            parsed_tool_args.append({})
+            tool_calls = response.get("tool_calls") if isinstance(response, dict) else None
+            parsed_tool_args = [_parsed_tool_call_args(tc) for tc in tool_calls] if isinstance(tool_calls, list) else []
             return ToolLoopEvent(
                 kind=EventKind.STREAM_DONE,
                 data={
@@ -922,11 +898,7 @@ class ToolCallingMixin:
 
     def _execute_effect(self: ToolLoopHost, effect: Any) -> bool:
         """Execute a single pure effect returned by the state machine."""
-        interpreter = getattr(self._panel, "_tool_loop_interpreter", None)
-        if interpreter is None:
-            interpreter = ToolLoopEffectInterpreter(self._panel)
-            self._panel._tool_loop_interpreter = interpreter
-        return interpreter.execute(effect)
+        return self._panel._tool_loop_interpreter.execute(effect)
 
     def _apply(self: ToolLoopHost, event: ToolLoopEvent) -> bool:
         tr = next_state(self._sm_state, event)
@@ -961,9 +933,8 @@ class ToolCallingMixin:
         partial = take_stop_partial(turn)
         if isinstance(turn, TurnController):
             turn.close_stopped(self._panel, partial)
-        event = ToolLoopEvent(kind=EventKind.STOP_REQUESTED, data={})
-        # Discard the exit_loop flag: on_stopped notification returns None.
-        self._apply(event)
+        # on_stopped ignores the exit flag from _apply.
+        self._apply(ToolLoopEvent(kind=EventKind.STOP_REQUESTED, data={}))
 
     def _handle_stream_error(self: ToolLoopHost, e: Any) -> bool | None:
         from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
@@ -1091,15 +1062,13 @@ class ToolCallingMixin:
             self._panel._events.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
         log.info("tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
-    def _start_tool_calling_async(self: ToolLoopHost, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int | None = None, query_text: str | None = None) -> None:
+    def _start_tool_calling_async(self: ToolLoopHost, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int, query_text: str | None = None) -> None:
         """Tool-calling event loop: single queue, main-thread drain.
 
         Background threads push messages onto q. The main thread drains via
         ``run_stream_drain_loop``: event-driven slices return to VCL between
         batches; the blocking fallback still pumps with ``pump_ui_idle``.
         """
-        if max_tool_rounds is None:
-            max_tool_rounds = get_config_int("chatbot.max_tool_rounds")
         log.info("=== Tool-calling loop START (max %d rounds) ===" % max_tool_rounds)
         # Overflow retry counters live on the fresh per-send TurnController.
         self._panel._append_response("\nAI: ")
@@ -1187,8 +1156,6 @@ class ToolCallingMixin:
                 # Blocking drain: this runs before we return. Event-driven
                 # drain: the function already returned to VCL; this runs on
                 # the terminal slice, still before abort_turn below.
-                from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
-
                 finalize_sidebar_assistant_response(self._panel, allow_rerender=not self._panel.stop_requested)
 
             defer_until_drain_done(_after_tool_drain)
