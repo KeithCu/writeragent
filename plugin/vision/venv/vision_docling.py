@@ -23,23 +23,12 @@ from plugin.vision.vision_common import (
     resolve_ocr_backend,
     table_from_span_cells,
     table_to_tsv_lines,
+    vision_bool,
 )
-
-__all__ = [
-    "export_docling_to_html",
-    "extract_structure",
-    "extract_text",
-]
 
 log = logging.getLogger(__name__)
 
 _DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow css-inline onnxruntime"
-
-
-def _as_bool(value: Any) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() not in ("0", "false", "no", "off")
-    return bool(value)
 
 
 class OcrBackendError(ValueError):
@@ -75,9 +64,7 @@ class DoclingPipelineParams:
     artifacts_path: str
 
     @classmethod
-    def from_params(cls, params: dict[str, Any] | DoclingPipelineParams, *, input_format: str = "image") -> DoclingPipelineParams:
-        if isinstance(params, DoclingPipelineParams):
-            return params
+    def from_params(cls, params: dict[str, Any], *, input_format: str = "image") -> DoclingPipelineParams:
         text_score_val = params.get("text_score")
         text_score = 0.5 if (text_score_val is None or text_score_val == "") else float(text_score_val)
         threads_raw = params.get("num_threads")
@@ -88,7 +75,7 @@ class DoclingPipelineParams:
         elif ocr_mode in ("default", "layout_regions", "pdf_aware_layout_regions") or input_format == "pdf":
             full_page_ocr = False
         else:
-            full_page_ocr = _as_bool(params.get("force_full_page_ocr", True))
+            full_page_ocr = vision_bool(params.get("force_full_page_ocr", True))
         return cls(
             backend=resolve_ocr_backend(params),
             lang=str(params.get("lang") or "en").strip() or "en",
@@ -97,11 +84,11 @@ class DoclingPipelineParams:
             device=str(params.get("device") or "").strip(),
             num_threads=num_threads,
             table_mode=str(params.get("table_mode") or "accurate"),
-            do_cell_matching=_as_bool(params.get("do_cell_matching", True)),
-            create_orphan_clusters=_as_bool(params.get("create_orphan_clusters", True)),
+            do_cell_matching=vision_bool(params.get("do_cell_matching", True)),
+            create_orphan_clusters=vision_bool(params.get("create_orphan_clusters", True)),
             layout_model=str(params.get("layout_model") or "heron").strip().lower() or "heron",
-            do_formula_enrichment=_as_bool(params.get("do_formula_enrichment", False)),
-            do_code_enrichment=_as_bool(params.get("do_code_enrichment", False)),
+            do_formula_enrichment=vision_bool(params.get("do_formula_enrichment", False)),
+            do_code_enrichment=vision_bool(params.get("do_code_enrichment", False)),
             text_score=text_score,
             full_page_ocr=full_page_ocr,
             document_timeout=float(params.get("document_timeout") or 0),
@@ -178,36 +165,27 @@ def _is_object_detection_layout(layout_opts: Any) -> bool:
     return callable(get_engine)
 
 
+# One id drives DOCLING_LAYOUT_<ID>, preset "layout_<id>", and
+# OBJECT_DETECTION_LAYOUT_<ID>. Unknown OD keys use the heron preset
+# only; _resolve_layout_model_spec still raises on the original key.
+_LAYOUT_KEYS = ("heron", "egret", "egret_large", "egret_xlarge", "v2")
+
+
 def _resolve_layout_model_spec(layout_key: str) -> Any:
     """Legacy LayoutModelConfig from layout_model_specs (Docling <= 2.117 LayoutOptions)."""
-    layout_specs = importlib.import_module("docling.datamodel.layout_model_specs")
-    mapping = {
-        "heron": layout_specs.DOCLING_LAYOUT_HERON,
-        "egret": layout_specs.DOCLING_LAYOUT_EGRET,
-        "egret_large": layout_specs.DOCLING_LAYOUT_EGRET_LARGE,
-        "egret_xlarge": layout_specs.DOCLING_LAYOUT_EGRET_XLARGE,
-        "v2": layout_specs.DOCLING_LAYOUT_V2,
-    }
-    spec = mapping.get(layout_key)
-    if spec is None:
+    if layout_key not in _LAYOUT_KEYS:
         raise LayoutModelError(
-            f"Unknown layout_model {layout_key!r}; expected one of {sorted(mapping)}"
+            f"Unknown layout_model {layout_key!r}; expected one of {sorted(_LAYOUT_KEYS)}"
         )
-    return spec
-
-
-_OD_LAYOUT_PRESETS: dict[str, tuple[str, str]] = {
-    "heron": ("layout_heron", "OBJECT_DETECTION_LAYOUT_HERON"),
-    "egret": ("layout_egret", "OBJECT_DETECTION_LAYOUT_EGRET"),
-    "egret_large": ("layout_egret_large", "OBJECT_DETECTION_LAYOUT_EGRET_LARGE"),
-    "egret_xlarge": ("layout_egret_xlarge", "OBJECT_DETECTION_LAYOUT_EGRET_XLARGE"),
-    "v2": ("layout_v2", "OBJECT_DETECTION_LAYOUT_V2"),
-}
+    layout_specs = importlib.import_module("docling.datamodel.layout_model_specs")
+    return getattr(layout_specs, "DOCLING_LAYOUT_" + layout_key.upper())
 
 
 def _resolve_od_layout_model_spec(layout_key: str) -> Any:
     """ObjectDetectionModelSpec for Docling >= 2.118."""
-    preset_id, stage_attr = _OD_LAYOUT_PRESETS.get(layout_key, _OD_LAYOUT_PRESETS["heron"])
+    resolved = layout_key if layout_key in _LAYOUT_KEYS else "heron"
+    preset_id = "layout_" + resolved
+    stage_attr = "OBJECT_DETECTION_LAYOUT_" + resolved.upper()
 
     pipeline_mod = importlib.import_module("docling.datamodel.pipeline_options")
     od_cls = getattr(pipeline_mod, "LayoutObjectDetectionOptions", None)
@@ -284,9 +262,7 @@ def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -
 
 def _apply_ocr_mode(pipeline_options: Any, norm: DoclingPipelineParams) -> None:
     """Prefer Docling ``OcrMode.FULL_PAGE`` over deprecated ``force_full_page_ocr``."""
-    ocr_opts = getattr(pipeline_options, "ocr_options", None)
-    if ocr_opts is None:
-        return
+    ocr_opts: Any = getattr(pipeline_options, "ocr_options", None)
     want_full = norm.full_page_ocr
     pipeline_mod = importlib.import_module("docling.datamodel.pipeline_options")
     ocr_mode_cls = getattr(pipeline_mod, "OcrMode", None)
@@ -458,9 +434,7 @@ def _map_docling_document(
     tables: list[dict[str, Any]] = []
     live_tables = getattr(document, "tables", None)
     table_items = live_tables if (isinstance(live_tables, list) and live_tables) else (doc_dict.get("tables") or [])
-    table_index = 0
-    for item in table_items:
-        table_index += 1
+    for table_index, item in enumerate(table_items, start=1):
         table = None
         box = [0, 0, 0, 0]
         if hasattr(item, "data"):
