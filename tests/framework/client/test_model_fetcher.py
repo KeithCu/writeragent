@@ -177,7 +177,7 @@ class TestTextModelPlaceholderGuards:
 
             def mock_config_path():
                 return config_path
-            with patch('plugin.framework.config._config_path', side_effect=mock_config_path):
+            with patch('plugin.framework.config.get_config_file_path', side_effect=mock_config_path):
                 from plugin.framework.config import reset_config_for_tests
                 reset_config_for_tests()
                 for k in list(cfg._model_fetch_cache):
@@ -207,7 +207,7 @@ class TestTextModelPlaceholderGuards:
 
             def mock_config_path():
                 return config_path
-            with patch('plugin.framework.config._config_path', side_effect=mock_config_path):
+            with patch('plugin.framework.config.get_config_file_path', side_effect=mock_config_path):
                 from plugin.framework.config import reset_config_for_tests
                 reset_config_for_tests()
                 for k in list(cfg._model_fetch_cache):

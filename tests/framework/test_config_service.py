@@ -17,7 +17,7 @@ def config_svc(config_dir, monkeypatch):
     "ConfigService using config_dir for config path."
     from plugin.framework.config import _invalidate_config_cache
 
-    monkeypatch.setattr("plugin.framework.config._config_path", lambda: str(config_dir / "writeragent.json"))
+    monkeypatch.setattr("plugin.framework.config.get_config_file_path", lambda: str(config_dir / "writeragent.json"))
     _invalidate_config_cache()
     svc = ConfigService()
     return svc
