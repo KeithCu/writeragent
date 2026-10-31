@@ -56,22 +56,12 @@ from plugin.calc.excel_py_convert.models import (
 )
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_dep
 from plugin.calc.excel_py_convert.script_bank import formula_for_converted_cell
-from plugin.calc.excel_py_convert.to_dag_contracts import (
-    _DEAL_BINDING_A1_LEN,
-    _DEAL_CONVERT_LIST,
-    _DEAL_NOTE_LEN,
-    _DEAL_RESOLVED_LEN,
-    _DEAL_REWRITE_SRC,
-    _RESOLVED_KINDS,
-    _deal_convert_cell_ok,
-    _deal_convert_scripts_ok,
-    _deal_excel_src_ok,
-    _deal_note_ok,
-)
 from plugin.calc.python.xl_static_rewrite import iter_xl_calls
 from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
 from plugin.framework.deal_shim import (
+    DEAL_MAX_CMD_ARGS,
     DEAL_MAX_PLACEHOLDER_INDEX,
+    DEAL_MAX_SOURCE,
     DEAL_MAX_XL_EXPR,
     ascii_bounded,
     deal,
@@ -105,6 +95,26 @@ class _XlAnalysis:
     issues: list[str]
     header_modes: dict[int, str]
     fatal: bool
+
+
+_RESOLVED_KINDS = frozenset(("range", "unresolved", "table_snapshot", "anchor_snapshot"))
+
+
+def _deal_excel_src_ok(src: object) -> bool:
+    return str_bounded(src, DEAL_MAX_SOURCE)
+
+
+def _deal_convert_scripts_ok(model: object) -> bool:
+    # Scripts share _deal_excel_src_ok with _find_xl_calls.
+    scripts = getattr(model, "scripts", None)
+    return isinstance(scripts, list) and len(scripts) <= DEAL_MAX_CMD_ARGS and all(_deal_excel_src_ok(s) for s in scripts)
+
+
+def _deal_convert_cell_ok(cell: object) -> bool:
+    """Cell fields ``convert_cell_to_dag`` requires; script_index range is body-checked."""
+    script_index = getattr(cell, "script_index", None)
+    deps = getattr(cell, "deps", None)
+    return type(script_index) is int and isinstance(deps, list) and len(deps) <= DEAL_MAX_CMD_ARGS and all(isinstance(d, str) and ascii_bounded(d, DEAL_MAX_SOURCE) for d in deps)
 
 
 @deal.pre(lambda p_num, *_unused, **__: isinstance(p_num, int) and 2 <= p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX)
@@ -141,7 +151,7 @@ def _header_mode_from_keywords(node: ast.Call) -> tuple[HeaderMode, str | None]:
     return header_mode, None
 
 
-@deal.pre(lambda src, i, *_unused, **__: str_bounded(src, _DEAL_REWRITE_SRC) and type(i) is int and 0 <= i < len(src))
+@deal.pre(lambda src, i, *_unused, **__: str_bounded(src, DEAL_MAX_SOURCE) and type(i) is int and 0 <= i < len(src))
 def _skip_string(src: str, i: int) -> int:
     """Return index just past a string literal starting at *i* (quote char)."""
     quote = src[i]
@@ -211,21 +221,15 @@ def _normalize_excel_placeholders(src: str) -> str:
 
 
 def _p_num_from_arg(arg0: ast.AST) -> int | None:
-    """Interpret ``xl`` first arg → p_num or None."""
+    """Interpret ``xl`` first arg → p_num or None (sentinel ``_Pn_`` or quoted ``%Pn%``)."""
     if isinstance(arg0, ast.Name):
-        # Sentinel from ``_normalize_excel_placeholders``: ``_P2_`` ↔ ``%P2%``.
-        m = _P_SENTINEL_RE.match(arg0.id)
-        if m:
-            return int(m.group(1))
-        # xl(name) / xl(P2) — not a formula-static placeholder.
+        text, pattern = arg0.id, _P_SENTINEL_RE
+    elif isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
+        text, pattern = arg0.value, _P_TOKEN_RE
+    else:
         return None
-    if isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
-        m = _P_TOKEN_RE.match(arg0.value)
-        if m:
-            return int(m.group(1))
-        # literal xl("A1") without formula dep binding
-        return None
-    return None
+    matched = pattern.match(text)
+    return int(matched.group(1)) if matched else None
 
 
 def format_python_syntax_issue(exc: BaseException) -> str:
@@ -367,7 +371,7 @@ def _excel_execution_order(model: ExcelWorkbookModel) -> list[ExcelPyCell]:
     return cells
 
 
-@deal.pre(lambda current, candidate: ascii_bounded(current or "", _DEAL_BINDING_A1_LEN) and ascii_bounded(candidate or "", _DEAL_BINDING_A1_LEN))
+@deal.pre(lambda current, candidate: ascii_bounded(current or "", DEAL_MAX_SOURCE) and ascii_bounded(candidate or "", DEAL_MAX_SOURCE))
 def _prefer_excel_dep_token(current: str, candidate: str) -> str:
     # crosshair: off
     """When merging deps that snap to the same A1, keep the Excel-native token if any.
@@ -386,18 +390,18 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
 @deal.pre(
     lambda resolved, header_modes: (
         type(resolved) is list
-        and len(resolved) <= _DEAL_RESOLVED_LEN
-        and all(isinstance(r, ResolvedDep) and r.kind in _RESOLVED_KINDS and _deal_note_ok(r.note or "", _DEAL_NOTE_LEN) and ascii_bounded(r.a1, _DEAL_BINDING_A1_LEN) and (r.original is None or ascii_bounded(r.original, _DEAL_BINDING_A1_LEN)) for r in resolved)
+        and len(resolved) <= DEAL_MAX_CMD_ARGS
+        and all(isinstance(r, ResolvedDep) and r.kind in _RESOLVED_KINDS and str_bounded(r.note or "", DEAL_MAX_SOURCE) and ascii_bounded(r.a1, DEAL_MAX_SOURCE) and (r.original is None or ascii_bounded(r.original, DEAL_MAX_SOURCE)) for r in resolved)
         and type(header_modes) is dict
-        and len(header_modes) <= _DEAL_RESOLVED_LEN
-        and all(type(k) is int and 0 <= k <= _DEAL_RESOLVED_LEN and isinstance(v, str) and v in ("omit", "true", "false") for k, v in header_modes.items())
+        and len(header_modes) <= DEAL_MAX_CMD_ARGS
+        and all(type(k) is int and 0 <= k <= DEAL_MAX_CMD_ARGS and isinstance(v, str) and v in ("omit", "true", "false") for k, v in header_modes.items())
     )
 )
-def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str]) -> tuple[list[BindingInfo], dict[int, int], list[str], list[str], list[str]]:
+def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str]) -> tuple[list[BindingInfo], dict[int, int], list[str], list[str]]:
     """Deduplicate resolved A1s; map original indices → normalized data indices.
 
-    Returns ``(bindings, index_map, data_args, excel_deps, issues)``.
-    ``excel_deps`` is parallel to ``data_args`` (original Excel tokens for export fidelity).
+    Returns ``(bindings, index_map, excel_deps, issues)``.
+    ``excel_deps`` is parallel to ``bindings`` (original Excel tokens for export fidelity).
     Unresolved deps produce issues and an empty a1 — caller must fail-closed.
     """
     # crosshair: off
@@ -405,7 +409,6 @@ def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str
     bindings: list[BindingInfo] = []
     index_map: dict[int, int] = {}
     a1_to_norm: dict[str, int] = {}
-    data_args: list[str] = []
     excel_deps: list[str] = []
 
     for orig_i, r in enumerate(resolved):
@@ -424,17 +427,16 @@ def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str
             if hm == "true":
                 bindings[norm].header_mode = "true"
             continue
-        norm = len(data_args)
+        norm = len(bindings)
         a1_to_norm[key] = norm
         index_map[orig_i] = norm
-        data_args.append(key)
         excel_deps.append((r.original or key).strip() or key)
         bindings.append(BindingInfo(a1=key, header_mode=header_modes.get(orig_i, "omit"), role="data", original_indices=[orig_i]))
-    return bindings, index_map, data_args, excel_deps, issues
+    return bindings, index_map, excel_deps, issues
 
 
 @deal.pre(lambda model, cell, *_unused, **__: _deal_convert_scripts_ok(model) and _deal_convert_cell_ok(cell))
-def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_in_order: list[ExcelPyCell] | None = None, best_effort: bool = False) -> ConvertedCell:
+def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, has_prior: bool = False, best_effort: bool = False) -> ConvertedCell:
     # crosshair: off
     """Convert one Excel PY cell: rewrite ``xl`` in code + attach ranges on ``=PY``."""
     if cell.script_index < 0 or cell.script_index >= len(model.scripts):
@@ -456,22 +458,22 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
 
     # Parse once: analyze xl() calls, placeholders, header modes, and fatal errors in one pass.
     analysis = analyze_xl_calls(original, num_deps=len(cell.deps))
-    bindings, index_map, data_args, excel_deps, bind_issues = _normalize_bindings(resolved, analysis.header_modes)
+    bindings, index_map, excel_deps, bind_issues = _normalize_bindings(resolved, analysis.header_modes)
+    data_args = [b.a1 for b in bindings]
 
     issues = list(bind_issues)
     issues.extend(analysis.issues)
 
     snapshot_notes = [r.note for r in resolved if r.kind in ("table_snapshot", "anchor_snapshot") and r.note]
 
-    unresolved = len(index_map) != len(cell.deps)
-    fatal = analysis.fatal or unresolved
+    fatal = analysis.fatal or bool(bind_issues)
 
     # Second rewrite step with dedup index map when all deps resolved and no fatal issues.
     # Merge every analysis issue. When deps are unresolved, dropping
     # analyze_xl_calls issues hides syntax errors and bad placeholders.
     # In best_effort mode say that placeholder remapping was skipped. The
     # old warning claimed shifted data indices were refused in both modes.
-    if unresolved:
+    if bind_issues:
         if best_effort:
             issues.append("unresolved or dropped dependency; skipped placeholder remapping in best-effort mode")
         else:
@@ -483,9 +485,8 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
 
     # Advisory only: multi-cell Excel workbooks often need shared-kernel mode.
     # We do not inject prior-PY formula args for Calc ordering.
-    prior = prior_in_order or []
-    shared_kernel = bool(prior) or (not cell.deps and "xl(" not in original.replace(" ", ""))
-    if prior:
+    shared_kernel = has_prior or (not cell.deps and "xl(" not in original.replace(" ", ""))
+    if has_prior:
         issues.append("shared-kernel workbook: enable shared session; converter does not add order edges")
 
     if cell.return_type == 1:
@@ -505,12 +506,10 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
         converted=not failed,
         data_args=data_args,
         excel_deps=excel_deps,
-        ordering_args=[],
         bindings=bindings,
         issues=issues,
         shared_kernel=shared_kernel,
         snapshot_deps=snapshot_notes,
-        dag_formula="",
     )
     if not failed:
         try:
@@ -527,7 +526,7 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
     lambda model, *_unused, **__: (
         _deal_convert_scripts_ok(model)
         and isinstance(model.cells, list)
-        and len(model.cells) <= _DEAL_CONVERT_LIST
+        and len(model.cells) <= DEAL_MAX_CMD_ARGS
         # convert_cell_to_dag's cell.deps bound is tighter than this wrapper used to be
         # (empty scripts + a 3-dep cell passed here, then PreconditionFailed inside).
         and all(_deal_convert_cell_ok(c) for c in model.cells)
@@ -541,13 +540,11 @@ def convert_model_to_dag(model: ExcelWorkbookModel, *, best_effort: bool = False
     if not model.scripts:
         report.issues.append("no pythonScripts found")
     ordered = _excel_execution_order(model)
-    prior: list[ExcelPyCell] = []
     # Convert in Excel sheet/row order so shared_kernel advisory matches stage order.
     converted_by_key: dict[tuple[str, str], ConvertedCell] = {}
-    for cell in ordered:
-        converted = convert_cell_to_dag(model, cell, prior_in_order=prior, best_effort=best_effort)
+    for index, cell in enumerate(ordered):
+        converted = convert_cell_to_dag(model, cell, has_prior=index > 0, best_effort=best_effort)
         converted_by_key[(cell.sheet, cell.cell)] = converted
-        prior.append(cell)
     # Preserve original model.cells order in the report for stable fixtures.
     for cell in model.cells:
         report.cells.append(converted_by_key[(cell.sheet, cell.cell)])
