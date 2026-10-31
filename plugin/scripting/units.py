@@ -31,8 +31,6 @@ _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "check_dimensionality": {"quantity_a": "10 m/s", "quantity_b": "5 km/h"},
 }
 
-_SHIPPED_TEMPLATES = frozenset(_DEFAULT_PARAMS)
-
 _HELPER_DESCRIPTIONS: dict[str, str] = {
     "convert_quantity": "Convert a numeric value between units.",
     "parse_quantity": "Parse a quantity string (e.g. '10 m/s') into magnitude and units.",
@@ -59,7 +57,7 @@ _API = make_template_api(
         descriptions=_HELPER_DESCRIPTIONS,
         import_module="writeragent.scripting.units",
         run_name="run_units",
-        shipped_templates=_SHIPPED_TEMPLATES,
+        shipped_templates=frozenset(_DEFAULT_PARAMS),
         # convert_quantity takes value, from_unit, to_unit positionally (``from``
         # is not a keyword argument). parse/check are keyword-only.
         positional_args={

@@ -96,14 +96,14 @@ def _format_qty(qty: Any, spec: str = "") -> str:
     return mag_str
 
 
-def _quantity_payload(qty: Any, *, helper: str, display_unit: str | None = None) -> dict[str, Any]:
+def _quantity_payload(qty: Any, *, helper: str, display_unit: str | None = None, format_spec: str = "") -> dict[str, Any]:
     magnitude = float(qty.magnitude)
     units = str(qty.units)
     # convert_quantity keeps the caller's spelling (``km/h``). Pint would write ``km / h``.
     if display_unit:
         formatted = f"{qty.magnitude:g} {display_unit}"
     else:
-        formatted = _format_qty(qty)
+        formatted = _format_qty(qty, format_spec)
     return _ok_result(helper, magnitude=magnitude, units=units, formatted=formatted)
 
 
@@ -147,20 +147,15 @@ def _finite_magnitude(value: Any, *, empty_message: str) -> float:
     ``0 km/h``. Numeric 0 still converts. Non-finite values are rejected because
     Pint accepts ``nan m`` as a quantity.
     """
-    if value is None:
+    # None and a blank string keep empty_message. float(None) is TypeError and
+    # float("") is a different ValueError. float({}) is TypeError and must become
+    # ValueError so _guarded reports PARSE_ERROR.
+    if value is None or (isinstance(value, str) and not value.strip()):
         raise ValueError(empty_message)
-    if isinstance(value, str):
-        text = value.strip()
-        if text == "":
-            raise ValueError(empty_message)
-        num = float(text)
-    else:
-        try:
-            num = float(value)
-        except TypeError as exc:
-            # Map TypeError from float({}) or float(object()) to ValueError so _guarded
-            # routes it to PARSE_ERROR; ValueError already propagates directly.
-            raise ValueError(str(exc)) from exc
+    try:
+        num = float(value)
+    except TypeError as exc:
+        raise ValueError(str(exc)) from exc
     return _require_finite(num, "magnitude must be finite")
 
 
@@ -517,7 +512,7 @@ def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
         return missing_package_error(name, "pint")
     raw_mag = params.get("magnitude")
     raw_units = params.get("units")
-    raw_spec = str(params.get("format_spec") or "")
+    raw_spec = str(params.get("format_spec") or "").strip()
     if inspect_input(raw_mag).is_scalar and inspect_input(raw_units).is_scalar:
         units_text = str(_scalar_cell(raw_units) or "").strip()
         if not units_text:
@@ -526,13 +521,7 @@ def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
             num = _finite_magnitude(_scalar_cell(raw_mag), empty_message="empty magnitude")
             qty = _unit_quantity(_get_ureg(), num, units_text)
-            spec = str(raw_spec or "").strip()
-            return _ok_result(
-                name,
-                magnitude=float(qty.magnitude),
-                units=str(qty.units),
-                formatted=_format_qty(qty, spec),
-            )
+            return _quantity_payload(qty, helper=name, format_spec=raw_spec)
 
         return _guarded(name, _run)
 

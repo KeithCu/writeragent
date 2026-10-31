@@ -49,12 +49,10 @@ def _undefined_call_names(text: str) -> list[str]:
 
 class _SymbolicError(Exception):
     code: str
-    message: str
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
-        self.message = message
 
 
 def _require_sympy() -> Any | None:
@@ -207,7 +205,7 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
         try:
             return func(sp, *args, **kwargs)
         except _SymbolicError as exc:
-            return _error_result(exc.code, exc.message, helper=helper)
+            return _error_result(exc.code, str(exc), helper=helper)
         except Exception as exc:
             return _error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
 
@@ -317,13 +315,12 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
         solution_set = sp.solveset(target, sym, domain=sp.S.Complexes)
         if solution_set == sp.S.EmptySet:
             raise _SymbolicError("NO_SOLUTION", "No solution.")
-        latex = str(sp.latex(solution_set))
-        text_sol = str(solution_set)
-        solution_strs = [text_sol]
+        exprs = [solution_set]
     else:
-        latex = ", ".join(str(sp.latex(sol)) for sol in solutions)
-        text_sol = ", ".join(str(s) for s in solutions)
-        solution_strs = [str(s) for s in solutions]
+        exprs = solutions
+    latex = ", ".join(str(sp.latex(expr)) for expr in exprs)
+    text_sol = ", ".join(str(expr) for expr in exprs)
+    solution_strs = [str(expr) for expr in exprs]
     return _ok_result(
         "solve_equation",
         latex=latex,
