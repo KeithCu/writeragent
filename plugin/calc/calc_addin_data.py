@@ -45,7 +45,6 @@ def _unwrap_cell(value: Any, true_strings: set[str] | None = None, false_strings
             return True
         if false_strings and val_stripped in false_strings:
             return False
-        return value
 
     return value
 
@@ -116,13 +115,7 @@ def calc_addin_args_from_split(args: list[Any], true_strings: set[str] | None = 
         return None
     if len(args) == 1:
         return calc_addin_data_to_python(args[0], true_strings, false_strings)
-    converted: list[list[list[Any]]] = []
-    for arg in args:
-        py_range = calc_addin_data_to_python(arg, true_strings, false_strings)
-        if py_range is None:
-            py_range = []
-        converted.append(py_range)
-    return converted
+    return [calc_addin_data_to_python(arg, true_strings, false_strings) or [] for arg in args]
 
 
 @deal.post(lambda result: result is None or isinstance(result, list))
@@ -150,9 +143,6 @@ def calc_addin_data_to_python(value: Any, true_strings: set[str] | None = None, 
     first = rows[0]
     if _is_row_sequence(first):
         grid = [[_unwrap_cell(c, true_strings, false_strings) for c in row] for row in rows]
-        # Column vector from Calc arrives as ((1,), (2,), …)
-        if len(grid) > 1 and all(len(r) == 1 for r in grid):
-            return grid
         return ensure_rectangular_2d(grid)
 
     # 1D sequence (single row range from Calc)
@@ -235,36 +225,29 @@ def _resolve_python_data(doc: Any, *, data_range: Any = None, data: Any = None) 
     addresses = _normalize_data_range_addresses(data_range)
     max_cells = configured_python_max_data_cells()
 
+    grids: list[list[list[Any]]] | None = None
     if addresses:
         try:
             bridge = CalcBridge(doc)
             inspector = CellInspector(bridge)
-            grids: list[list[list[Any]]] = []
-            for addr in addresses:
-                range_data = inspector.read_range(addr)
-                grids.append(values_from_inspector_range(range_data))
+            grids = [values_from_inspector_range(inspector.read_range(addr)) for addr in addresses]
         except CalcError as e:
             return None, str(e)
         except Exception as e:
             reraise_if_disposed(e)
             return None, f"Failed to read data_range: {e}"
-
-        if len(grids) == 1:
-            size_err = check_python_data_size(grids[0], max_cells=max_cells)
-            if size_err:
-                return None, size_err
-            return pack_calc_data_for_wire(grids[0], address=addresses[0]), None
-
-        size_err = check_python_multi_data_size(grids, max_cells=max_cells)
+    elif data is not None:
+        one = finalize_python_data(data)
+        if one is not None:
+            grids = [one]
+    if grids is None:
+        return None, None
+    if len(grids) == 1:
+        size_err = check_python_data_size(grids[0], max_cells=max_cells)
         if size_err:
             return None, size_err
-        return pack_calc_multi_data_for_wire(grids, addresses=list(addresses)), None
-
-    if data is not None:
-        py_data = finalize_python_data(data)
-        if py_data is not None:
-            size_err = check_python_data_size(py_data, max_cells=max_cells)
-            if size_err:
-                return None, size_err
-            return pack_calc_data_for_wire(py_data), None
-    return None, None
+        return pack_calc_data_for_wire(grids[0], address=addresses[0] if addresses else None), None
+    size_err = check_python_multi_data_size(grids, max_cells=max_cells)
+    if size_err:
+        return None, size_err
+    return pack_calc_multi_data_for_wire(grids, addresses=list(addresses)), None
