@@ -70,19 +70,6 @@ def _canonical_range(addr: str) -> str:
     return s.replace("$", "").upper()
 
 
-def _walk_ranges(node: Any, state: _CodegenState) -> None:
-    if isinstance(node, RangeNode):
-        state.add_range(node.address)
-    elif isinstance(node, OperatorNode):
-        if node.left is not None:
-            _walk_ranges(node.left, state)
-        if node.right is not None:
-            _walk_ranges(node.right, state)
-    elif isinstance(node, FunctionNode):
-        for arg in node.args or []:
-            _walk_ranges(arg, state)
-
-
 def _emit_operand(node: OperandNode) -> str:
     text = str(node.tvalue)
     upper = text.upper()
@@ -664,7 +651,9 @@ def translate_formula(formula: str, cell_addr: str | None = None) -> Translation
 
     state = _CodegenState(cell_addr)
     try:
-        _walk_ranges(ast, state)
+        for node in ast:
+            if isinstance(node, RangeNode):
+                state.add_range(node.address)
         body = _emit_expr(ast, state)
     except TranslationError as exc:
         return TranslationResult(ok=False, reason=exc.reason)
