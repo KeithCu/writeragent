@@ -60,7 +60,7 @@ The same user's listing shows more packages that Microsoft does not document but
 
 ## Comparison with our image
 
-The image is `python:3.12-slim`, and the wheels are installed `--only-binary` into `/app/pkgs`. Sizes are the approximate compressed wheels for cp312 manylinux x86_64, taken from PyPI's current releases. The installed size is usually 2–4× larger.
+The image is `python:3.14-slim`, and the wheels are installed `--only-binary` into `/app/pkgs`. Only the compute image runs 3.14. The LibreOffice plugin and host code stay 3.11-compatible. Sizes are the approximate compressed wheels for cp312 manylinux x86_64, taken from PyPI's releases when this table was written. The installed size is usually 2–4× larger.
 
 Status values:
 

@@ -2224,8 +2224,10 @@ def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.Monkey
         # json.loads raises RecursionError past the nesting limit. That used
         # to escape execute and become a 500. The C parser's limit is above
         # sys.getrecursionlimit(), so the depth is the first one that fails.
+        # CPython 3.14 (the compute image) bounds C recursion by stack size,
+        # so its first failing depth is near 100000.
         nested: bytes | None = None
-        for depth in (1000, 5000, 10000, 50000):
+        for depth in (1000, 5000, 10000, 50000, 100000, 200000, 1000000):
             candidate = b"[" * depth + b"]" * depth
             try:
                 json.loads(candidate.decode("utf-8"))
