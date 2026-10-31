@@ -17,12 +17,10 @@ if TYPE_CHECKING:
 
 def build_dependency_graph(model: SheetModel) -> dict[str, list[str]]:
     """Map each formula-like cell to in-scope precedent addresses it depends on."""
-    scope = frozenset(model.cells)
     graph: dict[str, list[str]] = {}
     for addr in sorted(addr for addr, cell in model.cells.items() if cell.type in FORMULA_LIKE_TYPES):
         cell = model.cells[addr]
-        deps = [p for p in cell.precedents if p in scope and model.cells[p].type != "empty"]
-        graph[addr] = deps
+        graph[addr] = [p for p in cell.precedents if p in model.cells and model.cells[p].type != "empty"]
     return graph
 
 

@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from plugin.framework.errors import best_effort
+from plugin.calc.address_utils import parse_address
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
 from plugin.calc.spreadsheet_import.models import (
     CellRecord,
@@ -25,7 +26,6 @@ from plugin.calc.spreadsheet_import.range_clip import clip_workbook_data_ranges
 from plugin.calc.spreadsheet_import.translate import translate_formula
 from plugin.calc.spreadsheet_import.vectorize import (
     detect_vectorized_columns,
-    to_r1c1,
     translation_has_cross_sheet_ranges,
     vectorize_range,
 )
@@ -72,7 +72,8 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             translation = translate_formula(first_record.formula, cell_addr=first_addr)
             if translation.ok and translation.code and translation.data_ranges is not None and not translation_has_cross_sheet_ranges(translation.data_ranges) and "calc.fmt(" not in translation.code:
                 last_addr = group[-1]
-                vectorized_data_ranges = [vectorize_range(to_r1c1(a1_range, first_addr), first_addr, last_addr) for a1_range in translation.data_ranges]
+                row_delta = parse_address(last_addr)[1] - parse_address(first_addr)[1]
+                vectorized_data_ranges = [vectorize_range(a1_range, row_delta) for a1_range in translation.data_ranges]
 
                 # Convert bare data references to np.asarray(data) to support element-wise operations
                 code = translation.code
