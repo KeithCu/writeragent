@@ -48,7 +48,6 @@ log = logging.getLogger(__name__)
 
 DOCUMENT_SCRIPTS_UDPROP = "WriterAgentDocumentPythonScripts"
 _MAX_DOCUMENT_SCRIPTS_BYTES = 900_000
-_SOFT_WARN_SCRIPT_BYTES = 200_000
 _ENVELOPE_VERSION = 1
 # Workbook init lives in the same map as named document scripts. The picker and
 # wa.doc must not expose it; deleting "[Doc] INIT" used to wipe the init script.
@@ -108,23 +107,10 @@ def _envelope_to_json(scripts: dict[str, str]) -> str:
     )
 
 
-def _unreadable_document_scripts() -> DocumentScriptError:
-    return DocumentScriptError(
-        _("Stored document scripts are unreadable, so they were left unchanged."),
-        DocumentScriptErrorCode.UNREADABLE,
-    )
-
-
 def _fail_unreadable(message: str, *args: object, exc_info: bool = False) -> tuple[dict[str, str], DocumentScriptError]:
     log.warning(message, *args, exc_info=exc_info)
-    return {}, _unreadable_document_scripts()
-
-
-def _unsupported_document_scripts(version: object) -> DocumentScriptError:
-    return DocumentScriptError(
-        _("Stored document scripts are in an unsupported format (version {0}), so they were left unchanged.").format(
-            version
-        ),
+    return {}, DocumentScriptError(
+        _("Stored document scripts are unreadable, so they were left unchanged."),
         DocumentScriptErrorCode.UNREADABLE,
     )
 
@@ -159,8 +145,14 @@ def _load_document_script_map(doc: Any) -> tuple[dict[str, str], DocumentScriptE
     if "version" not in parsed:
         return _fail_unreadable("document_scripts: missing version")
     if parsed.get("version") != _ENVELOPE_VERSION:
-        log.warning("document_scripts: unsupported version %r", parsed.get("version"))
-        return {}, _unsupported_document_scripts(parsed.get("version"))
+        version = parsed.get("version")
+        log.warning("document_scripts: unsupported version %r", version)
+        return {}, DocumentScriptError(
+            _("Stored document scripts are in an unsupported format (version {0}), so they were left unchanged.").format(
+                version
+            ),
+            DocumentScriptErrorCode.UNREADABLE,
+        )
     scripts_raw = parsed.get("scripts")
     if not isinstance(scripts_raw, dict):
         return _fail_unreadable("document_scripts: missing scripts map")
@@ -185,10 +177,6 @@ def _encoded_envelope(scripts: dict[str, str]) -> tuple[str, DocumentScriptError
             _("Document scripts are too large to store in the document ({0} bytes).").format(nbytes),
             DocumentScriptErrorCode.TOO_LARGE,
         )
-    for name, code in scripts.items():
-        script_bytes = len((code or "").encode("utf-8"))
-        if script_bytes > _SOFT_WARN_SCRIPT_BYTES:
-            log.warning("document_scripts: script %r is large (%d bytes)", name, script_bytes)
     return payload, None
 
 
@@ -306,20 +294,9 @@ def _enumerate_calc_documents(desktop: Any) -> list[Any]:
     return matches
 
 
-def _select_enumerated_calc_document(matches: list[Any]) -> Any | None:
-    """The only open Calc model, or None when there are zero or several.
-
-    UNO component order is not the focused file, so with several workbooks
-    open no enumerated match is safe to pick.
-    """
-    if len(matches) == 1:
-        from plugin.framework.thread_guard import guard_uno
-
-        return guard_uno(matches[0])
-    return None
-
-
 def get_calc_document_from_ctx(ctx: Any) -> Any | None:
+    from plugin.framework.thread_guard import guard_uno
+
     try:
         desktop = get_desktop(ctx)
         doc = desktop.getCurrentComponent()
@@ -337,9 +314,11 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         # to _enumerate_calc_documents.
         return None
     if doc is None or not is_calc(doc):
-        return _select_enumerated_calc_document(_enumerate_calc_documents(desktop))
-    from plugin.framework.thread_guard import guard_uno
-
+        matches = _enumerate_calc_documents(desktop)
+        # UNO order is not the focused file, so 0 or several workbooks is not a safe pick.
+        if len(matches) != 1:
+            return None
+        return guard_uno(matches[0])
     return guard_uno(doc)
 
 
@@ -359,7 +338,7 @@ def build_python_eval_init_kwargs(doc: Any) -> dict[str, Any]:
     }
 
 
-def new_script_name_error(name: str, *, attach: bool) -> str | None:
+def new_script_name_error(name: str, *, attach: bool) -> DocumentScriptError | None:
     """Storage sentence for a stripped *name*, or None when that name is allowed.
 
     Does not strip. A whitespace-only string is not empty; callers strip.
@@ -368,11 +347,11 @@ def new_script_name_error(name: str, *, attach: bool) -> str | None:
     are legal My Scripts names. ``init`` is not in ``_CALC_INIT_SCRIPT_NAMES``.
     """
     if not name:
-        return _("Script name cannot be empty.")
+        return DocumentScriptError(_("Script name cannot be empty."), DocumentScriptErrorCode.EMPTY_NAME)
     if is_reserved_script_name(name):
-        return _("'{0}' starts with a reserved prefix.").format(name)
+        return DocumentScriptError(_("'{0}' starts with a reserved prefix.").format(name), DocumentScriptErrorCode.RESERVED_NAME)
     if attach and is_calc_init_script_name(name):
-        return _("'{0}' is reserved for the workbook init script.").format(name)
+        return DocumentScriptError(_("'{0}' is reserved for the workbook init script.").format(name), DocumentScriptErrorCode.RESERVED_NAME)
     return None
 
 
@@ -384,17 +363,9 @@ def attach_document_script(
     overwrite: bool = False,
 ) -> DocumentScriptError | None:
     name = (name or "").strip()
-    message = new_script_name_error(name, attach=True)
-    if message is not None:
-        # What was wrong: this branch assigned the script-body parameter code to an error-code enum.
-        # How: 26eec1a72 folded the empty, prefix, and INIT checks into new_script_name_error and reused the name code.
-        # Why this fixes it: the return is immediate, so nothing was stored, but a later edit that fell through would persist empty_name or reserved_name as the script. code stays the body.
-        error_code = (
-            DocumentScriptErrorCode.EMPTY_NAME
-            if not name
-            else DocumentScriptErrorCode.RESERVED_NAME
-        )
-        return DocumentScriptError(message, error_code)
+    name_err = new_script_name_error(name, attach=True)
+    if name_err is not None:
+        return name_err
     loaded, err = _load_document_script_map(doc)
     if err:
         return err
@@ -413,10 +384,9 @@ def delete_document_script(doc: Any, name: str) -> DocumentScriptError | None:
     # but deleting the storage name used to pop the entry and wipe the
     # workbook init script. attach_document_script already rejects this name.
     if is_calc_init_script_name(name):
-        return DocumentScriptError(
-            _("'{0}' is reserved for the workbook init script.").format(name),
-            DocumentScriptErrorCode.RESERVED_NAME,
-        )
+        err = new_script_name_error(name, attach=True)
+        assert err is not None
+        return err
     loaded, err = _load_document_script_map(doc)
     if err:
         return err
@@ -665,11 +635,6 @@ def build_scripts_list_message(
     return msg
 
 
-def _document_script_storage_name(name: str) -> str:
-    """Property key for a picker label. ``[Doc] Regional`` stores as ``Regional``."""
-    return parse_document_script_display_name(name) or name
-
-
 def get_user_scripts() -> dict[str, str]:
     scripts = config.get_config("saved_python_scripts")
     if not isinstance(scripts, dict):
@@ -700,10 +665,9 @@ def save_user_script(name: str, code: str) -> DocumentScriptError | None:
     # Why this change fixes it: attach_document_script already returns RESERVED_NAME.
     # Returning that error writes nothing and gives the picker a translated sentence.
     if is_reserved_script_name(name):
-        return DocumentScriptError(
-            _("'{0}' starts with a reserved prefix.").format(name),
-            DocumentScriptErrorCode.RESERVED_NAME,
-        )
+        err = new_script_name_error(name, attach=False)
+        assert err is not None
+        return err
     scripts = get_user_scripts()
     scripts[name] = code
     config.set_config("saved_python_scripts", scripts)
@@ -798,11 +762,6 @@ def _require_writable_session(
     return None
 
 
-def _remember_selection(session_doc: Any | None, name: str) -> None:
-    name_config_key = resolve_run_script_name_config_key(session_doc)
-    config.set_config(name_config_key, name)
-
-
 def _on_request_scripts(
     msg: dict[str, Any],
     *,
@@ -823,7 +782,7 @@ def _on_select_script(
     send_list: Callable[..., None],
 ) -> bool:
     name = str(msg.get("name", "") or "").strip()
-    _remember_selection(session_doc, name)
+    config.set_config(resolve_run_script_name_config_key(session_doc), name)
     return True
 
 
@@ -849,7 +808,7 @@ def _validate_script_target(
         if err:
             send_list(status_error_text=err)
             return None
-        storage_name = _document_script_storage_name(name)
+        storage_name = parse_document_script_display_name(name) or name
     return name, origin, storage_name
 
 
@@ -889,7 +848,7 @@ def _on_save_script(
                 if user_err:
                     send_list(status_error_text=str(user_err))
                     return True
-                _remember_selection(session_doc, storage_name)
+                config.set_config(resolve_run_script_name_config_key(session_doc), storage_name)
                 send_list(
                     status_ok_text=readonly_fallback_saved_message(storage_name, save_err),
                 )
@@ -897,14 +856,14 @@ def _on_save_script(
             send_list(status_error_text=str(save_err))
             return True
         display_name = document_script_display_name(storage_name)
-        _remember_selection(session_doc, display_name)
+        config.set_config(resolve_run_script_name_config_key(session_doc), display_name)
         send_list(status_ok_text=_("Saved script '{0}' to this document.").format(storage_name))
         return True
     user_err = save_user_script(name, script_code)
     if user_err:
         send_list(status_error_text=str(user_err))
         return True
-    _remember_selection(session_doc, name)
+    config.set_config(resolve_run_script_name_config_key(session_doc), name)
     log.info("scripts picker: save_script '%s' (user)", name)
     send_list(status_ok_text=_("Saved script '{0}'.").format(name))
     return True
