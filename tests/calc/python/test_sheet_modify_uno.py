@@ -45,7 +45,7 @@ def test_sheet_rename_migrates_modify_listener_and_spill(ctx, doc):
     sheet.setName(new_name)
 
     # 4. Trigger modify event on the renamed sheet
-    dispatch_sheet_modified(ctx, doc.getURL(), original_name, SimpleNamespace(Source=sheet), doc=doc, dispatcher=listener)
+    dispatch_sheet_modified(ctx, doc.getURL(), original_name, SimpleNamespace(Source=sheet), doc=doc)
 
     # Assert SHEET_MODIFY_LISTENERS has entry under new name and old name is gone
     entries_for_doc = [k for k in SHEET_MODIFY_LISTENERS if k[1] in (original_name, new_name)]

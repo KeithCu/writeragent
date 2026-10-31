@@ -1093,9 +1093,7 @@ def _clear_spill_timer_registry() -> None:
 
     python_function._PENDING_SPILL_TIMERS.clear()
     lifecycle._LIFECYCLE_KEYS.clear()
-    lifecycle._LIFECYCLE_REFS_BY_KEY.clear()
     lifecycle._LIFECYCLE_KEY_BY_DOC_ID.clear()
-    lifecycle._DOC_IDS_BY_LIFECYCLE_KEY.clear()
 
 
 class _HoldSpillTimer:

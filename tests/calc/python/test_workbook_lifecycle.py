@@ -39,15 +39,11 @@ def _reset_lifecycle_registry():
 
     lifecycle._LISTENERS.clear()
     lifecycle._LIFECYCLE_KEYS.clear()
-    lifecycle._LIFECYCLE_REFS_BY_KEY.clear()
     lifecycle._LIFECYCLE_KEY_BY_DOC_ID.clear()
-    lifecycle._DOC_IDS_BY_LIFECYCLE_KEY.clear()
     yield
     lifecycle._LISTENERS.clear()
     lifecycle._LIFECYCLE_KEYS.clear()
-    lifecycle._LIFECYCLE_REFS_BY_KEY.clear()
     lifecycle._LIFECYCLE_KEY_BY_DOC_ID.clear()
-    lifecycle._DOC_IDS_BY_LIFECYCLE_KEY.clear()
 
 
 def test_lifecycle_key_prefers_runtime_uid():
@@ -255,7 +251,7 @@ def test_remember_doc_lifecycle_key_rekeys_strong_ref():
     _remember_doc_lifecycle_key(doc, "key-a")
     _remember_doc_lifecycle_key(doc, "key-b")
     assert lifecycle._LIFECYCLE_KEY_BY_DOC_ID[id(doc)] == ("key-b", doc)
-    assert "key-a" not in lifecycle._DOC_IDS_BY_LIFECYCLE_KEY
+    assert all(entry[0] != "key-a" for entry in lifecycle._LIFECYCLE_KEY_BY_DOC_ID.values())
     assert lifecycle_key_if_known(doc) == "key-b"
     _forget_doc_lifecycle_key("key-b")
     assert lifecycle_key_if_known(doc) == ""
@@ -370,14 +366,14 @@ def test_runtime_uid_upgrade_keeps_one_listener(monkeypatch: pytest.MonkeyPatch)
         assert len(doc._document_event_listeners) == 1
         assert set(lifecycle._LISTENERS) == {"uid-upgrade"}
         assert lifecycle_key_if_known(doc) == "uid-upgrade"
-        assert "calc:unsaved:1" not in lifecycle._LIFECYCLE_REFS_BY_KEY
+        assert all(v != "calc:unsaved:1" for v in lifecycle._LIFECYCLE_KEYS.values())
 
         with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
             mock_reset.return_value = {"status": "ok"}
             doc._document_event_listeners[0].on_document_event(MagicMock(EventName="OnUnload"))
             assert lifecycle._LISTENERS == {}
             assert lifecycle_key_if_known(doc) == ""
-            assert lifecycle._LIFECYCLE_REFS_BY_KEY == {}
+            assert list(lifecycle._LIFECYCLE_KEYS.values()) == []
             mock_reset.assert_called_once_with(ctx, "calc:unsaved:1")
 
         ensure_calc_workbook_unload_resets_python(ctx, doc)
