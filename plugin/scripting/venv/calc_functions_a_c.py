@@ -167,12 +167,9 @@ def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = N
         r = int(float(row))
         c = int(float(col))
         abs_n = int(float(abs_num))
-    except (ValueError, TypeError, OverflowError):
-        return "#VALUE!"
-    if r < 1 or c < 1 or abs_n not in (1, 2, 3, 4):
-        return "#VALUE!"
-    try:
-        is_a1 = True if (a1 is None or a1 == "") else _as_nonzero(a1)
+        if r < 1 or c < 1 or abs_n not in (1, 2, 3, 4):
+            return "#VALUE!"
+        is_a1 = a1 is None or a1 == "" or _as_nonzero(a1)
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
 
@@ -242,7 +239,6 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
         # a number. Calc returns the error instead.
         return float("nan")
 
-    # Simplified implementations for most common
     if fn == 1:
         # Empty after dropping text/errors is #DIV/0! in Calc; avoid the
         # RuntimeWarning from np.mean([]).
@@ -374,11 +370,8 @@ def amordegrc(
         f_n_rate = _round_amor(f_rate * f_cost)
         f_rest -= f_n_rate
         if f_rest < 0.0:
-            rem = n_per - n
-            if rem in (0, 1):
-                return _round_amor(f_cost * 0.5)
-            else:
-                return 0.0
+            # n is in range(n_per), so n_per - n is at least 1. The last period is half the remaining cost.
+            return _round_amor(f_cost * 0.5) if n == n_per - 1 else 0.0
         f_cost -= f_n_rate
 
     return float(f_n_rate)
@@ -401,7 +394,6 @@ def amorlinc(
     f_cost, d_purch, d_first, f_salv, n_per, f_rate, b = parsed
 
     f_one_rate = f_cost * f_rate
-    f_cost_delta = f_cost - f_salv
     yf = yearfrac(d_purch, d_first, b)
     if math.isnan(yf):
         return float("nan")
@@ -417,13 +409,14 @@ def amorlinc(
     elif n_per <= num_full_periods:
         res = f_one_rate
     elif n_per == num_full_periods + 1:
-        res = f_cost_delta - f_one_rate * num_full_periods - f0_rate
+        res = f_cost - f_salv - f_one_rate * num_full_periods - f0_rate
     else:
         res = 0.0
 
     return float(res) if res > 0.0 else 0.0
 
 
+# ScArabic lcl_GetArabicValue. The bool is true for a power of ten.
 _ARABIC_DIGITS: dict[str, tuple[int, bool]] = {
     "M": (1000, True),
     "D": (500, False),
@@ -433,11 +426,6 @@ _ARABIC_DIGITS: dict[str, tuple[int, bool]] = {
     "V": (5, False),
     "I": (1, True),
 }
-
-
-def _arabic_digit(ch: str) -> tuple[int, bool] | None:
-    """ScArabic's lcl_GetArabicValue. The bool is true for a power of ten."""
-    return _ARABIC_DIGITS.get(ch)
 
 
 def arabic(text: Any) -> float:
@@ -453,13 +441,13 @@ def arabic(text: Any) -> float:
     index = 0
     length = len(roman)
     while index < length:
-        first = _arabic_digit(roman[index])
+        first = _ARABIC_DIGITS.get(roman[index])
         if first is None:
             return float("nan")
         digit, is_ten_power = first
         next_digit = 0
         if index + 1 < length:
-            second = _arabic_digit(roman[index + 1])
+            second = _ARABIC_DIGITS.get(roman[index + 1])
             if second is None:
                 return float("nan")
             next_digit = second[0]
@@ -722,27 +710,18 @@ def binomdist(*args: Any) -> float:
 _MAX_BIT_VALUE: int = (1 << 48) - 1
 
 
-def _bit_arg(x: Any) -> int | None:
-    """int(float(x)), or None on OverflowError.
-
-    ValueError and TypeError propagate. Callers return nan on None before
-    converting the next argument, matching the old single try.
-    """
-    try:
-        return int(float(x))
-    except OverflowError:
-        return None
-
-
 def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
     """Apply a binary integer bitwise operator to n1 and n2 within [0, 2^48 - 1]."""
     # Non-negative integers below 2^48. Excel and Calc return #NUM! otherwise.
     # type errors are left to the worker exception path, which returns #VALUE!
-    v1 = _bit_arg(n1)
-    if v1 is None:
+    # ValueError and TypeError propagate (#VALUE! on the worker). OverflowError is #NUM!.
+    # Convert n1 before n2.
+    try:
+        v1 = int(float(n1))
+        v2 = int(float(n2))
+    except OverflowError:
         return float("nan")
-    v2 = _bit_arg(n2)
-    if v2 is None or v1 < 0 or v1 > _MAX_BIT_VALUE or v2 < 0 or v2 > _MAX_BIT_VALUE:
+    if v1 < 0 or v1 > _MAX_BIT_VALUE or v2 < 0 or v2 > _MAX_BIT_VALUE:
         return float("nan")
     return float(op(v1, v2))
 
@@ -753,11 +732,12 @@ def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
     # A shift of 1e9 builds an integer large enough to hang or raise MemoryError.
     # type errors are left to the worker exception path, which returns #VALUE!
     # With those bounds the result is at most 101 bits, so MemoryError cannot happen.
-    n = _bit_arg(number)
-    if n is None:
+    try:
+        n = int(float(number))
+        s = int(float(shift))
+    except OverflowError:
         return float("nan")
-    s = _bit_arg(shift)
-    if s is None or n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
+    if n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
         return float("nan")
     mag = abs(s)
     # bool(left) keeps today's truthiness. left == (s >= 0) differs for non-bool left.
@@ -937,12 +917,7 @@ def coth(x: Any) -> float:
 
 
 def countif(r: Any, crit: Any) -> float:
-    r_flat = np.asarray(r, dtype=object).ravel()
-    cnt = 0
-    for val in r_flat:
-        if match_criteria(val, crit):
-            cnt += 1
-    return float(cnt)
+    return float(sum(1 for v in np.asarray(r, dtype=object).ravel() if match_criteria(v, crit)))
 
 
 def countifs(*args: Any) -> float | str:
@@ -1012,11 +987,9 @@ def _coupon_schedule(settlement: Any, maturity: Any, frequency: Any, basis: Any 
     """Compute coupon schedule: (p_ser, c_ser, days_in_per, k, a_days, dsc_days)."""
     b = int(float(basis))
     p_ser, c_ser, days_in_per, k = _get_coupon_dates(settlement, maturity, frequency, b)
-    s_date = _serial_to_date(settlement)
-    assert s_date is not None
-    s_ser = _date_to_serial(s_date)
-    a_days = float(_days_between(p_ser, s_ser, b))
-    dsc_days = float(_days_between(s_ser, c_ser, b))
+    # _days_between truncates via _serial_to_date, same as the old date/serial round trip.
+    a_days = float(_days_between(p_ser, settlement, b))
+    dsc_days = float(_days_between(settlement, c_ser, b))
     return p_ser, c_ser, days_in_per, k, a_days, dsc_days
 
 
@@ -1035,7 +1008,7 @@ def coupdaybs(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) ->
 
 
 def coupdays(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
-    return float(_coupon(settlement, maturity, frequency, basis, 2))
+    return _coupon(settlement, maturity, frequency, basis, 2)
 
 
 def coupdaysnc(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
@@ -1043,15 +1016,15 @@ def coupdaysnc(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -
 
 
 def coupncd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
-    return float(_coupon(settlement, maturity, frequency, basis, 1))
+    return _coupon(settlement, maturity, frequency, basis, 1)
 
 
 def coupnum(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
-    return float(_coupon(settlement, maturity, frequency, basis, 3))
+    return _coupon(settlement, maturity, frequency, basis, 3)
 
 
 def couppcd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
-    return float(_coupon(settlement, maturity, frequency, basis, 0))
+    return _coupon(settlement, maturity, frequency, basis, 0)
 
 
 def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
