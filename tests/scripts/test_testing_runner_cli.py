@@ -31,8 +31,8 @@ def test_soffice_bootstrap_command_seeds_throwaway(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
     soffice = _touch_soffice_next_to_helper(tmp_path)
     helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
-    cmd = tr._soffice_bootstrap_command(helper)
-    assert cmd is not None
+    cmd, accept = tr._soffice_bootstrap_command(helper)
+    assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert isinstance(cmd, list)
     assert cmd[0] == str(soffice)
     assert " " not in cmd[0]
@@ -72,8 +72,8 @@ def test_soffice_bootstrap_command_seeds_throwaway_win32_exe(
     monkeypatch.setattr(tr.sys, "platform", "win32")
     soffice = _touch_soffice_next_to_helper(tmp_path, name="soffice.exe")
     helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
-    cmd = tr._soffice_bootstrap_command(helper)
-    assert cmd is not None
+    cmd, accept = tr._soffice_bootstrap_command(helper)
+    assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert cmd[0] == str(soffice)
     assert "soffice.exe" in cmd[0]
     assert "--headless" in cmd
@@ -93,8 +93,8 @@ def test_soffice_bootstrap_command_uses_resolve_when_not_beside_helper(
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
     monkeypatch.setattr(tr, "_resolve_soffice_bin", lambda _helper: found)
     helper = type("Helper", (), {"__file__": str(tmp_path / "Resources" / "officehelper.py")})()
-    cmd = tr._soffice_bootstrap_command(helper)
-    assert cmd is not None
+    cmd, accept = tr._soffice_bootstrap_command(helper)
+    assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert cmd[0] == str(found)
     assert "--headless" in cmd
     assert any(a.startswith("-env:UserInstallation=") for a in cmd)
@@ -108,22 +108,10 @@ def test_soffice_bootstrap_command_argv0_is_bare_path(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", lambda _p: None)
     soffice = _touch_soffice_next_to_helper(tmp_path)
     helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
-    cmd = tr._soffice_bootstrap_command(helper)
-    assert cmd is not None
+    cmd, accept = tr._soffice_bootstrap_command(helper)
+    assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert cmd[0] == str(soffice)
     assert not any(flag in cmd[0] for flag in ("--headless", "-env:", "--accept"))
-
-
-def test_accept_from_soffice_argv() -> None:
-    assert tr._accept_from_soffice_argv(
-        ["/usr/bin/soffice", "--accept=pipe,name=uno123;urp;"]
-    ) == "pipe,name=uno123;urp;"
-    try:
-        tr._accept_from_soffice_argv(["/usr/bin/soffice", "--headless"])
-    except RuntimeError as exc:
-        assert "--accept" in str(exc)
-    else:
-        raise AssertionError("expected RuntimeError when --accept missing")
 
 
 def test_main_returns_1_when_bootstrap_raises(monkeypatch, capsys) -> None:

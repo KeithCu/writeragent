@@ -88,7 +88,7 @@ def _show_tests_unavailable(test_name: str) -> None:
     msgbox(get_ctx(), test_name, "This WriterAgent build was packaged without the optional `plugin.tests` test modules.")
 
 
-def _run_test_suite(module_name: str, doc_checker: Callable[[Any], bool], test_name: str) -> None:
+def _run_test_suite(module_name: str, test_name: str) -> None:
     """Run a bundled in-OXT test suite on the UI thread and show the result.
 
     Must not use ``run_blocking_in_thread``: synchronous UNO tools reject calls from
@@ -101,7 +101,7 @@ def _run_test_suite(module_name: str, doc_checker: Callable[[Any], bool], test_n
         return
 
     from plugin.framework.i18n import _
-    from plugin.framework.uno_context import get_active_document, get_ctx
+    from plugin.framework.uno_context import get_ctx
 
     ctx = get_ctx()
     try:
@@ -114,10 +114,8 @@ def _run_test_suite(module_name: str, doc_checker: Callable[[Any], bool], test_n
         test_module = importlib.import_module(module_name)
         from plugin.testing_runner import run_module_suite
 
-        model = get_active_document(ctx)
-        doc_model = model if (model and doc_checker(model)) else None
         log.debug(f"Calling run_module_suite for {test_name}")
-        p, f, suite_log = run_module_suite(ctx, test_module, test_name, doc_model)
+        p, f, suite_log = run_module_suite(ctx, test_module, test_name)
         log.info(f"_run_test_suite finished: {test_name}, p={p}, f={f}")
         msgbox(ctx, test_name, _("{0}: {1} passed, {2} failed.").format(test_name, p, f) + "\n\n" + "\n".join(suite_log))
     except Exception as e:
@@ -129,7 +127,6 @@ def register_core_handlers() -> None:
     """Register core application handlers during bootstrap."""
     from plugin.chatbot.dialog_views import settings_box
     from plugin.chatbot.eval_dashboard_ui import show_eval_dashboard
-    from plugin.doc.doc_type import is_calc, is_draw, is_writer
     from plugin.framework.uno_context import get_active_document, get_ctx
 
     def _install_optional(fn: Callable[..., Any], *args: Any, message: str, level: int = logging.DEBUG) -> None:
@@ -145,16 +142,16 @@ def register_core_handlers() -> None:
     register_action_handler("main", "EvaluationDashboard", lambda: open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
 
     test_suites = (
-        ("RunFormatTests", "plugin.tests.writer.test_format_uno", is_writer, "writer.format_tests"),
-        ("RunCalcTests", "plugin.tests.calc.test_calc_uno", is_calc, "calc.tests"),
-        ("RunCalcIntegrationTests", "plugin.tests.calc.test_calc_uno", is_calc, "calc.integration_tests"),
-        ("RunDrawTests", "plugin.tests.draw.test_draw_uno", is_draw, "draw.tests"),
+        ("RunFormatTests", "plugin.tests.writer.test_format_uno", "writer.format_tests"),
+        ("RunCalcTests", "plugin.tests.calc.test_calc_uno", "calc.tests"),
+        ("RunCalcIntegrationTests", "plugin.tests.calc.test_calc_uno", "calc.integration_tests"),
+        ("RunDrawTests", "plugin.tests.draw.test_draw_uno", "draw.tests"),
     )
-    for action, mod_name, checker, test_name in test_suites:
+    for action, mod_name, test_name in test_suites:
         register_action_handler(
             "main",
             action,
-            lambda m=mod_name, c=checker, t=test_name: _run_test_suite(m, c, t),
+            lambda m=mod_name, t=test_name: _run_test_suite(m, t),
         )
     register_action_handler("main", "NoOp", lambda: None)
 
