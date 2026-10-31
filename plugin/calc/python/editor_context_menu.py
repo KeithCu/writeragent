@@ -10,9 +10,11 @@ import logging
 import threading
 from typing import Any
 
+import uno
 import unohelper
 
 from plugin.framework.errors import is_real_disposal, uno_probe
+from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import install_view_doc_listener
 
@@ -46,12 +48,8 @@ def _edit_python_cell_url() -> str:
 def _is_calc_controller(controller: Any) -> bool:
     if controller is None:
         return False
-    return bool(
-        uno_probe(
-            lambda: bool(controller.getModel() and controller.getModel().supportsService("com.sun.star.sheet.SpreadsheetDocument")),
-            False,
-        )
-    )
+    model = uno_probe(controller.getModel, None)
+    return bool(model and uno_probe(lambda: model.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False))
 
 
 def _looks_like_cell_context_menu(container: Any) -> bool:
@@ -105,8 +103,6 @@ def _get_interceptor() -> Any:
                 if not _looks_like_cell_context_menu(container):
                     return IGNORED
 
-                import uno
-
                 factory = container.queryInterface(uno.getTypeByName("com.sun.star.lang.XMultiServiceFactory"))
                 if factory is None:
                     return IGNORED
@@ -114,8 +110,6 @@ def _get_interceptor() -> Any:
                 separator.setPropertyValue("SeparatorType", ActionTriggerSeparatorType.LINE)
 
                 entry = factory.createInstance("com.sun.star.ui.ActionTrigger")
-                from plugin.framework.i18n import _
-
                 entry.setPropertyValue("Text", _("Edit Python in Cell..."))
                 entry.setPropertyValue("CommandURL", _edit_python_cell_url())
 
@@ -136,7 +130,6 @@ def _register_controller(controller: Any) -> None:
     if not _is_calc_controller(controller):
         return
     try:
-        import uno
         from plugin.framework.uno_context import uno_same
 
         interception = controller.queryInterface(uno.getTypeByName("com.sun.star.ui.XContextMenuInterception"))
@@ -163,11 +156,6 @@ def _register_controller(controller: Any) -> None:
         log.warning("python_editor_context_menu: register failed", exc_info=True)
 
 
-def _register_frame(frame: Any) -> None:
-    controller = uno_probe(frame.getController, None) if frame is not None else None
-    _register_controller(controller)
-
-
 def _install_doc_event_listener(ctx: Any) -> None:
     """Attach a global listener so Calc views opened AFTER OnStartApp bootstrap get the menu too."""
     global _doc_listener
@@ -192,7 +180,9 @@ def install_calc_cell_context_menu(ctx: Any) -> None:
             if frames is not None:
                 for i in range(frames.getCount()):
                     try:
-                        _register_frame(frames.getByIndex(i))
+                        frame = frames.getByIndex(i)
+                        controller = uno_probe(frame.getController, None) if frame is not None else None
+                        _register_controller(controller)
                     except Exception:
                         log.debug("python_editor_context_menu: frame %s skipped", i, exc_info=True)
         _install_doc_event_listener(ctx)

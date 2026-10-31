@@ -101,12 +101,18 @@ class _FakeDialog:
         self.disposed = True
 
 
+def _reset_native_editor() -> None:
+    if ui._active is not None:
+        ui._active.close()
+    ui._active = None
+
+
 def setup_function() -> None:
-    ui.reset_native_cell_editor_for_tests()
+    _reset_native_editor()
 
 
 def teardown_function() -> None:
-    ui.reset_native_cell_editor_for_tests()
+    _reset_native_editor()
 
 
 def _open_native(**kwargs):
@@ -180,7 +186,7 @@ def test_native_save_plain_mode():
     ) as mock_save:
         inst._save()
     assert mock_save.call_args.kwargs["save_as_plain"] is True
-    assert mock_save.call_args.kwargs["data_binding_text"] is None
+    assert mock_save.call_args.kwargs["data_binding_text"] == ""
     assert "Saved without =PY()." in dlg.controls["StatusEdit"].getText()
 
 
@@ -506,7 +512,7 @@ def test_open_unquoted_ref_loads_followed_cell_text():
         return True
 
     with patch.object(ed, "get_active_session", return_value=None), patch.object(
-        ed, "_get_active_calc_cell", return_value=(doc, formula_cell, "=PY($A$1; C1:C10)")
+        ed, "_get_active_calc_cell", return_value=(doc, formula_cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=("$A$1", parts, "=PY($A$1; C1:C10)")
     ), patch.object(
@@ -542,7 +548,7 @@ def test_open_quoted_a1_does_not_follow_code_cell():
         return True
 
     with patch.object(ed, "get_active_session", return_value=None), patch.object(
-        ed, "_get_active_calc_cell", return_value=(doc, cell, '=PY("A1")')
+        ed, "_get_active_calc_cell", return_value=(doc, cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=("A1", parts, '=PY("A1")')
     ), patch.object(
@@ -580,7 +586,7 @@ def _open_with_formula(formula, *, resolve_cell=None, initial_code=None):
 
     resolve_target = resolve_cell if resolve_cell is not None else MagicMock()
     with patch.object(ed, "get_active_session", return_value=None), patch.object(
-        ed, "_get_active_calc_cell", return_value=(doc, cell, formula)
+        ed, "_get_active_calc_cell", return_value=(doc, cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=(code, parts, formula)
     ), patch.object(
@@ -656,7 +662,7 @@ def test_open_missing_code_cell_shows_error():
     parts = parse_python_formula(formula)
     assert parts is not None
     with patch.object(ed, "get_active_session", return_value=None), patch.object(
-        ed, "_get_active_calc_cell", return_value=(doc, cell, formula)
+        ed, "_get_active_calc_cell", return_value=(doc, cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=("Missing.A1", parts, formula)
     ), patch.object(

@@ -17,7 +17,7 @@ from plugin.calc.python import editor_context_menu as mod
 from plugin.calc.python.editor_context_menu import (
     _edit_python_cell_url,
     _looks_like_cell_context_menu,
-    _register_frame,
+    _register_controller,
 )
 from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 from plugin.framework.uno_context import reset_package_extension_id_for_tests, set_package_extension_id
@@ -301,7 +301,7 @@ def test_register_frame_uses_uno_type_by_name():
         mock_type = MagicMock()
         mock_get_type.return_value = mock_type
 
-        _register_frame(frame)
+        _register_controller(controller)
 
         mock_get_type.assert_any_call("com.sun.star.ui.XContextMenuInterception")
         controller.queryInterface.assert_called_with(mock_type)
@@ -359,10 +359,10 @@ def test_install_registers_all_frames():
     ctx = MagicMock()
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with patch.object(mod, "_install_doc_event_listener"):
-            with patch.object(mod, "_register_frame") as mock_register_frame:
+            with patch.object(mod, "_register_controller") as mock_register_controller:
                 mod.install_calc_cell_context_menu(ctx)
 
-                mock_register_frame.assert_called_once_with(frame0)
+                mock_register_controller.assert_called_once_with(frame0.getController.return_value)
 
 
 def test_new_doc_listener_on_document_event():

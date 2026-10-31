@@ -599,8 +599,8 @@ def test_get_active_calc_cell_uses_selection_sheet_index():
 
     res = _get_active_calc_cell(ctx)
     assert res is not None
-    model, cell, formula = res
-    assert formula == '=PY("result = 2")'
+    model, cell = res
+    assert cell.getFormula() == '=PY("result = 2")'
     assert cell._sheet is sheet1
 
 

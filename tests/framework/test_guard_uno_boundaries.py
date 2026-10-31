@@ -255,8 +255,7 @@ class TestGuardUnoBoundaries:
         with (
             patch("plugin.calc.python.editor.get_desktop", return_value=desktop),
             patch("plugin.calc.python.editor.CalcBridge") as mock_bridge,
-            patch("plugin.calc.python.editor._cell_formula_strings", return_value=["=PY(\"1\")"]),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
+            patch("plugin.calc.python.editor.guard_uno", side_effect=lambda o: o) as mock_guard,
         ):
             from plugin.calc.python.editor import _get_active_calc_cell
 

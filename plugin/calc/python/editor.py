@@ -20,9 +20,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.python.formula_edit import (
+    CALC_PYTHON_FN,
     PythonFormulaParts,
+    build_data_suffix,
     build_editor_formula_save,
     cell_looks_python_like,
     format_data_binding_display,
@@ -36,10 +39,16 @@ from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.config import get_config
 from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.i18n import _
-from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.thread_guard import guard_uno, main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
-from plugin.scripting.editor_host import get_active_session, launch_monaco_editor, monaco_editor_available, set_active_session
-from plugin.scripting.editor_errors import failure_message
+from plugin.scripting.editor_host import (
+    ask_save_discard_cancel,
+    get_active_session,
+    launch_monaco_editor,
+    monaco_editor_available,
+    set_active_session,
+)
+from plugin.scripting.editor_errors import editor_error_markers, failure_message
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -107,8 +116,6 @@ def _same_calc_cell(left: Any, right: Any) -> bool:
 def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
     """Resolve ``$A$1`` / ``Sheet.A1`` to a cell, or None if the address is bad."""
     try:
-        from plugin.calc.address_utils import qualify_a1, split_sheet_prefix
-
         sheet, rest = split_sheet_prefix(code_ref.strip())
         bare = rest.replace("$", "").strip()
         if not bare:
@@ -125,8 +132,6 @@ def _load_cell_editor_code(cell: Any, formulas: list[str] | None = None) -> tupl
     code, parts, source = _parse_cell_python_formula(cell, formulas=formulas)
     if parts is not None:
         return code, parts, source
-    if _cell_has_unparsed_python(cell, formulas=formulas):
-        return "", None, None
     plain = cell.getString()
     if plain:
         return str(plain), None, None
@@ -145,16 +150,12 @@ def _cell_has_unparsed_python(cell: Any, formulas: list[str] | None = None) -> b
 def format_cell_a1(cell: Any) -> str:
     """Active-sheet A1 label (``A1``, ``AA100``)."""
     addr = cell.getCellAddress()
-    from plugin.calc.address_utils import format_address
-
     return format_address(int(addr.Column), int(addr.Row))
 
 
 @main_thread_only
 def confirm_unsaved_cell_edit(ctx: Any, cell_addr: str) -> str:
     """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
-    from plugin.scripting.editor_host import ask_save_discard_cancel
-
     title = product_display_name(ctx)
     where = cell_addr or _("this cell")
     message = _("Save changes to {0}?\n\nYes saves. No discards and opens the new cell. Cancel keeps editing {0}.").format(where)
@@ -162,8 +163,8 @@ def confirm_unsaved_cell_edit(ctx: Any, cell_addr: str) -> str:
 
 
 @main_thread_only
-def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
-    """Return (doc, cell, primary formula string) for the current selection, or None."""
+def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
+    """Return (doc, cell) for the current selection, or None."""
     desktop = get_desktop(ctx)
     if desktop is None:
         log.warning("python_editor: no desktop")
@@ -177,8 +178,6 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
         log.warning("python_editor: no controller")
         return None
     model = controller.getModel()
-    from plugin.framework.thread_guard import guard_uno
-
     model = guard_uno(model)
     if model is None or not hasattr(model, "getSheets"):
         log.warning("python_editor: not a spreadsheet document")
@@ -210,10 +209,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
         log.warning("python_editor: selection sheet missing")
         return None
     cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
-    formulas = _cell_formula_strings(cell)
-    formula = formulas[0] if formulas else ""
-    log.info("python_editor: cell (%s,%s) formulas=%r", addr.StartColumn, addr.StartRow, formulas)
-    return model, cell, formula
+    return model, cell
 
 
 def _existing_data_args_for_xl_rewrite(data_binding_text: str | None, parsed_parts: PythonFormulaParts | None) -> list[str]:
@@ -262,8 +258,6 @@ def _apply_formula_save(cell: Any, *, parsed_parts: PythonFormulaParts | None, n
 
 def _apply_followed_ref_save(formula_cell: Any, *, code_cell: Any, code_ref: str, new_code: str, data_binding_text: str | None, parsed_parts: PythonFormulaParts | None = None) -> dict[str, Any]:
     """Write Python to the referenced code cell; keep ``=PY($A$1; …)`` as a ref."""
-    from plugin.calc.python.formula_edit import CALC_PYTHON_FN, build_data_suffix
-
     code_cell.setString(new_code)
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
@@ -321,13 +315,16 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
     display_cell = code_cell if follow else cell
 
     def on_save(code: str, save_as_plain: bool, data_binding: str | None = None, _action: str = "cell_save") -> dict[str, Any]:
-        if follow:
-            return _apply_cell_save(doc, cell, parsed_parts=parsed_parts, new_code=code, save_as_plain=True, data_binding_text=data_binding, code_cell=code_cell, code_ref=code_ref)
-        binding = None if save_as_plain else data_binding
-        return _apply_cell_save(doc, cell, parsed_parts=parsed_parts, new_code=code, save_as_plain=save_as_plain, data_binding_text=binding)
-
-    def on_closed() -> None:
-        log.debug("Python cell editor closed")
+        return _apply_cell_save(
+            doc,
+            cell,
+            parsed_parts=parsed_parts,
+            new_code=code,
+            save_as_plain=save_as_plain,
+            data_binding_text=data_binding,
+            code_cell=code_cell if follow else None,
+            code_ref=code_ref if follow else None,
+        )
 
     label = format_cell_a1(display_cell)
     from plugin.scripting.document_scripts import document_scripts_identity
@@ -351,7 +348,6 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
         "resource": label,
     }
     from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
-    from plugin.scripting.editor_errors import editor_error_markers
 
     entry = best_effort(lambda: get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), initial_code), "diagnostics lookup for editor markers", None)
     if entry is not None and entry.is_error:
@@ -361,7 +357,7 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
     # Unsaved calc-cell, Run Script, init-script, and LaTeX buffers are
     # confirmed or flushed inside launch_monaco_editor before this load
     # replaces the window. A calc-only check here dropped the other modes.
-    launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save, on_closed=on_closed)
+    launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save)
 
 
 def open_python_cell_editor(ctx: Any) -> None:
@@ -387,7 +383,7 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
     if resolved is None:
         msgbox(ctx, product_display_name(ctx), _("Select a cell in a Calc spreadsheet to edit Python."))
         return
-    doc, cell, _formula = resolved
+    doc, cell = resolved
 
     # Follow =PY($A$1) into A1 (plain code cell). Do not quote the ref on save.
     # Prompting the LLM to emit this two-cell pattern is deferred: auto-imports
