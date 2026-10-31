@@ -48,12 +48,6 @@ log = logging.getLogger("writeragent.scripting")
 _active: NativePythonCellEditorDialog | None = None
 
 
-def _status_text(body: str) -> str:
-    prefix = _("Status:")
-    label = body or _("Ready")
-    return label if label.startswith(prefix) else f"{prefix} {label}"
-
-
 class NativePythonCellEditorDialog:
     """Modeless native twin of Monaco calc_cell mode. One instance; later opens retarget."""
 
@@ -162,7 +156,10 @@ class NativePythonCellEditorDialog:
             ctrl.setFocus()
 
     def _set_status(self, body: str) -> None:
-        set_control_text(self._ctrl("StatusEdit"), _status_text(body))
+        prefix = _("Status:")
+        label = body or _("Ready")
+        text = label if label.startswith(prefix) else f"{prefix} {label}"
+        set_control_text(self._ctrl("StatusEdit"), text)
 
     def _code_text(self) -> str:
         return str(get_control_text(self._ctrl("CodeEdit")) or "")

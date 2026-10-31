@@ -95,16 +95,6 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     return out
 
 
-def _parse_cell_python_formula(cell: Any, formulas: list[str] | None = None) -> tuple[str, PythonFormulaParts | None, str | None]:
-    """Return (code, parts, source formula string that parsed) from the cell."""
-    f_list = formulas if formulas is not None else _cell_formula_strings(cell)
-    for raw in f_list:
-        parts = parse_python_formula(raw)
-        if parts is not None:
-            return parts.code, parts, raw
-    return "", None, None
-
-
 def _same_calc_cell(left: Any, right: Any) -> bool:
     if left is right:
         return True
@@ -129,9 +119,11 @@ def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
 
 def _load_cell_editor_code(cell: Any, formulas: list[str] | None = None) -> tuple[str, PythonFormulaParts | None, str | None]:
     """Return Monaco source: stripped PYTHON code or plain cell text."""
-    code, parts, source = _parse_cell_python_formula(cell, formulas=formulas)
-    if parts is not None:
-        return code, parts, source
+    f_list = formulas if formulas is not None else _cell_formula_strings(cell)
+    for raw in f_list:
+        parts = parse_python_formula(raw)
+        if parts is not None:
+            return parts.code, parts, raw
     plain = cell.getString()
     if plain:
         return str(plain), None, None
@@ -177,8 +169,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     if controller is None:
         log.warning("python_editor: no controller")
         return None
-    model = controller.getModel()
-    model = guard_uno(model)
+    model = guard_uno(controller.getModel())
     if model is None or not hasattr(model, "getSheets"):
         log.warning("python_editor: not a spreadsheet document")
         return None
@@ -201,9 +192,6 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     # no cell was selected.
     sheet_idx = int(addr.Sheet)
     sheets = model.getSheets()
-    if sheets is None or not (0 <= sheet_idx < int(sheets.getCount())):
-        log.warning("python_editor: selection sheet index %s out of range", sheet_idx)
-        return None
     sheet = uno_probe(lambda: sheets.getByIndex(sheet_idx), None)
     if sheet is None:
         log.warning("python_editor: selection sheet missing")

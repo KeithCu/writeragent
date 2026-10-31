@@ -529,7 +529,6 @@ def test_text_cell_py_literal_is_not_a_formula():
     from plugin.calc.python.editor import (
         _cell_has_unparsed_python,
         _load_cell_editor_code,
-        _parse_cell_python_formula,
         editor_load_save_as_plain,
     )
 
@@ -563,7 +562,10 @@ def test_text_cell_py_literal_is_not_a_formula():
 
     mock_cell = MagicMock()
     mock_cell.getFormula.return_value = "PY(x)"
-    _c, mock_parts, _s = _parse_cell_python_formula(mock_cell)
+    mock_cell.getPropertyValue.return_value = None
+    mock_cell.getString.return_value = ""
+    code, mock_parts, _s = _load_cell_editor_code(mock_cell)
+    assert code == ""
     assert mock_parts is None
 
 

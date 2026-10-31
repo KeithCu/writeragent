@@ -796,9 +796,13 @@ def test_xdl_controls_match_controller():
 
 
 def test_status_text_prefixes_once():
-    assert ui._status_text("Saved.") == "Status: Saved."
-    assert ui._status_text("Status: Saved.") == "Status: Saved."
-    assert ui._status_text("") == "Status: Ready"
+    dlg, inst = _open_native(initial_code="x", parsed_parts=None)
+    inst._set_status("Saved.")
+    assert dlg.controls["StatusEdit"].getText() == "Status: Saved."
+    inst._set_status("Status: Saved.")
+    assert dlg.controls["StatusEdit"].getText() == "Status: Saved."
+    inst._set_status("")
+    assert dlg.controls["StatusEdit"].getText() == "Status: Ready"
 
 
 def test_open_failure_returns_detail():
