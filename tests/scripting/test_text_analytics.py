@@ -986,15 +986,15 @@ def test_insert_topic_inner_error_raises(monkeypatch):
 
 def test_payload_has_content_and_error():
     res_ok = {"status": "ok", "result": {"readability": {"flesch_reading_ease": 60}}}
-    assert ta.text_analytics_payload_has_content(res_ok) is True
+    assert bool(ta._result_to_html_table(ta._result_payload(res_ok))) is True
     assert ta.text_analytics_payload_error(res_ok) is None
 
     res_empty_ents = {"entities": []}
-    assert ta.text_analytics_payload_has_content(res_empty_ents) is False
+    assert bool(ta._result_to_html_table(ta._result_payload(res_empty_ents))) is False
     assert ta.text_analytics_payload_error(res_empty_ents) is None
 
     res_note = {"note": "no text"}
-    assert ta.text_analytics_payload_has_content(res_note) is False
+    assert bool(ta._result_to_html_table(ta._result_payload(res_note))) is False
     assert ta.text_analytics_payload_error(res_note) == "no text"
 
 
