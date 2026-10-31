@@ -151,7 +151,7 @@ def test_apply_auto_plot_result_reraises_disposed():
         ),
         pytest.raises(DocumentDisposedError),
     ):
-        apply_auto_plot_result({"status": "ok"}, {"status": "ok"}, lambda pr: None)
+        apply_auto_plot_result({"status": "ok"}, {"status": "ok"}, object(), object())
 
 
 def test_apply_auto_plot_result_records_ordinary_insert_error():
@@ -159,6 +159,6 @@ def test_apply_auto_plot_result_records_ordinary_insert_error():
         "plugin.framework.queue_executor.execute_on_main_thread",
         side_effect=RuntimeError("no draw page"),
     ):
-        out = apply_auto_plot_result({"status": "ok"}, {"status": "ok"}, lambda pr: None)
+        out = apply_auto_plot_result({"status": "ok"}, {"status": "ok"}, object(), object())
     assert out["plot_error"] == "no draw page"
     assert "image_inserted" not in out

@@ -37,7 +37,6 @@ def test_should_auto_plot_forecast_helper():
 
 def test_build_viz_request_forecast():
     req = build_viz_request(
-        "forecast_time_series",
         forecast_result={
             "status": "ok",
             "tables": [
@@ -252,7 +251,6 @@ def test_auto_plot_reads_sheet_on_main_and_passes_doc():
             forecast_result=_forecast_band_result(),
             forecast_params={"date_col": "Date", "value_col": "Value"},
             data_range="Sheet1.A1:B3",
-            auto_plot=True,
             task_hint=None,
         )
 
@@ -284,7 +282,6 @@ def test_auto_plot_viz_failure_is_non_fatal():
             forecast_result=_forecast_band_result(),
             forecast_params={"date_col": "Date", "value_col": "Value"},
             data_range="Sheet1.A1:B3",
-            auto_plot=True,
             task_hint=None,
         )
 
@@ -302,7 +299,6 @@ def test_auto_plot_sheet_read_failure_returns_reason():
             forecast_result=_forecast_band_result(),
             forecast_params={"date_col": "Date", "value_col": "Value"},
             data_range="Sheet1.A1:B3",
-            auto_plot=True,
             task_hint=None,
         )
 
@@ -320,7 +316,6 @@ def test_auto_plot_merge_failure_returns_reason():
             forecast_result=_forecast_band_result(),
             forecast_params={"date_col": "Date", "value_col": "Value"},
             data_range="Sheet1.A1:B3",
-            auto_plot=True,
             task_hint=None,
         )
 

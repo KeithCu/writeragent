@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Callable
+from typing import Any
 
 from plugin.framework.errors import reraise_if_disposed
 
@@ -20,31 +20,27 @@ def task_hint_implies_plot(task_hint: str | None) -> bool:
     return bool(task_hint and _VIZ_HINT_RE.search(task_hint))
 
 
-def helper_should_auto_plot(helper: str, allowed: frozenset[str], *, auto_plot: bool, task_hint: str | None) -> bool:
-    if helper not in allowed:
-        return False
-    return bool(auto_plot) or task_hint_implies_plot(task_hint)
-
-
 def should_auto_plot(*, helper: str, auto_plot: bool, task_hint: str | None) -> bool:
-    return helper_should_auto_plot(helper, AUTO_PLOT_ANALYSIS_HELPERS, auto_plot=auto_plot, task_hint=task_hint)
+    return helper in AUTO_PLOT_ANALYSIS_HELPERS and (auto_plot or task_hint_implies_plot(task_hint))
 
 
 def apply_auto_plot_result(
     result: dict[str, Any],
     plot_result: dict[str, Any] | None,
-    insert: Callable[[dict[str, Any]], Any],
+    uno_ctx: Any,
+    doc: Any,
 ) -> dict[str, Any]:
     """Attach plot result, run main-thread image insert, and record image_inserted or plot_error."""
     if plot_result is None:
         return result
     from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.scripting.viz import insert_viz_result_into_doc
 
     out = dict(result)
     out["plot"] = plot_result
     if plot_result.get("status") == "ok":
         try:
-            execute_on_main_thread(lambda: insert(plot_result))
+            execute_on_main_thread(lambda: insert_viz_result_into_doc(uno_ctx, doc, plot_result))
             out["image_inserted"] = True
         except Exception as exc:
             # Propagate document disposal; ordinary insertion errors are recorded on the result.
@@ -85,12 +81,8 @@ def build_viz_request(analysis_helper: str, *, analysis_result: dict[str, Any], 
     return None
 
 
-def run_auto_plot_after_analysis(uno_ctx: Any, doc: Any, *, analysis_helper: str, analysis_result: dict[str, Any], analysis_params: dict[str, Any] | None, data_range: str | None, auto_plot: bool, task_hint: str | None) -> dict[str, Any] | None:
-    """Run a viz helper when auto-plot triggers; return viz result or None."""
-    if analysis_result.get("status") != "ok":
-        return None
-    if not should_auto_plot(helper=analysis_helper, auto_plot=auto_plot, task_hint=task_hint):
-        return None
+def run_auto_plot_after_analysis(uno_ctx: Any, doc: Any, *, analysis_helper: str, analysis_result: dict[str, Any], analysis_params: dict[str, Any] | None, data_range: str | None, task_hint: str | None) -> dict[str, Any] | None:
+    """Run a viz helper; return viz result or None."""
     request = build_viz_request(analysis_helper, analysis_result=analysis_result, analysis_params=analysis_params)
     if request is None:
         return None
