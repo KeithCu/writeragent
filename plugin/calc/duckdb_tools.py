@@ -24,15 +24,14 @@ from plugin.scripting.venv.duckdb_sql import (
     unsupported_flat_type_message,
 )
 
+from plugin.calc.ods_cache import EXCEL_EXTENSIONS, OdsCacheEntry, cache_entry, is_cacheable_office_source, lookup_cached_ods, write_sidecar_meta
+
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from plugin.calc.ods_cache import OdsCacheEntry
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc.duckdb")
-
-from plugin.calc.ods_cache import EXCEL_EXTENSIONS
 
 OFFICE_EXTS = EXCEL_EXTENSIONS + (".ods",)
 
@@ -153,13 +152,10 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
             # Separate direct DuckDB-readable files from office files that need LO import.
             # Support "file.xlsx" or "file.xlsx#SheetName" syntax for sheets.
             # files can be list (legacy) or dict for named (Phase C)
-            files_input = files
-            file_pairs = files_input.items() if isinstance(files_input, dict) else [(None, f) for f in (files_input or [])]
+            file_pairs = files.items() if isinstance(files, dict) else [(None, f) for f in files]
 
             for name_hint, fspec in file_pairs:
-                spec = str(fspec).strip() if fspec else ""
-                if not spec:
-                    continue
+                spec = str(fspec).strip()
                 try:
                     file_spec = parse_table_source_spec({"file": spec}, default_headers=headers)
                 except ToolExecutionError as exc:
@@ -220,13 +216,10 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
 
         # Pass flat_files for named direct flat files (Phase C), preloaded for grids (ranges + office)
         result = run_folder_sql(ctx.ctx, prepared.get("scoped"), sql, None, preloaded=prepared.get("preloaded"), flat_files=prepared.get("flat_files"))
-
-        if isinstance(result, dict):
-            if task_hint:
-                result = dict(result)
-                result.setdefault("task_hint", task_hint)
-            return result
-        return {"status": "ok", "result": result}
+        if task_hint:
+            result = dict(result)
+            result.setdefault("task_hint", task_hint)
+        return result
 
 
 def _grid_has_usable_values(grid: list[list[Any]] | None) -> bool:
@@ -278,16 +271,11 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
         file_spec = os.path.basename(file_spec)
 
     present: list[str] = [k for k, v in (("sheet", sheet), ("named_range", named_range), ("range", range_a1)) if v]
-
     if len(present) > 1:
         raise ToolExecutionError(f"Table spec must use exactly one of sheet, named_range, or range (got {', '.join(present)})", code="DUCKDB_SQL_ERROR")
-    if not present:
-        if file_spec:
-            kind = "sheet"
-        else:
-            raise ToolExecutionError("Table spec needs sheet (used range), named_range, or range (absolute A1)", code="DUCKDB_SQL_ERROR")
-    else:
-        kind = present[0]
+    if not present and not file_spec:
+        raise ToolExecutionError("Table spec needs sheet (used range), named_range, or range (absolute A1)", code="DUCKDB_SQL_ERROR")
+    kind = present[0] if present else "sheet"
 
     return {"kind": kind, "sheet": sheet, "named_range": named_range, "range": range_a1, "file": file_spec, "headers": headers}
 
@@ -326,14 +314,6 @@ def _range_address_to_qualified_a1(doc: Any, addr: Any) -> str:
     return qualify_a1(sheet_name, format_range_address(addr, collapse_single=True))
 
 
-def used_range_qualified_a1(sheet: Any) -> str:
-    """Sheet used-range as sheet-qualified A1 (resolved now, not stored)."""
-    from plugin.calc.spreadsheet_import.ingest import _used_range_address
-
-    addr = _used_range_address(sheet)
-    return qualify_a1(str(sheet.getName()), format_range_address(addr, collapse_single=True))
-
-
 def _named_object_to_qualified_a1(doc: Any, obj: Any, *, label: str) -> str:
     addr = None
     if hasattr(obj, "getReferredCells"):
@@ -354,6 +334,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
     DatabaseRanges bounds. range → the frozen A1 the caller stored.
     """
     from plugin.calc.bridge import CalcBridge, find_named_range
+    from plugin.calc.spreadsheet_import.ingest import _used_range_address
 
     kind = parsed.get("kind")
     if kind == "sheet":
@@ -369,7 +350,8 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
             if sheets.getCount() < 1:
                 raise ToolExecutionError("workbook has no sheets", code="DUCKDB_SQL_ERROR")
             target = sheets.getByIndex(0)
-        return used_range_qualified_a1(target)
+        addr = _used_range_address(target)
+        return qualify_a1(str(target.getName()), format_range_address(addr, collapse_single=True))
 
     if kind == "named_range":
         name = str(parsed.get("named_range") or "")
@@ -383,10 +365,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
         extra = f" Available: {available}" if available else ""
         raise ToolExecutionError(f"No named range or database range named {name!r}.{extra}", code="DUCKDB_SQL_ERROR")
 
-    if kind == "range":
-        return str(parsed.get("range") or "")
-
-    raise ToolExecutionError(f"Unknown table identity {kind!r}", code="DUCKDB_SQL_ERROR")
+    return str(parsed.get("range") or "")
 
 
 def read_model_table_grid(model: Any, parsed: dict[str, Any]) -> list[list[Any]]:
@@ -442,9 +421,6 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
 
     from plugin.writer.format import create_property_value
 
-    store = getattr(model, "storeToURL", None)
-    if not callable(store):
-        raise TypeError("document cannot storeToURL")
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Unique per writer: a fixed ".partial" name let two cache writes unlink
     # each other's in-progress export.
@@ -452,7 +428,7 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
     try:
         url = uno.systemPathToFileUrl(str(tmp.resolve()))
         props = (create_property_value("FilterName", "calc8"), create_property_value("Overwrite", True))
-        store(url, props)
+        model.storeToURL(url, props)
         # Bugfix: a storeToURL that wrote nothing used to be published as a hit.
         if not tmp.is_file() or tmp.stat().st_size == 0:
             raise OSError(f"storeToURL wrote no data to {tmp}")
@@ -471,9 +447,9 @@ def _resolve_sibling_open_path(ctx: Any, full_path: str) -> tuple[str, bool, Ods
     Cache only ``.xlsx``/``.xls`` that are not already open. Native ``.ods``
     and the live workbook always open the source path.
     """
-    from plugin.calc.ods_cache import cache_entry, is_cacheable_office_source, lookup_cached_ods, ods_cache_enabled
+    from plugin.framework.config import get_config_bool_safe
 
-    if not is_cacheable_office_source(full_path) or not ods_cache_enabled():
+    if not is_cacheable_office_source(full_path) or not get_config_bool_safe("calc.ods_cache_enabled"):
         return full_path, False, None
     if _source_is_open_workbook(ctx, full_path):
         return full_path, False, None
@@ -491,8 +467,6 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, ent
     ``_source_is_open_workbook`` here — after a hidden open the source
     *is* loaded, which would skip every miss write.
     """
-    from plugin.calc.ods_cache import cache_entry, write_sidecar_meta
-
     if not opened_flag or entry is None:
         return
     try:
@@ -538,8 +512,6 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
                 close_document_research_document(model, opened_for_document_research=opened_flag)
             model = None
             opened_flag = False
-            from plugin.calc.ods_cache import cache_entry
-
             entry = cache_entry(full_path)
             model, doc_type, err, opened_flag = open_document_for_read(ctx, full_path)
         if err or model is None:

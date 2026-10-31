@@ -889,7 +889,7 @@ def test_ods_source_skips_cache(mock_open, mock_read, _mock_close, mock_export, 
     assert not (tmp_path / ODS_CACHE_DIRNAME).exists()
 
 
-@patch("plugin.calc.ods_cache.ods_cache_enabled", return_value=False)
+@patch("plugin.framework.config.get_config_bool_safe", return_value=False)
 @patch("plugin.calc.duckdb_tools._source_is_open_workbook", return_value=False)
 @patch("plugin.calc.duckdb_tools._export_model_to_cached_ods")
 @patch("plugin.calc.duckdb_tools.close_document_research_document")
