@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 from plugin.calc.address_utils import A1_CELL_RE, format_address, format_range
+from plugin.calc.bridge import used_range_address
 from plugin.calc.error_detector import is_calc_error_display
 from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.python.formula_edit import normalize_formula_string
@@ -89,17 +90,9 @@ def ingest_from_arrays(*, sheet_name: str, start_col: int, start_row: int, data_
     return attach_graph_to_model(model)
 
 
-def _used_range_address(sheet: Any) -> Any:
-    """Return ``RangeAddress`` for the sheet used area (same pattern as SheetAnalyzer)."""
-    cursor = sheet.createCursor()
-    cursor.gotoStartOfUsedArea(False)
-    cursor.gotoEndOfUsedArea(True)
-    return cursor.getRangeAddress()
-
-
 def ingest_sheet(sheet: Any, *, range_addr: Any | None = None) -> SheetModel:
     """Ingest an open Calc sheet via bulk ``getDataArray`` / ``getFormulaArray``."""
-    addr = range_addr if range_addr is not None else _used_range_address(sheet)
+    addr = range_addr if range_addr is not None else used_range_address(sheet)
     sheet_name = sheet.getName()
 
     cell_range = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)

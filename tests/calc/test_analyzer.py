@@ -86,7 +86,6 @@ def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
         patch("plugin.calc.analyzer.CalcBridge", return_value=MagicMock()),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.analyzer.check_disposed"),
-        patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
     ):
         text = get_calc_context_for_chat(model, ctx=object())
     assert "Sheets: ['Sheet1']" in text
@@ -205,7 +204,6 @@ def test_get_calc_context_for_chat_caps_columns_at_100():
     with (
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-        patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
     ):
         text = get_calc_context_for_chat(model, ctx=object())
     assert "Col0" in text
@@ -236,7 +234,6 @@ def test_get_calc_context_for_chat_truncation():
     with (
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-        patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
     ):
         out = get_calc_context_for_chat(model, max_context=50, ctx=object())
         assert out.endswith("\n\n[... document truncated ...]")
@@ -295,7 +292,6 @@ def test_get_calc_context_for_chat_long_selection_truncation():
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.inspector.CellInspector", return_value=inspector),
-        patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
     ):
         out = get_calc_context_for_chat(model, max_context=150, ctx=object())
     assert out.endswith("\n\n[... document truncated ...]")
@@ -329,7 +325,6 @@ def test_get_calc_context_for_chat_hidden_active_sheet_omits_selection():
     with (
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-        patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
     ):
         text = get_calc_context_for_chat(model, ctx=object())
 
@@ -379,7 +374,6 @@ def test_get_calc_context_for_chat_selection_failure_preserves_summary(scenario)
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.inspector.CellInspector", return_value=inspector),
-        patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
     ):
         text = get_calc_context_for_chat(model, ctx=object())
 
@@ -419,7 +413,6 @@ def test_get_calc_context_for_chat_disposed_from_read_range():
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.inspector.CellInspector", return_value=inspector),
-        patch("plugin.calc.analyzer.safe_call", side_effect=lambda fn, _label: fn()),
     ):
         with pytest.raises(DocumentDisposedError):
             get_calc_context_for_chat(model, ctx=object())

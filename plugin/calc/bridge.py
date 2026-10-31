@@ -51,6 +51,14 @@ def filter_agent_sheet_names(names: Any) -> list[str]:
     return [n for n in names if is_agent_visible_sheet(n)]
 
 
+def used_range_address(sheet: Any) -> Any:
+    """Return the sheet used-area RangeAddress (start, then expand to the end)."""
+    cursor = sheet.createCursor()
+    cursor.gotoStartOfUsedArea(False)
+    cursor.gotoEndOfUsedArea(True)
+    return cursor.getRangeAddress()
+
+
 class NamedRangeHit(NamedTuple):
     container: Any
     scope: str  # sheet name, or "global"
