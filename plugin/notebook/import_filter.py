@@ -72,17 +72,14 @@ class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceIn
     # XExtendedFilterDetection — param names must match IDL stubs (ty Liskov).
     # PyUNO requires (typeName, descriptor), not a bare string (#482).
     def detect(self, Descriptor: Any) -> Any:  # type: ignore
+        descriptor = tuple(Descriptor or ())
         file_url = ""
-        props = list(Descriptor or ())
-        for prop in props:
+        for prop in descriptor:
             if getattr(prop, "Name", "") == "URL":
                 file_url = str(prop.Value or "")
                 break
-
-        type_name = ""
-        if file_url.lower().endswith(".ipynb"):
-            type_name = "writer_WriterAgent_Jupyter_Notebook"
-        return type_name, tuple(props)
+        type_name = "writer_WriterAgent_Jupyter_Notebook" if file_url.lower().endswith(".ipynb") else ""
+        return type_name, descriptor
 
     # XImporter
     def setTargetDocument(self, Document: Any) -> None:

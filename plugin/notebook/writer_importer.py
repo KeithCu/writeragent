@@ -44,7 +44,7 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 from plugin.contrib.nbformat import read_ipynb
-from plugin.notebook.cell_registry import NotebookDocState, _coerce_notebook_text, _format_in_prompt, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
+from plugin.notebook.cell_registry import NotebookDocState, _coerce_notebook_text, _format_in_prompt, _prepare_display_text, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
 from plugin.notebook.notebook_controls import (
     _CODE_FONT_NAME,
     _cap_from_style,
@@ -1634,7 +1634,6 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
         from plugin.notebook.notebook_controls import ensure_form_design_mode_off, wire_all_notebook_run_buttons
 
         reg_t0 = time.monotonic()
-        init_registry_execution_counter(registry_state)
         save_registry(doc, registry_state)
         save_notebook_source_path(doc, path)
         ensure_form_design_mode_off(doc)

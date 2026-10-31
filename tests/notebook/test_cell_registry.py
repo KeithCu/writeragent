@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 from unittest.mock import MagicMock
 
@@ -21,7 +22,6 @@ from plugin.notebook.cell_registry import (
     save_notebook_source_path,
     save_registry,
     state_from_json,
-    state_to_json,
 )
 
 
@@ -35,7 +35,7 @@ from tests.writer.test_document_helpers import (  # noqa: E402
 def test_state_json_round_trip():
     cell = new_code_cell_entry(0, 1, "nb_cell_0_code")
     state = NotebookDocState(source_path="/tmp/a.ipynb", code_cells=[cell], next_execution_count=2)
-    raw = state_to_json(state)
+    raw = json.dumps(asdict(state), separators=(",", ":"))
     restored = state_from_json(raw)
     assert restored is not None
     assert restored.source_path == "/tmp/a.ipynb"
@@ -49,7 +49,7 @@ def test_state_json_round_trip():
 
 def test_state_from_json_infers_next_execution_count():
     cell = new_code_cell_entry(0, 3, "nb_cell_0_code")
-    raw = json.dumps({"version": 1, "source_path": "", "code_cells": [cell.to_dict()]})
+    raw = json.dumps({"version": 1, "source_path": "", "code_cells": [asdict(cell)]})
     restored = state_from_json(raw)
     assert restored is not None
     assert restored.next_execution_count == 4
@@ -57,7 +57,7 @@ def test_state_from_json_infers_next_execution_count():
 
 def test_state_from_json_bad_next_execution_count_falls_back():
     cell = new_code_cell_entry(0, 3, "nb_cell_0_code")
-    raw = json.dumps({"version": 1, "next_execution_count": "n/a", "code_cells": [cell.to_dict()]})
+    raw = json.dumps({"version": 1, "next_execution_count": "n/a", "code_cells": [asdict(cell)]})
     restored = state_from_json(raw)
     assert restored is not None
     assert restored.next_execution_count == 4
@@ -79,7 +79,7 @@ def test_state_from_json_corrupt_returns_none():
 def test_state_from_json_skips_bad_cell_keeps_valid():
     valid_cell = new_code_cell_entry(0, 1, "nb_cell_0_code")
     bad_cell = {"index": 1, "code_field_name": "nb_cell_1_code"}  # missing cell_id
-    raw = json.dumps({"version": 1, "code_cells": [bad_cell, valid_cell.to_dict()]})
+    raw = json.dumps({"version": 1, "code_cells": [bad_cell, asdict(valid_cell)]})
     restored = state_from_json(raw)
     assert restored is not None
     assert len(restored.code_cells) == 1

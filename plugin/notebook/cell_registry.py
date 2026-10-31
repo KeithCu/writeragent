@@ -34,30 +34,6 @@ _TRUNCATION_SUFFIX = "\n\n[… truncated for import …]"
 # does not postpone this assignment.
 LastRunStatus = Optional[Literal["ok", "error"]]
 
-__all__ = [
-    "NOTEBOOK_REGISTRY_UDPROP",
-    "NOTEBOOK_SOURCE_PATH_UDPROP",
-    "LastRunStatus",
-    "NotebookCodeCell",
-    "NotebookDocState",
-    "cell_id_to_hex",
-    "cell_id_from_hex",
-    "new_code_cell_entry",
-    "load_registry",
-    "save_registry",
-    "find_cell_by_hex",
-    "has_notebook_registry",
-    "save_notebook_source_path",
-    "insert_output_start_bookmark",
-    "init_registry_execution_counter",
-    "_IN_PROMPT_RE",
-    "_format_in_prompt",
-    "_coerce_notebook_text",
-    "_MAX_IMPORT_TEXT_CHARS",
-    "_TRUNCATION_SUFFIX",
-    "_prepare_display_text",
-]
-
 
 # ---------------------------------------------------------------------------
 # Data Models
@@ -82,9 +58,6 @@ class NotebookCodeCell:
     output_start_bookmark: str = ""
     last_run_status: LastRunStatus = None
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NotebookCodeCell:
         return cls(
@@ -102,10 +75,9 @@ class NotebookDocState:
     version: int = _REGISTRY_VERSION
     source_path: str = ""
     code_cells: list[NotebookCodeCell] = field(default_factory=list)
+    # Fresh import uses this default. Do not seed from max(ipynb execution_count):
+    # that made the first live ▶ show In [4] on a fixture saved as 1, 2, 3.
     next_execution_count: int = 1
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"version": self.version, "source_path": self.source_path, "code_cells": [c.to_dict() for c in self.code_cells], "next_execution_count": self.next_execution_count}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NotebookDocState:
@@ -134,7 +106,7 @@ class NotebookDocState:
 # ---------------------------------------------------------------------------
 
 
-def _coerce_notebook_text(value: Any) -> str:
+def _coerce_notebook_text(value: Any) -> str:  # pyright: ignore[reportUnusedFunction]
     """Normalize nbformat text field (str or list of lines) to a single string."""
     if value is None:
         return ""
@@ -145,7 +117,7 @@ def _coerce_notebook_text(value: Any) -> str:
     return str(value)
 
 
-def _prepare_display_text(text: str) -> str:
+def _prepare_display_text(text: str) -> str:  # pyright: ignore[reportUnusedFunction]
     """Display text only (markdown, raw, output), not code form fields."""
     display = text or ""
     if len(display) <= _MAX_IMPORT_TEXT_CHARS:
@@ -154,7 +126,7 @@ def _prepare_display_text(text: str) -> str:
     return display[:keep] + _TRUNCATION_SUFFIX
 
 
-def _format_in_prompt(execution_count: Any | None) -> str:
+def _format_in_prompt(execution_count: Any | None) -> str:  # pyright: ignore[reportUnusedFunction]
     """Format Jupyter-style In [n]: gutter label for a code cell."""
     if execution_count is None:
         return "In [ ]:"
@@ -188,11 +160,6 @@ def find_cell_by_hex(state: NotebookDocState, hex_id: str) -> NotebookCodeCell |
     return None
 
 
-def _bookmark_name_for_cell_id(cell_id: str) -> str:
-    """LO bookmark name: ``nb_out_`` + hex id (no dashes)."""
-    return f"nb_out_{cell_id_to_hex(cell_id)}"
-
-
 def new_code_cell_entry(index: int, execution_count: Any | None, code_field_name: str) -> NotebookCodeCell:
     """Create a registry entry with a new stable ``cell_id`` and output bookmark name."""
     cell_id = str(uuid.uuid4())
@@ -201,17 +168,13 @@ def new_code_cell_entry(index: int, execution_count: Any | None, code_field_name
         index=index,
         code_field_name=code_field_name,
         execution_count=_coerce_optional_int(execution_count),
-        output_start_bookmark=_bookmark_name_for_cell_id(cell_id),
+        output_start_bookmark=f"nb_out_{cell_id_to_hex(cell_id)}",
     )
 
 
 # ---------------------------------------------------------------------------
 # Document Persistence & Bookmarks
 # ---------------------------------------------------------------------------
-
-
-def state_to_json(state: NotebookDocState) -> str:
-    return json.dumps(state.to_dict(), separators=(",", ":"))
 
 
 def state_from_json(raw: str) -> NotebookDocState | None:
@@ -243,7 +206,7 @@ def load_registry(doc: Any) -> NotebookDocState | None:
 def save_registry(doc: Any, state: NotebookDocState) -> None:
     """Persist registry; replaces any previous notebook metadata on the document."""
     state.version = _REGISTRY_VERSION
-    set_document_property(doc, NOTEBOOK_REGISTRY_UDPROP, state_to_json(state))
+    set_document_property(doc, NOTEBOOK_REGISTRY_UDPROP, json.dumps(asdict(state), separators=(",", ":")))
 
 
 def has_notebook_registry(doc: Any) -> bool:
@@ -283,13 +246,3 @@ def insert_output_start_bookmark(doc: Any, bookmark_name: str) -> bool:
         reraise_if_disposed(exc)
         log.exception("notebook registry: failed to insert bookmark %r", bookmark_name)
         return False
-
-
-def init_registry_execution_counter(state: NotebookDocState) -> None:
-    """New kernel starts at 1. Saved ipynb ``execution_count`` values are historical.
-
-    ``max(saved)+1`` made the first live ▶ show ``[In [4]]`` on the small NumPy
-    fixture (saved 1, 2, 3). Jupyter starts a new kernel at 1; our ``notebook:…``
-    venv session is a new kernel on import. Re-runs still increment by 1.
-    """
-    state.next_execution_count = 1
