@@ -11,7 +11,6 @@ also uses it to attach a finished WAV as ``input_audio``.
 from __future__ import annotations
 
 import base64
-import functools
 import logging
 import os
 import subprocess
@@ -59,11 +58,7 @@ def resolve_recording_python() -> tuple[str | None, str]:
 
 
 def _build_recording_env() -> dict[str, str]:
-    env = scrub_subprocess_env(dict(os.environ))
-    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "PULSE_SERVER"):
-        if key in os.environ and key not in env:
-            env[key] = os.environ[key]
-    return env
+    return scrub_subprocess_env(dict(os.environ))
 
 
 def _recording_popen(managed: ManagedSubprocess) -> subprocess.Popen[str]:
@@ -71,9 +66,6 @@ def _recording_popen(managed: ManagedSubprocess) -> subprocess.Popen[str]:
     if proc is None:
         raise RuntimeError("Recording subprocess is not running.")
     return proc
-
-
-_wrap_recording_command = functools.partial(wrap_command_for_sandbox, watch_bus=True)
 
 
 def spawn_recording_process(exe: str, output_path: str, *, silence_config: SilenceDetectorConfig | None = None) -> ManagedSubprocess:
@@ -86,8 +78,8 @@ def spawn_recording_process(exe: str, output_path: str, *, silence_config: Silen
         cmd.append(f"--silence-stop-ms={max(0, silence_config.silence_stop_ms)}")
     # text=True: read_json_line needs a text pipe, and bufsize=1 is what this
     # child already used. Worker start() is binary bufsize=0.
-    # base_env is already scrubbed, with the display and Pulse keys put back.
-    # A second scrub, or env= merged onto os.environ, would undo that.
+    # base_env is the scrubbed environment. base_env=None would copy
+    # os.environ and leak the vars scrub_subprocess_env drops.
     # register=False: shutdown_all kill_trees the registry and would skip the
     # stop JSON. This child was never in that registry.
     # log_start_failure=False: a missing interpreter must stay an OSError so
@@ -102,7 +94,7 @@ def spawn_recording_process(exe: str, output_path: str, *, silence_config: Silen
     managed = ManagedSubprocess(
         cmd,
         base_env=_build_recording_env(),
-        command_wrapper=_wrap_recording_command,
+        command_wrapper=lambda cmd, env=None, cwd=None: wrap_command_for_sandbox(cmd, env=env, cwd=cwd, watch_bus=True),
         text=True,
         register=False,
         log_start_failure=False,
@@ -212,15 +204,6 @@ def wait_for_recording_ready(managed: ManagedSubprocess, *, timeout_sec: float =
 def _close_recording_pipe(stream: Any, label: str) -> None:
     if stream is None:
         return
-    fileno_fn = getattr(stream, "fileno", None)
-    if not callable(fileno_fn):
-        return
-    try:
-        fd = fileno_fn()
-    except (OSError, ValueError):
-        return
-    if not isinstance(fd, int) or isinstance(fd, bool):
-        return
     try:
         stream.close()
     except (OSError, ValueError) as exc:
@@ -261,7 +244,7 @@ def _reap_recording_process(
         drain.join(timeout=1.0)
     # Bugfix: the monitor closure holds proc, so the fds stayed open until
     # GC; closing the read end also unblocks a monitor stuck in os.read after
-    # the child is gone. Do not close streams whose fileno is not an int.
+    # the child is gone.
     _close_recording_pipe(proc.stdin, "stdin")
     _close_recording_pipe(proc.stdout, "stdout")
     _close_recording_pipe(proc.stderr, "stderr")
@@ -323,22 +306,18 @@ def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingSto
     the path were published only after the callback returned.
     """
     status = payload.get("status")
-    if status == "ok":
-        path = payload.get("path")
-        if isinstance(path, str) and path and handoff is not None:
-            handoff.note_ok(path)
+    if status in {"ok", "auto_stopped"}:
+        raw_path = payload.get("path")
+        if isinstance(raw_path, str) and raw_path:
+            if handoff is not None:
+                handoff.note_ok(raw_path)
+            if status == "auto_stopped":
+                on_auto_stopped(raw_path)
         return
     if status == "silence_progress" and on_silence_progress is not None:
         ms = payload.get("ms")
         if isinstance(ms, int):
             on_silence_progress(ms)
-        return
-    if status == "auto_stopped":
-        path = payload.get("path")
-        if isinstance(path, str) and path:
-            if handoff is not None:
-                handoff.note_ok(path)
-            on_auto_stopped(path)
         return
     if status == "error":
         raw_msg = payload.get("message")
@@ -351,15 +330,6 @@ def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingSto
         if on_error is not None:
             on_error(message)
         return
-
-
-def _stdout_monitor_value_error_is_fatal(exc: ValueError) -> bool:
-    msg = str(exc)
-    return msg.startswith((
-        "I/O operation on closed file",
-        "JSON line exceeds ",
-        "JSON line truncated at EOF",
-    ))
 
 
 def monitor_recording_stdout(managed: ManagedSubprocess, *, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None = None, on_error: Callable[[str], None] | None = None, handoff: RecordingStopHandoff | None = None) -> BackgroundHandle:
@@ -386,30 +356,20 @@ def monitor_recording_stdout(managed: ManagedSubprocess, *, on_auto_stopped: Cal
                 if proc.poll() is not None:
                     break
                 continue
-            except ValueError as exc:
-                # Bugfix:
-                # - What was wrong: after reap closed proc.stdout, the next
-                #   read_json_line saw a closed text stream. _stream_fileno
-                #   returns None on that ValueError, then readline() raises
-                #   ValueError: I/O operation on closed file. The handler
-                #   treated every ValueError as a bad line and continued, so
-                #   the monitor spun and logged warnings. The same continue
-                #   spins on "JSON line exceeds …", because _line_from_pending
-                #   saves the oversize buffer and raises it again.
-                # - How: reap closes stdout after the path wait, and the
-                #   monitor is often between select calls (including while
-                #   on_auto_stopped runs). select on a closed fd is OSError
-                #   and already breaks; the gap is the closed-file ValueError.
-                # - Why this fixes it: those three messages end the loop. A
-                #   real non-JSON line still continues. Reap also sets the
-                #   handoff event and joins this thread before closing, so the
-                #   usual stop path does not close the pipe under the read.
-                if _stdout_monitor_value_error_is_fatal(exc):
-                    log.debug("Recording IPC monitor stopped: %s", exc)
-                    break
-                log.warning("Skipping non-JSON line from recording subprocess: %s", exc)
-                continue
-            except (RuntimeError, OSError) as exc:
+            except (ValueError, RuntimeError, OSError) as exc:
+                # Bugfix: reap closes stdout while this thread is between
+                # select calls. The next read raises ValueError ("I/O
+                # operation on closed file"), and an oversize line raises
+                # "JSON line exceeds …" or "JSON line truncated at EOF" on
+                # every retry, so those three end the loop. Any other
+                # ValueError is a bad line and is skipped.
+                if isinstance(exc, ValueError) and not str(exc).startswith((
+                    "I/O operation on closed file",
+                    "JSON line exceeds ",
+                    "JSON line truncated at EOF",
+                )):
+                    log.warning("Skipping non-JSON line from recording subprocess: %s", exc)
+                    continue
                 log.debug("Recording IPC monitor stopped: %s", exc)
                 break
             if payload is None:
