@@ -36,10 +36,11 @@ from plugin.scripting.python_runner_ui import (
     close_modeless_dialog,
 )
 from plugin.scripting.text_analytics import (
+    _result_payload,
+    _result_to_html_table,
     get_doc_language,
     insert_text_analytics_result_into_doc,
     resolve_text_analytics_document_inputs,
-    text_analytics_payload_has_content,
 )
 
 log = logging.getLogger(__name__)
@@ -53,9 +54,7 @@ _COMPUTE_BUTTONS: tuple[tuple[str, str, bool], ...] = (
     ("BtnCheck", "diagnostics", False),
 )
 
-_BUSY_CONTROL_IDS: tuple[str, ...] = tuple(
-    btn_id for btn_id, _helper, _scoped in _COMPUTE_BUTTONS
-) + ("BtnInsert",)
+_BUSY_CONTROL_IDS: tuple[str, ...] = tuple(row[0] for row in _COMPUTE_BUTTONS) + ("BtnInsert",)
 
 
 class _TextAnalyticsAction(BaseActionListener):
@@ -338,7 +337,7 @@ class TextAnalyticsDialog:
         if (
             isinstance(result, dict)
             and result.get("status") == "ok"
-            and text_analytics_payload_has_content(result)
+            and _result_to_html_table(_result_payload(result))
         ):
             self._last_result = result
         else:
@@ -499,11 +498,10 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
                 return "No entities found."
             return _capped_list("Entities", ents, lambda e: f"  {e.get('text')} [{e.get('label')}]")
 
-        if helper in ("key_phrases", "chunks"):
-            kps = data.get("key_phrases") or []
-            if not kps:
-                return "No key phrases found."
-            return _capped_list("Key Phrases", kps, lambda kp: f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
+        kps = data.get("key_phrases") or []
+        if not kps:
+            return "No key phrases found."
+        return _capped_list("Key Phrases", kps, lambda kp: f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
 
     if helper == "topics":
         tops = data.get("topics") or []

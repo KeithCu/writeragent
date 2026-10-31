@@ -174,6 +174,15 @@ def _run_nlp_doc(
     return nlp, doc, lang, truncated
 
 
+def _nlp_result(text: str, lang: str | None, context: dict[str, Any] | None, extract: Any) -> dict[str, Any]:
+    nlp, doc, resolved_lang, truncated = _run_nlp_doc(text, lang, context)
+    res = extract(doc)
+    res["meta"] = _extract_meta(nlp, doc, resolved_lang)
+    if truncated:
+        res["truncated"] = truncated
+    return {"status": "ok", "result": res}
+
+
 def _extract_meta(nlp: Any, doc: Any, lang: str | None) -> dict[str, Any]:
     # What was wrong: doc._.lang is not standard spaCy and doc.lang_ was ignored, reporting "unknown".
     # How it happened: doc._ was checked for an unregistered attribute instead of standard doc.lang_.
@@ -513,40 +522,31 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     if not text or not text.strip():
         return {"status": "ok", "result": {}, "note": "empty text"}
 
-    nlp, doc, lang, truncated = _run_nlp_doc(text, lang, context)
+    def _full(doc: Any) -> dict[str, Any]:
+        rd, ds = _extract_readability(doc)
+        # --- Linguistic profile (always useful) ---
+        # What was wrong: models like xx_ent_wiki_sm leave token.pos_ empty, adding "" to pos_proportions.
+        # How it happened: pos_ was added to counts without checking whether it was non-empty.
+        # Why this change: skip empty pos tags.
+        pos_counts = Counter(
+            token.pos_ for token in doc
+            if token.pos_ and not (token.is_punct or token.is_space)
+        )
+        total = sum(pos_counts.values()) or 1
+        pos_props = {k: round(v / total, 4) for k, v in pos_counts.items()}
+        return {
+            "readability": rd,
+            "descriptive_stats": ds,
+            "entities": _extract_entities(doc),
+            "key_phrases": _extract_key_phrases(doc),
+            "linguistic_profile": {
+                "pos_proportions": pos_props,
+                "n_tokens": len(doc),
+                "n_sents": _sentence_count(doc),
+            },
+        }
 
-    result: dict[str, Any] = {}
-
-    rd, ds = _extract_readability(doc)
-    result["readability"] = rd
-    result["descriptive_stats"] = ds
-
-    result["entities"] = _extract_entities(doc)
-    result["key_phrases"] = _extract_key_phrases(doc)
-
-    # --- Linguistic profile (always useful) ---
-    # What was wrong: models like xx_ent_wiki_sm leave token.pos_ empty, adding "" to pos_proportions.
-    # How it happened: pos_ was added to counts without checking whether it was non-empty.
-    # Why this change: skip empty pos tags.
-    pos_counts = Counter(
-        token.pos_ for token in doc
-        if token.pos_ and not (token.is_punct or token.is_space)
-    )
-
-    total = sum(pos_counts.values()) or 1
-    pos_props = {k: round(v / total, 4) for k, v in pos_counts.items()}
-
-    result["linguistic_profile"] = {
-        "pos_proportions": pos_props,
-        "n_tokens": len(doc),
-        "n_sents": _sentence_count(doc),
-    }
-
-    result["meta"] = _extract_meta(nlp, doc, lang)
-    if truncated:
-        result["truncated"] = truncated
-
-    return {"status": "ok", "result": result}
+    return _nlp_result(text, lang, context, _full)
 
 
 def _probe_package(package: str) -> tuple[bool, str | None]:
@@ -672,25 +672,17 @@ def run_text_analytics(
 
     # Narrow helpers: run nlp(text) once and extract only the requested subset,
     # skipping the unneeded NER / noun-chunk / textdescriptives work.
-    def _nlp_ok(extract: Any) -> dict[str, Any]:
-        nlp, doc, resolved_lang, truncated = _run_nlp_doc(flat, lang, context)
-        res = extract(doc)
-        res["meta"] = _extract_meta(nlp, doc, resolved_lang)
-        if truncated:
-            res["truncated"] = truncated
-        return {"status": "ok", "result": res}
-
     if helper in ("readability", "stats", "descriptive"):
         def _readability_body(doc: Any) -> dict[str, Any]:
             rd, ds = _extract_readability(doc)
             return {"readability": rd, "descriptive_stats": ds}
-        return _nlp_ok(_readability_body)
+        return _nlp_result(flat, lang, context, _readability_body)
 
     if helper in ("entities", "ner"):
-        return _nlp_ok(lambda doc: {"entities": _extract_entities(doc)})
+        return _nlp_result(flat, lang, context, lambda doc: {"entities": _extract_entities(doc)})
 
     if helper in ("key_phrases", "keyphrases", "chunks"):
-        return _nlp_ok(lambda doc: {"key_phrases": _extract_key_phrases(doc)})
+        return _nlp_result(flat, lang, context, lambda doc: {"key_phrases": _extract_key_phrases(doc)})
 
     if helper in ("topics", "topic", "topic_model"):
         # Use preserved original (may still be list) for per-section support.

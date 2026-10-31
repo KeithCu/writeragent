@@ -253,17 +253,15 @@ def is_text_analytics_result(value: Any) -> bool:
         return False
     # Error dicts must take this insert path. Falling through inserted the
     # raw dict as generic Writer text and reported success.
-    if value.get("status") == "error":
-        code = str(value.get("code") or "")
-        helper = value.get("helper")
-        if code in ("TEXT_ANALYTICS_ERROR", "UNKNOWN_HELPER"):
-            return True
-        if isinstance(helper, str) and helper in HELPER_NAMES:
-            return True
-    helper_name = value.get("helper")
-    if isinstance(helper_name, str) and helper_name in ("diagnostics", "check"):
-        return value.get("status") in ("ok", "error")
-    if value.get("status") != "ok":
+    status = value.get("status")
+    helper = value.get("helper")
+    if status == "error":
+        return str(value.get("code") or "") in ("TEXT_ANALYTICS_ERROR", "UNKNOWN_HELPER") or (
+            isinstance(helper, str) and helper in HELPER_NAMES
+        )
+    if isinstance(helper, str) and helper in ("diagnostics", "check"):
+        return status == "ok"
+    if status != "ok":
         return False
     # Our results have a top-level "result" with known keys, or the helper dispatch shape.
     res = value.get("result")
@@ -361,11 +359,6 @@ def text_analytics_payload_error(data: Any) -> str | None:
         if val:
             return str(val)
     return None
-
-
-def text_analytics_payload_has_content(result: Any) -> bool:
-    """True if analysis payload contains renderable rows."""
-    return bool(_result_to_html_table(_result_payload(result)))
 
 
 def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
