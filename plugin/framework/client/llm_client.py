@@ -448,9 +448,6 @@ class LlmClient:
             return "stop", None
         api_key = str(self.config.get("api_key") or "").strip()
 
-        def _sender(send_method: str, send_path: str, send_body: Any, send_headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
-            return self._send_request(send_method, send_path, send_body, send_headers, stop_checker=stop_checker, status_callback=status_callback)
-
         try:
             # Same exchange as catalog and speech. Stop, timeout, retry, and
             # redaction are not a second loop here.
@@ -462,7 +459,7 @@ class LlmClient:
                 stop_checker=abort_checker,
                 status_callback=status_callback,
                 parse_json=False,
-                sender=_sender,
+                sender=self._send_request,
                 secrets=self._wire_secrets(),
                 on_retry=on_retry,
                 after_read=self._close_if_connection_close,

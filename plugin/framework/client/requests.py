@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from .http_security import origin_and_path
-from .http_transport import HttpResult, LlmHttpTransport
+from .http_transport import HttpResult as HttpResult, LlmHttpTransport
 
 
 def sync_request(
@@ -72,6 +72,3 @@ def sync_request(
     if parse_json:
         return result.parsed
     return result.body
-
-
-__all__ = ["HttpResult", "sync_request"]
