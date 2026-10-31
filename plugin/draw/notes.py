@@ -66,16 +66,11 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
         _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
         page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
         notes_page = uno_probe(lambda: page.getNotesPage(), None)
-        if notes_page is None:
-            return self._tool_error(
-                "Slide %d has no notes page." % actual_idx,
-                code="NOTES_UNAVAILABLE",
-                page=actual_idx,
-            )
-        notes_shape = find_notes_shape(notes_page)
+        notes_shape = find_notes_shape(notes_page) if notes_page is not None else None
         if notes_shape is None:
+            detail = "no notes page" if notes_page is None else "a notes page but no notes body (no NotesShape)"
             return self._tool_error(
-                "Slide %d has a notes page but no notes body (no NotesShape)." % actual_idx,
+                "Slide %d has %s." % (actual_idx, detail),
                 code="NOTES_UNAVAILABLE",
                 page=actual_idx,
             )
