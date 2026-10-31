@@ -138,7 +138,6 @@ def test_python_specialized_sub_agent_hint_includes_full_policy(value, value_2, 
 def test_tool_note_includes_sandbox_prefix():
     import plugin.framework.prompts as prompts
 
-    prompts._ensure_venv_import_policy_strings()
     assert prompts.PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE.startswith("PYTHON VENV SANDBOX:")
 
 
@@ -182,7 +181,6 @@ def test_venv_policy_does_not_advertise_duckdb():
         python_specialized_sub_agent_hint,
     )
 
-    prompts._ensure_venv_import_policy_strings()
     compact = format_venv_import_policy_for_prompt(compact=True)
     full = format_venv_import_policy_for_prompt(compact=False)
     surfaces = (
