@@ -91,23 +91,17 @@ def _iter_pages(raw: Any) -> list[Any]:
     return [raw]
 
 
-def _json_dict(obj: Any) -> dict[str, Any] | None:
-    """``Result.json`` when it is a dict. Plain dicts and 2.x lists have no such view."""
+def _dict_views(obj: Any) -> list[dict[str, Any]]:
+    """``Result.json`` when it is a dict, then *obj* when *obj* is a dict."""
+    views: list[dict[str, Any]] = []
     try:
         view = getattr(obj, "json", None)
     except Exception:
         # A broken Result.json must not hide the dict body (2.x regions, or the
         # live Result keys). Unexpected: the property is part of the PaddleX contract.
         log.exception("Paddle Result.json failed")
-        return None
-    return view if isinstance(view, dict) else None
-
-
-def _dict_views(obj: Any) -> list[dict[str, Any]]:
-    """``Result.json`` when it is a dict, then *obj* when *obj* is a dict."""
-    views: list[dict[str, Any]] = []
-    view = _json_dict(obj)
-    if view is not None:
+        view = None
+    if isinstance(view, dict):
         views.append(view)
     if isinstance(obj, dict):
         views.append(obj)
@@ -329,9 +323,7 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     if not full_text:
         warnings.append("No text detected.")
 
-    confidences = [float(r["confidence"]) for r in regions if r.get("confidence") is not None]
-    mean_confidence = sum(confidences) / len(confidences) if confidences else 0.0
-    line_count = len(texts)
+    mean_confidence = sum(r["confidence"] for r in regions) / len(regions) if regions else 0.0
 
     return ok_result(
         helper,
@@ -339,7 +331,7 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         full_text=full_text,
         regions=regions,
         metrics={
-            "line_count": line_count,
+            "line_count": len(texts),
             "mean_confidence": mean_confidence,
             "engine": "paddle",
             "ocr_backend": "paddleocr",
@@ -349,12 +341,11 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _positive_span(value: str | None) -> int:
-    if value is None or not str(value).strip():
-        return 1
+    text = "" if value is None else str(value).strip()
     try:
-        parsed = int(str(value).strip())
-    except (TypeError, ValueError):
-        return 1
+        parsed = int(text) if text else 0
+    except ValueError:
+        parsed = 0
     # Clamp to MAX_TABLE_ROWS; a huge rowspan/colspan would otherwise allocate/hang before truncation.
     return min(parsed, MAX_TABLE_ROWS) if parsed > 0 else 1
 
@@ -456,13 +447,8 @@ def _table_from_html(html: str, *, name: str) -> dict[str, Any] | None:
         return None
     if not parser.cells:
         return None
-    num_rows = 0
-    num_cols = 0
-    for cell in parser.cells:
-        num_rows = max(num_rows, int(cell["start_row_offset_idx"]) + int(cell["row_span"]))
-        num_cols = max(num_cols, int(cell["start_col_offset_idx"]) + int(cell["col_span"]))
-    num_rows = min(num_rows, MAX_TABLE_ROWS)
-    num_cols = min(num_cols, MAX_TABLE_ROWS)
+    num_rows = min(MAX_TABLE_ROWS, max(int(c["start_row_offset_idx"]) + int(c["row_span"]) for c in parser.cells))
+    num_cols = min(MAX_TABLE_ROWS, max(int(c["start_col_offset_idx"]) + int(c["col_span"]) for c in parser.cells))
     return table_from_span_cells(parser.cells, num_rows, num_cols, name=name)
 
 
@@ -526,15 +512,6 @@ def _table_from_structure_res(res: Any, *, name: str) -> dict[str, Any] | None:
                     "total_rows": len(data),
                 }
     return None
-
-
-def _parsed_table(html: str, table_index: int) -> tuple[dict[str, Any], int] | None:
-    if "<table" not in html.lower():
-        return None
-    table = _table_from_structure_res({"html": html}, name=f"table_{table_index + 1}")
-    if not table:
-        return None
-    return table, table_index + 1
 
 
 def _v3_block_fields(block: Any) -> tuple[str, str, Any]:
@@ -613,6 +590,18 @@ def _parse_v3_structure_page(
     tables: list[dict[str, Any]] = []
     text_parts: list[str] = []
 
+    def _take_table(html: str) -> dict[str, Any] | None:
+        nonlocal table_index
+        if "<table" not in html.lower():
+            return None
+        table = _table_from_html(html, name=f"table_{table_index + 1}")
+        if not table:
+            return None
+        table_index += 1
+        tables.append(table)
+        text_parts.extend(table_to_tsv_lines(table))
+        return table
+
     for block in _seq(payload.get("parsing_res_list")):
         label, content, bbox = _v3_block_fields(block)
         box = bbox_to_xywh(bbox) if bbox is not None else [0, 0, 0, 0]
@@ -622,11 +611,7 @@ def _parse_v3_structure_page(
                 html_at += 1
             if not html.strip():
                 html = content
-            parsed = _parsed_table(html, table_index)
-            if parsed is not None:
-                table, table_index = parsed
-                tables.append(table)
-                text_parts.extend(table_to_tsv_lines(table))
+            _take_table(html)
             # Table HTML is the grid (``tables[]``), not block prose. Same rule
             # as ``_text_from_structure_res`` for a 2.x ``res.html`` table.
             blocks.append({"type": "table", "text": "", "box": box})
@@ -637,12 +622,8 @@ def _parse_v3_structure_page(
         text_parts.append(content)
 
     for html in htmls[html_at:]:
-        parsed = _parsed_table(html, table_index)
-        if parsed is None:
+        if _take_table(html) is None:
             continue
-        table, table_index = parsed
-        tables.append(table)
-        text_parts.extend(table_to_tsv_lines(table))
         blocks.append({"type": "table", "text": "", "box": [0, 0, 0, 0]})
 
     return blocks, tables, text_parts, table_index
@@ -743,14 +724,6 @@ def _get_pp_structure(lang: str = "en") -> Any:
     return _pp_structure_engine
 
 
-def _run_pp_structure(engine: Any, image_array: Any) -> list[Any]:
-    if hasattr(engine, "predict"):
-        raw = engine.predict(image_array)
-    else:
-        raise RuntimeError("PPStructureV3 engine has no predict method")
-    return _normalize_structure_pages(raw)
-
-
 def html_from_paddle_structure(
     blocks: list[dict[str, Any]],
     tables: list[dict[str, Any]],
@@ -758,8 +731,6 @@ def html_from_paddle_structure(
     """Build HTML from Paddle PP-Structure blocks and parsed tables, css-inlined for LO."""
     parts: list[str] = []
     for block in blocks:
-        if not isinstance(block, dict):
-            continue
         block_type = str(block.get("type") or "text").strip().lower()
         text = str(block.get("text") or "").strip()
         # Tables are appended from ``tables`` below. The old guard only
@@ -792,7 +763,9 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
 
     try:
         image_array = _decode_image(image, params)
-        raw_pages = _run_pp_structure(engine, image_array)
+        if not hasattr(engine, "predict"):
+            raise RuntimeError("PPStructureV3 engine has no predict method")
+        raw_pages = _normalize_structure_pages(engine.predict(image_array))
         blocks, tables, text_parts = _parse_structure_output(raw_pages)
     except Exception as exc:
         log.exception("extract_structure failed")
