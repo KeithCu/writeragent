@@ -26,9 +26,7 @@ from typing import Any, cast, Type, ClassVar
 from plugin.framework.errors import is_real_disposal
 from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
 from plugin.framework.prompts import (
-    CALC_HIDDEN_SPECIALIZED_DOMAINS,
-    WRITER_SIDEBAR_ONLY_DOMAINS,
-    IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
+    _catalog_entries_from_base,
     attach_sheets_create_completion_instruction,
     DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
     images_specialized_sub_agent_hint,
@@ -40,6 +38,7 @@ from plugin.framework.prompts import (
 )
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
+from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 from plugin.framework import queue_executor
 
@@ -79,11 +78,8 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
         messages = getattr(session, "messages", None) if session is not None else None
         if not messages:
             return False
-        for msg in reversed(list(messages)):
-            if not isinstance(msg, dict) or msg.get("role") != "user":
-                continue
-            return looks_like_peer_work_envelope(msg.get("content"))
-        return False
+        last_user = next((m for m in reversed(list(messages)) if isinstance(m, dict) and m.get("role") == "user"), None)
+        return last_user is not None and looks_like_peer_work_envelope(last_user.get("content"))
 
     try:
         return bool(queue_executor.execute_on_main_thread(_probe))
@@ -120,25 +116,23 @@ class DelegateToSpecializedBase(ToolBase):
     _special_base_class: ClassVar[Type[ToolBase]]
     _agent_label: ClassVar[str]  # e.g., "Writer", "Calc", "Draw"
 
-    tier: str = "core"  # Available to the main agent
     is_mutation: bool | None = True
     long_running: bool = True
     parameters: dict[str, Any] | None
 
     def __init__(self) -> None:
         super().__init__()
-        domains: set[str] = set()
-        # Find all domains by scanning subclasses of the specialized base
-        for cls in self._special_base_class.__subclasses__():
-            domain = getattr(cls, "specialized_domain", None)
-            if domain:
-                if self._agent_label == "Calc" and domain in CALC_HIDDEN_SPECIALIZED_DOMAINS:
-                    continue
-                if self._agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
-                    continue
-                if self._agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
-                    continue
-                domains.add(str(domain))
+        # ctx=None and for_discovery=False: same exclusions as the chat enum.
+        # for_discovery=True would put Calc-hidden domains back into the schema.
+        domains = {
+            e["domain"]
+            for e in _catalog_entries_from_base(
+                self._special_base_class,
+                agent_label=self._agent_label,
+                ctx=None,
+                for_discovery=False,
+            )
+        }
 
         self.parameters = {
             "type": "object",
@@ -262,7 +256,6 @@ class DelegateToSpecializedBase(ToolBase):
             if domain == "document_research":
                 from plugin.doc.document_research import filter_document_research_discovery_tools
                 from plugin.doc.peer_message import (
-                    PEER_TOOL_NAMES,
                     filter_peer_tools_for_specialized,
                     format_peer_catalog,
                     list_v1_peers,
@@ -309,21 +302,17 @@ class DelegateToSpecializedBase(ToolBase):
                 result = super().forward(*args, **kwargs)
                 if self.name == "specialized_workflow_finished":
                     cap.workflow_finished = True
-                if isinstance(result, dict) and result.get("status") == "error":
+                if not isinstance(result, dict):
+                    return result
+                if result.get("status") == "error":
                     cap.inner_tool_errors.append(result)
-                if isinstance(result, dict) and result.get("instruction"):
+                if result.get("instruction"):
                     cap.captured_tool_results.append(result)
-                if domain != "document_research":
-                    return result
-                from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
-
-                if self.name not in PEER_TOOL_NAMES:
-                    return result
-                # Delivery is recorded only after status == "ok" and accepted is True,
-                # not when the model calls the tool. PEER_NOT_FOUND, PEER_SIDEBAR_NOT_OPEN,
-                # PEER_QUEUE_FULL, and PEER_NOT_CHAT_MODE must leave both flags false.
+                # Accepted delivery only. PEER_NOT_FOUND, PEER_SIDEBAR_NOT_OPEN,
+                # PEER_QUEUE_FULL, and PEER_NOT_CHAT_MODE leave both flags false.
                 if (
-                    isinstance(result, dict)
+                    domain == "document_research"
+                    and self.name in PEER_TOOL_NAMES
                     and result.get("status") == "ok"
                     and result.get("accepted") is True
                 ):
@@ -335,32 +324,35 @@ class DelegateToSpecializedBase(ToolBase):
         try:
             smol_tools = [_CaptureInstructionAdapter(t, ctx, safe=True, inputs_style="specialized") for t in domain_tools]
             if peer_catalog:
-                from plugin.doc.peer_message import PEER_TOOL_NAMES
-
                 for adapter in smol_tools:
                     if getattr(adapter, "name", None) in PEER_TOOL_NAMES:
                         adapter.description = (str(adapter.description or "") + " " + peer_catalog).strip()
 
-            footnotes_hint = ""
+            hints: list[str] = []
             if domain == "footnotes":
-                footnotes_hint = " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), pass that exact string as insert_after so the note is placed after that text; the task executor cannot move the view cursor."
-            shapes_canvas = ""
+                hints.append(
+                    " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), pass that exact string as insert_after so the note is placed after that text; the task executor cannot move the view cursor."
+                )
             # Page size stays on the shapes loop (and the inner domain agent when
             # shapes is requested). The outer python agent passes layout in task.
             if domain == "shapes":
-                shapes_canvas = _main_thread_or_warn(
-                    lambda: format_shapes_canvas_context(getattr(ctx, "doc", None)),
-                    "shapes canvas",
+                hints.append(
+                    _main_thread_or_warn(
+                        lambda: format_shapes_canvas_context(getattr(ctx, "doc", None)),
+                        "shapes canvas",
+                    )
                 )
 
-            charts_hint = ""
             if domain == "charts":
                 if self._agent_label == "Calc":
-                    charts_hint = " When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
+                    hints.append(
+                        " When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
+                    )
                 elif self._agent_label in ("Writer", "Draw"):
-                    charts_hint = " When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters."
+                    hints.append(
+                        " When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters."
+                    )
 
-            calc_ctx = ""
             # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running
             # worker. UNO reads stay inside _fetch_calc_context on the main thread.
             if self._agent_label == "Calc" and getattr(ctx, "doc", None) is not None:
@@ -369,9 +361,9 @@ class DelegateToSpecializedBase(ToolBase):
                 def _fetch_calc_context() -> str:
                     return "\n\n[SPREADSHEET CONTEXT]\n" + get_calc_context_for_chat(ctx.doc, ctx=ctx.ctx)
 
-                calc_ctx = _main_thread_or_warn(_fetch_calc_context, "Calc context")
+                hints.append(_main_thread_or_warn(_fetch_calc_context, "Calc context"))
 
-            open_docs_context = ""
+            hints.append(document_research_hint)
             if domain == "document_research":
                 from plugin.doc.document_research import get_open_documents
 
@@ -386,19 +378,21 @@ class DelegateToSpecializedBase(ToolBase):
                         doc_type = d["doc_type"]
                         active_str = " (Active)" if d["is_active"] else ""
                         lines.append(f"- {path_or_url} [{doc_type}]{active_str}")
-                    open_docs_context = (
+                    hints.append(
                         "\n\n[OPEN DOCUMENTS CONTEXT]\n"
                         "Note: These are the currently open files in LibreOffice. "
                         "Some of these files may be completely unrelated to the task at hand:\n"
                         + "\n".join(lines)
                     )
 
-            images_hint = images_specialized_sub_agent_hint() if domain == "images" else ""
-            python_hint = python_specialized_sub_agent_hint(self._agent_label) if domain == "python" else ""
+            if domain == "images":
+                hints.append(images_specialized_sub_agent_hint())
+            if domain == "python":
+                hints.append(python_specialized_sub_agent_hint(self._agent_label))
             instructions = (
                 f"You are a specialized {self._agent_label} task executor focused on the '{domain}' domain. "
                 f"You have a focused set of tools to accomplish your task. Use them to fulfill the user's request."
-                f"{footnotes_hint}{shapes_canvas}{charts_hint}{calc_ctx}{document_research_hint}{open_docs_context}{images_hint}{python_hint}"
+                + "".join(hints)
             )
 
             examples_key = f"{self._agent_label.lower()}:{domain}"
@@ -490,10 +484,8 @@ class DelegateToSpecializedBase(ToolBase):
             # message instead of copying it, so the text is sent once.
             if isinstance(final_ans, dict):
                 model_text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
-            elif final_ans is None:
-                model_text = ""
             else:
-                model_text = payload.pop("result")
+                model_text = "" if final_ans is None else payload.pop("result")
             payload["status"] = "incomplete"
             payload["code"] = "SPECIALIZED_WORKFLOW_INCOMPLETE"
             payload["message"] = model_text
