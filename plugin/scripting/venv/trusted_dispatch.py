@@ -44,6 +44,16 @@ def missing_package_error(helper: str, package: str) -> dict[str, Any]:
     )
 
 
+def is_blank_param(value: Any, *, strip: bool = False) -> bool:
+    # Ranges must not use ``!= ""`` (numpy truthiness). strip=False keeps
+    # whitespace-only quantities parseable; strip=True treats them as blank.
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return (value.strip() if strip else value) == ""
+    return False
+
+
 def _sheet_layout_flags(spec_dict: dict[str, Any]) -> tuple[bool, int] | dict[str, Any]:
     """Extract and validate sheet layout flags (headers, header_row) from spec_dict."""
     try:
