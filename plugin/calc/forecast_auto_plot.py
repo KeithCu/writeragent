@@ -9,16 +9,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.calc.viz_auto_plot import helper_should_auto_plot
+from plugin.calc.viz_auto_plot import task_hint_implies_plot
 from plugin.framework.errors import reraise_if_disposed
 
 log = logging.getLogger(__name__)
 
-AUTO_PLOT_FORECAST_HELPERS = frozenset({"forecast_time_series"})
-
 
 def should_auto_plot(*, helper: str, auto_plot: bool, task_hint: str | None) -> bool:
-    return helper_should_auto_plot(helper, AUTO_PLOT_FORECAST_HELPERS, auto_plot=auto_plot, task_hint=task_hint)
+    return helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(task_hint))
 
 
 def _forecast_table(forecast_result: dict[str, Any]) -> dict[str, Any] | None:
@@ -43,12 +41,8 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
         return None
     fc_columns_str = [str(c) for c in fc_columns]
 
-    params = dict(forecast_params or {})
-    date_col = str(params.get("date_col", "Date"))
-    value_col = str(params.get("value_col", "Value"))
-
-    hist_headers = []
-    hist_records = []
+    date_col = str((forecast_params or {}).get("date_col", "Date"))
+    value_col = str((forecast_params or {}).get("value_col", "Value"))
 
     from plugin.scripting.payload_codec import is_calc_range_payload
 
@@ -63,67 +57,55 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
 
         grid = materialize_calc_range(history_data).values
 
-    if isinstance(grid, list) and len(grid) > 0 and isinstance(grid[0], list):
-        hist_headers = [str(c) for c in grid[0]]
-        hist_records = grid[1:]
-
+    if not (isinstance(grid, list) and grid and isinstance(grid[0], list)):
+        return None
+    hist_headers = [str(c) for c in grid[0]]
+    hist_records = grid[1:]
     if date_col not in hist_headers or value_col not in hist_headers:
         return None
 
     date_idx = hist_headers.index(date_col)
     val_idx = hist_headers.index(value_col)
 
-    has_lower = "lower" in fc_columns_str
-    has_upper = "upper" in fc_columns_str
-
-    fc_date_idx = fc_columns_str.index("date") if "date" in fc_columns_str else -1
-    fc_forecast_idx = fc_columns_str.index("forecast") if "forecast" in fc_columns_str else -1
-    fc_lower_idx = fc_columns_str.index("lower") if has_lower else -1
-    fc_upper_idx = fc_columns_str.index("upper") if has_upper else -1
-
-    if fc_date_idx == -1 or fc_forecast_idx == -1:
+    # First match, same as list.index. A repeated name must not switch to the later column.
+    idx: dict[str, int] = {}
+    for i, col in enumerate(fc_columns_str):
+        if col not in idx:
+            idx[col] = i
+    if "date" not in idx or "forecast" not in idx:
         return None
-
-    plot_cols = ["date", value_col, "forecast"]
-    if has_lower:
-        plot_cols.append("lower")
-    if has_upper:
-        plot_cols.append("upper")
+    extra = [c for c in ("lower", "upper") if c in idx]
+    plot_cols = ["date", value_col, "forecast", *extra]
 
     hist_rows: list[list[Any]] = []
     for rec in hist_records:
         if len(rec) <= max(date_idx, val_idx):
             continue
-        entry: list[Any] = [rec[date_idx], rec[val_idx], None]
-        if has_lower:
-            entry.append(None)
-        if has_upper:
-            entry.append(None)
-        hist_rows.append(entry)
+        hist_rows.append([rec[date_idx], rec[val_idx], None] + [None] * len(extra))
 
     fc_rows: list[list[Any]] = []
     for row in fc_rows_raw:
-        if not isinstance(row, list) or len(row) <= max(fc_date_idx, fc_forecast_idx):
+        if not isinstance(row, list) or len(row) <= max(idx["date"], idx["forecast"]):
             continue
-
-        entry = [row[fc_date_idx], None, row[fc_forecast_idx]]
-        if has_lower:
-            entry.append(row[fc_lower_idx] if len(row) > fc_lower_idx else None)
-        if has_upper:
-            entry.append(row[fc_upper_idx] if len(row) > fc_upper_idx else None)
-        fc_rows.append(entry)
+        fc_rows.append(
+            [
+                row[idx["date"]],
+                None,
+                row[idx["forecast"]],
+                *(row[idx[c]] if len(row) > idx[c] else None for c in extra),
+            ]
+        )
 
     return [plot_cols, *hist_rows, *fc_rows]
 
 
-def build_viz_request(forecast_helper: str, *, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None) -> tuple[str, dict[str, Any]] | None:
+def build_viz_request(*, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None) -> tuple[str, dict[str, Any]] | None:
     """Return (viz_helper, viz_params) for a completed forecast result."""
     forecast_table = _forecast_table(forecast_result)
     if forecast_table is None:
         return None
 
-    params = dict(forecast_params or {})
-    value_col = str(params.get("value_col", "Value"))
+    value_col = str((forecast_params or {}).get("value_col", "Value"))
     columns = forecast_table.get("columns") or []
     viz_params: dict[str, Any] = {"date_col": "date", "value_col": value_col, "forecast_col": "forecast"}
     if "lower" in columns:
@@ -133,14 +115,10 @@ def build_viz_request(forecast_helper: str, *, forecast_result: dict[str, Any], 
     return "time_series_plot", viz_params
 
 
-def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None, data_range: str | None, auto_plot: bool, task_hint: str | None) -> dict[str, Any] | None:
-    """Run time_series_plot with merged history + forecast when auto-plot triggers."""
-    if forecast_result.get("status") != "ok":
-        return None
-    if not should_auto_plot(helper=forecast_helper, auto_plot=auto_plot, task_hint=task_hint):
-        return None
+def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None, data_range: str | None, task_hint: str | None) -> dict[str, Any] | None:
+    """Run time_series_plot with merged history + forecast."""
     try:
-        request = build_viz_request(forecast_helper, forecast_result=forecast_result, forecast_params=forecast_params)
+        request = build_viz_request(forecast_result=forecast_result, forecast_params=forecast_params)
         if request is None:
             return {"status": "error", "message": f"No plot mapping for forecast helper {forecast_helper!r}"}
         viz_helper, viz_params = request
@@ -148,11 +126,8 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         from plugin.calc.calc_addin_data import _resolve_python_data
         from plugin.framework.queue_executor import run_on_main
 
-        def _read_history() -> tuple[Any, str | None]:
-            # Sheet read is UNO. Viz IPC (run_trusted_viz) stays on the caller.
-            return _resolve_python_data(doc, data_range=data_range, data=None)
-
-        py_data, err = run_on_main(_read_history)
+        # Sheet read is UNO. Viz IPC (run_trusted_viz) stays on the caller.
+        py_data, err = run_on_main(lambda: _resolve_python_data(doc, data_range=data_range, data=None))
         if err:
             return {"status": "error", "message": f"Could not read forecast history: {err}"}
         if py_data is None:

@@ -394,8 +394,8 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 **Pattern:** Copy analysis auto-plot wiring:
 
 1. Add [`plugin/calc/forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py):
-   - `AUTO_PLOT_FORECAST_HELPERS = frozenset({"forecast_time_series"})`
-   - `build_viz_request(forecast_helper, forecast_result, forecast_params) -> ("time_series_plot", {...})` — merge history from `data_range` with forecast table rows; map `forecast`/`lower`/`upper` columns.
+   - predicate is `helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(task_hint))`
+   - `build_viz_request(forecast_result, forecast_params) -> ("time_series_plot", {...})` — merge history from `data_range` with forecast table rows; map `forecast`/`lower`/`upper` columns.
    - Reuse `task_hint_implies_plot` from [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py) (import, do not duplicate regex).
 2. In [`ForecastDataTool.execute`](../../plugin/calc/forecast.py): after successful run + optional `output_range` write, mirror [`AnalyzeDataTool`](../../plugin/calc/analysis.py) lines 476–512 (`run_auto_plot_after_forecast`, `insert_viz_result_into_doc`).
 3. Add `auto_plot: bool` to `forecast_data` parameters (default `false` to match conservative Phase 0; or `true` to match `analyze_data` — **pick `false`** unless product wants parity).

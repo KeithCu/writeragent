@@ -413,11 +413,12 @@ class AnalyzeDataTool(ToolBaseDummy):
 
         if result.get("status") == "ok" and ctx.doc_type == "calc":
             auto_plot = bool(kwargs.get("auto_plot", False))
-            from plugin.calc.viz_auto_plot import apply_auto_plot_result, run_auto_plot_after_analysis
-            from plugin.scripting.viz import insert_viz_result_into_doc
+            from plugin.calc.viz_auto_plot import apply_auto_plot_result, run_auto_plot_after_analysis, should_auto_plot
 
-            # Sub-agent worker thread: viz data reads use CalcBridge — marshal like plot_data.
-            plot_result = run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, auto_plot=auto_plot, task_hint=task_hint)
-            result = apply_auto_plot_result(result, plot_result, lambda pr: insert_viz_result_into_doc(ctx.ctx, ctx.doc, pr))
+            plot_result = None
+            if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
+                # Sub-agent worker thread: viz data reads use CalcBridge — marshal like plot_data.
+                plot_result = run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, task_hint=task_hint)
+            result = apply_auto_plot_result(result, plot_result, ctx.ctx, ctx.doc)
 
         return result
