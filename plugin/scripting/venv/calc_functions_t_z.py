@@ -27,7 +27,6 @@ from .calc_functions_util import (
     _collect_a_values,
     _date_to_serial,
     _extract_numeric_array,
-    _find_text_cut,
     _is_calc_error,
     _parse_weekend,
     _scipy_stats,
@@ -234,29 +233,51 @@ def text(val: Any, fmt: Any) -> str | float:
 fmt = text
 
 
-@_nan_on_error
 def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mode: Any, match_end: Any, if_not_found: Any, *, after: bool) -> str | float:
-    # bool("0") is true, so a zero flag invented a virtual delimiter.
-    # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
-    use_end = _as_nonzero(match_end)
-    # _find_text_cut does int(float(instance_num)). An infinite instance
-    # raises OverflowError, which this handler did not catch, so TEXTAFTER
-    # and TEXTBEFORE raised instead of the NaN used for any other invalid instance.
-    s, inst, idx, match_end_miss = _find_text_cut(
-        text, delimiter, instance_num, match_mode, after=after
-    )
-    if idx is not None:
-        # The cut is already the end of the delimiter, including a
-        # negative instance. Adding len(delim) again skipped a second
-        # copy when the matched span was longer than the delimiter.
+    try:
+        # bool("0") is true, so a zero flag invented a virtual delimiter.
+        # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
+        use_end = _as_nonzero(match_end)
+        s = str(text)
+        delim = str(delimiter)
+        inst = int(float(instance_num))
+        if inst == 0:
+            raise ValueError("instance_num cannot be 0")
+        # "".split("") raises. re.finditer("") matches at every position, so a
+        # blank delimiter would look like a hit. TEXTBEFORE / TEXTAFTER turn
+        # this ValueError into NaN.
+        if not delim:
+            raise ValueError("empty separator")
+        # ScTextBeforeOrAfter (interpr1.cxx) walks left to right and steps
+        # past each delimiter. lower() of İ is i + combining dot, so an index
+        # into the lowered string no longer lines up with s: textbefore of
+        # "aİb" on "b" included the b. rfind also sees overlapping matches
+        # ("aaa" / "aa" at 1) that the split count above it did not.
+        flags = re.IGNORECASE if match_mode == 1 else 0
+        spans = [(m.start(), m.end()) for m in re.finditer(re.escape(delim), s, flags=flags)]
+        n_matches = len(spans)
+        abs_inst = abs(inst)
+        if abs_inst > n_matches:
+            # One past the last real match is the match_end boundary.
+            # Virtual delimiter is at 0 when the instance is negative, and
+            # at the end otherwise. Text after a leading one is the whole
+            # string; text before it is empty. The other sign is the opposite.
+            # Both signs used to return the same string.
+            if use_end and abs_inst == n_matches + 1:
+                return s if (inst < 0) == after else ""
+            return if_not_found
+        # A negative instance counts from the end of that same list.
+        chosen = spans[inst - 1] if inst > 0 else spans[inst]
+        # after=True used to return the start for a negative instance and let
+        # TEXTAFTER add len(delim). A case-folded match can be a different
+        # length than the delimiter, so the cut is the span's own end.
+        idx = chosen[1] if after else chosen[0]
         return s[idx:] if after else s[:idx]
-    if use_end and match_end_miss:
-        # Virtual delimiter is at 0 when the instance is negative, and
-        # at the end otherwise. Text after a leading one is the whole
-        # string; text before it is empty. The other sign is the opposite.
-        # Both signs used to return the same string.
-        return s if (inst < 0) == after else ""
-    return if_not_found
+    except (ValueError, TypeError, OverflowError):
+        # int(float(instance_num)) of an infinite instance raises OverflowError,
+        # which this handler did not catch, so TEXTAFTER and TEXTBEFORE raised
+        # instead of the NaN used for any other invalid instance.
+        return float("nan")
 
 
 def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:

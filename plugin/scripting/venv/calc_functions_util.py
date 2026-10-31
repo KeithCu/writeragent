@@ -133,14 +133,10 @@ def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
     ed = _serial_to_date(e)
     if sd is None or ed is None:
         return float("nan")
-    if b == 0 or b == 4:
-        return _days360(sd, ed, european=(b == 4)) / 360.0
-    actual = (ed - sd).days
+    days = _days_between(sd, ed, b)
     if b == 1:
-        return actual / _actual_actual_year_length(sd, ed)
-    if b == 2:
-        return actual / 360.0
-    return actual / 365.0
+        return days / _actual_actual_year_length(sd, ed)
+    return days / (365.0 if b == 3 else 360.0)
 
 
 def _round_half_up(val: float, decimals: int) -> Decimal:
@@ -275,14 +271,11 @@ def _clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray
     for x, y in zip(d1, d2):
         if isinstance(x, (bool, np.bool_)) or isinstance(y, (bool, np.bool_)):
             continue
-        try:
-            xf = float(x)
-            yf = float(y)
-            if math.isfinite(xf) and math.isfinite(yf):
-                c1.append(xf)
-                c2.append(yf)
-        except (ValueError, TypeError, OverflowError):
-            continue
+        xf = _to_float_or_none(x)
+        yf = _to_float_or_none(y)
+        if xf is not None and yf is not None and math.isfinite(xf) and math.isfinite(yf):
+            c1.append(xf)
+            c2.append(yf)
     if not c1:
         return None
     return np.asarray(c1, dtype=float), np.asarray(c2, dtype=float)
@@ -311,10 +304,8 @@ def _collect_a_values(*args: Any) -> np.ndarray:
             # A Python int bigger than the float range raises OverflowError, which
             # a (ValueError, TypeError) handler missed, so AVERAGEA crashed instead
             # of treating the cell as 0 the way other non-numbers do.
-            try:
-                vals.append(float(v))
-            except (ValueError, TypeError, OverflowError):
-                vals.append(0.0)
+            f = _to_float_or_none(v)
+            vals.append(0.0 if f is None else f)
     return np.asarray(vals, dtype=float)
 
 
@@ -403,14 +394,11 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
         op = "="
         val_str = None
 
-    crit_is_bool = False
-    bool_val = False
+    crit_bool: bool | None = None
     if isinstance(crit, (bool, np.bool_)):
-        crit_is_bool = True
-        bool_val = bool(crit)
+        crit_bool = bool(crit)
     elif val_str is not None and val_str.upper() in ("TRUE", "FALSE"):
-        crit_is_bool = True
-        bool_val = val_str.upper() == "TRUE"
+        crit_bool = val_str.upper() == "TRUE"
 
     if val_str is not None:
         c_num = _to_float_or_none(val_str)
@@ -432,18 +420,16 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
         if val_is_blank:
             return op == "<>"
 
-        val_is_bool = isinstance(val, (bool, np.bool_))
-        if crit_is_bool:
-            if val_is_bool:
-                v_b = bool(val)
+        if crit_bool is not None:
+            if isinstance(val, (bool, np.bool_)):
                 if op == "=":
-                    return v_b == bool_val
+                    return bool(val) == crit_bool
                 if op == "<>":
-                    return v_b != bool_val
+                    return bool(val) != crit_bool
                 return False
             return op == "<>"
 
-        if val_is_bool:
+        if isinstance(val, (bool, np.bool_)):
             return op == "<>"
 
         v_num = _to_float_or_none(val) if isinstance(val, (int, float, np.integer, np.floating)) else None
@@ -452,25 +438,17 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
 
         if c_num is not None and v_num is not None:
             return _CMP[op](v_num, c_num)
-
-        v_str = str(val)
-        if c_num is not None and v_num is None:
-            if isinstance(val, str) and op in ("=", "<>"):
-                matched = _wildcard_fullmatch(c_pattern, v_str)
+        if (c_num is None) != (v_num is None):
+            if c_num is not None and isinstance(val, str) and op in ("=", "<>"):
+                matched = _wildcard_fullmatch(c_pattern, str(val))
                 return matched if op == "=" else not matched
             return op == "<>"
-
-        if c_num is None and v_num is not None:
-            return op == "<>"
-
+        v_str = str(val)
         if op == "=":
             return _wildcard_fullmatch(c_pattern, v_str)
         if op == "<>":
             return not _wildcard_fullmatch(c_pattern, v_str)
-
-        v_fold = v_str.casefold()
-        c_fold = c_pattern.casefold()
-        return _CMP[op](v_fold, c_fold)
+        return _CMP[op](v_str.casefold(), c_pattern.casefold())
 
     return matcher
 
@@ -497,65 +475,11 @@ def _extract_numeric_array(
                 continue
             if isinstance(x, str):
                 continue
-            try:
-                v = float(x)
-            except (ValueError, TypeError, OverflowError):
-                continue
-            if not propagate_nan and math.isnan(v):
+            v = _to_float_or_none(x)
+            if v is None or (not propagate_nan and math.isnan(v)):
                 continue
             vals.append(v)
     return np.asarray(vals, dtype=float)
-
-
-def _find_text_cut(
-    text: Any,
-    delimiter: Any,
-    instance_num: Any = 1,
-    match_mode: Any = 0,
-    after: bool = False,
-) -> tuple[str, int, int | None, bool]:
-    """Shared delimiter search for textbefore and textafter.
-
-    Returns (text_str, instance_int, cut_idx, match_end_miss).
-    When the instance is within bounds, cut_idx is an index into the original
-    text and match_end_miss is False. ``after=False`` is the start of that
-    delimiter. ``after=True`` is the end, where the remainder starts.
-    When the instance lands on the boundary, cut_idx is None and match_end_miss is True.
-    On a real miss, cut_idx is None and match_end_miss is False.
-    Raises ValueError or TypeError if instance_num is invalid or zero.
-    """
-    s = str(text)
-    delim = str(delimiter)
-    inst = int(float(instance_num))
-    if inst == 0:
-        raise ValueError("instance_num cannot be 0")
-    # "".split("") raises. re.finditer("") matches at every position, so a
-    # blank delimiter would look like a hit. TEXTBEFORE / TEXTAFTER turn
-    # this ValueError into NaN.
-    if not delim:
-        raise ValueError("empty separator")
-
-    # ScTextBeforeOrAfter (interpr1.cxx) walks left to right and steps
-    # past each delimiter. lower() of İ is i + combining dot, so an index
-    # into the lowered string no longer lines up with s: textbefore of
-    # "aİb" on "b" included the b. rfind also sees overlapping matches
-    # ("aaa" / "aa" at 1) that the split count above it did not.
-    flags = re.IGNORECASE if match_mode == 1 else 0
-    spans = [(m.start(), m.end()) for m in re.finditer(re.escape(delim), s, flags=flags)]
-
-    n_matches = len(spans)
-    abs_inst = abs(inst)
-    # One past the last real match is the match_end boundary.
-    if abs_inst > n_matches:
-        return s, inst, None, abs_inst == n_matches + 1
-
-    # A negative instance counts from the end of that same list.
-    chosen = spans[inst - 1] if inst > 0 else spans[inst]
-    # after=True used to return the start for a negative instance and let
-    # TEXTAFTER add len(delim). A case-folded match can be a different
-    # length than the delimiter, so the cut is the span's own end.
-    idx = chosen[1] if after else chosen[0]
-    return s, inst, idx, False
 
 
 def _criteria_numbers(values: Any, pairs: Sequence[tuple[Any, Any]]) -> list[float] | None:
@@ -570,9 +494,7 @@ def _criteria_numbers(values: Any, pairs: Sequence[tuple[Any, Any]]) -> list[flo
 
 def _complex_coeff(n: float) -> str:
     """Format complex coefficient without trailing .0 on integers."""
-    if isinstance(n, int) or (isinstance(n, float) and math.isfinite(n) and n.is_integer()):
-        return str(int(n))
-    return str(n)
+    return str(int(n)) if n.is_integer() else str(n)
 
 
 def _from_complex(c: complex, suffix: str = "i") -> str:
@@ -590,22 +512,10 @@ def _from_complex(c: complex, suffix: str = "i") -> str:
     imag = c.imag
     if imag == 0:
         return _complex_coeff(real)
+    imag_part = ("-" if imag < 0 else "") + ("" if abs(imag) == 1 else _complex_coeff(abs(imag))) + suffix
     if real == 0:
-        if imag == 1:
-            return suffix
-        if imag == -1:
-            return "-" + suffix
-        return _complex_coeff(imag) + suffix
-    res = _complex_coeff(real)
-    if imag > 0:
-        res += "+"
-    if imag == 1:
-        res += suffix
-    elif imag == -1:
-        res += "-" + suffix
-    else:
-        res += _complex_coeff(imag) + suffix
-    return res
+        return imag_part
+    return _complex_coeff(real) + ("+" if imag > 0 else "") + imag_part
 
 
 def _multi_criteria_mask(
@@ -619,25 +529,20 @@ def _multi_criteria_mask(
     rows and columns. Ravelling first made a 2x3 range and a 3x2 range look
     equal. None tells the caller to return #VALUE! instead of truncating.
     """
-    cond_ranges: list[np.ndarray] = []
-    criteria: list[Any] = []
-    shapes: list[tuple[int, ...]] = []
+    parsed: list[tuple[np.ndarray, Any]] = []
+    target = base_shape
     for r, c in pairs:
         arr = np.asarray(r, dtype=object)
-        shapes.append(arr.shape)
-        cond_ranges.append(arr.ravel())
-        criteria.append(c)
-
-    target = shapes[0] if base_shape is None else base_shape
-    if any(shape != target for shape in shapes):
-        return None
-    width = len(cond_ranges[0])
-
+        if target is None:
+            target = arr.shape
+        elif arr.shape != target:
+            return None
+        parsed.append((arr.ravel(), c))
+    width = len(parsed[0][0])
     mask = np.ones(width, dtype=bool)
-    for cr, crit in zip(cond_ranges, criteria):
+    for flat, crit in parsed:
         matcher = _parse_criterion(crit)
-        mask &= np.fromiter((matcher(v) for v in cr), dtype=bool, count=width)
-
+        mask &= np.fromiter((matcher(v) for v in flat), dtype=bool, count=width)
     return mask
 
 
