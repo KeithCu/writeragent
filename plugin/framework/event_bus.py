@@ -98,13 +98,17 @@ class EventBus:
             return entry()
         return entry
 
-    def _live_entries(self, event: str) -> list[Any]:
-        """Caller holds ``_lock``. Drop collected refs and return the survivors."""
+    def _live_entries(self, event: str) -> tuple[list[Any], list[Any]]:
+        """Caller holds ``_lock``. Return (live entries, strong callbacks) from one pass."""
         kept: list[Any] = []
+        resolved: list[Any] = []
         for entry in self._subscribers.get(event, []):
-            if self._deref(entry) is not None:
-                kept.append(entry)
-        return kept
+            cb = self._deref(entry)
+            if cb is None:
+                continue
+            kept.append(entry)
+            resolved.append(cb)
+        return kept, resolved
 
     def subscribe(self, event: str, callback: Any, weak: bool = False) -> None:
         """Register *callback* for *event*.
@@ -124,54 +128,37 @@ class EventBus:
         # crosshair: off
         # threading.local() is engine-hostile.
         entry: Any
-        if weak and hasattr(callback, "__self__"):
+        if weak:
             try:
-                entry = weakref.WeakMethod(callback)
+                # Bound methods use WeakMethod. weakref.ref would track the
+                # temporary method, and an inline subscribe (items.append)
+                # would die on the next GC. TypeError (builtin, slots,
+                # method-wrapper) keeps a strong ref so emit still runs.
+                entry = (
+                    weakref.WeakMethod(callback)
+                    if hasattr(callback, "__self__")
+                    else weakref.ref(callback)
+                )
             except TypeError:
-                # WeakMethod rejects builtins and methods of instances with no
-                # ``__weakref__`` (``__slots__``). Keep the callback strongly.
-                # ``weakref.ref(callback)`` tracks the bound-method object, not
-                # the instance. Callers pass the method inline (``items.append``)
-                # and do not keep it, so the next GC would drop the subscription
-                # and emit would never run. A strong ref still fires. Python
-                # methods on normal instances stay on the WeakMethod path above.
                 entry = callback
-        elif weak:
-            entry = self._weakref_or_strong(callback)
         else:
             entry = callback
         with self._lock:
-            kept = self._live_entries(event)
+            kept, _callbacks = self._live_entries(event)
             kept.append(entry)
             self._subscribers[event] = kept
-
-    def _weakref_or_strong(self, callback: Any) -> Any:
-        """Weak-ref a callable the caller holds, or keep it if it cannot be weak.
-
-        Bound methods do not belong here. ``weakref.ref`` would track the
-        temporary method object, which dies when the caller did not stash it.
-        """
-        # crosshair: off
-        # threading.local() is engine-hostile.
-        try:
-            return weakref.ref(callback)
-        except TypeError:
-            return callback
 
     def unsubscribe(self, event: str, callback: Any) -> None:
         """Remove *callback* from *event*."""
         # crosshair: off
         # threading.local() is engine-hostile.
         with self._lock:
-            subs = self._subscribers.get(event)
-            if not subs:
+            if not self._subscribers.get(event):
                 return
-            kept: list[Any] = []
-            for entry in subs:
-                live = self._deref(entry)
-                if live is not None and live != callback:
-                    kept.append(entry)
-            self._subscribers[event] = kept
+            kept, resolved = self._live_entries(event)
+            self._subscribers[event] = [
+                entry for entry, live in zip(kept, resolved) if live != callback
+            ]
 
     # Bugfix: A payload key 'event' or 'self' previously bound the parameter
     # and raised TypeError ("got multiple values for argument 'event'" or
@@ -189,14 +176,7 @@ class EventBus:
             live = self._subscribers.get(event)
             if not live:
                 return
-            resolved: list[Any] = []
-            kept: list[Any] = []
-            for entry in live:
-                cb = self._deref(entry)
-                if cb is None:
-                    continue
-                kept.append(entry)
-                resolved.append(cb)
+            kept, resolved = self._live_entries(event)
             if len(kept) != len(live):
                 self._subscribers[event] = kept
 
