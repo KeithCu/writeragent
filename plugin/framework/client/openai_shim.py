@@ -26,8 +26,6 @@ from .responses_shim import (
 # api.openai.com o-series and gpt-5/6 reject max_tokens. Dated snapshots
 # (o3-mini-2025-01-31, gpt-5-2025-08-07) and ft:gpt-5-... share the family prefix.
 _OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt-6")
-# Chat Completions default. These models reject every other temperature.
-_OPENAI_DEFAULT_TEMPERATURE = 1
 
 
 def _openai_reasoning_model(model_name: str | None) -> bool:
@@ -109,7 +107,7 @@ class OpenAIShim(BaseProviderShim):
         if "max_tokens" in data:
             data["max_completion_tokens"] = data.pop("max_tokens")
         temp = data.get("temperature")
-        if temp is not None and temp != _OPENAI_DEFAULT_TEMPERATURE:
+        if temp is not None and temp != 1:
             data.pop("temperature", None)
         return data
 
@@ -122,13 +120,12 @@ class OpenAIShim(BaseProviderShim):
                 endpoint_effort=self._endpoint_reasoning_effort(),
                 chat_extra=chat_extra if isinstance(chat_extra, dict) else None,
             )
-            if "reasoning" in data and isinstance(data["reasoning"], dict):
-                effort = data["reasoning"].get("effort")
-                if effort:
-                    fragment = effort_payload(self._reasoning_provider(), effort)
-                    val = fragment.get("reasoning_effort") or (fragment.get("reasoning") or {}).get("effort")
-                    if val:
-                        data["reasoning"]["effort"] = val
+            reasoning = data.get("reasoning")
+            if isinstance(reasoning, dict) and (effort := reasoning.get("effort")):
+                fragment = effort_payload(self._reasoning_provider(), effort)
+                val = fragment.get("reasoning_effort") or (fragment.get("reasoning") or {}).get("effort")
+                if val:
+                    reasoning["effort"] = val
             return self._post(self._url("/responses"), data)
         return super().build_chat_request(
             messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra,
