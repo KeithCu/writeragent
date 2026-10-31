@@ -103,7 +103,7 @@ def test_insert_vision_result_calc_structured(mock_structured, mock_html):
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="structured"):
         insert_vision_result(ctx, doc, result, params={"insert_mode": "structured"})
 
-    mock_structured.assert_called_once_with(doc, ctx, result, image_name=None)
+    mock_structured.assert_called_once_with(doc, result, image_name=None)
     mock_html.assert_not_called()
 
 

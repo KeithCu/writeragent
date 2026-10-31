@@ -207,7 +207,7 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
     if is_calc(doc):
         if insert_mode == "structured" and helper == "extract_structure":
             try:
-                row_count = insert_vision_structure_into_calc(doc, ctx, result, image_name=image_name)
+                row_count = insert_vision_structure_into_calc(doc, result, image_name=image_name)
                 log.debug("insert_vision_result: helper=%s insert_mode=structured calc_rows=%d", helper, row_count)
                 return
             except ToolExecutionError as exc:
