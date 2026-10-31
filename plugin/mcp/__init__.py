@@ -23,13 +23,13 @@ import os
 import threading
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.http_server import format_bind_failure
+from plugin.framework.http_server import format_bind_failure, is_port_in_use_error
 from plugin.framework.module_base import ModuleBase
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
 from plugin.mcp.cors import reload_cors_policy_from_config
-from plugin.mcp.server import is_port_in_use_error, mcp_endpoint_url
+from plugin.mcp.server import mcp_endpoint_url
 from plugin.mcp.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label, tunnel_status_line
 from plugin.version import EXTENSION_VERSION
 

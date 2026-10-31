@@ -25,7 +25,15 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("writeragent.mcp.cors")
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_ORIGIN, UNDER_CROSSHAIR, ascii_bounded, deal, inverse_ensure
+from plugin.framework.deal_shim import (
+    DEAL_MAX_CMD_ARGS,
+    DEAL_MAX_ORIGIN,
+    UNDER_CROSSHAIR,
+    _profile,
+    ascii_bounded,
+    deal,
+    inverse_ensure,
+)
 
 _PRIVATE_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".intern")
 
@@ -86,12 +94,6 @@ _deal_allow_headers_ok = (
 )
 
 
-def _deal_origins_config_ok_pytest(value: object) -> bool:
-    # Raw user config: accept anything; the body drops what it cannot use.
-    del value
-    return True
-
-
 def _deal_origins_config_ok_crosshair(value: object) -> bool:
     return (
         value is None
@@ -104,9 +106,8 @@ def _deal_origins_config_ok_crosshair(value: object) -> bool:
     )
 
 
-_deal_origins_config_ok = (
-    _deal_origins_config_ok_crosshair if UNDER_CROSSHAIR else _deal_origins_config_ok_pytest
-)
+# Raw user config: accept anything; the body drops what it cannot use.
+_deal_origins_config_ok = _profile(_deal_origins_config_ok_crosshair)
 
 
 @deal.pre(lambda value: value is None or _deal_origin_ok(value))
@@ -139,19 +140,14 @@ def normalize_cors_origin(value: str | None) -> str | None:
         # false and the existing 403 path runs.
         return None
     scheme = parsed.scheme.lower()
-    if scheme not in ("http", "https"):
-        return None
-    if not host:
+    if scheme not in ("http", "https") or not host:
         return None
     host = host.lower()
     if ":" in host:
         host = f"[{host}]"
-    if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+    if port == (80 if scheme == "http" else 443):
         port = None
-    if port is not None:
-        netloc = f"{host}:{port}"
-    else:
-        netloc = host
+    netloc = host if port is None else f"{host}:{port}"
     return f"{scheme}://{netloc}"
 
 
@@ -165,8 +161,7 @@ def normalize_origins_list(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
-        one = normalize_cors_origin(value)
-        return [one] if one else []
+        value = [value]
     if not isinstance(value, list):
         return []
     out: list[str] = []
@@ -187,14 +182,8 @@ def is_private_browser_origin(origin: str) -> bool:
     normalized = normalize_cors_origin(origin)
     if normalized is None:
         return False
-    # Spoofed bracket hostnames (e.g. [::1].evil.net) must not crash the handler;
-    # stdlib urlparse raises ValueError on invalid IPv6 URL syntax.
-    try:
-        parsed = urlparse(normalized)
-    except ValueError:
-        return False
-    host = parsed.hostname
-    if host is None:
+    host = urlparse(normalized).hostname
+    if not host:
         return False
     h = host.lower()
     if h.endswith(_PRIVATE_SUFFIXES):
@@ -244,16 +233,8 @@ def _is_loopback_origin(origin: str) -> bool:
     normalized = normalize_cors_origin(origin)
     if normalized is None:
         return False
-    try:
-        parsed = urlparse(normalized)
-    except ValueError:
-        return False
-    if parsed.scheme.lower() not in ("http", "https"):
-        return False
-    host = parsed.hostname
-    if host is None:
-        return False
-    return host.lower() in _SAFE_LOOPBACK_HOSTS
+    host = urlparse(normalized).hostname
+    return host is not None and host.lower() in _SAFE_LOOPBACK_HOSTS
 
 
 def reload_cors_policy_from_config(services: Any) -> None:
@@ -316,14 +297,10 @@ def _drain_request_body(handler: Any) -> None:
     try:
         from plugin.mcp.server import MCP_HTTP_MAX_BODY_BYTES
 
-        if not hasattr(handler, "headers") or not handler.headers:
-            return
         raw_length = handler.headers.get("Content-Length", 0)
         content_length = int(raw_length)
         if 0 < content_length <= MCP_HTTP_MAX_BODY_BYTES:
-            rfile = getattr(handler, "rfile", None)
-            if rfile is not None and hasattr(rfile, "read"):
-                rfile.read(content_length)
+            handler.rfile.read(content_length)
     except (ValueError, OSError):
         # Bad Content-Length is ValueError. A client socket read is OSError.
         # Other exceptions are bugs.
@@ -413,14 +390,8 @@ def is_safe_host(host_header: str | None, tunnel_host: str | None = None, bind_h
         return True
 
     active_tunnel = tunnel_host or get_configured_tunnel_host()
-    if active_tunnel:
-        th = active_tunnel.strip()
-        if "://" in th:
-            th = urlparse(th).hostname or th
-        elif ":" in th and not th.startswith("["):
-            th = th.split(":", 1)[0]
-        if host == th.lower():
-            return True
+    if active_tunnel and host == active_tunnel.strip().lower():
+        return True
     return False
 
 
