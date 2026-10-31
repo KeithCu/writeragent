@@ -133,7 +133,7 @@ class McpModule(ModuleBase):
                 # Second (or later) bootstrap in this process: share registry and server state.
                 prim = _primary_http_module
                 self._registry = prim._registry
-                self._tunnel = _shared_tunnel or prim._tunnel
+                self._tunnel = prim._tunnel
                 self._services = services
                 self._mcp_routes_registered = prim._mcp_routes_registered
                 self._srv_lock = prim._srv_lock
@@ -164,13 +164,6 @@ class McpModule(ModuleBase):
 
             _primary_http_module = self
 
-    def _bound_http_server(self) -> Any:
-        """Process-wide HTTP server, or None when it is stopped."""
-        return _shared_http_server
-
-    def _server_running(self) -> bool:
-        return is_mcp_server_running()
-
     def start_background(self, services: Any) -> None:
         # We start automatically if MCP is enabled.
         if services.config.proxy_for(self.name).get("mcp_enabled"):
@@ -195,12 +188,12 @@ class McpModule(ModuleBase):
         if enabled and not self._mcp_routes_registered:
             self._register_mcp_routes(self._services)
         elif not enabled and self._mcp_routes_registered:
-            self._unregister_mcp_routes(self._services)
+            self._unregister_mcp_routes()
 
-        bound = self._bound_http_server()
+        bound = _shared_http_server
         running = bool(bound and bound.is_running())
         cfg_port = cfg.get("mcp_port")
-        running_port = getattr(bound, "port", None) if bound is not None else None
+        running_port = getattr(bound, "port", None)
         port_changed = running and isinstance(cfg_port, int) and not isinstance(cfg_port, bool) and running_port != cfg_port
         if enabled and (port_changed or not running):
             if port_changed:
@@ -253,7 +246,7 @@ class McpModule(ModuleBase):
         reload_cors_policy_from_config(services)
 
         with self._srv_lock:
-            if self._server_running():
+            if is_mcp_server_running():
                 _last_start_failure = None
             else:
                 cfg = services.config.proxy_for(self.name)
@@ -296,7 +289,7 @@ class McpModule(ModuleBase):
         if self._tunnel is not None:
             self._tunnel.stop()
         with self._srv_lock:
-            srv = self._bound_http_server()
+            srv = _shared_http_server
             if not srv:
                 return
             srv.stop()
@@ -312,7 +305,7 @@ class McpModule(ModuleBase):
         if tunnel is None:
             return
         cfg = self._services.config.proxy_for(self.name)
-        want = bool(cfg.get("mcp_enabled") and cfg.get("tunnel_enabled") and self._server_running())
+        want = bool(cfg.get("mcp_enabled") and cfg.get("tunnel_enabled") and is_mcp_server_running())
         if not want:
             tunnel.stop()
             return
@@ -350,7 +343,7 @@ class McpModule(ModuleBase):
     def shutdown(self) -> None:
         self._stop_server()
         if self._mcp_routes_registered:
-            self._unregister_mcp_routes(self._services)
+            self._unregister_mcp_routes()
         _remove_debug_token_file()
 
     def _register_mcp_routes(self, services: Any) -> None:
@@ -358,8 +351,7 @@ class McpModule(ModuleBase):
         from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
         p = MCPProtocolHandler(services)
-        if getattr(p, "debug_token", None):
-            _write_debug_token_file(p.debug_token)
+        _write_debug_token_file(p.debug_token)
 
         # One lock across the whole set. GET / snapshots routes under the same
         # lock, so a toggle cannot expose a half-registered table or raise
@@ -370,7 +362,7 @@ class McpModule(ModuleBase):
             self._mcp_routes_registered = True
         log.info("MCP routes registered on HTTP server")
 
-    def _unregister_mcp_routes(self, services: Any) -> None:
+    def _unregister_mcp_routes(self) -> None:
         with self._registry.batch():
             for method, path, _handler_name, _raw in MCP_ROUTE_TABLE:
                 self._registry.remove(method, path)
@@ -392,7 +384,7 @@ class McpModule(ModuleBase):
         from plugin.framework.i18n import _
 
         if action == "toggle_server":
-            if self._server_running():
+            if is_mcp_server_running():
                 return _("Stop MCP Server")
             return _("Start MCP Server")
         return None
@@ -400,11 +392,11 @@ class McpModule(ModuleBase):
     def get_menu_icon(self, action: str) -> str | None:
         if action != "server_status":
             return None
-        return "running" if self._server_running() else "stopped"
+        return "running" if is_mcp_server_running() else "stopped"
 
     def _action_toggle_server(self) -> None:
         # No msgbox on success: modal boxes block the sidebar; the panel status line shows it.
-        if self._server_running():
+        if is_mcp_server_running():
             log.info("Stopping MCP server via toggle")
             self._stop_server()
         else:
@@ -416,7 +408,7 @@ class McpModule(ModuleBase):
                 if not self._mcp_routes_registered:
                     self._register_mcp_routes(self._services)
                 self._start_server(self._services)
-            if not self._server_running():
+            if not is_mcp_server_running():
                 self._show_start_failure_dialog()
 
     def _not_running_status_message(self) -> str:
@@ -437,7 +429,7 @@ class McpModule(ModuleBase):
         from plugin.framework.i18n import _
 
         ctx = get_ctx()
-        b = self._bound_http_server()
+        b = _shared_http_server
         status = b.get_status() if b else None
         if not status or not status.get("running"):
             msgbox(ctx, "WriterAgent", self._not_running_status_message())

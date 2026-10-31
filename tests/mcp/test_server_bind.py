@@ -269,7 +269,9 @@ def test_mcp_port_only_change_rebinds_running_server(monkeypatch):
     assert len(created) == 1
     assert created[0].port == 19000
     assert created[0].is_running()
-    assert mod._bound_http_server() is created[0]
+    import plugin.mcp as mcp_mod
+
+    assert mcp_mod._shared_http_server is created[0]
     assert dialogs == []
     assert cfg.get("mcp_port") == 19000
 
@@ -337,7 +339,9 @@ def test_mcp_port_change_while_disabled_does_not_start(monkeypatch):
     mod._on_config_changed(key="mcp.mcp_port", value=19000)
     assert created == []
     assert dialogs == []
-    assert mod._bound_http_server() is None
+    import plugin.mcp as mcp_mod
+
+    assert mcp_mod._shared_http_server is None
 
 
 def test_mcp_port_change_starts_when_enabled_but_stopped(monkeypatch):
@@ -368,10 +372,10 @@ def test_mcp_port_rebind_failure_stops_old_listener_and_reports(monkeypatch):
     assert old.is_running() is False
     assert len(created) == 1
     assert created[0].is_running() is False
-    assert mod._bound_http_server() is None
-    assert dialogs == ["settings-ctx"]
     import plugin.mcp as mcp_mod
 
+    assert mcp_mod._shared_http_server is None
+    assert dialogs == ["settings-ctx"]
     assert mcp_mod._last_start_failure is not None and mcp_mod._last_start_failure[2] is boom
 
 
