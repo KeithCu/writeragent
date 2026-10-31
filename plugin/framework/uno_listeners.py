@@ -228,13 +228,12 @@ def _catch_and_log(func: Any = None, *, failure: Any = None) -> Any:
                     return failure
                 if signal is not None:
                     reraise_listener_boundary(exc)
+                label = "unhandled exception"
                 if isinstance(exc, TypeError):
-                    log.exception(f"{self.__class__.__name__} TypeError in {fn.__name__}")
-                    return failure
-                if isinstance(exc, ValueError):
-                    log.exception(f"{self.__class__.__name__} ValueError in {fn.__name__}")
-                    return failure
-                log.exception(f"{self.__class__.__name__} unhandled exception in {fn.__name__}")
+                    label = "TypeError"
+                elif isinstance(exc, ValueError):
+                    label = "ValueError"
+                log.exception(f"{self.__class__.__name__} {label} in {fn.__name__}")
                 return failure
 
         setattr(wrapper, _CATCH_LOGGED_ATTR, (failure,))
