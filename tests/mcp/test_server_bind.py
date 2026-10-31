@@ -152,7 +152,6 @@ def test_mcp_module_does_not_register_api_config(monkeypatch):
 
     with mcp_mod._http_peer_lock:
         mcp_mod._primary_http_module = None
-        mcp_mod._shared_registry = None
         mcp_mod._shared_http_server = None
         mcp_mod._shared_tunnel = None
 
