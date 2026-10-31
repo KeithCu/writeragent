@@ -56,10 +56,6 @@ _INSTALL_PACKAGES = ("spacy", "textdescriptives", "transformers", "torch", "scik
 _MAX_ANALYZED_CHARS = 1_000_000  # spaCy default nlp.max_length
 
 
-def _text_analytics_install_command(model: str) -> str:
-    return "uv pip install " + " ".join(_INSTALL_PACKAGES) + f" && python -m spacy download {model}"
-
-
 def _lang_prefix(lang: Any) -> str | None:
     if not isinstance(lang, str):
         return None
@@ -132,7 +128,6 @@ def _load_nlp(lang: str | None = None) -> Any:
             return nlp
         except Exception as e:
             last_err = e
-            continue
 
     raise RuntimeError(
         f"Could not load any suitable spaCy model. Tried: {candidates}. "
@@ -593,7 +588,10 @@ def check_diagnostics(lang: Any = None) -> dict[str, Any]:
     recommended_model = _LANG_MODELS[lang][0] if lang and lang in _LANG_MODELS else "xx_sent_ud_sm"
 
     # Full command needed for everything the dialog supports.
-    text_analytics_install = _text_analytics_install_command(recommended_model)
+    text_analytics_install = (
+        "uv pip install " + " ".join(_INSTALL_PACKAGES)
+        + f" && python -m spacy download {recommended_model}"
+    )
 
     try:
         import spacy

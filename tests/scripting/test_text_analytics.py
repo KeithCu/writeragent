@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from plugin.scripting import text_analytics as ta
+from plugin.scripting.helper_domain import header_prefix
 from plugin.scripting.text_analytics_ui import format_text_analytics_result_for_display
 from plugin.scripting.venv import text_analytics as vta
 
@@ -68,7 +69,7 @@ def test_text_analytics_templates_include_run_call():
     for h in ("full", "readability", "entities", "key_phrases"):
         if h in temps:
             code = temps[h]
-            assert ta.TEXT_ANALYTICS_HEADER_PREFIX not in code
+            assert header_prefix("text") not in code
             assert "from writeragent.scripting.text_analytics import run_text_analytics" in code
 
 

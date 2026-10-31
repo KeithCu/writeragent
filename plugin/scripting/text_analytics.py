@@ -14,10 +14,10 @@ from collections import Counter
 from typing import Any
 
 from plugin.doc.text_helpers import iter_heading_nodes
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
-    header_prefix,
     make_template_api,
 )
 
@@ -43,9 +43,7 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "sentiment": "transformers + multilingual model (XLM-RoBERTa default) sentiment (score + label). Best with whole document for per-section results. Override model via JSON config.",
 }
 
-TEXT_ANALYTICS_HEADER_PREFIX = header_prefix("text")
-
-_SHIPPED_TEMPLATES = frozenset({"full", "readability", "entities", "key_phrases", "topics", "sentiment"})
+_SHIPPED_TEMPLATES = HELPER_NAMES - {"diagnostics", "check"}
 
 _API = make_template_api(
     DomainFacadeConfig(
@@ -115,7 +113,6 @@ def _get_writer_selection_text(doc: Any) -> str:
         return get_string_without_tracked_deletions(rng) or ""
     except Exception as exc:
         # Re-raise DocumentDisposedError so callers handle closed documents.
-        from plugin.framework.errors import reraise_if_disposed
         reraise_if_disposed(exc)
         log.debug("text analytics: selection text failed", exc_info=True)
         return ""
@@ -137,7 +134,6 @@ def _get_writer_text(doc: Any) -> str:
         # How it happened: nested try/except caught Exception and tried doc.getText().getString().
         # Why this change: reraise_if_disposed propagates DocumentDisposedError, and omitting getString()
         # prevents deleted text leakage and duplicate logs.
-        from plugin.framework.errors import reraise_if_disposed
         reraise_if_disposed(exc)
         log.debug("text analytics: writer text extraction failed", exc_info=True)
         return ""
@@ -201,7 +197,6 @@ def _get_writer_sections(doc: Any) -> list[str]:
                 # What was wrong: disposed document during paragraph iteration was ignored.
                 # How it happened: inner except Exception only logged debug without checking disposal.
                 # Why this change: reraise_if_disposed propagates DocumentDisposedError immediately.
-                from plugin.framework.errors import reraise_if_disposed
                 reraise_if_disposed(exc)
                 log.debug("text analytics: skipped paragraph %s", para_index, exc_info=True)
             para_index += 1
@@ -218,7 +213,6 @@ def _get_writer_sections(doc: Any) -> list[str]:
         # What was wrong: outer section extraction caught DisposedException and fell back to _get_writer_text.
         # How it happened: generic except Exception caught DisposedException.
         # Why this change: reraise_if_disposed propagates DocumentDisposedError before fallback.
-        from plugin.framework.errors import reraise_if_disposed
         reraise_if_disposed(exc)
         log.debug("text analytics: section extraction failed", exc_info=True)
         # Safe fallback to flat text
@@ -278,15 +272,12 @@ def is_text_analytics_result(value: Any) -> bool:
         return False
     # Our results have a top-level "result" with known keys, or the helper dispatch shape.
     res = value.get("result")
-    if isinstance(res, dict):
-        for k in ("readability", "descriptive_stats", "entities", "key_phrases", "topics", "sentiment", "meta"):
-            if k in res:
-                return True
+    if isinstance(res, dict) and any(k in res for k in (
+        "readability", "descriptive_stats", "entities", "key_phrases", "topics", "sentiment", "meta",
+    )):
+        return True
     # Also accept the narrow shapes returned by specific helpers
-    for k in ("entities", "key_phrases", "readability", "topics", "sentiment"):
-        if k in value:
-            return True
-    return False
+    return any(k in value for k in ("entities", "key_phrases", "readability", "topics", "sentiment"))
 
 
 def _result_to_html_table(data: dict[str, Any]) -> str:
@@ -391,7 +382,6 @@ def text_analytics_payload_has_content(result: Any) -> bool:
 def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a compact HTML report for the text analytics result (Writer)."""
     from plugin.doc.doc_type import is_writer
-    from plugin.framework.errors import ToolExecutionError
     from plugin.writer.format import insert_content_at_position
 
     if not is_writer(doc):
