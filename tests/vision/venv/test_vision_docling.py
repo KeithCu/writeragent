@@ -437,7 +437,7 @@ def test_converter_cache_does_not_reuse_default_for_text_score_zero():
     built: list[float] = []
 
     def fake_build(params, *, input_format="image"):
-        score = docling_mod.DoclingPipelineParams.from_params(params, input_format=input_format).text_score
+        score = params.text_score
         built.append(score)
         pipeline = MagicMock()
         pipeline.captured_text_score = score
@@ -578,7 +578,7 @@ def test_module_yaml_layout_models_supported_in_od_presets():
     options = data["config"]["layout_model"]["options"]
     layout_values = [opt["value"] for opt in options]
     for val in layout_values:
-        assert val in docling_mod._OD_LAYOUT_PRESETS
+        assert val in docling_mod._LAYOUT_KEYS
 
 
 def test_from_params_parses_string_booleans():

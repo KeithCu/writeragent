@@ -197,11 +197,15 @@ def resolve_ocr_backend(params: dict[str, Any]) -> str:
     return str(params.get("ocr_backend") or "").strip().lower() or DEFAULT_OCR_BACKEND
 
 
-def fallback_engine_enabled(params: dict[str, Any]) -> bool:
-    value = params.get("fallback_engine", True)
+def vision_bool(value: Any) -> bool:
+    # Denylist: "" and any string other than 0/false/no/off stay True.
     if isinstance(value, str):
         return value.strip().lower() not in ("0", "false", "no", "off")
     return bool(value)
+
+
+def fallback_engine_enabled(params: dict[str, Any]) -> bool:
+    return vision_bool(params.get("fallback_engine", True))
 
 
 def _cell_text(cell: Any) -> str:
