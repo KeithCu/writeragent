@@ -727,12 +727,7 @@ def on_main_thread_or_post(
 
     if on_main_thread() and not get_background_task_name():
         return fn(*args, **kwargs)
-    if bound_scope is not _SCOPE_UNSET:
-        kwargs["bound_scope"] = bound_scope
-    if executor is not None:
-        executor.post(fn, *args, **kwargs)
-    else:
-        post_to_main_thread(fn, *args, **kwargs)
+    (executor or default_executor).post(fn, *args, bound_scope=bound_scope, **kwargs)
     return None
 
 
