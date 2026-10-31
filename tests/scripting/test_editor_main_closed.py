@@ -13,8 +13,7 @@ from plugin.scripting.venv import editor_main as em
 
 
 def _reset_closed_state() -> None:
-    em._closed_sent = False
-    em._closed_session_id = ""
+    em._closed_for = None
     em._shutting_down = False
     em._gui_loop_entered = False
     em._current_session_id = ""
@@ -36,7 +35,7 @@ def test_send_closed_once_writes_single_message(monkeypatch):
     em._send_closed_once()
 
     assert messages[0]["type"] == "closed"
-    assert em._closed_sent is True
+    assert em._closed_for == em._current_session_id
     assert em._shutting_down is False  # Process stays alive in background!
 
 
@@ -81,7 +80,7 @@ def test_poll_messages_load_shows_window_and_updates_title():
     mock_window = MagicMock()
     em._window = mock_window
 
-    em._closed_sent = True
+    em._closed_for = "stale"
     em._current_session_id = "stale"
 
     em._ui_queue.put({"type": "load", "title": "My Custom Title", "code": "x = 1", "session_id": "s1"})
@@ -91,7 +90,7 @@ def test_poll_messages_load_shows_window_and_updates_title():
     assert msgs[0]["title"] == "My Custom Title"
     assert mock_window.title == "My Custom Title"
     mock_window.show.assert_called_once()
-    assert em._closed_sent is False
+    assert em._closed_for is None
     assert em._current_session_id == "s1"
 
 
