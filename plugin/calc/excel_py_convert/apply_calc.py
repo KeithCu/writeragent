@@ -111,34 +111,32 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
 
     def _rollback() -> list[str]:
         failed: list[str] = []
-        for sh, a1, prev_f in reversed(overwritten_formulas):
+
+        def _undo(label: str, detail: str, fn: Any) -> None:
             try:
-                sh.getCellRangeByName(a1).setFormula(prev_f)
+                fn()
             except Exception as exc:
-                log.warning("excel_py apply: rollback setFormula failed for %s: %s", a1, exc)
-                failed.append(f"rollback incomplete: setFormula {a1}: {exc}")
-        for sh, a1, prev_s in reversed(overwritten_bank_strings):
-            try:
-                sh.getCellRangeByName(a1).setString(prev_s)
-            except Exception as exc:
-                log.warning("excel_py apply: rollback setString failed for %s: %s", a1, exc)
-                failed.append(f"rollback incomplete: setString {a1}: {exc}")
-        if named_ranges is not None and hasattr(named_ranges, "removeByName"):
+                log.warning("excel_py apply: rollback %s failed for %s: %s", label, detail, exc)
+                failed.append(f"rollback incomplete: {label} {detail}: {exc}")
+
+        for sh, a1, prev in reversed(overwritten_formulas):
+            _undo("setFormula", a1, lambda sh=sh, a1=a1, prev=prev: sh.getCellRangeByName(a1).setFormula(prev))
+        for sh, a1, prev in reversed(overwritten_bank_strings):
+            _undo("setString", a1, lambda sh=sh, a1=a1, prev=prev: sh.getCellRangeByName(a1).setString(prev))
+        if named_ranges is not None:
+            nr = named_ranges
             for name in reversed(added_defined_names):
-                try:
-                    if hasattr(named_ranges, "hasByName") and named_ranges.hasByName(name):
-                        named_ranges.removeByName(name)
-                except Exception as exc:
-                    log.warning("excel_py apply: rollback removeByName failed for %s: %s", name, exc)
-                    failed.append(f"rollback incomplete: removeByName {name}: {exc}")
-        if hasattr(sheets, "removeByName"):
-            for sh_name in reversed(inserted_sheets):
-                try:
-                    if sheets.hasByName(sh_name):
-                        sheets.removeByName(sh_name)
-                except Exception as exc:
-                    log.warning("excel_py apply: rollback remove sheet failed for %s: %s", sh_name, exc)
-                    failed.append(f"rollback incomplete: remove sheet {sh_name}: {exc}")
+                _undo(
+                    "removeByName",
+                    name,
+                    lambda name=name, nr=nr: nr.removeByName(name) if nr.hasByName(name) else None,
+                )
+        for sh_name in reversed(inserted_sheets):
+            _undo(
+                "remove sheet",
+                sh_name,
+                lambda sh_name=sh_name: sheets.removeByName(sh_name) if sheets.hasByName(sh_name) else None,
+            )
         return failed
 
     try:
@@ -152,7 +150,7 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
 
             if named_ranges is not None:
                 expected_def = bank_defined_name_for(code_sheet)
-                if hasattr(named_ranges, "hasByName") and not named_ranges.hasByName(expected_def):
+                if not named_ranges.hasByName(expected_def):
                     import uno
 
                     addr = uno.createUnoStruct("com.sun.star.table.CellAddress")
@@ -161,13 +159,13 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
 
             if CODE_SHEET_NOTE_CELL not in sheet_bank:
                 note_cell = bank_sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL)
-                prev_note = note_cell.getString() if hasattr(note_cell, "getString") else ""
+                prev_note = note_cell.getString()
                 overwritten_bank_strings.append((bank_sheet, CODE_SHEET_NOTE_CELL, prev_note))
                 note_cell.setString(CODE_SHEET_NOTE)
 
             for a1, code in sorted(sheet_bank.items()):
                 cell_obj = bank_sheet.getCellRangeByName(a1)
-                prev_code = cell_obj.getString() if hasattr(cell_obj, "getString") else ""
+                prev_code = cell_obj.getString()
                 overwritten_bank_strings.append((bank_sheet, a1, prev_code))
                 cell_obj.setString(code)
     except Exception as exc:
@@ -179,13 +177,13 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
     for sheet, coord, formula, array_ref in planned_cells:
         try:
             uno_cell = sheet.getCellRangeByName(coord)
-            prev_formula = uno_cell.getFormula() if hasattr(uno_cell, "getFormula") else ""
+            prev_formula = uno_cell.getFormula()
             overwritten_formulas.append((sheet, coord, prev_formula))
             if array_ref:
                 _clear_spill_uno(sheet, array_ref)
             uno_cell.setFormula(formula)
         except Exception as exc:
-            errors.append(f"{sheet.getName() if hasattr(sheet, 'getName') else 'Sheet'}!{coord}: {exc}")
+            errors.append(f"{sheet.getName()}!{coord}: {exc}")
             errors.extend(_rollback())
             best_effort(doc.calculateAll, "calculateAll after Excel PY apply rollback")
             return errors

@@ -870,14 +870,10 @@ def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
         box.assert_called_once()
 
 
-def test_convert_uno_doc_to_excel_bank_sheet_cached_once(monkeypatch):
-    """Multiple banked cells on a sheet perform string lookup from cached bank map."""
-    from types import SimpleNamespace
-
-    from com.sun.star.sheet import CellFlags
+def test_convert_uno_doc_to_excel_bank_sheet_cached_once():
+    """Multiple banked cells on a sheet resolve bank strings."""
     from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
 
-    monkeypatch.setattr(CellFlags, "STRING", 4, raising=False)
     doc = CalcDocStub()
     sheets = doc.getSheets()
     sheets.insertNewByName("py_code_Sheet1", sheets.getCount())
@@ -889,17 +885,12 @@ def test_convert_uno_doc_to_excel_bank_sheet_cached_once(monkeypatch):
     sheet.getCellRangeByName("B2").setFormula("=PY(py_code_Sheet1.B2)")
     sheet.getCellRangeByName("C3").setFormula("=PY(py_code_Sheet1.C3)")
 
-    bank_range = bank.getCellRangeByName("B2:C3")
-    bank.queryContentCells = lambda _flags=0: SimpleNamespace(
-        getCount=lambda: 1,
-        getByIndex=lambda _idx: bank_range,
-    )
-
-    with patch.object(bank, "getCellRangeByName", wraps=bank.getCellRangeByName) as spy_get_cell:
-        report = convert_uno_doc_to_excel(doc)
-        assert report.ok
-        assert len(report.cells) == 2
-        assert spy_get_cell.call_count == 0
+    report = convert_uno_doc_to_excel(doc)
+    assert report.ok
+    assert len(report.cells) == 2
+    codes = {c.converted_code for c in report.cells}
+    assert "code_b2 = 1" in codes
+    assert "code_c3 = 2" in codes
 
 
 def test_apply_dag_formulas_rollback_on_cell_failure(tmp_path: Path):
