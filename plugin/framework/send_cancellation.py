@@ -186,19 +186,12 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
 
 
 def capture_send_stop(host: Any) -> tuple[Any, Callable[[], bool]]:
-    """Scope and stop checker frozen on the send thread at worker spawn.
+    """Scope and stop checker frozen on the send thread before ``run_in_background``.
 
-    Call this before ``run_in_background``. The checker is whatever
-    ``resolve_stop_checker`` returns now, which on the panel is
-    ``bind_send_stop_checker`` closed over this scope object. The worker
-    closes over both results and must not read the panel field again.
-    Sub-agent and tool workers that call ``resolve_stop_checker()`` and
-    read ``host._send_cancellation`` inside the thread body miss Stop:
-    Stop's drain clears that field, and the next send stores a new scope
-    there. A worker spawned but not yet in its body then binds the next
-    send, so the old Stop is missed and the old worker can cancel the new
-    one. ``run_in_background`` already copies contextvars at submit;
-    ``get_current_send_cancellation`` stays that submit-time scope.
+    The worker closes over both results. Calling ``resolve_stop_checker`` or
+    reading ``host._send_cancellation`` inside the thread body misses Stop:
+    the drain clears that field and the next send stores a new scope, so the
+    old worker can latch onto the new send and cancel it.
     """
     scope = getattr(host, "_send_cancellation", None)
     checker = host.resolve_stop_checker()
