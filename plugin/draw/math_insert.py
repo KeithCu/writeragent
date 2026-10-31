@@ -24,10 +24,6 @@ _DISPLAY_BLOCK_RE = re.compile(
 )
 
 
-def _latex_is_display_block(latex: str) -> bool:
-    return bool(_DISPLAY_BLOCK_RE.search(latex))
-
-
 # com.sun.star.embed.EmbedMapUnits (offapi/.../embed/EmbedMapUnits.idl).
 # StarMath stores its vis-area in twips (SmMapUnit). Shape units are 1/100 mm.
 _MAP_ONE_100TH_MM = 0
@@ -41,6 +37,7 @@ _MAP_TWIP = 9
 _ASPECT_CONTENT = 1
 
 _HMM_SCALE = {
+    _MAP_ONE_100TH_MM: (1, 1),
     _MAP_ONE_10TH_MM: (10, 1),
     _MAP_ONE_MM: (100, 1),
     _MAP_ONE_CM: (1000, 1),
@@ -53,16 +50,10 @@ _HMM_SCALE = {
 def _content_size_hmm(sz: Any, map_unit: int = _MAP_ONE_100TH_MM) -> tuple[int, int] | None:
     if sz is None:
         return None
-    mu = int(map_unit)
-    if mu == _MAP_ONE_100TH_MM:
-        w, h = sz.Width, sz.Height
-        if w <= 0 or h <= 0:
-            return None
-        return w, h
     w, h = int(sz.Width), int(sz.Height)
     if w <= 0 or h <= 0:
         return None
-    spec = _HMM_SCALE.get(mu)
+    spec = _HMM_SCALE.get(int(map_unit))
     if spec is None:
         return None
     num, den = spec
@@ -133,12 +124,6 @@ def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
     return _embedded_object_visual_hmm(shape)
 
 
-def _uno_ctx_from_tool_ctx(ctx: Any) -> Any:
-    """``ToolContext`` carries the UNO component context in ``.ctx``; plain UNO ctx passes through."""
-    u = getattr(ctx, "ctx", None)
-    return u if u is not None else ctx
-
-
 def _heuristic_size_hmm(formula: str) -> tuple[int, int]:
     """Rough box from formula length when UNO sizing is unavailable."""
     n = max(8, len(formula.strip()))
@@ -171,27 +156,24 @@ class InsertMathDraw(ToolDrawSpecialBase):
         from com.sun.star.awt import Size, Point
 
         formula_type = kwargs["formula_type"]
-        formula: str = kwargs["formula"]
-        if not formula.strip():
+        formula: str = kwargs["formula"].strip()
+        if not formula:
             return self._tool_error("formula must be a non-empty string.")
 
-        uno_ctx = _uno_ctx_from_tool_ctx(ctx)
+        # None .ctx means "no inner context"; getattr(ctx, "ctx", ctx) would return None.
+        uno_ctx = getattr(ctx, "ctx", None) or ctx
 
         if formula_type == "latex":
-            fstrip = formula.strip()
-            display_block = _latex_is_display_block(fstrip)
-            res = convert_latex_to_starmath(uno_ctx, fstrip, display_block=display_block)
+            display_block = bool(_DISPLAY_BLOCK_RE.search(formula))
+            res = convert_latex_to_starmath(uno_ctx, formula, display_block=display_block)
         elif formula_type == "mathml":
-            res = convert_mathml_to_starmath(uno_ctx, formula.strip())
+            res = convert_mathml_to_starmath(uno_ctx, formula)
         else:
             return self._tool_error("formula_type must be 'latex' or 'mathml'.")
 
         if not res.ok:
             detail = (res.error_message or "").strip() or "unknown_error"
             return self._tool_error(f"Failed to convert math expression: {detail}", conversion_detail=detail)
-
-        x = kwargs["x"]
-        y = kwargs["y"]
 
         page, actual_idx, err = resolve_shape_page(ctx, kwargs)
         if err:
@@ -205,7 +187,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
             # Draw/Impress OLE: add to page first, then CLSID (see charts OLE path).
             page.add(shape)
             added = True
-            shape.setPosition(Point(x, y))
+            shape.setPosition(Point(kwargs["x"], kwargs["y"]))
             shape.setSize(Size(_MIN_W_HMM, _MIN_H_HMM))
             shape.CLSID = MATH_CLSID
 
