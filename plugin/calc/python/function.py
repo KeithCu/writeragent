@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 import datetime
 import hashlib
+import json
 import logging
 import math
 import re
@@ -65,17 +66,7 @@ def flatten_result_values(result: Any) -> list[Any]:
     """Row-major flattening for list / nested list worker results."""
     if not isinstance(result, (list, tuple)):
         return [result]
-    if not result:
-        return []
-    if any(isinstance(row, (list, tuple)) for row in result):
-        flat: list[Any] = []
-        for row in result:
-            if isinstance(row, (list, tuple)):
-                flat.extend(row)
-            else:
-                flat.append(row)
-        return flat
-    return list(result)
+    return [cell for row in _result_as_spill_grid(result) for cell in row]
 
 
 def is_scalar_index_arg(py_data: list[Any] | list[list[Any]] | None) -> bool:
@@ -297,10 +288,8 @@ def _addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
 def coerce_index(value: Any) -> int:
     if value is None:
         return 0
-    if isinstance(value, bool):
-        return int(value)
     if isinstance(value, int):
-        return value
+        return int(value)
     if isinstance(value, float):
         return int(value)
     if isinstance(value, str) and value.strip():
@@ -657,39 +646,28 @@ def _cell_matches_stored_value(sheet: Any, row: int, col: int, cell_rec: SpillCe
         cell = sheet.getCellByPosition(col, row)
         if cell_rec.kind == "e":
             return cell.getType() == 0 or cell.getString() == ""
-        if cell_rec.kind in ("n", "s"):
+        if cell_rec.kind == "n":
             kind_type = cell.getType()
-            if cell_rec.kind == "n":
-                # Bugfix: What was wrong: spilled 0 matched later user text and
-                # clearContents / remap treated that text as the spill.
-                # How it happened: getValue() on a text cell is 0, and kind "n"
-                # compared that without the content type.
-                # Why this change fixes it: a number matches only VALUE. PyUNO
-                # Enum.__eq__ is false for ints (uno.py Enum.__eq__); the cell
-                # stub returns the ints, so accept either form.
-                if kind_type != 1 and getattr(kind_type, "value", None) != "VALUE":
-                    return False
-                v = cell.getValue()
-                if isinstance(cell_rec.value, (int, float)):
-                    return math.isclose(float(v), float(cell_rec.value), rel_tol=1e-9, abs_tol=1e-9)
+            # Bugfix: What was wrong: spilled 0 matched later user text and
+            # clearContents / remap treated that text as the spill.
+            # How it happened: getValue() on a text cell is 0, and kind "n"
+            # compared that without the content type.
+            # Why this change fixes it: a number matches only VALUE. PyUNO
+            # Enum.__eq__ is false for ints (uno.py Enum.__eq__); the cell
+            # stub returns the ints, so accept either form.
+            if kind_type != 1 and getattr(kind_type, "value", None) != "VALUE":
                 return False
-            if cell_rec.kind == "s":
-                if kind_type != 2 and getattr(kind_type, "value", None) != "TEXT":
-                    return False
-                return cell.getString() == (cell_rec.value or "")
+            v = cell.getValue()
+            if isinstance(cell_rec.value, (int, float)):
+                return math.isclose(float(v), float(cell_rec.value), rel_tol=1e-9, abs_tol=1e-9)
+            return False
+        if cell_rec.kind == "s":
+            kind_type = cell.getType()
+            if kind_type != 2 and getattr(kind_type, "value", None) != "TEXT":
+                return False
+            return cell.getString() == (cell_rec.value or "")
         if cell_rec.kind == "err":
-            get_err = getattr(cell, "getError", None)
-            if not callable(get_err) or cell_rec.value is None:
-                return False
-            try:
-                err_val = get_err()
-                if not isinstance(err_val, (int, float, str)):
-                    return False
-                if not isinstance(cell_rec.value, (int, float, str)):
-                    return False
-                return int(err_val) == int(cell_rec.value)
-            except (TypeError, ValueError):
-                return False
+            return cell_rec.value is not None and int(cell.getError()) == int(cell_rec.value)
     except Exception:
         return False
     return False
@@ -761,21 +739,20 @@ class CalcSpillModifyListener(BaseModifyListener):
                     reg_doc_key, sheet_name, frow, fcol = key
                     if self.doc_key and reg_doc_key == self.doc_key and sheet_name == self.sheet_name:
                         try:
-                            spill_rec = record
                             cell = sheet.getCellByPosition(fcol, frow)
                             formula = cell.getFormula()
                             formula_str = str(formula) if formula else ""
                             formula_matches = (
-                                is_matching_py_formula(formula_str, spill_rec.code)
-                                if spill_rec.code
+                                is_matching_py_formula(formula_str, record.code)
+                                if record.code
                                 else is_py_formula_text(formula_str)
                             )
                             if formula_matches:
                                 continue
 
                             remapped = False
-                            if spill_rec.code:
-                                loc = search_sheet_for_formula(sheet, spill_rec.code, doc=doc)
+                            if record.code:
+                                loc = search_sheet_for_formula(sheet, record.code, doc=doc)
                                 if loc is not None:
                                     _loc_cell, new_row, new_col = loc
                                     d_row = new_row - frow
@@ -783,15 +760,15 @@ class CalcSpillModifyListener(BaseModifyListener):
                                     if d_row != 0 or d_col != 0:
                                         all_match = all(
                                             _cell_matches_stored_value(sheet, c.row + d_row, c.col + d_col, c)
-                                            for c in spill_rec.cells
+                                            for c in record.cells
                                         )
                                         if all_match:
                                             new_cells = [
                                                 SpillCell(c.row + d_row, c.col + d_col, c.kind, c.value)
-                                                for c in spill_rec.cells
+                                                for c in record.cells
                                             ]
                                             new_key = (reg_doc_key, sheet_name, new_row, new_col)
-                                            to_remap.append((key, new_key, SpillRecord(code=spill_rec.code, cells=new_cells)))
+                                            to_remap.append((key, new_key, SpillRecord(code=record.code, cells=new_cells)))
                                             remapped = True
 
                             if not remapped:
@@ -821,10 +798,6 @@ class CalcSpillModifyListener(BaseModifyListener):
                             save_spill_registry_for_doc(doc)
         except Exception:
             log.exception("Error in CalcSpillModifyListener.modified")
-
-    def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        # This instance is not stored in SHEET_MODIFY_LISTENERS; SheetModifyDispatcher.disposing removes that entry.
-        pass
 
 
 def _spill_registry_doc_key(doc: Any) -> str:
@@ -881,7 +854,6 @@ def load_spill_registry_for_doc(doc: Any) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
     try:
         from plugin.doc.udprops import get_document_property
-        import json
 
         raw = get_document_property(doc, "WriterAgentSpillRegistry", None)
         if not isinstance(raw, str) or not raw.strip():
@@ -922,8 +894,7 @@ def load_spill_registry_for_doc(doc: Any) -> None:
 def save_spill_registry_for_doc(doc: Any) -> None:
     """Save the document's spill registry to its UserDefinedProperties."""
     try:
-        from plugin.doc.udprops import set_document_property, get_document_property
-        import json
+        from plugin.doc.udprops import set_document_property
 
         doc_key = _spill_registry_doc_key(doc)
         if not doc_key:
@@ -950,9 +921,6 @@ def save_spill_registry_for_doc(doc: Any) -> None:
                 }
         new_val = json.dumps(doc_spills)
         set_document_property(doc, "WriterAgentSpillRegistry", new_val)
-        actual = get_document_property(doc, "WriterAgentSpillRegistry", "")
-        if actual != new_val:
-            log.warning("Spill registry write back mismatch: expected %r, got %r", new_val, actual)
     except Exception:
         log.exception("Failed to save spill registry to document property")
 
@@ -1101,10 +1069,9 @@ def perform_deferred_spill(
 
             resolved_sheet = sheet
             try:
-                if hasattr(doc, "getSheets"):
-                    named = doc.getSheets().getByName(sheet_name)
-                    if named is not None:
-                        resolved_sheet = named
+                named = doc.getSheets().getByName(sheet_name)
+                if named is not None:
+                    resolved_sheet = named
             except Exception:  # noqa: S110
                 pass
             if resolved_sheet is None:
@@ -1432,14 +1399,13 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     from plugin.calc.python.workbook_lifecycle import off_main_spill_lifecycle_key
 
     lkey = off_main_spill_lifecycle_key(doc)
-    t = _new_spill_timer(0.1, lambda: post_to_main_thread(_on_main))
-    if lkey:
-        _register_spill_timer(lkey, t, token=f"code:{code}")
-    t.start()
+    start_deferred_sheet_timer(0.1, lambda: post_to_main_thread(_on_main), lifecycle_key=lkey, token=f"code:{code}")
 
 
 def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any = None, worker_data: Any = None, doc: Any | None = None, data_token: str | None = None) -> float | str | bool | tuple[Any, ...]:
     """Map worker result to a single value Calc's add-in bridge accepts."""
+    from plugin.framework.thread_guard import on_main_thread
+
     # Worker egress (payload_codec.child_pack_result + host_unpack_data) always yields plain
     # lists/scalars on the host — NumPy lives only in the venv subprocess, not in LO's Python.
     # DataFrame envelopes become labeled grids (header row + body) so columns survive spill.
@@ -1457,7 +1423,6 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
     is_matrix = False
     if isinstance(result, (list, tuple)) and index_arg is None and len(result) > 0:
         from plugin.framework.config import get_config_bool
-        from plugin.framework.thread_guard import on_main_thread
 
         if get_config_bool("scripting.python_auto_spill"):
             # AST lint only treats a bare ``if on_main_thread():`` as a guard.
@@ -1511,8 +1476,6 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
             if idx < 0 or idx >= len(flat):
                 return f"Error: index {idx} out of range (result length {len(flat)})"
             return py_addin_cell_value(flat[idx])
-
-        from plugin.framework.thread_guard import on_main_thread
 
         # Cached spill model is for the deferred UI write only. Passing it
         # into session_key off-main calls getURL / locate (see session_key).
@@ -1625,13 +1588,6 @@ def _prune_finished_spill_timers_locked() -> None:
         del _PENDING_SPILL_TIMERS[timer]
 
 
-def _forget_spill_timer(timer: threading.Timer) -> None:
-    """Remove *timer* when its callback starts so the closure can be collected."""
-    with _PENDING_SPILL_LOCK:
-        _PENDING_SPILL_TIMERS.pop(timer, None)
-        _prune_finished_spill_timers_locked()
-
-
 def _new_spill_timer(delay_sec: float, callback: Any) -> threading.Timer:
     """Timer that leaves ``_PENDING_SPILL_TIMERS`` as soon as it fires.
 
@@ -1646,7 +1602,9 @@ def _new_spill_timer(delay_sec: float, callback: Any) -> threading.Timer:
 
         set_background_task("spill_timer")
         try:
-            _forget_spill_timer(pending[0])
+            with _PENDING_SPILL_LOCK:
+                _PENDING_SPILL_TIMERS.pop(pending[0], None)
+                _prune_finished_spill_timers_locked()
             callback(*args, **kwargs)
         finally:
             set_background_task(None)
@@ -1669,7 +1627,7 @@ def _register_spill_timer(lifecycle_key: str, timer: threading.Timer, *, token: 
         _PENDING_SPILL_TIMERS[timer] = (lifecycle_key, token)
 
 
-def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key: str = "") -> threading.Timer:
+def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key: str = "", token: str = "") -> threading.Timer:
     """Shared 0.1s Timer for spill writes and geometric sheet-modify repair.
 
     Lives here so Layer C allows the same ``threading.Timer`` site as
@@ -1678,7 +1636,7 @@ def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key
     """
     timer = _new_spill_timer(delay_sec, callback)
     if lifecycle_key:
-        _register_spill_timer(lifecycle_key, timer)
+        _register_spill_timer(lifecycle_key, timer, token=token)
     timer.start()
     return timer
 
@@ -1725,7 +1683,6 @@ def execute_python_addin(ctx: Any, code: str, data: Any = None, true_strings: se
 
 
 def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strings: set[str] | None = None, false_strings: set[str] | None = None, *, doc: Any | None = None) -> Any:
-    log.debug("=== PYTHON(%r, data=%r) ===", code, data)
     target_doc: Any = doc
     try:
         args = split_python_addin_data_args(data)
@@ -1746,7 +1703,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
         # (the doc is only passed through there, so no key is read).
         args = maybe_strip_geometric_eval_args(code, args, doc=target_doc)
         py_data = calc_addin_args_from_split(args, true_strings, false_strings)
-        log.debug("PYTHON parsed py_data: %r", py_data)
         is_multi = len(args) > 1
         index_arg = None
         if py_data is not None:
@@ -1776,7 +1732,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 size_err = check_python_data_size(py_data, max_cells=max_cells)
             if size_err:
                 ret = f"Error: {size_err}"
-                log.debug("PYTHON returning size error: %r", ret)
                 _record_py_diagnostic(ctx, code, None, status="error", message=ret, doc=target_doc)
                 return ret
             worker_data = pack_calc_multi_data_for_wire(py_data) if is_multi else pack_calc_data_for_wire(py_data)
@@ -1830,7 +1785,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 python_tool_domain="",
                 **init_kwargs,
             )
-        log.debug("PYTHON res from worker: %r", res)
         if res.get("status") == "ok":
             result = res.get("result")
             if isinstance(result, dict) and _is_helper_error_dict(result):
@@ -1840,34 +1794,25 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 err_text = _helper_error_log_message(result)
                 cell = py_addin_cell_value(result)
                 _record_py_diagnostic(ctx, code, res, status="error", message=err_text, doc=target_doc)
-                log.debug("PYTHON returning formula error for helper error dict")
                 return cell
             _record_py_diagnostic(ctx, code, res, status="ok", doc=target_doc)
-            log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
             images = find_image_payloads(result)
             if images:
                 for i, img in enumerate(images):
                     insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")
             # Pass data_token: the digest was already computed for the cache key.
-            final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=target_doc, data_token=data_token)
-            log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)
-            return final_ret
+            return finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=target_doc, data_token=data_token)
 
         raw_message = str(res.get("message") or res.get("error") or "")
         cell = _addin_result_for_worker_status(res)
-        if isinstance(cell, str):
-            _record_py_diagnostic(ctx, code, res, status="error", message=cell, doc=target_doc)
-            log.debug("PYTHON returning worker error: %r", cell)
-        else:
-            _record_py_diagnostic(ctx, code, res, status="error", message=raw_message, doc=target_doc)
-            log.debug("PYTHON returning formula error for worker failure")
+        message = cell if isinstance(cell, str) else raw_message
+        _record_py_diagnostic(ctx, code, res, status="error", message=message, doc=target_doc)
         return cell
     except Exception as e:
         log.exception("PYTHON unexpected error during execution")
         err_msg = _format_error_for_display(e)
         _record_py_diagnostic(ctx, code, None, status="error", message=err_msg, traceback=str(e), doc=target_doc)
-        log.debug("PYTHON returning exception wrapper: %r", err_msg)
         return err_msg
 
 
