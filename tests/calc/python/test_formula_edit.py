@@ -9,7 +9,6 @@ from __future__ import annotations
 from plugin.calc.python.formula_edit import (
     assemble_python_formula,
     build_data_suffix,
-    build_new_python_formula,
     cell_looks_python_like,
     escape_code_for_formula,
     format_data_binding_display,
@@ -163,11 +162,11 @@ def test_normalize_array_and_no_equals():
 
 
 def test_build_new_formula_empty():
-    assert build_new_python_formula("") == '=PY("")'
+    assert rebuild_python_formula_with_data("", []) == '=PY("")'
 
 
 def test_build_new_formula_escapes():
-    assert '""' in build_new_python_formula('say "hi"')
+    assert '""' in rebuild_python_formula_with_data('say "hi"', [])
 
 
 def test_rebuild_preserves_data_suffix_from_parts():

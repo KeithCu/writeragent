@@ -10,7 +10,6 @@ use the shorter ``PY``; existing ``PYTHON`` cells keep their prefix when edited 
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -107,6 +106,23 @@ class PythonFormulaParts:
 
 
 
+def _skip_quoted(s: str, i: int, quote: str) -> int | None:
+    """Index after the closing quote, or None. ``i < 0`` must not wrap (CrossHair ``start=-1``)."""
+    # crosshair: off
+    if i < 0 or i >= len(s) or s[i] != quote:
+        return None
+    j = i + 1
+    n = len(s)
+    while j < n:
+        if s[j] == quote:
+            if j + 1 < n and s[j + 1] == quote:
+                j += 2
+                continue
+            return j + 1
+        j += 1
+    return None
+
+
 # Cap start to len(s): `start >= 0` alone lets CrossHair feed a giant int.
 # Nested end-bounds ensure (~2m deep) is skipped under CrossHair; cheap post stays.
 @deal.pre(lambda s, start: str_bounded(s, DEAL_MAX_SOURCE) and isinstance(start, int) and 0 <= start <= len(s))
@@ -114,22 +130,10 @@ class PythonFormulaParts:
 @inverse_ensure(lambda s, start, result: _quoted_parse_result_ok(s, start, result))
 def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
     """Parse a Calc double-quoted string starting at *start* (must point to ``"``)."""
-    # Reject negatives too: `start >= len(s)` alone misses start=-1 (CrossHair counterexample).
-    if start < 0 or start >= len(s) or s[start] != '"':
+    end = _skip_quoted(s, start, '"')
+    if end is None:
         return None
-    i = start + 1
-    chars: list[str] = []
-    while i < len(s):
-        ch = s[i]
-        if ch == '"':
-            if i + 1 < len(s) and s[i + 1] == '"':
-                chars.append('"')
-                i += 2
-                continue
-            return "".join(chars), i + 1
-        chars.append(ch)
-        i += 1
-    return None
+    return s[start + 1 : end - 1].replace('""', '"'), end
 
 
 @deal.pre(lambda inner_body: _DEAL_ASCII_STR(inner_body, DEAL_MAX_SOURCE))
@@ -190,13 +194,6 @@ def normalize_formula_string(formula: str) -> str:
     return raw.translate(_QUOTE_NORMALIZE)
 
 
-def build_new_python_formula(code: str) -> str:
-    """Build a fresh ``=PY("…")`` formula (single code argument, no data range)."""
-    # crosshair: off
-    escaped = escape_code_for_formula(code)
-    return f'={CALC_PYTHON_FN}("{escaped}")'
-
-
 def _split_data_binding_tokens(raw: str) -> list[str]:
     """Split on ``,``/``;`` outside single-quoted sheet names and double-quoted strings.
 
@@ -204,34 +201,21 @@ def _split_data_binding_tokens(raw: str) -> list[str]:
     """
     tokens: list[str] = []
     start = 0
-    quote = ""
     i = 0
     while i < len(raw):
         ch = raw[i]
-        if quote:
-            if ch == quote:
-                if i + 1 < len(raw) and raw[i + 1] == quote:
-                    i += 2
-                    continue
-                quote = ""
-        elif ch in ("'", '"'):
-            quote = ch
-        elif ch in (",", ";"):
+        if ch in ("'", '"'):
+            end = _skip_quoted(raw, i, ch)
+            if end is None:
+                break
+            i = end
+            continue
+        if ch in (",", ";"):
             tokens.append(raw[start:i])
             start = i + 1
         i += 1
     tokens.append(raw[start:])
     return [t.strip() for t in tokens]
-
-
-# The suffix is bounded by DEAL_MAX_SOURCE on the formula, not DEAL_MAX_TOKEN
-# (64), because a multi-range list is longer than 64.
-def _data_suffix_from_rest(rest: str) -> str | None:
-    if rest[:1] in (";", ","):
-        return rest + ")"
-    if rest == "":
-        return ")"
-    return None
 
 
 def _python_call_parts(formula: str) -> tuple[str, str, str] | None:
@@ -281,35 +265,15 @@ def parse_python_formula(formula: str) -> PythonFormulaParts | None:
     if parsed is None:
         return None
     prefix, code, rest = parsed
-    data_suffix = _data_suffix_from_rest(rest)
-    if data_suffix is None:
+    if rest[:1] in (";", ","):
+        data_suffix = rest + ")"
+    elif rest == "":
+        data_suffix = ")"
+    else:
         return None
     return PythonFormulaParts(prefix=prefix, code=code, data_suffix=data_suffix)
 
 
-# Emit-test oracle for float(, int(, str(, and calc.text( (tokens that
-# #NAME? if the ASCII quotes around the code are lost). ASCII-quoted Calc
-# strings are opaque (ScCompiler::NextSymbol / ssGetString). The oracle
-# does not rewrite code.
-_LEXER_COLLISIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("float", re.compile(r"\bfloat\s*\(")),
-    ("int", re.compile(r"\bint\s*\(")),
-    ("str", re.compile(r"\bstr\s*\(")),
-    ("calc.text", re.compile(r"\bcalc\.text\s*\(")),
-)
-
-
-@deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
-@deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
-def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
-    """Return token names with lexer collisions if quotes around the code are lost."""
-    # crosshair: off
-    return [name for name, pattern in _LEXER_COLLISIONS if pattern.search(code)]
-
-
-# Only double quotes inside the formula string. An ASCII-quoted Calc
-# string is opaque to the formula lexer; quote-doubling preserves
-# hand-written code verbatim without unwanted rewrites.
 @deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda code, result: result == (code or "").replace('"', '""'))
@@ -446,19 +410,10 @@ def _split_sheet_range(range_addr: str) -> tuple[str, str] | None:
         # enclosed in single quotes. Why this change fixes it: we scan quoted sheet names first,
         # accounting for doubled apostrophe escaping (''), and only split on the separator
         # following the closing quote.
-        i = 1
         n = len(addr)
-        close_idx = -1
-        while i < n:
-            if addr[i] == "'":
-                if i + 1 < n and addr[i + 1] == "'":
-                    i += 2
-                    continue
-                close_idx = i
-                break
-            i += 1
-        if close_idx >= 0:
-            j = close_idx + 1
+        end = _skip_quoted(addr, 0, "'")
+        if end is not None:
+            j = end
             while j < n and addr[j].isspace():
                 j += 1
             if j < n and addr[j] in (".", "!"):
@@ -467,7 +422,7 @@ def _split_sheet_range(range_addr: str) -> tuple[str, str] | None:
                     j += 1
                 rest = addr[j:]
                 if rest:
-                    return addr[1:close_idx], rest
+                    return addr[1 : end - 1], rest
             return None
     if "!" in addr:
         sheet, _unused, rest = addr.partition("!")
@@ -510,7 +465,6 @@ def format_excel_data_range(range_addr: str) -> str:
 
 # Defaulted kwargs: deal only forwards provided args + result= (see framework/formal-verification.md §8.1 A).
 @deal.pre(lambda data_args, *_unused, **__: _deal_data_args_ok(data_args))
-@deal.post(lambda result: isinstance(result, str) and result.endswith(")"))
 @deal.ensure(lambda *args, result=None, **kwargs: isinstance(result, str) and result.endswith(")"))
 def build_data_suffix(data_args: list[str], *, separator: str = ";") -> str:
     """Build the ``data_suffix`` fragment from parsed range/index tokens.
@@ -526,10 +480,7 @@ def build_data_suffix(data_args: list[str], *, separator: str = ";") -> str:
 
 
 # code is Python source (Unicode-legal); ascii_bounded would reject café comments.
-# Keep parts.prefix. Hardcoding =PY( rewrites an existing =PYTHON( or
-# =py( cell.
 @deal.pre(lambda code, data_args, *_unused, **__: str_bounded(code, DEAL_MAX_SOURCE + 256) and _deal_data_args_ok(data_args))
-@deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda *args, result=None, **kwargs: isinstance(result, str) and result.endswith(")"))
 def rebuild_python_formula_with_data(code: str, data_args: list[str], *, parts: PythonFormulaParts | None = None, separator: str = ";") -> str:
     """Build ``=PY("…"; ranges…)`` from code and data arguments.
@@ -553,7 +504,7 @@ def build_editor_formula_save(*, parsed_parts: PythonFormulaParts | None, new_co
         return rebuild_python_formula(parsed_parts, new_code)
     if cell_has_unparsed_python:
         return {"type": "error", "message": _('Could not preserve this cell\'s PY formula arguments (e.g. data ranges). Edit the formula in Calc, or use a quoted code string like =PY("code"; A1:B10).')}
-    return build_new_python_formula(new_code)
+    return rebuild_python_formula_with_data(new_code, [])
 
 
 def py_code_arg_is_cell_ref(code: str) -> bool:
@@ -598,8 +549,7 @@ def rebuild_python_formula_with_code_ref(code_ref: str, data_args: list[str], *,
     *code_ref* is a sheet-qualified address (``py_code_Pivots.A1`` or ``py_code_Pivots!A1``).
     """
     # crosshair: off
-    use_excel = separator == ","
-    fmt = format_excel_data_range if use_excel else format_py_data_range
+    fmt = format_excel_data_range if separator == "," else format_py_data_range
     ref = fmt(code_ref.strip())
     prefix = f"={CALC_PYTHON_FN}("
     suffix = build_data_suffix(data_args, separator=separator)
