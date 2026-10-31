@@ -23,13 +23,6 @@ from plugin.framework.thread_guard import main_thread_only
 log = logging.getLogger("writeragent.hamburger_menu")
 
 
-def _load_graphic(ctx: Any, icon_filename: str) -> Any:
-    """Load a PNG icon from extension assets/ as XGraphic."""
-    from plugin.librepy.sidebar_menus import load_menu_graphic
-
-    return load_menu_graphic(ctx, icon_filename)
-
-
 @main_thread_only
 def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
     """Build and execute the hamburger popup menu directly beneath button_ctrl."""
@@ -66,7 +59,9 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             if hasattr(menu, "setCommand"):
                 menu.setCommand(n_id, "org.extension.writeragent:" + action)
             if icon_filename:
-                g = _load_graphic(ctx, icon_filename)
+                from plugin.librepy.sidebar_menus import load_menu_graphic
+
+                g = load_menu_graphic(ctx, icon_filename)
                 if g is not None:
                     if hasattr(menu, "setItemImage"):
                         best_effort(lambda: menu.setItemImage(n_id, g, False), f"setItemImage failed for {icon_filename}")

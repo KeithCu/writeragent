@@ -73,13 +73,11 @@ def _ensure_paths(ctx: Any) -> None:
 class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     """Holds the panel window; implements XToolPanel and XSidebarPanel."""
 
-    PanelWindow: Any
     Window: Any
     parent_window: Any
     resize_listener: Any
 
     def __init__(self, panel_window: Any, parent_window: Any) -> None:
-        self.PanelWindow = panel_window
         self.Window = panel_window
         self.parent_window = parent_window
         self.resize_listener = None
@@ -88,25 +86,24 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         return self.Window
 
     def createAccessible(self, ParentAccessible: Any) -> Any:
-        return self.PanelWindow
+        return self.Window
 
     def getHeightForWidth(self, nWidth: int) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
-        width = nWidth
-        if not self.parent_window or not self.PanelWindow or width <= 0:
+        if not self.parent_window or not self.Window or nWidth <= 0:
             return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
         from plugin.framework.sidebar_column import apply_sidebar_height_for_width
 
         (eff_w, _current_h), layout = apply_sidebar_height_for_width(
-            self.PanelWindow,
+            self.Window,
             self.parent_window,
-            width,
+            nWidth,
             min_w=self.getMinimalWidth(),
         )
-        log.debug("[LIBREPY LAYOUT] getHeightForWidth deck_hint=%s eff_w=%s", width, eff_w)
+        log.debug("[LIBREPY LAYOUT] getHeightForWidth deck_hint=%s eff_w=%s", nWidth, eff_w)
         rl = self.resize_listener
         if rl is not None:
             with suppress_disposed("getHeightForWidth relayout_now", logger=log):
-                rl.relayout_now(self.PanelWindow)
+                rl.relayout_now(self.Window)
         return layout
 
     def getMinimalWidth(self) -> int:
@@ -184,8 +181,7 @@ class PythonPanelElement(unohelper.Base, XUIElement):
             raise UnoObjectError("LibrePy panel creation requires valid ctx", details={"resource": self.ResourceURL})
         base_url = get_extension_url(self.ctx)
         dialog_url = base_url + "/" + XDL_PATH
-        ctx = self.ctx
-        provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", ctx)
+        provider = self.ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", self.ctx)
         panel_root_window = provider.createContainerWindow(dialog_url, "", self.xParentWindow, None)
         if not panel_root_window:
             # ContainerWindowProvider returns null when the XDL URL cannot be
@@ -197,14 +193,12 @@ class PythonPanelElement(unohelper.Base, XUIElement):
                 "LibrePy createContainerWindow returned no window",
                 details={"dialog_url": dialog_url},
             )
-        if hasattr(panel_root_window, "setVisible"):
-            with suppress_disposed("setVisible", logger=log):
-                panel_root_window.setVisible(True)
+        with suppress_disposed("setVisible", logger=log):
+            panel_root_window.setVisible(True)
         with suppress_disposed("constrain panel", logger=log):
             parent_rect = self.xParentWindow.getPosSize()
             target_h = parent_rect.Height if parent_rect.Height > 0 else 400
-            if panel_root_window is not None:
-                panel_root_window.setPosSize(0, 0, _PRE_NEGOTIATION_PANEL_WIDTH, target_h, 15)
+            panel_root_window.setPosSize(0, 0, _PRE_NEGOTIATION_PANEL_WIDTH, target_h, 15)
         return panel_root_window
 
     def disposing(self, Source: Any = None) -> None:
@@ -230,14 +224,13 @@ class PythonPanelFactory(unohelper.Base, XUIElementFactory):
         self.ctx = ctx
 
     def createUIElement(self, ResourceURL: str, Args: Any) -> PythonPanelElement:
-        resource_url = ResourceURL
-        if "PythonPanel" not in resource_url:
-            raise NoSuchElementException("Unknown resource: " + resource_url)
+        if "PythonPanel" not in ResourceURL:
+            raise NoSuchElementException("Unknown resource: " + ResourceURL)
         frame = property_arg(Args, "Frame")
         parent_window = property_arg(Args, "ParentWindow")
         if not parent_window:
             raise IllegalArgumentException("ParentWindow is required")
-        return PythonPanelElement(self.ctx, frame, parent_window, resource_url)
+        return PythonPanelElement(self.ctx, frame, parent_window, ResourceURL)
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()

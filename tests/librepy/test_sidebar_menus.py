@@ -202,8 +202,8 @@ def test_show_hamburger_uses_librepy_command_prefix():
         patch("plugin.librepy.sidebar_menus.is_writer", return_value=False),
         patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup),
         patch(
-            "plugin.librepy.sidebar_menus.command_prefix_for_ctx",
-            return_value=EXTENSION_ID_LIBREPY + ":",
+            "plugin.framework.uno_context.resolve_package_extension_id",
+            return_value=EXTENSION_ID_LIBREPY,
         ),
     ):
         show_librepy_hamburger_menu(ctx, frame, button_ctrl)
