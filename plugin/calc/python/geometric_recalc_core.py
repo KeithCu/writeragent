@@ -88,7 +88,6 @@ class SheetRepairResult:
     skipped: bool
     patches: tuple[GeometricPatch, ...]
     records: dict[str, GeometricRecord]
-    sheet_name: str = ""
 
 
 def local_a1(address: str) -> str:
@@ -145,25 +144,12 @@ def formula_data_args(formula: str) -> list[str] | None:
     return parse_data_binding_text(format_data_binding_display(parts.data_suffix))
 
 
-def repair_n_args(formula: str) -> int:
-    """Arity that must match ``len(split_python_addin_data_args(data))``.
+def resolved_code_for_formula(formula: str) -> str:
+    """Quoted ``=PY`` source, or ``""`` when the formula does not parse.
 
-    Counts parsed data args, not semicolons in the code string. After attach,
-    ``=PY("np.mean(data)"; B1:B10; A1)`` is ``n_args=2``.
+    An unquoted code ref returns the token. ``_resolved_code_for_discovered``
+    reads the cell text for the eval index.
     """
-    args = formula_data_args(formula)
-    return 0 if args is None else len(args)
-
-
-def resolved_code_for_formula(formula: str, *, code_cell_text: str | None = None) -> str:
-    """Source ``execute_python_addin`` receives.
-
-    For ``=PY($A$1; …)`` pass the contents of ``$A$1``. Do not key the token.
-    """
-    if py_formula_has_unquoted_code_ref(formula):
-        if code_cell_text is None:
-            raise ValueError("code-in-cell formula needs the referenced cell's text")
-        return code_cell_text
     parts = parse_python_formula(formula)
     return parts.code if parts is not None else ""
 
@@ -226,40 +212,6 @@ def _last_matches(args: list[str], ref: str | None) -> bool:
     return last is not None and same_cell_ref(last, ref)
 
 
-def _plan_action(
-    *,
-    desired: str | None,
-    data_args: list[str],
-    record: GeometricRecord | None,
-) -> tuple[Literal["append", "replace", "remove", "noop"], list[str]]:
-    if desired is None:
-        if record is not None and _last_cell_ref(data_args) is not None:
-            return "remove", data_args[:-1]
-        return "noop", data_args
-
-    if _last_matches(data_args, desired):
-        return "noop", data_args
-
-    if record is not None and _last_matches(data_args, record.predecessor):
-        return "replace", data_args[:-1] + [desired]
-
-    return "append", data_args + [desired]
-
-
-def _code_ref_token(formula: str) -> str | None:
-    if not py_formula_has_unquoted_code_ref(formula):
-        return None
-    parts = parse_python_formula(formula)
-    return parts.code if parts is not None else None
-
-
-def _neighbors(tokens: list[str], live_keys: set[str], sheet_name: str) -> set[str]:
-    return {
-        live for live in live_keys
-        if any(_arg_covers_cell(token, live, sheet_name=sheet_name) for token in tokens)
-    }
-
-
 def _adj_for(
     formula: str,
     args: list[str] | None,
@@ -267,10 +219,14 @@ def _adj_for(
     sheet_name: str,
 ) -> set[str]:
     tokens = list(args or [])
-    ref_tok = _code_ref_token(formula)
-    if ref_tok:
-        tokens.append(ref_tok)
-    return _neighbors(tokens, live_keys, sheet_name)
+    if py_formula_has_unquoted_code_ref(formula):
+        parts = parse_python_formula(formula)
+        if parts is not None and parts.code:
+            tokens.append(parts.code)
+    return {
+        live for live in live_keys
+        if any(_arg_covers_cell(token, live, sheet_name=sheet_name) for token in tokens)
+    }
 
 
 def _reaches(start: str, target: str, adj: Mapping[str, set[str]]) -> bool:
@@ -292,7 +248,7 @@ def _plan_cell(
     data_args: list[str],
     record: GeometricRecord | None,
     cycle: bool,
-    cell_address: str,
+    key: str,
 ) -> tuple[Literal["append", "replace", "remove", "noop", "skip"], list[str]]:
     """Determine action and arguments for a cell, guarding against Err:522 cycles."""
     if desired is not None and cycle:
@@ -302,11 +258,19 @@ def _plan_cell(
         log.debug(
             "geometric_recalc: skip attach %s onto %s (predecessor already refs successor; Err:522)",
             desired,
-            local_a1(cell_address),
+            key,
         )
         return "skip", data_args
 
-    return _plan_action(desired=desired, data_args=data_args, record=record)
+    if desired is None:
+        if record is not None and _last_cell_ref(data_args) is not None:
+            return "remove", data_args[:-1]
+        return "noop", data_args
+    if _last_matches(data_args, desired):
+        return "noop", data_args
+    if record is not None and _last_matches(data_args, record.predecessor):
+        return "replace", data_args[:-1] + [desired]
+    return "append", data_args + [desired]
 
 
 def _a1_shift(address: str, dcol: int, drow: int) -> str | None:
@@ -318,10 +282,7 @@ def _a1_shift(address: str, dcol: int, drow: int) -> str | None:
     ncol, nrow = col + dcol, row + drow
     if ncol < 0 or nrow < 0:
         return None
-    try:
-        return format_address(ncol, nrow)
-    except (TypeError, ValueError):
-        return None
+    return format_address(ncol, nrow)
 
 
 def _rule2_candidate_score(old: str, rec: GeometricRecord, live: str, desired: str) -> tuple[int, int] | None:
@@ -363,23 +324,8 @@ def _rehome_candidate_score(
     return None
 
 
-def _incoming_is_displaced(
-    old: str,
-    rec: GeometricRecord,
-    live_keys: set[str],
-    desired_by_key: Mapping[str, str | None],
-) -> bool:
-    """True when *old* is gone, first in the list, or pred ≠ that cell's desired."""
-    if old not in live_keys:
-        return True
-    live_desired = desired_by_key.get(old)
-    if live_desired is None:
-        return True
-    return not same_cell_ref(rec.predecessor, live_desired)
-
-
 def _collect_rule2_claimed(
-    cells: list[GeometricCell],
+    keys: list[str],
     incoming: Mapping[str, GeometricRecord],
     live_keys: set[str],
     desired_by_key: Mapping[str, str | None],
@@ -387,8 +333,7 @@ def _collect_rule2_claimed(
 ) -> set[str]:
     """Incoming keys a row/col delta will move. Assigned in sheet order."""
     claimed: set[str] = set()
-    for cell in cells:
-        key = local_a1(cell.address)
+    for key in keys:
         desired = desired_by_key.get(key)
         if desired is None:
             continue
@@ -400,7 +345,9 @@ def _collect_rule2_claimed(
         for old, rec in incoming.items():
             if old in claimed:
                 continue
-            if not _incoming_is_displaced(old, rec, live_keys, desired_by_key):
+            # Still on the sheet and already pointing at that cell's desired pred.
+            live_desired = desired_by_key.get(old)
+            if old in live_keys and live_desired is not None and same_cell_ref(rec.predecessor, live_desired):
                 continue
             score = _rule2_candidate_score(old, rec, key, desired)
             if score is None:
@@ -410,13 +357,6 @@ def _collect_rule2_claimed(
         if chosen is not None:
             claimed.add(chosen)
     return claimed
-
-
-def _record_is_homeless(old: str, live_keys: set[str], evicted: set[str], rule2_claimed: set[str]) -> bool:
-    """Gone, rule-2 moved, or overwritten. Live unclaimed keys stay for in-place."""
-    if old in evicted or old not in live_keys:
-        return True
-    return old in rule2_claimed
 
 
 def _rehome_or_keep_record(
@@ -439,7 +379,8 @@ def _rehome_or_keep_record(
     for old, rec in incoming.items():
         if old in consumed:
             continue
-        if not _record_is_homeless(old, live_keys, evicted, rule2_claimed):
+        # Gone, rule-2 moved, or overwritten. Live unclaimed keys stay for in-place.
+        if old not in evicted and old in live_keys and old not in rule2_claimed:
             continue
         score = _rehome_candidate_score(old, rec, key, desired, live_keys)
         if score is None:
@@ -514,29 +455,25 @@ def compute_sheet_repair(
             skipped=True,
             patches=(),
             records=dict(incoming),
-            sheet_name=sheet_name,
         )
 
     working = dict(incoming)
     patches: list[GeometricPatch] = []
-    live_keys = {local_a1(cell.address) for cell in cells}
+    keys = [local_a1(cell.address) for cell in cells]
+    live_keys = set(keys)
     data_args_by_key = {
-        local_a1(cell.address): formula_data_args(cell.formula) for cell in cells
+        key: formula_data_args(cell.formula) for key, cell in zip(keys, cells)
     }
     adj: dict[str, set[str]] = {}
-    for cell in cells:
-        key = local_a1(cell.address)
-        adj[key] = _adj_for(cell.formula, data_args_by_key.get(key), live_keys, sheet_name)
-
     desired_by_key: dict[str, str | None] = {}
-    for i, cell in enumerate(cells):
-        desired_by_key[local_a1(cell.address)] = local_a1(cells[i - 1].address) if i > 0 else None
+    for i, (key, cell) in enumerate(zip(keys, cells)):
+        adj[key] = _adj_for(cell.formula, data_args_by_key.get(key), live_keys, sheet_name)
+        desired_by_key[key] = keys[i - 1] if i > 0 else None
     consumed: set[str] = set()
     evicted: set[str] = set()
-    rule2_claimed = _collect_rule2_claimed(cells, incoming, live_keys, desired_by_key, data_args_by_key)
+    rule2_claimed = _collect_rule2_claimed(keys, incoming, live_keys, desired_by_key, data_args_by_key)
 
-    for cell in cells:
-        key = local_a1(cell.address)
+    for key, cell in zip(keys, cells):
         data_args = data_args_by_key.get(key)
         if data_args is None:
             continue
@@ -547,7 +484,7 @@ def compute_sheet_repair(
             data_args=data_args,
             record=working.get(key),
             cycle=would_cycle,
-            cell_address=cell.address,
+            key=key,
         )
         if action == "skip":
             continue
@@ -589,5 +526,4 @@ def compute_sheet_repair(
         skipped=False,
         patches=tuple(patches),
         records=working,
-        sheet_name=sheet_name,
     )

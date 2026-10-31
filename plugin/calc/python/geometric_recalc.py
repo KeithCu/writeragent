@@ -406,7 +406,7 @@ def _repair_one_sheet(
     doc: Any,
     sheet: Any,
     workbook_key: str,
-) -> tuple[SheetRepairResult, list[GeometricCell]]:
+) -> tuple[SheetRepairResult, list[GeometricCell], str]:
     cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
     incoming = records_for_sheet(workbook_key, name)
     result = compute_sheet_repair(
@@ -417,7 +417,7 @@ def _repair_one_sheet(
     )
     if result.skipped:
         notify_geometric_cap_hit(ctx, name, workbook_key=workbook_key)
-        return result, cells
+        return result, cells, name
 
     final_records = dict(result.records)
     actual_cells = cells
@@ -430,13 +430,12 @@ def _repair_one_sheet(
         # result.records directly records those failed appends and removes,
         # so a stale record marks a group strip-safe and strips real data.
         unapplied_patches = [p for p in result.patches if local_a1(p.address) not in applied_addrs]
-        if unapplied_patches:
-            for patch in unapplied_patches:
-                key = local_a1(patch.address)
-                if key in incoming:
-                    final_records[key] = incoming[key]
-                else:
-                    final_records.pop(key, None)
+        for patch in unapplied_patches:
+            key = local_a1(patch.address)
+            if key in incoming:
+                final_records[key] = incoming[key]
+            else:
+                final_records.pop(key, None)
 
         applied_formulas = {
             patch.address: patch.new_formula
@@ -449,20 +448,18 @@ def _repair_one_sheet(
         ]
 
     replace_records_for_sheet(workbook_key, name, final_records)
-    return result, actual_cells
+    return result, actual_cells, name
 
 
 def reconcile(
     ctx: Any,
     doc: Any,
     sheet: Any = None,
-    *,
-    already_loaded: bool = False,
 ) -> None:
     """Flag-on / doc-open / save-path attach: repair sheets in one locked undo unit."""
     if doc is None or _RUNTIME.repairing:
         return
-    workbook_key = geometric_workbook_key(doc) if already_loaded else load_geometric_registry_for_doc(doc)
+    workbook_key = load_geometric_registry_for_doc(doc)
     _RUNTIME.repairing = True
     repaired_sheets: dict[str, list[GeometricCell]] = {}
     try:
@@ -473,9 +470,9 @@ def reconcile(
             sheet_list = _iter_sheets(doc) if sheet is None else [sheet]
             for sheet in sheet_list:
                 ensure_sheet_modify_listener(ctx, doc, sheet)
-                res, live_cells = _repair_one_sheet(ctx, doc, sheet, workbook_key)
+                res, live_cells, name = _repair_one_sheet(ctx, doc, sheet, workbook_key)
                 if not res.skipped:
-                    repaired_sheets[res.sheet_name] = live_cells
+                    repaired_sheets[name] = live_cells
             save_geometric_registry_for_doc(doc, workbook_key)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key, known_sheets=repaired_sheets)
     finally:
@@ -483,14 +480,14 @@ def reconcile(
 
 
 
-def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = False) -> None:
+def reconcile_geometric_document(ctx: Any, doc: Any) -> None:
     """Flag-on / document-open: attach every sheet, one locked undo unit."""
-    reconcile(ctx, doc, sheet=None, already_loaded=already_loaded)
+    reconcile(ctx, doc, sheet=None)
 
 
-def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any, *, already_loaded: bool = False) -> None:
+def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any) -> None:
     """Save-path attach for one sheet. Neighbors on this sheet may retarget."""
-    reconcile(ctx, doc, sheet=sheet, already_loaded=already_loaded)
+    reconcile(ctx, doc, sheet=sheet)
 
 
 def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
@@ -515,7 +512,7 @@ def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
         return
     load_geometric_registry_for_doc(doc)
     if geometric_flag_enabled():
-        reconcile_geometric_document(ctx, doc, already_loaded=True)
+        reconcile_geometric_document(ctx, doc)
     else:
         workbook_key = geometric_workbook_key(doc)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
