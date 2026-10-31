@@ -185,13 +185,9 @@ def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | No
 _NAMED_ASPECT_RATIOS: dict[str, str] = {
     "square": "1:1",
     "landscape_16_9": "16:9",
-    "landscape_16:9": "16:9",
     "portrait_9_16": "9:16",
-    "portrait_9:16": "9:16",
     "landscape_3_2": "3:2",
-    "landscape_3:2": "3:2",
     "portrait_2_3": "2:3",
-    "portrait_2:3": "2:3",
 }
 
 # Closest-match table for WxH. min() picks the nearest ratio, so order
@@ -216,7 +212,7 @@ def canonical_aspect_ratio(width: int | None = None, height: int | None = None, 
         key = str(named).strip().lower().replace(" ", "_").replace("(", "").replace(")", "")
         if key in _ASPECT_RATIO_LABELS:
             return key
-        mapped = _NAMED_ASPECT_RATIOS.get(key)
+        mapped = _NAMED_ASPECT_RATIOS.get(key.replace(":", "_"))
         if mapped:
             return mapped
     if not width or not height or width < 1 or height < 1:
@@ -323,7 +319,6 @@ class BaseProviderShim:
     """Base provider shim implementing standard OpenAI-compatible API format by default."""
 
     client: Any
-    _effort_provider: str | None = None
 
     def __init__(self, client: Any) -> None:
         self.client = client
@@ -331,21 +326,8 @@ class BaseProviderShim:
     def _reasoning_provider(self) -> str:
         if self._openrouter_chat():
             return "openrouter"
-        if self._effort_provider:
-            return self._effort_provider
-        get_provider = getattr(self.client, "_get_provider", None)
-        if callable(get_provider):
-            res = get_provider()
-            if isinstance(res, str) and res:
-                return res
-        get_endpoint = getattr(self.client, "_endpoint", None)
-        if callable(get_endpoint):
-            from .provider_detection import get_provider_from_endpoint
-
-            ep = get_endpoint()
-            if isinstance(ep, str):
-                return get_provider_from_endpoint(ep) or "custom"
-        return "custom"
+        provider = self.client._get_provider()
+        return provider if isinstance(provider, str) and provider else "custom"
 
     def _endpoint_reasoning_effort(self) -> str:
         config = getattr(self.client, "config", None)
@@ -498,21 +480,15 @@ class BaseProviderShim:
         content = normalize_message_content(raw_content) or ""
         # A string ``images`` used to be returned as-is. ``image_utils`` iterates
         # that value, so each character was treated as an image URL.
-        images = message.get("images")
-        if not isinstance(images, list):
-            images = []
-        tool_calls = message.get("tool_calls")
+        images = raw_img if isinstance(raw_img := message.get("images"), list) else []
         # A string tool_calls is truthy. request_with_tools then rewrites
         # finish_reason to tool_calls, and coalesce_split_tool_calls drops
         # the value because it is not a list.
-        if not isinstance(tool_calls, list):
-            tool_calls = None
+        tool_calls = raw_tc if isinstance(raw_tc := message.get("tool_calls"), list) else None
         # JSON "usage": null makes .get("usage", {}) return None, because the
         # key is present. A list or string used to pass through, and callers
         # call usage.get.
-        usage = response_data.get("usage")
-        if not isinstance(usage, dict):
-            usage = {}
+        usage = raw_us if isinstance(raw_us := response_data.get("usage"), dict) else {}
 
         return content, finish_reason, tool_calls, usage, images, message
 

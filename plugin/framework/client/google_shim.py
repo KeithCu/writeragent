@@ -14,6 +14,8 @@ import logging
 import urllib.parse
 from typing import Any
 
+from plugin.framework.errors import NetworkError
+
 from .base_provider_shim import BaseProviderShim, _dict_parts, canonical_aspect_ratio, canonical_resolution, coerce_raw_b64, inline_image_mime
 
 log = logging.getLogger(__name__)
@@ -61,8 +63,6 @@ def _gemini_image_size(model_id: str, width: int, height: int) -> str | None:
 
 class GoogleShim(BaseProviderShim):
     """Shim for Google Gemini: OpenAI-compatible for chat/tools, native REST for images."""
-
-    _effort_provider: str | None = "google"
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         endpoint = self.client._endpoint()
@@ -119,8 +119,6 @@ class GoogleShim(BaseProviderShim):
         # ignores a null error the same way.
         err = response_data.get("error")
         if err:
-            from plugin.framework.errors import NetworkError
-
             msg = err.get("message", "Unknown Google API error") if isinstance(err, dict) else str(err)
             log.error("Google image generation error: %s", msg)
             raise NetworkError(str(msg), code="HTTP_ERROR")
@@ -129,16 +127,11 @@ class GoogleShim(BaseProviderShim):
             if b64 := pr.get("bytesBase64Encoded"):
                 out.append(b64)
 
-        candidates = response_data.get("candidates", [])
-        if candidates and isinstance(candidates, list):
-            cand = candidates[0]
-            if isinstance(cand, dict):
-                # A present null ``content`` (Gemini safety blocks) is not the
-                # default {}. ``None.get`` used to raise AttributeError out of
-                # image_completion instead of returning no images.
-                content = cand.get("content")
-                for p in _dict_parts(content.get("parts") if isinstance(content, dict) else None):
-                    inline = p.get("inlineData", {})
-                    if isinstance(inline, dict) and inline.get("data"):
-                        out.append(inline["data"])
+        candidates = response_data.get("candidates")
+        if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
+            content = candidates[0].get("content")
+            for p in _dict_parts(content.get("parts") if isinstance(content, dict) else None):
+                inline = p.get("inlineData")
+                if isinstance(inline, dict) and inline.get("data"):
+                    out.append(inline["data"])
         return out

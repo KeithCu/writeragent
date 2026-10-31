@@ -25,8 +25,12 @@ def _clear_accepted_effort() -> Any:
 
 
 class DummyClient:
-    def __init__(self, config: dict[str, Any] | None = None) -> None:
+    def __init__(self, config: dict[str, Any] | None = None, provider: str = "custom") -> None:
         self.config = config if config is not None else {}
+        self._provider = provider
+
+    def _get_provider(self) -> str:
+        return self._provider
 
     def _endpoint(self) -> str:
         return "https://api.example.com"
@@ -74,8 +78,8 @@ def test_openrouter_effort_object() -> None:
 
 def test_other_host_top_level() -> None:
     # Grok and Ollama keep xhigh
-    for shim_cls, model in [(GrokShim, "grok-2"), (OllamaShim, "llama3")]:
-        shim = shim_cls(DummyClient(config={"is_openrouter": False, "reasoning_effort": "xhigh"}))
+    for shim_cls, model, provider in [(GrokShim, "grok-2", "xai"), (OllamaShim, "llama3", "ollama")]:
+        shim = shim_cls(DummyClient(config={"is_openrouter": False, "reasoning_effort": "xhigh"}, provider=provider))
         _method, _path, body, _headers = shim.build_chat_request(
             [{"role": "user", "content": "hi"}], 100, None, None, False, model, None
         )
@@ -84,8 +88,8 @@ def test_other_host_top_level() -> None:
         assert "reasoning" not in data
 
     # Base (custom) and Together pass xhigh through; a 400 retry steps it down
-    for shim_cls, model in [(BaseProviderShim, "test-model"), (TogetherShim, "meta-llama/Llama-3-70b")]:
-        shim = shim_cls(DummyClient(config={"is_openrouter": False, "reasoning_effort": "xhigh"}))
+    for shim_cls, model, provider in [(BaseProviderShim, "test-model", "custom"), (TogetherShim, "meta-llama/Llama-3-70b", "together")]:
+        shim = shim_cls(DummyClient(config={"is_openrouter": False, "reasoning_effort": "xhigh"}, provider=provider))
         _method, _path, body, _headers = shim.build_chat_request(
             [{"role": "user", "content": "hi"}], 100, None, None, False, model, None
         )
@@ -94,7 +98,7 @@ def test_other_host_top_level() -> None:
         assert "reasoning" not in data
 
     # Google clamps to high
-    shim_google = GoogleShim(DummyClient(config={"is_openrouter": False, "reasoning_effort": "xhigh"}))
+    shim_google = GoogleShim(DummyClient(config={"is_openrouter": False, "reasoning_effort": "xhigh"}, provider="google"))
     _method, _path, body_g, _headers = shim_google.build_chat_request(
         [{"role": "user", "content": "hi"}], 100, None, None, False, "gemini-4-argon", None
     )
@@ -102,7 +106,7 @@ def test_other_host_top_level() -> None:
 
 
 def test_openai_reasoning_model_keeps_effort_and_max_completion_tokens() -> None:
-    client = DummyClient(config={"is_openrouter": False, "reasoning_effort": "max"})
+    client = DummyClient(config={"is_openrouter": False, "reasoning_effort": "max"}, provider="openai")
     shim = OpenAIShim(client)
     _method, _path, body, _headers = shim.build_chat_request(
         [{"role": "user", "content": "hi"}], 100, 0.2, None, False, "o3", None
@@ -240,7 +244,7 @@ def test_g38f_and_argon_on_gemini() -> None:
     assert effort_payload("google", "high") == {"reasoning_effort": "high"}
     assert effort_payload("google", "minimal") == {"reasoning_effort": "low"}
     for model in ("gemini-3.8-flash", "gemini-4-argon"):
-        shim = GoogleShim(DummyClient(config={"is_openrouter": False, "reasoning_effort": "medium"}))
+        shim = GoogleShim(DummyClient(config={"is_openrouter": False, "reasoning_effort": "medium"}, provider="google"))
         _m, _p, body, _h = shim.build_chat_request([{"role": "user", "content": "hi"}], 100, None, None, False, model, None)
         data = json.loads(body)
         assert data["reasoning_effort"] == "medium"
