@@ -175,14 +175,11 @@ def _format_number_pattern(value: float, places: int, grouped: bool, *, scale: i
 
 def text(val: Any, fmt: Any) -> str | float:
     fmt_str = str(fmt).strip('"').strip("'")
-    spec = _TEXT_NUMBER_FORMATS.get(fmt_str)
-    if spec is not None:
-        places, grouped = spec
-        try:
-            return _format_number_pattern(float(val), places, grouped)
-        except (ValueError, TypeError, OverflowError, InvalidOperation):
-            return str(val)
     try:
+        spec = _TEXT_NUMBER_FORMATS.get(fmt_str)
+        if spec is not None:
+            places, grouped = spec
+            return _format_number_pattern(float(val), places, grouped)
         if fmt_str in _PERCENT_FORMATS:
             places = _PERCENT_FORMATS[fmt_str]
             number = float(val)
@@ -193,17 +190,15 @@ def text(val: Any, fmt: Any) -> str | float:
             return f"{formatted}%"
         lower = fmt_str.lower()
         date_fmt = _DATE_FORMATS.get(lower)
-        if date_fmt is not None:
+        if date_fmt is not None or lower == "mmm d, yyyy":
             # _serial_to_date is the same +693594 ordinal. A bad serial stays
             # the original text, as the hand-rolled fromordinal path did.
+            # "%d" would zero-pad the day; this format does not.
             day = _serial_to_date(val)
             if day is None:
                 return str(val)
-            return day.strftime(date_fmt)
-        if lower == "mmm d, yyyy":
-            day = _serial_to_date(val)
-            if day is None:
-                return str(val)
+            if date_fmt is not None:
+                return day.strftime(date_fmt)
             return f"{day.strftime('%b')} {day.day}, {day.year}"
         if lower == "hh:mm:ss":
             total_sec = round(float(val) * 86400.0)
@@ -241,24 +236,16 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
             text, delimiter, instance_num, match_mode, after=after
         )
         if idx is not None:
-            if after:
-                # The cut is already the end of the delimiter, including a
-                # negative instance. Adding len(delim) again skipped a second
-                # copy when the matched span was longer than the delimiter.
-                return s[idx:]
-            return s[:idx]
+            # The cut is already the end of the delimiter, including a
+            # negative instance. Adding len(delim) again skipped a second
+            # copy when the matched span was longer than the delimiter.
+            return s[idx:] if after else s[:idx]
         if use_end and match_end_miss:
-            if after:
-                # ScTextBeforeOrAfter inserts the virtual delimiter at 0
-                # when the instance is negative. Text after that is the whole
-                # string. A positive instance's virtual delimiter is the end,
-                # so the remainder is empty. Both signs used to return "".
-                return s if inst < 0 else ""
-            # ScTextBeforeOrAfter inserts the virtual delimiter at 0
-            # when the instance is negative, and at the end otherwise.
-            # Text before offset 0 is empty. This branch used to return
-            # the whole string for both signs.
-            return "" if inst < 0 else s
+            # Virtual delimiter is at 0 when the instance is negative, and
+            # at the end otherwise. Text after a leading one is the whole
+            # string; text before it is empty. The other sign is the opposite.
+            # Both signs used to return the same string.
+            return s if (inst < 0) == after else ""
         return if_not_found
     except (ValueError, TypeError, OverflowError):
         # _find_text_cut does int(float(instance_num)). An infinite instance
@@ -685,10 +672,11 @@ def varpa(*args: Any) -> float:
 # return_type 11..17: the day numbered 1, as date.weekday() (Monday=0).
 # WEEKNUM uses the same 11–17 starts. This is not _WEEKEND_MAPPING:
 # weekend code 11 means Sunday is the day off, not that the week starts Monday.
-_WEEK_START_11_17: dict[int, int] = {11: 0, 12: 1, 13: 2, 14: 3, 15: 4, 16: 5, 17: 6}
-
 # System-1 WEEKNUM week start, same Monday=0 numbering. 21 and 150 are ISO.
-_WEEKNUM_WEEK_START: dict[int, int] = {1: 6, 2: 0, **_WEEK_START_11_17}
+# weekday return_type 3 is date.weekday() and is not in this table.
+_WEEKNUM_WEEK_START: dict[int, int] = {
+    1: 6, 2: 0, 11: 0, 12: 1, 13: 2, 14: 3, 15: 4, 16: 5, 17: 6,
+}
 
 
 def weekday(serial: Any, return_type: int | float = 1) -> float:
@@ -709,11 +697,7 @@ def weekday(serial: Any, return_type: int | float = 1) -> float:
     # is Calc Err:502; return NaN rather than that fallthrough.
     if rt == 3:
         return float(wd)
-    if rt == 1:
-        rt = 17
-    elif rt == 2:
-        rt = 11
-    start = _WEEK_START_11_17.get(rt)
+    start = _WEEKNUM_WEEK_START.get(rt)
     if start is None:
         return float("nan")
     return float((wd - start) % 7 + 1)
@@ -838,16 +822,11 @@ def _advance_workdays(
             else:
                 lo = end
                 hi = start - dt.timedelta(days=1)
-            extra = 0
-            for holiday in holidays:
-                if holiday in counted:
-                    continue
-                if lo <= holiday <= hi and holiday.weekday() not in weekend_days:
-                    counted.add(holiday)
-                    extra += 1
-            if extra == 0:
+            new = {h for h in holidays if lo <= h <= hi and h.weekday() not in weekend_days} - counted
+            counted |= new
+            if not new:
                 return end
-            end = advance_ignoring_holidays(end, extra)
+            end = advance_ignoring_holidays(end, len(new))
     except (OverflowError, ValueError, OSError):
         return None
 
@@ -947,42 +926,38 @@ def _find_match_index(
         if isinstance(cell, str) and isinstance(target, str):
             return cell.casefold() == target.casefold()
         if isinstance(cell, (bool, np.bool_)) or isinstance(target, (bool, np.bool_)):
-            return bool(cell) is bool(target) if (isinstance(cell, (bool, np.bool_)) and isinstance(target, (bool, np.bool_))) else False
+            return isinstance(cell, (bool, np.bool_)) and isinstance(target, (bool, np.bool_)) and bool(cell) is bool(target)
         try:
             return float(cell) == float(target)
         except (ValueError, TypeError, OverflowError):
             return cell == target
 
-    if mm == 0:
-        return next((idx for idx in indices if _is_exact(l_flat[idx], lookup_val)), None)
-    if mm in (-1, 1):
-        exact = next((idx for idx in indices if _is_exact(l_flat[idx], lookup_val)), None)
-        if exact is not None:
-            return exact
-        best_idx: int | None = None
-        best_diff: float | None = None
+    if mm == 2 and isinstance(lookup_val, str):
+        return next(
+            (idx for idx in indices if isinstance(l_flat[idx], str) and _wildcard_fullmatch(lookup_val, l_flat[idx])),
+            None,
+        )
+    if mm not in (0, -1, 1, 2):
+        return None
+    exact = next((idx for idx in indices if _is_exact(l_flat[idx], lookup_val)), None)
+    if mm == 0 or mm == 2 or exact is not None:
+        return exact
+    best_idx: int | None = None
+    best_diff: float | None = None
+    try:
+        target_f = float(lookup_val)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    for idx in indices:
         try:
-            target_f = float(lookup_val)
+            diff = float(l_flat[idx]) - target_f
         except (ValueError, TypeError, OverflowError):
-            return None
-        for idx in indices:
-            try:
-                diff = float(l_flat[idx]) - target_f
-            except (ValueError, TypeError, OverflowError):
-                continue
-            if (mm == -1 and diff < 0 and (best_diff is None or diff > best_diff)) or (
-                mm == 1 and diff > 0 and (best_diff is None or diff < best_diff)
-            ):
-                best_idx, best_diff = idx, diff
-        return best_idx
-    if mm == 2:
-        if isinstance(lookup_val, str):
-            return next(
-                (idx for idx in indices if isinstance(l_flat[idx], str) and _wildcard_fullmatch(lookup_val, l_flat[idx])),
-                None,
-            )
-        return next((idx for idx in indices if _is_exact(l_flat[idx], lookup_val)), None)
-    return None
+            continue
+        if (mm == -1 and diff < 0 and (best_diff is None or diff > best_diff)) or (
+            mm == 1 and diff > 0 and (best_diff is None or diff < best_diff)
+        ):
+            best_idx, best_diff = idx, diff
+    return best_idx
 
 
 def _scalar_if_singleton(values: list[Any]) -> Any:
@@ -1008,15 +983,16 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     try:
         if r_flat.ndim == 2:
             l_shape = np.asarray(lookup_arr).shape
-            if len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1:
-                return _scalar_if_singleton(r_flat[best_idx].tolist())
-            # A flat (N,) lookup used the column slice whenever best_idx < width.
+            # Row slice: (N, 1) with N > 1, or a flat (N,) lookup whose return
+            # has one row per lookup value. A flat lookup used to take the
+            # column whenever best_idx < width, so
             # xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
-            # returned ["y","w","q"] instead of the "b" row ["z","w"]. When the
-            # return has one row per lookup value, index that row. A wide return
-            # whose columns match the lookup length still uses the column slice
-            # below; (N, 1) and (1, N) lookups are handled by their own branches.
-            if len(l_shape) == 1 and r_flat.shape[0] == l_shape[0]:
+            # returned ["y","w","q"] instead of ["z","w"]. A wide return whose
+            # columns match the lookup length still uses the column slice
+            # below. A (1, N) lookup is that column slice.
+            if (len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1) or (
+                len(l_shape) == 1 and r_flat.shape[0] == l_shape[0]
+            ):
                 return _scalar_if_singleton(r_flat[best_idx].tolist())
             if best_idx < r_flat.shape[1]:
                 # A horizontal 1×N lookup into a one-row return sliced out a
