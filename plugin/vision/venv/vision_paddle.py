@@ -212,9 +212,8 @@ def _parse_ocr_v2_lines(raw_lines: list[Any]) -> tuple[list[dict[str, Any]], lis
 def _parse_ocr_lines(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
     """2.x ``[[box, (text, score)], ...]`` pages and 3.x Result pages.
 
-    3.x stopped returning the line list. ``_run_paddle_ocr`` used to keep only a
-    list page and otherwise return ``[]``, so ``extract_text`` reported
-    "No text detected." with an empty ``full_text``.
+    3.x returns a Result, not a line list. Dropping non-lists used to make
+    ``extract_text`` report "No text detected." with an empty ``full_text``.
     """
     regions: list[dict[str, Any]] = []
     texts: list[str] = []
@@ -352,10 +351,8 @@ def _positive_span(value: str | None) -> int:
 class _HtmlTableParser(HTMLParser):
     """PP-Structure table HTML as origin cells with colspan/rowspan.
 
-    The previous parser appended each cell's text in document order and
-    ignored colspan/rowspan, so a merged header sat in column 0 and the
-    next header landed under it. Slots covered by an earlier span are
-    skipped, then ``_table_from_span_cells`` builds the same grid Docling uses.
+    The old parser ignored spans, so a merged header sat in column 0.
+    Covered slots are skipped; ``table_from_span_cells`` builds the grid.
     """
 
     _in_cell: bool
@@ -463,11 +460,9 @@ def _text_from_structure_res(res: Any) -> str:
                 return val.strip()
         html = res.get("html")
         if isinstance(html, str) and html.strip():
-            # ``html`` used to be in the key loop above, so this branch never
-            # ran and the raw ``<table>`` string became block text.
-            # ``html_from_paddle_structure`` then escaped it into a ``<p>``
-            # and also appended the parsed table. Table HTML is not prose;
-            # the parsed grid is rendered separately.
+            # Table HTML is not prose; the grid is rendered separately. ``html``
+            # used to sit in the key loop above, so this never ran and the raw
+            # ``<table>`` became block text that was escaped into a second ``<p>``.
             if "<table" in html.lower():
                 return ""
             return html.strip()
@@ -517,14 +512,11 @@ def _v3_block_fields(block: Any) -> tuple[str, str, Any]:
     """``block_label`` / ``block_content`` / ``block_bbox``, or a LayoutBlock."""
     if isinstance(block, dict):
         label = block.get("block_label")
-        if label is None:
-            label = block.get("label")
         content = block.get("block_content")
-        if content is None:
-            content = block.get("content")
         bbox = block.get("block_bbox")
-        if bbox is None:
-            bbox = block.get("bbox")
+        label = block.get("label") if label is None else label
+        content = block.get("content") if content is None else content
+        bbox = block.get("bbox") if bbox is None else bbox
     else:
         label = getattr(block, "label", None)
         content = getattr(block, "content", None)
@@ -732,12 +724,9 @@ def html_from_paddle_structure(
     for block in blocks:
         block_type = str(block.get("type") or "text").strip().lower()
         text = str(block.get("text") or "").strip()
-        # Tables are appended from ``tables`` below. The old guard only
-        # skipped an empty ``text``, but PP-Structure stores the raw
-        # ``<table>`` HTML on the block (``_text_from_structure_res`` read
-        # the ``html`` key). That markup was escaped into a second ``<p>``
-        # (``&lt;table&gt;``) beside the real table. Skip table markup even
-        # when ``text`` is non-empty so insert_mode=html shows one table.
+        # Tables come from ``tables`` below. Skip empty text or raw ``<table>``
+        # markup (the old empty-only guard escaped it into a second ``<p>``).
+        # Plain prose on a table block is kept.
         if block_type == "table" and (not text or "<table" in text.lower()):
             continue
         fragment = _block_to_html(block)
