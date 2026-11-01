@@ -13,7 +13,7 @@ sys.modules['com'] = MagicMock()
 sys.modules['com.sun.star'] = MagicMock()
 sys.modules['com.sun.star.text'] = MagicMock()
 
-from plugin.writer.format import (
+from plugin.writer.html_import import (
     _insert_mixed_html_and_math_at_cursor,
     _insert_mixed_or_plain_html
 )

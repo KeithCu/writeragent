@@ -15,10 +15,12 @@ import tempfile as tempfile_mod
 import pytest
 
 from plugin.writer.format import (
-    _apply_image_export_options,
     _content_has_block_markup,
     _resolve_temp_dir,
     _with_temp_buffer,
+)
+from plugin.writer.html_export import (
+    _apply_image_export_options,
     strip_embedded_image_data,
 )
 

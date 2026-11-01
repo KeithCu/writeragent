@@ -53,7 +53,7 @@ Two phases solve different problems. **v1** fixes read→write→read idempotenc
 | Layer | Choice |
 |-------|--------|
 | **Read body + char overrides** | `XHTML Writer File` export → [`xhtml_to_semantic_html()`](../../plugin/writer/xhtml_style_postprocess.py) in [`xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) |
-| **Read autostyle names when XHTML omits them** | Second export: **OpenDocument Text Flat XML** (`.fodt`); [`extract_autostyle_parents_from_fodt()`](../../plugin/writer/xhtml_style_postprocess.py) builds a **`Pn → parent-style-name`** map; joined to XHTML by matching the `paragraph-Pn` class suffix (order-independent — no block-index alignment) |
+| **Read autostyle names when XHTML omits them** | Second export: **OpenDocument Text Flat XML** (`.fodt`); [`_parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py) builds a **`Pn → parent-style-name`** map; joined to XHTML by matching the `paragraph-Pn` class suffix (order-independent — no block-index alignment) |
 | **Write** | Keep `HTML (StarWriter)` import + strip `data-lo-style` + UNO `apply_paragraph_style_preserving_direct_char` (`full_document`, plus `beginning`/`end` after absorb prep; `selection`/`search` still skip apply) |
 
 **Why flat ODF:** Probe B showed UNO still has `ParaStyleName = Caption` after write, but XHTML re-export emits autostyle `paragraph-P1` with no `.paragraph-Caption` rule — string-only XHTML post-process cannot recover the token. Flat ODF keeps `style:parent-style-name` on automatic styles; the autostyle name `Pn` is identical in both exports. Probe C ruled out symmetric **XHTML Writer File** import on write (0 body paragraphs inserted on test LO build).
@@ -200,7 +200,7 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
 After probe C failed, v1 adds a second export on every read (full document and range-via-temp-doc):
 
 1. **Second export:** Same document via filter `OpenDocument Text Flat XML` ([`_autostyle_parents()`](../../plugin/writer/format.py)).
-2. **Parse map:** [`extract_autostyle_parents_from_fodt()`](../../plugin/writer/xhtml_style_postprocess.py) scans `style:style` elements with `style:family="paragraph"`; for automatic names matching `P\d+`, record `Pn → style:parent-style-name` (ODF-encoded parent names decoded at use).
+2. **Parse map:** [`_parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py) scans `style:style` elements with `style:family="paragraph"`; for automatic names matching `P\d+`, record `Pn → style:parent-style-name` (ODF-encoded parent names decoded at use).
 3. **Join to XHTML:** In `_paragraph_token()`, when the block class is `paragraph-Pn`, look up `Pn` in the map and emit `compact_lo_style_name(decode(parent))`. **No block-index walk** — the join is by autostyle name only, so tables and nested structure cannot desync it.
 4. **Fallback:** If FODT export fails, map is `{}` and CSS fingerprint matching applies (same as pre-1b). If still ambiguous, omit `data-lo-style`.
 
@@ -237,7 +237,7 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 An autostyle's XHTML rule is flattened — base style and override merged, with no rule emitted for
 the base at all — so the XHTML alone cannot say which values were hand-set. The flat-ODF sidecar
 already exported for the `Pn -> parent` map holds the automatic style's **own** properties, which
-are exactly the direct overrides. `extract_autostyle_overrides_from_fodt()` reads them from that
+are exactly the direct overrides. `_parse_fodt_autostyles()` reads them from that
 same export (no extra `storeToURL`) and `_rewrite_block` emits them as `data-lo-para`, e.g.
 `<p data-lo-style="Standard" data-lo-para="margin-left:3.25cm; font-size:12pt">`.
 
@@ -352,7 +352,7 @@ v1 checklist (done):
 
 ## Phase 0: Filter probe (before idempotency fix)
 
-Historical decision gate (pre-v1). Shipped pipeline: [`xhtml_to_semantic_html()`](../../plugin/writer/xhtml_style_postprocess.py), [`extract_autostyle_parents_from_fodt()`](../../plugin/writer/xhtml_style_postprocess.py), [`compact_lo_style_name()`](../../plugin/writer/xhtml_style_postprocess.py).
+Historical decision gate (pre-v1). Shipped pipeline: [`xhtml_to_semantic_html()`](../../plugin/writer/xhtml_style_postprocess.py), [`_parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py), [`compact_lo_style_name()`](../../plugin/writer/xhtml_style_postprocess.py).
 
 **Tests:**
 
