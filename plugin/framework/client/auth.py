@@ -94,16 +94,6 @@ def _deal_provider_id_ok_crosshair(provider_id: object) -> bool:
 _deal_provider_id_ok = _deal_provider_id_ok_crosshair if UNDER_CROSSHAIR else _deal_provider_id_ok_pytest
 
 
-def _resolve_provider_id(endpoint: str) -> str:
-    """Provider id for an endpoint URL, or ``custom`` when the host is unknown.
-
-    Hostname equality via ``get_provider_from_endpoint``, not a substring.
-    ``ollama`` inside ``notollama.example`` used to match and skip a required API key.
-    """
-    # crosshair: off  # URL parse + host match; finite endpoint enum still huge (cover-all).
-    return get_provider_from_endpoint(endpoint) or "custom"
-
-
 @deal.pre(lambda provider_id: _deal_provider_id_ok(provider_id))
 @deal.post(lambda result: isinstance(result, bool))
 def provider_requires_api_key(provider_id: str | None) -> bool:
@@ -153,7 +143,11 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     if not endpoint:
         raise AuthError("No endpoint configured.", provider="", code="missing_endpoint")
 
-    provider_id = "openrouter" if is_openrouter_endpoint(endpoint, explicit_is_openrouter=api_config.get("is_openrouter")) else _resolve_provider_id(endpoint)
+    if is_openrouter_endpoint(endpoint, explicit_is_openrouter=api_config.get("is_openrouter")):
+        provider_id = "openrouter"
+    else:
+        # Hostname equality, not a substring. "ollama" inside notollama.example used to match and skip a required API key.
+        provider_id = get_provider_from_endpoint(endpoint) or "custom"
     provider_cfg = PROVIDERS.get(provider_id, PROVIDERS["custom"])
 
     # For well-known hosted providers (OpenRouter, OpenAI, etc.), an API key

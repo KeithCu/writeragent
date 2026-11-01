@@ -4,7 +4,6 @@ import pytest
 from plugin.chatbot.config_ui_helpers import _is_incompatible_model_for_provider
 from plugin.framework.client.auth import (
     PROVIDERS,
-    _resolve_provider_id,
     provider_requires_slug_model_id,
 )
 from plugin.framework.client.model_fetcher import ENDPOINT_PRESETS
@@ -84,8 +83,6 @@ class TestPresetProviderDetection:
             normalized = normalize_endpoint_url(url)
             detected = get_provider_from_endpoint(normalized)
             assert (detected) is not None, normalized
-            resolved = _resolve_provider_id(normalized)
-            assert (resolved) == (detected), normalized
 
 
 def test_is_openrouter_endpoint_matches_host_not_substring():
