@@ -33,18 +33,24 @@ def _set_cell_string(cell: Any, text: str) -> None:
     cell.setString(text)
 
 
+def _check_grid(data: Any, rows: int, cols: int, *, reject_non_list: bool) -> None:
+    if len(data) > rows:
+        raise ValueError("data has %d rows but table only has %d." % (len(data), rows))
+    for r_idx, row in enumerate(data):
+        if not isinstance(row, (list, tuple)):
+            if reject_non_list:
+                raise ValueError("data row %d is not a list of cells." % r_idx)
+            continue
+        if len(row) > cols:
+            raise ValueError("data row %d has %d columns but table only has %d." % (r_idx, len(row), cols))
+
+
 def fill_table_cells(table: Any, data: Any) -> int:
     """Write a 2D string grid into ``table.getCellByPosition(col, row)``. Returns cells written."""
     # Validate entire grid before mutating so malformed rows are not silently dropped
     # and oversized grids do not leave partially-filled tables.
     rows, cols = table_dims(table)
-    if len(data) > rows:
-        raise ValueError("data has %d rows but table only has %d." % (len(data), rows))
-    for r_idx, row in enumerate(data):
-        if not isinstance(row, (list, tuple)):
-            raise ValueError("data row %d is not a list of cells." % r_idx)
-        if len(row) > cols:
-            raise ValueError("data row %d has %d columns but table only has %d." % (r_idx, len(row), cols))
+    _check_grid(data, rows, cols, reject_non_list=True)
 
     written = 0
     for r_idx, row in enumerate(data):

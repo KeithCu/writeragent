@@ -1329,9 +1329,13 @@ def test_cell_matrix_text_hides_tracked_deletions():
     from plugin.writer.specialized import tables
 
     cell = SimpleNamespace(getString=lambda: "celula novavelha")
+    t = FakeTable(1, 1)
+    t.getCellByName = lambda name: cell
     with patch.object(tables, "_cell_hosted_table_names", return_value=[]), \
          patch.object(tables, "get_string_without_tracked_deletions", return_value="celula nova") as visible:
-        assert tables._cell_matrix_text(cell) == "celula nova"
+        res = tables.TableGetCells().execute(_ctx({"T": t}), name="T")
+        assert res["status"] == "ok"
+        assert res["cells"]["A1"] == "celula nova"
     visible.assert_called_once_with(cell)
 
 

@@ -15,7 +15,7 @@ from plugin.framework.errors import is_disposed_exception, make_tool_error, uno_
 
 from ..range_copy import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
-from ..table_helpers import edit_table_band, fill_table_cells, table_dims
+from ..table_helpers import _check_grid, edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
     _FAILED,
     _cell_hosted_table_names,
@@ -57,12 +57,6 @@ def _get_table(doc: Any, name: str) -> Any:
     return tables.getByName(name)
 
 
-def _writer_table_or_error(tool: Any, doc: Any, name: str) -> Any:
-    if not name:
-        return tool._tool_error("name is required.")
-    return _get_table(doc, name)
-
-
 def _draw_ok(entry: dict[str, Any], name: str, **extra: Any) -> dict[str, Any]:
     return {
         "status": "ok",
@@ -71,6 +65,15 @@ def _draw_ok(entry: dict[str, Any], name: str, **extra: Any) -> dict[str, Any]:
         "index": entry.get("index"),
         **extra,
     }
+
+
+def _raise_draw_result(result: dict[str, Any], default_message: str) -> dict[str, Any]:
+    if result.get("status") != "ok":
+        return make_tool_error(
+            str(result.get("message") or default_message),
+            code=str(result.get("code") or "TOOL_EXECUTION_ERROR"),
+        )
+    return result
 
 
 def _resolve_cell_name(raw: str, names: list[str]) -> str | None:
@@ -107,19 +110,6 @@ def _unknown_cell_message(cell_raw: str, table_name: str, names: list[str]) -> s
         table_name,
         sample,
     )
-
-
-def _cell_matrix_text(cell: Any, visible: bool = True, hosted_tables: list[str] | None = None) -> str:
-    """Cell text for table_get_cells: host cells omit concatenated inner-table text.
-
-    *visible* hides pending tracked deletions: getString() also returns text a tracked change
-    deleted, so a pending "velha" -> "nova" read "celula novavelha" here while
-    get_document_content showed "celula nova" (relato #43).
-    """
-    has_hosted = bool(hosted_tables) if hosted_tables is not None else bool(_cell_hosted_table_names(cell))
-    if has_hosted:
-        return cell_plain_siblings(cell)
-    return get_string_without_tracked_deletions(cell) if visible else cell.getString()
 
 
 def _not_nested() -> dict[str, Any]:
@@ -441,9 +431,9 @@ class TableGetCells(ToolWriterTableBase):
                 else:
                     payload["matrix"] = get_draw_cells(entry)
                 return payload
-            table = _writer_table_or_error(self, ctx.doc, name)
-            if isinstance(table, dict):
-                return table
+            if not name:
+                raise ValueError("name is required.")
+            table = _get_table(ctx.doc, name)
             rows, cols = table_dims(table)
             # getColumns() is the first row's box count (SwXTableColumns::getCount),
             # so range(cols) skipped D2 after A1:D1 merge. getCellNames() is the list.
@@ -466,7 +456,10 @@ class TableGetCells(ToolWriterTableBase):
                     hosted = _cell_hosted_table_names(c)
                     if hosted:
                         nested_in_cells[cell_name] = hosted
-                    cells[cell_name] = _cell_matrix_text(c, hosted_tables=hosted)
+                    # Host cells omit concatenated inner-table text. get_string_without_tracked_deletions
+                    # hides pending tracked deletions: getString() also returns deleted text, so a
+                    # pending "velha" -> "nova" read "celula novavelha" here (relato #43).
+                    cells[cell_name] = cell_plain_siblings(c) if hosted else get_string_without_tracked_deletions(c)
                 except Exception as exc:
                     # Per-cell read errors must not disappear into a bare continue.
                     # That also swallows document disposal. Re-raise disposal and log
@@ -536,9 +529,9 @@ class TableSetCell(ToolWriterTableBase):
                     old_text=old,
                     new_text=new,
                 )
-            table = _writer_table_or_error(self, ctx.doc, name)
-            if isinstance(table, dict):
-                return table
+            if not name:
+                raise ValueError("name is required.")
+            table = _get_table(ctx.doc, name)
             names = _writer_named_cells(table)
             cell_name = _resolve_cell_name(cell_raw, names)
             if cell_name is None:
@@ -620,9 +613,9 @@ class ManageTableStructure(ToolWriterTableBase):
                 )
                 rows, cols = manage_draw_structure(entry, action, axis_arg, idx)
                 return _draw_ok(entry, name, rows=rows, cols=cols)
-            table = _writer_table_or_error(self, ctx.doc, name)
-            if isinstance(table, dict):
-                return table
+            if not name:
+                raise ValueError("name is required.")
+            table = _get_table(ctx.doc, name)
             band = table.getRows() if axis_arg == "row" else table.getColumns()
             count = band.getCount()
             if not insert and idx < count and count > 1:
@@ -689,9 +682,7 @@ class TableInsert(ToolWriterTableBase):
                 if parent or cell_raw:
                     return self._tool_error("parent and cell are Writer-only (Draw has no nested text tables).")
                 result = insert_draw_table(ctx, **kwargs)
-                if result.get("status") != "ok":
-                    return make_tool_error(str(result.get("message") or "Insert failed"), code=str(result.get("code") or "TOOL_EXECUTION_ERROR"))
-                return result
+                return _raise_draw_result(result, "Insert failed")
 
             if parent and not cell_raw:
                 return self._tool_error("cell is required when parent is set.")
@@ -706,20 +697,15 @@ class TableInsert(ToolWriterTableBase):
             data = kwargs.get("data")
             assert data is None or isinstance(data, (list, tuple)), type(data)
             if data:
-                if len(data) > rows:
-                    return self._tool_error("data has %d rows but table only has %d." % (len(data), rows))
-                for r_idx, row in enumerate(data):
-                    if isinstance(row, (list, tuple)) and len(row) > columns:
-                        return self._tool_error("data row %d has %d columns but table only has %d." % (r_idx, len(row), columns))
+                _check_grid(data, rows, columns, reject_non_list=False)
 
             doc = ctx.doc
             host_cell_name = ""
             written_cells = 0
             created_name = ""
-            created_nesting = _not_nested()
 
             def _apply() -> None:
-                nonlocal host_cell_name, written_cells, created_name, created_nesting
+                nonlocal host_cell_name, written_cells, created_name
                 table = doc.createInstance("com.sun.star.text.TextTable")
                 table.initialize(rows, columns)
                 if parent:
@@ -754,12 +740,7 @@ class TableInsert(ToolWriterTableBase):
                 if data:
                     written_cells = fill_table_cells(table, data)
 
-                created_name = uno_probe(lambda: str(table.getName() if hasattr(table, "getName") else getattr(table, "Name", "") or ""), created_name)
-
-                if parent and host_cell_name:
-                    created_nesting = {"is_nested": True, "parent_table": parent, "parent_cell": host_cell_name}
-                else:
-                    created_nesting = _not_nested()
+                created_name = uno_probe(lambda: str(table.getName()), "")
 
             uno_ctx = resolve_uno_context(ctx)
             from plugin.writer.format import run_writer_mutation_with_optional_review
@@ -772,7 +753,7 @@ class TableInsert(ToolWriterTableBase):
                 "rows": rows,
                 "columns": columns,
                 "cells_written": written_cells,
-                "nesting": created_nesting,
+                "nesting": {"is_nested": True, "parent_table": parent, "parent_cell": host_cell_name} if parent else _not_nested(),
             }
         except ValueError as ve:
             return self._tool_error(str(ve))
@@ -806,15 +787,10 @@ class TableDelete(ToolWriterTableBase):
                 result = delete_draw_table(
                     ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index")
                 )
-                if result.get("status") != "ok":
-                    return make_tool_error(
-                        str(result.get("message") or "Delete failed"),
-                        code=str(result.get("code") or "TOOL_EXECUTION_ERROR"),
-                    )
-                return result
-            table = _writer_table_or_error(self, ctx.doc, name)
-            if isinstance(table, dict):
-                return table
+                return _raise_draw_result(result, "Delete failed")
+            if not name:
+                raise ValueError("name is required.")
+            table = _get_table(ctx.doc, name)
             nesting = _nesting_for(ctx.doc, table, name)
             tracked: list[bool] = []
             uno_ctx = resolve_uno_context(ctx)

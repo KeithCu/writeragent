@@ -226,7 +226,6 @@ def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
     cell_names: list[Any] = uno_probe(lambda: list(table.getCellNames()), [])
     if not cell_names:
         return False
-    from plugin.writer.specialized.tables import _cell_matrix_text
 
     for cell_name in cell_names:
         cell = uno_probe(lambda: table.getCellByName(cell_name), _FAILED)
@@ -234,7 +233,7 @@ def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
             return False
         # Raw text, pending deletions included: a cell that still holds a pending change is
         # not an empty shell, so an empty replacement must not delete the whole table.
-        text = uno_probe(lambda: _cell_matrix_text(cell, visible=False).strip(), None)
+        text = uno_probe(lambda: cell.getString().strip(), None)
         if text is None:
             return False
         if not text:
