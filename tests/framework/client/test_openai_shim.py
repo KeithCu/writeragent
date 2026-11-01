@@ -124,3 +124,24 @@ def test_openrouter_shim_build_image_request_model_truthy():
     data = json.loads(body)
     assert data["model"] == "black-forest-labs/flux-1"
 
+
+
+def test_responses_effort_uses_openrouter_vocabulary():
+    # Pins that the Responses path maps effort via the shim's reasoning provider
+    # (openrouter -> nested reasoning.effort), not a hardcoded "openai".
+    from plugin.framework.client.base_provider_shim import effort_payload
+
+    class DummyClient:
+        config = {"is_openrouter": True, "reasoning_effort": "high"}
+        def _get_provider(self): return "openrouter"
+        def _endpoint(self): return "http://test"
+        def _api_path(self): return "/api/v1"
+        def _headers(self): return {}
+
+    shim = OpenAIShim(DummyClient())
+    _, url, body, _ = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, [{"type": "function", "function": {"name": "f", "parameters": {}}}], False, "openai/gpt-6", None, None
+    )
+    assert url.endswith("/responses")
+    expected = effort_payload("openrouter", "high")["reasoning"]["effort"]
+    assert json.loads(body)["reasoning"]["effort"] == expected

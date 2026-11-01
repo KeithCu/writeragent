@@ -310,31 +310,32 @@ def _thinking_text(content_parts: list[dict[str, Any]]) -> str | None:
     return "\n\n".join(parts) if parts else None
 
 
+def _tool_delta(block_index: Any, *, arguments: str, indexes: dict[int, int], tool_id: Any = None, name: str | None = None) -> dict[str, Any] | None:
+    """One streamed tool-call fragment. ``arguments`` is a piece, not the final object.
+
+    ``content_block_start`` passes ``arguments=""``. A no-argument tool may
+    send no ``input_json_delta``. The tool loop treats that empty string as
+    ``{}``. Do not seed ``"{}"``: the next fragment would concatenate to
+    ``'{}{"x":1}'``.
+    """
+    if not isinstance(block_index, int):
+        return None
+    tool_index = indexes.get(block_index)
+    if tool_index is None:
+        tool_index = len(indexes)
+        indexes[block_index] = tool_index
+    function: dict[str, Any] = {"arguments": arguments}
+    call: dict[str, Any] = {"index": tool_index, "function": function}
+    if tool_id is not None:
+        call["id"] = tool_id
+    if name is not None:
+        call["type"] = "function"
+        function["name"] = name
+    return {"tool_calls": [call]}
+
+
 class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
-
-    def _tool_delta(self, block_index: Any, *, arguments: str, indexes: dict[int, int], tool_id: Any = None, name: str | None = None) -> dict[str, Any] | None:
-        """One streamed tool-call fragment. ``arguments`` is a piece, not the final object.
-
-        ``content_block_start`` passes ``arguments=""``. A no-argument tool may
-        send no ``input_json_delta``. The tool loop treats that empty string as
-        ``{}``. Do not seed ``"{}"``: the next fragment would concatenate to
-        ``'{}{"x":1}'``.
-        """
-        if not isinstance(block_index, int):
-            return None
-        tool_index = indexes.get(block_index)
-        if tool_index is None:
-            tool_index = len(indexes)
-            indexes[block_index] = tool_index
-        function: dict[str, Any] = {"arguments": arguments}
-        call: dict[str, Any] = {"index": tool_index, "function": function}
-        if tool_id is not None:
-            call["id"] = tool_id
-        if name is not None:
-            call["type"] = "function"
-            function["name"] = name
-        return {"tool_calls": [call]}
 
     def build_chat_request(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
@@ -389,7 +390,7 @@ class AnthropicShim(BaseProviderShim):
         elif msg_type == "content_block_start":
             block = chunk.get("content_block")
             if isinstance(block, dict) and block.get("type") == "tool_use":
-                tool_delta = self._tool_delta(chunk.get("index"), arguments="", indexes=indexes, tool_id=block.get("id"), name=block.get("name") or "")
+                tool_delta = _tool_delta(chunk.get("index"), arguments="", indexes=indexes, tool_id=block.get("id"), name=block.get("name") or "")
                 if tool_delta:
                     delta = tool_delta
         elif msg_type == "content_block_delta":
@@ -406,7 +407,7 @@ class AnthropicShim(BaseProviderShim):
                 # partial_json is a fragment. accumulate_delta concatenates
                 # function.arguments across chunks that share an index.
                 partial = d.get("partial_json") or ""
-                tool_delta = self._tool_delta(chunk.get("index"), arguments=partial if isinstance(partial, str) else str(partial), indexes=indexes)
+                tool_delta = _tool_delta(chunk.get("index"), arguments=partial if isinstance(partial, str) else str(partial), indexes=indexes)
                 if tool_delta:
                     delta = tool_delta
         elif msg_type == "message":
