@@ -112,7 +112,7 @@ def test_append_text_without_selection_uses_a1():
 
 
 def test_insert_space_and_insert_text_skip_formula_cells(monkeypatch):
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda doc: True)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_calc", lambda doc: True)
     cell = _cell("FORMULA", "=B2")
     doc, _sheet = _doc_with_cell(cell)
     ctx = SimpleNamespace(doc=doc)
@@ -124,7 +124,7 @@ def test_insert_space_and_insert_text_skip_formula_cells(monkeypatch):
 
 
 def test_insert_text_appends_plain_label_on_text_cell(monkeypatch):
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda doc: True)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_calc", lambda doc: True)
     cell = _cell("TEXT", "Hi")
     doc, _sheet = _doc_with_cell(cell)
     FormGenerate()._insert_text(SimpleNamespace(doc=doc), "<p>Name</p>")
@@ -248,7 +248,7 @@ def test_resolve_form_page_reraises_disposed(monkeypatch):
         pass
 
     doc = MagicMock()
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_draw", lambda d: True)
 
     bridge_mock = MagicMock()
     bridge_mock.get_pages.return_value.getByIndex.side_effect = DisposedException("closed")
@@ -547,8 +547,8 @@ def test_draw_page_stacked_cursor_single_scan_and_y_positions(monkeypatch):
 
     doc.createInstance.side_effect = fake_create_instance
 
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda d: False)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_draw", lambda d: True)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_calc", lambda d: False)
     monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", lambda d, p: dp)
 
     tool = FormCreate()
@@ -624,8 +624,8 @@ def test_draw_form_create_stacks_per_page(monkeypatch):
             return page_b
         return None
 
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda d: False)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_draw", lambda d: True)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_calc", lambda d: False)
     monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", fake_resolve_form_page)
 
     tool = FormCreate()
@@ -688,8 +688,8 @@ def test_draw_form_generate_interleaved_text_shares_cursor(monkeypatch):
 
     monkeypatch.setattr("plugin.draw.shapes.DrawShapes.safe_create_shape", fake_safe_create_shape)
 
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda d: False)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_draw", lambda d: True)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_calc", lambda d: False)
     monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", lambda d, p: dp)
     monkeypatch.setattr("plugin.draw.bridge.DrawBridge", lambda d: bridge)
 
@@ -725,8 +725,8 @@ def test_writer_create_does_not_call_scanner(monkeypatch):
     doc.getUndoManager.return_value = mgr
 
     # Writer doc
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: False)
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_spreadsheet_doc", lambda d: False)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_draw", lambda d: False)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_calc", lambda d: False)
 
     ctrl = MagicMock()
     view_cursor = MagicMock()
@@ -926,7 +926,7 @@ def test_forms_generate_rejects_duplicate_name_in_batch(monkeypatch):
 
 def test_resolve_form_page_out_of_range(monkeypatch):
     doc = MagicMock()
-    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
+    monkeypatch.setattr("plugin.writer.specialized.forms.is_draw", lambda d: True)
     bridge_mock = MagicMock()
     bridge_mock.get_pages.return_value.getCount.return_value = 2
     monkeypatch.setattr("plugin.draw.bridge.DrawBridge", lambda d: bridge_mock)
