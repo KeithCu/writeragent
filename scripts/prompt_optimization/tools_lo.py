@@ -570,7 +570,7 @@ def find_text(search: str, start=0, limit=None, case_sensitive=True) -> str:
         from plugin.writer.search import find_text_ranges
 
         try:
-            ranges = find_text_ranges(doc, _lo_ctx, search, case_sensitive=case_sensitive)
+            ranges = find_text_ranges(doc, search, case_sensitive=case_sensitive)
             if limit:
                 ranges = ranges[:limit]
             return json.dumps({"status": "ok", "ranges": ranges}, ensure_ascii=False)

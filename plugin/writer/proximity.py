@@ -52,6 +52,24 @@ def _validate_para_index(index: int, total: int) -> None:
         )
 
 
+def _anchored_paragraph(
+    anchor: Any,
+    text_obj: Any,
+    doc_svc: Any,
+    para_ranges: Any,
+    entries: Any,
+    start_idx: int,
+    end_idx: int,
+) -> int | None:
+    if not _anchor_in_body(anchor, text_obj):
+        return None
+    raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+    pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+    if pi is not None and start_idx <= pi <= end_idx:
+        return pi
+    return None
+
+
 def _collect_anchored(
     container: Any,
     doc_svc: Any,
@@ -66,12 +84,10 @@ def _collect_anchored(
     for name in container.getElementNames():
         try:
             obj = container.getByName(name)
-            anchor = obj.getAnchor()
-            if not _anchor_in_body(anchor, text_obj):
-                continue
-            raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-            pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
-            if pi is not None and start_idx <= pi <= end_idx:
+            pi = _anchored_paragraph(
+                obj.getAnchor(), text_obj, doc_svc, para_ranges, entries, start_idx, end_idx
+            )
+            if pi is not None:
                 items.append(builder(obj, name, pi))
         except Exception as exc:
             reraise_if_disposed(exc)
@@ -98,16 +114,16 @@ class ProximityService(ServiceBase):
     # ==================================================================
 
     def _flatten_tree(self, root: dict[str, Any]) -> list[Any]:
-        flat: list[Any] = []
-        self._flatten_recurse(root["children"], None, flat)
-        return flat
+        def _flatten_recurse(children: list[Any], parent_entry: dict[str, Any] | None, flat: list[Any]) -> None:
+            for child in children:
+                entry = {"node": child, "parent": parent_entry}
+                flat.append(entry)
+                if child.get("children"):
+                    _flatten_recurse(child["children"], entry, flat)
 
-    def _flatten_recurse(self, children: list[Any], parent_entry: dict[str, Any] | None, flat: list[Any]) -> None:
-        for child in children:
-            entry = {"node": child, "parent": parent_entry}
-            flat.append(entry)
-            if child.get("children"):
-                self._flatten_recurse(child["children"], entry, flat)
+        flat: list[Any] = []
+        _flatten_recurse(root["children"], None, flat)
+        return flat
 
     # ==================================================================
     # Heading context (binary search)
@@ -139,15 +155,15 @@ class ProximityService(ServiceBase):
         chain.reverse()
         return chain
 
-    def _build_heading_result(self, node: dict[str, Any], bookmark_map: dict[Any, Any]) -> dict[str, Any]:
-        return heading_ref(node, bookmark_map, include_body=True, include_children_count=True, body_default=True)
-
     # ==================================================================
     # navigate_heading
     # ==================================================================
 
     def navigate_heading(self, doc: Any, locator: str, direction: str) -> dict[str, Any]:
         """Navigate from locator to a related heading."""
+        if direction not in ("next", "previous", "parent", "first_child", "next_sibling", "previous_sibling"):
+            raise ToolExecutionError("Unknown direction: %s. Use: next, previous, parent, first_child, next_sibling, previous_sibling" % direction)
+
         resolved = self._doc_svc.resolve_locator(doc, locator)
         para_index = resolved.get("para_index")
         if para_index is None:
@@ -174,100 +190,71 @@ class ProximityService(ServiceBase):
             from_info["context_level"] = ctx_node["level"]
             from_info["context_bookmark"] = bookmark_map.get(ctx_node["para_index"])
 
-        target_entry: dict[str, Any] | None = None
-        error_msg = None
+        if ctx_idx is None:
+            if direction != "next":
+                _before_any_errors = {
+                    "previous": "No previous heading — position is before any heading",
+                    "parent": "No parent heading — position is before any heading",
+                    "first_child": "No child headings — position is before any heading",
+                    "next_sibling": "No sibling headings — position is before any heading",
+                    "previous_sibling": "No sibling headings — position is before any heading",
+                }
+                return {"error": _before_any_errors[direction], "from": from_info}
+            target_entry = flat[0]
 
-        if direction == "next":
-            next_idx = (ctx_idx + 1) if ctx_idx is not None else 0
-            if next_idx < len(flat):
-                target_entry = flat[next_idx]
-            else:
-                error_msg = "No next heading — already at last heading"
+        elif direction == "next":
+            if ctx_idx + 1 >= len(flat):
+                return {"error": "No next heading — already at last heading", "from": from_info}
+            target_entry = flat[ctx_idx + 1]
 
         elif direction == "previous":
-            if ctx_idx is None:
-                error_msg = "No previous heading — position is before any heading"
-            elif not was_heading:
+            if not was_heading:
                 target_entry = flat[ctx_idx]
             elif ctx_idx > 0:
                 target_entry = flat[ctx_idx - 1]
             else:
-                error_msg = "No previous heading — already at first heading"
+                return {"error": "No previous heading — already at first heading", "from": from_info}
 
         elif direction == "parent":
-            if ctx_idx is None:
-                error_msg = "No parent heading — position is before any heading"
-            else:
-                parent_entry = flat[ctx_idx]["parent"]
-                if parent_entry is not None:
-                    target_entry = parent_entry
-                else:
-                    error_msg = "No parent heading — already at top level"
+            target_entry = flat[ctx_idx]["parent"]
+            if target_entry is None:
+                return {"error": "No parent heading — already at top level", "from": from_info}
 
         elif direction == "first_child":
-            if ctx_idx is None:
-                error_msg = "No child headings — position is before any heading"
-            else:
-                children = flat[ctx_idx]["node"].get("children", [])
-                if children:
-                    child_pi = children[0]["para_index"]
-                    for entry in flat:
-                        if entry["node"]["para_index"] == child_pi:
-                            target_entry = entry
-                            break
-                if target_entry is None and error_msg is None:
-                    error_msg = "No child headings under this heading"
+            if not flat[ctx_idx]["node"].get("children"):
+                return {"error": "No child headings under this heading", "from": from_info}
+            target_entry = flat[ctx_idx + 1]
 
         elif direction == "next_sibling":
-            if ctx_idx is None:
-                error_msg = "No sibling headings — position is before any heading"
-            else:
-                target_entry = self._find_sibling(flat, ctx_idx, offset=1)
-                if target_entry is None:
-                    error_msg = "No next sibling heading"
+            target_entry = self._find_sibling(flat, ctx_idx, offset=1)
+            if target_entry is None:
+                return {"error": "No next sibling heading", "from": from_info}
 
-        elif direction == "previous_sibling":
-            if ctx_idx is None:
-                error_msg = "No sibling headings — position is before any heading"
-            else:
-                target_entry = self._find_sibling(flat, ctx_idx, offset=-1)
-                if target_entry is None:
-                    error_msg = "No previous sibling heading"
+        else:  # direction == "previous_sibling"
+            target_entry = self._find_sibling(flat, ctx_idx, offset=-1)
+            if target_entry is None:
+                return {"error": "No previous sibling heading", "from": from_info}
 
-        else:
-            raise ToolExecutionError("Unknown direction: %s. Use: next, previous, parent, first_child, next_sibling, previous_sibling" % direction)
-
-        if error_msg:
-            return {"error": error_msg, "from": from_info}
-
-        if target_entry is None:
-            return {"error": "Unexpectedly found no target entry.", "from": from_info}
-
-        return {"heading": self._build_heading_result(target_entry["node"], bookmark_map), "from": from_info, "direction": direction}
+        return {
+            "heading": heading_ref(
+                target_entry["node"],
+                bookmark_map,
+                include_body=True,
+                include_children_count=True,
+                body_default=True,
+            ),
+            "from": from_info,
+            "direction": direction,
+        }
 
     def _find_sibling(self, flat: list[Any], ctx_idx: int, offset: int) -> Any | None:
         entry = flat[ctx_idx]
-        parent = entry["parent"]
-        if parent is None:
-            top_level = [e for e in flat if e["parent"] is None]
-            for i, e in enumerate(top_level):
-                if e is entry:
-                    sib_idx = i + offset
-                    if 0 <= sib_idx < len(top_level):
-                        return top_level[sib_idx]
-                    return None
-            return None
-
-        siblings = parent["node"].get("children", [])
-        current_pi = entry["node"]["para_index"]
-        for i, sib in enumerate(siblings):
-            if sib["para_index"] == current_pi:
+        sibs = [e for e in flat if e["parent"] is entry["parent"]]
+        for i, e in enumerate(sibs):
+            if e is entry:
                 sib_idx = i + offset
-                if 0 <= sib_idx < len(siblings):
-                    target_pi = siblings[sib_idx]["para_index"]
-                    for e in flat:
-                        if e["node"]["para_index"] == target_pi:
-                            return e
+                if 0 <= sib_idx < len(sibs):
+                    return sibs[sib_idx]
                 return None
         return None
 
@@ -322,7 +309,7 @@ class ProximityService(ServiceBase):
                     continue
                 level = el.getPropertyValue("OutlineLevel")
                 text = el.getString()
-                entry = {"para_index": i, "text": text[:200] if len(text) > 200 else text, "outline_level": level}
+                entry = {"para_index": i, "text": text[:200], "outline_level": level}
                 bm = bookmark_map.get(i)
                 if bm:
                     entry["bookmark"] = bm
@@ -333,24 +320,21 @@ class ProximityService(ServiceBase):
         if any(k in include for k in ("images", "tables", "frames", "comments")):
             entries = paragraph_entries(para_ranges)
 
+        def _collect(container: Any, builder: Any) -> list[dict[str, Any]]:
+            return _collect_anchored(
+                container, self._doc_svc, para_ranges, text_obj, entries, start_idx, end_idx, builder
+            )
+
         if "images" in include:
             def _image_entry(g: Any, name: str, pi: int) -> dict[str, Any]:
                 size = g.getPropertyValue("Size")
                 return {"name": name, "paragraph_index": pi, "title": g.getPropertyValue("Title"), "width_mm": size.Width // 100, "height_mm": size.Height // 100}
 
-            result["images"] = _collect_anchored(
-                doc.getGraphicObjects(), self._doc_svc, para_ranges, text_obj, entries, start_idx, end_idx, _image_entry
-            )
+            result["images"] = _collect(doc.getGraphicObjects(), _image_entry)
 
         if "tables" in include:
-            result["tables"] = _collect_anchored(
+            result["tables"] = _collect(
                 doc.getTextTables(),
-                self._doc_svc,
-                para_ranges,
-                text_obj,
-                entries,
-                start_idx,
-                end_idx,
                 lambda t, name, pi: {"name": name, "paragraph_index": pi, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()},
             )
 
@@ -359,9 +343,7 @@ class ProximityService(ServiceBase):
                 size = fr.getPropertyValue("Size")
                 return {"name": name, "paragraph_index": pi, "width_mm": size.Width // 100, "height_mm": size.Height // 100}
 
-            result["frames"] = _collect_anchored(
-                doc.getTextFrames(), self._doc_svc, para_ranges, text_obj, entries, start_idx, end_idx, _frame_entry
-            )
+            result["frames"] = _collect(doc.getTextFrames(), _frame_entry)
 
         if "comments" in include:
             comments = []
@@ -373,12 +355,10 @@ class ProximityService(ServiceBase):
                         field = enum.nextElement()
                         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                             continue
-                        anchor = field.getAnchor()
-                        if not _anchor_in_body(anchor, text_obj):
-                            continue
-                        raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                        pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
-                        if pi is None or not (start_idx <= pi <= end_idx):
+                        pi = _anchored_paragraph(
+                            field.getAnchor(), text_obj, self._doc_svc, para_ranges, entries, start_idx, end_idx
+                        )
+                        if pi is None:
                             continue
                         comments.append(
                             {

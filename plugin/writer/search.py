@@ -178,9 +178,7 @@ def build_search_not_found_response(
 
 def find_text_ranges(
     model: Any,
-    ctx: Any,
     search: str,
-    start: int = 0,
     limit: int | None = None,
     case_sensitive: bool = True,
     *,
@@ -207,14 +205,6 @@ def find_text_ranges(
     text = model.getText()
     cursor = text.createTextCursor()
     cursor.gotoStart(False)
-    if start > 0:
-        _GO_RIGHT_CHUNK = 8192
-        remaining = start
-        while remaining > 0:
-            n = min(remaining, _GO_RIGHT_CHUNK)
-            if cursor.goRight(n, False) is False:
-                break
-            remaining -= n
 
     matches = []
     found = model.findNext(cursor, sd)
@@ -281,6 +271,15 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     return actual_norm == expected_norm, None
 
 
+def _collect_capped(doc: Any, sd: Any) -> list[Any]:
+    out: list[Any] = []
+    found = doc.findFirst(sd)
+    while found is not None and len(out) < MAX_SEARCH_REPLACEMENTS:
+        out.append(found)
+        found = find_next_after_match(doc, found, sd)
+    return out
+
+
 def find_lo_regex_ranges(
     doc: Any,
     candidate: str,
@@ -301,18 +300,12 @@ def find_lo_regex_ranges(
                 return found
         return None
 
-    ranges: list[Any] = []
     for case_sens in case_sensitive_order:
         sd.SearchCaseSensitive = case_sens
-        found = doc.findFirst(sd)
-        while found is not None:
-            if len(ranges) >= MAX_SEARCH_REPLACEMENTS:
-                return ranges
-            ranges.append(found)
-            found = find_next_after_match(doc, found, sd)
+        ranges = _collect_capped(doc, sd)
         if ranges:
             return ranges
-    return ranges
+    return []
 
 
 def _iter_chain_matches(
@@ -441,6 +434,13 @@ def _iter_chain_matches(
             break
 
 
+def _anchor_index(parts: list[str]) -> int:
+    for idx, part in enumerate(parts):
+        if part.strip():
+            return idx
+    return -1
+
+
 def find_chained_range(
     doc: Any,
     search_string: str,
@@ -473,11 +473,7 @@ def find_chained_range(
     if len(parts) <= 1:
         return [] if all_matches else None
 
-    anchor_idx = -1
-    for idx, part in enumerate(parts):
-        if part.strip():
-            anchor_idx = idx
-            break
+    anchor_idx = _anchor_index(parts)
     if anchor_idx == -1:
         return [] if all_matches else None
 
@@ -519,6 +515,11 @@ def find_occurrence_range(
     if not search_string:
         return None
 
+    def _out_of_range(count: int) -> IndexError:
+        return IndexError(
+            f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
+        )
+
     case_order = (case_sensitive,) if case_sensitive_order is None else case_sensitive_order
 
     for candidate in _search_try_strings(search_string):
@@ -535,17 +536,11 @@ def find_occurrence_range(
                 count += 1
                 found = find_next_after_match(doc, found, sd)
             if count > 0:
-                raise IndexError(
-                    f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
-                )
+                raise _out_of_range(count)
 
     parts = search_string.split('\n')
     if len(parts) > 1:
-        anchor_idx = -1
-        for idx, part in enumerate(parts):
-            if part.strip():
-                anchor_idx = idx
-                break
+        anchor_idx = _anchor_index(parts)
         if anchor_idx != -1:
             for case_sens in case_order:
                 count = 0
@@ -554,9 +549,7 @@ def find_occurrence_range(
                         return match
                     count += 1
                 if count > 0:
-                    raise IndexError(
-                        f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
-                    )
+                    raise _out_of_range(count)
 
     return None
 
@@ -762,20 +755,21 @@ def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensiti
     if case_sensitive:
         hay = shape_text
         needle = pattern
-        hits = []
-        step = len(needle) or 1
-        idx = hay.find(needle)
-        while idx != -1:
-            hits.append(shape_text[idx:idx + len(pattern)])
-            idx = hay.find(needle, idx + step)
-        return hits
-    hay, origins = _lower_with_origins(shape_text)
-    needle = pattern.lower()
+
+        def slice_hit(idx: int) -> str:
+            return shape_text[idx:idx + len(pattern)]
+    else:
+        hay, origins = _lower_with_origins(shape_text)
+        needle = pattern.lower()
+
+        def slice_hit(idx: int) -> str:
+            return shape_text[origins[idx]:origins[idx + len(needle) - 1] + 1]
+
     hits = []
     step = len(needle) or 1
     idx = hay.find(needle)
     while idx != -1:
-        hits.append(shape_text[origins[idx]:origins[idx + len(needle) - 1] + 1])
+        hits.append(slice_hit(idx))
         idx = hay.find(needle, idx + step)
     return hits
 
@@ -839,9 +833,12 @@ def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: b
         yield hit, "comment by '%s'" % (author or "unknown"), content.strip()
 
 
-def iter_extra_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
-    yield from iter_shape_hits(doc, pattern, use_regex, case_sensitive)
-    yield from iter_comment_hits(doc, pattern, use_regex, case_sensitive)
+def _search_descriptor(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Any:
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = pattern
+    sd.SearchRegularExpression = bool(use_regex)
+    sd.SearchCaseSensitive = bool(case_sensitive)
+    return sd
 
 
 @overload
@@ -857,18 +854,10 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
         err = validate_regex_pattern(pattern)
         if err:
             raise ValueError(invalid_regex_tool_message(err))
-    sd = doc.createSearchDescriptor()
-    sd.SearchString = pattern
-    sd.SearchRegularExpression = bool(use_regex)
-    sd.SearchCaseSensitive = bool(case_sensitive)
+    sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
     if not all_matches:
         return doc.findFirst(sd)
-    out: list[Any] = []
-    found = doc.findFirst(sd)
-    while found is not None and len(out) < MAX_SEARCH_REPLACEMENTS:
-        out.append(found)
-        found = find_next_after_match(doc, found, sd)
-    return out
+    return _collect_capped(doc, sd)
 
 
 def drawing_shape_object_containing(doc: Any, search_string: str, *, use_regex: bool = False, case_sensitive: bool = False) -> Any | None:
@@ -889,35 +878,22 @@ def drawing_shape_containing(doc: Any, search_string: str, *, use_regex: bool = 
     return (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
 
 
-def all_start_indices(haystack: str, needle: str) -> list[int]:
-    """Non-overlapping start indices of *needle* in *haystack*."""
-    out: list[int] = []
-    if not needle:
-        return out
-    i = haystack.find(needle)
-    while i >= 0:
-        out.append(i)
-        i = haystack.find(needle, i + len(needle))
-    return out
+def _preview_matches(hits: Iterator[tuple[str, str, str]], limit: int) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    for hit, location, context in hits:
+        matches.append({"text": hit, "location": location, "context": context})
+        if len(matches) >= limit:
+            break
+    return matches
 
 
 def sweep_draw_shape_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = 20) -> list[dict[str, Any]]:
     """Edit-reachable draw-layer hits for dry_run (same skip rules as search sweep)."""
-    matches: list[dict[str, Any]] = []
-    for hit, location, context in iter_shape_hits(doc, pattern, use_regex, case_sensitive):
-        matches.append({"text": hit, "location": location, "context": context})
-        if len(matches) >= limit:
-            break
-    return matches
+    return _preview_matches(iter_shape_hits(doc, pattern, use_regex, case_sensitive), limit)
 
 
 def sweep_comment_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = 20) -> list[dict[str, Any]]:
-    matches: list[dict[str, Any]] = []
-    for hit, location, context in iter_comment_hits(doc, pattern, use_regex, case_sensitive):
-        matches.append({"text": hit, "location": location, "context": context})
-        if len(matches) >= limit:
-            break
-    return matches
+    return _preview_matches(iter_comment_hits(doc, pattern, use_regex, case_sensitive), limit)
 
 
 class SearchInDocument(ToolBase):
@@ -976,7 +952,7 @@ class SearchInDocument(ToolBase):
                 code="INVALID_PARAM")
         if return_offsets:
             ranges = find_text_ranges(
-                ctx.doc, ctx.ctx, pattern, start=0, limit=max_results, case_sensitive=case_sensitive, body_only=True)
+                ctx.doc, pattern, limit=max_results, case_sensitive=case_sensitive, body_only=True)
             return {"status": "ok", "ranges": ranges}
 
         if use_regex:
@@ -987,10 +963,7 @@ class SearchInDocument(ToolBase):
         doc = ctx.doc
         label_cache: dict[int, str] = {}
         try:
-            sd = doc.createSearchDescriptor()
-            sd.SearchString = pattern
-            sd.SearchRegularExpression = bool(use_regex)
-            sd.SearchCaseSensitive = bool(case_sensitive)
+            sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
             found = doc.findFirst(sd)
         except Exception as exc:
             reraise_if_disposed(exc)
@@ -999,25 +972,20 @@ class SearchInDocument(ToolBase):
 
         matches: list[dict[str, str]] = []
         total_count = 0
-        guard = 0
-        zero_width = False
-        read_failed = False
-        find_next_failed = False
-        hit_capped = False
-        while found is not None and guard < MAX_SEARCH_HITS and total_count < MAX_SEARCH_HITS:
-            guard += 1
+        warning = None
+        while found is not None and total_count < MAX_SEARCH_HITS:
             try:
                 hit_text = found.getString()
             except Exception as exc:
                 reraise_if_disposed(exc)
                 log.exception("search_in_document: getString failed")
-                read_failed = True
+                warning = "Text-model search ended early after a getString failure; count may be incomplete."
                 break
             if hit_text == "":
                 # What was wrong: silent break, and getString errors were folded into it by setting hit_text = ""
                 # How it happened: getEnd() does not advance a zero-length hit; b06524930 removed the comment and the distinct failure path
                 # Why this change: warn and still sweep shapes and comments; do not step one character
-                zero_width = True
+                warning = "Search stopped on a zero-width match; count may be incomplete."
                 break
             total_count += 1
             if len(matches) < max_results:
@@ -1032,32 +1000,28 @@ class SearchInDocument(ToolBase):
             except Exception as exc:
                 reraise_if_disposed(exc)
                 log.exception("search_in_document: findNext failed")
-                find_next_failed = True
+                warning = "Text-model search ended early after a findNext failure; count may be incomplete."
                 break
-        if guard >= MAX_SEARCH_HITS or total_count >= MAX_SEARCH_HITS:
-            hit_capped = True
 
-        for hit, location, context in iter_extra_hits(doc, pattern, use_regex, case_sensitive):
+        for extra in (
+            iter_shape_hits(doc, pattern, use_regex, case_sensitive),
+            iter_comment_hits(doc, pattern, use_regex, case_sensitive),
+        ):
+            for hit, location, context in extra:
+                if total_count >= MAX_SEARCH_HITS:
+                    break
+                total_count += 1
+                if len(matches) < max_results:
+                    matches.append({"text": hit, "location": location, "context": context})
             if total_count >= MAX_SEARCH_HITS:
-                hit_capped = True
                 break
-            total_count += 1
-            if len(matches) < max_results:
-                matches.append({"text": hit, "location": location, "context": context})
+
+        if warning is None and total_count >= MAX_SEARCH_HITS:
+            warning = "Search stopped after %d matches; count may be incomplete." % MAX_SEARCH_HITS
 
         result = {"status": "ok", "matches": matches, "count": total_count, "returned": len(matches)}
         if total_count == 0 and document_has_tracked_deletions(doc):
             result["note"] = _TRACKED_DELETION_HINT.strip()
-
-        warning = None
-        if zero_width:
-            warning = "Search stopped on a zero-width match; count may be incomplete."
-        elif read_failed:
-            warning = "Text-model search ended early after a getString failure; count may be incomplete."
-        elif find_next_failed:
-            warning = "Text-model search ended early after a findNext failure; count may be incomplete."
-        elif hit_capped:
-            warning = "Search stopped after %d matches; count may be incomplete." % MAX_SEARCH_HITS
 
         if warning is not None:
             result["truncated"] = True
