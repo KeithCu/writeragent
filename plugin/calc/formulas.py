@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from plugin.framework.constants import now_aware
 import logging
+import sys
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
@@ -216,68 +217,62 @@ class EvaluateFormula(ToolCalcErrorBase):
                 break
             counter += 1
 
-        eval_result: dict[str, Any] | None = None
-        sheet_copied = False
-        cleanup_failed = False
-        eval_exc: Exception | None = None
-
         with _EvaluationUndoGuard(doc) as undo_guard:
+            # Copy active sheet with all its data
+            sheets.copyByName(active_name, temp_sheet_name, sheets.getCount())
+            result = None
             try:
-                # Copy active sheet with all its data
-                sheets.copyByName(active_name, temp_sheet_name, sheets.getCount())
-                sheet_copied = True
                 sheet = sheets.getByName(temp_sheet_name)
-
-                # getCellByPosition stays on this sheet. getCellRangeByName would
-                # follow Sheet1.C5 or a defined name back to the live workbook.
-                try:
-                    cell = sheet.getCellByPosition(col, row)
-                except Exception as e:
-                    eval_result = self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}")
-                    return eval_result
-
-                try:
-                    cell.setFormula(formula_string)
-                except Exception as e:
-                    if is_disposed_exception(e):
-                        raise
-                    eval_result = self._tool_error(f"Failed to set formula '{formula_string}' at cell '{cell_address}': {str(e)}")
-                    return eval_result
-
-                error_code = cell.Error
-                if error_code != 0:
-                    eval_result = {"status": "error", "error_code": error_code, "message": formula_evaluation_error_message(error_code)}
-                    return eval_result
-
-                result, result_type_str = cell_value_and_type(
-                    cell, formula_error_as_string=False, empty_as_none=False
-                )
-
-                eval_result = {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
-                if returns_array(formula_string):
-                    eval_result["requires_array"] = True
-                    eval_result["note"] = (
-                        "Calc does not spill arrays: only the top-left value is reported. "
-                        "Write it with write_formula_range to get the full result."
-                    )
-                return eval_result
-            except Exception as exc:
-                # Held until cleanup runs; a cleanup failure is reported instead.
-                eval_exc = exc
+                result = self._evaluate_on_copy(sheet, col, row, formula_string, cell_address)
+                return result
             finally:
-                if sheet_copied:
-                    try:
-                        if sheets.hasByName(temp_sheet_name):
-                            sheets.removeByName(temp_sheet_name)
-                        undo_guard.sheet_removed = True
-                    except Exception:
-                        cleanup_failed = True
-                        log.exception("Failed to cleanup evaluation sheet")
-                        # No return in finally; the cleanup_failed check below reports it.
-                        if eval_result is not None:
-                            eval_result["warning"] = f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'"
+                incoming = sys.exc_info()[1]
+                try:
+                    if sheets.hasByName(temp_sheet_name):
+                        sheets.removeByName(temp_sheet_name)
+                    undo_guard.sheet_removed = True
+                except Exception:
+                    log.exception("Failed to cleanup evaluation sheet")
+                    if result is not None:
+                        result["warning"] = f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'"
+                    elif isinstance(incoming, Exception):
+                        return self._tool_error(f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'")
 
-        if cleanup_failed and eval_result is None:
-            return self._tool_error(f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'")
-        assert eval_exc is not None
-        raise eval_exc
+    def _evaluate_on_copy(
+        self,
+        sheet: Any,
+        col: int,
+        row: int,
+        formula_string: str,
+        cell_address: str,
+    ) -> dict[str, Any]:
+        # getCellByPosition stays on this sheet. getCellRangeByName would
+        # follow Sheet1.C5 or a defined name back to the live workbook.
+        try:
+            cell = sheet.getCellByPosition(col, row)
+        except Exception as e:
+            return self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}")
+
+        try:
+            cell.setFormula(formula_string)
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
+            return self._tool_error(f"Failed to set formula '{formula_string}' at cell '{cell_address}': {str(e)}")
+
+        error_code = cell.Error
+        if error_code != 0:
+            return {"status": "error", "error_code": error_code, "message": formula_evaluation_error_message(error_code)}
+
+        result, result_type_str = cell_value_and_type(
+            cell, formula_error_as_string=False, empty_as_none=False
+        )
+
+        eval_result: dict[str, Any] = {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
+        if returns_array(formula_string):
+            eval_result["requires_array"] = True
+            eval_result["note"] = (
+                "Calc does not spill arrays: only the top-left value is reported. "
+                "Write it with write_formula_range to get the full result."
+            )
+        return eval_result
