@@ -70,18 +70,18 @@ _MODE_SPECS: tuple[_ModeSpec, ...] = (
     _ModeSpec(
         CHAT_MODE_WEB_RESEARCH,
         lambda: _("Web Research"),
-        greeting_fn=lambda _model: _("AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat."),
+        greeting_fn=lambda: _("AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat."),
     ),
     _ModeSpec(
         CHAT_MODE_DEEP_RESEARCH,
         lambda: _("Deep Research"),
-        greeting_fn=lambda _model: _("AI: Deep Research mode runs a multi-step web investigation (planning, several searches, synthesis) and can insert a formatted report into your document. It takes longer but produces more thorough results."),
+        greeting_fn=lambda: _("AI: Deep Research mode runs a multi-step web investigation (planning, several searches, synthesis) and can insert a formatted report into your document. It takes longer but produces more thorough results."),
         flag_attr="include_deep_research",
     ),
     _ModeSpec(
         CHAT_MODE_BRAINSTORMING,
         lambda: _("Brainstorming"),
-        greeting_fn=lambda _model: _("AI: Let's explore and design your idea together. I'll ask questions, suggest approaches, and help you build an approved spec in your document when you're ready."),
+        greeting_fn=lambda: _("AI: Let's explore and design your idea together. I'll ask questions, suggest approaches, and help you build an approved spec in your document when you're ready."),
         capture_topic=True,
         flag_attr="include_brainstorming",
     ),
@@ -89,21 +89,21 @@ _MODE_SPECS: tuple[_ModeSpec, ...] = (
     _ModeSpec(
         CHAT_MODE_WRITING_PLAN,
         lambda: _("Writing Plan"),
-        greeting_fn=lambda _model: _("AI: Let's draft your document section-by-section. I'll help you create a writing plan outline, and then implement it incrementally with your approval."),
+        greeting_fn=lambda: _("AI: Let's draft your document section-by-section. I'll help you create a writing plan outline, and then implement it incrementally with your approval."),
         capture_topic=True,
         flag_attr="include_writing_plan",
     ),
     _ModeSpec(
         CHAT_MODE_PPT_MASTER,
         lambda: _("PPT-Master"),
-        greeting_fn=lambda _model: _("AI: PPT-Master mode — I'll run the ppt-master workflow in your configured Python venv (scripts + export to Impress). Describe your topic or point me at a project folder."),
+        greeting_fn=lambda: _("AI: PPT-Master mode — I'll run the ppt-master workflow in your configured Python venv (scripts + export to Impress). Describe your topic or point me at a project folder."),
         capture_topic=True,
         flag_attr="include_ppt_master",
     ),
     _ModeSpec(
         CHAT_MODE_LIBRARIAN,
         lambda: _("Librarian"),
-        greeting_fn=lambda _model: _("AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite colors, and give a short tour. Pick Chat in the dropdown whenever you want to work on the document."),
+        greeting_fn=lambda: _("AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite colors, and give a short tour. Pick Chat in the dropdown whenever you want to work on the document."),
     ),
 )
 
@@ -194,13 +194,12 @@ def populate_mode_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> Non
     """Fill the mode combobox with translated items."""
     if not ctrl:
         return
-    labels = tuple(str(x) for x in get_mode_labels(flags))
     # Show dropdown arrow; do not set ReadOnly (breaks item list on some LO builds).
     if hasattr(ctrl, "getModel"):
         model = ctrl.getModel()
         if model is not None and hasattr(model, "Dropdown"):
             model.Dropdown = True
-    _set_combobox_items(ctrl, labels)
+    _set_combobox_items(ctrl, get_mode_labels(flags))
 
 
 def set_selector_mode_with_flags(ctrl: Any, mode: str, flags: SidebarModeFlags) -> None:
@@ -246,7 +245,7 @@ def is_image_mode(mode: str) -> bool:
 def greeting_for_sidebar_mode(mode: str, model: Any) -> str:
     spec = _SPEC_BY_KEY.get(mode)
     if spec is not None and spec.greeting_fn is not None:
-        return spec.greeting_fn(model)
+        return spec.greeting_fn()
     from plugin.framework.prompts import get_greeting_for_document
 
     return get_greeting_for_document(model)
@@ -260,17 +259,15 @@ def librarian_default_mode(ctx: Any = None) -> str:
     """
     from plugin.framework.config import get_config_bool_safe
 
-    has_invoked = bool(get_config_bool_safe("chatbot.librarian_invoked"))
+    if get_config_bool_safe("chatbot.librarian_invoked"):
+        return CHAT_MODE_CHAT
     profile_exists = False
     if ctx is not None:
         from plugin.chatbot.memory import user_profile_exists
 
         profile_exists = user_profile_exists()
-
-    result = CHAT_MODE_CHAT if has_invoked or profile_exists else CHAT_MODE_LIBRARIAN
-    if not has_invoked and (result == CHAT_MODE_LIBRARIAN or profile_exists):
-        mark_librarian_invoked()
-    return result
+    mark_librarian_invoked()
+    return CHAT_MODE_CHAT if profile_exists else CHAT_MODE_LIBRARIAN
 
 
 def mark_librarian_invoked() -> None:
@@ -297,14 +294,13 @@ class SidebarModeController:
     def __init__(self, panel: Any) -> None:
         self._panel = panel
 
-    def _show_chat_mode(self) -> None:
-        flags = getattr(self._panel, "sidebar_mode_flags", None)
-        if self._panel.chat_mode_selector and flags:
-            set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_CHAT, flags)
+    def _show_mode(self, mode: str) -> None:
+        if self._panel.chat_mode_selector:
+            set_selector_mode_with_flags(self._panel.chat_mode_selector, mode, self._panel.sidebar_mode_flags)
         # Combo change does not reliably fire ChatModeListener; apply the mode here.
         apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
         if callable(apply_fn):
-            apply_fn(CHAT_MODE_CHAT)
+            apply_fn(mode)
 
     def on_brainstorming_session_finished(self, spec_saved: bool = False) -> None:
         """Reset sidebar after brainstorming_finished (dropdown transitions to Writing Plan or Chat)."""
@@ -316,28 +312,23 @@ class SidebarModeController:
         topic = getattr(self._panel, "_mode_topic", "") or ""
         clear_brainstorming_session(self._panel)
         if spec_saved:
-            flags = getattr(self._panel, "sidebar_mode_flags", None)
             self._panel._active_mode = CHAT_MODE_WRITING_PLAN
             self._panel._mode_topic = f"Implement the saved spec: {topic}"
-            if self._panel.chat_mode_selector and flags:
-                set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_WRITING_PLAN, flags)
-            apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
-            if callable(apply_fn):
-                apply_fn(CHAT_MODE_WRITING_PLAN)
+            self._show_mode(CHAT_MODE_WRITING_PLAN)
         else:
-            self._show_chat_mode()
+            self._show_mode(CHAT_MODE_CHAT)
 
     def on_librarian_session_finished(self) -> None:
         """Reset sidebar after switch_to_document_mode (dropdown returns to Chat). History is kept."""
         clear_librarian_session(self._panel)
-        self._show_chat_mode()
+        self._show_mode(CHAT_MODE_CHAT)
 
     def on_writing_plan_session_finished(self) -> None:
         """Reset sidebar after writing_plan_finished (dropdown returns to Chat)."""
         clear_writing_plan_session(self._panel)
-        self._show_chat_mode()
+        self._show_mode(CHAT_MODE_CHAT)
 
     def on_ppt_master_session_finished(self) -> None:
         """Reset sidebar after ppt_master_finished (dropdown returns to Chat)."""
         clear_ppt_master_session(self._panel)
-        self._show_chat_mode()
+        self._show_mode(CHAT_MODE_CHAT)
