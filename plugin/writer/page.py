@@ -212,10 +212,7 @@ def _region_mirrors_shared(style: Any, region: str) -> bool:
         flag = "HeaderIsShared" if region.startswith("header") else "FooterIsShared"
     else:
         return False
-    try:
-        return style.getPropertyValue(flag) is True
-    except Exception:
-        return False
+    return _region_is_on(style, flag)
 
 
 def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) -> str | None:
@@ -513,7 +510,7 @@ def _copy_page_regions(
         clone.setPropertyValue(is_on_prop, True)
 
         # Issue #1424: Apply size values after turning the region on
-        prefix = "Header" if region.startswith("header") else "Footer"
+        prefix = _region_kind(region).title()
         for size_prop in (
             "IsDynamicHeight", "DynamicSpacing",
             "BodyDistance", "Height",
@@ -1142,13 +1139,8 @@ def _paragraph_cursor_text(para: Any) -> str | None:
     return "".join(parts)
 
 
-def _lower_keeps_length(text: str) -> bool:
-    folded = text.lower()
-    return len(folded) == len(text)
-
-
 def _fold(a: str, b: str, case_sensitive: bool) -> tuple[str, str]:
-    if case_sensitive or not (_lower_keeps_length(a) and _lower_keeps_length(b)):
+    if case_sensitive or len(a.lower()) != len(a) or len(b.lower()) != len(b):
         return a, b
     return a.lower(), b.lower()
 
@@ -1173,14 +1165,6 @@ def _match_offsets(hay: str, needle: str, case_sensitive: bool) -> list[int]:
         hits.append(found)
         start = found + step
     return hits
-
-
-def _same_region_text(selected: Any, needle: str, case_sensitive: bool) -> bool:
-    """True when the cursor selection is the requested match."""
-    if not isinstance(selected, str):
-        return False
-    a, b = _fold(selected, needle, case_sensitive)
-    return a == b
 
 
 def _find_region_matches(text_obj: Any, needle: str, case_sensitive: bool) -> tuple[list[tuple[Any, int, int]], list[str]]:
@@ -1463,7 +1447,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 selected = None
             # The portion index and the cursor must name the same characters.
             # A miss here means a field was counted wrong; do not setString.
-            if not _same_region_text(selected, old_content, case_sensitive):
+            if not isinstance(selected, str) or (pair := _fold(selected, old_content, case_sensitive))[0] != pair[1]:
                 return self._tool_error(
                     "The match for '%s' did not line up with the text (a field may sit inside it). "
                     "Nothing was changed." % old_content
@@ -1728,35 +1712,34 @@ class PageInsertBreak(ToolWriterPageBase):
             text = found.getText()
             # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
             # after_text -> the paragraph that FOLLOWS the match.
-            para = text.createTextCursorByRange(found.getStart() if before_text else found.getEnd())
-            if after_text and not para.gotoNextParagraph(False):
+            cursor = text.createTextCursorByRange(found.getStart() if before_text else found.getEnd())
+            if after_text and not cursor.gotoNextParagraph(False):
                 # At the LAST paragraph there is nothing after the anchor; silently breaking
                 # on the anchor's own paragraph would push the anchor itself to a new page
                 # (the opposite of what was asked) while reporting ok.
                 return self._tool_error(
                     "The anchor is in the document's last paragraph; there is nothing after it "
                     "to start a new page with. Use before_text, or append content first.")
-            # What was wrong: setting BreakType inside a table cell corrupted table layout or had no effect.
-            # Why this change fixes it: refuse to set BreakType if the cursor is inside a text table.
-            if _in_text_table(para):
-                return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
-            _apply_page_break(para, page_style, restart)
-            return _page_break_ok("Page break inserted %s the anchor." % ("before" if before_text else "after"), page_style, restart)
+            success_text = "Page break inserted %s the anchor." % ("before" if before_text else "after")
+        else:
+            view_cursor = doc.getCurrentController().getViewCursor()
+            if not view_cursor:
+                return self._tool_error("Could not obtain view cursor.")
 
-        view_cursor = doc.getCurrentController().getViewCursor()
-        if not view_cursor:
-            return self._tool_error("Could not obtain view cursor.")
+            # BreakType is a paragraph property. A collapsed model cursor at the
+            # view start applies it to the paragraph that contains the selection.
+            # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
+            # and this path must not move that selection. insertControlCharacter
+            # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
+            # text; do not put that back.
+            text = view_cursor.getText()
+            cursor = text.createTextCursorByRange(view_cursor.getStart())
+            success_text = "Page break inserted."
 
-        # BreakType is a paragraph property. A collapsed model cursor at the
-        # view start applies it to the paragraph that contains the selection.
-        # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
-        # and this path must not move that selection. insertControlCharacter
-        # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
-        # text; do not put that back.
-        text = view_cursor.getText()
-        cursor = text.createTextCursorByRange(view_cursor.getStart())
+        # What was wrong: setting BreakType inside a table cell corrupted table layout or had no effect.
+        # Why this change fixes it: refuse to set BreakType if the cursor is inside a text table.
         if _in_text_table(cursor):
             return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
         _apply_page_break(cursor, page_style, restart)
-        return _page_break_ok("Page break inserted.", page_style, restart)
+        return _page_break_ok(success_text, page_style, restart)
 
