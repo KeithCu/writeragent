@@ -68,7 +68,7 @@ def table_dims(table: Any) -> tuple[int, int]:
 
 def edit_table_band(band: Any, action: str, idx: int, axis_label: str) -> None:
     """Insert or remove one row/column from a table's XTableRows or XTableColumns band."""
-    axis = "rows" if axis_label in ("row", "rows") else "columns"
+    axis = "rows" if axis_label == "row" else "columns"
     count = int(band.getCount())
     if action == "insert":
         if idx > count:
