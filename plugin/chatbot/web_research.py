@@ -611,8 +611,8 @@ def _run_deep_web_research(
         )
         worker_params = replace(deep_params, smol_model=worker_model, approval_callback=None)
 
-        def run_sub_agent(sub_query: str, research_goal: str, sub_history: str | None) -> str | dict[str, Any]:
-            return _run_web_agent(ctx, sub_query, sub_history, worker_params, research_goal=research_goal or None)
+        def run_sub_agent(sub_query: str, research_goal: str) -> str | dict[str, Any]:
+            return _run_web_agent(ctx, sub_query, None, worker_params, research_goal=research_goal or None)
 
         return run_sub_agent, _chat_via(worker_client), worker_client.stop
 

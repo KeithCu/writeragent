@@ -122,7 +122,7 @@ class TestDeepResearchParsers:
 
         branch = _process_one_sub_query(
             {"query": "elevator physics", "researchGoal": "mass"},
-            run_web_agent=lambda query, goal, params: "prose without a url",
+            run_web_agent=lambda query, goal: "prose without a url",
             llm_chat=llm_chat,
             stop_checker=lambda: False,
             acc=_ResearchAccumulator(),
@@ -155,7 +155,7 @@ class TestRunDeepResearch:
     def test_run_deep_research_happy_path(self):
         calls: list[tuple[str, str]] = []
 
-        def run_web_agent(sub_query, research_goal, _history):
+        def run_web_agent(sub_query, research_goal):
             calls.append((sub_query, research_goal))
             return "Sub-agent context for " + sub_query
 
@@ -180,7 +180,7 @@ class TestRunDeepResearch:
         assert calls[0][1] == "goal one"
 
     def test_run_deep_research_stop_checker(self):
-        def run_web_agent(_sub_query, _goal, _history):
+        def run_web_agent(_sub_query, _goal):
             return "should not run"
 
         def llm_chat(msgs, _max=None):
@@ -203,7 +203,7 @@ class TestRunDeepResearch:
     def test_max_sub_queries_caps_parallel_runs(self):
         call_count = 0
 
-        def run_web_agent(_sub_query, _goal, _history):
+        def run_web_agent(_sub_query, _goal):
             nonlocal call_count
             call_count += 1
             return "context"
@@ -243,7 +243,7 @@ class TestRunDeepResearch:
         assert call_count == 2
 
     def test_all_sub_queries_fail_returns_error_not_report(self):
-        def run_web_agent(_sub_query, _goal, _history):
+        def run_web_agent(_sub_query, _goal):
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "fetch failed"}
 
         def llm_chat(msgs, _max=None):
@@ -266,7 +266,7 @@ class TestRunDeepResearch:
         assert "fetch failed" in str(result.get("message") or "")
 
     def test_partial_sub_query_failure_still_synthesizes(self):
-        def run_web_agent(sub_query, _goal, _history):
+        def run_web_agent(sub_query, _goal):
             if sub_query == "q1":
                 raise RuntimeError("branch exploded")
             return "Sub-agent context for survivor"
@@ -301,7 +301,7 @@ class TestRunDeepResearch:
         assert result == "Final synthesized report."
 
     def test_user_stopped_during_sub_agent_returns_stop_payload(self):
-        def run_web_agent(_sub_query, _goal, _history):
+        def run_web_agent(_sub_query, _goal):
             return {
                 "status": "error",
                 "code": "USER_STOPPED",
@@ -334,7 +334,7 @@ class TestRunDeepResearch:
                 raise TimeoutError("synthesis timed out")
             return self._llm_router(messages)
 
-        def run_web_agent(sub_query, research_goal, _history):
+        def run_web_agent(sub_query, research_goal):
             return "Sub-agent context for " + sub_query
 
         def llm_chat(msgs, _max=None):
@@ -523,7 +523,7 @@ class TestRunDeepResearch:
                 return '{"questions": ["q?"]}'
             return "Report."
 
-        def run_web_agent(sub_query, _goal, _history):
+        def run_web_agent(sub_query, _goal):
             return "Context for " + sub_query
 
         # max_rounds = 1 -> 0 assessments
@@ -571,7 +571,7 @@ class TestRunDeepResearch:
             def cleanup():
                 cleanup_calls.append(idx)
 
-            def run_agent(sub_query, _goal, _history):
+            def run_agent(sub_query, _goal):
                 return "Context for " + sub_query
 
             def llm_chat(msgs, max_tokens):
@@ -620,7 +620,7 @@ class TestRunDeepResearch:
                 return '{"questions": ["q?"]}'
             return "Report."
 
-        def run_web_agent(sub_query, _goal, _history):
+        def run_web_agent(sub_query, _goal):
             queries_planned.append(sub_query)
             return "Context for " + sub_query
 
@@ -656,7 +656,7 @@ class TestRunDeepResearch:
                 return '{"questions": ["q?"]}'
             return "Report."
 
-        def run_web_agent(_sub_query, _goal, _history):
+        def run_web_agent(_sub_query, _goal):
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "all fail"}
 
         def llm_chat(msgs, _max=None):
@@ -960,7 +960,7 @@ def test_deep_preview_approval_uses_edited_query():
         ddg.return_value.forward.return_value = "snippet text"
         out = _run_deep_web_research(MagicMock(), "topic", params)
         run_sub, _chat, _cleanup = run_deep.call_args.kwargs["worker_factory"]()
-        run_sub("q", "goal", None)
+        run_sub("q", "goal")
     answer, used_query = out
     assert answer == "report"
     assert used_query == "edited topic"
@@ -1154,7 +1154,7 @@ def test_stop_cancels_sub_query_that_has_not_started():
     calls = []
     stop = {"on": False}
 
-    def run_web_agent(query, _goal, _history):
+    def run_web_agent(query, _goal):
         calls.append(query)
         stop["on"] = True
         return "context"
@@ -1178,7 +1178,7 @@ def test_stop_loop_returns_promptly_when_checker_flips(monkeypatch):
     release = threading.Event()
     stop = {"on": False}
 
-    def slow_web_agent(query, _g, _h):
+    def slow_web_agent(query, _g):
         started.set()
         release.wait(timeout=3.0)
         return "Slow"
@@ -1223,7 +1223,7 @@ def test_stop_joins_the_running_pool_worker():
     stop = {"on": False}
     finished = {"q2": False}
 
-    def run_web_agent(query, _goal, _history):
+    def run_web_agent(query, _goal):
         if query == "q2":
             entered.set()
             while not stop["on"]:
@@ -1257,7 +1257,7 @@ def test_stop_join_is_bounded_when_a_worker_ignores_the_checker(monkeypatch):
     release = threading.Event()
     stop = {"on": False}
 
-    def run_web_agent(query, _goal, _history):
+    def run_web_agent(query, _goal):
         if query == "stuck":
             entered.set()
             release.wait(timeout=3)
