@@ -9,7 +9,7 @@ from __future__ import annotations
 import contextlib
 from dataclasses import dataclass
 import threading
-from typing import Any, Generator, Iterator
+from typing import Any, Generator
 
 from plugin.framework.errors import best_effort
 
@@ -62,9 +62,20 @@ def build_control_index(doc: Any) -> ControlIndex:
         return ControlIndex(doc=None, models_by_name={}, shapes_by_name={})
     models: dict[str, Any] = {}
     shapes: dict[str, Any] = {}
-    for name, model, shape in _iter_control_shapes(doc):
-        models.setdefault(name, model)
-        shapes.setdefault(name, shape)
+    if hasattr(doc, "getDrawPage"):
+        dp = doc.getDrawPage()
+        count = dp.getCount()
+        for i in range(count):
+            shape = dp.getByIndex(i)
+            if shape.getShapeType() != _CONTROL_SHAPE_TYPE:
+                continue
+            model = shape.Control
+            if model is None:
+                continue
+            name = str(getattr(model, "Name", "") or "")
+            if name:
+                models.setdefault(name, model)
+                shapes.setdefault(name, shape)
     if not models:
         _collect_models_from_text(doc, models)
     return ControlIndex(doc=doc, models_by_name=models, shapes_by_name=shapes)
@@ -100,24 +111,6 @@ def _model_from_text_portion(portion: Any) -> Any | None:
         if model is not None:
             return model
     return None
-
-
-def _iter_control_shapes(doc: Any) -> Iterator[tuple[str, Any, Any]]:
-    """Yield ``(name, model, shape)`` for in-flow ``ControlShape`` objects on the draw page."""
-    if not hasattr(doc, "getDrawPage"):
-        return
-    dp = doc.getDrawPage()
-    count = dp.getCount()
-    for i in range(count):
-        shape = dp.getByIndex(i)
-        if shape.getShapeType() != _CONTROL_SHAPE_TYPE:
-            continue
-        model = shape.Control
-        if model is None:
-            continue
-        name = str(getattr(model, "Name", "") or "")
-        if name:
-            yield name, model, shape
 
 
 def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
