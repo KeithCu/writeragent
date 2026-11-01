@@ -478,7 +478,7 @@ class TestSendDispose:
         def _capture(fn: Any, *args: Any, **kwargs: Any) -> None:
             posted.append(fn)
 
-        mock_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
+        mock_turn = TurnController(MagicMock(), MagicMock())
         mock_turn.alive = True
         listener._last_mcp_turn = {"": mock_turn}
 
@@ -500,7 +500,7 @@ class TestSendDispose:
         listener = _make_send_listener()
         listener._append_response = MagicMock()
 
-        mock_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
+        mock_turn = TurnController(MagicMock(), MagicMock())
         mock_turn.alive = True
         listener._last_mcp_turn = {"": mock_turn}
 
@@ -628,7 +628,7 @@ class TestSendDispose:
             send=SendButtonState(SendMode.BUSY, True, False, True),
             tool_loop=None,
         )
-        begin_send_turn(listener, "chat")
+        begin_send_turn(listener)
         clear = ClearButtonListener(session, None, None, send_listener=listener)
         with patch("plugin.audio.tts_service.stop_speech"):
             clear.on_action_performed(MagicMock())
@@ -649,7 +649,7 @@ class TestSendDispose:
         original.add_user_message("question")
         other = ChatSession("other mode")
         listener.session = original
-        begin_send_turn(listener, "chat")
+        begin_send_turn(listener)
         listener.set_session(other)
         assert session_for_turn(listener) is original
         persist_assistant_on_turn(listener, content="answer")
@@ -1435,7 +1435,7 @@ class TestHandsFreeRecord:
         listener.session = spoken
         from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-        begin_send_turn(listener, "chat")
+        begin_send_turn(listener)
         spoken.messages.append({"role": "assistant", "content": "Hello there"})
         captured: dict[str, Any] = {}
 
@@ -1475,7 +1475,7 @@ class TestHandsFreeRecord:
         listener.session = spoken
         from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-        begin_send_turn(listener, "chat")
+        begin_send_turn(listener)
         spoken.messages.append({"role": "assistant", "content": "Hello there"})
         captured: dict[str, Any] = {}
 
@@ -1735,7 +1735,7 @@ class TestStoppedTTS:
         def _simulate_do_send():
             from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-            begin_send_turn(listener, "chat")
+            begin_send_turn(listener)
             fake_session.messages.append({"role": "assistant", "content": "Spoken reply text."})
 
         with (
@@ -2082,7 +2082,7 @@ def test_mcp_turn_mutations_hold_the_lock() -> None:
             assert listener._mcp_turn_lock.locked()
             return super().clear()
 
-    turn = TurnController(session=MagicMock(), mode="chat")
+    turn = TurnController(session=MagicMock())
     turn.alive = True
     listener._last_mcp_turn = _Guarded({"orig": turn})
 
@@ -2129,7 +2129,7 @@ def test_mcp_request_waits_then_sees_teardown() -> None:
     listener._mcp_turn_lock.acquire()
 
     finished = threading.Event()
-    turn = TurnController(session=MagicMock(), mode="chat")
+    turn = TurnController(session=MagicMock())
     turn.alive = True
 
     def target() -> None:
@@ -2285,7 +2285,7 @@ class TestPanelR14Fixes:
 
         listener = _make_send_listener()
         listener.session.messages = []
-        turn = begin_send_turn(listener, "chat")
+        turn = begin_send_turn(listener)
         abort_turn(listener)
         assert current_turn(listener) is turn
         listener._project_closing_line("\n\n[Error: boom]\n", turn)
@@ -2297,8 +2297,8 @@ class TestPanelR14Fixes:
 
         listener = _make_send_listener()
         listener.session.messages = []
-        owner = begin_send_turn(listener, "chat")
-        second_turn = begin_send_turn(listener, "chat")
+        owner = begin_send_turn(listener)
+        second_turn = begin_send_turn(listener)
         assert current_turn(listener) is second_turn
         listener._project_closing_line("\n\n[Error: boom]\n", owner)
         assert not any("Error: boom" in str(m.get("content", "")) for m in listener.session.messages)
@@ -2310,7 +2310,7 @@ class TestPanelR14Fixes:
         listener = _make_send_listener()
         old_list: list[dict[str, Any]] = []
         listener.session.messages = old_list
-        turn = begin_send_turn(listener, "chat")
+        turn = begin_send_turn(listener)
         new_list: list[dict[str, Any]] = []
         listener.session.messages = new_list
         listener._project_closing_line("\n\n[Error: boom]\n", turn)
@@ -2333,7 +2333,7 @@ class TestPanelR14Fixes:
         listener = _make_send_listener()
         listener.session.messages = [{"role": "system", "content": "s"}]
         initial_len = len(listener.session.messages)
-        begin_send_turn(listener, "chat")
+        begin_send_turn(listener)
         listener._project_closing_line("\n\n[Error: boom]\n", None)
         assert len(listener.session.messages) == initial_len
 
@@ -2345,7 +2345,7 @@ class TestPanelR14Fixes:
         captured: list[tuple[str, Any]] = []
 
         def _fake_do_send() -> None:
-            turn = begin_send_turn(listener, "chat")
+            turn = begin_send_turn(listener)
             created_turn.append(turn)
             raise RuntimeError("boom")
 
@@ -2373,7 +2373,7 @@ class TestPanelR14Fixes:
         listener.session.messages = [{"role": "assistant", "content": "prior"}]
 
         def _fake_do_send() -> None:
-            begin_send_turn(listener, "chat")
+            begin_send_turn(listener)
             listener.session.messages.append({"role": "assistant", "content": "new reply"})
 
         with (

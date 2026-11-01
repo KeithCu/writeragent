@@ -102,7 +102,7 @@ def setup_mock_panel():
     panel = FakePanel(ctx, session)
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-    begin_send_turn(panel, "chat")
+    begin_send_turn(panel)
     return panel, session
 
 _MIRRORED_CONTROL_ATTRS = (
@@ -123,7 +123,7 @@ def test_chat_stream_batch_interval_is_250ms():
 def test_stream_done_no_tools(mock_get_config, mock_get_config_int, mock_drain_loop):
     from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
-    begin_send_turn(panel, "chat")
+    begin_send_turn(panel)
 
     results = []
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
@@ -196,7 +196,7 @@ def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_get_con
     from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn, note_stop_partial
 
     panel, session = setup_mock_panel()
-    begin_send_turn(panel, "chat")
+    begin_send_turn(panel)
     note_stop_partial(current_turn(panel), {"content": "kept tokens", "tool_calls": None})
 
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, on_stopped=None, **kwargs):
@@ -226,7 +226,7 @@ def test_handle_stream_error_persists_banner():
 def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_get_config_int, mock_drain_loop):
     from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, _session = setup_mock_panel()
-    begin_send_turn(panel, "chat")
+    begin_send_turn(panel)
 
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, on_stopped=None, **kwargs):
         on_stopped()
@@ -622,7 +622,7 @@ def test_refresh_active_tools_for_session():
         session.active_specialized_domain = "tables"
         from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
 
-        turn = begin_send_turn(panel, "chat")
+        turn = begin_send_turn(panel)
         turn.active_tools = [{"function": {"name": "stale"}}]
 
         panel._refresh_active_tools_for_session()
@@ -1190,7 +1190,7 @@ def test_final_stream_keeps_spawn_scope_after_next_send():
 def test_toolkit_none_starts_drain_and_first_worker():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
-    begin_send_turn(panel, "chat")
+    begin_send_turn(panel)
 
     recorded_kwargs = {}
     def mock_drain(*args, **kwargs):
@@ -1218,13 +1218,13 @@ def test_toolkit_none_starts_drain_and_first_worker():
 
 def test_compaction_state_per_turn():
     from plugin.chatbot.tool_loop_actions import TurnController
-    turn1 = TurnController(None, "chat")
+    turn1 = TurnController(None)
     turn1._overflow_compact_attempts = 1
     turn1._last_compact_reason = "overflow"
     turn1._last_compact_tokens_before = 2000
     turn1._last_compact_tokens_after = 1000
 
-    turn2 = TurnController(None, "chat")
+    turn2 = TurnController(None)
     assert turn2._overflow_compact_attempts == 0
     assert turn2._last_compact_reason is None
     assert turn2._last_compact_tokens_before is None
