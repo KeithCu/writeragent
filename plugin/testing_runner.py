@@ -1371,12 +1371,11 @@ def run_module_suite(ctx: Any, module: Any, name: str) -> tuple[int, int, list[s
                 suite_log.append(f"LIFECYCLE {crumb}")
                 suite_log.append(traceback.format_exc())
                 _progress(f"TEST end {qual} FAIL {_fail_reason_with_lifecycle(e)}")
+                record_test_end(qual, "FAIL")
                 if _is_uno_bridge_disposed(e):
                     _progress("LIFECYCLE URP dispose at %s %s" % (qual, crumb))
                     _mark_urp_dead(e, qual)
-                    record_test_end(qual, "FAIL")
                     break
-                record_test_end(qual, "FAIL")
             finally:
                 _disarm_native_test_watchdog()
 
@@ -1581,46 +1580,36 @@ def run_all_tests(ctx: Any) -> str:
         # Gather all candidates
         test_candidates = []
 
-        filter_strs = _parse_cli_args(sys.argv[1:])
-        global _cli_filters
-        _cli_filters = list(filter_strs)
-
         for root, _dirs, files in os.walk(tests_root):
             for filename in files:
-                if not filename.endswith(".py"):
+                if not (filename.startswith("test_") and filename.endswith("_uno.py")):
                     continue
-                # Match test_*.py or *_tests.py
-                if not (filename.startswith("test_") or filename.endswith("_tests.py")):
+                user_only = filename in _USER_PROFILE_ONLY_UNO
+                if user_only != use_user_profile:
                     continue
-                
-                if "_uno.py" in filename:
-                    user_only = filename in _USER_PROFILE_ONLY_UNO
-                    if user_only != use_user_profile:
-                        continue
-                    full_path = os.path.join(root, filename)
-                    if _module_matches_filters(full_path, filter_strs):
-                        test_candidates.append(full_path)
+                full_path = os.path.join(root, filename)
+                if _module_matches_filters(full_path, _cli_filters):
+                    test_candidates.append(full_path)
 
         if not test_candidates:
             reason = (
-                "No native test suites matched filters %r" % (filter_strs,)
-                if filter_strs
+                "No native test suites matched filters %r" % (_cli_filters,)
+                if _cli_filters
                 else "No native test suites found under %s" % tests_root
             )
             _progress("SUITE discovery miss: %s" % reason)
             suites.append({"name": "discovery", "failed": 1, "log": [reason]})
             total_failed += 1
 
-        soak_rounds = max(1, _soak_repeat)
         skip_keeper_close = False
-        if soak_rounds > 1:
+        if _soak_repeat > 1:
             _progress_verbose(
                 "SOAK start rounds=%s suites=%s filter=%s"
-                % (soak_rounds, len(test_candidates), filter_strs or "-")
+                % (_soak_repeat, len(test_candidates), _cli_filters or "-")
             )
-        for soak_i in range(soak_rounds):
-            if soak_rounds > 1:
-                _progress_verbose("SOAK iter %s/%s" % (soak_i + 1, soak_rounds))
+        for soak_i in range(_soak_repeat):
+            if _soak_repeat > 1:
+                _progress_verbose("SOAK iter %s/%s" % (soak_i + 1, _soak_repeat))
             if _urp_bridge_dead:
                 _progress("SOAK stop: URP already disposed")
                 break
@@ -1644,8 +1633,7 @@ def run_all_tests(ctx: Any) -> str:
                 restore_snapshot: Dict[str, Any] = {k: sys.modules.get(k, _MISSING) for k in NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS}
                 try:
                     spec = importlib.util.spec_from_file_location(sys_module_name, module_path)
-                    if spec is None or spec.loader is None:
-                        continue
+                    assert spec is not None and spec.loader is not None
                     test_module = importlib.util.module_from_spec(spec)
                     sys.modules[sys_module_name] = test_module
                     spec.loader.exec_module(test_module)
@@ -1807,7 +1795,8 @@ def main() -> int:
         print("  (%s: %s)" % (type(exc).__name__, exc), flush=True)
         return 1
 
-    _parse_cli_args(sys.argv[1:])
+    global _cli_filters
+    _cli_filters = list(_parse_cli_args(sys.argv[1:]))
 
     # Suppress MCP server startup in the soffice child process; it inherits
     # this env var and McpModule.start_background() checks it.
