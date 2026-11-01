@@ -284,7 +284,7 @@ class PickerWiring:
             return False
 
     def templates(self) -> dict[str, str]:
-        return dict(_resolve_module_attr(self.templates_ref)())
+        return _resolve_module_attr(self.templates_ref)()
 
     def title_fn(self) -> str:
         return _(self.title)
