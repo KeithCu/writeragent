@@ -53,7 +53,6 @@ from plugin.chatbot.rich_text import (
     apply_rich_control_para_margins,
     contains_html_tag,
     render_calc_cell_refs,
-    restore_writer_text,
     span_matches_message,
     strip_legacy_ai_label,
     writer_suffix,
@@ -69,7 +68,6 @@ from plugin.chatbot.rich_text_control import (
     log_rich_scroll,
 )
 from plugin.calc.navigation import (
-    WRITERAGENT_CELL_URL_PREFIX,
     normalize_cell_address,
     register_cell_link_span,
 )
@@ -117,7 +115,7 @@ def portion_cell_href(portion: Any) -> str | None:
         return None
     for prop in ("HyperLinkURL", "HyperlinkURL", "HYPERLINK"):
         url = getattr(portion, prop, None)
-        if isinstance(url, str) and url and ("cell://" in url.lower() or WRITERAGENT_CELL_URL_PREFIX in url.lower()):
+        if isinstance(url, str) and url and "cell://" in url.lower():
             return url
     return None
 
@@ -383,7 +381,7 @@ def _rich_control_bg_color(model: Any, style_window: Any = None) -> int:
     return theme.bg_color
 
 
-def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: Any = None, bg_color: int | None = None) -> None:
+def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: int, bg_color: int | None = None) -> None:
     """Copy character formatting from a Writer text portion onto a RichText cursor."""
     for prop in (
         "CharWeight",
@@ -398,13 +396,7 @@ def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: Any
             setattr(dest_cursor, p, getattr(src_portion, p))
 
         uno_probe(_copy, None)
-    resolved = char_color
-    if resolved is None:
-        raw = getattr(src_portion, "CharColor", None)
-        if not _is_automatic_char_color(raw):
-            resolved = raw
-    if resolved is not None and not _is_automatic_char_color(resolved):
-        dest_cursor.CharColor = resolved
+    dest_cursor.CharColor = char_color
     if bg_color is not None:
         dest_cursor.CharBackColor = bg_color
 
@@ -594,12 +586,12 @@ def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None
         ok, previous, added = _append_rich_text_with_span(doc, content, role=role, style_window=style_window)
         if ok and span_matches_message(added, role, content):
             continue
-        restore_writer_text(text_obj, previous)
+        text_obj.setString(previous)
         append_plain_transcript_row(doc, content, role=role, style_window=style_window)
         if not span_matches_message(writer_suffix(text_obj, previous), role, content):
             # The plain row is the message text. If it still does not match,
             # drop the span rather than keep text the list does not have.
-            restore_writer_text(text_obj, previous)
+            text_obj.setString(previous)
 
 
 def paint_message_items(
@@ -624,15 +616,19 @@ def paint_message_items(
     if not rows:
         clear_control(control)
         return True
-    if not rows_need_hidden_writer(rows):
-        clear_control(control)
-        _plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus)
+
+    def _finish_paint() -> bool:
         if rows[-1][0] == "user":
             with focus_preserved(ctx, restore, restore_focus=restore_focus):
                 _ensure_trailing_line_break(control)
         force_rich_full_reformat(control)
         _scroll_rich_to_tail(control, restore_focus=restore_focus)
         return True
+
+    if not rows_need_hidden_writer(rows):
+        clear_control(control)
+        _plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus)
+        return _finish_paint()
     doc = None
     try:
         doc = create_hidden_html_writer(ctx)
@@ -663,13 +659,7 @@ def paint_message_items(
         )
         ok, copy_reason = res
         if ok:
-            if rows[-1][0] == "user":
-                with focus_preserved(ctx, restore, restore_focus=restore_focus):
-                    _ensure_trailing_line_break(control)
-            # Reformat before the restick so the scroll target is the real end.
-            force_rich_full_reformat(control)
-            _scroll_rich_to_tail(control, restore_focus=restore_focus)
-            return True
+            return _finish_paint()
         log.warning("paint_message_items: formatted copy failed reason=%s; plain paint", copy_reason)
         _replace_control_with_plain(control, rows, ctx, style_window, restore_focus=restore_focus)
         return True
@@ -713,7 +703,7 @@ def _copy_formatted_from_hidden_doc_to_control(
             inserted = False
             theme = ChatTheme.resolve(style_window=style_window)
             current_role = role
-            default_color = theme.user_color if current_role == "user" else theme.assistant_color
+            default_color = ChatTheme.role_color(theme, current_role)
 
             dest_cursor = model.createTextCursor()
             dest_cursor.gotoEnd(False)
@@ -792,7 +782,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         detected = _role_from_portion_text(txt)
                         if detected is not None:
                             current_role = detected
-                            default_color = theme.user_color if current_role == "user" else theme.assistant_color
+                            default_color = ChatTheme.role_color(theme, current_role)
                         if line_prefix and not prefix_inserted:
                             # Force normal: right after "Assistant: " the number
                             # took the label's bold (EditEngine sticky attrs).
@@ -949,7 +939,7 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
             cursor.gotoEnd(False)
         apply_rich_control_para_margins(cursor)
 
-        color = theme.user_color if role == "user" else theme.assistant_color
+        color = ChatTheme.role_color(theme, role)
         prefix = _role_prefix(role)
         _insert_string_at_rich_cursor(model, cursor, prefix, char_color=color, bold=True)
         cursor.gotoEnd(False)
@@ -968,6 +958,12 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
     return wrote
 
 
+def _finish_append_rows(control: Any, rows: Sequence[tuple[str, str]], restore_focus: Any = None) -> None:
+    if rows[-1][0] == "user":
+        _ensure_trailing_line_break(control)
+    _scroll_rich_to_tail(control, restore_focus=restore_focus)
+
+
 def _rollback_then_plain(
     control: Any,
     rows: list[tuple[str, str]],
@@ -978,9 +974,7 @@ def _rollback_then_plain(
 ) -> None:
     rollback_rich_insert(control, before)
     if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
-        if rows[-1][0] == "user":
-            _ensure_trailing_line_break(control)
-        _scroll_rich_to_tail(control, restore_focus=restore_focus)
+        _finish_append_rows(control, rows, restore_focus=restore_focus)
 
 
 def append_formatted_rows(
@@ -1000,17 +994,13 @@ def append_formatted_rows(
     if before is None:
         log.warning("append_formatted_rows: control length unavailable; plain append")
         _plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus)
-        if rows[-1][0] == "user":
-            _ensure_trailing_line_break(control)
-        _scroll_rich_to_tail(control, restore_focus=restore_focus)
+        _finish_append_rows(control, rows, restore_focus=restore_focus)
         return
 
     _ensure_message_separator(control)
     if not rows_need_hidden_writer(rows):
         if _plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus):
-            if rows[-1][0] == "user":
-                _ensure_trailing_line_break(control)
-            _scroll_rich_to_tail(control, restore_focus=restore_focus)
+            _finish_append_rows(control, rows, restore_focus=restore_focus)
         return
 
     doc = None
@@ -1050,9 +1040,7 @@ def append_formatted_rows(
         ok, copy_reason = res
         if ok:
             inserted = True
-            if rows[-1][0] == "user":
-                _ensure_trailing_line_break(control)
-            _scroll_rich_to_tail(control, restore_focus=restore_focus)
+            _finish_append_rows(control, rows, restore_focus=restore_focus)
         else:
             # Tip: history has no second copy, so the rollback must not lose the rows.
             log.warning(
@@ -1133,11 +1121,7 @@ def append_formatted_row(
     text = render_calc_cell_refs(text)
     cell_link_targets = extract_cell_links_from_html(text)
 
-    if not rows_need_hidden_writer([(role, text)]):
-        _ensure_message_separator(control)
-        _plain_append_messages(
-            control, [(role, text)], ctx, style_window, auto_scroll=False, restore_focus=restore_focus,
-        )
+    def _finish_append_row() -> None:
         if role == "user":
             with focus_preserved(ctx, restore, restore_focus=restore_focus):
                 _ensure_trailing_line_break(control)
@@ -1146,6 +1130,13 @@ def append_formatted_row(
             log_rich_scroll("user_append_done", control=control, role=role)
         elif auto_scroll:
             _scroll_rich_to_tail(control, restore_focus=restore_focus)
+
+    if not rows_need_hidden_writer([(role, text)]):
+        _ensure_message_separator(control)
+        _plain_append_messages(
+            control, [(role, text)], ctx, style_window, auto_scroll=False, restore_focus=restore_focus,
+        )
+        _finish_append_row()
         return True
 
     # Remember the length before the separator. A failed copy used to leave
@@ -1160,36 +1151,32 @@ def append_formatted_row(
         )
         return True
     _ensure_message_separator(control)
+
+    def _rollback_and_plain() -> bool:
+        rollback_rich_insert(control, before)
+        _plain_append_messages(
+            control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
+        )
+        return True
+
     doc = None
     inserted = False
     try:
         doc = create_hidden_html_writer(ctx)
         if doc is None:
             log.warning("append_formatted_row: hidden Writer unavailable")
-            rollback_rich_insert(control, before)
-            _plain_append_messages(
-                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
-            )
-            return True
+            return _rollback_and_plain()
         configure_hidden_writer_for_chat(doc)
         if append_rich_text(doc, text, role=role, style_window=style_window) is False:
             # Filter failed. The hidden doc has the role prefix and not the body.
             # Copying it would show the prefix alone, or the raw tags if they
             # had been inserted. Roll back and write the stripped message.
             log.warning("append_formatted_row: HTML import failed role=%s", role)
-            rollback_rich_insert(control, before)
-            _plain_append_messages(
-                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
-            )
-            return True
+            return _rollback_and_plain()
         span = uno_probe(lambda: doc.getText().getString(), None)
         if isinstance(span, str) and not span_matches_message(span, role, text):
             log.warning("append_formatted_row: imported span does not match message role=%s", role)
-            rollback_rich_insert(control, before)
-            _plain_append_messages(
-                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
-            )
-            return True
+            return _rollback_and_plain()
         log.debug("append_formatted_row: hidden doc ready len=%d role=%s", len(text), role)
         ok, direct_reason = _copy_formatted_from_hidden_doc_to_control(
             doc,
@@ -1214,18 +1201,8 @@ def append_formatted_row(
                 role,
             )
             rollback_rich_insert(control, before)
-        if inserted and role == "user":
-            with focus_preserved(ctx, restore, restore_focus=restore_focus):
-                _ensure_trailing_line_break(control)
-            if auto_scroll:
-                # Do not reveal_caret. That setFocus GetFocus-es the viewport,
-                # which switches EESelectionMode to Std while SelectAll is still
-                # covering the whole control (user-message flash). Agent stream
-                # never reveal_caret, so it does not flash.
-                _scroll_rich_to_tail(control, restore_focus=restore_focus)
-            log_rich_scroll("user_append_done", control=control, role=role)
-        elif inserted and auto_scroll:
-            _scroll_rich_to_tail(control, restore_focus=restore_focus)
+        if inserted:
+            _finish_append_row()
         return inserted
     except Exception:
         log.exception("append_formatted_row failed")
