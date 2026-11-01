@@ -195,12 +195,11 @@ class BatchingStreamQueue:
 
     def _append_display_locked(self, kind: StreamQueueKind, data: str) -> None:
         """Append one display fragment. Caller holds lock. Arms the burst timer once."""
-        is_first = not self._runs
         if self._runs and self._runs[-1][0] == kind:
             self._runs[-1][1].append(data)
-        else:
-            self._runs.append((kind, [data]))
-        if is_first:
+            return
+        self._runs.append((kind, [data]))
+        if len(self._runs) == 1:
             # Caller holds _lock. arm() leaves a live deadline alone, so a
             # later THINKING does not move this burst's deadline.
             self._timer.arm()

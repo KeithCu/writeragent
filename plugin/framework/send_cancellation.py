@@ -122,34 +122,6 @@ def get_current_send_cancellation() -> SendCancellation | None:
     return _current_send_cancellation.get()
 
 
-def _resolve_bound_scope(bound_scope: SendCancellation | None | _ScopeUnset) -> SendCancellation | None:  # pyright: ignore[reportUnusedFunction]
-    """Current send when the caller did not pass a scope.
-
-    ``is _SCOPE_UNSET`` is the only unset value. Checkers do not narrow ``is``
-    against a class instance, so the else branch is cast.
-    """
-    if bound_scope is _SCOPE_UNSET:
-        return get_current_send_cancellation()
-    return cast("SendCancellation | None", bound_scope)
-
-
-def _fail_closed(predicate: Callable[[], bool]) -> Callable[[], bool]:
-    """Stop checker that treats a raising predicate as stopped.
-
-    A checker that raises used to look like "not stopped" when the caller
-    ignored the exception. Fail closed so a broken latch still aborts the send.
-    """
-
-    def _cancelled() -> bool:
-        try:
-            return predicate()
-        except Exception:
-            log.exception("stop_checker raised exception; failing closed (treating as stopped)")
-            return True
-
-    return _cancelled
-
-
 def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[], bool] | None = None) -> Callable[[], bool]:
     """Return a stop predicate tied to *scope*, not the panel field.
 
@@ -158,11 +130,20 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
 
     When both *scope* and *fallback* are set, either latch is enough: Stop can
     fire after SEND_CLICKED but before the deferred drain enters ``agent_session``.
+    A checker that raises used to look like "not stopped" when the caller
+    ignored the exception. Fail closed so a broken latch still aborts the send.
     """
-    if scope is not None and fallback is not None:
-        return _fail_closed(lambda: scope.is_cancelled() or fallback())
-    predicate = scope.is_cancelled if scope is not None else fallback
-    return _fail_closed(predicate) if predicate is not None else (lambda: False)
+    if scope is None and fallback is None:
+        return lambda: False
+
+    def _cancelled() -> bool:
+        try:
+            return (scope is not None and scope.is_cancelled()) or (fallback is not None and fallback())
+        except Exception:
+            log.exception("stop_checker raised exception; failing closed (treating as stopped)")
+            return True
+
+    return _cancelled
 
 
 def capture_send_stop(host: Any) -> tuple[Any, Callable[[], bool]]:

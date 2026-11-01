@@ -47,9 +47,9 @@ from typing import Any, Callable, ClassVar, cast
 from plugin.framework.send_cancellation import (
     SendCancelled,
     SendCancellation,
-    _resolve_bound_scope,
     _SCOPE_UNSET,
     _ScopeUnset,
+    get_current_send_cancellation,
     is_agent_active,
 )
 
@@ -464,7 +464,8 @@ class QueueExecutor:
 
     def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, poke: bool = True) -> _WorkItem:
         """Add work item to queue. *poke* False lets a batch caller poke once."""
-        scope = _resolve_bound_scope(bound_scope)
+        # ``is`` does not narrow _ScopeUnset. None is an explicit scope.
+        scope = get_current_send_cancellation() if bound_scope is _SCOPE_UNSET else cast("SendCancellation | None", bound_scope)
         if scope is not None:
             scope.bind_executor(self)
         item = _WorkItem(fn, args, kwargs, blocking, scope)
@@ -644,7 +645,8 @@ class QueueExecutor:
                 if not self._await_pending_slot_locked():
                     _log_marshal(logging.WARNING, "marshal route=post_timeout (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, executor=self)
                     raise TimeoutError("marshal post timed out: AsyncCallback unavailable and pending list is full (fn=%s)" % fn_label)
-                scope = _resolve_bound_scope(bound_scope)
+                # ``is`` does not narrow _ScopeUnset. None is an explicit scope.
+                scope = get_current_send_cancellation() if bound_scope is _SCOPE_UNSET else cast("SendCancellation | None", bound_scope)
                 self._pending_posts.append((fn, args, kwargs, scope))
                 _log_marshal(logging.DEBUG, "marshal route=post_pending fn=%s %s", fn_label, executor=self)
                 return
