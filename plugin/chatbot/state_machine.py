@@ -91,7 +91,7 @@ class EffectInterpreter:
     def __init__(self, handler_mixin: Any) -> None:
         self.handler = handler_mixin
 
-    def interpret(self, effect: SendHandlerEffect, state: SendHandlerState) -> None:
+    def interpret(self, effect: SendHandlerEffect) -> None:
         # crosshair: off
         match effect:
             case SendHandlerUIEffect("append", text, is_thinking, role):
@@ -107,11 +107,11 @@ class EffectInterpreter:
                 if terminal == "Ready":
                     self.handler._set_status("Ready")
             case SpawnDirectImageEffect(query_text=qt, model=mod):
-                self.handler._send_handlers._execute_direct_image_effect(qt, mod, state, self)
+                self.handler._send_handlers._execute_direct_image_effect(qt, mod)
             case SpawnAgentWorkerEffect(query_text=qt, model=mod, doc_type_str=dts):
-                self.handler._send_handlers._execute_agent_backend_effect(qt, mod, dts, state, self)
+                self.handler._send_handlers._execute_agent_backend_effect(qt, mod, dts)
             case SpawnWebWorkerEffect(query_text=qt, model=mod, mode=mode):
-                self.handler._send_handlers._execute_web_research_effect(qt, mod, state, self, mode=mode)
+                self.handler._send_handlers._execute_web_research_effect(qt, mod, mode=mode)
             case _:
                 raise AssertionError(f"unhandled effect type {type(effect).__name__}")
 

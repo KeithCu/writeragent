@@ -96,6 +96,9 @@ class _SpecializedRunnerSpec:
     finish_msgid: str | None = None
     finish_flag: str | None = None
     copy_key: str | None = None
+    callback_name: str | None = None
+    pass_spec_saved: bool = False
+    clear_topic: bool = False
 
 
 _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
@@ -107,6 +110,7 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         error_flag="in_librarian_mode",
         finish_msgid="Perfect! I'm switching you to the main assistant now.",
         finish_flag="librarian_switch_to_chat",
+        callback_name="on_librarian_session_finished",
     ),
     CHAT_MODE_BRAINSTORMING: _SpecializedRunnerSpec(
         tool_name="brainstorming_session",
@@ -117,6 +121,9 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         finish_msgid="Brainstorming complete.",
         finish_flag="brainstorming_finished",
         copy_key="spec_saved",
+        callback_name="on_brainstorming_session_finished",
+        pass_spec_saved=True,
+        clear_topic=True,
     ),
     CHAT_MODE_WRITING_PLAN: _SpecializedRunnerSpec(
         tool_name="writing_plan_session",
@@ -126,6 +133,8 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         error_flag="in_writing_plan_mode",
         finish_msgid="Writing plan complete.",
         finish_flag="writing_plan_finished",
+        callback_name="on_writing_plan_session_finished",
+        clear_topic=True,
     ),
     CHAT_MODE_PPT_MASTER: _SpecializedRunnerSpec(
         tool_name="ppt_master_session",
@@ -136,6 +145,8 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         finish_msgid="PPT-Master session complete.",
         finish_flag="ppt_master_finished",
         copy_key="exported",
+        callback_name="on_ppt_master_session_finished",
+        clear_topic=True,
     ),
     CHAT_MODE_DEEP_RESEARCH: _SpecializedRunnerSpec(
         tool_name="deep_research_session",
@@ -175,17 +186,13 @@ def dispatch_sidebar_send(
     model: Any,
     doc_type_label: str,
 ) -> bool:
-    if sidebar_mode in (CHAT_MODE_LIBRARIAN, CHAT_MODE_WEB_RESEARCH, CHAT_MODE_DEEP_RESEARCH):
-        msg = (
-            "_do_send: using librarian onboarding agent"
-            if sidebar_mode == CHAT_MODE_LIBRARIAN
-            else (
-                "_do_send: using web research sub-agent — skip chat model and direct image"
-                if sidebar_mode == CHAT_MODE_WEB_RESEARCH
-                else "_do_send: using deep web research sub-agent — skip chat model and direct image"
-            )
-        )
-        log.info(msg)
+    research_msgs = {
+        CHAT_MODE_LIBRARIAN: "_do_send: using librarian onboarding agent",
+        CHAT_MODE_WEB_RESEARCH: "_do_send: using web research sub-agent — skip chat model and direct image",
+        CHAT_MODE_DEEP_RESEARCH: "_do_send: using deep web research sub-agent — skip chat model and direct image",
+    }
+    if sidebar_mode in research_msgs:
+        log.info(research_msgs[sidebar_mode])
         panel._send_handlers._run_specialized(query_text, model, mode=sidebar_mode)
         return True
 
@@ -194,24 +201,20 @@ def dispatch_sidebar_send(
         panel._send_handlers._do_send_direct_image(query_text, model)
         return True
 
-    if sidebar_mode == CHAT_MODE_BRAINSTORMING and doc_type_label == "writer":
-        _update_mode_topic(panel, CHAT_MODE_BRAINSTORMING, query_text)
-        log.info("_do_send: using brainstorming sub-agent")
-        panel._send_handlers._run_specialized(query_text, model, mode=CHAT_MODE_BRAINSTORMING)
-        return True
-
-    if sidebar_mode == CHAT_MODE_WRITING_PLAN and doc_type_label == "writer":
-        if not getattr(panel, "_mode_topic", ""):
-            panel._mode_topic = query_text
-        log.info("_do_send: using writing plan sub-agent")
-        panel._send_handlers._run_specialized(query_text, model, mode=CHAT_MODE_WRITING_PLAN)
-        return True
-
-    if sidebar_mode == CHAT_MODE_PPT_MASTER and doc_type_label in ("draw", "impress"):
-        _update_mode_topic(panel, CHAT_MODE_PPT_MASTER, query_text)
-        log.info("_do_send: using PPT-Master sub-agent")
-        panel._send_handlers._run_specialized(query_text, model, mode=CHAT_MODE_PPT_MASTER)
-        return True
+    specialized_modes = (
+        (CHAT_MODE_BRAINSTORMING, ("writer",), "_do_send: using brainstorming sub-agent", True),
+        (CHAT_MODE_WRITING_PLAN, ("writer",), "_do_send: using writing plan sub-agent", False),
+        (CHAT_MODE_PPT_MASTER, ("draw", "impress"), "_do_send: using PPT-Master sub-agent", True),
+    )
+    for mode, allowed_docs, log_msg, update_topic in specialized_modes:
+        if sidebar_mode == mode and doc_type_label in allowed_docs:
+            if update_topic:
+                _update_mode_topic(panel, mode, query_text)
+            elif not getattr(panel, "_mode_topic", ""):
+                panel._mode_topic = query_text
+            log.info(log_msg)
+            panel._send_handlers._run_specialized(query_text, model, mode=mode)
+            return True
 
     return False
 
@@ -242,7 +245,7 @@ def _step_and_interpret(
 ) -> tuple[SendHandlerState, list[SendHandlerEffect]]:
     step = next_state(state, event)
     for eff in step.effects:
-        interpreter.interpret(eff, step.state)
+        interpreter.interpret(eff)
     return step.state, step.effects
 
 
@@ -305,27 +308,19 @@ class SendHandlersMixin:
             # payload; looking only for success keys
             # (librarian_switch_to_chat, brainstorming_finished) assigns the
             # host attributes and leaves the combo on the old mode.
-            modes = (
-                ("librarian_switch_to_chat", "in_librarian_mode", "on_librarian_session_finished", CHAT_MODE_LIBRARIAN, False, False),
-                ("brainstorming_finished", "in_brainstorming_mode", "on_brainstorming_session_finished", CHAT_MODE_BRAINSTORMING, True, True),
-                ("writing_plan_finished", "in_writing_plan_mode", "on_writing_plan_session_finished", CHAT_MODE_WRITING_PLAN, False, True),
-                ("ppt_master_finished", "in_ppt_master_mode", "on_ppt_master_session_finished", CHAT_MODE_PPT_MASTER, False, True),
-            )
-            for success_key, flag_key, cb_name, mode, pass_spec_saved, clear_topic in modes:
-                if payload.get(success_key) or payload.get(flag_key) is False:
-                    finished_cb = getattr(self._panel, cb_name, None)
+            for mode, spec in _SPECIALIZED_SPECS.items():
+                if spec.finish_flag is None:
+                    continue
+                if payload.get(spec.finish_flag) or (spec.error_flag and payload.get(spec.error_flag) is False):
+                    finished_cb = getattr(self._panel, spec.callback_name, None) if spec.callback_name else None
                     if callable(finished_cb):
-                        if pass_spec_saved:
+                        if spec.pass_spec_saved:
                             finished_cb(spec_saved=bool(payload.get("spec_saved", False)))
                         else:
                             finished_cb()
-                    elif self._panel._active_mode == mode:
+                    if (not callable(finished_cb) or (spec.error_flag and payload.get(spec.error_flag) is False)) and self._panel._active_mode == mode:
                         self._panel._active_mode = ""
-                        if clear_topic:
-                            self._panel._mode_topic = ""
-                    if payload.get(flag_key) is False and self._panel._active_mode == mode:
-                        self._panel._active_mode = ""
-                        if clear_topic:
+                        if spec.clear_topic:
                             self._panel._mode_topic = ""
 
         def on_stream_done(item: Any) -> None:
@@ -435,10 +430,12 @@ class SendHandlersMixin:
         turn_session.add_user_message(query_text)
         self._start_send_handler("image", query_text, model)
 
-    def _execute_direct_image_effect(self, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
+    def _execute_direct_image_effect(self, query_text: str, model: Any) -> None:
         turn_session = turn_session_or_stop(self._panel)
         if turn_session is None:
             return
+        current_state = SendHandlerState(handler_type="image", status="starting")
+        interpreter = EffectInterpreter(self._panel)
         # The user row was stored by _do_send_direct_image before StartEvent.
         drain_q, turn = _send_worker_queues(self._panel)
         # Probe on the UI thread. The tool re-reads the selection when it
@@ -475,10 +472,11 @@ class SendHandlersMixin:
         cancel_scope, stop_checker = capture_send_stop(self._panel)
 
         def run_direct_image() -> None:
+            doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
             try:
                 from plugin.main import get_tools
 
-                tctx = ToolContext(doc=model, ctx=self._panel.ctx, stop_checker=stop_checker, doc_type=getattr(self._panel, "cached_doc_type", None) or "writer", services=get_tools()._services, caller="chat", status_callback=lambda t: turn.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self._panel.ctx, stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=lambda t: turn.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
 
                 # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
                 image_args: dict[str, Any] = {"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_int, "image_model": image_model_text}
@@ -491,17 +489,8 @@ class SendHandlersMixin:
                         log.debug("generate_image (direct) stopped by user: %s", res.get("message"))
                     else:
                         log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
-                if isinstance(res, dict):
-                    data = res
-                elif isinstance(res, (str, bytes)):
-                    data = safe_json_loads(res, default={})
-                else:
-                    data = {}
-                if isinstance(data, dict):
-                    note = data.get("message", data.get("status", "done"))
-                else:
-                    log.error("Failed to parse generate_image result in _do_send_direct_image")
-                    note = "done"
+                data = _tool_result_dict(res, "image_generate", doc_type)
+                note = data.get("message", data.get("status", "done"))
                 # This note is the assistant message. Success (and a tool
                 # status=error) that puts STREAM_DONE {} never reaches
                 # history: on_stream_done stores a non-agent row only when
@@ -568,7 +557,7 @@ class SendHandlersMixin:
         self._panel._acp_backend_id = backend_id
         return adapter
 
-    def _execute_agent_backend_effect(self, query_text: str, model: Any, doc_type_str: str, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
+    def _execute_agent_backend_effect(self, query_text: str, model: Any, doc_type_str: str) -> None:
 
 
         document_url = ""
@@ -580,9 +569,11 @@ class SendHandlersMixin:
         if turn_session is None:
             return
 
+        current_state = SendHandlerState(handler_type="agent", status="starting")
+        interpreter = EffectInterpreter(self._panel)
+
         def _handle_early_error(exception_instance: Exception) -> None:
-            nonlocal current_state
-            current_state, _ = _step_and_interpret(current_state, ErrorEvent(exception_instance), interpreter)
+            _step_and_interpret(current_state, ErrorEvent(exception_instance), interpreter)
             # Ensure turn is closed out properly, just as _do_send_direct_image does
             defer_until_drain_done(lambda: abort_turn(self._panel))
 
@@ -717,8 +708,11 @@ class SendHandlersMixin:
 
         self._start_send_handler("web", query_text, model, mode=mode)
 
-    def _execute_web_research_effect(self, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter", mode: str = "") -> None:
+    def _execute_web_research_effect(self, query_text: str, model: Any, mode: str = "") -> None:
         from plugin.main import get_tools
+
+        current_state = SendHandlerState(handler_type="web", status="starting")
+        interpreter = EffectInterpreter(self._panel)
 
         spec = _SPECIALIZED_SPECS.get(mode, _SPECIALIZED_SPECS[CHAT_MODE_WEB_RESEARCH])
 

@@ -219,14 +219,12 @@ class TestEffectInterpreterThinking:
             def _set_status(self, text):
                 return None
 
-        state = SendHandlerState(handler_type="web", status="running")
         interpreter = EffectInterpreter(Host())
-        interpreter.interpret(SendHandlerUIEffect("append", "search step", is_thinking=True), state)
-        interpreter.interpret(SendHandlerUIEffect("append", "answer", is_thinking=False, role="assistant"), state)
+        interpreter.interpret(SendHandlerUIEffect("append", "search step", is_thinking=True))
+        interpreter.interpret(SendHandlerUIEffect("append", "answer", is_thinking=False, role="assistant"))
         assert appended == [("search step", True, "assistant"), ("answer", False, "assistant")]
 
     def test_interpret_unknown_effect_raises(self):
-        state = SendHandlerState(handler_type="web", status="running")
         interpreter = EffectInterpreter(None)
         with pytest.raises(AssertionError):
-            interpreter.interpret(cast("Any", object()), state)
+            interpreter.interpret(cast("Any", object()))

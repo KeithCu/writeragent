@@ -48,15 +48,6 @@ def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
     return func_name, func_args_str, call_id
 
 
-def pending_tool_call_args(tc: object) -> dict[str, Any]:
-    """Return pre-parsed arguments dict from pending tool call."""
-    # crosshair: off
-    tc_dict = object_dict_or_empty(tc)
-    parsed = tc_dict.get("parsed_args")
-    assert isinstance(parsed, dict), f"Pre-parsed arguments missing from pending tool call: {tc!r}"
-    return parsed
-
-
 def with_tool_call_ids(tool_calls: List[Any], round_num: int) -> List[Any]:
     """Copy *tool_calls*, giving each dict with a missing or blank id ``call_<round>_<index>``."""
     # crosshair: off
@@ -415,7 +406,9 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
 
             else:
                 func_name, func_args_str, call_id = pending_tool_call_fields(state.pending_tools[0])
-                func_args = pending_tool_call_args(state.pending_tools[0])
+                tc_dict = object_dict_or_empty(state.pending_tools[0])
+                func_args = tc_dict.get("parsed_args")
+                assert isinstance(func_args, dict), f"Pre-parsed arguments missing from pending tool call: {state.pending_tools[0]!r}"
 
                 effects.append(
                     ToolLoopUIEffect(
