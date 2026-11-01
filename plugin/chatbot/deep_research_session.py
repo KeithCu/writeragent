@@ -60,7 +60,7 @@ class DeepResearchWebTool(SubAgentResearchWebBase):
     deep_research: ClassVar[bool] = True
 
 
-def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, **kwargs: Any) -> dict[str, Any]:
+def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None) -> dict[str, Any]:
     """Run one turn of the Deep Research smol sub-agent."""
     from plugin.chatbot.smol_agent import run_smol_side_turn
 
