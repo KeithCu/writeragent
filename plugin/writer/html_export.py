@@ -79,8 +79,6 @@ def shorten_outline_anchor_ids(html: str) -> str:
 
 
 def _apply_image_export_options(content: str, *, include_images: bool) -> str:
-    if not content:
-        return content
     content = shorten_outline_anchor_ids(content)
     return content if include_images else strip_embedded_image_data(content)
 
@@ -314,7 +312,7 @@ def _range_to_content_via_temp_doc(
         # Blank scratch doc: the factory URL honours the user's default template,
         # and this function reads the whole body back (see new_blank_writer).
         temp_doc = new_blank_writer(ctx, target="_default")
-        if not temp_doc or not hasattr(temp_doc, "getText"):
+        if not temp_doc:
             # Bugfix: returning "" made scope=range/selection report ok with
             # empty content when the scratch Writer could not be created
             # (relato #63).
@@ -509,7 +507,7 @@ def document_to_content(
             "document_to_content: done path=%s scope=%r content_len=%d total_ms=%.1f",
             path,
             scope,
-            len(content) if isinstance(content, str) else -1,
+            len(content),
             (time.perf_counter() - t0) * 1000.0,
         )
         return content
@@ -560,7 +558,7 @@ def document_to_content(
         log.debug(
             "document_to_content: phase=_export_xhtml elapsed_ms=%.1f xhtml_len=%d",
             (time.perf_counter() - t_phase) * 1000.0,
-            len(xhtml) if isinstance(xhtml, str) else -1,
+            len(xhtml),
         )
         t_phase = time.perf_counter()
         # Full export always runs _autostyle_maps: fodt_has_ruby skips iter_ruby_spans, and None triggers a portion walk.
@@ -568,8 +566,8 @@ def document_to_content(
         log.debug(
             "document_to_content: phase=_autostyle_maps elapsed_ms=%.1f parents=%d overrides=%d ruby=%s",
             (time.perf_counter() - t_phase) * 1000.0,
-            len(parents) if isinstance(parents, dict) else -1,
-            len(overrides) if isinstance(overrides, dict) else -1,
+            len(parents),
+            len(overrides),
             fodt_has_ruby,
         )
         t_phase = time.perf_counter()
@@ -615,11 +613,9 @@ def document_to_content(
             "failed too (%s)." % (_reason(xhtml_error), _reason(e))) from e
 
 
-def _reason(error: Exception | None) -> str:
+def _reason(error: Exception) -> str:
     """Short text for an export failure: the message, or the exception type when it has none
     (UNO exceptions often have an empty message)."""
-    if error is None:
-        return "unknown error"
     return str(error).strip() or type(error).__name__
 
 
@@ -676,8 +672,6 @@ def _page_number_numbering_type_to_name(num_type: Any) -> str:
 def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
     """Walk *text_obj* in document order and collect PageNumber field properties."""
     fields: list[dict[str, Any]] = []
-    if text_obj is None:
-        return fields
 
     def _walk_para(para: Any):
         try:
@@ -772,7 +766,7 @@ def xtext_to_content(
     temp_doc = None
     try:
         temp_doc = new_blank_writer(ctx)
-        if not temp_doc or not hasattr(temp_doc, "getText"):
+        if not temp_doc:
             # Bugfix: returning "" made page_get_header_footer_text report
             # status ok with empty content (relato #63), including when
             # document_to_content had already raised ToolExecutionError.
@@ -788,8 +782,7 @@ def xtext_to_content(
             scope="full",
             include_images=include_images,
         )
-        if math_records:
-            content = substitute_math_placeholders(content, math_records, ctx)
+        content = substitute_math_placeholders(content, math_records, ctx)
 
         content = _inject_page_number_attributes(content, extracted_fields)
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 from html import escape, unescape
 import logging
 import re
-from typing import Any, Iterator, NamedTuple
+from typing import Any, Iterator, NamedTuple, Sequence
 
 from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
@@ -108,7 +108,7 @@ def _ruby_markup(base: str, reading: str, is_above: bool = True) -> str:
 
 
 
-def inject_ruby_into_html(html: str, spans: list[Any]) -> str:
+def inject_ruby_into_html(html: str, spans: Sequence[_RubySpan]) -> str:
     """Rewrite glued or dropped ruby encodings to semantic ``<ruby><rt>``.
 
     The XHTML Writer filter has no ``text:ruby`` rule, so full export concatenates
@@ -128,32 +128,30 @@ def inject_ruby_into_html(html: str, spans: list[Any]) -> str:
     pos = 0
     parts = []
     for span in spans:
-        base, reading = span[0], span[1]
-        is_above = span[4] if len(span) > 4 else True
+        base, reading = span.base, span.reading
+        is_above = span.is_above
         if not base or not reading:
             continue
+        extra = ""
         glued = _find_contiguous(html, base + reading, pos)
         if glued is not None and not _inside_ruby_element(html, glued[0]):
-            start, end = glued
-            parts.append(html[pos:start])
-            parts.append(_ruby_markup(base, reading, is_above))
-            pos = end
-            continue
-        base_at = _find_contiguous(html, base, pos)
-        if base_at is None or _inside_ruby_element(html, base_at[0]):
-            continue
-        start, end = base_at
-        reading_at = _reading_after(html, end, reading)
-        if reading_at is not None and not _inside_ruby_element(html, reading_at):
-            # Bold/span around the base: keep those tags, drop the glued reading.
-            parts.append(html[pos:start])
-            parts.append(_ruby_markup(base, reading, is_above))
-            parts.append(html[end:reading_at])
-            pos = reading_at + len(reading)
-            continue
+            start, end, next_pos = glued[0], glued[1], glued[1]
+        else:
+            base_at = _find_contiguous(html, base, pos)
+            if base_at is None or _inside_ruby_element(html, base_at[0]):
+                continue
+            start, end = base_at
+            reading_at = _reading_after(html, end, reading)
+            if reading_at is not None and not _inside_ruby_element(html, reading_at):
+                # Bold/span around the base: keep those tags, drop the glued reading.
+                extra, next_pos = html[end:reading_at], reading_at + len(reading)
+            else:
+                next_pos = end
         parts.append(html[pos:start])
         parts.append(_ruby_markup(base, reading, is_above))
-        pos = end
+        if extra:
+            parts.append(extra)
+        pos = next_pos
     parts.append(html[pos:])
     return "".join(parts)
 

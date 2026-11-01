@@ -33,11 +33,11 @@ def _record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, 
     return ph
 
 
-def _fallback_insert_para_text(dest_text: Any, cursor: Any, el: Any, caller: str) -> None:
+def _fallback_insert_para_text(dest_text: Any, cursor: Any, el: Any) -> None:
     try:
         dest_text.insertString(cursor, el.getString() if el else "", False)
     except Exception as exc:
-        log.debug("%s: paragraph text fallback failed: %s", caller, exc)
+        log.debug("paragraph text fallback failed: %s", exc)
 
 
 def _iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
@@ -50,11 +50,11 @@ def _iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
         yield portion, kind
 
 
-def _portion_field(portion: Any, caller: str) -> Any:
+def _portion_field(portion: Any) -> Any:
     try:
         return portion.getPropertyValue("TextField")
     except Exception as exc:
-        log.debug("%s: TextField unreadable: %s", caller, exc)
+        log.debug("TextField unreadable: %s", exc)
         return None
 
 
@@ -315,11 +315,10 @@ def _copy_visible_portions(
     cursor: Any,
     parent_el: Any,
     math_records: list[tuple[str, str, bool]] | None,
-    caller: str,
 ) -> None:
     for portion, kind in _iter_portions(portions):
         if kind == "TextField":
-            field = _portion_field(portion, caller)
+            field = _portion_field(portion)
             if field is None:
                 continue
             _copy_field_into(dest_doc, dest_text, cursor, field)
@@ -339,10 +338,9 @@ def _copy_cell_xtext(
     math_records: list[tuple[str, str, bool]] | None = None,
 ) -> None:
     """Copy one table cell: text + fields. Images in cells are not copied here."""
-    dest_text = dest_cell
     # Fresh cell; setString cannot fail here.
     dest_cell.setString("")
-    dest_cursor = dest_text.createTextCursor()
+    dest_cursor = dest_cell.createTextCursor()
     dest_cursor.gotoStart(False)
     try:
         para_enum = src_cell.createEnumeration()
@@ -358,13 +356,13 @@ def _copy_cell_xtext(
         if _supports_service(para, "com.sun.star.text.TextTable"):
             # Recreate the nested table inside dest_cell (same walk as body _copy_table).
             _copy_table(para, dest_doc, dest_cell, math_records=math_records)
-            dest_cursor = dest_text.createTextCursor()
+            dest_cursor = dest_cell.createTextCursor()
             dest_cursor.gotoEnd(False)
             first_para = False
             continue
         if not first_para:
             try:
-                dest_text.insertControlCharacter(dest_cursor, _PARAGRAPH_BREAK, False)
+                dest_cell.insertControlCharacter(dest_cursor, _PARAGRAPH_BREAK, False)
                 dest_cursor.gotoNextParagraph(False)
             except Exception as exc:
                 log.debug("_copy_cell_xtext: paragraph break failed: %s", exc)
@@ -372,9 +370,9 @@ def _copy_cell_xtext(
         try:
             portions = para.createEnumeration()
         except Exception:
-            _fallback_insert_para_text(dest_text, dest_cursor, para, "_copy_cell_xtext")
+            _fallback_insert_para_text(dest_cell, dest_cursor, para)
             continue
-        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, para, math_records, "_copy_cell_xtext")
+        _copy_visible_portions(portions, dest_doc, dest_cell, dest_cursor, para, math_records)
 
 
 def _writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -538,9 +536,9 @@ def _copy_xtext_by_portions(
         try:
             portions = el.createEnumeration()
         except Exception:
-            _fallback_insert_para_text(dest_text, dest_cursor, el, "_copy_xtext_by_portions")
+            _fallback_insert_para_text(dest_text, dest_cursor, el)
             continue
-        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records, "_copy_xtext_by_portions")
+        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records)
         _copy_para_properties_to_end(dest_text, dest_cursor, el)
 
 
@@ -605,12 +603,12 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
         try:
             portions = el.createEnumeration()
         except Exception:
-            _fallback_insert_para_text(dest_text, cursor, el, "_copy_flow_into_xtext")
+            _fallback_insert_para_text(dest_text, cursor, el)
             _copy_para_properties_to_end(dest_text, cursor, el)
             continue
         for portion, kind in _iter_portions(portions):
             if kind == "TextField":
-                field = _portion_field(portion, "_copy_flow_into_xtext")
+                field = _portion_field(portion)
                 if field is None:
                     continue
                 if _copy_field_into(doc, dest_text, cursor, field):
@@ -687,8 +685,6 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
             continue
         def copy_one() -> None:
             clone = dest_doc.createInstance("com.sun.star.text.TextGraphicObject")
-            if not clone:
-                return
             for prop in _ANCHORED_GRAPHIC_PROPS:
                 try:
                     clone.setPropertyValue(prop, shape.getPropertyValue(prop))
