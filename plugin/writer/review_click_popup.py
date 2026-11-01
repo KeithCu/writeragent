@@ -110,14 +110,6 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         log.warning("review_click_popup: popup failed", exc_info=True)
 
 
-def _post_after_double_click_window(fire: Any, *args: Any) -> None:
-    """Background: sleep out the double-click window, then hand *fire* to the main thread."""
-    from plugin.framework.queue_executor import post_to_main_thread
-
-    time.sleep(_DOUBLE_CLICK_SEC)
-    post_to_main_thread(fire, *args)
-
-
 def _make_handler(model: Any) -> Any:
     global _handler_cls
     if _handler_cls is None:
@@ -134,11 +126,17 @@ def _make_handler(model: Any) -> Any:
                 self._press = None
                 self._click_gen = 0
 
-            def _fire_if_single(self, gen: int, source: Any, x: int, y: int) -> None:
-                """Main thread, after the double-click window: pop only if no later press."""
-                if gen != self._click_gen:
-                    return
-                _show_popup_and_resolve(self._model, source, x, y)
+            def _deferred(self, gen: int, source: Any, x: int, y: int) -> None:
+                """Background: sleep out the double-click window, then post to main thread."""
+                time.sleep(_DOUBLE_CLICK_SEC)
+                from plugin.framework.queue_executor import post_to_main_thread
+
+                def _fire() -> None:
+                    if gen != self._click_gen:
+                        return
+                    _show_popup_and_resolve(self._model, source, x, y)
+
+                post_to_main_thread(_fire)
 
             def mousePressed(self, e: Any) -> bool:  # noqa: N802 -- UNO API
                 try:
@@ -157,7 +155,7 @@ def _make_handler(model: Any) -> Any:
 
                         # Defer past the double-click window (a second press bumps _click_gen
                         # and cancels), so the view finishes caret placement / word select first.
-                        run_in_background(_post_after_double_click_window, self._fire_if_single, self._click_gen, e.Source, e.X, e.Y, name="review-click-popup")
+                        run_in_background(self._deferred, self._click_gen, e.Source, e.X, e.Y, name="review-click-popup")
                 except Exception:
                     log.debug("review_click_popup: mouseReleased failed", exc_info=True)
                 return False  # never consume

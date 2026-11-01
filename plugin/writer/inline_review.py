@@ -472,8 +472,8 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
     tok, _text, left_range, right_range = items[chosen_idx]
     try:
         view_cursor = model.getCurrentController().getViewCursor()
-        left_bound = left_range.getStart() if hasattr(left_range, "getStart") else left_range
-        right_bound = right_range.getEnd() if hasattr(right_range, "getEnd") else right_range
+        left_bound = left_range.getStart()
+        right_bound = right_range.getEnd()
         view_cursor.gotoRange(left_bound, False)
         view_cursor.gotoRange(right_bound, True)
     except Exception:
@@ -544,7 +544,7 @@ def _user_redline_whitespace_adjacent(text: Any, span: Any, rl_span: Any) -> boo
 
 
 def _classify_span_conflicts(
-    rows: tuple[RedlineRow, ...] | RedlineView,
+    view: RedlineView,
     text: Any,
     span: Any,
     target_token: str | None,
@@ -552,12 +552,8 @@ def _classify_span_conflicts(
     sibling_tokens: set[str] | None = None,
 ) -> tuple[bool, bool]:
     """Classify redline rows against span. Returns (has_foreign_conflict, has_sibling_conflict)."""
-    if isinstance(rows, RedlineView):
-        if not rows.reliable:
-            return True, False
-        rows_tuple = rows.rows
-    else:
-        rows_tuple = rows
+    if not view.reliable:
+        return True, False
     has_sibling = False
 
     def mark(is_sibling: bool, row: RedlineRow, record: bool = False) -> bool:
@@ -569,7 +565,7 @@ def _classify_span_conflicts(
             return False
         return True
 
-    for r in rows_tuple:
+    for r in view.rows:
         if r.token is not None and r.token == target_token:
             continue
         is_sibling = bool(r.token is not None)
@@ -614,6 +610,41 @@ def _classify_span_conflicts(
     return False, has_sibling
 
 
+def _refusal_for_span(
+    view: RedlineView,
+    text: Any,
+    span: Any,
+    target_token: str,
+    refuse_sibling: bool,
+    foreign_msg: str,
+    sibling_msg: str,
+    *,
+    strict_sibling_edges: bool = False,
+    sibling_tokens: set[str] | None = None,
+) -> ResolveStatus | None:
+    has_foreign, has_sibling = _classify_span_conflicts(
+        view,
+        text,
+        span,
+        target_token,
+        strict_sibling_edges=strict_sibling_edges,
+        sibling_tokens=sibling_tokens,
+    )
+    if has_foreign:
+        log.debug(foreign_msg, target_token)
+        return ResolveStatus.REFUSED_FOREIGN
+    if refuse_sibling and has_sibling:
+        log.debug(sibling_msg, target_token)
+        return ResolveStatus.REFUSED_SIBLING
+    return None
+
+
+def _tracked_change_command(accept: bool, *, all_redlines: bool = False) -> str:
+    if all_redlines:
+        return ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
+    return ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
+
+
 def _execute_dispatch(ctx: Any, controller: Any, command: str) -> None:
     smgr = ctx.getServiceManager()
     dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
@@ -621,12 +652,12 @@ def _execute_dispatch(ctx: Any, controller: Any, command: str) -> None:
 
 
 def _dispatch_and_scan(
-    ctx: Any, controller: Any, model: Any, command: str, token: str, fail_msg: str
+    ctx: Any, controller: Any, model: Any, command: str, token: str
 ) -> tuple[RedlineView, bool]:
     try:
         _execute_dispatch(ctx, controller, command)
     except Exception:
-        log.exception(fail_msg, token)
+        log.exception("inline_review: dispatch failed for %s", token)
         return scan_redline_view(model), True
     return scan_redline_view(model), False
 
@@ -676,32 +707,35 @@ def resolve_agent_change(
 
     dispatched = False
     try:
-        command = ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
+        command = _tracked_change_command(accept)
         text = left.getText()
         controller = model.getCurrentController()
         view_cursor = controller.getViewCursor()
 
-        # 1) Exact-bounds path
         # 1) Precise path: select EXACTLY this change's marks and dispatch -- resolves only it.
         if prefer_exact:
             exact = text.createTextCursorByRange(left)
             exact.gotoRange(right, True)
             strict_siblings: set[str] = set()
-            has_foreign, has_sibling = _classify_span_conflicts(
-                before.rows, text, exact, token, strict_sibling_edges=True, sibling_tokens=strict_siblings
+            refusal = _refusal_for_span(
+                before,
+                text,
+                exact,
+                token,
+                refuse_sibling_agent,
+                "inline_review: refusing inline resolve of %s -- user redline overlaps",
+                "inline_review: refusing inline resolve of %s -- sibling agent change overlaps",
+                strict_sibling_edges=True,
+                sibling_tokens=strict_siblings,
             )
-            if has_foreign:
-                log.debug("inline_review: refusing inline resolve of %s -- user redline overlaps", token)
-                return ResolveResult(ResolveStatus.REFUSED_FOREIGN), before
-            if refuse_sibling_agent and has_sibling:
-                log.debug("inline_review: refusing inline resolve of %s -- sibling agent change overlaps", token)
-                return ResolveResult(ResolveStatus.REFUSED_SIBLING), before
+            if refusal is not None:
+                return ResolveResult(refusal), before
 
             view_cursor.gotoRange(left, False)
             view_cursor.gotoRange(right, True)
             dispatched = True
             after, failed = _dispatch_and_scan(
-                ctx, controller, model, command, token, "inline_review: exact dispatch failed for %s"
+                ctx, controller, model, command, token
             )
             if failed:
                 return ResolveResult(ResolveStatus.PARTIAL), after
@@ -721,7 +755,6 @@ def resolve_agent_change(
 
             log.debug("inline_review: exact resolve of %s was no-op; widening to paragraph", token)
 
-        # 2) Paragraph-wide path
         # 2) Paragraph-wide path (older LibreOffice, or resolve-all): resolves everything in range,
         #    so refuse when a redline that we must not touch shares those paragraphs.
         start = text.createTextCursorByRange(left)
@@ -731,21 +764,23 @@ def resolve_agent_change(
         para_span = text.createTextCursorByRange(start.getStart())
         para_span.gotoRange(end.getEnd(), True)
 
-        has_foreign, has_sibling = _classify_span_conflicts(
-            before.rows, text, para_span, token, strict_sibling_edges=False
+        refusal = _refusal_for_span(
+            before,
+            text,
+            para_span,
+            token,
+            refuse_sibling_agent,
+            "inline_review: refusing paragraph resolve of %s -- user redline in paragraph",
+            "inline_review: refusing paragraph resolve of %s -- sibling in paragraph",
         )
-        if has_foreign:
-            log.debug("inline_review: refusing paragraph resolve of %s -- user redline in paragraph", token)
-            return ResolveResult(ResolveStatus.REFUSED_FOREIGN), before
-        if refuse_sibling_agent and has_sibling:
-            log.debug("inline_review: refusing paragraph resolve of %s -- sibling in paragraph", token)
-            return ResolveResult(ResolveStatus.REFUSED_SIBLING), before
+        if refusal is not None:
+            return ResolveResult(refusal), before
 
         view_cursor.gotoRange(start.getStart(), False)
         view_cursor.gotoRange(end.getEnd(), True)
         dispatched = True
         after, failed = _dispatch_and_scan(
-            ctx, controller, model, command, token, "inline_review: paragraph dispatch failed for %s"
+            ctx, controller, model, command, token
         )
         if failed:
             return ResolveResult(ResolveStatus.PARTIAL), after
@@ -771,23 +806,12 @@ def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
     """Group dispatches into one undo step; keeps landed edits on failure."""
     um = None
     try:
-        if hasattr(model, "getUndoManager"):
-            candidate = model.getUndoManager()
-            if candidate is not None:
-                is_locked = False
-                if hasattr(candidate, "isLocked"):
-                    try:
-                        is_locked = bool(candidate.isLocked())
-                    except Exception:
-                        is_locked = False
-                if not is_locked:
-                    try:
-                        candidate.enterUndoContext(_("Resolve agent changes"))
-                        um = candidate
-                    except Exception:
-                        log.warning("inline_review: enterUndoContext failed, undo grouping skipped", exc_info=True)
-                else:
-                    log.warning("inline_review: undo manager is locked, undo grouping skipped")
+        candidate = model.getUndoManager()
+        if not candidate.isLocked():
+            candidate.enterUndoContext(_("Resolve agent changes"))
+            um = candidate
+        else:
+            log.warning("inline_review: undo manager is locked, undo grouping skipped")
     except Exception:
         log.warning("inline_review: could not access undo manager, undo grouping skipped", exc_info=True)
     try:
@@ -857,7 +881,7 @@ def _resolve_overlapping_agent_changes(
 
         span = text.createTextCursorByRange(left)
         span.gotoRange(right, True)
-        has_foreign, _unused_sibling = _classify_span_conflicts(before.rows, text, span, None)
+        has_foreign, _unused_sibling = _classify_span_conflicts(before, text, span, None)
         if has_foreign:
             return ResolveResult(ResolveStatus.REFUSED_FOREIGN, 0)
 
@@ -876,14 +900,14 @@ def _resolve_overlapping_agent_changes(
                     break
                 pass_span = text.createTextCursorByRange(left)
                 pass_span.gotoRange(right, True)
-                has_foreign, _unused_pass_sibling = _classify_span_conflicts(cur_view.rows, text, pass_span, None)
+                has_foreign, _unused_pass_sibling = _classify_span_conflicts(cur_view, text, pass_span, None)
                 if has_foreign:
                     break
                 view_cursor.gotoRange(left, False)
                 view_cursor.gotoRange(right, True)
                 try:
                     dispatched = True
-                    command = ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
+                    command = _tracked_change_command(accept)
                     _execute_dispatch(ctx, controller, command)
                 except Exception:
                     break
@@ -930,7 +954,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
     if _is_all_redlines_agent(entry_view):
         try:
             controller = model.getCurrentController()
-            command = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
+            command = _tracked_change_command(accept, all_redlines=True)
             _execute_dispatch(ctx, controller, command)
         except Exception:
             log.exception("inline_review: resolve-all global dispatch failed")
