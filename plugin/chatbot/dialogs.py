@@ -60,6 +60,28 @@ log = logging.getLogger("writeragent.dialogs")
 # ── Simple message box ──────────────────────────────────────────────
 
 
+def _execute_message_box(
+    ctx: Any,
+    window: Any,
+    box_type: int,
+    buttons: int,
+    title: str,
+    message: str,
+    *,
+    swallow_dispose: bool,
+) -> int:
+    smgr = ctx.getServiceManager()
+    toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    box = toolkit.createMessageBox(window, box_type, buttons, title, message)
+    try:
+        return box.execute()
+    finally:
+        if swallow_dispose:
+            best_effort(box.dispose, "show_approval_dialog dispose failed")
+        else:
+            box.dispose()
+
+
 def msgbox(
     ctx: Any,
     title: Any,
@@ -93,14 +115,8 @@ def msgbox(
                 log.info("MSGBOX (no frame) - %s: %s", title, message)
                 return
             window = frame.getContainerWindow()
-        smgr = ctx.getServiceManager()
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        box = toolkit.createMessageBox(window, box_type, 1, _(title), str(message))  # OK button
         log.debug("msgbox execute start title=%s", title)
-        try:
-            box.execute()
-        finally:
-            box.dispose()
+        _execute_message_box(ctx, window, box_type, 1, _(title), str(message), swallow_dispose=False)
         from plugin.framework.uno_context import process_events_to_idle
 
         process_events_to_idle(ctx)
@@ -131,24 +147,16 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
         if window is None:
             log.warning("show_approval_dialog: frame has no container window")
             return False
-        smgr = ctx.getServiceManager()
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         title = _("Agent requests approval")
         message = (description or _("Proceed with this action?")) + ("\n\n" + _("Tool: %s") % tool_name if tool_name else "")
         log.debug("show_approval_dialog: tool_name=%s parent_frame=%s", tool_name, parent_frame is not None)
         # 4 = QUERYBOX, 3 = BUTTONS_YES_NO. Result 2 = Yes (Approve), 3 = No (Reject), 1 = OK
         # msgbox() disposes in a finally. This box used to return after execute()
         # and leak the toolkit window. A dispose failure must not flip Yes/No.
-        box = toolkit.createMessageBox(window, 4, 3, title, message)
-        try:
-            result = box.execute()
-        finally:
-            best_effort(box.dispose, "show_approval_dialog dispose failed")
+        result = _execute_message_box(ctx, window, 4, 3, title, message, swallow_dispose=True)
         return result in (1, 2)
-    except Exception as e:
+    except Exception:
         log.exception("Approval dialog failed")
-        if "com.sun.star" in str(type(e)):
-            log.debug("Approval dialog UNO failure: %s", e)
         return False
 
 
@@ -186,26 +194,22 @@ def _run_text_dialog(
             best_effort(dlg.dispose, "dispose after prepare failed")
             raise
 
-        _outcome: list[str | None] | None = None
+        _outcome: str | None = None
 
         class _OkListener(BaseActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
                 ec = dlg.getControl(edit_name)
                 m = ec.getModel() if ec else None
-                _outcome = [(m.Text or "").strip() if m and hasattr(m, "Text") else ""]
+                _outcome = (m.Text or "").strip() if m and hasattr(m, "Text") else ""
                 dlg.endDialog(1)
 
         class _CancelListener(BaseActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
-                nonlocal _outcome
-                _outcome = [None]
                 dlg.endDialog(0)
 
         run_dialog_with_listeners(dlg, _OkListener(), _CancelListener())
-        if _outcome is None:
-            return None
-        return _outcome[0]
+        return _outcome
     except Exception:
         log.exception("%s failed", log_label)
         return None
@@ -352,10 +356,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
         issue_title = (report_title or title or "").strip()
         msg = (message or "").strip()
         rep = (report_extra or "").strip()
-        if msg and rep and rep != msg:
-            extra = f"{msg}\n\n{rep}"
-        else:
-            extra = rep or msg
+        extra = "\n\n".join(dict.fromkeys(filter(None, (msg, rep))))
         report_url = build_github_issue_url(title=issue_title, extra_body=extra, ctx=ctx)
 
         if title:
@@ -432,30 +433,7 @@ def _uno_impl_to_control_type(impl_name: str) -> str:
 
 def _dialog_model_element_names(dlg: Any) -> tuple[str, ...]:
     """Return control name strings from the dialog model (``ElementNames``), or ``()``."""
-    dm = dlg.getModel()
-    if dm is None:
-        return ()
-    en = getattr(dm, "ElementNames", None)
-    if en is not None:
-        return tuple(en)
-    return ()
-
-
-def _translate_model_help_text(model: Any) -> None:
-    """Translate UNO ``HelpText`` the same way labels are translated.
-
-    ``translate_dialog`` walks type-specific captions (Label, Text, Title,
-    StringItemList) and never sees ``HelpText``, so Settings ``dlg:help-text``
-    stays English even though those YAML helpers are already in the pot.
-
-    Edit and NumericField are not in ``control_types`` at all, so listing
-    HelpText only on that map still misses text and number fields.
-    """
-    if model is None:
-        return
-    current = getattr(model, "HelpText", None)
-    if isinstance(current, str) and current:
-        model.HelpText = _(current)
+    return tuple(getattr(dlg.getModel(), "ElementNames", None) or ())
 
 
 def translate_dialog(dlg: Any) -> None:
@@ -477,33 +455,32 @@ def translate_dialog(dlg: Any) -> None:
         try:
             impl_name = ctrl.getImplementationName()
             short_type = _uno_impl_to_control_type(impl_name)
+            model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
 
             for prop in control_types.get(short_type, ()):
                 if prop == "StringItemList":
                     # ListBox often exposes getStringItemList on the view; ComboBox
                     # typically only has StringItemList on the model.
-                    model = ctrl.getModel()
-                    used_control = False
                     if hasattr(ctrl, "getStringItemList"):
                         items = ctrl.getStringItemList()
                         if items:
                             translated = tuple(_(item) if item else "" for item in items)
                             ctrl.setStringItemList(translated)
-                        used_control = True
-                    if not used_control and model is not None:
+                    elif model is not None:
                         items = model.StringItemList
                         if items:
                             translated = tuple(_(item) if item else "" for item in items)
                             model.StringItemList = translated
                 else:
-                    model = ctrl.getModel()
                     if hasattr(model, prop):
                         current = getattr(model, prop)
                         if current:
                             setattr(model, prop, _(current))
 
-            help_model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-            _translate_model_help_text(help_model)
+            if model is not None:
+                help_text = getattr(model, "HelpText", None)
+                if isinstance(help_text, str) and help_text:
+                    model.HelpText = _(help_text)
 
             xcc = _xcc(ctrl)
             if xcc:
@@ -672,7 +649,7 @@ def _create_xdl_dialog(smgr: Any, ctx: Any, dialog_url: str) -> tuple[Any | None
             attempt_lines.append(f"{service}: {detail}")
             log.warning("createDialog via %s failed for %s:\n%s", service, dialog_url, detail)
 
-    provider_failure = "\n".join(attempt_lines) if attempt_lines else "no DialogProvider attempt recorded"
+    provider_failure = "\n".join(attempt_lines)
     log.warning("Failed to load XDL dialog %s:\n%s", dialog_url, provider_failure)
     return None, provider_failure
 
@@ -697,7 +674,7 @@ def load_writeragent_dialog_detail(dialog_name: str, ctx: Any | None = None) -> 
         return dlg, None
 
     diagnostics = _collect_xdl_load_diagnostics(ctx_any, url, dialog_name)
-    combined = f"{diagnostics}\n\n--- DialogProvider ---\n{provider_failure or '(no details)'}"
+    combined = f"{diagnostics}\n\n--- DialogProvider ---\n{provider_failure}"
     return None, combined
 
 
@@ -744,7 +721,7 @@ def is_checkbox_control(ctrl: Any) -> bool:
     return bool(best_effort(_check, "is_checkbox_control exception", default=False))
 
 
-def _set_control_prop(ctrl: Any, value: bool, method_name: str, prop_name: str, log_label: str) -> None:
+def _set_control_prop(ctrl: Any, value: bool | int, method_name: str, prop_name: str, log_label: str) -> None:
     if not ctrl:
         return
     def _apply() -> None:
@@ -778,8 +755,7 @@ def get_control_text(ctrl: Any, default: str = "") -> str:
         if hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Text"):
             return str(ctrl.getModel().Text)
         return default
-    res = best_effort(_get, "get_control_text exception", default=default)
-    return str(res if res is not None else default)
+    return best_effort(_get, "get_control_text exception", default=default)
 
 
 def set_control_text(ctrl: Any, text: str) -> None:
@@ -816,8 +792,7 @@ def get_checkbox_state(ctrl: Any) -> int:
         if hasattr(ctrl.getModel(), "State"):
             return int(ctrl.getModel().State)
         return 0
-    res = best_effort(_get, "get_checkbox_state exception", default=0)
-    return int(res if res is not None else 0)
+    return best_effort(_get, "get_checkbox_state exception", default=0)
 
 
 def set_checkbox_state(ctrl: Any, value: int) -> None:
@@ -825,14 +800,7 @@ def set_checkbox_state(ctrl: Any, value: int) -> None:
 
     Handles both control-level setState() and model-level State property.
     """
-    if not ctrl:
-        return
-    def _set() -> None:
-        if hasattr(ctrl, "setState"):
-            ctrl.setState(value)
-        elif hasattr(ctrl.getModel(), "State"):
-            ctrl.getModel().State = value
-    best_effort(_set, "set_checkbox_state error")
+    _set_control_prop(ctrl, value, "setState", "State", "set_checkbox_state")
 
 
 class TabListener(BaseActionListener):
