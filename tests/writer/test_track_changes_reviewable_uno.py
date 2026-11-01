@@ -34,7 +34,7 @@ from plugin.framework.config import set_config, get_config
 import plugin.writer.format as fmt
 import plugin.writer.html_import as html_import
 from plugin.writer.edit_review import _string_skipping_redline
-from plugin.writer.inline_review import resolve_all_agent_changes
+from plugin.writer.inline_review import _resolve_all_agent_changes
 
 _FLAG = "doc.agent_edit_review_mode"
 
@@ -861,7 +861,7 @@ def test_reject_all_and_undo_recovers_edit_uno(ctx, doc):
         res = tool.execute(tool_ctx, target="full_document", content=["<p>ALPHA INITIATIVE</p><p>PROJECT BETA</p>"])
         assert res.get("status") == "ok", res
 
-        resolve_res = resolve_all_agent_changes(doc, ctx, accept=False)
+        resolve_res = _resolve_all_agent_changes(doc, ctx, accept=False).resolved
         assert resolve_res >= 1, "at least one agent change resolved: %r" % resolve_res
 
         um = doc.getUndoManager()

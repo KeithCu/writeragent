@@ -17,7 +17,6 @@ from plugin.writer.inline_review import (
     ResolveResult,
     ResolveStatus,
     _resolve_all_agent_changes,
-    resolve_all_agent_changes,
     resolve_all_with_feedback,
 )
 
@@ -33,7 +32,7 @@ def _run_loop(tokens, blocked):
 
     def fake_view(model):
         rows = tuple(
-            RedlineRow(token=t, identifier=t, start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY)
+            RedlineRow(token=t, start=_DUMMY, end=_DUMMY, kind="Insert")
             for t in state["tokens"]
         )
         return RedlineView(reliable=True, total=len(rows), rows=rows)
@@ -48,7 +47,7 @@ def _run_loop(tokens, blocked):
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=fake_view), \
          patch("plugin.writer.inline_review.resolve_agent_change", side_effect=fake_resolve), \
          patch("plugin.writer.inline_review._is_all_redlines_agent", return_value=False):
-        n = resolve_all_agent_changes(MagicMock(), MagicMock(), True)
+        n = _resolve_all_agent_changes(MagicMock(), MagicMock(), True).resolved
     return n, state["tokens"]
 
 
@@ -99,7 +98,7 @@ def test_resolve_all_aborts_when_before_snapshot_unreliable():
 
 
 def test_resolve_all_aborts_when_snapshot_unreliable_mid_loop():
-    rows = (RedlineRow(token="A", identifier="A", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),)
+    rows = (RedlineRow(token="A", start=_DUMMY, end=_DUMMY, kind="Insert"),)
     entry_view = RedlineView(reliable=True, total=1, rows=rows)
     unreliable_view = RedlineView(reliable=False, total=1, rows=rows)
 
@@ -122,8 +121,8 @@ def test_feedback_unreliable_snapshot_reports_try_again():
 def test_resolve_all_global_unconfirmed_after_dispatch():
     views = [
         RedlineView(reliable=True, total=2, rows=(
-            RedlineRow(token="A", identifier="A", start=MagicMock(), end=MagicMock(), kind="Insert", text=MagicMock()),
-            RedlineRow(token="B", identifier="B", start=MagicMock(), end=MagicMock(), kind="Insert", text=MagicMock()),
+            RedlineRow(token="A", start=MagicMock(), end=MagicMock(), kind="Insert"),
+            RedlineRow(token="B", start=MagicMock(), end=MagicMock(), kind="Insert"),
         )),
         RedlineView(reliable=False, total=0, rows=()),
     ]
@@ -147,7 +146,7 @@ def test_resolve_all_unconfirmed_when_unreliable_after_a_resolve():
     def flaky_view(model):
         calls["n"] += 1
         reliable = calls["n"] <= 1
-        rows = (RedlineRow(token="A", identifier="A", start=MagicMock(), end=MagicMock(), kind="Insert", text=MagicMock()),)
+        rows = (RedlineRow(token="A", start=MagicMock(), end=MagicMock(), kind="Insert"),)
         return RedlineView(reliable=reliable, total=1, rows=rows)
 
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=flaky_view), \
@@ -170,8 +169,8 @@ def test_feedback_unconfirmed_reports_partial_not_nothing():
 
 def test_fast_path_noop_message_no_user_tracked_changes():
     rows = (
-        RedlineRow(token="A", identifier="A", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
-        RedlineRow(token="B", identifier="B", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+        RedlineRow(token="A", start=_DUMMY, end=_DUMMY, kind="Insert"),
+        RedlineRow(token="B", start=_DUMMY, end=_DUMMY, kind="Insert"),
     )
     view = RedlineView(reliable=True, total=2, rows=rows)
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=view), \
@@ -187,11 +186,11 @@ def test_fast_path_noop_message_no_user_tracked_changes():
 
 def test_fast_path_partial_clear_message_no_user_tracked_changes():
     before_rows = (
-        RedlineRow(token="A", identifier="A", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
-        RedlineRow(token="B", identifier="B", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+        RedlineRow(token="A", start=_DUMMY, end=_DUMMY, kind="Insert"),
+        RedlineRow(token="B", start=_DUMMY, end=_DUMMY, kind="Insert"),
     )
     after_rows = (
-        RedlineRow(token="B", identifier="B", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+        RedlineRow(token="B", start=_DUMMY, end=_DUMMY, kind="Insert"),
     )
     views = [
         RedlineView(reliable=True, total=2, rows=before_rows),
@@ -218,8 +217,8 @@ def test_fast_path_partial_clear_message_no_user_tracked_changes():
 
 def test_resolve_all_mixed_foreign_and_predispatch_failure_summary_not_shares_paragraph():
     rows = (
-        RedlineRow(token="A", identifier="A", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
-        RedlineRow(token="B", identifier="B", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+        RedlineRow(token="A", start=_DUMMY, end=_DUMMY, kind="Insert"),
+        RedlineRow(token="B", start=_DUMMY, end=_DUMMY, kind="Insert"),
     )
     view = RedlineView(reliable=True, total=2, rows=rows)
 
@@ -241,8 +240,8 @@ def test_resolve_all_mixed_foreign_and_predispatch_failure_summary_not_shares_pa
 
 def test_resolve_all_exact_retry_and_noop_suppression():
     rows = (
-        RedlineRow(token="A", identifier="A", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
-        RedlineRow(token="B", identifier="B", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+        RedlineRow(token="A", start=_DUMMY, end=_DUMMY, kind="Insert"),
+        RedlineRow(token="B", start=_DUMMY, end=_DUMMY, kind="Insert"),
     )
     view = RedlineView(reliable=True, total=2, rows=rows)
     calls = []
@@ -277,8 +276,8 @@ def test_resolve_all_exact_retry_and_noop_suppression():
 
 def test_resolve_all_exact_retry_removes_strict_sibling_included_in_bulk_count():
     rows_before = (
-        RedlineRow(token="A", identifier="A", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
-        RedlineRow(token="B", identifier="B", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+        RedlineRow(token="A", start=_DUMMY, end=_DUMMY, kind="Insert"),
+        RedlineRow(token="B", start=_DUMMY, end=_DUMMY, kind="Insert"),
     )
     view_before = RedlineView(reliable=True, total=2, rows=rows_before)
     view_after = RedlineView(reliable=True, total=0, rows=())
@@ -299,8 +298,8 @@ def test_resolve_all_exact_retry_removes_strict_sibling_included_in_bulk_count()
 
 def test_resolve_all_exact_retry_removed_outside_set_stays_partial():
     rows_before = (
-        RedlineRow(token="A", identifier="A", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
-        RedlineRow(token="B", identifier="B", start=_DUMMY, end=_DUMMY, kind="Insert", text=_DUMMY),
+        RedlineRow(token="A", start=_DUMMY, end=_DUMMY, kind="Insert"),
+        RedlineRow(token="B", start=_DUMMY, end=_DUMMY, kind="Insert"),
     )
     view_before = RedlineView(reliable=True, total=2, rows=rows_before)
     view_after = RedlineView(reliable=True, total=1, rows=(rows_before[1],))

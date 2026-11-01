@@ -3675,7 +3675,7 @@ def test_r2_user_redline_overlap(ctx):
 def test_r3_undo_track_changes(ctx):
     """Undo of an agent edit restores the text and leaves RecordChanges as it was."""
     from plugin.chatbot.sidebar_test_hooks import current_component, list_redlines, toggle_record_changes
-    from plugin.writer.inline_review import has_agent_changes
+    from plugin.writer.review_scan import agent_change_presence
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3695,7 +3695,7 @@ def test_r3_undo_track_changes(ctx):
 
     with _RReviewMode("record"):
         _send_and_wait("single agent edit", timeout=60.0)
-        assert has_agent_changes(doc), "R3 expected a pending agent change in record mode"
+        assert agent_change_presence(doc, stop_at_first=True)[0] > 0, "R3 expected a pending agent change in record mode"
         _r_pump_undo(ctx, frame)
         assert bool(doc.getPropertyValue("RecordChanges")) is False, "R3 undo left RecordChanges on"
         assert doc.getText().getString() == WELCOME_BODY, (
