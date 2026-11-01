@@ -504,4 +504,4 @@ class HttpServer:
     def get_status(self) -> dict[str, Any]:
         scheme = "https" if self.use_ssl else "http"
         base_url = "%s://%s:%s" % (scheme, self.host, self.port)
-        return {"running": self._running, "host": self.host, "port": self.port, "ssl": self.use_ssl, "url": base_url, "mcp_url": mcp_endpoint_url(self.host, self.port, self.use_ssl), "routes": self.route_registry.route_count, "thread_alive": (self._thread.is_alive() if self._thread else False)}
+        return {"running": self._running, "host": self.host, "port": self.port, "ssl": self.use_ssl, "url": base_url, "mcp_url": mcp_endpoint_url(self.host, self.port, self.use_ssl), "routes": len(self.route_registry.list_routes()), "thread_alive": (self._thread.is_alive() if self._thread else False)}

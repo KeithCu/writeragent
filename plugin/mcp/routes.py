@@ -38,21 +38,17 @@ class HttpRouteRegistry:
     """Registry of HTTP route handlers.
 
     HTTP worker threads read this table while MCP toggle registers and
-    unregister routes. ``_lock`` covers every read and write. ``GET /``
+    unregister routes. ``lock`` covers every read and write. ``GET /``
     copies the keys under that lock: without it, ``list(self._routes)``
     raises ``RuntimeError`` (dict changed size during iteration).
 
-    Hold :meth:`batch` across a multi-route register or unregister so a
+    Hold :attr:`lock` across a multi-route register or unregister so a
     concurrent read sees the set from before the batch or after it.
     """
 
     def __init__(self) -> None:
         self._routes: dict[tuple[str, str], Route] = {}  # (method, path) -> Route
-        self._lock: threading.RLock = threading.RLock()
-
-    def batch(self) -> threading.RLock:
-        """Lock held across several add/remove calls (reentrant)."""
-        return self._lock
+        self.lock: threading.RLock = threading.RLock()
 
     def add(self, method: str, path: str, handler: Callable[..., Any], raw: bool = False) -> None:
         """Register a route handler.
@@ -64,27 +60,22 @@ class HttpRouteRegistry:
             raw:         If False (default): fn(body, headers, query) -> (status, dict).
                          If True: fn(http_handler) -> None (writes directly).
         """
-        key = (method.upper(), path)
-        with self._lock:
+        key = (method, path)
+        with self.lock:
             self._routes[key] = Route(handler=handler, raw=raw)
 
     def remove(self, method: str, path: str) -> None:
         """Unregister a route."""
-        key = (method.upper(), path)
-        with self._lock:
+        key = (method, path)
+        with self.lock:
             self._routes.pop(key, None)
 
     def match(self, method: str, path: str) -> Route | None:
         """Return Route(handler, raw) or None."""
-        with self._lock:
-            return self._routes.get((method.upper(), path))
-
-    @property
-    def route_count(self) -> int:
-        with self._lock:
-            return len(self._routes)
+        with self.lock:
+            return self._routes.get((method, path))
 
     def list_routes(self) -> list[tuple[str, str]]:
         """Return a snapshot of (method, path) tuples."""
-        with self._lock:
+        with self.lock:
             return list(self._routes.keys())
