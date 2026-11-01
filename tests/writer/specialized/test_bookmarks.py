@@ -205,7 +205,7 @@ def test_ensure_heading_bookmarks_never_stores():
     text.createEnumeration.return_value = enum
     doc.getText.return_value = text
     doc.getBookmarks.return_value.getElementNames.return_value = []
-    BookmarkService().ensure_heading_bookmarks(doc)
+    BookmarkService().ensure_heading_bookmarks(doc, [])
     doc.store.assert_not_called()
 
 
@@ -331,7 +331,7 @@ def test_ensure_removes_mcp_bookmark_when_heading_is_demoted(monkeypatch):
             "Mine": _Mark("Mine", para=2),
         },
     )
-    result = BookmarkService().ensure_heading_bookmarks(doc)
+    result = BookmarkService().ensure_heading_bookmarks(doc, [1, 3])
     assert result[1] == "_mcp_keep"
     assert result[3].startswith("_mcp_")
     assert result[3] != "_mcp_old"
@@ -359,7 +359,7 @@ def test_ensure_drops_unplaced_mcp_bookmark_instead_of_paragraph_zero(monkeypatc
         [_Para("Title", 1)],
         {"_mcp_stale": _Mark("_mcp_stale", anchor=_Broken())},
     )
-    result = BookmarkService().ensure_heading_bookmarks(doc)
+    result = BookmarkService().ensure_heading_bookmarks(doc, [0])
     assert result[0].startswith("_mcp_")
     assert result[0] != "_mcp_stale"
     assert "_mcp_stale" not in doc.bookmarks
@@ -382,7 +382,7 @@ def test_ensure_keeps_demoted_bookmark_during_save_hook(monkeypatch):
     svc = BookmarkService()
     doc_key = svc._doc_key(doc)
     with _in_save_hook(doc_key):
-        result = svc.ensure_heading_bookmarks(doc)
+        result = svc.ensure_heading_bookmarks(doc, [1])
     assert result[1] == "_mcp_keep"
     assert "_mcp_old" in doc.bookmarks
 
@@ -417,7 +417,7 @@ def test_ensure_heading_bookmarks_raising_map_read(monkeypatch):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(svc, "_read_mcp_bookmark_map_and_names", raise_map)
-    result = svc.ensure_heading_bookmarks(doc)
+    result = svc.ensure_heading_bookmarks(doc, [])
     assert result == {}
     assert "_mcp_existing" in doc.bookmarks
 
@@ -468,7 +468,7 @@ def test_restore_after_save_failure_leaves_pending(monkeypatch):
         return {}
 
     monkeypatch.setattr(svc, "_reinsert_named", fake_reinsert)
-    svc.ensure_heading_bookmarks(doc)
+    svc.ensure_heading_bookmarks(doc, [0])
     assert doc_key not in _PENDING_STRIPS
     assert called_restore == [{0: "_mcp_saved"}]
 
@@ -499,7 +499,7 @@ def test_ensure_heading_bookmarks_collision_retries(monkeypatch):
     doc.insertTextContent = lambda cursor, bookmark, absorb: inserted.append(bookmark)
     doc.getBookmarks().hasByName = lambda name: True
 
-    result = svc.ensure_heading_bookmarks(doc)
+    result = svc.ensure_heading_bookmarks(doc, [0])
     assert 0 not in result
     assert not inserted
 
@@ -507,7 +507,7 @@ def test_ensure_heading_bookmarks_collision_retries(monkeypatch):
         [_Para("Title", 1)],
         {},
     )
-    result2 = svc.ensure_heading_bookmarks(doc2)
+    result2 = svc.ensure_heading_bookmarks(doc2, [0])
     assert 0 in result2
     assert result2[0].startswith("_mcp_")
 
@@ -538,11 +538,11 @@ def test_save_hook_key_doc_a_does_not_suppress_doc_b(monkeypatch):
 
     with _in_save_hook(key_a):
         # Doc A is in save hook: demoted is NOT pruned
-        svc.ensure_heading_bookmarks(doc_a)
+        svc.ensure_heading_bookmarks(doc_a, [0])
         assert "_mcp_a_old" in doc_a.bookmarks
 
         # Doc B is NOT in save hook: abandoned is restored and demoted IS pruned
-        svc.ensure_heading_bookmarks(doc_b)
+        svc.ensure_heading_bookmarks(doc_b, [0])
         assert key_b not in _PENDING_STRIPS
         assert "_mcp_b_old" not in doc_b.bookmarks
 
