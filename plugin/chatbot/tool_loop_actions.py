@@ -495,9 +495,9 @@ def current_turn(host: Any) -> TurnController | None:
 def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool = True) -> None:
     """Re-import the last assistant message as HTML when rich sidebar is active.
 
-    Skip HTML rerender after an API error. Drain ERROR appends ``[API error: …]``
-    after ``_assistant_stream_start_len``; rerender looks up the previous HTML
-    assistant message and ``truncate_control_from`` would delete that error line
+    Skip HTML rerender after an API error. Drain ERROR appends ``[API error: …]``;
+    rerender looks up the previous HTML assistant message and
+    ``truncate_control_from`` would delete that error line
     (Packet F HTTP 429/500 looked like a leftover hello).
 
     Skip rerender after Stop. The Stop path already stored the partial answer

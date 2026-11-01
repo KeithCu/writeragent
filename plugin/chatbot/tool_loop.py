@@ -116,7 +116,6 @@ class ToolLoopHost(Protocol):
     sidebar_state: Any
     _terminal_status: str
 
-    _record_assistant_start: bool
     _turn: Any
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
@@ -391,7 +390,6 @@ class ToolCallingMixin:
     audio_wav_path: str | None = None
     sidebar_state: Any = None
     _terminal_status: str = "Ready"
-    _record_assistant_start: bool = False
     _turn: Any = None
 
     @property
@@ -691,8 +689,6 @@ class ToolCallingMixin:
         if not force_compact:
             self._panel._set_status(resume_status)
 
-        self._panel._record_assistant_start = True
-
         turn, bound_session, stop_checker, emit, stopped_for_this_send = self._bind_spawn(client)
 
         def run() -> None:
@@ -767,7 +763,6 @@ class ToolCallingMixin:
         update_activity_state("exhausted_rounds")
         self._panel._set_status("Finishing...")
         self._panel._append_response("\nAI: ")
-        self._panel._record_assistant_start = True
 
         turn, bound_session, stop_checker, emit, stopped_for_this_send = self._bind_spawn(client)
 
@@ -1050,7 +1045,6 @@ class ToolCallingMixin:
         log.info("=== Tool-calling loop START (max %d rounds) ===" % max_tool_rounds)
         # Overflow retry counters live on the fresh per-send TurnController.
         self._panel._append_response("\nAI: ")
-        self._panel._record_assistant_start = True
 
         def _get_async_tools() -> frozenset[str]:
             from plugin.main import get_tools as _get_tools_registry

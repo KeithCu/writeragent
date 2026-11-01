@@ -143,7 +143,7 @@ def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
 
 def iter_debug_live_chat_panels() -> list[Any]:
     """debug-only: omitted in release."""
-    if not _debug_env_active("WRITERAGENT_TESTING"):
+    if not _debug_env_active():
         return []
     return list(_LIVE_CHAT_PANELS)
 
@@ -633,7 +633,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """Update the response control with the contents of the given session."""
         try:
             if self.rich_text_widget:
-                self.rich_text_widget.render_session_history(session, greeting)
+                self.rich_text_widget.paint_session(session, greeting)
                 return
 
             if response_ctrl and response_ctrl.getModel():
@@ -1034,7 +1034,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     return
                 # Settings refresh rebuilds this combo. Model/image listeners
                 # already ignore that; without the same guard, removeItems
-                # applies Chat and render_session_history clears the transcript.
+                # applies Chat and paint_session clears the transcript.
                 if getattr(self.panel, "_in_refresh_controls", False):
                     return
                 # A click during processEventsToIdle used to swap host.session

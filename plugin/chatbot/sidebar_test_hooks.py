@@ -87,7 +87,7 @@ def iter_live_chat_panels() -> list[Any]:
 
 
 def _require_debug() -> None:
-    if not _debug_env_active("WRITERAGENT_TESTING"):
+    if not _debug_env_active():
         raise RuntimeError(_HOOKS_UNAVAILABLE)
 
 

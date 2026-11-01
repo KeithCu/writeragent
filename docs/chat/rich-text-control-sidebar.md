@@ -35,7 +35,7 @@ When the setting is off, behavior reverts to the legacy plain-text sidebar; mode
 
 During an assistant stream, text is appended as **plain** characters on the RichTextControl (styled with assistant body color). Chunks go through [`StreamingHTMLStripper`](../../plugin/framework/html_stripper.py) (`SendButtonListener._plain_text_stripper` in [`panel.py`](../../plugin/chatbot/panel.py)) so raw HTML tags are not shown mid-stream. Fallback path uses `strip_html_tags` when the stateful stripper is unset. A tag is a known HTML element whose name is followed by a delimiter — end of the tag (`<b>`, `</em>`), whitespace (`<a href="x">`, `<b >`), or a self-closing slash token (`<br/>`, `<a/>`) — a `<!` / `<?` declaration, or any self-closing tag (`<widget/>`). Angle-bracket tokens that are not tags — `List<String>`, `<https://…>`, `<user@host>`, or an element name glued to prose (`<a@b.com>`, `<b, c>`, `<em@x>`) — stay in the live stream and in the committed paint. `contains_html_tag` uses that same check, so the hidden-doc paint does not treat those tokens as leftover HTML.
 
-After **`STREAM_DONE`** / **`FINAL_DONE`**, if the final assistant message contains HTML tags (detected by `contains_html_tag`), the sidebar **re-renders only the tail** of that message: it cuts from `_formatted_len` (`_assistant_stream_start_len` is only logged), then pastes formatted content via the hidden-Writer bridge. Earlier messages in the control keep their formatting.
+After **`STREAM_DONE`** / **`FINAL_DONE`**, if the final assistant message contains HTML tags (detected by `contains_html_tag`), the sidebar **re-renders only the tail** of that message: it cuts from `_formatted_len`, then pastes formatted content via the hidden-Writer bridge. Earlier messages in the control keep their formatting.
 
 Producer-side **250 ms batching** of stream chunks reduces UI stutter; see [../framework/streaming-and-threading.md](../framework/streaming-and-threading.md).
 
@@ -68,7 +68,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | Post-stream HTML rerender | `SendButtonListener.rerender_rich_text_session` → `RichTextChatWidget.rerender_last_assistant_if_html` |
 | Truncate stream tail without flattening earlier formatting | `truncate_control_from` (cursor delete, not `model.Text = ""`) |
 | Reveal caret without stealing query focus | `reveal_rich_control_caret` passes that panel's Ask field to `focus_preserved`. Stream chunks call the frame session's `restore_focus`. |
-| History reload paints `session.messages` | `RichTextChatWidget.render_session_history` → `paint_message_items` |
+| History reload paints `session.messages` | `RichTextChatWidget.paint_session` → `paint_message_items` |
 | Resize / fill the column | [`panel_resize.py`](../../plugin/chatbot/panel_resize.py) stretches `response` / query / status / selectors to the panel margin; [`sync_rich_control_bounds`](../../plugin/chatbot/rich_text_control.py) insets `response_rich` inside that placeholder. Width negotiation is [`sidebar_column_width`](../../plugin/framework/sidebar_column.py) (fill the deck box; ignore frame-sized `getHeightForWidth` hints) |
 | LLM HTML format instructions gated on config | `get_chat_response_format_instructions` → `RICH_CHAT_SIDEBAR_INSTRUCTIONS` |
 | Web research / librarian share same format + finalize | `finalize_sidebar_assistant_response` in `tool_loop_actions.py` |
@@ -180,7 +180,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 |---------|----------|
 | Enable control, hide plain field | [`panel_wiring.py`](../../plugin/chatbot/panel_wiring.py) § Rich Text Control — constructs `RichTextChatWidget` |
 | Send / stream / rerender | [`panel.py`](../../plugin/chatbot/panel.py) `SendButtonListener` via `rich_text_widget` |
-| Session clear / history render | [`panel_factory.py`](../../plugin/chatbot/panel_factory.py) via `rich_text_widget.render_session_history` |
+| Session clear / history render | [`panel_factory.py`](../../plugin/chatbot/panel_factory.py) via `rich_text_widget.paint_session` |
 | Resize stretch | [`panel_resize.py`](../../plugin/chatbot/panel_resize.py) (`compute_chat_panel_layout`, `last_response_rect` → `sync_rich_control_bounds`) |
 | Stream finalize hook | [`tool_loop.py`](../../plugin/chatbot/tool_loop.py), [`send_handlers.py`](../../plugin/chatbot/send_handlers.py) → `finalize_sidebar_assistant_response` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) |
 | Config schema | [`module.yaml`](../../plugin/chatbot/module.yaml) `rich_text_control_sidebar` |
@@ -246,7 +246,7 @@ Resize: stock `layoutWindow()` always `SetVisArea(Point())`, so every `setPosSiz
 
 Width at creation/sync uses `last_response_rect` (placeholder fill, inset only). Do not cap to the Clear button — that left a gutter when the panel grew.
 
-The rerender cut is the widget’s `_formatted_len`; `stream_start_len` is only logged. Rich appends from the main-thread drain loop run **inline** (`_run_rich_ui`) so caret reveal runs before the next queue item.
+The rerender cut is the widget’s `_formatted_len`. Rich appends from the main-thread drain loop run **inline** (`_run_rich_ui`) so caret reveal runs before the next queue item.
 
 ### Manual QA checklist
 

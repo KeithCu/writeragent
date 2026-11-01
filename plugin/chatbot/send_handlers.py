@@ -825,14 +825,12 @@ class SendHandlersMixin:
 
                         cache_block = web_research_cache_chat_text(data)
                         answer = cache_block + answer
-                    self._panel._record_assistant_start = True
                     turn.put((StreamQueueKind.CHUNK, answer + "\n"))
                     turn.put((StreamQueueKind.STREAM_DONE, {"assistant_content": answer}))
                 elif spec.finish_builder is not None and data.get("status") in ("finished", "switch_mode"):
                     answer, done_payload = spec.finish_builder(data)
                     if not isinstance(answer, str):
                         answer = str(answer)
-                    self._panel._record_assistant_start = True
                     turn.put((StreamQueueKind.CHUNK, answer + "\n"))
                     turn.put((StreamQueueKind.STREAM_DONE, done_payload))
                 else:

@@ -19,10 +19,7 @@ def _make_send_listener():
 
     send = make_mock_send_button_listener()
     send.rich_text_widget = MagicMock()
-    send.rich_text_widget.get_text_length.return_value = 500
     send.queue_executor = MagicMock()
-    send._record_assistant_start = False
-    send._assistant_stream_start_len = None
     send.session.messages = []
     begin_send_turn(send, "chat")
     return send
@@ -31,15 +28,12 @@ def _make_send_listener():
 class TestRichAppendResponse:
     def test_chunk_updates_the_message_list_then_paints(self):
         send = _make_send_listener()
-        send._record_assistant_start = True
         with (
             patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             send._append_response("<p>Report</p>", role="assistant")
 
-        assert send._assistant_stream_start_len == 500
-        send.rich_text_widget.get_text_length.assert_called_once()
         assert send.session.messages[-1]["content"] == "Report"
         assert send.session.messages[-1]["_open_transcript"] is True
         send.rich_text_widget.stream_session.assert_called_once_with(send.session)
@@ -102,29 +96,3 @@ class TestRichAppendResponse:
         send.queue_executor.post.assert_called_once()
         send.rich_text_widget.paint_session.assert_not_called()
         assert send.session.messages == []
-
-    def test_web_research_final_answer_start_len_after_search_steps(self):
-        """Final answer must re-mark stream start after search chunks, not after user message."""
-        send = _make_send_listener()
-        send._assistant_stream_start_len = 100  # after user message (from on_after_insert)
-        send.rich_text_widget.get_text_length.return_value = 500  # after search steps
-        send._record_assistant_start = True
-
-        with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
-            patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
-        ):
-            send._append_response("<p>Report</p>", role="assistant")
-
-        assert send._assistant_stream_start_len == 500
-
-        send.rich_text_widget.rerender_last_assistant_if_html = MagicMock()
-        send.session.messages = [{"role": "assistant", "content": "<p>Report</p>"}]
-        send.rich_text_widget.rerender_last_assistant_if_html(
-            send.session,
-            send._assistant_stream_start_len,
-        )
-        send.rich_text_widget.rerender_last_assistant_if_html.assert_called_once_with(
-            send.session,
-            500,
-        )
