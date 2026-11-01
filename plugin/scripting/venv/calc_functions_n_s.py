@@ -10,7 +10,6 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 from __future__ import annotations
 
 import datetime as dt
-from functools import wraps
 from itertools import islice
 import math
 import sys
@@ -28,6 +27,7 @@ from .calc_functions_util import (
     _criteria_numbers,
     _extract_numeric_array,
     _is_calc_error,
+    _nan_on_error,
     _npf_result,
     _parse_weekend,
     _scipy_stats,
@@ -90,18 +90,8 @@ __all__ = [
 ]
 
 
-# Whole-body NaN handler for ValueError, TypeError, and OverflowError only.
-# Leave a try that does not cover the whole function, and leave any except
-# that is not exactly this tuple.
-def _nan_on_error(fn: Any) -> Any:
-    @wraps(fn)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return fn(*args, **kwargs)
-        except (ValueError, TypeError, OverflowError):
-            return float("nan")
-
-    return wrapper
+def _finite_or_nan(x: float) -> float:
+    return x if math.isfinite(x) else float("nan")
 
 
 def na() -> float:
@@ -174,15 +164,13 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
     return float(sign * max(0, days))
 
 
+@_nan_on_error
 def nominal(effect_rate: Any, npery: Any) -> float:
-    try:
-        er = float(effect_rate)
-        # int(float(+inf)) and float() of an oversized period count raise
-        # OverflowError. The old except missed it, so NOMINAL crashed. Excel
-        # is #NUM!, returned here as NaN.
-        np_y = int(float(npery))
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    er = float(effect_rate)
+    # int(float(+inf)) and float() of an oversized period count raise
+    # OverflowError. The old except missed it, so NOMINAL crashed. Excel
+    # is #NUM!, returned here as NaN.
+    np_y = int(float(npery))
     # Excel NOMINAL(0, npery) is 0. Only a negative effective rate is #NUM!.
     if er < 0 or np_y < 1:
         return float("nan")
@@ -192,7 +180,7 @@ def nominal(effect_rate: Any, npery: Any) -> float:
     # LibreOffice rejects rate <= 0, and this helper does not.
     # base ≥ 1, exponent ≤ 1: the power cannot overflow; isfinite below covers the product.
     res = np_y * ((er + 1) ** (1.0 / np_y) - 1)
-    return res if math.isfinite(res) else float("nan")
+    return _finite_or_nan(res)
 
 
 @_nan_on_error
@@ -210,7 +198,7 @@ def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
         res = 0.5 * math.erfc(-z / math.sqrt(2.0))
     else:
         res = math.exp(-0.5 * z * z) / (s * math.sqrt(2.0 * math.pi))
-    return res if math.isfinite(res) else float("nan")
+    return _finite_or_nan(res)
 
 
 @_nan_on_error
@@ -222,7 +210,7 @@ def norminv(prob: Any, mean: Any, stdev: Any) -> float:
         return float("nan")
     # gaussinv(p) is the standard-normal inverse CDF.
     res = m + s * statistics.NormalDist().inv_cdf(p)
-    return res if math.isfinite(res) else float("nan")
+    return _finite_or_nan(res)
 
 
 def normsdist(z: Any) -> float:
@@ -334,7 +322,7 @@ def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     if _NUMBER_TEXT.fullmatch(s) is None:
         return float("nan")
     value = float(s) * (10.0 ** (-2 * percent))
-    return value if math.isfinite(value) else float("nan")
+    return _finite_or_nan(value)
 
 
 @_nan_on_error
@@ -422,7 +410,7 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     if isinstance(tail, complex) or tail == 0:
         return float("nan")
     price += red / tail
-    return float(price) if math.isfinite(price) else float("nan")
+    return _finite_or_nan(float(price))
 
 
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
@@ -503,7 +491,7 @@ def pearson(data1: Any, data2: Any) -> float:
         return float("nan")
     # ScPearson is the correlation. np.corrcoef is the same value rsq squares.
     corr = float(np.corrcoef(d1_clean, d2_clean)[0, 1])
-    return corr if math.isfinite(corr) else float("nan")
+    return _finite_or_nan(corr)
 
 
 def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
@@ -740,12 +728,10 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
         return float("nan")
 
 
+@_nan_on_error
 def rept(text: Any, n: Any) -> str | float:
-    try:
-        count = int(float(n))
-    except (ValueError, TypeError, OverflowError):
-        # A text count used to return "". GetStringPositionArgument does not.
-        return float("nan")
+    # A text count used to return "". GetStringPositionArgument does not.
+    count = int(float(n))
     # `"text" * -1` is "" in Python and does not raise. Excel REPT truncates
     # first, then returns #VALUE! when the count is still negative.
     if count < 0:
@@ -796,7 +782,7 @@ def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
             if isinstance(term, complex):
                 return float("nan")
             res += term
-        return float(res) if math.isfinite(res) else float("nan")
+        return _finite_or_nan(float(res))
     except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return float("nan")
 
@@ -816,7 +802,7 @@ def skew(*args: Any) -> float:
     mean = float(np.mean(arr))
     acc = float(np.sum(((arr - mean) / s) ** 3))
     res = n * acc / ((n - 1) * (n - 2))
-    return float(res) if math.isfinite(res) else float("nan")
+    return _finite_or_nan(float(res))
 
 
 def slope(data_y: Any, data_x: Any) -> float:
@@ -1007,7 +993,7 @@ def sqrtpi(number: Any) -> float:
     # Why this change fixes it: AnalysisAddIn::getSqrtpi returns
     # finiteOrThrow. A non-finite root is NaN.
     res = math.sqrt(n * math.pi)
-    return res if math.isfinite(res) else float("nan")
+    return _finite_or_nan(res)
 
 
 @_nan_on_error
@@ -1075,16 +1061,14 @@ def _cell_number(val: Any) -> float | None:
         return None
 
 
+@_nan_on_error
 def subtotal(fn_num: Any, r: Any) -> float:
     # int(float(fn_num)) raises on text. Match small() / steyx and return NaN.
-    try:
-        fn = int(float(fn_num))
-        # dtype=object keeps True and "5" distinct. Default asarray turned
-        # [1, True, "5"] into strings, then float("True") dropped the bool
-        # and float("5") added the text.
-        flat = np.asarray(r, dtype=object).ravel()
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    fn = int(float(fn_num))
+    # dtype=object keeps True and "5" distinct. Default asarray turned
+    # [1, True, "5"] into strings, then float("True") dropped the bool
+    # and float("5") added the text.
+    flat = np.asarray(r, dtype=object).ravel()
     # ScSubTotal (interpr1.cxx) subtracts 100 once for the hidden-row codes
     # 101–111. This helper cannot see hidden rows, so 109 is still SUM.
     # fn % 100 mapped 201 onto AVERAGE and 211 onto VARP.
@@ -1094,10 +1078,7 @@ def subtotal(fn_num: Any, r: Any) -> float:
         return float("nan")
     nums: list[float] = []
     for x in flat:
-        try:
-            v = _cell_number(x)
-        except OverflowError:
-            return float("nan")
+        v = _cell_number(x)
         if v is None:
             continue
         # What was wrong: SUBTOTAL skipped a numeric NaN, so SUM of an
@@ -1177,6 +1158,7 @@ def sumifs(sr: Any, *args: Any) -> float:
     return float(sum(vals))
 
 
+@_nan_on_error
 def sumproduct(*args: Any) -> float:
     if not args:
         return 0.0
@@ -1191,11 +1173,7 @@ def sumproduct(*args: Any) -> float:
     for i in range(flat[0].size):
         prod = 1.0
         for arr in flat:
-            try:
-                val = _cell_number(arr[i])
-            except OverflowError:
-                # float(10**10000) used to escape the ValueError handler.
-                return float("nan")
+            val = _cell_number(arr[i])
             # Blank and text are a zero factor. A numeric NaN stays NaN.
             if val is None:
                 prod = 0.0
@@ -1209,17 +1187,15 @@ def sumproduct(*args: Any) -> float:
     # TreatDoubleError, which rejects a non-finite total.
     # Why this change fixes it: a non-finite total is NaN. A numeric NaN
     # still fails isfinite, so it stays NaN.
-    return float(total) if math.isfinite(total) else float("nan")
+    return _finite_or_nan(float(total))
 
 
+@_nan_on_error
 def sumsq(*args: Any) -> float:
     total = 0.0
     for arg in args:
         for val in np.asarray(arg, dtype=object).ravel():
-            try:
-                num = _cell_number(val)
-            except OverflowError:
-                return float("nan")
+            num = _cell_number(val)
             if num is None:
                 continue
             # What was wrong: SUMSQ skipped a numeric NaN, so an error cell
@@ -1239,7 +1215,7 @@ def sumsq(*args: Any) -> float:
     # PushDouble, and TreatDoubleError rejects a non-finite total.
     # Why this change fixes it: a non-finite total is NaN. The huge-int
     # OverflowError path above is unchanged.
-    return float(total) if math.isfinite(total) else float("nan")
+    return _finite_or_nan(float(total))
 
 
 def py_str(val: Any) -> str:
