@@ -18,9 +18,11 @@ def _split_axis(address: str) -> tuple[str, str, str] | None:
     start, has_sep, end = address.partition(":")
     if not has_sep or not start or not end:
         return None
-    if start.isascii() and end.isascii() and start.isalpha() and end.isalpha():
+    if not (start.isascii() and end.isascii()):
+        return None
+    if start.isalpha() and end.isalpha():
         return "col", start.upper(), end.upper()
-    if start.isascii() and end.isascii() and start.isdigit() and end.isdigit():
+    if start.isdigit() and end.isdigit():
         return "row", start, end
     return None
 

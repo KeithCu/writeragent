@@ -20,6 +20,7 @@ from plugin.calc.spreadsheet_import.models import (
     OutputSheetModel,
     SheetModel,
     TodoCell,
+    formula_output_cell,
     output_cell_from_record,
 )
 from plugin.calc.spreadsheet_import.range_clip import clip_workbook_data_ranges
@@ -46,6 +47,15 @@ def _has_function_node(node: Any) -> bool:
         return True
 
 
+def _parsed_has_function(formula: str | None, what: str) -> bool | None:
+    if not formula:
+        return None
+    ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(formula)), what)
+    if ast is None:
+        return None
+    return _has_function_node(ast)
+
+
 def emit_py_formula(code: str, data_ranges: list[str], *, sheet_bounds: dict[str, tuple[int, int]] | None = None, current_sheet: str | None = None) -> str:
     """Build canonical ``=PY("…"; ranges…)``."""
     clipped = clip_workbook_data_ranges(data_ranges, sheet_bounds=sheet_bounds, current_sheet=current_sheet)
@@ -64,11 +74,10 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
         group_formulas: dict[str, str] = {}
         try:
             first_record = model.cells[first_addr]
-            assert first_record.formula
-            ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(first_record.formula)), "vector parse formula")
-            if ast is None or not _has_function_node(ast):
+            formula = first_record.formula
+            if not formula or _parsed_has_function(formula, "vector parse formula") is not True:
                 continue
-            translation = translate_formula(first_record.formula, cell_addr=first_addr)
+            translation = translate_formula(formula, cell_addr=first_addr)
             if translation.ok and translation.code and translation.data_ranges is not None and not translation_has_cross_sheet_ranges(translation.data_ranges) and "calc.fmt(" not in translation.code:
                 last_addr = group[-1]
                 row_delta = parse_address(last_addr)[1] - parse_address(first_addr)[1]
@@ -93,7 +102,7 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             log.exception("build_converted_output_model: vector group at %s failed", first_addr)
             continue
         for addr, formula in group_formulas.items():
-            cells[addr] = OutputCell(address=addr, value=None, formula=formula, number_format=None)
+            cells[addr] = formula_output_cell(addr, formula)
         report.converted.extend(group_formulas)
 
     def _pass_through(addr: str, record: CellRecord, reason: str | None) -> None:
@@ -120,15 +129,14 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             _pass_through(addr, record, "CIRCULAR_REF")
             continue
 
-        ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(record.formula)), "parse formula")
-        if ast is not None and not _has_function_node(ast):
+        if _parsed_has_function(record.formula, "parse formula") is False:
             _pass_through(addr, record, None)
             continue
 
         try:
             translation = translate_formula(record.formula, cell_addr=addr)
             if translation.ok and translation.code and translation.data_ranges is not None:
-                cells[addr] = OutputCell(address=addr, value=None, formula=emit_py_formula(translation.code, translation.data_ranges, sheet_bounds=sheet_bounds, current_sheet=model.sheet_name), number_format=None)
+                cells[addr] = formula_output_cell(addr, emit_py_formula(translation.code, translation.data_ranges, sheet_bounds=sheet_bounds, current_sheet=model.sheet_name))
                 report.converted.append(addr)
             else:
                 _pass_through(addr, record, translation.reason or "UNSUPPORTED_FUNCTION")

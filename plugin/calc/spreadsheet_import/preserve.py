@@ -33,7 +33,8 @@ def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
     """Write *output* onto *target_sheet* (per-cell value or formula, then number formats). Skip empty cells; the target must be fresh or already cleared."""
     for address, oc in output.cells.items():
         value = oc.value
-        if not oc.formula and oc.number_format is None and (value is None or (isinstance(value, str) and value == "")):
+        blank = value in (None, "")
+        if not oc.formula and oc.number_format is None and blank:
             continue
         col, row = parse_address(address)
         cell = target_sheet.getCellByPosition(col, row)
@@ -48,7 +49,7 @@ def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
             cell.setValue(1.0 if value else 0.0)
         elif isinstance(value, (int, float)):
             cell.setValue(value)
-        elif value is not None and value != "":
+        elif not blank:
             cell.setString(value if isinstance(value, str) else str(value))
         if oc.number_format is not None:
             cell.setPropertyValue("NumberFormat", oc.number_format)

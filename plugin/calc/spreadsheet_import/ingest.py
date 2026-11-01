@@ -29,9 +29,10 @@ def classify_cell(raw_val: Any, raw_formula: str) -> tuple[CellType, Any, str | 
     Returns ``(type, value, formula)``.
     """
     raw_text = str(raw_formula) if raw_formula else ""
-    if raw_text.startswith("=") or (raw_text.startswith("{") and raw_text.endswith("}")):
+    is_array = raw_text.startswith("{") and raw_text.endswith("}")
+    if raw_text.startswith("=") or is_array:
         # Array formulas keep the ``{=…}`` wrapper; normalize would strip the braces.
-        if raw_text.startswith("{") and raw_text.endswith("}"):
+        if is_array:
             return "array_formula", raw_val, raw_text
         if is_py_formula_text(raw_text):
             return "py_formula", raw_val, raw_text
@@ -50,13 +51,8 @@ def ingest_from_arrays(*, sheet_name: str, start_col: int, start_row: int, data_
     if len(data_array) != len(formula_array):
         raise ValueError("data_array and formula_array row counts differ")
 
-    end_row = start_row + len(data_array) - 1
-    if not data_array:
-        used_range = format_address(start_col, start_row)
-        model = SheetModel(sheet_name=sheet_name, used_range=used_range, cells={})
-        return attach_graph_to_model(model)
-
-    end_col = start_col + max(len(row) for row in data_array) - 1
+    end_row = start_row + max(len(data_array), 1) - 1
+    end_col = start_col + max((len(r) for r in data_array), default=1) - 1
     used_range = format_range(start_col, start_row, end_col, end_row, collapse_single=True)
     cells: dict[str, CellRecord] = {}
 
