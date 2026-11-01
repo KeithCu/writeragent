@@ -184,12 +184,11 @@ def _mutate_ranges(
     if len(ranges) == 0:
         return tool._tool_error("range is required")
 
-    group = None
     target = ranges[0]
     results: list[Any] = []
     prev_count = _undo_action_count(doc)
+    group = WriterCompoundUndo(doc, undo_title)
     try:
-        group = WriterCompoundUndo(doc, undo_title)
         with group:
             for r in ranges:
                 target = r
@@ -206,7 +205,7 @@ def _mutate_ranges(
     except Exception as exc:
         if is_real_disposal(exc):
             raise
-        entered = group is not None and getattr(group, "entered", False)
+        entered = group.entered
         undone = _undo_titled_group(doc, undo_title, prev_count) if entered else False
         if undone:
             return tool._tool_error(f"Failed on range {target!r}: {exc}. Nothing was kept.")
@@ -276,8 +275,6 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
         return []
     header_row = data_array[0]
     n_cols = min(len(header_row), _DISTINCT_PEEK_MAX_COLUMNS)
-    if n_cols <= 0:
-        return []
     out: list[dict[str, Any]] = []
     for col_i in range(n_cols):
         raw_header = header_row[col_i]
@@ -314,14 +311,14 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
 def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, Any]) -> list[dict[str, Any]] | None:
     """Scan a clipped window of the oversized range via getDataArray. Fail-soft."""
     try:
-        start_col = int(preview["start_column"])
-        start_row = int(preview["start_row"])
-        cols = int(preview["columns"])
-        rows = int(preview["rows"])
+        start_col = preview["start_column"]
+        start_row = preview["start_row"]
+        cols = preview["columns"]
+        rows = preview["rows"]
         end_col = start_col + min(cols, _DISTINCT_PEEK_MAX_COLUMNS) - 1
         end_row = start_row + min(rows, _DISTINCT_PEEK_MAX_ROWS) - 1
         local = format_range(start_col, start_row, end_col, end_row)
-        clipped = f"{preview.get('sheet_prefix') or ''}{local}"
+        clipped = f"{preview['sheet_prefix']}{local}"
         cell_range = bridge.resolve_range_or_address(clipped)
         if not hasattr(cell_range, "getDataArray"):
             return None
