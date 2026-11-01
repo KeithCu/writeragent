@@ -50,10 +50,7 @@ def _parse_error_item(row: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _errors_of(mapping: Mapping[str, Any]) -> list[dict[str, Any]]:
-    raw = mapping.get("errors")
-    if not isinstance(raw, list):
-        return []
+def _parse_errors(raw: list[Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for item in raw:
         mapped = _as_mapping(item)
@@ -65,6 +62,13 @@ def _errors_of(mapping: Mapping[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _errors_of(mapping: Mapping[str, Any]) -> list[dict[str, Any]]:
+    raw = mapping.get("errors")
+    if not isinstance(raw, list):
+        return []
+    return _parse_errors(raw)
+
+
 def _detected_language(mapping: Mapping[str, Any]) -> str | None:
     lang = mapping.get("detected_language_bcp47")
     if not isinstance(lang, str):
@@ -72,8 +76,8 @@ def _detected_language(mapping: Mapping[str, Any]) -> str | None:
     return lang.strip() or None
 
 
-def _root_or_none(content: str, key: str) -> Mapping[str, Any] | None:
-    """Grammar reply root, or None when the reply is empty or ``{}`` (clean-sentence policy)."""
+def _root_or_none(content: str, key: str) -> list[Any] | None:
+    """Grammar reply list for key, or None when the reply is empty or ``{}`` (clean-sentence policy)."""
     root = _coerce_json_object(content)
     if root is None:
         if not content.strip():
@@ -85,24 +89,23 @@ def _root_or_none(content: str, key: str) -> Mapping[str, Any] | None:
     if not root:
         # Some models answer "no issues" with a bare {}; that is clean, not a failure.
         return None
-    if not isinstance(root.get(key), list):
+    val = root.get(key)
+    if not isinstance(val, list):
         raise ValueError(f"grammar JSON reply has no {key} list")
-    return root
+    return val
 
 
 def parse_grammar_json(content: str) -> list[dict[str, Any]]:
     """Parse a grammar reply. Empty body -> []; unusable body raises ValueError."""
-    root = _root_or_none(content, "errors")
-    return [] if root is None else _errors_of(root)
+    errors = _root_or_none(content, "errors")
+    return [] if errors is None else _parse_errors(errors)
 
 
 def parse_grammar_batch_json(content: str) -> list[list[dict[str, Any]]]:
     """Parse a batch grammar reply. Empty body -> []; unusable body raises ValueError."""
-    root = _root_or_none(content, "results")
-    if root is None:
+    results = _root_or_none(content, "results")
+    if results is None:
         return []
-    results = root.get("results")
-    assert isinstance(results, list)  # _root_or_none checked the same key
     out: list[list[dict[str, Any]]] = []
     for res in results:
         mapped = _as_mapping(res)

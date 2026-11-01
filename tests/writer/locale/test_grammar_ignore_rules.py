@@ -21,6 +21,7 @@ from plugin.writer.locale.grammar_ignore_rules import (
     parse_prefixed_rule_identifier,
 )
 from plugin.writer.locale.grammar_persistence import DocumentPersistence
+from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
 from plugin.writer.locale.ai_grammar_proofreader import _cached_errors_to_uno_tuple, WriterAgentAiGrammarProofreader
 
 _STABLE_PREFIX_CASES = (
@@ -174,8 +175,9 @@ class TestGrammarIgnoreRules:
             },
         )
 
+        u16_map = Utf16OffsetMap("This was done by him. This is a apple.")
         with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
-            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
+            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id, u16_map)
 
         assert (len(res)) == (1)
         assert (res[0].aRuleIdentifier) == ("wa_g_rule||Use 'an' instead of 'a'.")
@@ -275,8 +277,9 @@ def test_cached_errors_to_uno_tuple_filters_stable_ignored_rules(prefix: str, ig
         },
     )
 
+    u16_map = Utf16OffsetMap("This was done by him. This is a apple.")
     with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
-        res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
+        res = _cached_errors_to_uno_tuple(cached, ctx, doc_id, u16_map)
 
     assert len(res) == 1
     assert res[0].aRuleIdentifier == make_rule_identifier(prefix, other_code)
@@ -300,11 +303,12 @@ def test_cached_errors_to_uno_tuple_filters_stable_after_reload(prefix: str, ign
         },
     )
 
+    u16_map = Utf16OffsetMap("This was done by him. This is a apple.")
     with (
         patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
         patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()),
     ):
-        res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
+        res = _cached_errors_to_uno_tuple(cached, ctx, doc_id, u16_map)
 
     assert len(res) == 0
 
