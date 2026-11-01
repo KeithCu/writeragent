@@ -75,7 +75,6 @@ def _audio_linux_portaudio_hint() -> str:
     # Why: Test runs on more than Arch, including Flatpak, and a wrong
     # copy-paste command is worse than a generic sentence. Call-time _()
     # because module-level _() runs at import, often before init_i18n(ctx).
-    # Do not call venv/audio_recorder.portaudio_hint (apt-only, untranslated).
     return _(
         "On Linux also install the system PortAudio package from your distribution "
         "(sounddevice needs it; the package name differs)."

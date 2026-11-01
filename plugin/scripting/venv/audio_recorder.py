@@ -17,23 +17,8 @@ from plugin.scripting.audio_silence_detector import SilenceDetector, SilenceDete
 
 SAMPLE_RATE = 16000
 CHANNELS = 1
-SAMPLE_WIDTH = 2  # 16-bit PCM
 MAX_RECORDING_DURATION_SEC = 4 * 3600  # Cap recording at 4 hours to avoid runaway processes.
 
-
-def portaudio_hint() -> str:
-    """Platform-specific installation hint for PortAudio."""
-    if sys.platform == "darwin":
-        return "Audio recording requires PortAudio. On macOS, please run: brew install portaudio"
-    if sys.platform == "win32":
-        return "Audio recording requires PortAudio. Please install PortAudio DLLs or configure your venv."
-    return "Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2"
-
-
-SOUNDDEVICE_MISSING_HINT = (
-    "Install sounddevice in your Python venv: uv pip install sounddevice "
-    "(Settings → Python → configure the venv path first)."
-)
 
 log = logging.getLogger(__name__)
 
@@ -42,9 +27,18 @@ def _import_sounddevice() -> Any:
     try:
         import sounddevice as sd  # type: ignore[import-untyped]
     except ImportError as exc:
-        raise RuntimeError(SOUNDDEVICE_MISSING_HINT) from exc
+        raise RuntimeError(
+            "Install sounddevice in your Python venv: uv pip install sounddevice "
+            "(Settings → Python → configure the venv path first)."
+        ) from exc
     except OSError as exc:
-        raise RuntimeError(portaudio_hint()) from exc
+        if sys.platform == "darwin":
+            hint = "Audio recording requires PortAudio. On macOS, please run: brew install portaudio"
+        elif sys.platform == "win32":
+            hint = "Audio recording requires PortAudio. Please install PortAudio DLLs or configure your venv."
+        else:
+            hint = "Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2"
+        raise RuntimeError(hint) from exc
     return sd
 
 
@@ -62,11 +56,7 @@ def record_to_wav(
     """
     sd = _import_sounddevice()
 
-    vad = (
-        SilenceDetector(silence_config, sample_rate=SAMPLE_RATE)
-        if (silence_config is not None and silence_config.enabled)
-        else None
-    )
+    vad = SilenceDetector(silence_config or SilenceDetectorConfig(silence_stop_ms=0), sample_rate=SAMPLE_RATE)
     auto_stopped = False
     latched: tuple[int, BaseException | None] | None = None
 
@@ -81,7 +71,7 @@ def record_to_wav(
     try:
         wav_file = wave.open(output_path, "wb")
         wav_file.setnchannels(CHANNELS)
-        wav_file.setsampwidth(SAMPLE_WIDTH)
+        wav_file.setsampwidth(2)  # 16-bit PCM
         wav_file.setframerate(SAMPLE_RATE)
     except Exception as exc:
         if wav_file is not None:
@@ -116,7 +106,7 @@ def record_to_wav(
             note_failure(3, exc)
             stop_event.set()
             return
-        if vad is None or auto_stopped:
+        if auto_stopped:
             return
         try:
             result = vad.process_chunk(pcm)
