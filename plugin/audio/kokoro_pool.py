@@ -81,6 +81,15 @@ def _error_with_tail(code: str, msg: str, tail: str, *, with_message: bool = Fal
     return res
 
 
+def _timeout_error(timeout_sec: float, tail: str = "") -> dict[str, Any]:
+    return _error_with_tail(
+        "EXECUTION_TIMEOUT",
+        f"Execution exceeded maximum timeout of {timeout_sec} seconds.",
+        tail,
+        with_message=True,
+    )
+
+
 class _KokoroWorker:
     """Subprocess worker executing Kokoro jobs over stdio Pickle 5 framing."""
 
@@ -167,7 +176,7 @@ class _KokoroWorker:
             write_packed_frame_with_timeout(stdin, frame, timeout_sec, is_alive=self.is_alive)
         except subprocess.TimeoutExpired:
             self.kill()
-            return _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {timeout_sec} seconds.", self.stderr_tail(), with_message=True)
+            return _timeout_error(timeout_sec, self.stderr_tail())
         except Exception as exc:
             self.kill()
             return _error_with_tail("WORKER_PIPE_BROKEN", f"Failed to send request to Kokoro: {exc}", self.stderr_tail())
@@ -183,7 +192,7 @@ class _KokoroWorker:
             return resp
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
             self.kill()
-            return _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {timeout_sec} seconds.", self.stderr_tail(), with_message=True)
+            return _timeout_error(timeout_sec, self.stderr_tail())
         except Exception as exc:
             self.kill()
             return _error_with_tail("WORKER_CRASHED", f"Kokoro error: {exc}", self.stderr_tail(), with_message=True)
@@ -328,7 +337,7 @@ class KokoroProcessPool:
 
                 if reuse:
                     if deadline.left() <= 0:
-                        result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", "", with_message=True)
+                        result = _timeout_error(eff_timeout)
                         worker = None
                     else:
                         worker = existing
@@ -337,7 +346,7 @@ class KokoroProcessPool:
 
                 if worker is None and not result:
                     if deadline.left() < _MIN_SPAWN_REMAINING_SEC:
-                        result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", "", with_message=True)
+                        result = _timeout_error(eff_timeout)
                     else:
                         ready_timeout = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
                         spawned = _KokoroWorker(
@@ -350,7 +359,7 @@ class KokoroProcessPool:
                         spawn_aborted = False
                         with self._lock:
                             # Cancel during the gap before Popen: do not start the child.
-                            if self._shutdown or self._exec_token is not token:
+                            if self._exec_token is not token:
                                 spawn_aborted = True
                             else:
                                 # Visible to cancel_inflight before the ready handshake blocks.
@@ -365,7 +374,7 @@ class KokoroProcessPool:
                                 # Token drop means Stop or shutdown. A crashed handshake
                                 # calls kill(), so a real spawn failure must stay
                                 # WORKER_SPAWN_FAILED and fall back to the one-shot clip.
-                                spawn_cancelled = self._shutdown or self._exec_token is not token
+                                spawn_cancelled = self._exec_token is not token
                                 # A handshake that could not reap has already dropped the
                                 # child, so is_alive() is false and this stays a failed spawn.
                                 failed = spawn_cancelled or not spawned.is_alive()
@@ -374,13 +383,13 @@ class KokoroProcessPool:
                                 if spawn_cancelled:
                                     result = error_dict(WORKER_CANCELLED, "Kokoro worker spawn was cancelled.")
                                 elif deadline.left() < _MIN_SPAWN_REMAINING_SEC:
-                                    result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", spawned.stderr_tail(), with_message=True)
+                                    result = _timeout_error(eff_timeout, spawned.stderr_tail())
                                 else:
                                     result = _error_with_tail("WORKER_SPAWN_FAILED", "Kokoro worker could not be started.", spawned.stderr_tail())
                             else:
                                 if deadline.left() <= 0:
                                     spawned.kill()
-                                    result = _error_with_tail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {eff_timeout} seconds.", "", with_message=True)
+                                    result = _timeout_error(eff_timeout)
                                 else:
                                     worker = spawned
 
