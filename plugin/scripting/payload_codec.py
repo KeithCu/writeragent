@@ -352,20 +352,6 @@ def invalidate_host_cython_accelerator() -> None:
             sys.modules.pop(key, None)
 
 
-def get_cython_status_info() -> tuple[bool, str | None, str]:
-    """Return tuple of (is_active, source_location, status_line)."""
-    if fast_flatten_grid_2d is not None:
-        loc = _CYTHON_ACCELERATOR_LOCATION
-        # Location is a module name (contrib.vec_pack, writeragent_vec, …) or
-        # missing. It is never the literal "active".
-        if loc:
-            return True, loc, f"Cython Accelerator: Active (Optimized, source: {loc})"
-        return True, loc, "Cython Accelerator: Active (Optimized)"
-    if _CYTHON_ACCELERATOR_INACTIVE_REASON:
-        return False, None, f"Cython Accelerator: Inactive (Pure Python; {_CYTHON_ACCELERATOR_INACTIVE_REASON})"
-    return False, None, "Cython Accelerator: Inactive (Pure Python)"
-
-
 def host_cython_status_line(*, reload: bool = False) -> str:
     """Human-readable host Cython status for Settings -> Python Test probe header.
 
@@ -376,7 +362,16 @@ def host_cython_status_line(*, reload: bool = False) -> str:
         global _CYTHON_ACCELERATOR_INACTIVE_REASON
         _CYTHON_ACCELERATOR_INACTIVE_REASON = None
         load_cython_accelerator()
-    return get_cython_status_info()[2]
+    if fast_flatten_grid_2d is not None:
+        loc = _CYTHON_ACCELERATOR_LOCATION
+        # Location is a module name (contrib.vec_pack, writeragent_vec, …) or
+        # missing. It is never the literal "active".
+        if loc:
+            return f"Cython Accelerator: Active (Optimized, source: {loc})"
+        return "Cython Accelerator: Active (Optimized)"
+    if _CYTHON_ACCELERATOR_INACTIVE_REASON:
+        return f"Cython Accelerator: Inactive (Pure Python; {_CYTHON_ACCELERATOR_INACTIVE_REASON})"
+    return "Cython Accelerator: Inactive (Pure Python)"
 
 
 # Do not load at import. Compute workers import unpack helpers from this
@@ -568,9 +563,6 @@ def extract_image_payload(value: Any) -> dict[str, Any] | None:
 # Bugfix: What was wrong: strip_image_payloads dropped image payloads completely, collapsed lists, and dropped dictionary keys.
 # How it happened: It filtered out None values resulting from image payloads, which altered list lengths and deleted dictionary keys or omitted the result key entirely.
 # Why this change fixes it: It replaces any image payload with "<image>" while preserving collection lengths, sequence ordering, and dictionary keys.
-_IMAGE_PLACEHOLDER = "<image>"
-
-
 def strip_image_payloads(obj: Any, *, _depth: int = 0) -> Any:
     """Return result with image payloads replaced by '<image>', preserving structure.
 
@@ -583,7 +575,7 @@ def strip_image_payloads(obj: Any, *, _depth: int = 0) -> Any:
     # How it happened: strip_image_payloads lacked a depth cap and coerced dict keys with last-wins {str(k): ...}.
     # Why this change fixes it: bounded at _MAX_IMAGE_DEPTH (12) and uses wire_str_key to reject collisions.
     if is_image_payload(obj):
-        return _IMAGE_PLACEHOLDER
+        return "<image>"
     if _depth > _MAX_IMAGE_DEPTH:
         return obj
     if isinstance(obj, (list, tuple)):
