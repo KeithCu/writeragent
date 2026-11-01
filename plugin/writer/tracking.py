@@ -153,18 +153,21 @@ def _set_recording(doc: Any, record: bool) -> dict[str, Any]:
     return {"status": "ok", "message": f"{done} recording changes."}
 
 
+_REDLINE_FIELD_UNREADABLE = "track_changes_list: redline field unreadable"
+
+
 def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int, str] | None = None) -> dict[str, Any]:
     entry: dict[str, Any] = {"index": index}
     for prop in ("RedlineType", "RedlineAuthor", "RedlineComment", "RedlineIdentifier"):
         try:
             entry[prop] = redline.getPropertyValue(prop)
         except Exception:
-            log.debug("track_changes_list: redline field unreadable", exc_info=True)
+            log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     try:
         dt = redline.getPropertyValue("RedlineDateTime")
         entry["date"] = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
     except Exception:
-        log.debug("track_changes_list: redline field unreadable", exc_info=True)
+        log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     # Text + location: accept/reject take this index, so the model needs to know WHICH
     # change is which. Without them, mapping "reject the change to clause 4.2" onto an
     # index is guesswork. Redline objects from getRedlines() are property sets (no
@@ -174,13 +177,12 @@ def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int,
     try:
         start = redline.getPropertyValue("RedlineStart")
     except Exception:
-        log.debug("track_changes_list: redline field unreadable", exc_info=True)
-        start = None
+        log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     if start is not None:
         try:
             entry["location"] = describe_match_location(start, doc, label_cache=label_cache)
         except Exception:
-            log.debug("track_changes_list: redline field unreadable", exc_info=True)
+            log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     # Text: for an insertion the live span RedlineStart..RedlineEnd holds it; for a
     # deletion that span is collapsed, so fall back to RedlineText (the removed text).
     txt = ""
@@ -192,15 +194,13 @@ def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int,
             cur.gotoRange(end, True)
             txt = cur.getString() or ""
         except Exception:
-            log.debug("track_changes_list: redline field unreadable", exc_info=True)
-            txt = ""
+            log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     if not txt:
         try:
             rt = redline.getPropertyValue("RedlineText")
             txt = (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
         except Exception:
-            log.debug("track_changes_list: redline field unreadable", exc_info=True)
-            txt = ""
+            log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     if txt:
         entry["text"] = txt if len(txt) <= 300 else txt[:299] + "…"
     return entry
@@ -232,6 +232,18 @@ class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         return _set_recording(ctx.doc, False)
 
 
+def _agent_review_mode() -> Any | None:
+    """Best-effort agent review mode, so 'recording: false' is never read as 'my edits are
+    not being tracked' while record/wait mode is active."""
+    try:
+        from plugin.writer.edit_review import get_agent_edit_review_mode
+
+        return get_agent_edit_review_mode()
+    except Exception:
+        log.exception("track_changes_list: could not read agent review mode")
+        return None
+
+
 class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
     """List all tracked changes (redlines) in the document."""
 
@@ -253,18 +265,6 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         "required": [],
     }
 
-    @staticmethod
-    def _agent_review_mode(uno_ctx: Any) -> Any | None:
-        """Best-effort agent review mode, so 'recording: false' is never read as 'my edits are
-        not being tracked' while record/wait mode is active."""
-        try:
-            from plugin.writer.edit_review import get_agent_edit_review_mode
-
-            return get_agent_edit_review_mode()
-        except Exception:
-            log.exception("track_changes_list: could not read agent review mode")
-            return None
-
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         try:
@@ -275,7 +275,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         except Exception:
             log.exception("track_changes_list: could not read RecordChanges")
             recording = None
-        agent_mode = self._agent_review_mode(getattr(ctx, "ctx", None))
+        agent_mode = _agent_review_mode()
 
         if not hasattr(doc, "getRedlines"):
             # What was wrong: documents without getRedlines returned count: 0 and changes: [], looking like empty document.
@@ -411,7 +411,8 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             return self._tool_error("Valid integer index is required for action='%s'." % action)
         return self._execute_single(ctx, index, is_accept=(action == "accept"))
 
-    def _undo_error(self, ctx: ToolContext, problem: str, log_message: str,
+    def _undo_error(self, ctx: ToolContext, problem: str,
+                    log_message: str = "manage_tracked_changes: undo of a bad resolve failed",
                     failed_suffix: str = " Undo failed; the document was still changed.") -> dict[str, Any]:
         """Undo the last resolve, then report *problem* plus whether the undo worked."""
         try:
@@ -462,7 +463,6 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         return self._undo_error(
             ctx,
             "%s did not clear every tracked change (left %d)." % (verb_all, after),
-            "manage_tracked_changes: undo of a bad resolve failed",
         )
 
     def _execute_single(self, ctx: ToolContext, index: int, is_accept: bool) -> dict[str, Any]:
@@ -540,20 +540,9 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             _dispatch(ctx, cmd)
 
             objs2, total2 = _enumerate_redlines(redlines)
-            if len(objs2) != total2:
-                return self._undo_error(
-                    ctx,
-                    "Couldn't re-read tracked changes after the resolve.",
-                    "manage_tracked_changes: undo of a bad resolve failed",
-                )
-
-            after_keys = _identity_keys(objs2)
+            after_keys = _identity_keys(objs2) if len(objs2) == total2 else None
             if after_keys is None:
-                return self._undo_error(
-                    ctx,
-                    "Couldn't re-read tracked changes after the resolve.",
-                    "manage_tracked_changes: undo of a bad resolve failed",
-                )
+                return self._undo_error(ctx, "Couldn't re-read tracked changes after the resolve.")
 
             outcome = _resolve_outcome(index, before_keys, after_keys)
             if outcome == "silent":
@@ -571,7 +560,6 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 return self._undo_error(
                     ctx,
                     "Resolved a different tracked change than index %d." % index,
-                    "manage_tracked_changes: undo of a bad resolve failed",
                 )
 
             action_str = "Accepted" if is_accept else "Rejected"

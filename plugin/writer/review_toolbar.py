@@ -15,6 +15,7 @@ import threading
 from typing import Any
 
 import uno
+from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.uno_listeners import BaseModifyListener
 
 log = logging.getLogger("writeragent.review_toolbar")
@@ -30,14 +31,6 @@ _docked_uids: set[str] = set()    # RuntimeUIDs whose toolbar has already been d
 # already queued. A burst of keystrokes collapses into the one queued run.
 _pending_refresh: set[str] = set()
 _pending_lock = threading.Lock()
-
-
-def _runtime_uid(model: Any) -> str | None:
-    """The document's RuntimeUID, or None if it can't be read."""
-    from plugin.framework.uno_context import get_runtime_uid
-
-    uid = get_runtime_uid(model)
-    return uid if uid else None
 
 
 class _ReviewModifyListener(BaseModifyListener):
@@ -79,14 +72,8 @@ class _ReviewModifyListener(BaseModifyListener):
             _cancel_refresh(self._uid)
 
 
-def _refresh_key(model: Any, uid: str | None) -> str:
-    return uid if uid else "id:%d" % id(model)
-
-
-def _cancel_refresh(uid: str | None) -> None:
+def _cancel_refresh(uid: str) -> None:
     """Drop a queued recount; the queued run then sees it was cancelled and does nothing."""
-    if not uid:
-        return
     with _pending_lock:
         _pending_refresh.discard(uid)
 
@@ -112,7 +99,7 @@ def _schedule_refresh(model: Any, uid: str | None) -> None:
     the recount runs on a later main-loop turn, after the edit that fired modified() is complete.
     No timer: the queue already gives the deferral, and coalescing keystrokes needs only a flag.
     """
-    key = _refresh_key(model, uid)
+    key = uid if uid else "id:%d" % id(model)
     with _pending_lock:
         if key in _pending_refresh:
             return  # a recount is already queued; it will see this keystroke's result too
@@ -129,7 +116,7 @@ def _schedule_refresh(model: Any, uid: str | None) -> None:
 
 
 def _register_modify_listener(model: Any) -> None:
-    uid = _runtime_uid(model)
+    uid = get_runtime_uid(model) or None
     if uid is not None and uid in _modify_listeners:
         return
     listener = _ReviewModifyListener(uid)
@@ -146,7 +133,7 @@ def _unregister_modify_listener(model: Any) -> None:
     the listener and its _modify_listeners entry leak; worse, if LibreOffice recycles the
     RuntimeUID for a later document, _register_modify_listener would skip it and that document
     would never auto-hide the toolbar. Mirrors the OnUnload teardown in grammar_persistence.py."""
-    uid = _runtime_uid(model)
+    uid = get_runtime_uid(model) or None
     if uid is None:
         return
     _docked_uids.discard(uid)
@@ -229,7 +216,7 @@ def refresh_review_toolbar(model: Any) -> None:
             # has since floated/moved it. If the uid can't be read, fall back to docking on show.
             # If docking failed (e.g. LayoutManager not ready yet), do not record the uid
             # so the next show can retry rather than leaving the toolbar permanently floating.
-            uid = _runtime_uid(model)
+            uid = get_runtime_uid(model) or None
             if uid is None or uid not in _docked_uids:
                 if _dock_top(lm) and uid is not None:
                     _docked_uids.add(uid)
