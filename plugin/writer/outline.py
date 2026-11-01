@@ -82,11 +82,6 @@ class GetDocumentTree(ToolBase):
         return {**result, "stats": stats}
 
 
-def _count_headings(tree: Any) -> int:
-    """Recursively count heading nodes in a tree."""
-    return sum(1 for _unused in iter_heading_nodes(tree))
-
-
 def collect_document_stats(
     doc: Any,
     doc_svc: Any,
@@ -99,26 +94,21 @@ def collect_document_stats(
 
     Only page_count is best-effort (it is cosmetic). Every other count raises rather than reporting a fabricated 0.
     """
-
-    def _visible_counts() -> tuple[int, int]:
-        text_obj = doc.getText()
-        cursor = text_obj.createTextCursor()
-        cursor.gotoStart(False)
-        cursor.gotoEnd(True)
-        full_text = get_string_without_tracked_deletions(cursor)
-        return len(full_text), len(full_text.split())
-
-    char_count, word_count = _visible_counts()
+    text_obj = doc.getText()
+    cursor = text_obj.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEnd(True)
+    full_text = get_string_without_tracked_deletions(cursor)
+    char_count = len(full_text)
+    word_count = len(full_text.split())
 
     if paragraph_count is not None:
         para_count = paragraph_count
     else:
         para_count = len(doc_svc.get_paragraph_ranges(doc))
 
-    if heading_tree is not None:
-        heading_count = _count_headings(heading_tree)
-    else:
-        heading_count = _count_headings(build_heading_tree(doc))
+    source = heading_tree if heading_tree is not None else build_heading_tree(doc)
+    heading_count = sum(1 for _unused in iter_heading_nodes(source))
 
     if page_count is not None:
         final_page_count = page_count

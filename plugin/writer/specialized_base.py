@@ -99,10 +99,14 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
 # --- Domain-Specific Base Classes ---
 
 
+def _writer_core_tools(*extra: str) -> frozenset[str]:
+    return (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(extra)
+
+
 class ToolWriterStyleBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "styles"
     specialized_domain_description: ClassVar[str | None] = "Manage and edit paragraph, character, and list styles."
-    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search_in_document")
 
 
 class ToolWriterPageBase(ToolWriterSpecialBase):
@@ -111,10 +115,7 @@ class ToolWriterPageBase(ToolWriterSpecialBase):
     # style_list(family=PageStyles) is how this sub-agent learns real page-style
     # names (a converted .docx rarely uses "Standard"). style_clone copies one
     # of those styles, including headers and footers, without a domain switch.
-    required_core_tools: ClassVar[frozenset[str] | None] = (
-        (ToolWriterSpecialBase.required_core_tools or frozenset())
-        | frozenset(["style_list", "style_clone"])
-    )
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("style_list", "style_clone")
 
 
 class ToolWriterTextFramesBase(ToolWriterSpecialBase):
@@ -182,7 +183,7 @@ class ToolWriterIndexBase(ToolWriterSpecialBase):
 class ToolWriterFieldBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "fields"
     specialized_domain_description: ClassVar[str | None] = "Manage document fields, variables, and cross-references."
-    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search_in_document")
 
 
 class ToolWriterCommentBase(ToolWriterSpecialBase):
@@ -198,7 +199,7 @@ class WriterAgentSpecialTracking(ToolWriterSpecialBase):
 class ToolWriterBookmarkBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "bookmarks"
     specialized_domain_description: ClassVar[str | None] = "Manage document bookmarks and navigation points."
-    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search_in_document")
 
 
 class ToolWriterStructuralBase(ToolWriterSpecialBase):
@@ -207,10 +208,7 @@ class ToolWriterStructuralBase(ToolWriterSpecialBase):
     # Discussion #2029: pull get_page_objects into the structural delegate toolset
     # so the delegate can resolve physical page locations without failing over to
     # full-document reads. The tool stays tier core so main chat still exposes it.
-    required_core_tools: ClassVar[frozenset[str] | None] = (
-        (ToolWriterSpecialBase.required_core_tools or frozenset())
-        | frozenset(["get_page_objects"])
-    )
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("get_page_objects")
 
 
 class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):
@@ -227,7 +225,7 @@ class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):
 class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "footnotes"
     specialized_domain_description: ClassVar[str | None] = "Create and manage footnotes and endnotes."
-    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search_in_document")
 
 
 class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFormBase):
@@ -253,7 +251,7 @@ class ToolWriterDocumentResearchBase(ToolWriterSpecialBase):
 class ToolWriterMailMergeBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "mail_merge"
     specialized_domain_description: ClassVar[str | None] = "Configure data sources, insert database merge fields, and execute mail merge jobs."
-    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search_in_document")
 
 
 class SpecializedWorkflowFinished(ToolBase):

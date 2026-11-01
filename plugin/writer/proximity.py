@@ -140,7 +140,7 @@ class ProximityService(ServiceBase):
         return chain
 
     def _build_heading_result(self, node: dict[str, Any], bookmark_map: dict[Any, Any]) -> dict[str, Any]:
-        return heading_ref(node, bookmark_map, include_body=True, include_children_count=True, body_default=True)
+        return heading_ref(node, bookmark_map, include_body=True, include_children_count=True)
 
     # ==================================================================
     # navigate_heading

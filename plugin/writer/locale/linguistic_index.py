@@ -265,7 +265,7 @@ class IndexService(ServiceBase):
         # A missed XModifyListener, or a mutation inside
         # DocumentService.ignore_cache_invalidation(), leaves the listener
         # cache stale; CharacterCount still moves. Same rule as
-        # tree._heading_tree_fingerprint: no count -> listener-only.
+        # tree.build_heading_tree: no count -> listener-only.
         count = getattr(doc, "CharacterCount", None)
         fingerprint = int(count) if count is not None else None
         if is_cacheable_doc_key(key):

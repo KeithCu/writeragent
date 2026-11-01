@@ -16,6 +16,14 @@ def cursor_spanning_range(rng: Any) -> Any:
     return cursor
 
 
+def _optional(fn: Any) -> Any:
+    try:
+        return fn()
+    except Exception as e:
+        reraise_if_disposed(e)
+        return None
+
+
 def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> Any:
     """
     Resolves the `target` ("beginning", "end", "selection", "search")
@@ -28,37 +36,30 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
         com.sun.star.text.XTextCursor positioned or spanning the target area.
     """
     doc = ctx.doc
-    text = doc.getText()
-    cursor = text.createTextCursor()
 
-    if target == "end":
-        cursor.gotoEnd(False)
+    if target in ("end", "beginning", "full_document"):
+        cursor = doc.getText().createTextCursor()
+        if target == "end":
+            cursor.gotoEnd(False)
+        elif target == "beginning":
+            cursor.gotoStart(False)
+        elif target == "full_document":
+            cursor.gotoStart(False)
+            cursor.gotoEnd(True)
         return cursor
     elif target == "selection":
         # Resolve the explicit selection, else the view cursor. NEVER silently fall back to the end
         # of the document (the old `except: gotoEnd` appended edits at the very end and still
         # reported ok). Only when BOTH are unavailable do we raise a clear error, so a headless MCP
         # client that never set a selection is told to use set_selection / target='search'.
-        controller = None
-        try:
-            controller = doc.getCurrentController()
-        except Exception as e:
-            reraise_if_disposed(e)
-            controller = None
+        controller = _optional(doc.getCurrentController)
         rng = None
         if controller is not None:
-            try:
-                from plugin.doc.text_helpers import selected_text_range
-                rng = selected_text_range(controller)
-            except Exception as e:
-                reraise_if_disposed(e)
-                rng = None
+            from plugin.doc.text_helpers import selected_text_range
+
+            rng = _optional(lambda: selected_text_range(controller))
             if rng is None:
-                try:
-                    rng = controller.getViewCursor()
-                except Exception as e:
-                    reraise_if_disposed(e)
-                    rng = None
+                rng = _optional(controller.getViewCursor)
         if rng is None:
             raise ValueError(
                 "Could not resolve the current selection. Select text first, or use "
@@ -73,13 +74,6 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
             reraise_if_disposed(e)
             raise ValueError("Could not span the current selection (%s). Use target='search' "
                              "with old_content, or call set_selection." % e)
-    elif target == "beginning":
-        cursor.gotoStart(False)
-        return cursor
-    elif target == "full_document":
-        cursor.gotoStart(False)
-        cursor.gotoEnd(True)
-        return cursor
 
     if target != "search":
         raise ValueError(f"Unknown target {target!r}; use end, selection, beginning, full_document or search.")
