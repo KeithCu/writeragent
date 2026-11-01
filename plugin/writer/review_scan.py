@@ -13,11 +13,6 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
-from plugin.framework.errors import uno_read
-
-
-# uno_read default where None is a real UNO result.
-_FAILED: Any = object()
 TOKEN_PREFIX = "wa-review:"
 _TOKEN_RE = re.compile(r"\A" + re.escape(TOKEN_PREFIX) + r"[^\s:]+:\d+\Z")
 
@@ -124,21 +119,21 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
 
 def document_has_tracked_deletions(doc: Any) -> bool:
     """True when *doc* holds at least one pending tracked deletion (best effort)."""
-    found: list[bool] = []
+    found = False
 
     def on_item(rl: Any) -> bool:
+        nonlocal found
         try:
             is_delete = rl.getPropertyValue("RedlineType") == "Delete"
         except Exception:
             return True  # one unreadable redline does not hide the others
         if is_delete:
-            found.append(True)
+            found = True
             raise RedlineScanAbort()
         return True
 
-    if uno_read(lambda: scan_redlines(doc, on_item), _FAILED) is _FAILED:
-        return False
-    return bool(found)
+    scan_redlines(doc, on_item)
+    return found
 
 
 def agent_change_presence(model: Any, *, stop_at_first: bool = False) -> tuple[int, bool]:

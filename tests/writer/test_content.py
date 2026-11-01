@@ -473,7 +473,7 @@ def test_get_document_content_surfaces_tracked_changes():
     ctx.doc = doc
     ctx.ctx = MagicMock()
     ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.tracking._describe_redline", side_effect=[{"text": "novo"}, {"text": "velho"}]), \
+    with patch("plugin.writer.tracking._redline_text", side_effect=["novo", "velho"]), \
          patch("plugin.writer.format.document_to_content", return_value="body"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
@@ -856,7 +856,7 @@ def test_redline_cap_reports_truncation(monkeypatch):
     doc.getRedlines.return_value = redlines
 
     monkeypatch.setattr(gdc, "_MAX_TRACKED_CHANGES", 1)
-    with patch("plugin.writer.tracking._describe_redline", side_effect=[{"text": "one"}, {"text": "two"}]):
+    with patch("plugin.writer.tracking._redline_text", side_effect=["one", "two"]):
         changes, found, total, reliable, truncated = _summarize_redlines(doc)
     assert len(changes) == 1
     assert found == 2
@@ -868,7 +868,7 @@ def test_redline_cap_reports_truncation(monkeypatch):
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.tracking._describe_redline", side_effect=[{"text": "one"}, {"text": "two"}]), \
+    with patch("plugin.writer.tracking._redline_text", side_effect=["one", "two"]), \
          patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert res.get("tracked_changes_truncated") is True
@@ -892,7 +892,7 @@ def test_inserted_image_redline_without_text_is_not_truncated():
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.tracking._describe_redline", side_effect=[{}, {}]), \
+    with patch("plugin.writer.tracking._redline_text", side_effect=["", ""]), \
          patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert "tracked_changes_truncated" not in res

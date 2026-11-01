@@ -68,14 +68,18 @@ class _ReviewModifyListener(BaseModifyListener):
         # document, a late disposing() must not evict that newer listener.
         if self._uid is not None and _modify_listeners.get(self._uid) is self:
             del _modify_listeners[self._uid]
-            _docked_uids.discard(self._uid)
-            _cancel_refresh(self._uid)
+            _clear_uid_state(self._uid)
 
 
 def _cancel_refresh(uid: str) -> None:
     """Drop a queued recount; the queued run then sees it was cancelled and does nothing."""
     with _pending_lock:
         _pending_refresh.discard(uid)
+
+
+def _clear_uid_state(uid: str) -> None:
+    _docked_uids.discard(uid)
+    _cancel_refresh(uid)
 
 
 def _run_deferred_refresh(model: Any, key: str) -> None:
@@ -136,8 +140,7 @@ def _unregister_modify_listener(model: Any) -> None:
     uid = get_runtime_uid(model) or None
     if uid is None:
         return
-    _docked_uids.discard(uid)
-    _cancel_refresh(uid)
+    _clear_uid_state(uid)
     listener = _modify_listeners.pop(uid, None)
     if listener is not None:
         try:
