@@ -857,15 +857,15 @@ def test_redline_cap_reports_truncation(monkeypatch):
     redlines.createEnumeration.return_value = enum
     doc.getRedlines.return_value = redlines
 
+    monkeypatch.setattr(gdc, "_MAX_TRACKED_CHANGES", 1)
     with patch("plugin.writer.tracking._describe_redline", side_effect=[{"text": "one"}, {"text": "two"}]):
-        changes, found, total, reliable, truncated = _summarize_redlines(doc, max_changes=1)
+        changes, found, total, reliable, truncated = _summarize_redlines(doc)
     assert len(changes) == 1
     assert found == 2
     assert total == 2
     assert reliable is True
     assert truncated is True
 
-    monkeypatch.setattr(gdc, "_MAX_TRACKED_CHANGES", 1)
     enum.nextElement.side_effect = [rl1, rl2]
     ctx = MagicMock()
     ctx.doc = doc

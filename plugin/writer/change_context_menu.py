@@ -187,9 +187,6 @@ def _register_controller(controller: Any) -> None:
     try:
         from plugin.framework.uno_context import uno_same
 
-        with _lock:
-            if any(uno_same(controller, pair[0]) for pair in _registered):
-                return
         model = controller.getModel()
         if not _is_writer(model):
             return
