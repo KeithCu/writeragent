@@ -1244,6 +1244,8 @@ def test_commit_toc_mutation_mutate_exception_propagates_even_if_restore_protect
         doc,
         idx,
         bad_mutate,
+        {},
+        False,
         failure_message="Edit failed: %s",
         failure_code="CUSTOM_MUTATE_FAIL",
     )
@@ -1277,6 +1279,8 @@ def test_commit_toc_mutation_restore_protect_failure_returns_error():
         doc,
         idx,
         good_mutate,
+        {},
+        False,
         failure_message="Edit failed: %s",
     )
     assert res is not None
@@ -1302,9 +1306,12 @@ def test_commit_toc_mutation_success():
         doc,
         idx,
         good_mutate,
+        {},
+        False,
         failure_message="Edit failed: %s",
     )
-    assert res is None
+    assert res["status"] == "ok"
+    assert res["dry_run"] is False
 
 
 def test_single_toc_position_single_toc_returns_index():
