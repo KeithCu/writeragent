@@ -23,7 +23,6 @@ def sync_request(
     data: bytes | None = None,
     headers: dict[str, str] | None = None,
     parse_json: bool = True,
-    method: str | None = None,
     *,
     timeout: float,
     stop_checker: Any = None,
@@ -47,8 +46,7 @@ def sync_request(
     (``http://[::1``, ``http://[]/v1``), is ``NetworkError``, including
     when it is in the URL before the request is sent.
     """
-    if method is None:
-        method = "POST" if data is not None else "GET"
+    method = "POST" if data is not None else "GET"
 
     origin, path = origin_and_path(url)
     transport = LlmHttpTransport(lambda: origin, lambda: timeout)

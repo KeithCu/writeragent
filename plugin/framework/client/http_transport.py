@@ -36,7 +36,6 @@ from typing import Any, Callable, Literal
 
 from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC, USER_AGENT
 from plugin.framework.errors import NetworkError, format_error_message
-from plugin.framework.url_utils import get_url_hostname
 
 from . import http_security
 from .errors import _format_http_error_response
@@ -131,7 +130,7 @@ class LlmHttpTransport:
         endpoint = self._redirect_origin if self._redirect_origin else self._endpoint_getter()
         parsed = http_security._parse_url(endpoint)
         scheme = parsed.scheme.lower()
-        host = get_url_hostname(endpoint)
+        host = parsed.hostname or ""
         port = http_security._explicit_port(parsed) or (443 if scheme == "https" else 80)
         return scheme, host, port
 
@@ -604,5 +603,5 @@ class LlmHttpTransport:
             if total > max_bytes:
                 self.close()
                 raise NetworkError(f"HTTP response exceeded {max_bytes} bytes", code="HTTP_ERROR")
-            chunks.append(chunk if isinstance(chunk, bytes) else bytes(chunk))
+            chunks.append(chunk)
         return b"".join(chunks)

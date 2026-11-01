@@ -165,8 +165,6 @@ def _apply_redirect(  # pyright: ignore[reportUnusedFunction]
     Only http and https targets are followed. A bad port or an unmatched
     bracket URL is ``NetworkError``.
     """
-    if status not in _REDIRECT_STATUSES:
-        return None
     loc = (location or "").strip()
     if not loc or any(ch in loc for ch in "\r\n\x00"):
         return None

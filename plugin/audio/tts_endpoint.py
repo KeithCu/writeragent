@@ -211,7 +211,6 @@ def _post_audio_speech(
             data=data,
             headers=headers,
             parse_json=False,
-            method="POST",
             timeout=read_timeout,
             stop_checker=stop_checker,
             include_meta=True,

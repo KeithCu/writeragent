@@ -3,10 +3,10 @@ from unittest.mock import patch
 
 from plugin.framework.client.auth import (
     AuthError,
-    _resolve_provider_id,
     resolve_auth_for_config,
     build_auth_headers,
 )
+from plugin.framework.client.provider_detection import get_provider_from_endpoint
 
 
 @patch("plugin.framework.client.auth.normalize_endpoint_url")
@@ -18,19 +18,19 @@ def test_resolve_provider_id_by_url(mock_normalize):
     mock_normalize.side_effect = side_effect
 
     # Should match OpenAI
-    assert _resolve_provider_id("https://api.openai.com/v1") == "openai"
+    assert (get_provider_from_endpoint("https://api.openai.com/v1") or "custom") == "openai"
 
     # Should match Together AI
-    assert _resolve_provider_id("https://api.together.xyz/v1") == "together"
+    assert (get_provider_from_endpoint("https://api.together.xyz/v1") or "custom") == "together"
 
     # Should match Ollama
-    assert _resolve_provider_id("http://localhost:11434") == "ollama"
+    assert (get_provider_from_endpoint("http://localhost:11434") or "custom") == "ollama"
 
     # Should match DeepSeek
-    assert _resolve_provider_id("https://api.deepseek.com") == "deepseek"
+    assert (get_provider_from_endpoint("https://api.deepseek.com") or "custom") == "deepseek"
 
     # Case insensitivity
-    assert _resolve_provider_id("HTTPS://API.OPENAI.COM") == "openai"
+    assert (get_provider_from_endpoint("HTTPS://API.OPENAI.COM") or "custom") == "openai"
 
 
 @patch("plugin.framework.client.auth.normalize_endpoint_url")
@@ -38,7 +38,7 @@ def test_resolve_provider_id_custom_fallback(mock_normalize):
     """Test that an unknown URL without a valid hint returns 'custom'."""
     mock_normalize.return_value = "https://my-own-endpoint.com/v1"
 
-    assert _resolve_provider_id("https://my-own-endpoint.com/v1") == "custom"
+    assert (get_provider_from_endpoint("https://my-own-endpoint.com/v1") or "custom") == "custom"
 
 
 @patch("plugin.framework.client.auth.normalize_endpoint_url")
@@ -290,13 +290,13 @@ def test_openrouter_extra_headers_present():
 
 def test_resolve_provider_id_does_not_substring_match_host():
     """notollama.example is not Ollama; a path containing openrouter.ai is not OpenRouter."""
-    assert _resolve_provider_id("https://notollama.example/v1") == "custom"
-    assert _resolve_provider_id("https://example.com/openrouter.ai/v1") == "custom"
-    assert _resolve_provider_id("https://api.openai.com/v1") == "openai"
+    assert (get_provider_from_endpoint("https://notollama.example/v1") or "custom") == "custom"
+    assert (get_provider_from_endpoint("https://example.com/openrouter.ai/v1") or "custom") == "custom"
+    assert (get_provider_from_endpoint("https://api.openai.com/v1") or "custom") == "openai"
 
 
 def test_resolve_provider_id_deal_contract_endpoints():
     """Real endpoints with IPv6 brackets or query strings must not fail @deal.pre in dev/pytest."""
-    assert _resolve_provider_id("http://[::1]:11434") == "ollama"
-    assert _resolve_provider_id("https://example.com/v1?x=1") == "custom"
+    assert (get_provider_from_endpoint("http://[::1]:11434") or "custom") == "ollama"
+    assert (get_provider_from_endpoint("https://example.com/v1?x=1") or "custom") == "custom"
 
