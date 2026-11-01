@@ -94,9 +94,7 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
             header_grid_row = len(rows)
             # OCR text stays a string here; numeric coercion happens only at write time.
             _append_table_rows(rows, columns, table_rows, lambda value: "" if value is None else str(value))
-            col_width = len(columns) if isinstance(columns, list) else 0
-            row_widths = [len(r) if isinstance(r, list) else 1 for r in table_rows] if isinstance(table_rows, list) else []
-            width = max([col_width, *row_widths], default=0)
+            width = max(len(r) for r in rows[header_grid_row:])
             merges.extend(_table_span_merges(table, header_grid_row=header_grid_row, max_grid_row=len(rows) - 1, max_width=width))
             _append_truncation_note(rows, table)
 
