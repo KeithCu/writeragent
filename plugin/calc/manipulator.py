@@ -155,17 +155,9 @@ def _range_has_blank_cell(sheet: Any, start: tuple[int, int], end: tuple[int, in
     setDataArray undo does not clear a cell that was empty before the write,
     so a small range that overlaps a blank cell has to be written per cell.
     """
-    try:
-        from com.sun.star.table import CellContentType
-
-        empty_type: Any = CellContentType.EMPTY
-    except ImportError:
-        empty_type = None
     for r in range(start[1], end[1] + 1):
         for c in range(start[0], end[0] + 1):
             cell = sheet.getCellByPosition(c, r)
-            if empty_type is not None and cell.getType() == empty_type:
-                return True
             if cell.getFormula() == "" and cell.getString() == "" and cell.getValue() == 0.0:
                 return True
     return False
@@ -972,18 +964,16 @@ class CellManipulator:
 
             format_warning = ""
             if any_temporal:
-                column_templates: dict[int, int] = {}
-                if cols_needing:
-                    column_templates = self._find_column_temporal_templates(sheet, formats, cols_needing, start[1], category_cache)
+                column_templates = self._find_column_temporal_templates(sheet, formats, cols_needing, start[1], category_cache)
 
                 # Build row decisions: None | "empty" | ("apply", key) | ("preserve", None)
                 decisions: list[list[tuple[str, int | None] | str | None]] = []
-                cell_idx = 0
-                for row in range(start[1], end[1] + 1):
+                for r_idx, row_vals in enumerate(data_array):
+                    row = start[1] + r_idx
                     row_dec: list[tuple[str, int | None] | str | None] = []
-                    for col in range(start[0], end[0] + 1):
-                        meta = cell_metas[cell_idx]
-                        data_val = data_array[row - start[1]][col - start[0]]
+                    for c_idx, data_val in enumerate(row_vals):
+                        col = start[0] + c_idx
+                        meta = cell_metas[r_idx * num_cols + c_idx]
                         if meta.kind == "temporal":
                             dest_cat = dest_categories.get((col, row))
                             if should_preserve_temporal_format(meta.input_category or "", float(data_val), dest_cat):
@@ -995,7 +985,6 @@ class CellManipulator:
                             row_dec.append("empty")
                         else:
                             row_dec.append(None)
-                        cell_idx += 1
                     decisions.append(row_dec)
                 try:
                     self._apply_temporal_format_runs(sheet, start, decisions)
