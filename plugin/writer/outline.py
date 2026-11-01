@@ -27,14 +27,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import best_effort
 from plugin.framework.tool import ToolBase
 from plugin.writer.specialized_base import enum_param
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.doc.text_helpers import build_heading_tree, get_string_without_tracked_deletions, iter_heading_nodes
+from plugin.doc.text_helpers import get_string_without_tracked_deletions, iter_heading_nodes
 
 
 class GetDocumentTree(ToolBase):
@@ -86,14 +85,11 @@ def collect_document_stats(
     doc: Any,
     doc_svc: Any,
     *,
-    heading_tree: Any = None,
-    paragraph_count: int | None = None,
-    page_count: int | None = None,
+    heading_tree: Any,
+    paragraph_count: int,
+    page_count: int,
 ) -> dict[str, Any]:
-    """Character/word/paragraph/page/heading counts for a Writer document.
-
-    Only page_count is best-effort (it is cosmetic). Every other count raises rather than reporting a fabricated 0.
-    """
+    """Character/word/paragraph/page/heading counts for a Writer document."""
     text_obj = doc.getText()
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
@@ -102,23 +98,12 @@ def collect_document_stats(
     char_count = len(full_text)
     word_count = len(full_text.split())
 
-    if paragraph_count is not None:
-        para_count = paragraph_count
-    else:
-        para_count = len(doc_svc.get_paragraph_ranges(doc))
-
-    source = heading_tree if heading_tree is not None else build_heading_tree(doc)
-    heading_count = sum(1 for _unused in iter_heading_nodes(source))
-
-    if page_count is not None:
-        final_page_count = page_count
-    else:
-        final_page_count = best_effort(lambda: doc_svc.get_page_count(doc), "page count", 0)
+    heading_count = sum(1 for _unused in iter_heading_nodes(heading_tree))
 
     return {
         "character_count": char_count,
         "word_count": word_count,
-        "paragraph_count": para_count,
-        "page_count": final_page_count,
+        "paragraph_count": paragraph_count,
+        "page_count": page_count,
         "heading_count": heading_count,
     }

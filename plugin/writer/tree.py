@@ -68,19 +68,25 @@ def _iter_body_paragraphs(para_ranges: list[Any], start_idx: int, end_idx: int):
             yield idx, element
 
 
+def _named_doc_item(doc: Any, getter: str, unsupported: str, missing: str, name: str) -> Any:
+    if not hasattr(doc, getter):
+        raise ToolExecutionError(unsupported)
+    container = getattr(doc, getter)()
+    if not container.hasByName(name):
+        raise ToolExecutionError(missing % name)
+    return container.getByName(name)
+
+
 def heading_ref(
     node: dict[str, Any],
     bookmark_map: dict[Any, Any] | None = None,
     *,
-    include_type: bool = False,
     include_body: bool = False,
     include_children_count: bool = False,
     include_chapter: bool = False,
 ) -> dict[str, Any]:
     para_index = node["para_index"]
     ref: dict[str, Any] = {}
-    if include_type:
-        ref["type"] = "heading"
     ref["level"] = node["level"]
     ref["text"] = node["text"]
     ref["para_index"] = para_index
@@ -175,26 +181,6 @@ class TreeService(ServiceBase):
 
     # ── Content strategies ─────────────────────────────────────────
 
-    def _get_body_preview_from_ranges(self, para_ranges: list[Any], start_idx: int, end_idx: int) -> str:
-        preview_parts = []
-        current_len = 0
-        for _idx, element in _iter_body_paragraphs(para_ranges, start_idx, end_idx):
-            para_text = get_string_without_tracked_deletions(element).strip()
-            if para_text:
-                preview_parts.append(para_text)
-                current_len += len(para_text)
-                if current_len >= 100:
-                    break
-        full_preview = " ".join(preview_parts)
-        return _preview_text(full_preview)
-
-    def _get_full_body_text_from_ranges(self, para_ranges: list[Any], start_idx: int, end_idx: int) -> str:
-        parts = [
-            get_string_without_tracked_deletions(element)
-            for _idx, element in _iter_body_paragraphs(para_ranges, start_idx, end_idx)
-        ]
-        return "\n".join(parts)
-
     def _apply_content_strategy(
         self,
         node: dict[str, Any],
@@ -203,15 +189,27 @@ class TreeService(ServiceBase):
         para_ranges: list[Any],
         next_heading_map: dict[int, int],
     ) -> None:
-        para_idx = node.get("para_index", -1)
-        if strategy == "heading_only":
-            pass
-        elif strategy == "first_lines":
+        if strategy in ("first_lines", "full"):
+            para_idx = node.get("para_index", -1)
             next_idx = next_heading_map.get(para_idx, len(para_ranges))
-            node["body_preview"] = self._get_body_preview_from_ranges(para_ranges, para_idx + 1, next_idx)
-        elif strategy == "full":
-            next_idx = next_heading_map.get(para_idx, len(para_ranges))
-            node["body_text"] = self._get_full_body_text_from_ranges(para_ranges, para_idx + 1, next_idx)
+            if strategy == "first_lines":
+                preview_parts = []
+                current_len = 0
+                for _idx, element in _iter_body_paragraphs(para_ranges, para_idx + 1, next_idx):
+                    para_text = get_string_without_tracked_deletions(element).strip()
+                    if para_text:
+                        preview_parts.append(para_text)
+                        current_len += len(para_text)
+                        if current_len >= 100:
+                            break
+                full_preview = " ".join(preview_parts)
+                node["body_preview"] = _preview_text(full_preview)
+            else:
+                parts = [
+                    get_string_without_tracked_deletions(element)
+                    for _idx, element in _iter_body_paragraphs(para_ranges, para_idx + 1, next_idx)
+                ]
+                node["body_text"] = "\n".join(parts)
 
     def _serialize_tree_node(
         self,
@@ -224,14 +222,16 @@ class TreeService(ServiceBase):
         para_ranges: list[Any],
         next_heading_map: dict[int, int],
     ) -> dict[str, Any]:
-        node = heading_ref(
-            child,
-            bookmark_map,
-            include_type=True,
-            include_body=True,
-            include_children_count=True,
-            include_chapter=True,
-        )
+        node = {
+            "type": "heading",
+            **heading_ref(
+                child,
+                bookmark_map,
+                include_body=True,
+                include_children_count=True,
+                include_chapter=True,
+            ),
+        }
         self._apply_content_strategy(node, content_strategy, para_ranges=para_ranges, next_heading_map=next_heading_map)
         if depth == 0 or current_depth < depth:
             if child.get("children"):
@@ -342,8 +342,8 @@ class TreeService(ServiceBase):
         return para_idx, para_ranges, text_obj
 
     def _confirm_anchor_placement(
-        self, doc: Any, obj: Any, not_placed_err: Exception
-    ) -> tuple[int | None, int | None, list[Any]]:
+        self, doc: Any, obj: Any, not_placed_err: Exception, accept_name: str | None = None
+    ) -> int:
         try:
             anchor = obj.getAnchor()
         except Exception as exc:
@@ -352,7 +352,16 @@ class TreeService(ServiceBase):
             raise not_placed_err
         para_idx, para_ranges, text_obj = self._paragraph_at_anchor(doc, anchor)
         placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
-        return placed, para_idx, para_ranges
+        if placed is None:
+            if (
+                accept_name is not None
+                and isinstance(para_idx, int)
+                and 0 <= para_idx < len(para_ranges)
+                and getattr(para_ranges[para_idx], "getName", lambda: None)() == accept_name
+            ):
+                return para_idx
+            raise not_placed_err
+        return placed
 
     # ── Locator resolution (called by document.resolve_locator) ────
 
@@ -384,12 +393,13 @@ class TreeService(ServiceBase):
                 raise ToolExecutionError("Cannot resolve page:%s — %s" % (loc_value, e)) from e
 
         if loc_type == "section":
-            if not hasattr(doc, "getTextSections"):
-                raise ToolExecutionError("Document does not support sections")
-            sections = doc.getTextSections()
-            if not sections.hasByName(loc_value):
-                raise ToolExecutionError("Section '%s' not found" % loc_value)
-            section = sections.getByName(loc_value)
+            section = _named_doc_item(
+                doc,
+                "getTextSections",
+                "Document does not support sections",
+                "Section '%s' not found",
+                loc_value,
+            )
             anchor = section.getAnchor()
             para_idx, _para_ranges, _text_obj = self._paragraph_at_anchor(doc, anchor)
             if para_idx is None:
@@ -421,41 +431,27 @@ class TreeService(ServiceBase):
             return {"para_index": found["para_index"]}
 
         if loc_type == "heading_text":
-            result = self._find_heading_by_text(doc, loc_value)
-            if result is None:
+            para_index = self._find_heading_by_text(doc, loc_value)
+            if para_index is None:
                 raise ToolExecutionError("No heading matching '%s' found" % loc_value)
-            return {"para_index": result["para_index"]}
+            return {"para_index": para_index}
 
         if loc_type == "table":
-            if not hasattr(doc, "getTextTables"):
-                raise ToolExecutionError("Document does not support tables")
-            tables = doc.getTextTables()
-            if not tables.hasByName(loc_value):
-                raise ToolExecutionError("Table '%s' not found" % loc_value)
-            table = tables.getByName(loc_value)
-            placed, para_idx, para_ranges = self._confirm_anchor_placement(
+            table = _named_doc_item(
+                doc,
+                "getTextTables",
+                "Document does not support tables",
+                "Table '%s' not found",
+                loc_value,
+            )
+            placed = self._confirm_anchor_placement(
                 doc,
                 table,
                 ToolExecutionError(
                     "Table '%s' anchor is not in the document" % loc_value
                 ),
+                accept_name=loc_value,
             )
-            # Same as bookmarks: find_paragraph_for_range returns None when the
-            # place fails. confirm_paragraph_index keeps 0 only for a real hit
-            # inside a paragraph. A table in enumeration slot 0 is still valid,
-            # and confirm only checks paragraph getStart, so accept that slot
-            # when the named table is there.
-            if placed is None:
-                if (
-                    isinstance(para_idx, int)
-                    and 0 <= para_idx < len(para_ranges)
-                    and getattr(para_ranges[para_idx], "getName", lambda: None)() == loc_value
-                ):
-                    placed = para_idx
-                else:
-                    raise ToolExecutionError(
-                        "Table '%s' anchor is not in the document" % loc_value
-                    )
             return {"para_index": placed, "table_name": loc_value}
 
         raise ToolExecutionError("Unknown Writer locator type: '%s'" % loc_type)
@@ -487,21 +483,17 @@ class TreeService(ServiceBase):
         is inside that paragraph. Anything else is an error, not a
         location.
         """
-        placed, _para_idx, _para_ranges = self._confirm_anchor_placement(
+        return self._confirm_anchor_placement(
             doc, bookmark, _bookmark_anchor_not_placed(bookmark_name)
         )
-        if placed is None:
-            raise _bookmark_anchor_not_placed(bookmark_name)
-        return placed
 
-    def _find_heading_by_text(self, doc: Any, search_text: str) -> dict[str, Any] | None:
+    def _find_heading_by_text(self, doc: Any, search_text: str) -> int | None:
         """Find heading by text (case-insensitive, fuzzy)."""
         search_lower = search_text.lower().strip()
         if not search_lower:
             return None
 
         tree = self.build_heading_tree(doc)
-        bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc)
 
         best_prefix = None
         best_substring = None
@@ -529,12 +521,4 @@ class TreeService(ServiceBase):
         if matched is None:
             return None
 
-        result = {
-            "text": matched["text"],
-            "para_index": matched["para_index"],
-            "level": matched["level"],
-            "bookmark": bookmark_map.get(matched["para_index"]),
-        }
-        if matched.get("chapter_number"):
-            result["chapter_number"] = matched["chapter_number"]
-        return result
+        return matched["para_index"]

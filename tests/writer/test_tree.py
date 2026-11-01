@@ -48,11 +48,7 @@ class TestTreeServiceSearch:
 
     def test_exact_match(self):
         # Should match "Introduction" exactly
-        res = self.tree_svc._find_heading_by_text(self.doc, "Introduction")
-        assert (res) is not None
-        assert (res["text"]) == ("Introduction")
-        assert (res["para_index"]) == (0)
-        assert (res["bookmark"]) == ("bm_intro")
+        assert self.tree_svc._find_heading_by_text(self.doc, "Introduction") == 0
 
     def test_heading_children_missing_bookmark_uses_resolver_error(self):
         from plugin.doc import document_helpers
@@ -72,24 +68,16 @@ class TestTreeServiceSearch:
         ],
     )
     def test_exact_match_case_insensitive(self, value):
-        res = self.tree_svc._find_heading_by_text(self.doc, value)
-        assert (res) is not None
-        assert (res["text"]) == ("Introduction")
+        assert self.tree_svc._find_heading_by_text(self.doc, value) == 0
 
 
     def test_prefix_match(self):
         # "Install" should match "Installation Guide"
-        res = self.tree_svc._find_heading_by_text(self.doc, "Install")
-        assert (res) is not None
-        assert (res["text"]) == ("Installation Guide")
-        assert (res["para_index"]) == (2)
+        assert self.tree_svc._find_heading_by_text(self.doc, "Install") == 2
 
     def test_substring_match(self):
         # "Started" should match "Getting Started"
-        res = self.tree_svc._find_heading_by_text(self.doc, "Started")
-        assert (res) is not None
-        assert (res["text"]) == ("Getting Started")
-        assert (res["para_index"]) == (3)
+        assert self.tree_svc._find_heading_by_text(self.doc, "Started") == 3
 
     def test_priority_exact_over_prefix(self):
         # If we had "Intro" and "Introduction", searching for "Intro" should match "Intro" exactly
@@ -99,9 +87,7 @@ class TestTreeServiceSearch:
         doc = WriterDocStub(self.elements)
         self.bm_svc.get_mcp_bookmark_map.return_value[0] = "bm_intro_short"
 
-        res = self.tree_svc._find_heading_by_text(doc, "Intro")
-        assert (res) is not None
-        assert (res["text"]) == ("Intro")
+        assert self.tree_svc._find_heading_by_text(doc, "Intro") == 0
 
     def test_priority_prefix_over_substring(self):
         # Search "Advanced" in a doc with "Advanced Usage" and "Super Advanced"
@@ -110,9 +96,7 @@ class TestTreeServiceSearch:
             ElementStub("Advanced Usage", outline_level=1), # prefix match
         ]
         doc = WriterDocStub(elements)
-        res = self.tree_svc._find_heading_by_text(doc, "Advanced")
-        assert (res) is not None
-        assert (res["text"]) == ("Advanced Usage")
+        assert self.tree_svc._find_heading_by_text(doc, "Advanced") == 1
 
     def test_no_match(self):
         res = self.tree_svc._find_heading_by_text(self.doc, "NonExistent")
