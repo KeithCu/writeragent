@@ -36,7 +36,7 @@ def test_aborted_turn_prevents_reply_save():
             self.messages.append(kwargs)
 
     session = FakeSession()
-    turn = TurnController(session, mode="chat")
+    turn = TurnController(session)
     host = FakeHost()
     host._turn = turn
 

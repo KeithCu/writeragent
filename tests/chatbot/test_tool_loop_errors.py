@@ -87,7 +87,7 @@ def test_instance():
 
         from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-        begin_send_turn(instance, "chat", model=MagicMock())
+        begin_send_turn(instance, model=MagicMock())
         yield instance
 
 def test_tool_execution_error_handling(test_instance, mock_get_tools):
@@ -196,7 +196,7 @@ def test_audio_handling_error(test_instance, mock_get_tools):
 
         from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-        begin_send_turn(test_instance, "chat")
+        begin_send_turn(test_instance)
         test_instance.audio_wav_path = "/fake/path/audio.wav"
 
         # Override open to throw IOError
@@ -209,7 +209,7 @@ def test_audio_handling_error(test_instance, mock_get_tools):
             assert test_instance._terminal_status != "Error" # Should not terminate on audio error
 
         # The first send's drain aborted its turn. This call is a new send.
-        begin_send_turn(test_instance, "chat")
+        begin_send_turn(test_instance)
         test_instance.audio_wav_path = "/fake/path/audio.wav"
         with patch("builtins.open", side_effect=TypeError("Bad arguments")):
             test_instance._do_send_chat_with_tools("test", "test_model", "writer")
@@ -834,7 +834,7 @@ def test_start_tool_calling_resets_overflow_attempts(test_instance):
         patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response"),
     ):
         from plugin.chatbot.tool_loop_actions import begin_send_turn
-        begin_send_turn(test_instance, "chat")
+        begin_send_turn(test_instance)
         test_instance._start_tool_calling_async(
             MagicMock(), MagicMock(), 128, [], execute_fn, max_tool_rounds=8
         )

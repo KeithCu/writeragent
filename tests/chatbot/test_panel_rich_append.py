@@ -21,7 +21,7 @@ def _make_send_listener():
     send.rich_text_widget = MagicMock()
     send.queue_executor = MagicMock()
     send.session.messages = []
-    begin_send_turn(send, "chat")
+    begin_send_turn(send)
     return send
 
 

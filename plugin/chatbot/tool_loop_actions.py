@@ -243,7 +243,6 @@ class TurnController:
     ``session.messages``; streamed tokens are the open row on that list.
     """
 
-    mode: str
     session: Any
     messages: Any
     queue: Any
@@ -272,12 +271,10 @@ class TurnController:
     def __init__(
         self,
         session: Any,
-        mode: str,
         model: Any = None,
         text_model: str | None = None,
         endpoint: str | None = None,
     ) -> None:
-        self.mode = str(mode or "")
         self.session = session
         self.messages = getattr(session, "messages", None) if session is not None else None
         self.send_start_msg_count = len(self.messages) if isinstance(self.messages, list) else 0
@@ -475,7 +472,7 @@ def take_stop_partial(turn: Any) -> str | None:
         return None
     text = turn._stop_partial_text
     turn._stop_partial_text = None
-    return text if isinstance(text, str) else None
+    return text
 
 
 # current_turn: host._turn while it is a TurnController, including after
@@ -570,7 +567,7 @@ def drop_turn(host: Any) -> None:
         host._turn = None
 
 
-def begin_send_turn(host: Any, mode: str, model: Any = None) -> TurnController:
+def begin_send_turn(host: Any, model: Any = None) -> TurnController:
     """Start a send. The previous turn, if any, is aborted and replaced.
 
     Called before any worker spawns. There is no later rebind: Clear and a
@@ -580,7 +577,7 @@ def begin_send_turn(host: Any, mode: str, model: Any = None) -> TurnController:
     if previous is not None:
         previous.abort()
     session = getattr(host, "session", None)
-    turn = TurnController(session, mode, model)
+    turn = TurnController(session, model)
     host._turn = turn
     return turn
 
@@ -588,7 +585,7 @@ def begin_send_turn(host: Any, mode: str, model: Any = None) -> TurnController:
 def running_turn(host: Any) -> TurnController | None:
     """The live turn, or None once Stop, Clear, or a new send has ended it."""
     turn = current_turn(host)
-    if isinstance(turn, TurnController) and turn.alive and turn.can_write(host):
+    if turn is not None and turn.alive and turn.can_write(host):
         return turn
     return None
 
@@ -596,8 +593,7 @@ def running_turn(host: Any) -> TurnController | None:
 def session_for_turn(host: Any) -> Any:
     """The session this send bound. None when the turn is gone or the list changed."""
     turn = current_turn(host)
-    if isinstance(turn, TurnController) and turn.can_write(host):
-        assert turn.session is not None
+    if turn is not None and turn.can_write(host):
         return turn.session
     return None
 
@@ -610,7 +606,7 @@ def turn_session_or_stop(host: Any) -> Any:
     the reply onto a session the turn did not start with.
     """
     if current_turn(host) is None:
-        begin_send_turn(host, "")
+        begin_send_turn(host)
     turn = running_turn(host)
     if turn is None:
         return None
@@ -695,7 +691,7 @@ def persist_assistant_on_turn(
     reasoning_replay: Any = None,
 ) -> None:
     turn = current_turn(host)
-    if not isinstance(turn, TurnController):
+    if turn is None:
         return
     turn.persist_assistant(host, content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
 
@@ -901,9 +897,7 @@ def build_tool_execute_fn(
         # execute_safe or collide with those parameters. Copy so the stored
         # tool-call dict stays intact, drop the keys, and pass False. A
         # chat argument must not set the eval-harness switch.
-        call_args = safe_args
-        if "bypass_thread_guard" in call_args or "ctx" in call_args or "tool_name" in call_args:
-            call_args = {key: value for key, value in call_args.items() if key not in ("bypass_thread_guard", "ctx", "tool_name")}
+        call_args = {key: value for key, value in safe_args.items() if key not in ("bypass_thread_guard", "ctx", "tool_name")}
         res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
         # execute_safe turns a disposed document into a DOCUMENT_DISPOSED
         # dict. Returning that JSON queues TOOL_DONE and the loop keeps
@@ -929,6 +923,15 @@ class ToolLoopEffectInterpreter:
     def __init__(self, host: ToolLoopActionHost) -> None:
         self.host = host
 
+    def _live_spawn_target(self) -> tuple[TurnController, Any] | None:
+        turn = running_turn(self.host)
+        if turn is None or turn.active_client is None:
+            return None
+        q = spawn_queue(turn)
+        if q is None:
+            return None
+        return turn, q
+
     def execute(self, effect: Any) -> bool:
         """Run one effect and return True when the drain loop should exit."""
 
@@ -938,10 +941,10 @@ class ToolLoopEffectInterpreter:
         if isinstance(effect, TriggerNextToolEffect):
             put_for_turn(current_turn(host), (StreamQueueKind.NEXT_TOOL,))
         elif isinstance(effect, SpawnFinalStreamEffect):
-            turn = running_turn(host)
-            q = spawn_queue(turn) if turn is not None else None
-            if turn is None or q is None or turn.active_client is None:
+            target = self._live_spawn_target()
+            if target is None:
                 return True
+            turn, q = target
             host._tool_calling._spawn_final_stream(q, turn.active_client, turn.active_max_tokens)
         elif isinstance(effect, UpdateDocumentContextEffect):
             if self._refresh_document_context():
@@ -953,10 +956,10 @@ class ToolLoopEffectInterpreter:
         elif isinstance(effect, AddMessageEffect):
             self._add_message(effect)
         elif isinstance(effect, SpawnLLMWorkerEffect):
-            turn = running_turn(host)
-            q = spawn_queue(turn) if turn is not None else None
-            if turn is None or q is None or turn.active_client is None:
+            target = self._live_spawn_target()
+            if target is None:
                 return True
+            turn, q = target
             host._tool_calling._refresh_active_tools_for_session()
             host._tool_calling._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num, query_text=turn.active_query_text)
         elif isinstance(effect, UpdateActivityStateEffect):
@@ -1085,7 +1088,7 @@ class ToolLoopEffectInterpreter:
         # A later send replaces the host's turn. This worker keeps the one
         # it captured and must not assign that turn's queue.
         turn = running_turn(host)
-        if not isinstance(turn, TurnController):
+        if turn is None:
             return True
 
         # Close over the execute function and the document this spawn

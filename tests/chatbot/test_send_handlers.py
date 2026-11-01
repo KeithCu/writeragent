@@ -666,7 +666,7 @@ def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
     from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
 
     if current_turn(panel) is None:
-        begin_send_turn(panel, handler_type)
+        begin_send_turn(panel)
     q: StreamQueue = StreamQueue()
     state = SendHandlerState(handler_type=handler_type, status="starting")
     interpreter = EffectInterpreter(panel)
@@ -1517,7 +1517,7 @@ def test_web_and_image_stop_persist_emitted_text():
     for handler_type in ("web", "image"):
         panel = DummyChatbotPanel()
         panel.session = _RecordingSession()
-        begin_send_turn(panel, handler_type)
+        begin_send_turn(panel)
         _append_recording_turn(panel)
 
         def worker(q):
@@ -1603,7 +1603,7 @@ def test_on_error_after_stopped_or_done_writes_no_history_row():
 
     for status in ("stopped", "done"):
         panel = DummyChatbotPanel()
-        begin_send_turn(panel, "web")
+        begin_send_turn(panel)
         state = SendHandlerState(handler_type="web", status=status)
         interpreter = EffectInterpreter(panel)
         q = StreamQueue()
@@ -1661,7 +1661,7 @@ def test_image_worker_drops_output_after_abort():
     from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn
 
     panel = DummyChatbotPanel()
-    begin_send_turn(panel, "image")
+    begin_send_turn(panel)
     state = SendHandlerState(handler_type="image", status="starting")
     interpreter = EffectInterpreter(panel)
 
@@ -1697,7 +1697,7 @@ def test_web_worker_drops_output_after_abort():
 
     panel = DummyChatbotPanel()
     panel.session.messages = []
-    begin_send_turn(panel, "web")
+    begin_send_turn(panel)
     state = SendHandlerState(handler_type="web", status="starting")
     interpreter = EffectInterpreter(panel)
 
@@ -1740,7 +1740,7 @@ def test_agent_backend_drops_output_after_abort():
     panel.session = _RecordingSession()
     panel.session.refresh_document_context = MagicMock()
     panel.session.document_context = "doc"
-    begin_send_turn(panel, "agent")
+    begin_send_turn(panel)
     state = SendHandlerState(handler_type="agent", status="starting")
     interpreter = EffectInterpreter(panel)
     model = MagicMock()

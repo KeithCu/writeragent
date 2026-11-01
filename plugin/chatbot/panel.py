@@ -685,7 +685,7 @@ class SendButtonListener(BaseActionListener):
         if running_turn(self) is not None:
             self._append_response(text)
             return
-        begin_send_turn(self, "")
+        begin_send_turn(self)
         self._append_response(text)
         self._terminal_status = "Error"
         drop_turn(self)
@@ -1398,11 +1398,10 @@ class SendButtonListener(BaseActionListener):
         flags = self.sidebar_mode_flags or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
         sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
 
-        # Mode and the document are arguments of the turn already started.
+        # The document is an argument of the turn already started.
         # A later dropdown change aborts it; it does not retarget the turn.
         started = current_turn(self)
         if isinstance(started, TurnController):
-            started.mode = str(sidebar_mode or "")
             started.model = model
 
         return dispatch_sidebar_send(self, sidebar_mode, query_text, model, doc_type_label)
@@ -1421,8 +1420,8 @@ class SendButtonListener(BaseActionListener):
             return
 
         # The turn exists before any worker and before early error rows.
-        # Mode and the document are filled in once this send knows them.
-        begin_send_turn(self, "")
+        # The document is filled in once this send knows it.
+        begin_send_turn(self)
         self._set_status(_("Starting..."))
         update_activity_state("do_send", status_control=self.status_control)
         log.info("=== _do_send START ===")
@@ -1572,7 +1571,7 @@ class SendButtonListener(BaseActionListener):
 
         from plugin.chatbot.tool_loop_actions import TurnController, begin_send_turn, current_turn
 
-        begin_send_turn(self, CHAT_MODE_CHAT)
+        begin_send_turn(self)
         self._set_status(_("Starting..."))
         update_activity_state("do_send", status_control=self.status_control)
         if self.ensure_path_fn:
@@ -1591,7 +1590,6 @@ class SendButtonListener(BaseActionListener):
             return
         started = current_turn(self)
         if isinstance(started, TurnController):
-            started.mode = CHAT_MODE_CHAT
             started.model = model
         if not already_appended:
             self.session.add_user_message(query_text)
