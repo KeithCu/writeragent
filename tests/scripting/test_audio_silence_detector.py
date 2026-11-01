@@ -265,7 +265,7 @@ def test_monitor_recording_stdout_invokes_auto_stop_callback(tmp_path):
     from io import StringIO
     from unittest.mock import MagicMock
 
-    from plugin.scripting.audio_recorder_service import monitor_recording_stdout
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff, monitor_recording_stdout
 
     voice_file = str(tmp_path / "voice.wav")
     proc = MagicMock()
@@ -277,8 +277,10 @@ def test_monitor_recording_stdout_invokes_auto_stop_callback(tmp_path):
     seen: list[str] = []
     progress: list[int] = []
 
+    handoff = RecordingStopHandoff()
     thread = monitor_recording_stdout(
         _recording_child(proc),
+        handoff=handoff,
         on_auto_stopped=seen.append,
         on_silence_progress=progress.append,
     )

@@ -44,7 +44,7 @@ Implementation modules:
 
 ### Subprocess IPC (line-delimited JSON)
 
-Host spawns `{venv_python} audio_record_main.py --output /tmp/….wav` through `ManagedSubprocess` (`text=True`, `bufsize=1`, stdin/stdout/stderr pipes, POSIX `start_new_session`, Windows `CREATE_NO_WINDOW`). The env is `_build_recording_env()` passed as `base_env` (scrubbed by `scrub_subprocess_env`). The command goes through `_wrap_recording_command`, which calls `wrap_command_for_sandbox` with `watch_bus=True`. Under Flatpak that is `flatpak-spawn --host --watch-bus`, so killing the spawn helper also ends the host Python that holds the microphone. The helper's default stays false for the long-lived venv worker. The child is not registered for `shutdown_all()`.
+Host spawns `{venv_python} audio_record_main.py --output /tmp/….wav` through `ManagedSubprocess` (`text=True`, `bufsize=1`, stdin/stdout/stderr pipes, POSIX `start_new_session`, Windows `CREATE_NO_WINDOW`). The env is `scrub_subprocess_env(dict(os.environ))` passed as `base_env`. The command goes through `_wrap_recording_command`, which calls `wrap_command_for_sandbox` with `watch_bus=True`. Under Flatpak that is `flatpak-spawn --host --watch-bus`, so killing the spawn helper also ends the host Python that holds the microphone. The helper's default stays false for the long-lived venv worker. The child is not registered for `shutdown_all()`.
 
 | Direction | Payload |
 |-----------|---------|

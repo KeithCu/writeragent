@@ -57,10 +57,6 @@ def resolve_recording_python() -> tuple[str | None, str]:
     return exe, ""
 
 
-def _build_recording_env() -> dict[str, str]:
-    return scrub_subprocess_env(dict(os.environ))
-
-
 def _recording_popen(managed: ManagedSubprocess) -> subprocess.Popen[str]:
     proc = cast("subprocess.Popen[str] | None", managed.popen)
     if proc is None:
@@ -93,7 +89,7 @@ def spawn_recording_process(exe: str, output_path: str, *, silence_config: Silen
     # stt_service._run_cmd.
     managed = ManagedSubprocess(
         cmd,
-        base_env=_build_recording_env(),
+        base_env=scrub_subprocess_env(dict(os.environ)),
         command_wrapper=lambda cmd, env=None, cwd=None: wrap_command_for_sandbox(cmd, env=env, cwd=cwd, watch_bus=True),
         text=True,
         register=False,
@@ -154,10 +150,6 @@ class RecordingStopHandoff:
         with self._lock:
             return self._path
 
-    def has_error(self) -> bool:
-        with self._lock:
-            return self._error is not None
-
     def wait_for_path(self, timeout_sec: float) -> str:
         """Block until ``note_ok`` / ``note_error``, or raise on timeout."""
         if not self._ready.wait(timeout_sec):
@@ -202,21 +194,11 @@ def wait_for_recording_ready(managed: ManagedSubprocess, *, timeout_sec: float =
 
 
 def _close_recording_pipe(stream: Any, label: str) -> None:
-    if stream is None:
-        return
-    fileno_fn = getattr(stream, "fileno", None)
-    if not callable(fileno_fn):
-        return
-    try:
-        fd = fileno_fn()
-    except (OSError, ValueError):
-        return
-    if not isinstance(fd, int) or isinstance(fd, bool):
-        return
-    try:
-        stream.close()
-    except (OSError, ValueError) as exc:
-        log.debug("Failed to close %s pipe: %s", label, exc)
+    if stream is not None:
+        try:
+            stream.close()
+        except (OSError, ValueError) as exc:
+            log.debug("Failed to close %s pipe: %s", label, exc)
 
 
 def _reap_recording_process(
@@ -253,7 +235,7 @@ def _reap_recording_process(
         drain.join(timeout=1.0)
     # Bugfix: the monitor closure holds proc, so the fds stayed open until
     # GC; closing the read end also unblocks a monitor stuck in os.read after
-    # the child is gone. Do not close streams whose fileno is not an int.
+    # the child is gone.
     _close_recording_pipe(proc.stdin, "stdin")
     _close_recording_pipe(proc.stdout, "stdout")
     _close_recording_pipe(proc.stderr, "stderr")
@@ -307,7 +289,7 @@ def stop_recording_process(
         _reap_recording_process(managed, _RECORDING_REAP_TIMEOUT_SEC, monitor=monitor, handoff=handoff)
 
 
-def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingStopHandoff | None, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None, on_error: Callable[[str], None] | None) -> None:
+def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingStopHandoff, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None, on_error: Callable[[str], None] | None) -> None:
     """Handle one child IPC line. Stash ``ok`` before any callback that may stop.
 
     Callbacks run on this thread. ``note_ok`` / ``note_error`` must happen
@@ -318,8 +300,7 @@ def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingSto
     if status in {"ok", "auto_stopped"}:
         raw_path = payload.get("path")
         if isinstance(raw_path, str) and raw_path:
-            if handoff is not None:
-                handoff.note_ok(raw_path)
+            handoff.note_ok(raw_path)
             if status == "auto_stopped":
                 on_auto_stopped(raw_path)
         return
@@ -334,14 +315,13 @@ def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingSto
         # Bugfix: with no callback, note_error never ran, so wait_for_path sat
         # for the full stop timeout. AudioRecorder always passes a callback;
         # other callers do not.
-        if handoff is not None:
-            handoff.note_error(message)
+        handoff.note_error(message)
         if on_error is not None:
             on_error(message)
         return
 
 
-def monitor_recording_stdout(managed: ManagedSubprocess, *, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None = None, on_error: Callable[[str], None] | None = None, handoff: RecordingStopHandoff | None = None) -> BackgroundHandle:
+def monitor_recording_stdout(managed: ManagedSubprocess, *, handoff: RecordingStopHandoff, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None = None, on_error: Callable[[str], None] | None = None) -> BackgroundHandle:
     """Sole stdout reader for venv recorder IPC.
 
     Pass the same *handoff* to ``stop_recording_process``. This thread consumes
@@ -357,7 +337,7 @@ def monitor_recording_stdout(managed: ManagedSubprocess, *, on_auto_stopped: Cal
         # same moment, leaving that line unread. Read until EOF, and treat a
         # read timeout as done only after the process has exited.
         while True:
-            if handoff is not None and handoff.monitor_stop_requested():
+            if handoff.monitor_stop_requested():
                 break
             try:
                 payload = read_json_line(proc.stdout, timeout_sec=0.25)
@@ -385,7 +365,7 @@ def monitor_recording_stdout(managed: ManagedSubprocess, *, on_auto_stopped: Cal
                 # EOF after the child exited without an ok or error frame (a
                 # crash): report it and wake a Stop waiting on the handoff
                 # instead of leaving it to time out.
-                if proc.poll() is not None and handoff is not None and not handoff.snapshot_path() and not handoff.has_error():
+                if proc.poll() is not None and not handoff._ready.is_set():
                     message = "Recording subprocess exited unexpectedly."
                     handoff.note_error(message)
                     if on_error is not None:
