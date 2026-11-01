@@ -12,18 +12,18 @@ from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
 from plugin.writer.edit_review import EditReviewSession
 from plugin.writer.inline_review import (
-    _change_bounds,
+    _build_bounds_from_view,
+    _resolve_all_agent_changes,
     agent_changes,
     cursor_in_agent_change,
     goto_adjacent_agent_change,
-    has_agent_changes,
-    pending_agent_change_count,
     ResolveStatus,
     resolve_agent_change,
-    resolve_all_agent_changes,
     resolve_all_with_feedback,
     resolve_change_at_cursor,
+    scan_redline_view,
 )
+from plugin.writer.review_scan import agent_change_presence
 
 _PARA_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
 
@@ -104,11 +104,11 @@ def test_has_agent_changes_gates_on_agent_tokens_uno(ctx, doc):
     # Separate paragraphs: stacking an agent replace on the same range as a user
     # insert can reuse RedlineIdentifiers, so tagging never sees a "new" redline.
     _body(doc, ctx, "User paragraph.", "Agent paragraph.")
-    assert has_agent_changes(doc) is False, "clean doc has no agent changes"
+    assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "clean doc has no agent changes"
     _tracked_replace(doc, "User paragraph.", "User edited.")  # user-style redline, no token
-    assert has_agent_changes(doc) is False, "the user's own redline must not count as an agent change"
+    assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "the user's own redline must not count as an agent change"
     _agent_edit(doc, ctx, ("Agent paragraph.", "Agent edited paragraph."))
-    assert has_agent_changes(doc) is True, "an agent (tokened) change must be detected"
+    assert agent_change_presence(doc, stop_at_first=True)[0] > 0, "an agent (tokened) change must be detected"
 
 
 @native_test
@@ -237,7 +237,7 @@ def test_resolve_all_agent_changes_spares_user_redlines_uno(ctx, doc):
     _tracked_replace_fn(doc, "User paragraph.", "User edited.")()
     doc.setPropertyValue("RecordChanges", False)
     _agent_edit(doc, ctx, ("Agent one.", "Agent one EDITED."), ("Agent two.", "Agent two EDITED."))
-    n = resolve_all_agent_changes(doc, ctx, True)
+    n = _resolve_all_agent_changes(doc, ctx, True).resolved
     assert n == 2, "both agent changes resolved, got %d" % n
     assert agent_changes(doc) == [], "no agent changes left"
     assert _redline_count(doc) > 0, "the user's own redline must remain pending"
@@ -253,9 +253,9 @@ def test_resolve_all_counts_siblings_cleared_together_uno(ctx, doc):
     _body(doc, ctx, "The quick brown fox.", "Lonely user paragraph.")
     _agent_edit(doc, ctx, ("quick", "fast"), ("fox", "dog"))                     # two agent changes, SAME para 1
     _tracked_replace(doc, "Lonely user paragraph.", "Lonely user EDITED.")  # user redline in para 2 -> mixed path
-    n = resolve_all_agent_changes(doc, ctx, True)
+    n = _resolve_all_agent_changes(doc, ctx, True).resolved
     assert n == 2, "both same-paragraph agent changes must be counted, got %d" % n
-    assert not has_agent_changes(doc), "no agent change left pending"
+    assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "no agent change left pending"
 
 
 @native_test
@@ -270,9 +270,9 @@ def test_resolve_all_global_path_when_only_agent_redlines_uno(ctx, doc):
     n_changes = len(agent_changes(doc))
     assert n_changes >= 2, "precondition: multiple agent changes, got %d" % n_changes
     assert _redline_count(doc) > 0, "precondition: redlines present"
-    n = resolve_all_agent_changes(doc, ctx, True)
+    n = _resolve_all_agent_changes(doc, ctx, True).resolved
     assert n == n_changes, "global path must resolve AND count every agent change, got %d of %d" % (n, n_changes)
-    assert not has_agent_changes(doc), "no agent change left pending"
+    assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "no agent change left pending"
     assert _redline_count(doc) == 0, "global AcceptAll must clear all redlines, got %d" % _redline_count(doc)
 
 
@@ -342,7 +342,7 @@ def test_resolve_spares_user_redline_in_same_paragraph_uno(ctx, doc):
     _caret_in(doc, "dog")
     ok, msg = resolve_change_at_cursor(doc, ctx, True)
     assert ok, "the agent change must resolve precisely, sparing the user's redline: %r" % msg
-    assert not has_agent_changes(doc), "the agent change was accepted"
+    assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "the agent change was accepted"
     assert _redline_count(doc) < before, "the agent change's marks were resolved"
     assert _redline_count(doc) >= 1 and _find(doc, "fast") is not None, \
         "the user's own redline must remain pending and untouched, got %d redlines" % _redline_count(doc)
@@ -406,9 +406,9 @@ def test_resolve_all_skips_change_sharing_paragraph_with_user_redline_uno(ctx, d
     _body(doc, ctx, "The quick brown fox jumps.", "Lonely agent clause here.")
     _tracked_replace(doc, "quick", "fast")                         # user redline in paragraph 1
     _agent_edit(doc, ctx, ("fox", "dog"), ("Lonely agent clause here.", "Lonely agent clause EDITED."))
-    resolved = resolve_all_agent_changes(doc, ctx, True)
+    resolved = _resolve_all_agent_changes(doc, ctx, True).resolved
     assert resolved == 2, "both agent changes resolve, got %d" % resolved
-    assert not has_agent_changes(doc), "all agent changes resolved"
+    assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "all agent changes resolved"
     assert _find(doc, "fast") is not None, "the user's 'fast' redline remains"
 
 
@@ -450,9 +450,9 @@ def test_resolve_all_stacked_agent_pair_with_non_overlapping_user_redline_uno(ct
     _tracked_replace(doc, "quick", "fast")
     _agent_edit(doc, ctx, ("fox", "dog"))
     _agent_edit(doc, ctx, ("dog", "wolf"))
-    resolved = resolve_all_agent_changes(doc, ctx, True)
+    resolved = _resolve_all_agent_changes(doc, ctx, True).resolved
     assert resolved == 2, "both agent tokens resolve, got %d" % resolved
-    assert not has_agent_changes(doc), "all agent changes resolved"
+    assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "all agent changes resolved"
     assert _find(doc, "fast") is not None, "the user's 'fast' redline remains"
 
 
@@ -497,9 +497,9 @@ def _three_changes(doc, ctx):
 @native_test
 @with_native_doc("writer")
 def test_pending_count_reflects_agent_changes_uno(ctx, doc):
-    assert pending_agent_change_count(doc) == 0, "clean doc has 0 pending"
+    assert agent_change_presence(doc)[0] == 0, "clean doc has 0 pending"
     _three_changes(doc, ctx)
-    assert pending_agent_change_count(doc) == 3, pending_agent_change_count(doc)
+    assert agent_change_presence(doc)[0] == 3, agent_change_presence(doc)[0]
 
 
 @native_test
@@ -532,11 +532,11 @@ def test_fast_travel_next_from_caret_at_change_start_does_not_skip_uno(ctx, doc)
     order = _three_changes(doc, ctx)
     vc = doc.getCurrentController().getViewCursor()
     # Caret exactly at the FIRST change's start.
-    left0, _ = _change_bounds(doc, order[0])
+    left0, _ = _build_bounds_from_view(scan_redline_view(doc), order[0])
     vc.gotoRange(left0, False)
     assert goto_adjacent_agent_change(doc, True) == order[0], "must not skip the change at the caret (first)"
     # Caret exactly at the MIDDLE change's start.
-    left1, _ = _change_bounds(doc, order[1])
+    left1, _ = _build_bounds_from_view(scan_redline_view(doc), order[1])
     vc.gotoRange(left1, False)
     assert goto_adjacent_agent_change(doc, True) == order[1], "must not skip the change at the caret (middle)"
     # But once a change is SELECTED (reviewing it), Next must STEP to the following change.
@@ -547,7 +547,7 @@ def test_fast_travel_next_from_caret_at_change_start_does_not_skip_uno(ctx, doc)
 @with_native_doc("writer")
 def test_fast_travel_none_when_no_changes_uno(ctx, doc):
     _body(doc, ctx, "Nothing tracked here.")
-    assert pending_agent_change_count(doc) == 0
+    assert agent_change_presence(doc)[0] == 0
     assert goto_adjacent_agent_change(doc, True) is None, "no changes -> nowhere to travel"
 
 

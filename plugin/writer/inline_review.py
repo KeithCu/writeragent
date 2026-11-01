@@ -61,11 +61,9 @@ class ResolveAllResult(NamedTuple):
 
 class RedlineRow(NamedTuple):
     token: str | None          # full wa-review comment, or None
-    identifier: Any            # raw RedlineIdentifier; do not str() it
     start: Any                 # RedlineStart, or None
     end: Any                   # RedlineEnd, or None
     kind: str | None           # RedlineType, or None
-    text: Any                  # start.getText() when start is readable, else None
     identity: tuple[Any, ...] | None = None
 
 
@@ -150,11 +148,9 @@ def scan_redline_view(model: Any, *, preview: bool = False) -> RedlineView:
             rows.append(
                 RedlineRow(
                     token=token,
-                    identifier=None,
                     start=start,
                     end=end,
                     kind=kind,
-                    text=None,
                     identity=None,
                 )
             )
@@ -178,11 +174,9 @@ def scan_redline_view(model: Any, *, preview: bool = False) -> RedlineView:
         rows.append(
             RedlineRow(
                 token=None,
-                identifier=None,
                 start=start,
                 end=end,
                 kind=None,
-                text=None,
                 identity=identity,
             )
         )
@@ -190,12 +184,6 @@ def scan_redline_view(model: Any, *, preview: bool = False) -> RedlineView:
 
     reliable, _seen, total = _review_scan.scan_redlines(model, on_item)
     return RedlineView(reliable=reliable, total=total, rows=tuple(rows))
-
-
-def has_agent_changes(model: Any) -> bool:
-    """True if the document holds any pending AGENT change (gates the review UI entries)."""
-    count, _reliable = _review_scan.agent_change_presence(model, stop_at_first=True)
-    return count > 0
 
 
 def resolve_change_at_cursor(
@@ -231,17 +219,8 @@ def resolve_change_at_cursor(
         group_res = _resolve_overlapping_agent_changes(model, ctx, token, accept, before=after_view)
         if group_res.status == ResolveStatus.RESOLVED and group_res.resolved_count > 0:
             return True, _review_message(ResolveStatus.RESOLVED, accept=accept, group_count=group_res.resolved_count)
-        if group_res.status == ResolveStatus.UNRELIABLE:
-            return False, _review_message(ResolveStatus.UNRELIABLE, accept=accept)
-        if group_res.status == ResolveStatus.PARTIAL:
-            return False, _review_message(ResolveStatus.PARTIAL, accept=accept)
-        return False, _review_message(ResolveStatus.REFUSED_SIBLING, accept=accept)
-    if res.status == ResolveStatus.UNRELIABLE:
-        return False, _review_message(ResolveStatus.UNRELIABLE, accept=accept)
-    if res.status == ResolveStatus.PARTIAL:
-        return False, _review_message(ResolveStatus.PARTIAL, accept=accept)
-    if res.status == ResolveStatus.NO_OP:
-        return False, _review_message(ResolveStatus.NO_OP, accept=accept)
+        status = group_res.status if group_res.status in (ResolveStatus.UNRELIABLE, ResolveStatus.PARTIAL) else ResolveStatus.REFUSED_SIBLING
+        return False, _review_message(status, accept=accept)
     return False, _review_message(res.status, accept=accept)
 
 
@@ -255,7 +234,7 @@ def resolve_all_with_feedback(model: Any, ctx: Any, accept: bool) -> tuple[int, 
         total=result.total,
         is_all=True,
     )
-    return max(0, result.resolved), msg
+    return result.resolved, msg
 
 
 def show_review_message(ctx: Any, message: str) -> None:
@@ -351,14 +330,10 @@ def agent_changes(model: Any) -> list[dict[str, Any]]:
 
 
 def _row_text(r: RedlineRow) -> Any | None:
-    if r.text is not None:
-        return r.text
-    if r.start is not None:
-        try:
-            return r.start.getText()
-        except Exception:
-            return None
-    return None
+    try:
+        return r.start.getText()
+    except Exception:
+        return None
 
 
 def _group_rows_by_text(rows: list[RedlineRow]) -> list[tuple[Any, list[RedlineRow]]]:
@@ -421,51 +396,20 @@ def _build_bounds_from_view(view: RedlineView, token: str | frozenset[str]) -> t
     return bounds
 
 
-def _change_bounds(model: Any, token: str | frozenset[str], view: RedlineView | None = None) -> tuple[Any | None, Any | None]:
-    """Bounding (start, end) text ranges spanning ALL redlines of one change, or (None, None)."""
-    if view is None:
-        view = scan_redline_view(model)
-    return _build_bounds_from_view(view, token)
-
-
-def goto_agent_change(model: Any, token: str, view: RedlineView | None = None) -> bool:
-    """Move the view cursor to (and select) the given change so the user sees it."""
-    left, right = _change_bounds(model, token, view=view)
-    if left is None or right is None:
-        return False
-    try:
-        view_cursor = model.getCurrentController().getViewCursor()
-        view_cursor.gotoRange(left, False)
-        view_cursor.gotoRange(right, True)
-        return True
-    except Exception:
-        log.debug("inline_review: goto_agent_change failed", exc_info=True)
-        return False
-
-
-def pending_agent_change_count(model: Any) -> int:
-    """Distinct pending agent changes in the document (for callers and tests)."""
-    count, _reliable = _review_scan.agent_change_presence(model)
-    return count
-
-
 def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
     """Move the view cursor to the NEXT or PREVIOUS pending agent change from one scan."""
     view = scan_redline_view(model)
-    seen: set[str] = set()
-    tokens: list[str] = []
+    token_rows: dict[str, list[RedlineRow]] = {}
     for r in view.rows:
-        if r.token is not None and r.token not in seen:
-            seen.add(r.token)
-            tokens.append(r.token)
-    if not tokens:
+        if r.token is not None:
+            token_rows.setdefault(r.token, []).append(r)
+    if not token_rows:
         return None
 
     # Tip: Build bounds inside each text group. Multi-text tokens get one stop per text object
     # in enumeration order instead of being dropped entirely.
     items: list[tuple[str, Any, Any, Any]] = []
-    for tok in tokens:
-        matching = [r for r in view.rows if r.token == tok]
+    for tok, matching in token_rows.items():
         groups = _group_rows_by_text(matching)
         for g_text, g_rows in groups:
             if any(r.start is None or r.end is None for r in g_rows):
@@ -485,16 +429,15 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
         cur_start = cur_text.createTextCursorByRange(vc.getStart())
         cur_end = cur_text.createTextCursorByRange(vc.getEnd())
         cur_collapsed = bool(vc.isCollapsed())
+        cur = (cur_text, cur_start, cur_end, cur_collapsed)
     except Exception:
-        cur_text = None
-        cur_start = None
-        cur_end = None
-        cur_collapsed = True
+        cur = None
 
     chosen_idx = None
-    if cur_text is None or cur_start is None:
+    if cur is None:
         chosen_idx = 0 if forward else n - 1
     else:
+        cur_text, cur_start, cur_end, cur_collapsed = cur
         # Tip: a selection counts as "reviewing" a change only when it matches the change's whole span
         # (start and end). A collapsed caret never counts, so the first change stays reachable.
         sel_idx = None
@@ -504,7 +447,6 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
                     if not uno_same(stop_text, cur_text):
                         continue
                     if (cur_text.compareRegionStarts(cur_start, left) == 0
-                            and cur_end is not None
                             and cur_text.compareRegionEnds(cur_end, right) == 0):
                         sel_idx = i
                         break
@@ -563,9 +505,7 @@ def cursor_in_agent_change(model: Any, view: RedlineView | None = None) -> str |
         try:
             span = text.createTextCursorByRange(r.start)
             span.gotoRange(r.end, True)
-            if text.compareRegionStarts(pos, span) == 1:
-                continue
-            if text.compareRegionEnds(pos, span) == -1:
+            if not _span_contains_point(text, span, pos):
                 continue
             return r.token
         except Exception:
@@ -596,16 +536,15 @@ def _user_redline_whitespace_adjacent(text: Any, span: Any, rl_span: Any) -> boo
     """
     try:
         if text.compareRegionStarts(span.getEnd(), rl_span.getStart()) == 1:
-            cursor = text.createTextCursorByRange(span.getEnd())
-            cursor.gotoRange(rl_span.getStart(), True)
-            gap = cursor.getString()
-            return "\n" not in gap and "\r" not in gap and not gap.strip()
-        if text.compareRegionStarts(rl_span.getEnd(), span.getStart()) == 1:
-            cursor = text.createTextCursorByRange(rl_span.getEnd())
-            cursor.gotoRange(span.getStart(), True)
-            gap = cursor.getString()
-            return "\n" not in gap and "\r" not in gap and not gap.strip()
-        return False
+            a_end, b_start = span.getEnd(), rl_span.getStart()
+        elif text.compareRegionStarts(rl_span.getEnd(), span.getStart()) == 1:
+            a_end, b_start = rl_span.getEnd(), span.getStart()
+        else:
+            return False
+        cursor = text.createTextCursorByRange(a_end)
+        cursor.gotoRange(b_start, True)
+        gap = cursor.getString()
+        return "\n" not in gap and "\r" not in gap and not gap.strip()
     except Exception:
         return False
 
@@ -626,14 +565,22 @@ def _classify_span_conflicts(
     else:
         rows_tuple = rows
     has_sibling = False
+
+    def mark(is_sibling: bool, row: RedlineRow, record: bool = False) -> bool:
+        nonlocal has_sibling
+        if is_sibling:
+            has_sibling = True
+            if record and sibling_tokens is not None and row.token is not None:
+                sibling_tokens.add(row.token)
+            return False
+        return True
+
     for r in rows_tuple:
-        if r.token is not None and target_token is not None and r.token == target_token:
+        if r.token is not None and r.token == target_token:
             continue
         is_sibling = bool(r.token is not None)
         if r.start is None or r.end is None:
-            if is_sibling:
-                has_sibling = True
-            else:
+            if mark(is_sibling, r):
                 return True, False
             continue
         try:
@@ -641,15 +588,13 @@ def _classify_span_conflicts(
             rl_span.gotoRange(r.end, True)
         except Exception:
             try:
-                r_text = r.text if r.text is not None else r.start.getText()
+                r_text = r.start.getText()
                 in_other_text = not uno_same(r_text, text)
             except Exception:
                 in_other_text = False
             if in_other_text:
                 continue
-            if is_sibling:
-                has_sibling = True
-            else:
+            if mark(is_sibling, r):
                 return True, False
             continue
 
@@ -662,9 +607,7 @@ def _classify_span_conflicts(
                             or _span_contains_point(text, span, rl_span.getEnd())
                             or _span_contains_point(text, rl_span, span.getStart()))
         except Exception:
-            if is_sibling:
-                has_sibling = True
-            else:
+            if mark(is_sibling, r):
                 return True, False
             continue
 
@@ -672,11 +615,7 @@ def _classify_span_conflicts(
             overlaps = _user_redline_whitespace_adjacent(text, span, rl_span)
 
         if overlaps:
-            if is_sibling:
-                has_sibling = True
-                if sibling_tokens is not None and r.token is not None:
-                    sibling_tokens.add(r.token)
-            else:
+            if mark(is_sibling, r, record=True):
                 return True, False
     return False, has_sibling
 
@@ -687,10 +626,15 @@ def _execute_dispatch(ctx: Any, controller: Any, command: str) -> None:
     dispatcher.executeDispatch(controller.getFrame(), command, "", 0, ())
 
 
-def _dispatch_resolve(ctx: Any, controller: Any, accept: bool) -> None:
-    """Drive the native accept/reject dispatch on the controller's current selection."""
-    command = ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
-    _execute_dispatch(ctx, controller, command)
+def _dispatch_and_scan(
+    ctx: Any, controller: Any, model: Any, command: str, token: str, fail_msg: str
+) -> tuple[RedlineView, bool]:
+    try:
+        _execute_dispatch(ctx, controller, command)
+    except Exception:
+        log.exception(fail_msg, token)
+        return scan_redline_view(model), True
+    return scan_redline_view(model), False
 
 
 def _token_delta(before: RedlineView, after: RedlineView) -> tuple[set[str], bool]:
@@ -702,13 +646,8 @@ def _token_delta(before: RedlineView, after: RedlineView) -> tuple[set[str], boo
     after_tokens = agent_tokens(after)
     removed = before_tokens - after_tokens
 
-    def _foreign_key(r: RedlineRow) -> tuple[Any, ...]:
-        if r.identity is not None:
-            return r.identity
-        return (r.identifier, r.kind, None, None, r.token)
-
-    before_counts = Counter(_foreign_key(r) for r in before.rows if r.token is None)
-    after_counts = Counter(_foreign_key(r) for r in after.rows if r.token is None)
+    before_counts = Counter(r.identity for r in before.rows if r.token is None)
+    after_counts = Counter(r.identity for r in after.rows if r.token is None)
     foreign_safe = after.reliable and all(after_counts[k] >= before_counts[k] for k in before_counts)
     return removed, foreign_safe
 
@@ -743,6 +682,7 @@ def resolve_agent_change(
 
     dispatched = False
     try:
+        command = ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
         text = left.getText()
         controller = model.getCurrentController()
         view_cursor = controller.getViewCursor()
@@ -765,15 +705,13 @@ def resolve_agent_change(
 
             view_cursor.gotoRange(left, False)
             view_cursor.gotoRange(right, True)
-            try:
-                dispatched = True
-                _dispatch_resolve(ctx, controller, accept)
-            except Exception:
-                log.exception("inline_review: exact dispatch failed for %s", token)
-                after = scan_redline_view(model)
+            dispatched = True
+            after, failed = _dispatch_and_scan(
+                ctx, controller, model, command, token, "inline_review: exact dispatch failed for %s"
+            )
+            if failed:
                 return ResolveResult(ResolveStatus.PARTIAL), after
 
-            after = scan_redline_view(model)
             removed, foreign_safe = _token_delta(before, after)
 
             if token in removed and (removed - {token}) <= strict_siblings and after.reliable and foreign_safe:
@@ -811,15 +749,13 @@ def resolve_agent_change(
 
         view_cursor.gotoRange(start.getStart(), False)
         view_cursor.gotoRange(end.getEnd(), True)
-        try:
-            dispatched = True
-            _dispatch_resolve(ctx, controller, accept)
-        except Exception:
-            log.exception("inline_review: paragraph dispatch failed for %s", token)
-            after = scan_redline_view(model)
+        dispatched = True
+        after, failed = _dispatch_and_scan(
+            ctx, controller, model, command, token, "inline_review: paragraph dispatch failed for %s"
+        )
+        if failed:
             return ResolveResult(ResolveStatus.PARTIAL), after
 
-        after = scan_redline_view(model)
         after_tokens = agent_tokens(after)
         removed, foreign_safe = _token_delta(before, after)
 
@@ -892,18 +828,16 @@ def _resolve_overlapping_agent_changes(
         token_bounds[tok] = (b_left, b_right)
 
     group = frozenset([token])
-    left, right = token_bounds[token]
 
     dispatched = False
     has_foreign = False
     try:
-        text = left.getText()
-        grew = True
-        while grew:
-            grew = False
+        text = token_bounds[token][0].getText()
+        while True:
             left, right = _build_bounds_from_view(before, group)
             if left is None or right is None:
                 return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
+            grew = False
             for other in sorted(before_tokens - group):
                 o_left, o_right = token_bounds[other]
                 try:
@@ -923,6 +857,8 @@ def _resolve_overlapping_agent_changes(
                 if overlaps:
                     group = group | {other}
                     grew = True
+            if not grew:
+                break
 
         if len(group) < 2:
             return ResolveResult(ResolveStatus.REFUSED_SIBLING, 0)
@@ -955,7 +891,8 @@ def _resolve_overlapping_agent_changes(
                 view_cursor.gotoRange(right, True)
                 try:
                     dispatched = True
-                    _dispatch_resolve(ctx, controller, accept)
+                    command = ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
+                    _execute_dispatch(ctx, controller, command)
                 except Exception:
                     break
                 now = scan_redline_view(model)
@@ -1018,14 +955,13 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
             return ResolveAllResult(status=ResolveStatus.NO_OP, resolved=0, total=total)
         return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=resolved, total=total)
 
-    skip: set[str] = set()
     skip_reasons: dict[str, ResolveStatus] = {}
     dispatched = False
     cur_view = entry_view
     exact_unsupported = False
 
     with _grouped_resolve_undo(model):
-        # Tip: no fixed cap. Each pass resolves the head change or adds it to `skip`, so pending
+        # Tip: no fixed cap. Each pass resolves the head change or adds it to `skip_reasons`, so pending
         # strictly shrinks. An unreliable re-read aborts (PARTIAL once dispatched, else UNRELIABLE)
         # instead of silently leaving changes pending.
         while True:
@@ -1037,7 +973,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
                     total=total,
                 )
             cur_tokens = agent_tokens(cur_view)
-            pending = sorted(t for t in cur_tokens if t not in skip)
+            pending = sorted(t for t in cur_tokens if t not in skip_reasons)
             if not pending:
                 break
             token = pending[0]
@@ -1076,7 +1012,6 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
             if res.status != ResolveStatus.RESOLVED or len(after_tokens) >= before_count:
                 # Tip: skip refused/failed/no-progress changes so the rest resolve and nothing spins.
                 log.debug("inline_review: skipping %s in resolve-all (%s)", token, res.status)
-                skip.add(token)
                 skip_reasons[token] = res.status
 
     final_tokens = agent_tokens(cur_view)
@@ -1090,9 +1025,3 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
     if resolved == 0 and not any(s == ResolveStatus.REFUSED_FOREIGN for s in skip_reasons.values()):
         return ResolveAllResult(status=ResolveStatus.NO_OP, resolved=0, total=total)
     return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=resolved, total=total)
-
-
-def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
-    """Accept/reject every pending agent change (the user's own redlines stay untouched)."""
-    result = _resolve_all_agent_changes(model, ctx, accept)
-    return max(0, result.resolved)

@@ -194,18 +194,19 @@ def test_e2e_split_navigate_resolve_report_uno(ctx, doc):
     2 surgical changes -> fast-travel visits them -> accept one individually ->
     per-change report shows outcome + final_text."""
     from plugin.writer.inline_review import (ResolveStatus, goto_adjacent_agent_change,
-                                             pending_agent_change_count, resolve_agent_change)
+                                             resolve_agent_change)
+    from plugin.writer.review_scan import agent_change_presence
     _body(doc, ctx, "Intro.", _LONG)
     found = _find(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, ctx, True)
-        assert pending_agent_change_count(doc) == 2, "split into 2 surgical changes"
+        assert agent_change_presence(doc)[0] == 2, "split into 2 surgical changes"
         doc.getCurrentController().getViewCursor().gotoRange(doc.getText().getStart(), False)
         first = goto_adjacent_agent_change(doc, True)
         assert first is not None, "fast-travel must land on a change"
         assert resolve_agent_change(doc, ctx, first, True)[0].status == ResolveStatus.RESOLVED, "accept that one alone"
-        assert pending_agent_change_count(doc) == 1, "the other stays pending"
+        assert agent_change_presence(doc)[0] == 1, "the other stays pending"
         payload = session._review_payload(complete=False, timed_out=False)
     session.cleanup()
     chs = payload["changes"]

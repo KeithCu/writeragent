@@ -70,22 +70,6 @@ def test_begin_and_end_normal_cycle(clean_state: None, fake_profile: tuple[dict[
     assert getattr(review_authors._state, "last", None) is None
 
 
-def test_custom_insert_and_delete_authors(clean_state: None, fake_profile: tuple[dict[str, str], list[dict[str, str]]]) -> None:
-    store, _commits = fake_profile
-    ctx = object()
-
-    prior = review_authors.begin(ctx, insert_author="CustomInsert", delete_author="CustomDelete")
-    assert prior == ("OriginalGiven", "OriginalSn")
-    assert store["givenname"] == "CustomInsert"
-
-    with review_authors.deletion_author():
-        assert store["givenname"] == "CustomDelete"
-
-    assert store["givenname"] == "CustomInsert"
-    review_authors.end(ctx, prior)
-    assert store["givenname"] == "OriginalGiven"
-
-
 def test_deletion_author_swaps_and_restores(clean_state: None, fake_profile: tuple[dict[str, str], list[dict[str, str]]]) -> None:
     store, _commits = fake_profile
     ctx = object()

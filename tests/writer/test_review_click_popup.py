@@ -186,9 +186,8 @@ class FakeController:
 
 
 class FakeHandler:
-    def __init__(self, model: Any, controller: Any) -> None:
+    def __init__(self, model: Any) -> None:
         self._model = model
-        self._controller = controller
 
     def disposing(self, source: Any) -> None:  # noqa: N802, N803 -- UNO API
         ctrl = review_click_popup._detach(self)
@@ -202,7 +201,7 @@ class FakeHandler:
 
 
 def test_registration_dedup_and_detach(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl, ctrl: FakeHandler(mdl, ctrl))
+    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl: FakeHandler(mdl))
 
     ctrl = FakeController()
     review_click_popup.register_click_review(ctrl)
@@ -225,7 +224,7 @@ def test_registration_dedup_and_detach(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_handler_disposing_calls_remove_mouse_click_handler(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl, ctrl: FakeHandler(mdl, ctrl))
+    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl: FakeHandler(mdl))
 
     ctrl = FakeController()
     review_click_popup.register_click_review(ctrl)
@@ -239,7 +238,7 @@ def test_handler_disposing_calls_remove_mouse_click_handler(monkeypatch: pytest.
 
 
 def test_cleanup_disposed_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl, ctrl: FakeHandler(mdl, ctrl))
+    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl: FakeHandler(mdl))
 
     live_ctrl = FakeController(model=object())
     dead_ctrl = FakeController(model=None)
@@ -270,7 +269,7 @@ def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.Monke
     shown: list[tuple[int, int]] = []
     monkeypatch.setattr(review_click_popup, "_show_popup_and_resolve", lambda _m, _s, x, y: shown.append((x, y)))
     monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", lambda fn, *a: fn(*a))
-    handler = review_click_popup._make_handler(MagicMock(), MagicMock())
+    handler = review_click_popup._make_handler(MagicMock())
 
     # Double-click: press/release/press/release inside the window -> no popup, nothing consumed.
     assert handler.mousePressed(_click(10, 10, 1)) is False

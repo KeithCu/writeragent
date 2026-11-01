@@ -33,6 +33,11 @@ DELETE_AUTHOR = "WriterAgent (deletions)"
 _state = threading.local()
 
 
+def _disarm() -> None:
+    _state.ctx = None
+    _state.last = None
+
+
 def _author_access(ctx: Any) -> Any:
     from com.sun.star.beans import NamedValue
 
@@ -62,7 +67,7 @@ def _set_office_author(ctx: Any, given: str) -> bool:
         return False
 
 
-def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DELETE_AUTHOR) -> tuple[str, str] | None:
+def begin(ctx: Any) -> tuple[str, str] | None:
     """Capture the prior office author, set the INSERT author as the default, and arm
     ``deletion_author()`` on this thread. Returns the prior ``(given, sn)`` for ``end()``, or None.
 
@@ -77,31 +82,23 @@ def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DEL
         access = _author_access(ctx)
         prior = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
         # We commit the author swap to the profile, not hold it uncommitted, because LibreOffice stamps redlines with the committed UserProfile name; begin/end bracket one synchronous main-thread edit, so we do not add startup recovery.
-        _commit_author(access, insert_author, "")
+        _commit_author(access, INSERT_AUTHOR, "")
         armed = True
     except Exception:
         log.debug("review_authors.begin failed", exc_info=True)
         prior = None
     if armed:
         _state.ctx = ctx
-        _state.insert = insert_author
-        _state.delete = delete_author
-        _state.last = insert_author
+        _state.last = INSERT_AUTHOR
     else:
-        _state.ctx = None
-        _state.insert = None
-        _state.delete = None
-        _state.last = None
+        _disarm()
     return prior
 
 
 def end(ctx: Any, prior: tuple[str, str] | None) -> None:
     """Disarm split authoring and restore the prior office author."""
     last = getattr(_state, "last", None)
-    _state.ctx = None
-    _state.insert = None
-    _state.delete = None
-    _state.last = None
+    _disarm()
     if prior is None:
         return
     try:
@@ -123,15 +120,13 @@ def deletion_author() -> Generator[None, None, None]:
     """Author the tracked deletion inside this block as the DELETE author, then restore the
     INSERT author. A no-op unless ``begin()`` armed split authoring on this thread."""
     ctx = getattr(_state, "ctx", None)
-    delete = getattr(_state, "delete", None)
-    insert = getattr(_state, "insert", None)
-    if ctx is None or not delete:
+    if ctx is None:
         yield
         return
-    if not _set_office_author(ctx, delete):
+    if not _set_office_author(ctx, DELETE_AUTHOR):
         yield
         return
     try:
         yield
     finally:
-        _set_office_author(ctx, insert or "")
+        _set_office_author(ctx, INSERT_AUTHOR)

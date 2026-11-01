@@ -25,7 +25,7 @@ from plugin.writer.inline_review import (
     RedlineView,
     ResolveResult,
     ResolveStatus,
-    _change_bounds,
+    _build_bounds_from_view,
     _classify_span_conflicts,
     _is_all_redlines_agent,
     _resolve_all_agent_changes,
@@ -36,14 +36,12 @@ from plugin.writer.inline_review import (
     agent_tokens,
     cursor_in_agent_change,
     goto_adjacent_agent_change,
-    pending_agent_change_count,
     resolve_agent_change,
-    resolve_all_agent_changes,
     resolve_all_with_feedback,
     resolve_change_at_cursor,
     scan_redline_view,
 )
-from plugin.writer.review_scan import TOKEN_PREFIX, redline_identity_key, redline_is_agent_change
+from plugin.writer.review_scan import TOKEN_PREFIX, agent_change_presence, redline_identity_key, redline_is_agent_change
 
 
 def _sign(n):
@@ -428,20 +426,20 @@ def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_
         rows = []
         for i, t in enumerate(sorted(toks)):
             if t == token:
-                rows.append(RedlineRow(token=t, identifier=t, start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()))
+                rows.append(RedlineRow(token=t, start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"))
             else:
-                rows.append(RedlineRow(token=t, identifier=t, start=FakeRange(30 + 10 * i, 35 + 10 * i), end=FakeRange(35 + 10 * i, 40 + 10 * i), kind="Insert", text=FakeText()))
+                rows.append(RedlineRow(token=t, start=FakeRange(30 + 10 * i, 35 + 10 * i), end=FakeRange(35 + 10 * i, 40 + 10 * i), kind="Insert"))
         for j, f in enumerate(frn):
             if isinstance(f, RedlineRow):
                 rows.append(f)
             elif isinstance(f, tuple):
-                rows.append(RedlineRow(token=None, identifier=f[0], start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j), kind=f[1] if len(f) > 1 else "Insert", text=FakeText(), identity=f))
+                rows.append(RedlineRow(token=None, start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j), kind=f[1] if len(f) > 1 else "Insert", identity=f))
             else:
-                rows.append(RedlineRow(token=None, identifier=f, start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j), kind="Insert", text=FakeText()))
+                rows.append(RedlineRow(token=None, start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j), kind="Insert"))
         return RedlineView(reliable=reliable, total=len(rows), rows=tuple(rows))
 
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=_fake_scan), \
-         patch("plugin.writer.inline_review._dispatch_resolve"):
+         patch("plugin.writer.inline_review._execute_dispatch"):
         res, _view = resolve_agent_change(model, MagicMock(), token, True,
                                           refuse_sibling_agent=refuse_sibling, prefer_exact=prefer_exact)
         return res.status
@@ -705,7 +703,7 @@ def test_change_bounds_returns_span_on_complete_scan():
     # union span (non-None), so the caller can resolve the WHOLE change.
     target = TOKEN_PREFIX + "s:1"
     model = FakeModel(FakeRedlines([FakeRedline(target, 10, 15), FakeRedline(target, 15, 20)]))
-    left, right = _change_bounds(model, target)
+    left, right = _build_bounds_from_view(scan_redline_view(model), target)
     assert left is not None and right is not None
 
 
@@ -714,7 +712,7 @@ def test_change_bounds_fail_closed_on_silent_truncation():
     # -> returning a span here could cover only half the change -> fail closed.
     target = TOKEN_PREFIX + "s:1"
     model = FakeModel(FakeRedlines([FakeRedline(target, 10, 15), FakeRedline(target, 15, 20)], count=3))
-    assert _change_bounds(model, target) == (None, None)
+    assert _build_bounds_from_view(scan_redline_view(model), target) == (None, None)
 
 
 
@@ -723,7 +721,7 @@ def test_change_bounds_fail_closed_on_none_target_bounds():
     rl = FakeRedline(target, 15, 20)
     rl._props["RedlineEnd"] = None
     model = FakeModel(FakeRedlines([FakeRedline(target, 10, 15), rl]))
-    assert _change_bounds(model, target) == (None, None)
+    assert _build_bounds_from_view(scan_redline_view(model), target) == (None, None)
 
 
 # ------------------------------------------ refuse BEFORE dispatch on an unreliable before-snapshot
@@ -733,10 +731,10 @@ def test_resolve_does_not_dispatch_when_before_token_snapshot_unreliable():
     unreliable_view = RedlineView(
         reliable=False,
         total=1,
-        rows=(RedlineRow(token="T", identifier="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()),),
+        rows=(RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),),
     )
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=unreliable_view), \
-         patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+         patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
         res, _ = resolve_agent_change(model, MagicMock(), "T", True)
     assert res.status == ResolveStatus.UNRELIABLE
     dispatch.assert_not_called()
@@ -748,12 +746,12 @@ def test_resolve_does_not_dispatch_when_before_foreign_snapshot_unreliable():
         reliable=False,
         total=2,
         rows=(
-            RedlineRow(token="T", identifier="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()),
-            RedlineRow(token=None, identifier="user", start=FakeRange(30, 40), end=FakeRange(40, 50), kind="Insert", text=FakeText()),
+            RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),
+            RedlineRow(token=None, start=FakeRange(30, 40), end=FakeRange(40, 50), kind="Insert"),
         ),
     )
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=unreliable_view), \
-         patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+         patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
         res, _ = resolve_agent_change(model, MagicMock(), "T", True)
     assert res.status == ResolveStatus.UNRELIABLE
     dispatch.assert_not_called()
@@ -769,7 +767,7 @@ def test_agent_redlines_does_not_hang_on_mock_enumeration():
     enum.hasMoreElements.return_value = True
     doc.getRedlines.return_value.createEnumeration.return_value = enum
     assert agent_changes(doc) == []
-    assert pending_agent_change_count(doc) == 0
+    assert agent_change_presence(doc)[0] == 0
 
 
 # --------------------------------------------------- agent-self-resolution guard (B3 fix)
@@ -870,7 +868,7 @@ def _dispatch_removing(items, *per_pass):
 
 def test_overlapping_agent_changes_resolve_together():
     model, items, t1, t2 = _overlap_doc()
-    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=_dispatch_removing(items, {t1, t2})):
+    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=_dispatch_removing(items, {t1, t2})):
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True).resolved_count == 2
     assert items == []
 
@@ -880,14 +878,14 @@ def test_overlapping_reject_takes_one_layer_per_pass():
     over what is left of the group finishes it (the first live run left "palavra sobrando ")."""
     model, items, t1, t2 = _overlap_doc()
     fake = _dispatch_removing(items, {t2}, {t1})
-    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=fake) as dispatch:
+    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake) as dispatch:
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, False).resolved_count == 2
     assert dispatch.call_count == 2
 
 
 def test_overlapping_group_refuses_a_user_redline_inside():
     model, items, t1, _t2 = _overlap_doc(FakeRedline("", 7, 8))
-    with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+    with patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True).resolved_count == 0
     dispatch.assert_not_called()
 
@@ -895,7 +893,7 @@ def test_overlapping_group_refuses_a_user_redline_inside():
 def test_a_lone_change_is_not_a_group():
     lone = TOKEN_PREFIX + "c:0"
     model = _ViewModel(FakeRedlines([FakeRedline(lone, 0, 4), FakeRedline(TOKEN_PREFIX + "d:0", 8, 9)]))
-    with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+    with patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
         assert _resolve_overlapping_agent_changes(model, MagicMock(), lone, True).resolved_count == 0
     dispatch.assert_not_called()
 
@@ -905,7 +903,7 @@ def test_touching_agent_changes_are_not_grouped():
     (an 'after' insert beside an earlier one) is left alone."""
     t1, t2 = TOKEN_PREFIX + "a:0", TOKEN_PREFIX + "b:0"
     model = _ViewModel(FakeRedlines([FakeRedline(t1, 0, 4), FakeRedline(t2, 4, 8)]))
-    with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+    with patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True).resolved_count == 0
     dispatch.assert_not_called()
 
@@ -917,7 +915,7 @@ def test_a_pass_that_uncovers_a_user_change_stops_there():
         # Popping T2's layer left a user redline where it was.
         items[:] = [rl for rl in items if rl.getPropertyValue("RedlineComment") != t2] + [FakeRedline("", 4, 6)]
 
-    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=first_pass) as dispatch:
+    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=first_pass) as dispatch:
         res = _resolve_overlapping_agent_changes(model, MagicMock(), t1, False)
         assert res.status == ResolveStatus.PARTIAL and res.resolved_count == 0
     assert dispatch.call_count == 1
@@ -935,13 +933,13 @@ def test_closed_document_resolve_fails_closed_without_dispatch():
     model = _ClosedDocument()
     ctx = MagicMock()
     token = TOKEN_PREFIX + "s:1"
-    with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+    with patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
         assert resolve_agent_change(model, ctx, token, True)[0].status == ResolveStatus.UNRELIABLE
         assert _resolve_all_agent_changes(model, ctx, True).status == ResolveStatus.UNRELIABLE
-        assert resolve_all_agent_changes(model, ctx, True) == 0
+        assert _resolve_all_agent_changes(model, ctx, True).resolved == 0
         assert _resolve_overlapping_agent_changes(model, ctx, token, True).status == ResolveStatus.UNRELIABLE
     dispatch.assert_not_called()
-    # Global AcceptAll/RejectAll uses the service manager, not _dispatch_resolve.
+    # Global AcceptAll/RejectAll uses the service manager, not _execute_dispatch.
     ctx.getServiceManager.assert_not_called()
 
     n, msg = resolve_all_with_feedback(model, ctx, True)
@@ -953,7 +951,7 @@ def test_closed_document_resolve_fails_closed_without_dispatch():
     assert reason is not None and "reliably" in reason
 
     assert _is_all_redlines_agent(scan_redline_view(model)) is False
-    assert _change_bounds(model, token) == (None, None)
+    assert _build_bounds_from_view(scan_redline_view(model), token) == (None, None)
     has_foreign, _ = _classify_span_conflicts(scan_redline_view(model), FakeText(), FakeRange(10, 20), None)
     assert has_foreign is True
     view = scan_redline_view(model)
@@ -982,7 +980,7 @@ def test_change_bounds_fail_closed_on_unreadable_comment():
     target = TOKEN_PREFIX + "s:1"
     model = FakeModel(FakeRedlines([FakeRedline(target, 10, 15),
                                     FakeRedline("", 0, 0, raise_on={"RedlineComment"})]))
-    assert _change_bounds(model, target) == (None, None)
+    assert _build_bounds_from_view(scan_redline_view(model), target) == (None, None)
 
 
 def test_change_bounds_fail_closed_on_unreadable_target_bounds():
@@ -991,14 +989,14 @@ def test_change_bounds_fail_closed_on_unreadable_target_bounds():
     target = TOKEN_PREFIX + "s:1"
     model = FakeModel(FakeRedlines([FakeRedline(target, 10, 15),
                                     FakeRedline(target, 15, 20, raise_on={"RedlineStart"})]))
-    assert _change_bounds(model, target) == (None, None)
+    assert _build_bounds_from_view(scan_redline_view(model), target) == (None, None)
 
 
 def test_cursor_resolve_extra_token_removed_does_not_call_group_helper_and_returns_partial():
     # Extra token removed on exact path -> PARTIAL -> cursor resolve does NOT run group helper
     model = MagicMock()
     ctx = MagicMock()
-    fake_view = RedlineView(reliable=True, total=1, rows=(RedlineRow(token="T", identifier="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()),))
+    fake_view = RedlineView(reliable=True, total=1, rows=(RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),))
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=fake_view), \
          patch("plugin.writer.inline_review.cursor_in_agent_change", return_value="T"), \
          patch("plugin.writer.inline_review.resolve_agent_change",
@@ -1015,8 +1013,8 @@ def test_cursor_resolve_group_dispatch_with_mismatched_after_snapshot_is_partial
     model = MagicMock()
     ctx = MagicMock()
     fake_view = RedlineView(reliable=True, total=2, rows=(
-        RedlineRow(token="T", identifier="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()),
-        RedlineRow(token="S", identifier="S", start=FakeRange(15, 18), end=FakeRange(18, 25), kind="Insert", text=FakeText()),
+        RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),
+        RedlineRow(token="S", start=FakeRange(15, 18), end=FakeRange(18, 25), kind="Insert"),
     ))
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=fake_view), \
          patch("plugin.writer.inline_review.cursor_in_agent_change", return_value="T"), \
@@ -1034,8 +1032,8 @@ def test_cursor_resolve_group_unreliable_reports_try_again():
     model = MagicMock()
     ctx = MagicMock()
     fake_view = RedlineView(reliable=True, total=2, rows=(
-        RedlineRow(token="T", identifier="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()),
-        RedlineRow(token="S", identifier="S", start=FakeRange(15, 18), end=FakeRange(18, 25), kind="Insert", text=FakeText()),
+        RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),
+        RedlineRow(token="S", start=FakeRange(15, 18), end=FakeRange(18, 25), kind="Insert"),
     ))
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=fake_view), \
          patch("plugin.writer.inline_review.cursor_in_agent_change", return_value="T"), \
@@ -1051,7 +1049,7 @@ def test_cursor_resolve_group_unreliable_reports_try_again():
 
 
 def test_resolve_all_returns_unreliable_when_first_refused_before_dispatch_and_next_unreliable():
-    rows = (RedlineRow(token="T", identifier="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert", text=FakeText()),)
+    rows = (RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),)
     entry_view = RedlineView(reliable=True, total=1, rows=rows)
     unreliable_view = RedlineView(reliable=False, total=1, rows=rows)
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=entry_view), \
@@ -1103,7 +1101,7 @@ def test_getString_raises_still_counts_and_navigates_without_getString_calls():
     redlines = CountingRedlines([rl])
     doc = CountingDoc(redlines)
 
-    assert pending_agent_change_count(doc) == 1
+    assert agent_change_presence(doc)[0] == 1
     assert redlines.enums == 1
 
     tok = goto_adjacent_agent_change(doc, True)
@@ -1116,7 +1114,7 @@ def test_pending_agent_change_count_includes_token_after_geometry_error():
     bad_geom = FakeRedline("user note", 0, 5, raise_on={"RedlineStart"})
     good_agent = FakeRedline(TOKEN_PREFIX + "s:2", 10, 20)
     model = FakeModel(FakeRedlines([bad_geom, good_agent]))
-    assert pending_agent_change_count(model) == 1
+    assert agent_change_presence(model)[0] == 1
 
 
 def test_scan_count_exact_resolve_agent_change_success():
@@ -1137,7 +1135,7 @@ def test_scan_count_exact_resolve_agent_change_success():
     def fake_dispatch(ctx, ctrl, accept):
         items.clear()
 
-    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=fake_dispatch):
+    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake_dispatch):
         res, _ = resolve_agent_change(model, ctx, t, True)
     assert res.status == ResolveStatus.RESOLVED
     assert model._rl.enums == 2
@@ -1165,7 +1163,7 @@ def test_scan_count_resolve_change_at_cursor_exact_success():
     def fake_dispatch(ctx, ctrl, accept):
         items.clear()
 
-    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=fake_dispatch):
+    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake_dispatch):
         ok, _ = resolve_change_at_cursor(model, MagicMock(), True)
     assert ok is True
     assert model._rl.enums == 2
@@ -1200,7 +1198,7 @@ def test_scan_count_resolve_change_at_cursor_with_provided_view():
     token = cursor_in_agent_change(model, view=view)
     assert token == t
 
-    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=fake_dispatch):
+    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake_dispatch):
         ok, _ = resolve_change_at_cursor(model, MagicMock(), True, token=token, view=view)
     assert ok is True
     assert model._rl.enums == 2
@@ -1225,7 +1223,7 @@ def test_scan_count_two_change_group_cleared_in_one_dispatch():
     def fake_dispatch(ctx, ctrl, accept):
         items.clear()
 
-    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=fake_dispatch):
+    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake_dispatch):
         res = _resolve_overlapping_agent_changes(model, MagicMock(), t1, True)
     assert res.status == ResolveStatus.RESOLVED and res.resolved_count == 2
     assert model._rl.enums == 2
@@ -1253,7 +1251,7 @@ def test_scan_count_resolve_all_fast_path_and_feedback():
 
     ctx.getServiceManager().createInstanceWithContext().executeDispatch.side_effect = fake_global
 
-    n = resolve_all_agent_changes(model, ctx, True)
+    n = _resolve_all_agent_changes(model, ctx, True).resolved
     assert n == 2
     assert model._rl.enums == 2
 
@@ -1295,8 +1293,8 @@ def test_scan_count_resolve_all_mixed_three_changes_with_user_redline():
                 items.pop(i)
                 break
 
-    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=fake_dispatch):
-        n = resolve_all_agent_changes(model, ctx, True)
+    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake_dispatch):
+        n = _resolve_all_agent_changes(model, ctx, True).resolved
     assert n == 3
     assert model._rl.enums == 4
 
@@ -1316,7 +1314,7 @@ def test_resolve_agent_change_gotorange_raises_before_dispatch():
 
     model = ThrowingGotoModel(FakeRedlines(items))
     ctx = MagicMock()
-    with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+    with patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
         res, _ = resolve_agent_change(model, ctx, t, True)
         assert res.status == ResolveStatus.UNRELIABLE
         dispatch.assert_not_called()

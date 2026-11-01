@@ -120,21 +120,19 @@ def _post_after_double_click_window(fire: Any, *args: Any) -> None:
     post_to_main_thread(fire, *args)
 
 
-def _make_handler(model: Any, controller: Any) -> Any:
+def _make_handler(model: Any) -> Any:
     global _handler_cls
     if _handler_cls is None:
         from com.sun.star.awt import XMouseClickHandler
 
         class _ClickReviewHandler(unohelper.Base, XMouseClickHandler):  # type: ignore[misc, valid-type]
             _model: Any
-            _controller: Any
             _press: tuple[int, int] | None
             _click_gen: int
 
-            def __init__(self, model: Any, controller: Any) -> None:
+            def __init__(self, model: Any) -> None:
                 super().__init__()
                 self._model = model
-                self._controller = controller
                 self._press = None
                 self._click_gen = 0
 
@@ -177,7 +175,7 @@ def _make_handler(model: Any, controller: Any) -> Any:
                     pass
 
         _handler_cls = _ClickReviewHandler
-    return _handler_cls(model, controller)
+    return _handler_cls(model)
 
 
 def cleanup_disposed_controllers() -> None:
@@ -208,7 +206,7 @@ def register_click_review(controller: Any) -> None:
         if not hasattr(controller, "addMouseClickHandler"):
             return
         model = controller.getModel()
-        handler = _make_handler(model, controller)
+        handler = _make_handler(model)
         with _lock:
             if any(c == controller for c, _h in _attached):
                 return
