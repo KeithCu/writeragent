@@ -54,8 +54,6 @@ def math_root(fragment: str) -> str | None:
 
 def iter_math_roots(html: str) -> Iterator[re.Match[str]]:
     """Yield every <math>...</math> root element match from MathML markup."""
-    if not html:
-        return
     yield from _MATH_ROOT_RE.finditer(html)
 
 

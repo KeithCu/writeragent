@@ -88,7 +88,7 @@ def convert_mathml_to_latex(mathml_fragment: str) -> MathExportResult:
     return MathExportResult(True, latex.strip(), None, None)
 
 
-def _export_doc_to_mathml(doc: Any, starmath: str, path: str, url: str) -> str | None:
+def _export_doc_to_mathml(doc: Any, starmath: str, path: str) -> str | None:
     from plugin.writer.format import create_property_value
 
     try:
@@ -100,7 +100,7 @@ def _export_doc_to_mathml(doc: Any, starmath: str, path: str, url: str) -> str |
         create_property_value("FilterName", MATHML_EXPORT_FILTER),
         create_property_value("Overwrite", True),
     )
-    doc.storeToURL(url, props)
+    doc.storeToURL(file_url(path), props)
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         raw = f.read()
     return math_root(raw)
@@ -122,7 +122,7 @@ def convert_starmath_to_mathml(ctx: Any, starmath: str) -> MathExportResult:
     fd, path = tempfile.mkstemp(suffix=".mml", prefix="writeragent-math-export-", text=False)
     os.close(fd)
     try:
-        mathml = _export_doc_to_mathml(doc, starmath, path, file_url(path))
+        mathml = _export_doc_to_mathml(doc, starmath, path)
         if not mathml:
             return MathExportResult(False, None, None, "empty_mathml_export")
         return MathExportResult(True, None, mathml, None)
@@ -269,8 +269,7 @@ def substitute_math_placeholders(
 
             code = ord(placeholder)
             for target in (placeholder, f"&#x{code:x};", f"&#x{code:X};", f"&#{code};"):
-                if target in content:
-                    content = content.replace(target, wrapped)
+                content = content.replace(target, wrapped)
     finally:
         if batch is not None:
             batch.close()
@@ -292,6 +291,21 @@ def inject_exported_math_tex(model: Any, ctx: Any, content: str) -> str:
         return content
 
 
+def _iter_named_embeds(doc: Any, where: str) -> Iterator[tuple[str, Any]]:
+    try:
+        container = doc.getEmbeddedObjects()
+        names = list(container.getElementNames())
+    except Exception:
+        return
+    for name in names:
+        try:
+            obj = container.getByName(name)
+        except Exception:
+            log.debug("%s: getByName(%r) failed", where, name, exc_info=True)
+            continue
+        yield name, obj
+
+
 def selected_math_embeds(doc: Any) -> list[Any]:
     """Math ``TextEmbeddedObject``s in the current selection (document order)."""
     found: list[Any] = []
@@ -311,20 +325,7 @@ def selected_math_embeds(doc: Any) -> list[Any]:
         return []
 
     _add(sel)
-    try:
-        container = doc.getEmbeddedObjects()
-        names = list(container.getElementNames())
-        embed_objects = []
-        for name in names:
-            try:
-                obj = container.getByName(name)
-                if _is_math_embed(obj):
-                    embed_objects.append(obj)
-            except Exception:
-                log.debug("selected_math_embeds: getByName(%r) failed", name, exc_info=True)
-                continue
-    except Exception:
-        embed_objects = []
+    embed_objects = [obj for _name, obj in _iter_named_embeds(doc, "selected_math_embeds") if _is_math_embed(obj)]
 
     get_count = getattr(sel, "getCount", None)
     get_by_index = getattr(sel, "getByIndex", None)
@@ -364,17 +365,7 @@ def resolve_math_embed_name(doc: Any, embed: Any) -> str | None:
     named = math_embed_name(embed)
     if named:
         return named
-    try:
-        container = doc.getEmbeddedObjects()
-        names = list(container.getElementNames())
-    except Exception:
-        return None
-    for name in names:
-        try:
-            obj = container.getByName(name)
-        except Exception:
-            log.debug("resolve_math_embed_name: getByName(%r) failed", name, exc_info=True)
-            continue
+    for name, obj in _iter_named_embeds(doc, "resolve_math_embed_name"):
         if uno_same(obj, embed):
             return str(name)
     return None
@@ -505,7 +496,6 @@ class _MathExportBatch:
         self.ctx: Any = ctx
         self._doc: Any = None
         self._temp_path: str | None = None
-        self._temp_url: str | None = None
         self._cache: dict[str, MathExportResult] = {}
 
     def _ensure_doc(self) -> Any:
@@ -519,7 +509,7 @@ class _MathExportBatch:
                 fd, path = tempfile.mkstemp(suffix=".mml", prefix="writeragent-math-export-", text=False)
                 os.close(fd)
                 self._temp_path = path
-                self._temp_url = file_url(path)
+                file_url(path)  # Abort batch setup on URL error outside per-formula try
         return self._doc
 
     def convert_starmath_to_latex(self, starmath: str) -> MathExportResult:
@@ -532,14 +522,14 @@ class _MathExportBatch:
 
     def _convert_uncached(self, starmath: str) -> MathExportResult:
         doc = self._ensure_doc()
-        if doc is None or not self._temp_path or not self._temp_url:
-            return convert_starmath_to_latex(self.ctx, starmath)
-        try:
-            mml = _export_doc_to_mathml(doc, starmath, self._temp_path, self._temp_url)
-            res = convert_mathml_to_latex(mml) if mml else None
-            return res if (res and res.ok) else convert_starmath_to_latex(self.ctx, starmath)
-        except Exception:
-            return convert_starmath_to_latex(self.ctx, starmath)
+        res = None
+        if self._temp_path:
+            try:
+                mml = _export_doc_to_mathml(doc, starmath, self._temp_path)
+                res = convert_mathml_to_latex(mml) if mml else None
+            except Exception:
+                res = None
+        return res if res and res.ok else convert_starmath_to_latex(self.ctx, starmath)
 
     def close(self) -> None:
         if self._doc is not None:

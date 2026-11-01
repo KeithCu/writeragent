@@ -118,11 +118,11 @@ def show_latex_input_dialog(
 
 
 def _selection_latex_prefill(
-    ctx: Any, doc: Any, last_latex: str, last_display: bool
-) -> tuple[str | None, str, bool] | None:
+    ctx: Any, doc: Any, last_latex: str
+) -> tuple[str | None, str] | None:
     """Inspect selection: abort on multiple Math objects; prefill TeX for one.
 
-    Returns ``(embed_name_or_none, latex, display)`` or None on abort.
+    Returns ``(embed_name_or_none, latex)`` or None on abort.
     """
     hits = math_mml_export.selected_math_embeds(doc)
 
@@ -135,7 +135,7 @@ def _selection_latex_prefill(
         return None
 
     if len(hits) != 1:
-        return (None, last_latex, last_display)
+        return (None, last_latex)
 
     embed = hits[0]
     name = math_mml_export.resolve_math_embed_name(doc, embed)
@@ -151,7 +151,7 @@ def _selection_latex_prefill(
         if starmath:
             exported = math_mml_export.convert_starmath_to_latex(ctx, starmath)
             if exported.ok and exported.latex:
-                return (name, exported.latex, last_display)
+                return (name, exported.latex)
     except Exception:
         log.debug("latex dialog: selection Math → LaTeX prefill failed", exc_info=True)
     msgbox(
@@ -159,7 +159,7 @@ def _selection_latex_prefill(
         _("Edit LaTeX Math"),
         _("Could not convert formula to LaTeX. Enter formula manually."),
     )
-    return (name, "", last_display)
+    return (name, "")
 
 
 def _apply_latex_to_writer(
@@ -204,10 +204,10 @@ def insert_latex_math_dialog(ctx: Any) -> None:
 
         last_latex = get_config_str("last_latex_input")
         last_display = bool(get_config("last_latex_display_block"))
-        prefill = _selection_latex_prefill(ctx, doc, last_latex, last_display)
+        prefill = _selection_latex_prefill(ctx, doc, last_latex)
         if prefill is None:
             return
-        target_name, last_latex, last_display = prefill
+        target_name, last_latex = prefill
 
         # Check if Monaco editor is available
         exe, available = monaco_editor_available(ctx)
