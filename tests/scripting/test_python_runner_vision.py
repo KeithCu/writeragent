@@ -326,7 +326,7 @@ def test_prepare_rps_execution_vision_runs_before_calc_data():
         prepared = _prepare_rps_execution(ctx, doc, code)
 
     assert prepared.get("early_outcome") is None
-    assert prepared.get("is_vision_selection") is True
+    assert "helper_name" in prepared
     # Calc data resolution must not have run for vision scripts
     mock_calc_data.assert_not_called()
 

@@ -23,15 +23,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import Any, Callable, Literal
 from plugin.framework.uno_listeners import (
     BaseActionListener,
     BaseItemListener,
     BaseTopWindowListener,
 )
-
-if TYPE_CHECKING:
-    from com.sun.star.awt import ItemEvent
 
 
 class _ActionListener(BaseActionListener):
@@ -43,6 +40,17 @@ class _ActionListener(BaseActionListener):
 
     def on_action_performed(self, rEvent: Any) -> None:
         self._action_fn()
+
+
+class _ItemListener(BaseItemListener):
+    _item_fn: Callable[[], Any]
+
+    def __init__(self, item_fn: Callable[[], Any]) -> None:
+        super().__init__()
+        self._item_fn = item_fn
+
+    def on_item_state_changed(self, rEvent: Any) -> None:
+        self._item_fn()
 
 
 class ModelessWindowClosingListener(BaseTopWindowListener):
@@ -111,7 +119,7 @@ log = logging.getLogger("writeragent.scripting")
 @dataclass(frozen=True)
 class _ScriptSaveResult:
     text: str | None
-    channel: Literal["none", "ok", "builtin", "modal"]
+    channel: Literal["builtin", "modal", "ok"]
 
 
 def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str, doc: Any = None) -> None:
@@ -300,13 +308,13 @@ class NativePythonScriptDialog:
     def _save_current_script(self, t: str, *, only_if_changed: bool = False) -> _ScriptSaveResult:
         select_ctrl = self._select_ctrl
         if select_ctrl is None:
-            return _ScriptSaveResult(None, "none")
+            return _ScriptSaveResult(None, "ok")
         display_name = _picker_selected_name(select_ctrl)
         if not display_name:
-            return _ScriptSaveResult(None, "none")
+            return _ScriptSaveResult(None, "ok")
         real_name, origin = resolve_script_picker_entry(display_name, self._script_origin_map)
         if only_if_changed and script_origin_is_writable(origin) and self._current_scripts.get(display_name) == t:
-            return _ScriptSaveResult(None, "none")
+            return _ScriptSaveResult(None, "ok")
         if not script_origin_is_writable(origin):
             # Monaco and the native dialog share this sentence. Save As, with Attach
             # unchecked, copies a helper into My Scripts. Do not add a Copy button and
@@ -391,20 +399,18 @@ class NativePythonScriptDialog:
 
     def _wire_listeners(self, dlg: Any, select_ctrl: Any) -> None:
         ctx = self._ctx
-        owner = self
-        doc = owner._doc
+        doc = self._doc
 
-        class _ScriptSelectListener(BaseItemListener):
-            def itemStateChanged(self, rEvent: ItemEvent) -> None:
-                try:
-                    name = _picker_selected_name(select_ctrl)
-                    if name:
-                        code_ctrl = dlg.getControl("CodeEdit")
-                        set_config(owner._name_config_key, name)
-                        t = owner._current_scripts.get(name, "")
-                        code_ctrl.setText(t)
-                except Exception:
-                    log.exception("Failed to change script selection")
+        def _on_select() -> None:
+            try:
+                name = _picker_selected_name(select_ctrl)
+                if name:
+                    code_ctrl = dlg.getControl("CodeEdit")
+                    set_config(self._name_config_key, name)
+                    t = self._current_scripts.get(name, "")
+                    code_ctrl.setText(t)
+            except Exception:
+                log.exception("Failed to change script selection")
 
         def _on_run() -> None:
             btn_run = None
@@ -418,7 +424,7 @@ class NativePythonScriptDialog:
                 # always set Running...
                 # Why this change: builtin stays on the label through a successful
                 # finish; every other warning is a Save box before Running...
-                save_res = owner._save_current_script(t, only_if_changed=True)
+                save_res = self._save_current_script(t, only_if_changed=True)
 
                 if save_res.channel == "builtin":
                     if save_res.text:
@@ -434,7 +440,7 @@ class NativePythonScriptDialog:
                     set_control_text(lbl, _("Running..."))
 
                 def _on_complete(outcome: dict[str, Any]) -> None:
-                    if owner._closed:
+                    if self._closed:
                         log.debug("native script dialog: run finished after close: %s", outcome)
                         return
                     try:
@@ -461,11 +467,11 @@ class NativePythonScriptDialog:
             try:
                 t = _editor_code(dlg)
                 lbl = dlg.getControl("InstructionLbl")
-                res = owner._save_current_script(t)
+                res = self._save_current_script(t)
                 if res.text:
                     set_control_text(lbl, res.text)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Save", doc=owner._doc)
+                _report_script_dialog_error(ctx, dlg, exc, "Save", doc=self._doc)
 
         def _on_save_as() -> None:
             try:
@@ -473,14 +479,14 @@ class NativePythonScriptDialog:
 
                 curr_display = _picker_selected_name(select_ctrl)
                 real_curr, curr_origin = (
-                    resolve_script_picker_entry(curr_display, owner._script_origin_map)
+                    resolve_script_picker_entry(curr_display, self._script_origin_map)
                     if curr_display
                     else ("", SCRIPT_ORIGIN_USER)
                 )
 
                 prompted = show_new_script_dialog(
-                    owner._ctx,
-                    doc=owner._doc,
+                    self._ctx,
+                    doc=self._doc,
                     default_name=real_curr,
                     title=_("Save Script As"),
                     default_attach=(curr_origin == SCRIPT_ORIGIN_DOCUMENT),
@@ -489,7 +495,7 @@ class NativePythonScriptDialog:
                     return
                 name, attach_to_document = prompted
 
-                owner._store_script(
+                self._store_script(
                     name,
                     t,
                     attach_to_document=attach_to_document,
@@ -498,7 +504,7 @@ class NativePythonScriptDialog:
                     user_success_msg=_("Script '%s' saved to My Scripts."),
                 )
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Save As", doc=owner._doc)
+                _report_script_dialog_error(ctx, dlg, exc, "Save As", doc=self._doc)
 
         def _on_delete() -> None:
             try:
@@ -507,7 +513,7 @@ class NativePythonScriptDialog:
                     return
 
                 lbl = dlg.getControl("InstructionLbl")
-                real_name, origin = resolve_script_picker_entry(display_name, owner._script_origin_map)
+                real_name, origin = resolve_script_picker_entry(display_name, self._script_origin_map)
                 if not script_origin_is_writable(origin):
                     set_control_text(lbl, read_only_helper_message())
                     return
@@ -533,20 +539,20 @@ class NativePythonScriptDialog:
                         if err is not None:
                             set_control_text(lbl, err)
                             return
-                    owner._refresh_script_dropdown()
+                    self._refresh_script_dropdown()
                     set_control_text(lbl, _("Script '%s' deleted.") % real_name)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Delete", doc=owner._doc)
+                _report_script_dialog_error(ctx, dlg, exc, "Delete", doc=self._doc)
 
         def _on_new() -> None:
             try:
-                prompted = show_new_script_dialog(owner._ctx, doc=owner._doc)
+                prompted = show_new_script_dialog(self._ctx, doc=self._doc)
                 if prompted is None:
                     return
                 name, attach_to_document = prompted
 
                 starter_code = '# A simple script\nresult = "Hello from Python!"\n'
-                if owner._store_script(
+                if self._store_script(
                     name,
                     starter_code,
                     attach_to_document=attach_to_document,
@@ -558,16 +564,16 @@ class NativePythonScriptDialog:
                     if ec is not None:
                         set_control_text(ec, starter_code)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "New script", doc=owner._doc)
+                _report_script_dialog_error(ctx, dlg, exc, "New script", doc=self._doc)
 
         def _on_cancel() -> None:
             log.debug("native script dialog: BtnCancel")
-            if owner._modeless:
-                owner.close()
+            if self._modeless:
+                self.close()
             else:
                 dlg.endDialog(0)
 
-        select_ctrl.addItemListener(_ScriptSelectListener())
+        select_ctrl.addItemListener(_ItemListener(_on_select))
         for btn_name, handler in (
             ("BtnRun", _on_run),
             ("BtnSave", _on_save),

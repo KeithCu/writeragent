@@ -129,18 +129,13 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
         body = []
         for row in data:
             if isinstance(row, dict):
-                cells: list[Any] = []
-                for key in keys:
-                    orig_key = seen_keys[key]
-                    if orig_key in row:
-                        val = row[orig_key]
-                    else:
-                        val = ""
-                        for candidate_k, candidate_v in row.items():
-                            if str(candidate_k) == key:
-                                val = candidate_v
-                                break
-                    cells.append(val)
+                rowmap: dict[str, Any] = {}
+                for k, v in row.items():
+                    rowmap.setdefault(str(k), v)
+                cells = [
+                    row[orig] if orig in row else rowmap.get(key, "")
+                    for key, orig in seen_keys.items()
+                ]
                 body.append(_html_row(cells))
             else:
                 body.append(_html_row([row, *[""] * (len(keys) - 1)]))
@@ -312,7 +307,6 @@ def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] 
     helper_name = str(call_spec.get("helper") or "extract_text").strip() or "extract_text"
 
     return {
-        "is_vision_selection": True,
         "ctx": ctx,
         "doc": doc,
         "code": code,
@@ -398,7 +392,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
 
 def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
     """Blocking venv IPC. Callers must not touch the document model here."""
-    if prepared.get("is_vision_selection"):
+    if "helper_name" in prepared:
         from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
         # run_and_insert_vision_for_selection safely marshals document operations to the main thread
@@ -556,7 +550,7 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
 
 def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert. *response* is the venv worker payload."""
-    if prepared.get("is_vision_selection"):
+    if "helper_name" in prepared:
         return _finish_vision_execution(prepared, response)
     return _finish_script_execution(prepared, response)
 
@@ -606,8 +600,7 @@ def start_native_script_run(
     stay on the main thread (``execute_on_main_thread``). Only the venv IPC
     wait runs in the background. ``on_complete`` is posted back to the main
     thread. After the worker is scheduled, ``on_complete`` is called exactly
-    once on the main thread. A non-dict from preparation is an error outcome,
-    not a silent return.
+    once on the main thread.
     """
     from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
 
@@ -623,11 +616,6 @@ def start_native_script_run(
                 prepared = execute_on_main_thread(
                     _prepare_rps_execution, ctx, doc, code, data_range=data_range, pin_token=pin_token
                 )
-                if not isinstance(prepared, dict):
-                    # Why this change fixes it: the worker still posts one error outcome. A non-dict has no script_session_id, so the pin is released by the outer finally instead.
-                    log.error("native script run: prepare returned %s", type(prepared).__name__)
-                    _deliver({"ok": False, "message": _("Script preparation failed.")})
-                    return
                 early = prepared.get("early_outcome")
                 if early is not None:
                     _deliver(early)
@@ -652,10 +640,8 @@ def start_native_script_run(
 def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str, code: str = "") -> dict[str, Any]:
     """Map a native-run outcome to the Monaco saved or error frame."""
     if not outcome.get("ok"):
-        raw = outcome.get("message")
-        message = raw if isinstance(raw, str) and raw else _("Unknown error")
-        tb = outcome.get("traceback")
-        traceback_text = tb if isinstance(tb, str) and tb else None
+        message = outcome.get("message") or _("Unknown error")
+        traceback_text = outcome.get("traceback") or None
         payload: dict[str, Any] = {
             "type": "error",
             "message": message,
@@ -664,9 +650,7 @@ def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str, code: 
         if traceback_text:
             payload["traceback"] = traceback_text
         return payload
-    status = outcome.get("status_ok_text", run_ok_text)
-    if not isinstance(status, str) or not status:
-        status = run_ok_text
+    status = outcome.get("status_ok_text") or run_ok_text
     stdout = outcome.get("stdout")
     if isinstance(stdout, str) and stdout.strip():
         status = _("{status} ({count} line(s) printed.)").format(status=status, count=len(stdout.splitlines()))

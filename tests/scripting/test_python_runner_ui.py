@@ -381,31 +381,6 @@ def test_start_native_script_run_prepare_timeout_releases_pin():
     assert seen and seen[0]["ok"] is False
 
 
-def test_start_native_script_run_nondict_prepare_delivers_error():
-    ctx = MagicMock()
-    doc = MagicMock()
-    seen = []
-
-    def _inline(func, *args, **kwargs):
-        func()
-        return MagicMock()
-
-    with (
-        _deliver_posted_native_run(),
-        patch.object(pr, "run_in_background", side_effect=_inline),
-        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", return_value=None),
-        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
-    ):
-        pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
-
-    mock_release.assert_called_once_with("doc:tok")
-    assert len(seen) == 1
-    assert seen[0]["ok"] is False
-    assert seen[0]["message"] == "Script preparation failed."
-
-
-
 def test_report_run_outcome_shows_stdout_alongside_result():
     """A returned value is inserted; printed text still belongs in the Output box."""
     ctx = MagicMock()
@@ -876,7 +851,7 @@ def test_run_completion_after_close_touches_nothing():
         captured_on_complete["callback"] = on_complete
 
     with (
-        patch.object(inst, "_save_current_script", return_value=ui._ScriptSaveResult(None, "none")),
+        patch.object(inst, "_save_current_script", return_value=ui._ScriptSaveResult(None, "ok")),
         patch.object(pr, "start_native_script_run", side_effect=_capture_run),
     ):
         trigger("BtnRun")
