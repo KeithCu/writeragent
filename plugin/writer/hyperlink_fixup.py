@@ -52,8 +52,9 @@ written after assigning the same URL on the whole paragraph.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
-from typing import Any, ClassVar, Iterator
+from typing import Any, Iterator
 
 from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import uno_read
@@ -74,20 +75,16 @@ def _utf16_len(text: str) -> int:
     return len(text.encode("utf-16-le")) // 2
 
 
+@dataclass(eq=False)
 class OutlineLink:
     """One distinct outline hyperlink overlapping a search match."""
 
     url: str
     name: str
     target: str
-    __slots__: ClassVar[tuple[str, ...]] = ("url", "name", "target")
-
-    def __init__(self, url: str, name: str, target: str) -> None:
-        self.url = url
-        self.name = name
-        self.target = target
 
 
+@dataclass(eq=False)
 class OutlineSnapshot:
     """Outline links plus the paragraph text around the match, copied out before the edit.
 
@@ -101,28 +98,18 @@ class OutlineSnapshot:
     suffix: str
     matched: str
     single_paragraph: bool
-    preserve_url: str
-    look: dict[str, Any]
-    __slots__: ClassVar[tuple[str, ...]] = (
-        "links", "prefix", "suffix", "matched", "single_paragraph", "preserve_url", "look")
+    # A non-outline URL (bookmark TOC target) that covered the match. It is
+    # never rewritten. A same-length setString keeps HyperLinkURL. HTML
+    # setString("") and a length-changing preserve-format replace can clear
+    # it on the new characters; this URL is put back unchanged so the
+    # bookmark is not unlinked.
+    preserve_url: str = ""
+    # CharColor / CharUnderline of the matched run, copied before the
+    # text replace. A later snapshot already includes Internet-link chrome.
+    look: dict[str, Any] | None = None
 
-    def __init__(self, links: list[OutlineLink], prefix: str, suffix: str,
-                 matched: str, single_paragraph: bool, preserve_url: str = "",
-                 look: dict[str, Any] | None = None) -> None:
-        self.links = links
-        self.prefix = prefix
-        self.suffix = suffix
-        self.matched = matched
-        self.single_paragraph = single_paragraph
-        # A non-outline URL (bookmark TOC target) that covered the match. It is
-        # never rewritten. A same-length setString keeps HyperLinkURL. HTML
-        # setString("") and a length-changing preserve-format replace can clear
-        # it on the new characters; this URL is put back unchanged so the
-        # bookmark is not unlinked.
-        self.preserve_url = preserve_url
-        # CharColor / CharUnderline of the matched run, copied before the
-        # text replace. A later snapshot already includes Internet-link chrome.
-        self.look = dict(look) if look else {}
+    def __post_init__(self) -> None:
+        self.look = dict(self.look) if self.look else {}
 
 
 def _prop(obj: Any, name: str) -> str:
@@ -208,15 +195,11 @@ def plan_outline_updates(links: list[OutlineLink], matched: str, new_plain: str,
         if new_url is not None:
             new_name = substitute_if_present(link.name, matched, new_plain)
             new_target = substitute_if_present(link.target, matched, new_plain)
-        after = new_url if new_url is not None else link.url
         plans.append({
             "url": link.url,
             "new_url": new_url,
             "new_name": new_name,
             "new_target": new_target,
-            "hyperlink_url": link.url,
-            "hyperlink_url_after": after,
-            "hyperlink_updated": new_url is not None,
         })
     return plans
 
@@ -225,9 +208,9 @@ def public_hyperlink_reports(plans: list[dict[str, Any]]) -> list[dict[str, Any]
     """The fields returned to the model. Internal write keys stay out of the tool result."""
     return [
         {
-            "hyperlink_url": plan["hyperlink_url"],
-            "hyperlink_url_after": plan["hyperlink_url_after"],
-            "hyperlink_updated": plan["hyperlink_updated"],
+            "hyperlink_url": plan["url"],
+            "hyperlink_url_after": plan["new_url"] if plan["new_url"] is not None else plan["url"],
+            "hyperlink_updated": plan["new_url"] is not None,
         }
         for plan in plans
     ]
@@ -333,6 +316,13 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
     return OutlineSnapshot(links, prefix, suffix, matched, single, preserve_url, look)
 
 
+def _paragraph_text(text: Any, anchor: Any) -> str:
+    cursor = _cursor_at(text, anchor.getStart())
+    cursor.gotoStartOfParagraph(False)
+    cursor.gotoEndOfParagraph(True)
+    return str(cursor.getString() or "")
+
+
 def measured_replacement(anchor: Any, snapshot: OutlineSnapshot) -> str | None:
     """Visible text that replaced the match, taken from the paragraph after the edit.
 
@@ -342,10 +332,7 @@ def measured_replacement(anchor: Any, snapshot: OutlineSnapshot) -> str | None:
     if anchor is None or not snapshot.single_paragraph:
         return None
     text = anchor.getText()
-    cursor = _cursor_at(text, anchor.getStart())
-    cursor.gotoStartOfParagraph(False)
-    cursor.gotoEndOfParagraph(True)
-    para = str(cursor.getString() or "")
+    para = _paragraph_text(text, anchor)
     prefix, suffix = snapshot.prefix, snapshot.suffix
     if not para.startswith(prefix):
         return None
@@ -560,11 +547,11 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
             # cursor — the order that returns one black run.
             restored = False
             if snapshot.look and snapshot.links and snapshot.single_paragraph:
-                cursor = _cursor_at(text, anchor.getStart())
-                cursor.gotoStartOfParagraph(False)
-                cursor.gotoEndOfParagraph(True)
-                para = str(cursor.getString() or "")
+                para = _paragraph_text(text, anchor)
                 if para == snapshot.prefix + new_plain + snapshot.suffix:
+                    cursor = _cursor_at(text, anchor.getStart())
+                    cursor.gotoStartOfParagraph(False)
+                    cursor.gotoEndOfParagraph(True)
                     _set_prop(cursor, _URL, put_back)
                     _write_char_look(cursor, snapshot.look)
                     restored = True
@@ -576,7 +563,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
                 }, required=False, look=snapshot.look or title_look)
         return public_hyperlink_reports(plans)
 
-    by_url = {plan["url"]: plan for plan in writable if plan["url"]}
+    by_url = {plan["url"]: plan for plan in writable}
 
     # Collect runs before writing. setPropertyValue can split a portion, which
     # invalidates an enumeration that is still in progress.
@@ -613,5 +600,6 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
     if paint is not None and new_plain:
         _paint(text, anchor, snapshot, new_plain, paint, required=True, look=title_look)
 
-    log.debug("outline hyperlink updated: %s", public_hyperlink_reports(plans))
-    return public_hyperlink_reports(plans)
+    reports = public_hyperlink_reports(plans)
+    log.debug("outline hyperlink updated: %s", reports)
+    return reports
