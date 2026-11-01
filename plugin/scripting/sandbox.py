@@ -209,12 +209,6 @@ def _compile_allowlist(authorized_imports: tuple[str, ...]) -> tuple[frozenset[s
     return frozenset(exact), tuple(wildcards)
 
 
-def _matches_allowlist(name: str, exact: frozenset[str], wildcards: tuple[str, ...]) -> bool:
-    if name in exact:
-        return True
-    return any(name.startswith(p) for p in wildcards)
-
-
 def _matches_prefix(
     name: str,
     entries: Sequence[str] | frozenset[str] | set[str] | tuple[str, ...],
@@ -261,13 +255,13 @@ def import_authorized(
         return False
     extras = tuple(authorized_imports) if authorized_imports else tuple(active_extra_imports())
     real = _alias_real_module(name)
-    if _matches_prefix(name, extras) or (real is not None and _matches_prefix(real, extras)):
-        return True
+    for n in (name, real):
+        if n and _matches_prefix(n, extras):
+            return True
     exact, wildcards = _compile_allowlist(VENV_AUTHORIZED_IMPORTS)
-    if _matches_allowlist(name, exact, wildcards) or (
-        real is not None and _matches_allowlist(real, exact, wildcards)
-    ):
-        return True
+    for n in (name, real):
+        if n and (n in exact or any(n.startswith(p) for p in wildcards)):
+            return True
     if real is not None:
         return False
     blocked = tuple(blocked_imports) if blocked_imports is not None else tuple(active_blocked_imports())
@@ -827,8 +821,6 @@ def _path_from_file_url(raw: str) -> str | None:
     if not text.startswith("file://"):
         return None
     parsed = urlparse(text)
-    if parsed.scheme != "file":
-        return None
     unquoted = unquote(parsed.path)
     host = parsed.netloc
     if host.lower() == "localhost":
@@ -851,10 +843,9 @@ def _normalize_venv_path_input(venv_dir: str) -> str:
     """Strip quotes, convert file URLs, then expand ``~`` and env vars."""
     # crosshair: off
     cleaned = _strip_surrounding_quotes(venv_dir.strip())
-    if cleaned.lower().startswith("file:"):
-        from_url = _path_from_file_url(cleaned)
-        if from_url:
-            cleaned = from_url
+    from_url = _path_from_file_url(cleaned)
+    if from_url:
+        cleaned = from_url
     return os.path.expanduser(os.path.expandvars(cleaned))
 
 
