@@ -20,7 +20,7 @@ import logging
 from typing import Any, cast
 
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
-from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed, uno_read
 import uno
 
 from plugin.doc.undo import commit_or_rollback_mutation
@@ -42,6 +42,10 @@ def _iter_annotations(doc: Any) -> Any:
             reraise_if_disposed(exc)
 
 
+def _prop(field: Any, name: str, default: Any = "") -> Any:
+    return uno_read(lambda: field.getPropertyValue(name) or default, default)
+
+
 def _annotation_reader(ctx: Any) -> Any:
     from plugin.doc.paragraph_search import paragraph_entries
 
@@ -60,8 +64,16 @@ def _annotation_reader(ctx: Any) -> Any:
     return reader
 
 
+class _ReplyNotRegistered(Exception):
+    pass
+
+
 def _comment_not_found(message: str, **extra: Any) -> dict[str, Any]:
     return {"status": "error", "code": "COMMENT_NOT_FOUND", "message": message, **extra}
+
+
+def _reply_error(message: str, parent_name: str, **extra: Any) -> dict[str, Any]:
+    return {"status": "error", "message": message, "parent_name": parent_name, **extra}
 
 
 class CommentList(ToolWriterCommentBase):
@@ -79,16 +91,9 @@ class CommentList(ToolWriterCommentBase):
         comments = []
         if fields:
             reader = _annotation_reader(ctx)
-            af = author_filter.lower() if author_filter else None
             for field in fields:
-                if af is not None:
-                    try:
-                        field_author = field.getPropertyValue("Author") or ""
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        field_author = ""
-                    if af not in field_author.lower():
-                        continue
+                if author_filter and author_filter.lower() not in _prop(field, "Author").lower():
+                    continue
 
                 comments.append(reader(field))
 
@@ -139,20 +144,16 @@ class AddComment(ToolBase):
                     "Comment '%s' not found. Call comment_list to see the current names." % parent_name,
                     comment_added=False,
                 )
-            success, reply_name_or_err = _insert_annotation_reply(ctx.doc, parent, parent_name, content, author)
-            if not success:
-                return {
-                    "status": "error",
-                    "message": reply_name_or_err,
-                    "comment_added": False,
-                    "parent_name": parent_name,
-                }
+            try:
+                reply_name = _insert_annotation_reply(ctx.doc, parent, parent_name, content, author)
+            except _ReplyNotRegistered as exc:
+                return _reply_error(str(exc), parent_name, comment_added=False)
             return {
                 "status": "ok",
                 "message": "Reply added.",
                 "author": author,
                 "comment_added": True,
-                "name": reply_name_or_err,
+                "name": reply_name,
                 "parent_name": parent_name,
             }
 
@@ -348,14 +349,10 @@ class CommentResolve(ToolWriterCommentBase):
         def mutate() -> dict[str, Any] | None:
             nonlocal reply_name
             if resolution:
-                success, reply_name_or_err = _insert_annotation_reply(doc, target, comment_name, resolution, author)
-                if not success:
-                    return {
-                        "status": "error",
-                        "message": reply_name_or_err,
-                        "parent_name": comment_name,
-                    }
-                reply_name = reply_name_or_err
+                try:
+                    reply_name = _insert_annotation_reply(doc, target, comment_name, resolution, author)
+                except _ReplyNotRegistered as exc:
+                    return _reply_error(str(exc), comment_name)
 
             target.setPropertyValue("Resolved", True)
             return None
@@ -423,22 +420,14 @@ class CommentScanTasks(ToolWriterCommentBase):
         reader = _annotation_reader(ctx)
         tasks = []
         for field in fields:
-            try:
-                content = field.getPropertyValue("Content") or ""
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                content = ""
+            content = _prop(field, "Content")
             matched_prefix = next((p for p in WORKFLOW_TASK_PREFIXES if content.startswith(p)), None)
             if matched_prefix is None:
                 continue
             if prefix_filter and matched_prefix != prefix_filter:
                 continue
-            if unresolved_only:
-                try:
-                    if field.getPropertyValue("Resolved"):
-                        continue
-                except Exception as exc:
-                    reraise_if_disposed(exc)
+            if unresolved_only and _prop(field, "Resolved", False):
+                continue
             entry = reader(field)
             entry["prefix"] = matched_prefix
             tasks.append(entry)
@@ -589,8 +578,8 @@ def _set_annotation_date(annotation: Any) -> None:
 
 def _insert_annotation_reply(
     doc: Any, parent: Any, parent_name: str, content: str, author: str
-) -> tuple[bool, str]:
-    """Insert a threaded reply at the parent's anchor. Returns (success, reply_name_or_error_message)."""
+) -> str:
+    """Insert a threaded reply at the parent's anchor. Returns reply name or raises _ReplyNotRegistered."""
     reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
     reply.setPropertyValue("ParentName", parent_name)
     reply.setPropertyValue("Content", content)
@@ -608,8 +597,8 @@ def _insert_annotation_reply(
     host.insertTextContent(cursor, reply, False)
     names_after = _annotation_field_names(doc)
     if len(names_after) <= len(names_before):
-        return False, "Reply insert did not register an annotation."
-    return True, _annotation_name(reply) or assigned_name
+        raise _ReplyNotRegistered("Reply insert did not register an annotation.")
+    return _annotation_name(reply) or assigned_name
 
 
 def _read_annotation(

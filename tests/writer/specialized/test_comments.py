@@ -963,8 +963,8 @@ def test_reply_and_resolve_call_shared_helper(monkeypatch):
     def fake_insert_reply(doc, parent, parent_name, content, author):
         helper_calls.append((parent_name, content, author))
         if content == "fail":
-            return False, "insert error"
-        return True, "new_reply_name"
+            raise comments._ReplyNotRegistered("insert error")
+        return "new_reply_name"
 
     monkeypatch.setattr(comments, "_insert_annotation_reply", fake_insert_reply)
 
