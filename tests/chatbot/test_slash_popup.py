@@ -147,14 +147,16 @@ def test_enter_accepts_help_without_send():
     popup, _box = _controller()
     send = popup.send_listener
     send.dispatch = MagicMock()
-    send._append_response = MagicMock()
+    send.append_output = MagicMock()
+    send.clear_ask = MagicMock()
+    send.hide_popup = MagicMock(side_effect=popup.hide)
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
         popup.on_query_text("/he")
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.dialogs.set_control_text"):
             assert popup.handle_key(KEY_RETURN, 0) is True
-    send._append_response.assert_called_once()
-    assert "Slash commands:" in send._append_response.call_args[0][0]
+    send.append_output.assert_called_once()
+    assert "Slash commands:" in send.append_output.call_args[0][0]
     send.on_action_performed = MagicMock()
     # Controller consumed Enter; send path is not invoked from handle_key.
     send.on_action_performed.assert_not_called()
@@ -284,17 +286,19 @@ def test_row_index_at_y_ignores_chrome():
 def test_click_row_accepts_command_chrome_does_not_dump_help():
     popup, _box = _controller()
     send = popup.send_listener
-    send._append_response = MagicMock()
+    send.append_output = MagicMock()
+    send.clear_ask = MagicMock()
+    send.hide_popup = MagicMock(side_effect=popup.hide)
     send.dispatch = MagicMock()
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
         popup.on_query_text("/")
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.dialogs.set_control_text"):
             assert popup.accept_row_at_y(-1) is False
-            send._append_response.assert_not_called()
+            send.append_output.assert_not_called()
             assert popup.accept_row_at_y(0) is True
-    send._append_response.assert_called_once()
-    assert "Slash commands:" in send._append_response.call_args[0][0]
+    send.append_output.assert_called_once()
+    assert "Slash commands:" in send.append_output.call_args[0][0]
 
 def test_printable_key_char_skips_controls():
     assert _printable_key_char("h") == "h"
@@ -433,7 +437,9 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
     popup, _box = _controller()
     send = popup.send_listener
     send.dispatch = MagicMock()
-    send._append_response = MagicMock()
+    send.append_output = MagicMock()
+    send.clear_ask = MagicMock()
+    send.hide_popup = MagicMock(side_effect=popup.hide)
     win = MagicMock()
     floater = MagicMock()
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
@@ -446,7 +452,7 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
         assert popup.handle_key(KEY_RETURN, 0) is True
     win.dispose.assert_not_called()
     assert popup.is_open is True
-    send._append_response.assert_not_called()
+    send.append_output.assert_not_called()
     assert len(posted) == 1
     fn, args, kwargs = posted[0]
     assert getattr(fn, "__name__", "") == "run_slash_command"
@@ -456,7 +462,8 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
     win.dispose.assert_called_once()
     floater.dispose.assert_called_once()
     assert popup.is_open is False
-    send._append_response.assert_called_once()
+    send.append_output.assert_called_once()
+    assert "Slash commands:" in send.append_output.call_args[0][0]
 
 
 def test_query_text_post_timeout_does_not_run_inline(caplog):

@@ -56,7 +56,19 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
     try:
         query = dlg.getControl("query")
         assert query is not None
-        send = type("Host", (), {"ctx": ctx, "query_control": query, "slash_popup": None, "dispatch": lambda *a, **k: None})()
+        send = type(
+            "Host",
+            (),
+            {
+                "ctx": ctx,
+                "query_control": query,
+                "slash_popup": None,
+                "dispatch": lambda *a, **k: None,
+                "hide_popup": lambda self: self.slash_popup.hide() if self.slash_popup else None,
+                "clear_ask": lambda self: None,
+                "append_output": lambda self, text: None,
+            },
+        )()
         # Same parent as sidebar wiring: dialog root, not the 24px Ask peer.
         popup = SlashPopupController(None, send, query, overlay_parent=dlg)
         send.slash_popup = popup
