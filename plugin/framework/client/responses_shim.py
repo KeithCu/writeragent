@@ -62,23 +62,6 @@ def uses_responses_api(model_name: str | None, tools: list[dict[str, Any]] | Non
     return _openai_model_leaf(model_name).startswith("gpt-6")
 
 
-def responses_effort(endpoint_effort: str, chat_extra: dict[str, Any] | None) -> str:
-    """The string OpenAIShim's chat body would send as reasoning_effort.
-
-    chat_extra.reasoning.effort wins, as in base_provider_shim._chat_payload.
-    Blank means omit the reasoning object. The caller maps it per provider.
-    """
-    if isinstance(chat_extra, dict):
-        reasoning = chat_extra.get("reasoning")
-        if isinstance(reasoning, dict):
-            raw = reasoning.get("effort")
-            if isinstance(raw, str) and raw.strip():
-                return raw.strip()
-    if isinstance(endpoint_effort, str) and endpoint_effort.strip():
-        return endpoint_effort.strip()
-    return ""
-
-
 def _responses_text_format(response_format: dict[str, Any] | None) -> dict[str, Any] | None:
     """Chat response_format to Responses text.format.
 
@@ -331,8 +314,7 @@ def responses_payload(
     model_name: str | None,
     response_format: dict[str, Any] | None,
     *,
-    endpoint_effort: str,
-    chat_extra: dict[str, Any] | None,
+    effort: str = "",
 ) -> dict[str, Any]:
     instructions, items = responses_input(messages, model_name=model_name)
     data: dict[str, Any] = {
@@ -351,8 +333,6 @@ def responses_payload(
         data["tools"] = converted
         data["tool_choice"] = "auto"
         data["parallel_tool_calls"] = False  # chat path, base_provider_shim.py lines 212–215
-    effort = responses_effort(endpoint_effort, chat_extra)
-    # Caller may wrap this with the effort-PR mapper. Do not map here.
     if effort:
         data["reasoning"] = {"effort": effort, "summary": "auto"}
     if effort == "none" and temperature is not None:

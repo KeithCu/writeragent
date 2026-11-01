@@ -115,17 +115,12 @@ class OpenAIShim(BaseProviderShim):
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> tuple[str, str, bytes, dict[str, str]]:
         if uses_responses_api(model_name, tools):
+            level = self._requested_effort_level(chat_extra)
+            mapped = effort_payload("openai", level).get("reasoning_effort")
             data = responses_payload(
                 messages, max_tokens, temperature, tools, stream, model_name, response_format,
-                endpoint_effort=self._endpoint_reasoning_effort(),
-                chat_extra=chat_extra if isinstance(chat_extra, dict) else None,
+                effort=mapped or level,
             )
-            reasoning = data.get("reasoning")
-            if isinstance(reasoning, dict) and (effort := reasoning.get("effort")):
-                fragment = effort_payload(self._reasoning_provider(), effort)
-                val = fragment.get("reasoning_effort") or (fragment.get("reasoning") or {}).get("effort")
-                if val:
-                    reasoning["effort"] = val
             return self._post(self._url("/responses"), data)
         return super().build_chat_request(
             messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra,

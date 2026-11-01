@@ -327,15 +327,14 @@ class BaseProviderShim:
         config = getattr(self.client, "config", None)
         return config if isinstance(config, dict) else {}
 
-    def _endpoint_reasoning_effort(self) -> str:
-        raw = self._client_config().get("reasoning_effort")
-        return raw.strip() if isinstance(raw, str) else ""
-
     def _requested_effort_level(self, chat_extra: dict[str, Any] | None) -> str:
         reasoning = chat_extra.get("reasoning") if isinstance(chat_extra, dict) else None
         raw_effort = reasoning.get("effort") if isinstance(reasoning, dict) else None
         stripped = raw_effort.strip() if isinstance(raw_effort, str) else ""
-        return stripped or self._endpoint_reasoning_effort()
+        if stripped:
+            return stripped
+        raw = self._client_config().get("reasoning_effort")
+        return raw.strip() if isinstance(raw, str) else ""
 
     def _openrouter_chat(self) -> bool:
         return bool(self._client_config().get("is_openrouter"))
