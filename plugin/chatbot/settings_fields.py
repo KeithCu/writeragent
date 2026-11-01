@@ -212,20 +212,13 @@ def _commit_spin_peer_value(ctrl: Any) -> float | None:
     Why this change: setValue(peer.getValue()) when they differ, then the
     caller reads getValue. No peer leaves the caller on today's path.
     """
-    get_peer = getattr(ctrl, "getPeer", None)
-    if not callable(get_peer):
-        return None
     try:
         peer = ctrl.getPeer()
-    except Exception:
-        log.debug("spin peer failed", exc_info=True)
-        return None
-    if peer is None or not hasattr(peer, "getValue"):
-        return None
-    try:
+        if peer is None or not hasattr(peer, "getValue"):
+            return None
         live = peer.getValue()
     except Exception:
-        log.debug("spin peer getValue failed", exc_info=True)
+        log.debug("spin peer failed", exc_info=True)
         return None
     try:
         current = ctrl.getValue()
@@ -352,7 +345,7 @@ def _config_assignment_matches(
     return coerced == current
 
 
-def apply_field_specs_result(ctx: Any, result: dict[str, Any], field_specs: list[dict[str, Any]]) -> None:
+def apply_field_specs_result(result: dict[str, Any], field_specs: list[dict[str, Any]]) -> None:
     """Persist dialog values using each spec's ``config_key`` (or name with ``__`` → ``.``).
 
     ``set_configs`` writes once and emits only when something changed, so
@@ -360,7 +353,6 @@ def apply_field_specs_result(ctx: Any, result: dict[str, Any], field_specs: list
     and emits ``config:changed`` again, including when every value already
     matched.
     """
-    del ctx  # set_configs emits with the main-thread ctx; a second emit refreshed the sidebar.
     by_name = {f["name"]: f for f in field_specs}
     pending: dict[str, Any] = {}
     for key, val in result.items():

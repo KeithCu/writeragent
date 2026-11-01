@@ -192,12 +192,10 @@ class ModuleConfigDialog:
                 continue
             populate_settings_control(ctrl, field)
 
-    def _extract_result(self, field_specs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    def _extract_result(self, field_specs: list[dict[str, Any]]) -> dict[str, Any]:
         from plugin.chatbot.settings_fields import read_settings_control
 
         assert self._dlg is not None
-        if field_specs is None:
-            field_specs = get_module_config_field_specs(self._ctx, self._module_name)
         result: dict[str, Any] = {}
         for field in field_specs:
             name = field["name"]
@@ -218,7 +216,7 @@ class ModuleConfigDialog:
         try:
             specs = get_module_config_field_specs(self._ctx, self._module_name)
             result = self._extract_result(specs)
-            apply_field_specs_result(self._ctx, result, specs)
+            apply_field_specs_result(result, specs)
         except Exception as exc:
             # A failed save stays open. Closing here dismisses the dialog
             # after the values were not stored.

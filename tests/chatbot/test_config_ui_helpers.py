@@ -56,7 +56,7 @@ class TestSyncSidebarTextModel:
         ctrl.getText.return_value = 'anthropic/claude-3.7-sonnet'
 
         with patch('plugin.framework.client.model_fetcher.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
-            result = sync_sidebar_text_model(self.ctx, ctrl)
+            result = sync_sidebar_text_model(ctrl)
 
         assert (result) == ('anthropic/claude-3.7-sonnet')
         assert (self.config_data['text_model']) == ('anthropic/claude-3.7-sonnet')
@@ -73,7 +73,7 @@ class TestSyncSidebarTextModel:
         ctrl.getText.return_value = 'openai/gpt-oss-120b:nitro'
 
         with patch('plugin.framework.client.model_fetcher.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
-            sync_sidebar_text_model(self.ctx, ctrl)
+            sync_sidebar_text_model(ctrl)
 
         text_model_writes = [c for c in self.mock_mf_set.call_args_list if c.args[0] == 'text_model']
         assert (text_model_writes) == ([])
@@ -85,14 +85,14 @@ class TestSyncSidebarTextModel:
         ctrl = MagicMock()
         ctrl.getText.return_value = '(Enter API Key to load models)'
 
-        result = sync_sidebar_text_model(self.ctx, ctrl)
+        result = sync_sidebar_text_model(ctrl)
 
         assert (result) is None
         assert (self.config_data['text_model']) == ('openai/gpt-oss-120b:nitro')
         self.mock_mf_set.assert_not_called()
 
     def test_missing_control_returns_none(self):
-        assert (sync_sidebar_text_model(self.ctx, None)) is None
+        assert (sync_sidebar_text_model(None)) is None
 
     def test_sync_then_get_api_config_uses_pasted_model(self):
         """After sync, LlmClient config built via get_api_config must match the combobox."""
@@ -119,7 +119,7 @@ class TestSyncSidebarTextModel:
              patch('plugin.framework.client.model_fetcher.set_config', side_effect=shared_set_config), \
              patch('plugin.framework.client.model_fetcher.get_text_model') as mock_get_text_model:
             mock_get_text_model.side_effect = lambda: str(self.config_data.get('text_model') or '')
-            sync_sidebar_text_model(self.ctx, ctrl)
+            sync_sidebar_text_model(ctrl)
 
             from plugin.framework.config import get_api_config
 
@@ -146,7 +146,7 @@ def test_sync_sidebar_text_model_writes_model_and_lru_once(tmp_path):
             patch("plugin.framework.config._write_config_file", wraps=real_write) as write,
             patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=endpoint),
         ):
-            assert sync_sidebar_text_model(MagicMock(), ctrl) == "new-model"
+            assert sync_sidebar_text_model(ctrl) == "new-model"
             assert write.call_count == 1
             assert emit.call_count == 1
             assert emit.call_args.args[0] == "config:changed"
@@ -162,7 +162,7 @@ def test_sync_sidebar_text_model_writes_model_and_lru_once(tmp_path):
             emit.reset_mock()
             ctrl.getText.return_value = "newer-model"
             # Head is still new-model, so the id and the list both change, still once.
-            sync_sidebar_text_model(MagicMock(), ctrl)
+            sync_sidebar_text_model(ctrl)
             assert write.call_count == 1
             assert emit.call_count == 1
             assert set(emit.call_args.kwargs["keys"]) == {"text_model", f"model_lru@{endpoint}"}
@@ -170,7 +170,7 @@ def test_sync_sidebar_text_model_writes_model_and_lru_once(tmp_path):
             write.reset_mock()
             emit.reset_mock()
             # Same combobox text: already stored and already the LRU head.
-            sync_sidebar_text_model(MagicMock(), ctrl)
+            sync_sidebar_text_model(ctrl)
             assert write.call_count == 0
             emit.assert_not_called()
     finally:

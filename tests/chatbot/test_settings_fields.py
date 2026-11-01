@@ -2,7 +2,7 @@
 
 import json
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from plugin.framework.event_bus import get_event_bus
 import pytest
@@ -101,7 +101,6 @@ def test_build_module_field_specs_skip_librepy_exclude():
 
 
 def test_apply_field_specs_result_uses_config_key():
-    ctx = MagicMock()
     specs = [
         {"name": "scripting__python_venv_path", "config_key": "scripting.python_venv_path"},
         {"name": "ignored", "config_key": "scripting.ignored"},
@@ -110,7 +109,7 @@ def test_apply_field_specs_result_uses_config_key():
         patch("plugin.chatbot.settings_fields.set_configs") as mock_set,
         patch.object(get_event_bus(), "emit") as mock_emit,
     ):
-        apply_field_specs_result(ctx, {"scripting__python_venv_path": "/opt/venv"}, specs)
+        apply_field_specs_result({"scripting__python_venv_path": "/opt/venv"}, specs)
 
     mock_set.assert_called_once_with({"scripting.python_venv_path": "/opt/venv"})
     # set_configs emits when a value changes. This function must not emit again.
@@ -134,9 +133,9 @@ def test_apply_field_specs_result_maps_translated_label_to_value():
         patch("plugin.chatbot.settings_fields.set_configs") as mock_set,
         patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
     ):
-        apply_field_specs_result(MagicMock(), {"scripting__python_session_mode": "Gedeelde kernel"}, specs)
-        apply_field_specs_result(MagicMock(), {"scripting__python_session_mode": "Shared kernel"}, specs)
-        apply_field_specs_result(MagicMock(), {"scripting__python_session_mode": "shared"}, specs)
+        apply_field_specs_result({"scripting__python_session_mode": "Gedeelde kernel"}, specs)
+        apply_field_specs_result({"scripting__python_session_mode": "Shared kernel"}, specs)
+        apply_field_specs_result({"scripting__python_session_mode": "shared"}, specs)
 
     assert mock_set.call_args_list[0].args[0] == {"scripting.python_session_mode": "shared"}
     assert mock_set.call_args_list[1].args[0] == {"scripting.python_session_mode": "shared"}
@@ -175,7 +174,6 @@ def test_apply_field_specs_result_skips_unchanged_and_default_values():
         patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
     ):
         apply_field_specs_result(
-            MagicMock(),
             {"scripting__python_session_mode": "Geïsoleerd"},
             specs,
         )
@@ -184,7 +182,6 @@ def test_apply_field_specs_result_skips_unchanged_and_default_values():
         assert after == before
 
         apply_field_specs_result(
-            MagicMock(),
             {"scripting__python_session_mode": "Gedeelde kernel"},
             specs,
         )
@@ -193,7 +190,7 @@ def test_apply_field_specs_result_skips_unchanged_and_default_values():
 
 def test_apply_field_specs_result_skips_unknown_keys():
     with patch("plugin.chatbot.settings_fields.set_configs") as mock_set:
-        apply_field_specs_result(MagicMock(), {"nope": "x"}, [{"name": "kept", "config_key": "scripting.kept"}])
+        apply_field_specs_result({"nope": "x"}, [{"name": "kept", "config_key": "scripting.kept"}])
     mock_set.assert_not_called()
 
 

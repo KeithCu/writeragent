@@ -32,25 +32,25 @@ SETTINGS_TAB_MODULE_ORDER = (
 )
 
 
-def _build_inline_maps(modules: list[dict[str, Any]]) -> tuple[set[str], dict[str, list[tuple[dict[str, Any], dict[str, Any]]]]]:
+def _build_inline_maps(modules: list[dict[str, Any]]) -> tuple[set[str], dict[str, list[dict[str, Any]]]]:
     """Return inline_set and inline_map matching generate_settings_dialog_tabs."""
     # generate_manifest rejects a non-string target, a self-inline, and a
     # chained config_inline, so every child's target is a real tab module.
     inline_set: set[str] = set()
-    inline_map: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
+    inline_map: dict[str, list[dict[str, Any]]] = {}
     for m in modules:
         target = m.get("config_inline")
         if not target:
             continue
         inline_set.add(m["name"])
-        inline_map.setdefault(target, []).append((m, m.get("config", {})))
+        inline_map.setdefault(target, []).append(m)
     return inline_set, inline_map
 
 
 def _is_settings_tab_module(
     m: dict[str, Any],
     inline_set: set[str],
-    inline_map: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]],
+    inline_map: dict[str, list[dict[str, Any]]],
 ) -> bool:
     """True when generate_settings_dialog_tabs would emit a tab for this module."""
     name = m["name"]
@@ -92,5 +92,5 @@ def iter_settings_field_modules(modules: list[dict[str, Any]]) -> Iterator[dict[
     _, inline_map = _build_inline_maps(modules)
     for m in iter_settings_tab_modules(modules):
         yield m
-        for child_m, _ in inline_map.get(m["name"], []):
+        for child_m in inline_map.get(m["name"], []):
             yield child_m

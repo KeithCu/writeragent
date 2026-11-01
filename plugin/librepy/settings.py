@@ -136,7 +136,7 @@ def open_librepy_settings(ctx: Any) -> None:
             for ctrl, field in populated:
                 result[field["name"]] = read_settings_control(ctrl, field)
             try:
-                apply_field_specs_result(ctx, result, field_specs)
+                apply_field_specs_result(result, field_specs)
                 break
             except ConfigValidationError as ve:
                 msgbox(ctx, _("Invalid Setting"), str(ve))

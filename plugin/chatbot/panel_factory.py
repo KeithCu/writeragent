@@ -824,7 +824,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             _wire_selector_sync_listeners(
                 self,
                 model_selector,
-                lambda: sync_sidebar_text_model(self.ctx, model_selector),
+                lambda: sync_sidebar_text_model(model_selector),
             )
 
         if image_model_selector:

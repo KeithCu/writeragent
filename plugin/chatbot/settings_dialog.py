@@ -217,7 +217,6 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
 
     field_specs = field_specs if field_specs is not None else get_settings_field_specs(ctx)
     field_specs_by_name = {f["name"]: f for f in field_specs}
-    specs_by_save_key = {str(f.get("config_key") or f["name"].replace("__", ".")): f for f in field_specs}
     pending: dict[str, Any] = {}
     lru_rows: list[tuple[str, Any, str, str]] = []
 
@@ -232,6 +231,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
         current_endpoint = endpoint_from_selector_text(str(result["endpoint"] or ""))
     else:
         current_endpoint = saved_endpoint
+    lru_rows.append(("endpoint", current_endpoint, "endpoint_lru", ""))
 
     for key, val in result.items():
         if key in ("endpoint", "api_key") or key not in field_specs_by_name:
@@ -265,10 +265,8 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             # the dialog opened. Read the combo text and this result's provider.
             # set_scoped_tts_voice writes both voice keys via set_config; stage
             # them in this batch instead.
-            prov_key = str((specs_by_save_key.get("audio.tts_provider") or {}).get("name") or "audio__tts_provider")
-            model_key = str((specs_by_save_key.get("audio.tts_model") or {}).get("name") or "audio__tts_model")
-            prov = result.get(prov_key) or ""
-            model = result.get(model_key) or ""
+            prov = result.get("audio__tts_provider") or ""
+            model = result.get("audio__tts_model") or ""
             prov_clean = clean_provider_name(str(prov))
             voice_endpoint = current_endpoint if "endpoint" in result else None
             context = resolve_voice_context(prov_clean, str(model), endpoint=voice_endpoint)
@@ -359,22 +357,11 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
     # update_lru_history afterwards writes writeragent.json again for
     # every LRU list.
     changed = changed_config_values(pending, get_config)
-    _stage_settings_lru(changed, current_endpoint, lru_rows)
-    if changed:
-        set_configs(changed)
-
-
-def _stage_settings_lru(
-    changed: dict[str, Any],
-    current_endpoint: str,
-    lru_rows: list[tuple[str, Any, str, str]],
-) -> None:
-    """Add LRU list updates for keys already in *changed*. Does not write."""
-    if "endpoint" in changed and current_endpoint:
-        _stage_lru(changed, current_endpoint, "endpoint_lru", "")
     for save_key, val, lru_key, endpoint in lru_rows:
         if save_key in changed:
             _stage_lru(changed, val, lru_key, endpoint)
+    if changed:
+        set_configs(changed)
 
 
 def _stage_lru(dest: dict[str, Any], val: Any, lru_key: str, endpoint: str) -> None:

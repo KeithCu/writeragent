@@ -411,7 +411,7 @@ class ToolCallingMixin:
             self._panel._terminal_status = "Error"
             return
 
-        synced_model = sync_sidebar_text_model(self._panel.ctx, self._panel.model_selector)
+        synced_model = sync_sidebar_text_model(self._panel.model_selector)
         if synced_model:
             log.debug("_do_send: text model updated to %s" % synced_model)
         if self._panel.image_model_selector:
