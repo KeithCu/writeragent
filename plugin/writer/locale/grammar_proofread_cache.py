@@ -33,14 +33,14 @@ def resolve_checker_identity(checker_identity: str | None = None) -> str:
         return checker_identity
     return grammar_checker_identity()
 
-def cache_clear(ctx: Any | None = None) -> None:
+def cache_clear() -> None:
     """Clear the in-memory proofreading cache (tests / reset).
 
     Always ``clear_all``: a follow-up ``get_persistence(doc_id)`` would register a
     fresh model-less ``DocumentPersistence``. Per-document teardown is
     ``grammar_registry.clear_for_doc``.
     """
-    grammar_registry.clear_all(ctx)
+    grammar_registry.clear_all()
 
 
 def ignore_rules_clear() -> None:

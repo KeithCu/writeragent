@@ -970,7 +970,7 @@ def test_ensure_persistence_bound_passes_current_text_component() -> None:
     writer = _writer_model()
     desktop = MagicMock()
     desktop.getCurrentComponent.return_value = writer
-    gp.grammar_registry.clear_all(ctx)
+    gp.grammar_registry.clear_all()
     try:
         with (
             patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
@@ -985,7 +985,7 @@ def test_ensure_persistence_bound_passes_current_text_component() -> None:
         assert bound._model is writer
         assert mock_load.call_count == again_loads
     finally:
-        gp.clear_all_document_persistence(ctx)
+        gp.grammar_registry.clear_all()
 
 
 def test_ensure_persistence_bound_uses_only_open_writer() -> None:
@@ -1004,7 +1004,7 @@ def test_ensure_persistence_bound_uses_only_open_writer() -> None:
     desktop = MagicMock()
     desktop.getCurrentComponent.return_value = calc
     desktop.getComponents.return_value = comps
-    gp.grammar_registry.clear_all(ctx)
+    gp.grammar_registry.clear_all()
     try:
         with (
             patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
@@ -1016,7 +1016,7 @@ def test_ensure_persistence_bound_uses_only_open_writer() -> None:
         assert bound is not None
         assert bound._model is writer
     finally:
-        gp.clear_all_document_persistence(ctx)
+        gp.grammar_registry.clear_all()
 
 
 def test_ensure_persistence_bound_does_not_guess_among_writers() -> None:
@@ -1032,7 +1032,7 @@ def test_ensure_persistence_bound_does_not_guess_among_writers() -> None:
     desktop = MagicMock()
     desktop.getCurrentComponent.return_value = None
     desktop.getComponents.return_value.createEnumeration.return_value = enum
-    gp.grammar_registry.clear_all(ctx)
+    gp.grammar_registry.clear_all()
     try:
         with (
             patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
@@ -1042,7 +1042,7 @@ def test_ensure_persistence_bound_does_not_guess_among_writers() -> None:
             proofreader._ensure_persistence_bound(ctx, "2")
         assert "2" not in gp.grammar_registry.doc_persistence_instances
     finally:
-        gp.clear_all_document_persistence(ctx)
+        gp.grammar_registry.clear_all()
 
 
 def test_ensure_persistence_bound_returns_when_no_writer() -> None:
@@ -1055,17 +1055,17 @@ def test_ensure_persistence_bound_returns_when_no_writer() -> None:
     enum = MagicMock()
     enum.hasMoreElements.return_value = False
     desktop.getComponents.return_value.createEnumeration.return_value = enum
-    gp.grammar_registry.clear_all(ctx)
+    gp.grammar_registry.clear_all()
     try:
         with (
             patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         ):
             proofreader._ensure_persistence_bound(ctx, "9")
-        assert gp.get_document_model_for_id(ctx, "9") is None
+        assert gp.get_document_model_for_id("9") is None
         assert "9" not in gp.grammar_registry.doc_persistence_instances
     finally:
-        gp.clear_all_document_persistence(ctx)
+        gp.grammar_registry.clear_all()
 
 
 def test_proofreader_broadcast_proofread_again_notifies_listeners(
@@ -1274,7 +1274,7 @@ def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component
     desktop.getCurrentComponent.return_value = draw_comp
     desktop.getComponents.return_value = comps
 
-    gp.grammar_registry.clear_all(ctx)
+    gp.grammar_registry.clear_all()
     try:
         with (
             patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
@@ -1287,7 +1287,7 @@ def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component
         assert bound is not None
         assert bound._model is writer_match
     finally:
-        gp.clear_all_document_persistence(ctx)
+        gp.grammar_registry.clear_all()
 
 def test_ignore_rule_fails_loudly_when_doc_id_unresolved(mock_config_fixture, mock_locale_fixture) -> None:
     pr = _make_proofreader()

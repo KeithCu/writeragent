@@ -186,7 +186,7 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str) -> Any | None:
     """
     from plugin.writer.locale.grammar_persistence import get_document_model_for_id, get_persistence
 
-    model = get_document_model_for_id(ctx, doc_id)
+    model = get_document_model_for_id(doc_id)
     if model is not None:
         return model
     try:

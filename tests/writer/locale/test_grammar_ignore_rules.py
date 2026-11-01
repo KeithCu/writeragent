@@ -136,10 +136,9 @@ class TestGrammarIgnoreRules:
         assert (normalize_reason("")) == ("")
 
     def test_document_persistence_stores_and_saves_ignored_rules(self) -> None:
-        ctx = MagicMock()
         model = MagicMock()
         with patch("plugin.doc.udprops.get_document_property", return_value=None):
-            dp = DocumentPersistence(ctx, "doc-x", model=model)
+            dp = DocumentPersistence("doc-x", model=model)
 
         dp._ignored_rules.add("avoid passive voice")
 
@@ -205,7 +204,7 @@ class TestGrammarIgnoreRules:
         pr = WriterAgentAiGrammarProofreader(ctx)
         pr._doc_id_for_ignore = {"test-uid": "2"}
 
-        dp = DocumentPersistence(ctx, "2")
+        dp = DocumentPersistence("2")
         with patch.object(dp, "_persist_to_udprops") as mock_save:
             with (
                 patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
@@ -319,7 +318,7 @@ def test_proofreader_ignore_stable_rule(prefix: str, ignored_code: str, other_co
     pr = WriterAgentAiGrammarProofreader(ctx)
     pr._doc_id_for_ignore = {"test-uid": "2"}
 
-    dp = DocumentPersistence(ctx, "2")
+    dp = DocumentPersistence("2")
     with patch.object(dp, "_persist_to_udprops") as mock_save:
         with (
             patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
@@ -335,8 +334,7 @@ def test_proofreader_ignore_stable_rule(prefix: str, ignored_code: str, other_co
 
 def test_document_persistence_snapshot_and_add_clear_ignored_rules() -> None:
     """The snapshot sees additions, and add/clear mutators save once."""
-    ctx = MagicMock()
-    dp = DocumentPersistence(ctx, "doc-test")
+    dp = DocumentPersistence("doc-test")
     with patch.object(dp, "_persist_to_udprops") as mock_save:
         assert dp.ignored_rules_snapshot() == set()
         dp.add_ignored_rule("rule1")
