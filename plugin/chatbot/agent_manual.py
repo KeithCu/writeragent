@@ -145,7 +145,7 @@ _MANUALS: dict[str, tuple[_Topic, ...]] = {
 _ALIASES_BY_TOPIC: dict[str, tuple[str, ...]] = {
     "editing": ("edit", "edits", "translation", "translate"),
     "editing-html": ("apply", "apply-document-content", "html", "html-rules", "styles", "math"),
-    "review-modes": ("tracked-changes", "redlines", "review", "review-mode", "review-modes"),
+    "review-modes": ("tracked-changes", "redlines", "review", "review-mode"),
     "search": ("find", "search-in-document"),
     "navigation": ("navigate", "outline", "large-documents"),
     "images": ("image", "crop", "vision", "highlight"),
@@ -176,28 +176,32 @@ def list_topics(doc_type: str | None = "writer") -> list[str]:
     return [t.id for t in _MANUALS[_app(doc_type)]]
 
 
-def normalize_topic(topic: str | None, doc_type: str | None = "writer") -> str | None:
-    """Map a raw topic string (aliases/case/spacing) to a canonical topic of that app, else None."""
+def _resolve_topic(topic: str | None, doc_type: str | None = "writer") -> _Topic | None:
     if not topic:
         return None
     manual = _MANUALS[_app(doc_type)]
-    valid_ids = {t.id for t in manual}
     key = topic.strip().lower().replace(" ", "-").replace("_", "-")
-    if key in valid_ids:
-        return key
+    found = next((t for t in manual if t.id == key), None)
+    if found is not None:
+        return found
     alias = _ALIASES.get(key)
-    return alias if alias in valid_ids else None
+    if alias is not None:
+        return next((t for t in manual if t.id == alias), None)
+    return None
+
+
+def normalize_topic(topic: str | None, doc_type: str | None = "writer") -> str | None:
+    """Map a raw topic string (aliases/case/spacing) to a canonical topic of that app, else None."""
+    found = _resolve_topic(topic, doc_type)
+    return found.id if found is not None else None
 
 
 def get_section(topic: str | None, doc_type: str | None = "writer") -> str | None:
     """The manual section for a topic (alias-aware) in that app's manual, or None if unknown."""
-    canon = normalize_topic(topic, doc_type)
-    if not canon:
+    found = _resolve_topic(topic, doc_type)
+    if found is None:
         return None
-    t = next((t for t in _MANUALS[_app(doc_type)] if t.id == canon), None)
-    if t is None:
-        return None
-    return t.text + t.standalone_suffix
+    return found.text + found.standalone_suffix
 
 
 def manual_index(doc_type: str | None = "writer") -> str:
