@@ -49,22 +49,9 @@ _FAILED: Any = object()
 #   user-defined, word-count
 #
 # Restore only a letterhead-useful subset for now (page/date plus chapter,
-# author, file name, doc title/subject). Extending ``_EXPORTED_FIELD_TITLES``
-# / ``_FIELD_TITLE_TO_SERVICE`` is intentional and easy when a real bug
-# arrives. GetReference / cross-ref is a separate loss class (different
-# markup, not this XSLT ``title=`` path).
-_EXPORTED_FIELD_TITLES = (
-    "page-number",
-    "page-count",
-    "time",
-    "date",
-    "chapter",
-    "author-name",
-    "author-initials",
-    "file-name",
-    "title",
-    "subject",
-)
+# author, file name, doc title/subject). Extending ``_FIELD_TITLE_TO_SERVICE``
+# is intentional and easy when a real bug arrives. GetReference / cross-ref is
+# a separate loss class (different markup, not this XSLT ``title=`` path).
 _TAG_BODY = r'(?:"[^"]*"|\'[^\']*\'|[^>"\'])*'
 _FIELD_SPAN_OPEN_RE = re.compile(r'<span\b' + _TAG_BODY + r'>', re.IGNORECASE)
 _SPAN_TAG_RE = re.compile(r'<span\b' + _TAG_BODY + r'>|</span\s*>', re.IGNORECASE)
@@ -183,7 +170,7 @@ def rewrite_exported_field_spans(html: str, nonce: str | None = None) -> str:
             attrs[name] = val
 
         title = attrs.get("title", "").strip().lower()
-        if title not in _EXPORTED_FIELD_TITLES:
+        if title not in _FIELD_TITLE_TO_SERVICE:
             continue
 
         is_self_closing = tag_str[:-1].rstrip().endswith("/")
@@ -214,7 +201,7 @@ def _page_number_properties(props: dict[str, str]) -> list[tuple[str, Any]]:
     ]
 
 
-def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[str, str] | None = None) -> bool:
+def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[str, str] | None = None) -> None:
     service = _FIELD_TITLE_TO_SERVICE.get(title)
     if not service:
         raise ToolExecutionError("Could not restore the %s field." % title)
@@ -255,7 +242,6 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
                     title,
                 )
             raise
-        return True
     except Exception as e:
         reraise_if_disposed(e)
         log.debug("_insert_restored_field failed title=%s", title, exc_info=True)
@@ -305,7 +291,7 @@ def _iter_field_texts(xtext: Any, depth: int = 0):
                 yield from _iter_field_texts(inner_text, depth + 1)
 
 
-def _first_remaining_field_token(text_obj: Any, nonce: str | None) -> Any:
+def _first_remaining_field_token(text_obj: Any, nonce: str) -> Any:
     """Return the first remaining token as str, None if none, or _FAILED if read failed."""
     for xtext in _iter_field_texts(text_obj):
         plain = uno_read(lambda: xtext.getString() or "", _FAILED)
@@ -314,18 +300,18 @@ def _first_remaining_field_token(text_obj: Any, nonce: str | None) -> Any:
         if not isinstance(plain, str):
             plain = str(plain)
         for m in _FIELD_TOKEN_RE.finditer(plain):
-            if nonce is None or m.group(1) == nonce:
+            if m.group(1) == nonce:
                 return m.group(0)
     return None
 
 
-def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str | None = None) -> int:
+def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
     """Replace ``[[WA-FIELD:…]]`` tokens inside *text_obj* without document search.
 
     Selects tokens from portion ranges per XText, descending into table cells
     and frames so unused-style headers or nested structures are fully restored.
     """
-    prefix = f"[[WA-FIELD:{nonce}:" if nonce else "[[WA-FIELD:"
+    prefix = f"[[WA-FIELD:{nonce}:"
     hits = []
 
     for xtext in _iter_field_texts(text_obj):
@@ -374,7 +360,7 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str | None = Non
                     if not isinstance(chunk, str):
                         chunk = str(chunk)
                     for m in _FIELD_TOKEN_RE.finditer(chunk):
-                        if nonce is None or m.group(1) == nonce:
+                        if m.group(1) == nonce:
                             tok = m.group(0)
                             title = m.group(2).lower()
                             props = _parse_field_token_props(m.group(3))
@@ -390,15 +376,13 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str | None = Non
             reraise_if_disposed(exc)
             log.debug("_restore_fields_by_cursor enumeration failed: %s", exc)
 
-    restored = 0
     for cursor, title, props in reversed(hits):
         _insert_restored_field(model, cursor, title, props)
-        restored += 1
 
-    return restored
+    return len(hits)
 
 
-def _raise_if_token_remains(text_obj: Any, nonce: str | None) -> None:
+def _raise_if_token_remains(text_obj: Any, nonce: str) -> None:
     tok = _first_remaining_field_token(text_obj, nonce)
     if isinstance(tok, str):
         raise ToolExecutionError(
@@ -406,7 +390,7 @@ def _raise_if_token_remains(text_obj: Any, nonce: str | None) -> None:
         )
 
 
-def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | None = None) -> int:
+def _restore_field_placeholders(model: Any, text_obj: Any, nonce: str) -> int:
     """Turn ``[[WA-FIELD:…]]`` tokens back into UNO fields.
 
     When *text_obj* is set, walk that XText first. ``findFirst`` misses a
@@ -414,16 +398,13 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
     The document search remains the path for body text, and the fallback
     when the cursor walk cannot see the token.
     """
-    walked = 0
-    if text_obj is not None:
-        walked = _restore_fields_by_cursor(model, text_obj, nonce=nonce)
-        remaining = _first_remaining_field_token(text_obj, nonce)
-        if remaining is None:
-            return walked
+    walked = _restore_fields_by_cursor(model, text_obj, nonce=nonce)
+    remaining = _first_remaining_field_token(text_obj, nonce)
+    if remaining is None:
+        return walked
 
     if model is None or not hasattr(model, "createSearchDescriptor"):
-        if text_obj is not None:
-            _raise_if_token_remains(text_obj, nonce)
+        _raise_if_token_remains(text_obj, nonce)
         return walked
 
     restored = walked
@@ -431,14 +412,14 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
     sd = model.createSearchDescriptor()
     sd.SearchRegularExpression = True
 
-    nonce_pat = re.escape(nonce) if nonce else r"[a-zA-Z0-9]+"
-    titles_pat = "|".join(_EXPORTED_FIELD_TITLES)
+    nonce_pat = re.escape(nonce)
+    titles_pat = "|".join(_FIELD_TITLE_TO_SERVICE)
     sd.SearchString = r"\[\[WA-FIELD:" + nonce_pat + r":(?:(?:" + titles_pat + r"))(?:\|[^\]]+)?\]\]"
     found = model.findFirst(sd)
 
     while found is not None:
         in_region = True
-        if text_obj is not None and not uno_same(text_obj, uno_read(lambda: model.getText(), None)):
+        if not uno_same(text_obj, uno_read(lambda: model.getText(), None)):
             in_region = uno_same(found.getText(), text_obj)
 
         props: dict[str, str] = {}
@@ -446,7 +427,7 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
         token = found.getString()
         if isinstance(token, str):
             match = _FIELD_TOKEN_RE.match(token)
-            if match and (nonce is None or match.group(1) == nonce):
+            if match and match.group(1) == nonce:
                 field_title = match.group(2).lower()
                 props = _parse_field_token_props(match.group(3))
 
@@ -458,6 +439,5 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
 
         found = nxt
 
-    if text_obj is not None:
-        _raise_if_token_remains(text_obj, nonce)
+    _raise_if_token_remains(text_obj, nonce)
     return restored

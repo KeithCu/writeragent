@@ -300,34 +300,7 @@ def test_content_has_markup_markdown_punctuation_treated_as_plain():
 
 
 
-def test_replace_xtext_with_html_restores_text_when_import_fails():
-    text = MagicMock()
-    cursor = MagicMock()
-    text.createTextCursor.return_value = cursor
-    cursor.getString.return_value = "Old header"
-    with patch(
-        "plugin.writer.html_import.insert_html_fragment_at_cursor",
-        side_effect=RuntimeError("import failed"),
-    ):
-        with pytest.raises(RuntimeError, match="import failed"):
-            replace_xtext_with_html(text, "<p>New</p>")
-    assert cursor.setString.call_args_list[0].args == ("",)
-    assert cursor.setString.call_args_list[-1].args == ("Old header",)
-
-
-def test_replace_xtext_with_html_leaves_cleared_text_when_import_succeeds():
-    text = MagicMock()
-    cursor = MagicMock()
-    text.createTextCursor.return_value = cursor
-    cursor.getString.return_value = "Old header"
-    with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as insert:
-        replace_xtext_with_html(text, "<p>New</p>")
-    insert.assert_called_once()
-    assert [call.args for call in cursor.setString.call_args_list] == [("",)]
-
-
 def test_replace_xtext_with_html_undo_rollback_on_import_failure():
-    from plugin.writer.html_import import replace_xtext_with_html
 
     text = MagicMock()
     cursor = MagicMock()
@@ -361,7 +334,6 @@ def test_replace_xtext_with_html_undo_rollback_on_import_failure():
 
 
 def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
-    from plugin.writer.html_import import replace_xtext_with_html
 
     text = MagicMock()
     cursor = MagicMock()
@@ -393,7 +365,6 @@ def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
 
 def test_replace_xtext_with_html_undo_manager_locked_refuses_clear():
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer.html_import import replace_xtext_with_html
 
     text = MagicMock()
     cursor = MagicMock()
@@ -1085,7 +1056,6 @@ def test_styled_insert_propagates_style_pass_failure():
 
 def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
     """A failed portion inspection is not 'empty'. Deleting can drop a frame."""
-    from plugin.writer.html_import import replace_xtext_with_html
 
     class _Enum:
         def __init__(self, items):
@@ -1113,6 +1083,9 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
     deleted = []
 
     class _Text:
+        def getString(self):
+            return ""
+
         def createTextCursor(self):
             cursor = MagicMock()
             cursor.getString.return_value = "Old"
@@ -1125,13 +1098,18 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
             deleted.append("delete")
             return MagicMock()
 
+    model = MagicMock()
+    model.findFirst.return_value = None
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    model.getUndoManager.return_value = undo_mgr
+
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
-        replace_xtext_with_html(_Text(), "<p>New</p>")
+        replace_xtext_with_html(_Text(), "<p>New</p>", model=model)
     assert deleted == []
 
 
 def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
-    from plugin.writer.html_import import replace_xtext_with_html
 
     class _Enum:
         def __init__(self, items):
@@ -1168,6 +1146,9 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
     deleted = []
 
     class _Text:
+        def getString(self):
+            return ""
+
         def createTextCursor(self):
             cursor = MagicMock()
             cursor.getString.return_value = "Old"
@@ -1181,14 +1162,19 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
             deleted.append("delete")
             return cursor
 
+    model = MagicMock()
+    model.findFirst.return_value = None
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    model.getUndoManager.return_value = undo_mgr
+
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
-        replace_xtext_with_html(_Text(), "<p>New</p>")
+        replace_xtext_with_html(_Text(), "<p>New</p>", model=model)
     assert deleted == ["delete"]
 
 
 def test_trailing_paragraph_disposal_is_not_success():
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.html_import import replace_xtext_with_html
 
     class _Enum:
         def __init__(self, items):
@@ -1208,6 +1194,9 @@ def test_trailing_paragraph_disposal_is_not_success():
             raise type("DisposedException", (Exception,), {})("gone")
 
     class _Text:
+        def getString(self):
+            return ""
+
         def createTextCursor(self):
             cursor = MagicMock()
             cursor.getString.return_value = "Old"
@@ -1216,9 +1205,23 @@ def test_trailing_paragraph_disposal_is_not_success():
         def createEnumeration(self):
             return _Enum([_Para(), _Para()])
 
+    model = MagicMock()
+    model.findFirst.return_value = None
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_title = None
+
+    def enter_ctx(title):
+        nonlocal undo_title
+        undo_title = title
+
+    undo_mgr.enterUndoContext.side_effect = enter_ctx
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: [undo_title]
+    model.getUndoManager.return_value = undo_mgr
+
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
         with pytest.raises(DocumentDisposedError):
-            replace_xtext_with_html(_Text(), "<p>New</p>")
+            replace_xtext_with_html(_Text(), "<p>New</p>", model=model)
 
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
