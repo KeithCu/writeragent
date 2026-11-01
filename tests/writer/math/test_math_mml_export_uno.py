@@ -87,7 +87,7 @@ def test_document_to_content_includes_tex(ctx: Any, doc: Any) -> None:
     text.insertControlCharacter(cur, 0, False)
     insert_writer_math_formula(doc, cur, "x", display_block=True)
 
-    html = document_to_content(doc, ctx, services=None, scope="full")
+    html = document_to_content(doc, ctx, scope="full")
     assert html
     assert "<math" not in html.lower()
     assert "frac" in html.lower() or "1" in html
@@ -143,7 +143,7 @@ def test_body_table_and_header_math_order_uno(ctx: Any, doc: Any) -> None:
     assert "c + 3" in hits[2].starmath or "c+3" in hits[2].starmath
 
     # Full document HTML export
-    html = document_to_content(doc, ctx, services=None, scope="full")
+    html = document_to_content(doc, ctx, scope="full")
     assert html
     assert "<math" not in html.lower()
     idx1 = html.find("a + 1") if "a + 1" in html else html.find("a+1")

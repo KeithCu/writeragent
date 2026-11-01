@@ -1081,7 +1081,7 @@ def test_document_to_content_full_timing_path_with_mocks():
         patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)) as autostyle,
         patch("plugin.writer.xhtml_style_postprocess.xhtml_to_semantic_html", return_value="<p>hello</p>") as post,
     ):
-        out = fmt.document_to_content(object(), object(), None, scope="full")
+        out = fmt.document_to_content(object(), object(), scope="full")
 
     export_xhtml.assert_called_once()
     autostyle.assert_called_once()

@@ -153,7 +153,6 @@ class GetDocumentContent(ToolBase):
         content = format_support.document_to_content(
             ctx.doc,
             ctx.ctx,
-            ctx.services,
             max_chars=max_chars,
             scope=scope,
             range_start=range_start,

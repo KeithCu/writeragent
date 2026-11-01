@@ -7,8 +7,7 @@ Extracted from plugin.writer.html_export and plugin.writer.html_import.
 
 from __future__ import annotations
 
-from html import escape as html_escape
-import html as html_mod
+from html import escape, unescape
 import logging
 import re
 from typing import Any, Iterator, NamedTuple
@@ -105,7 +104,7 @@ def _reading_after(html: str, end: int, reading: str) -> int | None:
 def _ruby_markup(base: str, reading: str, is_above: bool = True) -> str:
     # Under-ruby would come back as over without the CSS position.
     style = "" if is_above else ' style="ruby-position: under"'
-    return "<ruby%s>%s<rt>%s</rt></ruby>" % (style, html_escape(base), html_escape(reading))
+    return "<ruby%s>%s<rt>%s</rt></ruby>" % (style, escape(base), escape(reading))
 
 
 
@@ -259,9 +258,7 @@ class _ImportRubySpan(NamedTuple):
 
 def _visible_html_text(fragment: str) -> str:
     """Tag-stripped, entity-unescaped text of an HTML fragment."""
-    if not fragment:
-        return ""
-    return html_mod.unescape(_HTML_TAG_RE.sub("", fragment))
+    return unescape(_HTML_TAG_RE.sub("", fragment))
 
 
 
@@ -291,7 +288,7 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
     via ``_apply_ruby_spans``, which starts at this offset instead of the first
     copy of the base.
     """
-    if not html or not isinstance(html, str):
+    if not html:
         return html, []
     lower = html.lower()
     if "<ruby" not in lower:
@@ -325,15 +322,6 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
         pos = match.end()
     out.append(html[pos:])
     return "".join(out), spans
-
-
-
-def _set_ruby_on_range(cursor: Any, reading: str, is_above: bool = True) -> None:
-    """Create live ruby on the selected base run (same as the UNO seed probe)."""
-    cursor.setPropertyValue("RubyText", reading)
-    # RubyIsAbove and RubyAdjust are on the same cursor that just took RubyText.
-    cursor.setPropertyValue("RubyIsAbove", bool(is_above))
-    cursor.setPropertyValue("RubyAdjust", 0)
 
 
 
@@ -376,23 +364,17 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
     cur: Any = None
     cur_pos = 0
 
-    for item in spans:
-        base, reading = item[0], item[1]
-        is_above = bool(item[2])
-        if not base or not reading:
-            continue
+    for base, reading, is_above, offset in spans:
+        is_above = bool(is_above)
 
         # The span's fourth item is the base's visible-text offset, so a repeated
         # base (漢字 … <ruby>漢字</ruby>) gets the reading on the right copy.
-        offset = item[3]
         target_offset = anchor + offset
 
-        idx = -1
-        if target_offset is not None and target_offset >= pos and target_offset + len(base) <= len(haystack) and haystack[target_offset : target_offset + len(base)] == base:
+        if target_offset >= pos and target_offset + len(base) <= len(haystack) and haystack[target_offset : target_offset + len(base)] == base:
             idx = target_offset
         else:
-            if target_offset is not None:
-                log.debug("_apply_ruby_spans: base %r not at offset %d, falling back to find", base, target_offset)
+            log.debug("_apply_ruby_spans: base %r not at offset %d, falling back to find", base, target_offset)
             idx = haystack.find(base, pos)
 
         if idx < 0:
@@ -439,7 +421,10 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
                 pos = cur_pos
                 continue
 
-            _set_ruby_on_range(sel, reading, is_above)
+            sel.setPropertyValue("RubyText", reading)
+            # RubyIsAbove and RubyAdjust are on the same cursor that just took RubyText.
+            sel.setPropertyValue("RubyIsAbove", is_above)
+            sel.setPropertyValue("RubyAdjust", 0)
             go_right(cur, len(base), False)
             cur_pos = cur_pos + len(base)
             pos = idx + len(base)

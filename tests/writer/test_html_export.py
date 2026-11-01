@@ -253,7 +253,7 @@ def test_document_to_content_fails_loudly_when_both_exports_fail():
     model.storeToURL.side_effect = OSError("No space left on device")
     with patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")), \
          pytest.raises(ToolExecutionError) as err:
-        html_export.document_to_content(model, None, None)
+        html_export.document_to_content(model, None)
     message = str(err.value)
     assert "Permission denied" in message and "No space left on device" in message
 
@@ -269,7 +269,7 @@ def test_empty_xhtml_export_of_a_document_with_text_falls_back():
          patch("builtins.open") as opener:
         buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
-        out = html_export.document_to_content(_content_doc(), None, None)
+        out = html_export.document_to_content(_content_doc(), None)
     assert "Texto do documento" in out
 
 
@@ -286,7 +286,7 @@ def test_full_export_fallback_reports_missing_style_tokens():
     ):
         buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
-        out = html_export.document_to_content(_content_doc(), None, None, walk_warnings=warnings)
+        out = html_export.document_to_content(_content_doc(), None, walk_warnings=warnings)
     assert "Texto do documento" in out
     assert warnings == [
         "XHTML export failed; content came from the legacy HTML export and has no style tokens."
@@ -304,7 +304,7 @@ def test_full_export_happy_path_produces_no_fallback_warning():
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
         patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
     ):
-        out = html_export.document_to_content(_content_doc(), None, None, walk_warnings=warnings)
+        out = html_export.document_to_content(_content_doc(), None, walk_warnings=warnings)
     assert "<p>x</p>" in out
     assert warnings == []
 
@@ -316,7 +316,7 @@ def test_an_empty_document_still_reads_as_empty():
 
     with patch.object(html_export, "_export_xhtml", return_value=""), \
          patch.object(html_export, "_autostyle_maps", return_value=({}, {}, None)):
-        assert html_export.document_to_content(_content_doc(""), None, None) == ""
+        assert html_export.document_to_content(_content_doc(""), None) == ""
 def test_shorten_outline_anchor_ids_replaces_picture_data_in_heading_anchor():
     from plugin.writer.html_export import shorten_outline_anchor_ids
 
@@ -558,7 +558,7 @@ def test_full_export_disposal_does_not_fall_back():
         patch.object(html_export, "_export_xhtml", side_effect=_DisposedException("disposed")),
         pytest.raises(DocumentDisposedError),
     ):
-        html_export.document_to_content(model, None, None)
+        html_export.document_to_content(model, None)
     model.storeToURL.assert_not_called()
 
 
@@ -572,7 +572,7 @@ def test_starwriter_disposal_is_not_wrapped():
         patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")),
         pytest.raises(DocumentDisposedError),
     ):
-        html_export.document_to_content(model, None, None)
+        html_export.document_to_content(model, None)
 
 
 def test_range_xhtml_disposal_does_not_fall_back():
@@ -689,7 +689,7 @@ def test_document_to_content_max_chars_does_not_split_a_tag():
             side_effect=lambda xhtml, parents, overrides: xhtml,
         ),
     ):
-        out = html_export.document_to_content(_content_doc(), None, None, max_chars=12)
+        out = html_export.document_to_content(_content_doc(), None, max_chars=12)
     body = out.split("[... truncated ...]", 1)[0]
     assert "<" not in body or body.rfind("<") < body.rfind(">")
 
