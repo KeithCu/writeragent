@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from plugin.writer.locale.grammar_ignore_rules import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
+from plugin.framework.grammar_rule_ids import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
 from plugin.scripting.venv.languagetool import _match_wrong_text, run_languagetool_check
 
 

@@ -125,7 +125,7 @@ def test_emit_grammar_status_routes_to_libreoffice_status_bar_when_libreharper()
         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
     ):
         go.emit_grammar_status("complete", "Hello world.", result="clean")
-    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "complete", "clean", False)
+    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "complete", "clean")
 
 
 def test_emit_grammar_status_always_posts_to_main_thread() -> None:
@@ -137,7 +137,7 @@ def test_emit_grammar_status_always_posts_to_main_thread() -> None:
         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
     ):
         go.emit_grammar_status("start", "Hello world.", result="Starting Harper…")
-    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "start", "Starting Harper…", False)
+    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "start", "Starting Harper…")
 
 
 def test_is_routine_libreharper_status_covers_per_keystroke_strings() -> None:
@@ -182,7 +182,7 @@ def test_emit_grammar_status_posts_routine_done_when_indicator_active() -> None:
         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
     ):
         go.emit_grammar_status("done", "Hello world.", result="0 issues")
-    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "done", "0 issues", True)
+    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "done", "0 issues")
 
 
 def test_emit_grammar_status_paints_progress_and_failure_when_libreharper() -> None:
@@ -198,7 +198,7 @@ def test_emit_grammar_status_paints_progress_and_failure_when_libreharper() -> N
             patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
         ):
             go.emit_grammar_status(phase, "Hello world.", result=result)
-        mock_post.assert_called_once_with(go.update_libreoffice_status_bar, phase, result, False)
+        mock_post.assert_called_once_with(go.update_libreoffice_status_bar, phase, result)
 
 
 def test_desktop_create_is_unsafe_for_uno_bin_helper() -> None:
@@ -330,7 +330,7 @@ def test_update_libreoffice_status_bar_skips_paint_when_frame_missing() -> None:
         patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
         patch("plugin.framework.uno_context.get_active_document") as mock_doc,
     ):
-        go.update_libreoffice_status_bar("request", "Downloading harper-ls v2.7.0…", False)
+        go.update_libreoffice_status_bar("request", "Downloading harper-ls v2.7.0…")
         mock_desktop.assert_not_called()
         mock_doc.assert_not_called()
         assert go._last_status_indicator is None
@@ -345,11 +345,11 @@ def test_update_libreoffice_status_bar_ends_indicator_on_routine_done() -> None:
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
-        go.update_libreoffice_status_bar("start", "Downloading harper-ls v2.7.0…", False)
+        go.update_libreoffice_status_bar("start", "Downloading harper-ls v2.7.0…")
         assert go._last_status_indicator is mock_indicator
         mock_indicator.setText.reset_mock()
 
-        go.update_libreoffice_status_bar("done", "2 issues", True)
+        go.update_libreoffice_status_bar("done", "2 issues")
         mock_indicator.end.assert_called_once()
         mock_indicator.setText.assert_not_called()
         assert go._last_status_indicator is None
@@ -358,7 +358,7 @@ def test_update_libreoffice_status_bar_ends_indicator_on_routine_done() -> None:
 def test_update_libreoffice_status_bar_routine_done_without_indicator_does_nothing() -> None:
     mock_frame = MagicMock()
     with patch.object(go, "resolve_status_bar_frame", return_value=mock_frame) as mock_resolve:
-        go.update_libreoffice_status_bar("done", "0 issues", True)
+        go.update_libreoffice_status_bar("done", "0 issues")
         mock_resolve.assert_not_called()
         mock_frame.createStatusIndicator.assert_not_called()
 
@@ -372,7 +372,7 @@ def test_update_libreoffice_status_bar_shows_failure_without_indicator() -> None
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
-        go.update_libreoffice_status_bar("failed", "timed out", False)
+        go.update_libreoffice_status_bar("failed", "timed out")
         mock_indicator.start.assert_called_once_with("LibreHarper: Failed (timed out)", 100)
         assert go._last_status_indicator is mock_indicator
         mock_indicator.end.assert_not_called()
@@ -387,7 +387,7 @@ def test_update_libreoffice_status_bar_failure_with_empty_result_has_text() -> N
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
-        go.update_libreoffice_status_bar("failed", "", False)
+        go.update_libreoffice_status_bar("failed", "")
         mock_indicator.start.assert_called_once_with("LibreHarper: Grammar check failed", 100)
         assert go._last_status_indicator is mock_indicator
         mock_indicator.end.assert_not_called()
@@ -402,7 +402,7 @@ def test_update_libreoffice_status_bar_failure_updates_active_indicator_without_
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
-        go.update_libreoffice_status_bar("failed", "timed out", False)
+        go.update_libreoffice_status_bar("failed", "timed out")
         mock_indicator.setText.assert_called_once_with("LibreHarper: Failed (timed out)")
         mock_indicator.setValue.assert_called_once_with(100)
         mock_indicator.end.assert_not_called()
@@ -418,17 +418,17 @@ def test_update_libreoffice_status_bar_lifecycle() -> None:
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
         # 1. Start phase (progress, not the per-keystroke "queued" string)
-        go.update_libreoffice_status_bar("start", "Downloading harper-ls v2.7.0…", False)
+        go.update_libreoffice_status_bar("start", "Downloading harper-ls v2.7.0…")
         mock_frame.createStatusIndicator.assert_called_once()
         mock_indicator.start.assert_called_once_with("LibreHarper: Downloading harper-ls v2.7.0…", 100)
 
         # 2. Request phase updates text/value
-        go.update_libreoffice_status_bar("request", "Starting harper-ls…", False)
+        go.update_libreoffice_status_bar("request", "Starting harper-ls…")
         mock_indicator.setText.assert_called_with("LibreHarper: Starting harper-ls…")
         mock_indicator.setValue.assert_called_with(50)
 
         # 3. Complete phase ends indicator
-        go.update_libreoffice_status_bar("complete", "done", False)
+        go.update_libreoffice_status_bar("complete", "done")
         mock_indicator.setText.assert_called_with("LibreHarper: Grammar check complete")
         mock_indicator.end.assert_called_once()
         assert go._last_status_indicator is None
@@ -446,9 +446,9 @@ def test_update_libreoffice_status_bar_drops_dead_indicator() -> None:
         patch.object(go, "resolve_status_bar_frame", return_value=frame),
     ):
         go._last_status_indicator = dead
-        go.update_libreoffice_status_bar("request", "Starting harper-ls…", False)
+        go.update_libreoffice_status_bar("request", "Starting harper-ls…")
         assert go._last_status_indicator is None
-        go.update_libreoffice_status_bar("start", "Downloading harper-ls v2.7.0…", False)
+        go.update_libreoffice_status_bar("start", "Downloading harper-ls v2.7.0…")
         frame.createStatusIndicator.assert_called_once()
         assert go._last_status_indicator is fresh
 

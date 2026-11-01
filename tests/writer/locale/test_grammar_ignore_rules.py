@@ -7,16 +7,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.writer.locale.grammar_ignore_rules import (
+from plugin.framework.grammar_rule_ids import (
     HARPER_RULE_PREFIX,
     LANGUAGETOOL_RULE_PREFIX,
+    make_rule_identifier,
+)
+from plugin.writer.locale.grammar_ignore_rules import (
     STABLE_RULE_PREFIXES,
     WA_G_RULE_PREFIX,
     canonical_rule_key,
     collect_ignored_reasons,
     doc_ignored_rules,
     is_rule_ignored,
-    make_rule_identifier,
     normalize_reason,
     parse_prefixed_rule_identifier,
 )
@@ -350,11 +352,8 @@ def test_rule_prefixes_come_from_framework_leaf() -> None:
     import plugin.framework.grammar_rule_ids as ids
     import plugin.writer.locale.grammar_ignore_rules as gir
 
-    assert ids.LANGUAGETOOL_RULE_PREFIX is gir.LANGUAGETOOL_RULE_PREFIX
-    assert ids.HARPER_RULE_PREFIX is gir.HARPER_RULE_PREFIX
     assert ids.WA_G_RULE_PREFIX is gir.WA_G_RULE_PREFIX
     assert ids.STABLE_RULE_PREFIXES is gir.STABLE_RULE_PREFIXES
-    assert ids.make_rule_identifier is gir.make_rule_identifier
     assert ids.parse_prefixed_rule_identifier is gir.parse_prefixed_rule_identifier
 
 

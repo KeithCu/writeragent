@@ -122,10 +122,10 @@ def _open_indicator(frame: Any, msg: str) -> Any:
     return indicator
 
 
-def update_libreoffice_status_bar(phase: str, result: str, routine: bool) -> None:
+def update_libreoffice_status_bar(phase: str, result: str) -> None:
     """Update the LibreOffice window status bar using XStatusIndicator."""
     global _last_status_indicator
-    terminal = phase in _TERMINAL_STATUS_PHASES
+    routine = is_routine_libreharper_status(phase, result)
 
     msg = f"LibreHarper: {result or 'Checking...'}"
     if phase in ("done", "complete"):
@@ -149,15 +149,7 @@ def update_libreoffice_status_bar(phase: str, result: str, routine: bool) -> Non
         if frame is None:
             return
 
-        if phase == "failed":
-            # Keep the failure text visible: end() in this callback would
-            # hide it. The next grammar status replaces or ends it.
-            if _last_status_indicator is None:
-                _last_status_indicator = _open_indicator(frame, msg)
-            else:
-                _last_status_indicator.setText(msg)
-                _last_status_indicator.setValue(100)
-        elif terminal:
+        if phase in ("done", "complete"):
             if _last_status_indicator is not None:
                 _last_status_indicator.setText(msg)
                 _last_status_indicator.setValue(100)
@@ -175,7 +167,7 @@ def update_libreoffice_status_bar(phase: str, result: str, routine: bool) -> Non
             # Why: this raise reaches the outer handler, which clears the
             # indicator so the next progress paint creates a new one.
             _last_status_indicator.setText(msg)
-            _last_status_indicator.setValue(50)
+            _last_status_indicator.setValue(100 if phase == "failed" else 50)
     except Exception as e:
         log.debug("[grammar] update_libreoffice_status_bar failed: %s", e)
         _last_status_indicator = None
@@ -217,7 +209,7 @@ def emit_grammar_status(
             # or kills Writer. Progress strings (Starting Harper…, download)
             # still paint — just never on this thread.
             try:
-                post_to_main_thread(update_libreoffice_status_bar, phase, result, routine)
+                post_to_main_thread(update_libreoffice_status_bar, phase, result)
             except Exception:
                 log.debug("Failed to post status bar update to main thread", exc_info=True)
         else:

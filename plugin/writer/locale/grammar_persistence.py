@@ -79,26 +79,12 @@ _REV_ERROR_KEY_MAP = {v: k for k, v in _ERROR_KEY_MAP.items()}
 
 def compress_error(err: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of the error dict with shortened keys for storage."""
-    out = {}
-    for k, v in err.items():
-        short = _ERROR_KEY_MAP.get(k)
-        if short:
-            out[short] = v
-        else:
-            out[k] = v
-    return out
+    return {_ERROR_KEY_MAP.get(k, k): v for k, v in err.items()}
 
 
 def decompress_error(err: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of the error dict with long keys restored for runtime."""
-    out = {}
-    for k, v in err.items():
-        long = _REV_ERROR_KEY_MAP.get(k)
-        if long:
-            out[long] = v
-        else:
-            out[k] = v
-    return out
+    return {_REV_ERROR_KEY_MAP.get(k, k): v for k, v in err.items()}
 
 
 def _blob_model_id(data: dict[str, Any]) -> str | None:
@@ -344,15 +330,12 @@ class DocumentPersistence:
     def _register_listeners(self) -> None:
         if not _HAVE_UNO_DOC_EVENTS or self._model is None:
             return
-        if self._doc_listener is not None:
-            return
         # XDocumentEventListener handles both OnSave/OnUnload (via documentEventOccured)
         # and broadcaster teardown (via disposing inherited from lang.XEventListener),
         # so a single registration on XDocumentEventBroadcaster covers both paths.
         try:
             self._doc_listener = _GrammarDocumentEventListener(self)
-            if hasattr(self._model, "addDocumentEventListener"):
-                self._model.addDocumentEventListener(self._doc_listener)
+            self._model.addDocumentEventListener(self._doc_listener)
         except Exception as e:
             log.warning("[grammar] DocumentPersistence: listener registration failed: %s", e)
 
@@ -361,7 +344,7 @@ class DocumentPersistence:
         if m is None:
             return
         try:
-            if self._doc_listener is not None and hasattr(m, "removeDocumentEventListener"):
+            if self._doc_listener is not None:
                 m.removeDocumentEventListener(self._doc_listener)
         except Exception as e:
             log.debug("[grammar] removeDocumentEventListener: %s", e)
@@ -511,20 +494,21 @@ class DocumentPersistence:
 
             # Swap/merge under _lock at the end
             with self._lock:
-                if not load_entries:
-                    if self._session_identity is None or self._session_identity == blob_identity:
+                adopt = self._session_identity is None or self._session_identity == blob_identity
+                if adopt:
+                    if not load_entries:
                         self._entries.clear()
                         self._ignored_rules.clear()
                         self._blob_identity = blob_identity
-                elif self._session_identity is None or self._session_identity == blob_identity:
-                    self._blob_identity = blob_identity
-                    if not self._ignored_rules:
-                        self._ignored_rules = decoded_ignored
-                    for fp, by_loc in decoded_entries.items():
-                        target_by_loc = self._entries.setdefault(fp, {})
-                        for loc, errs in by_loc.items():
-                            if loc not in target_by_loc:
-                                target_by_loc[loc] = errs
+                    else:
+                        self._blob_identity = blob_identity
+                        if not self._ignored_rules:
+                            self._ignored_rules = decoded_ignored
+                        for fp, by_loc in decoded_entries.items():
+                            target_by_loc = self._entries.setdefault(fp, {})
+                            for loc, errs in by_loc.items():
+                                if loc not in target_by_loc:
+                                    target_by_loc[loc] = errs
 
                 loaded_count = sum(len(by_loc) for by_loc in self._entries.values())
 
