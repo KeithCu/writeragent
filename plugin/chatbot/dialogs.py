@@ -457,30 +457,25 @@ def translate_dialog(dlg: Any) -> None:
             short_type = _uno_impl_to_control_type(impl_name)
             model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
 
-            for prop in control_types.get(short_type, ()):
+            for prop in control_types.get(short_type, ()) + ("HelpText",):
                 if prop == "StringItemList":
                     # ListBox often exposes getStringItemList on the view; ComboBox
                     # typically only has StringItemList on the model.
                     if hasattr(ctrl, "getStringItemList"):
-                        items = ctrl.getStringItemList()
-                        if items:
-                            translated = tuple(_(item) if item else "" for item in items)
-                            ctrl.setStringItemList(translated)
+                        getter, setter = ctrl.getStringItemList, ctrl.setStringItemList
                     elif model is not None:
-                        items = model.StringItemList
+                        getter, setter = (lambda: getattr(model, "StringItemList", None)), (lambda val: setattr(model, "StringItemList", val))
+                    else:
+                        getter = setter = None
+                    if getter and setter:
+                        items = getter()
                         if items:
-                            translated = tuple(_(item) if item else "" for item in items)
-                            model.StringItemList = translated
+                            setter(tuple(_(item) if item else "" for item in items))
                 else:
                     if hasattr(model, prop):
                         current = getattr(model, prop)
                         if current:
                             setattr(model, prop, _(current))
-
-            if model is not None:
-                help_text = getattr(model, "HelpText", None)
-                if isinstance(help_text, str) and help_text:
-                    model.HelpText = _(help_text)
 
             xcc = _xcc(ctrl)
             if xcc:
@@ -494,13 +489,12 @@ def translate_dialog(dlg: Any) -> None:
     # ContainerWindow + XDL: root is often ``UnoDialogControl``, which does not
     # implement ``XControlContainer``, so ``getControls()`` is never reached.
     # Fall back to dialog model ``ElementNames`` + ``getControl(name)``.
-    if (_xcc_root is None or root_child_count == 0) and hasattr(dlg, "getControl") and hasattr(dlg, "getModel"):
+    if root_child_count == 0 and hasattr(dlg, "getControl") and hasattr(dlg, "getModel"):
         names = _dialog_model_element_names(dlg)
-        if names:
-            for nm in names:
-                c = dlg.getControl(nm)
-                if c:
-                    translate_one(c)
+        for nm in names:
+            c = dlg.getControl(nm)
+            if c:
+                translate_one(c)
 
 
 def format_exception_detail(exc: BaseException, *, _depth: int = 0) -> str:
@@ -559,11 +553,9 @@ def _nested_exception_object(val: Any) -> BaseException | None:
 class _UnoExceptionAdapter(BaseException):
     """Minimal BaseException wrapper for pyuno UNO exception objects."""
 
-    _uno_exc: Any
     uno_type_name: str
 
     def __init__(self, uno_exc: Any) -> None:
-        self._uno_exc = uno_exc
         self.uno_type_name = type(uno_exc).__name__
         message = ""
         if hasattr(uno_exc, "Message"):
@@ -571,21 +563,9 @@ class _UnoExceptionAdapter(BaseException):
         if not message:
             message = type(uno_exc).__name__
         super().__init__(message)
-
-    @property
-    def Message(self) -> Any:
-        return getattr(self._uno_exc, "Message", None)
-
-    @property
-    def Target(self) -> Any:
-        return getattr(self._uno_exc, "Target", None)
-
-    @property
-    def Context(self) -> Any:
-        return getattr(self._uno_exc, "Context", None)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._uno_exc, name)
+        for attr in ("Message", "Name", "ArgumentName", "ArgumentPosition", "SQLError", "Target", "Context"):
+            if hasattr(uno_exc, attr):
+                setattr(self, attr, getattr(uno_exc, attr))
 
 
 def _collect_xdl_load_diagnostics(ctx: Any, dialog_url: str, dialog_name: str) -> str:
