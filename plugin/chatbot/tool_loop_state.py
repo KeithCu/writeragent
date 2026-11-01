@@ -29,14 +29,16 @@ def object_dict_or_empty(value: object) -> dict[str, Any]:
     return cast("dict[str, Any]", value) if type(value) is dict else {}
 
 
+def _non_blank_name(value: object) -> str:
+    return value if isinstance(value, str) and value.strip() else "unknown"
+
+
 def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
     """Normalize a pending tool-call entry to ``(func_name, func_args_str, call_id)``."""
     # crosshair: off
     tc_dict = object_dict_or_empty(tc)
     func_data = object_dict_or_empty(tc_dict.get("function"))
-    func_name = func_data.get("name", "unknown")
-    if not isinstance(func_name, str) or not func_name.strip():
-        func_name = "unknown"
+    func_name = _non_blank_name(func_data.get("name"))
     func_args_str = func_data.get("arguments", "{}")
     if not isinstance(func_args_str, str):
         func_args_str = "{}"
@@ -75,7 +77,6 @@ class ToolLoopState(BaseState):
     max_rounds: int
     status: str
     is_stopped: bool = False
-    doc_type: str = ""
     async_tools: frozenset[str] = frozenset()
 
 
@@ -253,6 +254,17 @@ def _ready_transition(state: ToolLoopState, effects: List[Any]) -> FsmTransition
     return FsmTransition(dataclasses.replace(state, status="Ready"), effects)
 
 
+def _assistant_text_effects(content: str, payload: dict[str, Any]) -> list[Any]:
+    return [
+        AddMessageEffect(
+            role=MessageRole.ASSISTANT,
+            content=content,
+            reasoning_replay=reasoning_replay_from_assistant_response(payload),
+        ),
+        ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n"),
+    ]
+
+
 # --- State Machine Transition ---
 @deal.pre(lambda state, event: isinstance(state.max_rounds, int) and state.max_rounds > 0 and state.round_num >= 0)
 @deal.ensure(_transition_invariants)
@@ -276,14 +288,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
         case EventKind.FINAL_DONE:
             content = event_data.get("content")
             if content:
-                effects.append(
-                    AddMessageEffect(
-                        role=MessageRole.ASSISTANT,
-                        content=content,
-                        reasoning_replay=reasoning_replay_from_assistant_response(event_data),
-                    )
-                )
-                effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n"))
+                effects.extend(_assistant_text_effects(content, event_data))
             return _ready_transition(state, effects)
 
         case EventKind.ERROR:
@@ -330,14 +335,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 )
                 if content:
                     effects.append(ToolLoopUIEffect(kind=UIEffectKind.DEBUG, text="Tool loop: Adding assistant message to session"))
-                    effects.append(
-                        AddMessageEffect(
-                            role=MessageRole.ASSISTANT,
-                            content=content,
-                            reasoning_replay=reasoning_replay_from_assistant_response(response),
-                        )
-                    )
-                    effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n"))
+                    effects.extend(_assistant_text_effects(content, response))
                 elif finish_reason in _TRUNCATION_BANNERS:
                     banner = _TRUNCATION_BANNERS[finish_reason]
                     effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n" + banner + "\n"))
@@ -455,8 +453,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
         case EventKind.TOOL_RESULT:
             # Unpack tool result fields explicitly without assuming non-None values.
             result = _field(event_data, "result", str, "")
-            raw_func_name = event_data.get("func_name")
-            func_name = raw_func_name if isinstance(raw_func_name, str) and raw_func_name.strip() else "unknown"
+            func_name = _non_blank_name(event_data.get("func_name"))
             func_args_str = _field(event_data, "func_args_str", str, "")
             call_id = _field(event_data, "call_id", str, "")
             mutates_document = bool(event_data.get("mutates_document", False))

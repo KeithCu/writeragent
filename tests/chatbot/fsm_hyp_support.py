@@ -189,7 +189,7 @@ def send_handler_events(draw):
     if kind == "chunk":
         return StreamChunkEvent(chunk_text=draw(st.sampled_from(("x", ""))), is_thinking=draw(st.booleans()))
     if kind == "done":
-        return StreamDoneEvent(response=None)
+        return StreamDoneEvent()
     if kind == "start":
         return StartEvent(
             query_text=draw(st.sampled_from(("hi", ""))),

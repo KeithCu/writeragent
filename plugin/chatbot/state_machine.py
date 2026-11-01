@@ -2,7 +2,7 @@
 
 import dataclasses
 from dataclasses import dataclass
-from typing import List, Any, Optional, NamedTuple
+from typing import List, Any, NamedTuple
 
 from plugin.framework.errors import format_error_for_display
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, str_bounded, deal
@@ -24,9 +24,7 @@ class SendHandlerState(BaseState):
 class StartEvent(NamedTuple):
     query_text: str
     model: Any
-    doc_type_str: str
-    wav_path: Optional[str] = None
-    stt_model: Optional[str] = None
+    doc_type_str: str = ""
     mode: str = ""
 
 
@@ -36,7 +34,7 @@ class StreamChunkEvent(NamedTuple):
 
 
 class StreamDoneEvent(NamedTuple):
-    response: Any = None
+    pass
 
 
 class ErrorEvent(NamedTuple):
@@ -146,14 +144,12 @@ def stop_effects_exclude_spawns(effects: object) -> bool:
     lambda handler_type, err_msg: str_bounded(handler_type, DEAL_MAX_TOKEN)
     and str_bounded(err_msg, DEAL_MAX_SOURCE)
 )
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and type(result[0]) is str and type(result[1]) is str and result[0] == "Error" and result[1].endswith("\n"))
-def ui_lines_for_handler_error(handler_type: str, err_msg: str) -> tuple[str, str]:
-    """Status + append chat lines for a send-handler error (string message, not Exception)."""
+@deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
+def ui_lines_for_handler_error(handler_type: str, err_msg: str) -> str:
+    """Append chat line for a send-handler error (string message, not Exception)."""
     if handler_type == "web":
-        append = f"\n[Research Chat error: {err_msg}]\n"
-    else:
-        append = f"\n[Operation failed: {err_msg}]\n"
-    return "Error", append
+        return f"\n[Research Chat error: {err_msg}]\n"
+    return f"\n[Operation failed: {err_msg}]\n"
 
 
 @deal.pre(
@@ -203,8 +199,8 @@ def handle_error(state: SendHandlerState, event: ErrorEvent) -> FsmTransition[Se
     effects: List[SendHandlerEffect] = []
 
     err_msg = format_error_for_display(event.error)
-    status_text, append_text = ui_lines_for_handler_error(state.handler_type, err_msg)
-    effects.append(SendHandlerUIEffect("status", status_text))
+    append_text = ui_lines_for_handler_error(state.handler_type, err_msg)
+    effects.append(SendHandlerUIEffect("status", "Error"))
     effects.append(SendHandlerUIEffect("append", append_text))
     effects.append(CompleteJobEffect("Error"))
 
