@@ -185,23 +185,22 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
 
 def _find_marker(model: Any, search: Any) -> Any:
     found = model.findFirst(search)
-    if found is None and hasattr(model, "getTextTables"):
-        try:
-            tables = model.getTextTables()
-            for tbl_name in tables.getElementNames():
-                tbl = tables.getByName(tbl_name)
-                for cell_name in tbl.getCellNames():
-                    cell = tbl.getCellByName(cell_name)
-                    if hasattr(cell, "createSearchDescriptor"):
-                        cell_found = cell.findFirst(search)
-                        if cell_found is not None:
-                            found = cell_found
-                            break
-                if found is not None:
-                    break
-        except Exception as exc:
-            reraise_if_disposed(exc)
-    return found
+    if found is not None or not hasattr(model, "getTextTables"):
+        return found
+    try:
+        tables = model.getTextTables()
+        for tbl_name in tables.getElementNames():
+            tbl = tables.getByName(tbl_name)
+            for cell_name in tbl.getCellNames():
+                cell = tbl.getCellByName(cell_name)
+                if hasattr(cell, "createSearchDescriptor"):
+                    cell_found = cell.findFirst(search)
+                    if cell_found is not None:
+                        return cell_found
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return None
+    return None
 
 
 def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:

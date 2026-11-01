@@ -30,7 +30,6 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
     doc = ctx.doc
     text = doc.getText()
     cursor = text.createTextCursor()
-    config_svc = ctx.services.get("config")
 
     if target == "end":
         cursor.gotoEnd(False)
@@ -86,7 +85,7 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
         raise ValueError(f"Unknown target {target!r}; use end, selection, beginning, full_document or search.")
 
     search_string = str(old_content).strip() if old_content is not None else ""
-    search_string = plain_text_if_markup(search_string, ctx.ctx, config_svc)
+    search_string = plain_text_if_markup(search_string)
 
     search_string = search_mod.normalize_search_string_for_find(search_string)
     if not search_string:

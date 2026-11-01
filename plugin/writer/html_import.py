@@ -53,8 +53,9 @@ def _wrap_html_fragment(html_content: str, extra_css: str | None = None) -> str:
     """Wrap an HTML fragment in a full document structure for LO's filter."""
     if not html_content or not isinstance(html_content, str):
         return html_content
-    has_html = "<html" in html_content.lower() and "</html>" in html_content.lower()
-    has_body = "<body" in html_content.lower() and "</body>" in html_content.lower()
+    low = html_content.lower()
+    has_html = "<html" in low and "</html>" in low
+    has_body = "<body" in low and "</body>" in low
     if has_html and has_body:
         return html_content
     head = '<meta charset="UTF-8">'
@@ -98,7 +99,7 @@ def _ensure_html_linebreaks(content: str) -> str:
 
 
 
-def html_to_plain_text(html_string: str, ctx: Any = None, config_svc: Any = None) -> str:
+def html_to_plain_text(html_string: str) -> str:
     """Convert HTML to plain search text matching LibreOffice paragraph structure.
 
     Paragraphs, headings, list items, and table elements are separated by newlines;
@@ -135,21 +136,12 @@ def _parked_cursor(cursor: Any) -> Any:
 
 
 
-def _cursor_goto_document_end(model: Any, cursor: Any) -> None:
-    """Move *cursor* to the end of the document body (``model.getText()``)."""
-    end_c = model.getText().createTextCursor()
-    end_c.gotoEnd(False)
-    cursor.gotoRange(end_c.getStart(), False)
-
-
-
 def insert_html_fragment_at_cursor(
     cursor: Any,
     html_fragment: str,
     *,
     extra_css: str | None = None,
     wrap: bool = True,
-    config_svc: Any = None,
     model: Any = None,
 ) -> None:
     """Import a fragment via the StarWriter HTML filter at *cursor*.
@@ -187,16 +179,16 @@ def insert_html_fragment_at_cursor(
 
 
 
-def _insert_starwriter_html_at_cursor(model: Any, cursor: Any, prepared_html: str, config_svc: Any = None) -> None:
+def _insert_starwriter_html_at_cursor(model: Any, cursor: Any, prepared_html: str) -> None:
     """Import one HTML fragment through the StarWriter HTML filter at *cursor*."""
     insert_html_fragment_at_cursor(
-        cursor, prepared_html, wrap=False, config_svc=config_svc, model=model
+        cursor, prepared_html, wrap=False, model=model
     )
 
 
 
 def _insert_mixed_html_and_math_at_cursor(
-    model: Any, ctx: Any, cursor: Any, unescaped: str, config_svc: Any = None
+    model: Any, ctx: Any, cursor: Any, unescaped: str
 ) -> None:
     """Insert alternating HTML (via filter) and math (MathML or TeX) as formula objects."""
     _segs = segment_html_with_mixed_math(unescaped)
@@ -225,7 +217,7 @@ def _insert_mixed_html_and_math_at_cursor(
 
             sub = _ensure_html_linebreaks(chunk)
             seg_ruby_skip = html_ruby._ruby_skip(cursor.getText(), cursor, seg_ruby)
-            _insert_starwriter_html_at_cursor(model, cursor, sub, config_svc=config_svc)
+            _insert_starwriter_html_at_cursor(model, cursor, sub)
             if seg_ruby:
                 html_ruby._apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
             continue
@@ -286,7 +278,7 @@ def _insert_mixed_or_plain_html(
     ctx: Any,
     cursor: Any,
     unescaped_content: str,
-    config_svc: Any = None,
+    *,
     apply_styles: bool = True,
 ) -> None:
     """HTML import (optional MathML + TeX layer).
@@ -322,14 +314,14 @@ def _insert_mixed_or_plain_html(
     start_anchor = _insert_start_anchor(text_obj, cursor) if styled and not has_math else None
 
     if has_math:
-        _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean, config_svc=config_svc)
+        _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean)
     else:
         single = _ensure_html_linebreaks(clean)
         if not styled:
-            _insert_starwriter_html_at_cursor(model, cursor, single, config_svc=config_svc)
+            _insert_starwriter_html_at_cursor(model, cursor, single)
         else:
             # model=None: keep the cursor at the end of the inserted content.
-            insert_html_fragment_at_cursor(cursor, single, wrap=False, config_svc=config_svc, model=None)
+            insert_html_fragment_at_cursor(cursor, single, wrap=False, model=None)
 
     if styled:
         # Per-paragraph failures are already logged inside _apply_block_lo_styles.
@@ -340,7 +332,9 @@ def _insert_mixed_or_plain_html(
         else:
             start = _insert_start_from_anchor(text_obj, start_anchor, cursor)
         html_import_styles._apply_block_lo_styles(model, text_obj, start, block_styles, end=imported_end)
-        _cursor_goto_document_end(model, cursor)
+        end_c = model.getText().createTextCursor()
+        end_c.gotoEnd(False)
+        cursor.gotoRange(end_c.getStart(), False)
     if not has_math:
         html_ruby._apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
     if model is not None:
@@ -353,12 +347,12 @@ def insert_html_at_cursor(
     ctx: Any,
     cursor: Any,
     unescaped_content: str,
-    config_svc: Any = None,
+    *,
     apply_styles: bool = True,
 ) -> None:
     """Insert HTML or plain text at *cursor* (public API for tools)."""
     with image_placeholders._keep_placeholder_images(model, unescaped_content) as content:
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc, apply_styles=apply_styles)
+        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
 
@@ -458,14 +452,30 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
     return cursor
 
 
-def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, config_svc: Any = None) -> None:
+def _prep_field_ruby(html: str) -> tuple[str, list[Any], str]:
+    nonce = uuid.uuid4().hex[:8]
+    inline_html = field_restore.rewrite_exported_field_spans(html, nonce=nonce)
+    inline_html = inline_html.replace("\\n", "\n").replace("\\t", "\t")
+    inline_html, ruby_spans = html_ruby.extract_and_strip_ruby(inline_html)
+    return inline_html, ruby_spans, nonce
+
+
+def _apply_ruby_and_restore_fields(
+    model: Any, text_obj: Any, spans: list[Any], nonce: str, skip_chars: int = 0
+) -> None:
+    html_ruby._apply_ruby_spans(text_obj, spans, skip_chars=skip_chars)
+    if model is not None:
+        field_restore._restore_field_placeholders(model, text_obj, nonce=nonce)
+
+
+def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> None:
     """Insert inline *content* at a collapsed *cursor* (data-less images kept, see
     ``image_placeholders._keep_placeholder_images``)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        _insert_inline_at_cursor(model, ctx, cursor, swapped, config_svc)
+        _insert_inline_at_cursor(model, ctx, cursor, swapped)
 
 
-def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, config_svc: Any = None) -> None:
+def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> None:
     """Insert inline *content* at a collapsed *cursor* without splitting its paragraph.
 
     ``insert_html_at_cursor`` routes plain text through ``_ensure_html_linebreaks``, which
@@ -480,11 +490,7 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
     if not content_has_markup(content):
         cursor.getText().insertString(cursor, content, False)
         return
-    nonce = uuid.uuid4().hex[:8]
-    inline_html = field_restore.rewrite_exported_field_spans(content, nonce=nonce)
-    inline_html = inline_html.replace("\\n", "\n").replace("\\t", "\t")
-    # Same <rt> handling as the other import paths: StarWriter would glue the reading onto the base.
-    inline_html, ruby_spans = html_ruby.extract_and_strip_ruby(inline_html)
+    inline_html, ruby_spans, nonce = _prep_field_ruby(content)
     # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " lost
     # its trailing space and fused with the next word. Put edge whitespace in as text.
     core = inline_html.strip()
@@ -500,10 +506,8 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, co
         text.insertString(cursor, trail, False)
         cursor.goLeft(len(trail), False)
     if core:
-        insert_html_fragment_at_cursor(cursor, core, wrap=False, config_svc=config_svc, model=None)
-    html_ruby._apply_ruby_spans(text, ruby_spans, skip_chars=ruby_skip)
-    if model is not None:
-        field_restore._restore_field_placeholders(model, text, nonce=nonce)
+        insert_html_fragment_at_cursor(cursor, core, wrap=False, model=None)
+    _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
 
 
 # Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references with trailing semicolon.
@@ -517,15 +521,15 @@ def _decode_complete_character_references(text: str) -> str:
     return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
 
 
-def insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
+def insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        _insert_content_at_position(model, ctx, swapped, position, config_svc)
+        _insert_content_at_position(model, ctx, swapped, position)
 
 
-def _insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
+def _insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> None:
     content = _decode_complete_character_references(content)
 
     text = model.getText()
@@ -589,18 +593,17 @@ def _insert_content_at_position(model: Any, ctx: Any, content: str, position: st
 
     # beginning/end: honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
     # selection/search: still apply_styles=False — replace splits/merges into neighbor text (phase 3).
-    if position in ("beginning", "end"):
+    styled = position in ("beginning", "end")
+    if styled:
         cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc, apply_styles=True)
-    else:
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc, apply_styles=False)
+    _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
 
 
 
-def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None) -> None:
+def replace_full_document(model: Any, ctx: Any, content: str) -> None:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        _replace_full_document(model, ctx, swapped, config_svc)
+        _replace_full_document(model, ctx, swapped)
 
 
 def _deletion_author() -> Any:
@@ -613,7 +616,7 @@ def _deletion_author() -> Any:
         return contextlib.nullcontext()
 
 
-def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None) -> None:
+def _replace_full_document(model: Any, ctx: Any, content: str) -> None:
     content = _decode_complete_character_references(content)
 
     text = model.getText()
@@ -624,7 +627,7 @@ def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any =
         cursor.setString("")
     cursor.gotoStart(False)
     if not image_placeholders._is_recording_changes(model):
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
+        _insert_mixed_or_plain_html(model, ctx, cursor, content)
         return
     # In review mode the deleted text stays in place, and an import at
     # its start takes the character formatting of the first old
@@ -638,7 +641,7 @@ def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any =
     text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
     cursor.goLeft(1, False)
     leftover = text.createTextCursorByRange(cursor.getStart())
-    _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
+    _insert_mixed_or_plain_html(model, ctx, cursor, content)
     leftover.gotoEndOfParagraph(True)
     if leftover.getString() == "":
         leftover.collapseToStart()
@@ -657,15 +660,15 @@ def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any =
 
 
 def replace_single_range_with_content(
-    model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None
+    model: Any, text_range: Any, content: str, ctx: Any
 ) -> None:
     """Replace the given text range with rendered *content* (HTML path)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        _replace_single_range_with_content(model, text_range, swapped, ctx, config_svc)
+        _replace_single_range_with_content(model, text_range, swapped, ctx)
 
 
 def _replace_single_range_with_content(
-    model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None
+    model: Any, text_range: Any, content: str, ctx: Any
 ) -> None:
     prepared = _decode_complete_character_references(content)
     text_obj = text_range.getText()
@@ -700,15 +703,10 @@ def _replace_single_range_with_content(
         # it does not recognise <span> as HTML and would wrap it in <p>, creating an
         # extra body paragraph). model=None leaves the cursor at the end of the
         # INSERTED content (not the document end), so [anchor, cursor] bounds it.
-        nonce = uuid.uuid4().hex[:8]
-        inline_html = field_restore.rewrite_exported_field_spans(prepared, nonce=nonce)
-        inline_html = inline_html.replace("\\n", "\n").replace("\\t", "\t")
-        inline_html, ruby_spans = html_ruby.extract_and_strip_ruby(inline_html)
+        inline_html, ruby_spans, nonce = _prep_field_ruby(prepared)
         ruby_skip = html_ruby._ruby_skip(text_obj, anchor, ruby_spans)
-        insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, config_svc=config_svc, model=None)
-        html_ruby._apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
-        if model is not None:
-            field_restore._restore_field_placeholders(model, text_obj, nonce=nonce)
+        insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, model=None)
+        _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
         # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
         # Skip it while Track Changes is recording: setString("") above leaves the old text in
         # place as a tracked DELETE, and re-applying a paragraph style across [anchor, cursor]
@@ -726,7 +724,7 @@ def _replace_single_range_with_content(
         # apply_styles=False: a search/replace splits the matched paragraph, so applying a
         # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
         try:
-            _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc, apply_styles=False)
+            _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False)
         except Exception as e:
             reraise_if_disposed(e)
             # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
@@ -743,24 +741,6 @@ def _replace_single_range_with_content(
 
 
 
-def _restore_xtext_string(text_obj: Any, original: str) -> None:
-    """Write *original* back into *text_obj* after a failed import.
-
-    ``replace_xtext_with_html`` clears the header or footer before
-    StarWriter import. A failed ``insertDocumentFromURL`` leaves the
-    region empty unless the previous characters are put back. Direct
-    formatting and live fields are not reconstructed; the region is
-    not left blank.
-    """
-    try:
-        cur = text_obj.createTextCursor()
-        cur.gotoStart(False)
-        cur.gotoEnd(True)
-        cur.setString(original)
-    except Exception:
-        log.exception("replace_xtext_with_html: could not restore text after a failed import")
-
-
 def _rollback_undo_action(mgr: Any, title: str | None, log_message: str) -> bool:
     try:
         titles = mgr.getAllUndoActionTitles()
@@ -772,7 +752,7 @@ def _rollback_undo_action(mgr: Any, title: str | None, log_message: str) -> bool
     return False
 
 
-def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> None:
+def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any = None) -> None:
     """Clear *text_obj* and import *html* via the shared StarWriter path.
 
     Field spans from ``document_to_content`` / ``xtext_to_content`` are
@@ -814,9 +794,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
         if mgr is None:
             raise ToolExecutionError("Could not enter undo context for header/footer import.")
 
-    original = None
-    if mgr is None:
-        original = uno_read(lambda: cursor.getString(), None)
+    original = uno_read(lambda: cursor.getString(), None) if model is None else None
 
     cleared = False
     try:
@@ -824,11 +802,9 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
         cleared = True
         cursor.gotoStart(False)
         insert_html_fragment_at_cursor(
-            cursor, prepared, wrap=False, config_svc=config_svc, model=None,
+            cursor, prepared, wrap=False, model=None,
         )
-        html_ruby._apply_ruby_spans(text_obj, ruby_spans)
-        if model is not None:
-            field_restore._restore_field_placeholders(model, text_obj, nonce=nonce)
+        _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
 
         # Issue #1424: HTML import can leave a trailing empty paragraph.
         # If there is more than one paragraph and the last one is entirely empty, remove it.
@@ -869,22 +845,26 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
             log.debug("Failed to inspect trailing paragraph: %s", e)
     except Exception as exc:
         if mgr is not None:
-            left = False
-            undone = False
             try:
                 mgr.leaveUndoContext()
-                left = True
             except Exception:
                 log.exception("replace_xtext_with_html: leaveUndoContext failed")
-            if left:
-                undone = _rollback_undo_action(mgr, title, "replace_xtext_with_html: undo failed")
-            if not undone:
+                raise ToolExecutionError(
+                    f"the header/footer was written and could not be rolled back: {exc}"
+                ) from exc
+            if not _rollback_undo_action(mgr, title, "replace_xtext_with_html: undo failed"):
                 raise ToolExecutionError(
                     f"the header/footer was written and could not be rolled back: {exc}"
                 ) from exc
             raise
         if cleared and original is not None:
-            _restore_xtext_string(text_obj, original)
+            try:
+                cur = text_obj.createTextCursor()
+                cur.gotoStart(False)
+                cur.gotoEnd(True)
+                cur.setString(original)
+            except Exception:
+                log.exception("replace_xtext_with_html: could not restore text after a failed import")
         raise
 
     if mgr is not None:
@@ -905,10 +885,10 @@ def content_has_markup(content: str | None) -> bool:
     return "$$" in content or r"\(" in content or r"\[" in content or "<math" in content.lower()
 
 
-def plain_text_if_markup(text: str, uno_ctx: Any, config_svc: Any) -> str:
+def plain_text_if_markup(text: str) -> str:
     """Return plain search text if text contains markup, else text unchanged."""
     if content_has_markup(text):
-        return html_to_plain_text(text, uno_ctx, config_svc)
+        return html_to_plain_text(text)
     return text
 
 
@@ -919,6 +899,16 @@ def _content_has_block_markup(content: str | None) -> bool:
         return False
     return bool(_BLOCK_MARKUP_RE.search(content))
 
+
+
+def _portion_kind_len(elem: Any) -> tuple[str, int] | None:
+    kind = getattr(elem, "TextPortionType", None)
+    if kind is None and hasattr(elem, "getPropertyValue"):
+        kind = elem.getPropertyValue("TextPortionType")
+    if kind and kind not in ("Text", "SoftPageBreak"):
+        return None
+    text_str = elem.getString() if hasattr(elem, "getString") else ""
+    return (kind or "Text", len(text_str))
 
 
 def _collect_range_portions(target_range: Any) -> tuple[bool, list[tuple[str, int]] | None]:
@@ -935,26 +925,22 @@ def _collect_range_portions(target_range: Any) -> tuple[bool, list[tuple[str, in
             if hasattr(elem, "createEnumeration"):
                 penum = elem.createEnumeration()
                 while penum.hasMoreElements() is True:
-                    portion = penum.nextElement()
-                    kind = getattr(portion, "TextPortionType", None)
-                    if kind is None and hasattr(portion, "getPropertyValue"):
-                        kind = portion.getPropertyValue("TextPortionType")
-                    if kind and kind not in ("Text", "SoftPageBreak"):
+                    p = _portion_kind_len(penum.nextElement())
+                    if p is None:
                         return True, None
-                    text_str = portion.getString() if hasattr(portion, "getString") else ""
-                    portions.append((kind or "Text", len(text_str)))
+                    portions.append(p)
             else:
-                kind = getattr(elem, "TextPortionType", None)
-                if kind is None and hasattr(elem, "getPropertyValue"):
-                    kind = elem.getPropertyValue("TextPortionType")
-                if kind and kind not in ("Text", "SoftPageBreak"):
+                p = _portion_kind_len(elem)
+                if p is None:
                     return True, None
-                text_str = elem.getString() if hasattr(elem, "getString") else ""
-                portions.append((kind or "Text", len(text_str)))
+                portions.append(p)
         return False, portions
     except Exception as exc:
         reraise_if_disposed(exc)
         return False, None
+
+
+_ADVANCE_FAILED_MSG = "Could not replace that text in place (the selection did not advance)."
 
 
 def _step_replace_characters(
@@ -963,9 +949,7 @@ def _step_replace_characters(
     for i in range(start, stop):
         sel = text.createTextCursorByRange(main_cursor)
         if not sel.goRight(1, True):
-            raise ToolExecutionError(
-                "Could not replace that text in place (the selection did not advance)."
-            )
+            raise ToolExecutionError(_ADVANCE_FAILED_MSG)
         if new_text[i] != old_text[i]:
             sel.setString(new_text[i])
         main_cursor.gotoRange(sel.getEnd(), False)
@@ -1052,8 +1036,6 @@ def replace_preserving_format(
     old_len = len(old_text)
     new_len = len(new_text)
 
-    if old_len == 0 and new_len == 0:
-        return
     if old_len == 0:
         cursor = text.createTextCursorByRange(target_range.getStart())
         text.insertString(cursor, new_text, False)
@@ -1090,9 +1072,7 @@ def replace_preserving_format(
 
             if old_slice == new_slice:
                 if not go_right(main_cursor, slice_len, False):
-                    raise ToolExecutionError(
-                        "Could not replace that text in place (the selection did not advance)."
-                    )
+                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
                 continue
 
             p = 0
@@ -1100,9 +1080,7 @@ def replace_preserving_format(
                 p += 1
             if p > 0:
                 if not go_right(main_cursor, p, False):
-                    raise ToolExecutionError(
-                        "Could not replace that text in place (the selection did not advance)."
-                    )
+                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
 
             s = 0
             max_s = slice_len - p
@@ -1113,17 +1091,13 @@ def replace_preserving_format(
             if diff_len > 0:
                 sel = text.createTextCursorByRange(main_cursor)
                 if not go_right(sel, diff_len, True):
-                    raise ToolExecutionError(
-                        "Could not replace that text in place (the selection did not advance)."
-                    )
+                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
                 sel.setString(new_slice[p : slice_len - s])
                 main_cursor.gotoRange(sel.getEnd(), False)
 
             if s > 0:
                 if not go_right(main_cursor, s, False):
-                    raise ToolExecutionError(
-                        "Could not replace that text in place (the selection did not advance)."
-                    )
+                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
 
         if offset < overlap:
             _step_replace_characters(text, main_cursor, old_text, new_text, offset, overlap)
@@ -1136,15 +1110,11 @@ def replace_preserving_format(
                     i += 1
                 k = i - run_start
                 if not go_right(main_cursor, k, False):
-                    raise ToolExecutionError(
-                        "Could not replace that text in place (the selection did not advance)."
-                    )
+                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
             else:
                 sel = text.createTextCursorByRange(main_cursor)
                 if not sel.goRight(1, True):
-                    raise ToolExecutionError(
-                        "Could not replace that text in place (the selection did not advance)."
-                    )
+                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
                 sel.setString(new_text[i])
                 main_cursor.gotoRange(sel.getEnd(), False)
                 i += 1
@@ -1158,9 +1128,7 @@ def replace_preserving_format(
         # so a stop must fail loudly instead of silently under-deleting.
         del_cursor = text.createTextCursorByRange(main_cursor)
         if not go_right(del_cursor, old_len - new_len, True):
-            raise ToolExecutionError(
-                "Could not replace that text in place (the selection did not advance)."
-            )
+            raise ToolExecutionError(_ADVANCE_FAILED_MSG)
         del_cursor.setString("")
 
 

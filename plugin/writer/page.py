@@ -1107,15 +1107,8 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             if not text_obj:
                 raise RuntimeError(f"Could not retrieve text object for {region} on style '{style_name}'.")
 
-            config_svc = None
-            services = getattr(ctx, "services", None)
-            if services is not None:
-                try:
-                    config_svc = services.get("config")
-                except Exception:
-                    config_svc = None
             replace_xtext_with_html(
-                text_obj, content, config_svc=config_svc, model=ctx.doc,
+                text_obj, content, model=ctx.doc,
             )
             result: dict[str, Any] = {
                 "status": "ok",

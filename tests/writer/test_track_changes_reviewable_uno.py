@@ -156,7 +156,7 @@ def test_search_replace_inline_markup_no_format_redline_uno(ctx, doc):
     _reset(doc, ctx, "This clause is important.")
     with _recording(doc):
         fmt.replace_single_range_with_content(
-            doc, _para_range(doc), "<span>This clause is critically important.</span>", ctx, None)
+            doc, _para_range(doc), "<span>This clause is critically important.</span>", ctx)
     rl = _redline_types(doc)
     assert "Format" not in rl, "inline replace must not leave a Format redline (it keeps old text on accept), got %r" % rl
     assert "Delete" in rl and "Insert" in rl, "inline replace must be a clean Delete+Insert, got %r" % rl
@@ -173,7 +173,7 @@ def test_search_replace_inline_markup_heading_style_preserved_uno(ctx, doc):
     _para_range(doc).setPropertyValue("ParaStyleName", "Heading 3")
     with _recording(doc):
         fmt.replace_single_range_with_content(
-            doc, _para_range(doc), "<span>Powertrain selection</span>", ctx, None)
+            doc, _para_range(doc), "<span>Powertrain selection</span>", ctx)
     _accept_all(doc, ctx)
     assert _para_text(doc) == "Powertrain selection", "accept must keep only the new heading text, got %r" % _para_text(doc)
     assert _para_range(doc).getPropertyValue("ParaStyleName") == "Heading 3", \
