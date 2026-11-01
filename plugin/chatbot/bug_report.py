@@ -46,8 +46,6 @@ _TRUNCATED = "[truncated]"
 
 def _redact_endpoint(endpoint: str) -> str:
     """Drop userinfo, query and fragment (they can carry credentials) before publishing."""
-    if not endpoint:
-        return ""
     try:
         parts = urlsplit(endpoint)
     except ValueError:
@@ -57,9 +55,6 @@ def _redact_endpoint(endpoint: str) -> str:
 
 def _get_lo_product_info(ctx: Any) -> dict[str, str]:
     """Read LibreOffice version strings from setup configuration."""
-    if not ctx:
-        return {}
-
     def _read() -> dict[str, str]:
         import uno
 
