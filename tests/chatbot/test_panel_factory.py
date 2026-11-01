@@ -98,7 +98,6 @@ def _thin_panel_element():
     el.doc_session = None
     el.web_session = None
     el.librarian_session = None
-    el._panel_resize_listener = None
     el._rich_control_listener = None
     el.xFrame = None
     el._last_mode_labels = None
@@ -704,8 +703,10 @@ def test_chat_mode_listener_ignores_refresh():
     selector.getSelectedItemPos.return_value = 0
     selector.getText.return_value = "Chat"
     selector.addItemListener = MagicMock()
+    send = MagicMock()
+    send.sidebar_state.send.is_busy = False
     flags = SidebarModeFlags()
-    el._wire_chat_mode_listener(selector, MagicMock(), None, None, None, lambda _mode: None, flags)
+    el._wire_chat_mode_listener(selector, MagicMock(), None, send, None, lambda _mode: None, flags)
     listener = selector.addItemListener.call_args[0][0]
     listener.on_item_state_changed(None)
     el._apply_sidebar_mode.assert_not_called()
@@ -747,7 +748,7 @@ def test_render_session_history_logs_greeting_argument() -> None:
     response.getModel.side_effect = RuntimeError("render boom")
 
     with patch("plugin.chatbot.panel_factory.log") as factory_log:
-        el._render_session_history(MagicMock(), response, MagicMock(), greeting="Hello there")
+        el._render_session_history(MagicMock(), response, greeting="Hello there")
 
     factory_log.exception.assert_called_once_with("_render_session_history failed [greeting=%s]", "Hello there")
 
@@ -1043,7 +1044,7 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
         patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
     ):
-        mode_flags = el._sidebar_mode_flags(MagicMock())
+        mode_flags = el._sidebar_mode_flags()
         el._wire_buttons(controls, MagicMock(), "chat", mode_flags, MagicMock())
 
     send.addActionListener.assert_called_once_with(sentinel)

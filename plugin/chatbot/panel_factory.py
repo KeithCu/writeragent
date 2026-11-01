@@ -52,14 +52,6 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
 ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
-# Recording shipped unless built with --no-recording (see scripts/build_oxt.py).
-try:
-    from plugin.chatbot.audio_recorder import AudioRecorder  # noqa: F401  # pyright: ignore[reportUnusedImport]
-
-    HAS_RECORDING = True
-except ImportError:
-    HAS_RECORDING = False
-
 from plugin.framework.logging import start_watchdog_thread, init_logging
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled
 from plugin.framework.queue_executor import run_on_main
@@ -73,8 +65,7 @@ _LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
 
 def register_debug_live_panel(element: Any) -> None:
     """debug-only: omitted in release. Track a wired ChatPanelElement for mock-LLM tests."""
-    if element is not None:
-        _LIVE_CHAT_PANELS.add(element)
+    _LIVE_CHAT_PANELS.add(element)
 
 
 def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control: Any) -> None:
@@ -105,8 +96,7 @@ def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control
 
 def unregister_debug_live_panel(element: Any) -> None:
     """debug-only: omitted in release."""
-    if element is not None:
-        _LIVE_CHAT_PANELS.discard(element)
+    _LIVE_CHAT_PANELS.discard(element)
 
 
 def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
@@ -259,9 +249,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         stick (Keith: parent 992 while deck_hint 806). Sync width-only.
         """
         width = nWidth
-        if not self.parent_window or not self.PanelWindow or width <= 0:
-            return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
-        if self._in_hfw:
+        if not self.parent_window or not self.PanelWindow or width <= 0 or self._in_hfw:
             return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
         self._in_hfw = True
         try:
@@ -395,7 +383,7 @@ class _SelectorItemSyncListener(BaseItemListener):
         self._sync_fn = sync_fn
 
     def on_item_state_changed(self, rEvent: Any) -> None:
-        if not getattr(self.panel, "_in_refresh_controls", False):
+        if not self.panel._in_refresh_controls:
             self._sync_fn()
 
 
@@ -408,7 +396,7 @@ class _SelectorTextSyncListener(BaseTextListener):
         self._sync_fn = sync_fn
 
     def on_text_changed(self, rEvent: Any) -> None:
-        if not getattr(self.panel, "_in_refresh_controls", False):
+        if not self.panel._in_refresh_controls:
             self._sync_fn()
 
 
@@ -446,7 +434,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     _live_panel_uid: str
     frame_session: Any
     _frame_close_hook: Callable[[], None] | None
-    _panel_resize_listener: Any
     _rich_control_listener: Any
     _last_mode_labels: tuple[str, ...] | None
     _doc_type_label: str
@@ -468,7 +455,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.web_session = None
         self.librarian_session = None
         self.send_listener = None
-        self._panel_resize_listener = None
         self._rich_control_listener = None
         self._last_mode_labels = None
         self._released = False
@@ -588,9 +574,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             target_h = current_rect.Height if current_rect.Height > 0 else (
                 parent_rect.Height if parent_rect.Height > 0 else 400
             )
-            if target_w > 0 and target_h > 0:
-                self.m_panelRootWindow.setPosSize(0, 0, target_w, target_h, 15)
-                log.debug("panel pre-negotiation constrained to W=%s H=%s" % (target_w, target_h))
+            self.m_panelRootWindow.setPosSize(0, 0, target_w, target_h, 15)
+            log.debug("panel pre-negotiation constrained to W=%s H=%s" % (target_w, target_h))
         return self.m_panelRootWindow
 
     def disposing(self, Source: Any = None) -> None:
@@ -622,14 +607,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 root.removeWindowListener(rl)
             if tp:
                 tp.resize_listener = None
-            rich_l = getattr(self, "_rich_control_listener", None)
+            rich_l = self._rich_control_listener
             if rich_l and root and hasattr(root, "removeWindowListener"):
                 root.removeWindowListener(rich_l)
             self._rich_control_listener = None
 
         self.rich_text_widget = None
 
-    def _render_session_history(self, session: Any, response_ctrl: Any, model: Any, greeting: str = "") -> None:
+    def _render_session_history(self, session: Any, response_ctrl: Any, greeting: str = "") -> None:
         """Update the response control with the contents of the given session."""
         try:
             if self.rich_text_widget:
@@ -728,15 +713,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     # bails out while _in_refresh_controls is set; both are required
                     # because a guarded listener still leaves the combo on Chat.
                     prior_mode = mode_from_selector_with_flags(chat_mode_selector, flags)
-                    last_labels = getattr(self, "_last_mode_labels", None)
-                    if labels != last_labels:
+                    if labels != self._last_mode_labels:
                         populate_mode_selector_with_flags(chat_mode_selector, flags)
                         set_selector_mode_with_flags(chat_mode_selector, prior_mode, flags)
                         self._last_mode_labels = labels
-                    else:
-                        current_mode = mode_from_selector_with_flags(chat_mode_selector, flags)
-                        if current_mode != prior_mode:
-                            set_selector_mode_with_flags(chat_mode_selector, prior_mode, flags)
             # Keep sidebar Voice checkbox in sync with Settings → Speech (audio.tts_enabled).
             # Settings apply emits config:changed; without this, chk_voice stays at wire-time state.
             chk_voice = get_optional("chk_voice")
@@ -867,7 +847,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 lambda: sync_sidebar_reasoning_effort(effort_selector),
             )
 
-    def _sidebar_mode_flags(self, model: Any) -> SidebarModeFlags:
+    def _sidebar_mode_flags(self) -> SidebarModeFlags:
         from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type
 
         return sidebar_mode_flags_for_doc_type(self._doc_type_label)
@@ -881,7 +861,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         model_label: Any,
         model_selector: Any,
         image_model_selector: Any,
-        model: Any,
         toggle_image_ui: Callable[[bool], None],
     ) -> tuple[str, SidebarModeFlags]:
         """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, mode_flags)."""
@@ -936,7 +915,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                 aspect_ratio_selector.addItemListener(AspectListener())
 
-        mode_flags = self._sidebar_mode_flags(model)
+        mode_flags = self._sidebar_mode_flags()
         initial_mode = librarian_default_mode(self.ctx)
 
         if chat_mode_selector:
@@ -965,17 +944,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             greeting_for_sidebar_mode,
         )
 
-        if send_listener is not None:
-            from plugin.chatbot.tool_loop_actions import abort_turn
+        from plugin.chatbot.tool_loop_actions import abort_turn
 
-            # The in-flight turn keeps the session it started with. Later
-            # chunks must not paint onto the transcript this switch shows.
-            abort_turn(send_listener)
-        if mode != CHAT_MODE_BRAINSTORMING and send_listener:
+        # The in-flight turn keeps the session it started with. Later
+        # chunks must not paint onto the transcript this switch shows.
+        abort_turn(send_listener)
+        if mode != CHAT_MODE_BRAINSTORMING:
             clear_brainstorming_session(send_listener)
-        if mode != CHAT_MODE_PPT_MASTER and send_listener:
+        if mode != CHAT_MODE_PPT_MASTER:
             clear_ppt_master_session(send_listener)
-        if mode != CHAT_MODE_LIBRARIAN and send_listener:
+        if mode != CHAT_MODE_LIBRARIAN:
             # Flag only — librarian ChatSession history is global and must survive mode switches.
             clear_librarian_session(send_listener)
         self._current_mode = mode
@@ -992,12 +970,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 best_effort(lambda: session.refresh_document_context(model, self.ctx), "refresh_document_context failed")
         toggle_image_ui(is_image_mode(mode))
         greeting = greeting_for_sidebar_mode(mode, model)
-        if send_listener:
-            send_listener.set_session(self.session)
+        send_listener.set_session(self.session)
         if clear_listener:
             clear_listener.set_session(self.session, greeting=greeting)
         if response_ctrl:
-            self._render_session_history(self.session, response_ctrl, model, greeting)
+            self._render_session_history(self.session, response_ctrl, greeting)
 
     def _wire_chat_mode_listener(self, chat_mode_selector: Any, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, toggle_image_ui: Any, mode_flags: Any) -> None:
         from plugin.chatbot.chat_sidebar_mode import mode_from_selector_with_flags
@@ -1007,23 +984,20 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         # Librarian switch_to_document_mode must apply Chat even if ComboBox
         # selectItemPos does not fire the item listener (UNO is inconsistent).
-        if send_listener is not None:
-            send_listener._apply_sidebar_mode_fn = apply_mode
+        send_listener._apply_sidebar_mode_fn = apply_mode
 
         if not chat_mode_selector or not hasattr(chat_mode_selector, "addItemListener"):
             return
 
         class ChatModeListener(BaseItemListener):
             panel: Any
-            ctx: Any
             selector: Any
             mode_flags: Any
             apply_target: Any
             _in_revert: bool
 
-            def __init__(self, panel: Any, ctx: Any, selector: Any, flags: Any, apply_target: Any) -> None:
+            def __init__(self, panel: Any, selector: Any, flags: Any, apply_target: Any) -> None:
                 self.panel = panel
-                self.ctx = ctx
                 self.selector = selector
                 self.mode_flags = flags
                 self.apply_target = apply_target
@@ -1035,14 +1009,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # Settings refresh rebuilds this combo. Model/image listeners
                 # already ignore that; without the same guard, removeItems
                 # applies Chat and paint_session clears the transcript.
-                if getattr(self.panel, "_in_refresh_controls", False):
+                if self.panel._in_refresh_controls:
                     return
                 # A click during processEventsToIdle used to swap host.session
                 # and write [DOCUMENT CONTENT] onto the other chat. Librarian
                 # handoff calls apply_mode directly while the send is busy;
                 # only this combo listener is ignored.
-                send_state = getattr(getattr(send_listener, "sidebar_state", None), "send", None)
-                if send_state is not None and send_state.is_busy:
+                if send_listener.sidebar_state.send.is_busy:
                     # Revert the selector to the applied mode under a
                     # re-entrancy guard. The combobox has already updated, so
                     # returning here leaves the dropdown on the new mode while
@@ -1060,7 +1033,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 mode = mode_from_selector_with_flags(self.selector, self.mode_flags)
                 self.apply_target(mode)
 
-        chat_mode_selector.addItemListener(ChatModeListener(self, self.ctx, chat_mode_selector, mode_flags, apply_mode))
+        chat_mode_selector.addItemListener(ChatModeListener(self, chat_mode_selector, mode_flags, apply_mode))
 
     def _setup_sessions(self, model: Any, extra_instructions: Any) -> None:
         """Creates the document and web research chat sessions."""
@@ -1081,7 +1054,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         plan = plan_session_id(stored_id, stored_url, url, str(uuid.uuid4()))
         session_id = str(stored_id) if stored_id else ""
-        fork_failed = False
 
         if plan.fork_from is not None:
             old_session_id = plan.fork_from
@@ -1096,15 +1068,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     set_document_property(model, "WriterAgentSessionID", fork_to)
                 # Id write succeeded, or there is no model to stamp.
                 # Memory matches the document from here on. A URL write
-                # failure leaves fork_failed set so the stamp below does
-                # not run; the next open hits fork_to == session_id and
-                # writes WriterAgentSessionURL. A failure before this
-                # line keeps the old id and retries the fork.
+                # failure is an exception inside this try: the new id is
+                # already assigned and URL write does not finish; the next
+                # open hits fork_to == session_id and writes
+                # WriterAgentSessionURL. A failure before this line keeps
+                # the old id and retries the fork.
                 session_id = fork_to
                 if model and url:
                     set_document_property(model, "WriterAgentSessionURL", url)
             except Exception:
-                fork_failed = True
                 log.exception("Failed to copy chat history from %s to %s", old_session_id, fork_to)
         elif not session_id:
             session_id = plan.session_id
@@ -1112,7 +1084,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_document_property(model, "WriterAgentSessionID", session_id)
                 if plan.stamp_url and url:
                     set_document_property(model, "WriterAgentSessionURL", url)
-        elif plan.stamp_url and not fork_failed:
+        elif plan.stamp_url:
             if model and url:
                 set_document_property(model, "WriterAgentSessionURL", url)
 
@@ -1142,7 +1114,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             attach_record_mouse_listener,
             attach_stop_mouse_listener,
         )
-        from plugin.framework.uno_context import get_extension_url
 
         ext_url = get_extension_url(self.ctx)
 
@@ -1248,7 +1219,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if session is not None:
                 if uid and not session.doc_uid:
                     session.doc_uid = uid
-                session.bind_panel(self)
                 send_listener.frame_session = session
                 _bind_close_hook(session, self, send_listener, controls.get("query"))
 
@@ -1264,8 +1234,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         try:
             start_watchdog_thread(self.ctx, controls.get("status"))
-            if send_listener is not None:
-                send_listener._set_button_states(send_enabled=True, stop_enabled=False)
+            send_listener._set_button_states(send_enabled=True, stop_enabled=False)
             # Stop Rec (send) and Stop (leave hands-free / cancel) look alike;
             # tooltips explain them without longer labels at 1x.
             for btn_id, tip in (
@@ -1286,13 +1255,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if controls["clear"]:
             clear_listener = ClearButtonListener(self.session, controls["response"], controls["status"], greeting=active_greeting, send_listener=send_listener)
             controls["clear"].addActionListener(clear_listener)
-            if send_listener is not None:
-                send_listener.clear_listener = clear_listener
+            send_listener.clear_listener = clear_listener
 
         if controls.get("chk_voice"):
             chk_ctrl = controls["chk_voice"]
             from plugin.framework.config import get_config_bool_safe, set_config
-            from plugin.framework.uno_listeners import BaseItemListener
 
             is_voice = get_config_bool_safe("audio.tts_enabled")
             if hasattr(chk_ctrl, "setState"):
@@ -1309,7 +1276,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 def on_item_state_changed(self, rEvent: Any) -> None:
                     # Programmatic setState during _refresh_controls_from_config must not
                     # re-enter set_config → config:changed → refresh (UNO fires listeners).
-                    if getattr(self.panel, "_in_refresh_controls", False):
+                    if self.panel._in_refresh_controls:
                         return
                     # Prefer the control state: ItemEvent.Selected is not always set on
                     # programmatic setState, which would wrongly persist False.

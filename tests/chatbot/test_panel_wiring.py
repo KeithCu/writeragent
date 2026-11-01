@@ -24,7 +24,7 @@ def test_install_thread_violation_propagates() -> None:
     session.install.side_effect = RuntimeError("UNO thread violation: addFocusListener")
     query = object()
     with pytest.raises(RuntimeError, match="UNO thread violation"):
-        _install_frame_session_listeners(session, query, ())
+        _install_frame_session_listeners(session, {"query": query})
     session.set_focus_pin.assert_called_once_with(query)
 
 
@@ -37,8 +37,10 @@ def test_install_other_errors_stay_a_debug_log(caplog: pytest.LogCaptureFixture)
     skip_if_release_build("log.debug stripped in release bundle")
     session = MagicMock()
     session.install.side_effect = RuntimeError("focus attach failed")
+    query = object()
     with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.panel_wiring"):
-        _install_frame_session_listeners(session, object(), ())
+        _install_frame_session_listeners(session, {"query": query})
+    session.set_focus_pin.assert_called_once_with(query)
     assert any("frame session focus install" in record.message for record in caplog.records)
 
 
@@ -84,7 +86,6 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
         toolpanel = None
         m_panelRootWindow = None
         xParentWindow = None
-        _panel_resize_listener = None
         _rich_control_listener = None
 
         def _get_document_model(self) -> object:
@@ -171,7 +172,6 @@ def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
         toolpanel = None
         m_panelRootWindow = None
         xParentWindow = None
-        _panel_resize_listener = None
         _rich_control_listener = None
 
         def _get_document_model(self) -> object:
