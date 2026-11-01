@@ -30,9 +30,6 @@ import os
 import tempfile
 from typing import Any, cast
 
-import uno
-from com.sun.star.beans import PropertyValue
-
 from plugin.doc import visual_helpers
 
 log = logging.getLogger(__name__)
@@ -149,12 +146,17 @@ def mark_rectangles(marks: list[tuple[Box, str, int]], region: Box, stroke: int)
     return out
 
 
+# uno / PropertyValue imports in this module stay function-local (lazy) so tests that swap
+# sys.modules["uno"] / the LibrePy import graph are not left with a stale module-level binding.
 def _pv(name: str, value: Any) -> Any:
+    from com.sun.star.beans import PropertyValue
+
     return PropertyValue(Name=name, Value=value)
 
 
 def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]], stroke: int) -> Any:
     """Return a new XGraphic: *graphic* cut to *region* (pixels) with *marks* drawn on it."""
+    import uno
     from com.sun.star.awt import Point, Size
     from com.sun.star.drawing.FillStyle import NONE as FILL_NONE
     from com.sun.star.drawing.LineStyle import NONE as LINE_NONE
@@ -246,6 +248,8 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
 
 
 def _load(provider: Any, path: str) -> Any:
+    import uno
+
     graphic = provider.queryGraphic((_pv("URL", uno.systemPathToFileUrl(path)),))
     if graphic is None:
         raise RuntimeError("LibreOffice could not read back the marked picture.")
@@ -253,6 +257,8 @@ def _load(provider: Any, path: str) -> Any:
 
 
 def _store(provider: Any, graphic: Any, path: str, mime: str) -> None:
+    import uno
+
     provider.storeGraphic(graphic, (_pv("URL", uno.systemPathToFileUrl(path)), _pv("MimeType", mime)))
 
 
