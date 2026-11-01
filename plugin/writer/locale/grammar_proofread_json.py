@@ -62,13 +62,6 @@ def _parse_errors(raw: list[Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _errors_of(mapping: Mapping[str, Any]) -> list[dict[str, Any]]:
-    raw = mapping.get("errors")
-    if not isinstance(raw, list):
-        return []
-    return _parse_errors(raw)
-
-
 def _detected_language(mapping: Mapping[str, Any]) -> str | None:
     lang = mapping.get("detected_language_bcp47")
     if not isinstance(lang, str):
@@ -109,7 +102,8 @@ def parse_grammar_batch_json(content: str) -> list[list[dict[str, Any]]]:
     out: list[list[dict[str, Any]]] = []
     for res in results:
         mapped = _as_mapping(res)
-        out.append([] if mapped is None else _errors_of(mapped))
+        raw = mapped.get("errors") if mapped is not None else None
+        out.append(_parse_errors(raw) if isinstance(raw, list) else [])
     return out
 
 

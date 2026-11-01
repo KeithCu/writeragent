@@ -1223,14 +1223,16 @@ def test_try_harper_fast_path_emits_status_when_ready() -> None:
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
-        assert pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined, checker_identity="harper") is True
+        pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined, checker_identity="harper")
     phases = [c.args[0] for c in mock_status.call_args_list]
     assert phases == ["start", "request", "done"]
     assert mock_status.call_args_list[0].kwargs.get("result") == "Harper"
     assert mock_status.call_args_list[-1].kwargs.get("result") == "0 issues"
 
 
-def test_try_harper_fast_path_emits_starting_when_ensure() -> None:
+def test_try_harper_fast_path_emits_starting_when_ensure(
+    mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+) -> None:
     from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
 
     ctx = MagicMock()
@@ -1245,11 +1247,19 @@ def test_try_harper_fast_path_emits_starting_when_ensure() -> None:
         patch("plugin.writer.locale.harper.harper_try_lint", return_value=None),
         patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status") as mock_status,
     ):
-        assert pr._try_harper_fast_path("doc", "en-US", [(0, 5, "Hello.")], [], checker_identity="harper") is True
+        pr._try_harper_fast_path("doc", "en-US", [(0, 5, "Hello.")], [], checker_identity="harper")
     phases = [c.args[0] for c in mock_status.call_args_list]
     assert phases == ["start", "request"]
     assert mock_status.call_args_list[-1].kwargs.get("result") == "Starting Harper…"
     assert not any(c.args[0] == "done" for c in mock_status.call_args_list)
+
+    with (
+        patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
+        patch("plugin.writer.locale.harper.harper_try_lint", return_value=None),
+        patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences", return_value=[(0, "Hello.")]),
+    ):
+        pr.doProofreading("doc", "Hello.", mock_locale_fixture, 0, len("Hello."), ())
+    mock_queue_fixture.enqueue.assert_not_called()
 
 def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component() -> None:
     """It must bind the correct Writer job doc even if Draw/Impress is focused."""
@@ -1542,7 +1552,7 @@ def test_doc_ignored_rules_runs_once_for_multi_sentence_harper(
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
         patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status"),
     ):
-        assert pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined, checker_identity="harper") is True
+        pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined, checker_identity="harper")
         assert mock_doc_ignored.call_count == 1
 
 
@@ -1640,7 +1650,7 @@ def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_con
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
         patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status") as mock_status,
     ):
-        assert pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined, checker_identity="harper") is True
+        pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined, checker_identity="harper")
         mock_put.assert_called_once()
         cached_payload = mock_put.call_args[0][2]
         # Raw error is stored in cache despite being ignored
