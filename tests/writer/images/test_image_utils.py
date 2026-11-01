@@ -525,18 +525,10 @@ class TestImageService:
             patch("plugin.framework.config.get_api_config", return_value=api.copy()),
             patch("plugin.framework.client.model_fetcher.get_image_model", return_value="image-model-fallback"),
         ):
-            service = ImageService(mock_ctx, None)
+            service = ImageService(mock_ctx)
             provider = service.get_provider()
             assert isinstance(provider, EndpointImageProvider)
             assert (provider.model) == ("image-model-fallback")
-
-        with (
-            patch("plugin.framework.config.get_api_config", return_value=api.copy()),
-            patch("plugin.framework.client.model_fetcher.get_image_model", return_value="image-model-fallback"),
-        ):
-            service = ImageService(mock_ctx, {"image_model": "  my-image-model  "})
-            provider = service.get_provider()
-            assert (provider.model) == ("my-image-model")
 
     def test_default_model_comes_from_provider_defaults(self):
         with patch("plugin.framework.client.model_fetcher.get_image_model", return_value="provider-default-image"):
@@ -550,7 +542,7 @@ class TestImageService:
         monkeypatch.setattr(image_utils_mod, "get_config_int", lambda key: sizes.get(key, 0))
         fake_provider = MagicMock()
         fake_provider.generate.return_value = (["/tmp/x.png"], "")
-        service = ImageService(MagicMock(), None)
+        service = ImageService(MagicMock())
         with patch.object(ImageService, "get_provider", return_value=fake_provider):
             paths, err = service.generate_image("a cat", width=None, height=None)
 

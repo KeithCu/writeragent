@@ -1233,7 +1233,7 @@ def _insert_image_in_flow(
                 raise RuntimeError("insert_image_at_locator returned None")
         else:
             image = _create_embedded_graphic(doc, "writer", _file_url_for_path(tmp_path), ctx=ctx)
-            _apply_graphic_properties(image, width=w_units, height=h_units, title="Notebook output", description=mime, anchor_type=AS_CHARACTER, inside="writer")
+            _apply_graphic_properties(image, width=w_units, height=h_units, title="Notebook output", description=mime, anchor_type=AS_CHARACTER)
             text.insertTextContent(cursor, image, False)
             graphic = image
         # AS_CHARACTER already in-flow; pin wrap off so plots do not float beside text.

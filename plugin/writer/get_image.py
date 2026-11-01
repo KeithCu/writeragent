@@ -41,29 +41,23 @@ def _ok_image(source: str, b64: str) -> dict[str, Any]:
     return {"status": "ok", "source": source, "_mcp_image": {"data": b64, "mimeType": "image/png"}}
 
 
-def _read_png_or_reason(tmp_path: str, page: int) -> tuple[bytes | None, str | None]:
-    with open(tmp_path, "rb") as f:
-        png = f.read()
-    if not png or png[:8] != _PNG_MAGIC:
-        return None, "could not render page %d: the PNG export produced no valid image." % page
-    return png, None
-
-
-def _with_page_png(page: int, export: Any, remove_note: str) -> tuple[bytes | None, str | None]:
+def _with_page_png(page: int, export: Any) -> tuple[bytes | None, str | None]:
     tmp_path = None
     try:
         fd, tmp_path = tempfile.mkstemp(prefix="wa_page_render_", suffix=".png")
         os.close(fd)
-        err = export(tmp_path)
-        if err is not None:
-            return err
-        return _read_png_or_reason(tmp_path, page)
+        export(tmp_path)
+        with open(tmp_path, "rb") as f:
+            png = f.read()
+        if not png or png[:8] != _PNG_MAGIC:
+            return None, "could not render page %d: the PNG export produced no valid image." % page
+        return png, None
     except Exception as e:
         reraise_if_disposed(e)
         return None, "could not render page %d: %s" % (page, e)
     finally:
         if tmp_path:
-            best_effort(lambda: os.remove(tmp_path), remove_note)
+            best_effort(lambda: os.remove(tmp_path), "page render: remove temp png failed")
 
 
 def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | None]:
@@ -112,7 +106,7 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
                 (PropertyValue(Name="FilterName", Value="writer_png_Export"),),
             )
 
-        return _with_page_png(page, export, "page render: remove temp png failed")
+        return _with_page_png(page, export)
     except Exception as e:
         reraise_if_disposed(e)
         return None, "could not render page %d: %s" % (page, e)
@@ -162,16 +156,15 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
     import uno
     from com.sun.star.beans import PropertyValue
 
-    def export(tmp_path: str) -> tuple[bytes | None, str | None] | None:
+    def export(tmp_path: str) -> None:
         ok = filt.filter((
             PropertyValue(Name="URL", Value=uno.systemPathToFileUrl(tmp_path)),
             PropertyValue(Name="MediaType", Value="image/png"),
         ))
         if not ok:
-            return None, "could not render page %d: GraphicExportFilter returned false." % page
-        return None
+            raise RuntimeError("GraphicExportFilter returned false.")
 
-    return _with_page_png(page, export, "draw page render: remove temp png failed")
+    return _with_page_png(page, export)
 
 
 def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:

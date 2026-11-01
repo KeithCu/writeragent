@@ -54,7 +54,6 @@ def test_apply_graphic_properties_skips_missing_title(monkeypatch):
         height=800,
         title="Notebook output",
         description="image/png",
-        inside="writer",
     )
 
     set_calls = [c[0][0] for c in graphic.setPropertyValue.call_args_list]

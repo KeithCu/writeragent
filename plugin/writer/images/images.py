@@ -371,7 +371,7 @@ class ImageGenerate(ToolWriterImageBase):
                 height=args.get("height"),
             )
 
-        image_svc = ImageService(ctx.ctx, config=None)
+        image_svc = ImageService(ctx.ctx)
         gen_kwargs: dict[str, Any] = {}
         image_model = args.get("image_model")
         if image_model:

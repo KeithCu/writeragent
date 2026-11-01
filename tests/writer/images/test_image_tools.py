@@ -971,7 +971,7 @@ class TestAddImageToGallery:
         import hashlib
         gallery_storage = tmp_path / "gallery_store"
         gallery_storage.mkdir()
-        gallery_dir = gallery_storage / image_tools.GALLERY_IMAGE_DIR
+        gallery_dir = gallery_storage / image_tools.GALLERY_NAME
         gallery_dir.mkdir()
 
         # Existing file in gallery
@@ -1011,7 +1011,7 @@ class TestAddImageToGallery:
     def test_gallery_same_realpath_skips_copy_and_still_inserts(self, tmp_path):
         gallery_storage = tmp_path / "gallery_store"
         gallery_storage.mkdir()
-        gallery_dir = gallery_storage / image_tools.GALLERY_IMAGE_DIR
+        gallery_dir = gallery_storage / image_tools.GALLERY_NAME
         gallery_dir.mkdir()
 
         file_in_gallery = gallery_dir / "logo.png"

@@ -31,21 +31,17 @@ from plugin.doc import visual_helpers
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import best_effort
 
-# WriterCompoundUndo is intentionally imported function-locally in insert_image,
-# insert_image_at_locator, insert_image_into_header_footer, and
-# replace_graphic_source so importing image_tools does not immediately load the
-# undo helper, and edit_review stays out of LibrePy.
+# WriterCompoundUndo is intentionally imported function-locally in _dispatch_insert_image,
+# insert_image_into_header_footer, and replace_graphic_source so importing image_tools
+# does not immediately load the undo helper, and edit_review stays out of LibrePy.
 
 log = logging.getLogger(__name__)
 
 GALLERY_NAME = "writeragent_images"
-GALLERY_IMAGE_DIR = GALLERY_NAME
-# Shared with images.py download cache — paths under this dir are embedded, not linked.
-IMAGE_CACHE_DIR_NAME = "writeragent_images"
 
 
-def _image_cache_dir() -> str:
-    return os.path.join(tempfile.gettempdir(), IMAGE_CACHE_DIR_NAME)
+def _image_cache_dir() -> str:  # pyright: ignore[reportUnusedFunction]
+    return os.path.join(tempfile.gettempdir(), "writeragent_images")
 
 
 def _path_under_dir(path: str, directory: str) -> bool:
@@ -62,8 +58,6 @@ def _should_link_image_path(img_path: str) -> bool:
     abs_path = os.path.abspath(img_path)
     if _path_under_dir(abs_path, tempfile.gettempdir()):
         return False
-    if _path_under_dir(abs_path, _image_cache_dir()):
-        return False
     return True
 
 
@@ -71,9 +65,9 @@ def _file_url_for_path(img_path: str) -> str:
     return uno.systemPathToFileUrl(os.path.abspath(img_path))
 
 
-def _apply_graphic_properties(graphic: Any, *, width: int | None = None, height: int | None = None, title: str, description: str, anchor_type: Any = AS_CHARACTER, inside: str = "writer") -> None:
+def _apply_graphic_properties(graphic: Any, *, width: int | None = None, height: int | None = None, title: str, description: str, anchor_type: Any = AS_CHARACTER) -> None:
     # Never use hasattr(graphic, "PropName") — PyUNO raises UnknownPropertyException.
-    if anchor_type is not None and inside in ("writer", "web"):
+    if anchor_type is not None:
         visual_helpers.safe_set_property(graphic, "AnchorType", anchor_type)
     if width is not None and height is not None:
         size = Size(width, height)
@@ -179,6 +173,56 @@ def _create_embedded_graphic(model: Any, inside: str, file_url: str, ctx: Any | 
     raise RuntimeError("Could not assign GraphicURL or Graphic to embedded graphic")
 
 
+def _dispatch_insert_image(
+    ctx: Any,
+    model: Any,
+    img_path: str,
+    width_units: int,
+    height_units: int,
+    title: str = "",
+    description: str = "",
+    *,
+    text_cursor: Any = None,
+    add_frame: bool = False,
+    page_index: int | None = None,
+    x_mm: int | float | None = None,
+    y_mm: int | float | None = None,
+) -> Any:
+    from plugin.doc.compound_undo import WriterCompoundUndo
+
+    inside = visual_helpers.get_visual_doc_type(model)
+    with WriterCompoundUndo(model, "WriterAgent: Insert image"):
+        if inside in ("writer", "web"):
+            if add_frame:
+                _insert_frame(ctx, model, img_path, width_units, height_units, title, description)
+                return None
+            return _insert_writer_graphic(
+                ctx,
+                model,
+                img_path,
+                width_units,
+                height_units,
+                title,
+                description,
+                text_cursor=text_cursor,
+            )
+        if add_frame:
+            log.debug("insert_image: add_frame is Writer/Web only; ignoring on %s", inside)
+        return _insert_image_to_drawpage(
+            ctx,
+            model,
+            inside,
+            img_path,
+            width_units,
+            height_units,
+            title,
+            description,
+            page_index=page_index,
+            x_mm=x_mm,
+            y_mm=y_mm,
+        )
+
+
 def insert_image(
     ctx: Any,
     model: Any,
@@ -189,9 +233,6 @@ def insert_image(
     description: str = "",
     add_to_gallery: bool = True,
     add_frame: bool = False,
-    page_index: int | None = None,
-    x_mm: int | float | None = None,
-    y_mm: int | float | None = None,
     *,
     size_units: tuple[int, int] | None = None,
 ) -> None:
@@ -201,33 +242,24 @@ def insert_image(
     Display size is capped (``px_to_display_units``) so a 1024px generate
     stays a ~135mm inset instead of filling the Writer page.
     size_units overrides the pixel conversion when the frame size is already known.
-    page_index is a 0-based Draw/Impress page or a Calc sheet; x_mm/y_mm are
-    ignored on Calc; omitted x/y centers a Draw/Impress page. add_frame is
-    Writer/Web only.
+    add_frame is Writer/Web only.
     """
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
-    inside = visual_helpers.get_visual_doc_type(model)
-
     if size_units is not None:
         width_units, height_units = size_units
     else:
         width_units, height_units = visual_helpers.px_to_display_units(width_px, height_px)
 
     # Gallery is filesystem-only; keep it outside the document undo group.
-    with WriterCompoundUndo(model, "WriterAgent: Insert image"):
-        if inside in ["writer", "web"]:
-            if add_frame:
-                _insert_frame(ctx, model, img_path, width_units, height_units, title, description)
-            else:
-                _insert_writer_graphic(ctx, model, img_path, width_units, height_units, title, description)
-        else:
-            if add_frame:
-                log.debug("insert_image: add_frame is Writer/Web only; ignoring on %s", inside)
-            _insert_image_to_drawpage(
-                ctx, model, inside, img_path, width_units, height_units, title, description,
-                page_index=page_index, x_mm=x_mm, y_mm=y_mm,
-            )
+    _dispatch_insert_image(
+        ctx,
+        model,
+        img_path,
+        width_units,
+        height_units,
+        title,
+        description,
+        add_frame=add_frame,
+    )
 
     if add_to_gallery:
         add_image_to_gallery(ctx, img_path)
@@ -240,28 +272,20 @@ def insert_image_at_locator(ctx: Any, model: Any, img_path: str, width_mm: int |
     For Draw/Impress, optional page_index (0-based) and x_mm/y_mm; omitted x/y centers on the page.
     Returns the inserted graphic object, or None on failure.
     """
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
-    inside = visual_helpers.get_visual_doc_type(model)
     width_units, height_units = visual_helpers.mm_to_units(width_mm, height_mm)
-
-    with WriterCompoundUndo(model, "WriterAgent: Insert image"):
-        if inside in ("writer", "web"):
-            return _insert_writer_graphic(
-                ctx,
-                model,
-                img_path,
-                width_units,
-                height_units,
-                title,
-                description,
-                text_cursor=text_cursor,
-            )
-
-        return _insert_image_to_drawpage(
-            ctx, model, inside, img_path, width_units, height_units, title, description,
-            page_index=page_index, x_mm=x_mm, y_mm=y_mm,
-        )
+    return _dispatch_insert_image(
+        ctx,
+        model,
+        img_path,
+        width_units,
+        height_units,
+        title,
+        description,
+        text_cursor=text_cursor,
+        page_index=page_index,
+        x_mm=x_mm,
+        y_mm=y_mm,
+    )
 
 
 def insert_image_into_header_footer(
@@ -384,7 +408,6 @@ def _insert_embedded_at_writer_cursor(
         title=title,
         description=description,
         anchor_type=AS_CHARACTER,
-        inside="writer",
     )
 
     if text_cursor is not None:
@@ -444,7 +467,6 @@ def _insert_writer_graphic(
                     height=height,
                     title=title,
                     description=description,
-                    inside="writer",
                 )
                 return graphic
             log.debug("_insert_writer_graphic: linked dispatch failed, embedding")
@@ -548,7 +570,7 @@ def _insert_image_to_drawpage(
     if image is None:
         image = _create_embedded_graphic(model, inside, _file_url_for_path(img_path), ctx=ctx)
 
-    _apply_graphic_properties(image, width=width, height=height, title=title, description=description, inside=inside)
+    _apply_graphic_properties(image, width=width, height=height, title=title, description=description, anchor_type=None)
     if is_embedded:
         draw_page.add(image)
     if inside != "calc":
@@ -587,8 +609,6 @@ def replace_graphic_source(
     """
     from plugin.doc.compound_undo import WriterCompoundUndo
 
-    inside = visual_helpers.get_visual_doc_type(model)
-
     with WriterCompoundUndo(model, "WriterAgent: Replace image"):
         file_url = _file_url_for_path(img_path)
         if not _assign_graphic_source(graphic, file_url, ctx=ctx):
@@ -601,7 +621,6 @@ def replace_graphic_source(
             title=title or "",
             description=description or "",
             anchor_type=None,
-            inside=inside,
         )
 
         # Clear stale crop: old crop belongs to the old picture.
@@ -700,15 +719,12 @@ def _gallery_dest(gallery_dir: Path, img_path: str) -> Path:
 def add_image_to_gallery(ctx: Any, img_path: str) -> None:
     try:
         psettings = ctx.getValueByName("/singletons/com.sun.star.util.thePathSettings")
-        gallery_dir = Path(uno.fileUrlToSystemPath(psettings.Storage_writable)) / GALLERY_IMAGE_DIR
+        gallery_dir = Path(uno.fileUrlToSystemPath(psettings.Storage_writable)) / GALLERY_NAME
         os.makedirs(gallery_dir, exist_ok=True)
 
         target_path = _gallery_dest(gallery_dir, img_path)
         if os.path.realpath(img_path) != os.path.realpath(str(target_path)):
-            try:
-                shutil.copy2(img_path, target_path)
-            except shutil.SameFileError:
-                pass
+            shutil.copy2(img_path, target_path)
 
         themes_list = ctx.ServiceManager.createInstanceWithContext("com.sun.star.gallery.GalleryThemeProvider", ctx)
 
