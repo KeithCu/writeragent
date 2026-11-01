@@ -284,22 +284,11 @@ def _is_connection_refused(exc: BaseException, reason: str) -> bool:
     """True for a refused TCP connect, not for the digits 111 in an unrelated message."""
     import urllib.error
 
-    if isinstance(exc, ConnectionRefusedError):
-        return True
     nested = getattr(exc, "reason", None) if isinstance(exc, urllib.error.URLError) else None
-    if isinstance(nested, ConnectionRefusedError):
-        return True
-    if getattr(exc, "errno", None) == errno.ECONNREFUSED:
-        return True
-    if getattr(nested, "errno", None) == errno.ECONNREFUSED:
-        return True
+    for candidate in (exc, nested):
+        if isinstance(candidate, ConnectionRefusedError) or getattr(candidate, "errno", None) == errno.ECONNREFUSED:
+            return True
     return "connection refused" in reason.lower()
-
-
-def _is_socket_timeout_phrase(text: str) -> bool:
-    """True for standard socket/HTTP timeout phrases rather than host timeouts."""
-    stripped = text.strip().lower()
-    return stripped == "timed out" or "the read operation timed out" in stripped
 
 
 def http_status_message(status: int) -> str | None:
@@ -348,10 +337,8 @@ def format_error_message(e: BaseException) -> str:
 
     # Typed exceptions first. Substring checks below are last-resort for
     # stdlib/HTTP-library strings we do not own a subclass for.
-    if isinstance(e, ConfigError) and getattr(e, "code", "") == "missing_api_key":
-        provider = ""
-        if isinstance(e.details, dict):
-            provider = str(e.details.get("provider") or "").strip()
+    if isinstance(e, ConfigError) and e.code == "missing_api_key":
+        provider = str(e.details.get("provider") or "").strip()
         if provider and provider != "custom":
             return _("No API key configured for {0}. Open Settings and add a key.").format(provider)
         return _("No API key configured. Open Settings and add a key.")
@@ -378,8 +365,9 @@ def format_error_message(e: BaseException) -> str:
         # URLError is not itself a socket.timeout; the timeout is e.reason.
         # Check that before the connection-error sentence, or a wrapped
         # timeout tells the user the server is down.
-        if reason_obj is not None and isinstance(reason_obj, (socket.timeout, TimeoutError)):
-            if _is_socket_timeout_phrase(reason):
+        if isinstance(reason_obj, (socket.timeout, TimeoutError)):
+            phrase = reason.strip().lower()
+            if phrase == "timed out" or "the read operation timed out" in phrase:
                 return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
             return reason
         # urllib.request wraps a certificate failure as URLError(reason=SSLError).
@@ -511,9 +499,8 @@ def is_document_disposed(doc: Any) -> bool:
         return True
     try:
         impl_fn = getattr(doc, "getImplementationName", None)
-        if not callable(impl_fn):
-            return False
-        _unused = impl_fn()
+        if callable(impl_fn):
+            impl_fn()
         return False
     except Exception as exc:
         return is_real_disposal(exc)
@@ -530,11 +517,7 @@ def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
     """
     if not is_disposed_exception(exc):
         return False
-    if is_real_disposal(exc):
-        return True
-    if doc is not None and not is_document_disposed(doc):
-        return False
-    return True
+    return is_real_disposal(exc) or doc is None or is_document_disposed(doc)
 
 
 def _uno_disposal_message(exc: BaseException) -> str:  # pyright: ignore[reportUnusedFunction]  # imported by uno_context.py and scratch_writer.py
@@ -630,13 +613,12 @@ def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
         # Only DisposedException is disposal. Treating RuntimeException as
         # disposal makes a live document look closed. Other UNO failures
         # stay UnoObjectError.
-        e_name = type(e).__name__
         if is_real_disposal(e):
             raise DocumentDisposedError(f"UNO object disposed during {context_name}", object_type=context_name, details={"original_error": resolve_exception_message(e)}) from e
 
         # Catch Exception; current PyUNO errors subclass Exception;
         # KeyboardInterrupt and SystemExit propagate. We immediately wrap it.
         text = resolve_exception_message(e)
-        raise UnoObjectError(f"{context_name} failed: {text}", details={"operation": context_name, "type": e_name}) from e
+        raise UnoObjectError(f"{context_name} failed: {text}", details={"operation": context_name, "type": type(e).__name__}) from e
 
 
