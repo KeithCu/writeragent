@@ -61,7 +61,6 @@ from plugin.writer.images.image_tools import _apply_graphic_properties, _create_
 
 log = logging.getLogger("writeragent.notebook")
 
-_PROGRESS_EVERY_N_CELLS = 10
 _MAX_OUTPUTS_PER_CELL = 200
 _MAX_IMAGE_DECODE_BYTES = 8 * 1024 * 1024
 _DEFAULT_IMAGE_HEIGHT_MM = 80
@@ -295,7 +294,7 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
     para_styles = _get_para_styles(doc)
     if para_styles is None:
         return None
-    parent_body = _resolve_para_style(doc, _STYLE_BODY) or "Text Body"
+    parent_body = _resolve_para_style(doc, _STYLE_BODY) or _STYLE_BODY
 
     no_lang = _no_spellcheck_locale()
     property_updates: dict[str, Any] = {
@@ -426,7 +425,7 @@ def _style_control_paragraph(doc: Any) -> None:
     def _style() -> None:
         text = doc.getText()
         cursor = _cursor_at_end(text)
-        body = _resolve_para_style(doc, "Text Body")
+        body = _resolve_para_style(doc, _STYLE_BODY)
         if body:
             cursor.setPropertyValue("ParaStyleName", body)
         cursor.setPropertyValue("ParaFirstLineIndent", 0)
@@ -707,7 +706,7 @@ def _inline_markdown_to_html(text: str) -> str:
 
 
 def _paragraph_needs_html(text: str) -> bool:
-    if "`" in (text or ""):
+    if "`" in text:
         return True
     return bool(
         "**" in text
@@ -928,7 +927,7 @@ def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool, exit_list
         return False
 
 
-def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_dir: str | None = None, ctx: Any | None = None, budget: _RemoteImageBudget | None = None, field_w: int | None = None) -> None:
+def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, budget: _RemoteImageBudget, notebook_dir: str | None = None, ctx: Any | None = None, field_w: int | None = None) -> None:
     """Markdown cell: ATX headings, lists, bold/italic, ``[text](url)``, images.
 
     HTML ``<img>`` / ``<a>`` become markdown first so mixed cells still render
@@ -945,19 +944,18 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
         if not _insert_html_at_body_end(doc, display, lead_break=lead_break):
             _append_body_paragraph(doc, display, _STYLE_BODY, lead_break=False)
         return
-    first = True
+
     def _append_lead_paragraphs(texts: list[str], lead: bool) -> None:
         for i, text in enumerate(texts):
             _append_body_paragraph(doc, text, _STYLE_BODY, lead_break=lead if i == 0 else True)
 
-    def _embed_or_fallback(src: str, alt: str, lead: bool, **kwargs: Any) -> None:
-        if not _embed_markdown_image(doc, str(src), notebook_dir, ctx=ctx, budget=budget, **kwargs):
+    def _embed_or_fallback(src: str, alt: str, lead: bool) -> None:
+        if not _embed_markdown_image(doc, src, notebook_dir, ctx=ctx, budget=budget, field_w=field_w):
             fallback = alt or src
-            _append_body_paragraph(doc, str(fallback), _STYLE_BODY, lead_break=lead)
+            _append_body_paragraph(doc, fallback, _STYLE_BODY, lead_break=lead)
 
-    for kind, payload in _iter_markdown_blocks(display):
-        block_lead = lead_break if first else True
-        first = False
+    for i, (kind, payload) in enumerate(_iter_markdown_blocks(display)):
+        block_lead = lead_break if i == 0 else True
         if kind in _MD_BLOCK_PARA_STYLE:
             # pre must stay Text Body. notebook_runner treats a preformatted style as
             # stdout, so clear_cell_output would delete the fence on re-run.
@@ -983,8 +981,8 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
             if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
                 _append_lead_paragraphs(b_paras or [body], block_lead)
         elif kind == "img":
-            alt, src = payload if isinstance(payload, tuple) else ("", str(payload))
-            _embed_or_fallback(str(src), alt, block_lead, field_w=field_w)
+            alt, src = payload
+            _embed_or_fallback(src, alt, block_lead)
         else:
             def emit_text(piece: str, lead: bool) -> None:
                 if _paragraph_needs_html(piece):
@@ -1324,8 +1322,6 @@ def _fetch_remote_image(url: str, *, timeout: float) -> bytes | None:
                 total_bytes += len(chunk)
                 if total_bytes > _MAX_IMAGE_DECODE_BYTES:
                     return None
-                if time.monotonic() - t0 > timeout:
-                    return None
         if not chunks:
             return None
         return b"".join(chunks)
@@ -1344,7 +1340,7 @@ def _read_image_capped(path: str) -> bytes | None:
     return raw
 
 
-def _resolve_markdown_image(src: str, notebook_dir: str | None, *, budget: _RemoteImageBudget | None = None) -> tuple[bytes, str] | None:
+def _resolve_markdown_image(src: str, notebook_dir: str | None, *, budget: _RemoteImageBudget) -> tuple[bytes, str] | None:
     """Return (raw, hint) when *src* is a reachable image; None on miss."""
     from urllib.parse import unquote
 
@@ -1352,12 +1348,9 @@ def _resolve_markdown_image(src: str, notebook_dir: str | None, *, budget: _Remo
     if not cleaned:
         return None
     if cleaned.startswith("http://") or cleaned.startswith("https://"):
-        if budget is not None:
-            timeout = budget.allow()
-            if timeout is None:
-                return None
-        else:
-            timeout = float(_HTTP_IMAGE_TIMEOUT_SEC)
+        timeout = budget.allow()
+        if timeout is None:
+            return None
         raw = _fetch_remote_image(cleaned, timeout=timeout)
         if raw is not None:
             return (raw, cleaned.split("?", 1)[0])
@@ -1376,7 +1369,7 @@ def _resolve_markdown_image(src: str, notebook_dir: str | None, *, budget: _Remo
     return None
 
 
-def _embed_markdown_image(doc: Any, src: str, notebook_dir: str | None, *, ctx: Any | None = None, budget: _RemoteImageBudget | None = None, field_w: int | None = None) -> bool:
+def _embed_markdown_image(doc: Any, src: str, notebook_dir: str | None, *, budget: _RemoteImageBudget, ctx: Any | None = None, field_w: int | None = None) -> bool:
     try:
         resolved = _resolve_markdown_image(src, notebook_dir, budget=budget)
     except Exception:
@@ -1514,10 +1507,7 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
     run_t0 = time.monotonic()
     log.info("notebook import start path=%s", path)
 
-    read_t0 = time.monotonic()
     nb = read_ipynb(path)
-    cell_count = len(nb.cells)
-    log.info("notebook import read_ipynb cells=%d read_ms=%d", cell_count, _mono_ms(read_t0))
 
     _apply_no_spellcheck_for_import(doc)
 
@@ -1533,13 +1523,11 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
     # Re-import replaces the whole registry (merge UX is Phase 3).
     registry_state = NotebookDocState(source_path=path)
     budget = _RemoteImageBudget()
-    cells_t0 = time.monotonic()
     with _batch_document_updates(doc):
         _import_cells(
             doc,
             nb,
             stats,
-            run_t0,
             ctx=ctx,
             notebook_in=notebook_in,
             registry_state=registry_state,
@@ -1547,15 +1535,12 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
             budget=budget,
         )
         _scroll_view_to_start(doc)
-    log.info("notebook import cells_done elapsed_ms=%d cells=%d", _mono_ms(cells_t0), stats["cells"])
     if registry_state.code_cells:
         from plugin.notebook.notebook_controls import ensure_form_design_mode_off, wire_all_notebook_run_buttons
 
-        reg_t0 = time.monotonic()
         save_registry(doc, registry_state)
         save_notebook_source_path(doc, path)
         ensure_form_design_mode_off(doc)
-        log.info("notebook import registry_and_design_mode elapsed_ms=%d code_cells=%d", _mono_ms(reg_t0), len(registry_state.code_cells))
         # Do not processEventsToIdle here: LayoutIdle livelocks on large
         # in-flow form documents. Wire ▶ without waiting for full layout;
         # XContainerListener catches views as they appear.
@@ -1571,20 +1556,18 @@ def _import_cells(
     doc: Any,
     nb: Any,
     stats: dict[str, int],
-    run_t0: float,
     ctx: Any | None = None,
     *,
     registry_state: NotebookDocState,
+    budget: _RemoteImageBudget,
     notebook_in: str | None = None,
     notebook_dir: str | None = None,
-    budget: _RemoteImageBudget | None = None,
 ) -> None:
     output_style = output_para_style(doc)
     page_style = _page_style(doc)
     field_w = _text_width_from_style(page_style)
     cap = _cap_from_style(page_style)
     first_cell = True
-    n_cells = len(nb.cells)
     for idx, cell in enumerate(nb.cells):
         stats["cells"] += 1
         cell_type = getattr(cell, "cell_type", "raw")
@@ -1666,6 +1649,3 @@ def _import_cells(
                 _STYLE_BODY,
                 lead_break=True,
             )
-
-        if (idx + 1) % _PROGRESS_EVERY_N_CELLS == 0 or idx + 1 == n_cells:
-            log.info("notebook import progress cell=%d/%d controls=%d elapsed_ms=%d", idx + 1, n_cells, stats["shapes"], _mono_ms(run_t0))
