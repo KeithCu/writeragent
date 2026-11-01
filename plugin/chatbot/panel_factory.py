@@ -76,7 +76,7 @@ def _is_testing_env_active() -> bool:
     if _IS_TESTING_ENV is None:
         from plugin.chatbot.rich_text_control import _debug_env_active
 
-        _IS_TESTING_ENV = _debug_env_active("WRITERAGENT_TESTING")
+        _IS_TESTING_ENV = _debug_env_active()
     return _IS_TESTING_ENV
 
 
@@ -637,7 +637,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """Update the response control with the contents of the given session."""
         try:
             if self.rich_text_widget:
-                self.rich_text_widget.render_session_history(session, greeting)
+                self.rich_text_widget.paint_session(session, greeting)
                 return
 
             if response_ctrl and response_ctrl.getModel():

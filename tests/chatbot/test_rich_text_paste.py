@@ -141,7 +141,7 @@ class TestPastePortionColor:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
             ok, reason = _copy_formatted_from_hidden_doc_to_control(
@@ -192,7 +192,7 @@ class TestPastePortionColor:
                  patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
                  patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
                  patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
-                 patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+                 patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
                  patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
                  patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
                 ok, reason = _copy_formatted_from_hidden_doc_to_control(
@@ -434,7 +434,7 @@ class TestAppendRichTextViaClipboard:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
             ok = append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
@@ -472,7 +472,7 @@ class TestAppendRichTextViaClipboard:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
             ok = append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
@@ -504,7 +504,7 @@ class TestAppendRichTextViaClipboard:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_raise_on_insert):
             ok = append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
@@ -573,7 +573,7 @@ class TestHistoryMessageBatching:
         mock_cfg.assert_called_once_with(doc)
         mock_render.assert_called_once_with(doc, items, style_window=None)
         mock_copy.assert_called_once()
-        mock_scroll.assert_called_once_with(control, ctx, restore_focus=None)
+        mock_scroll.assert_called_once_with(control, restore_focus=None)
         doc.close.assert_called_once_with(True)
 
     def test_failed_batch_plain_appends_with_role_prefix(self):
@@ -1182,7 +1182,7 @@ class TestFlattenTextTableCopy:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
             ok, reason = _copy_formatted_from_hidden_doc_to_control(
@@ -1220,7 +1220,7 @@ class TestFlattenTextTableCopy:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch(
                  "plugin.chatbot.rich_text_paste._list_prefix_for_paragraph",
@@ -1255,7 +1255,7 @@ class TestFlattenTextTableCopy:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"), \
              patch(
@@ -1295,7 +1295,7 @@ class TestFlattenTextTableCopy:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"), \
              patch("plugin.chatbot.rich_text_paste._apply_table_tab_stops"), \
@@ -1326,7 +1326,7 @@ class TestFlattenTextTableCopy:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
             ok, reason = _copy_formatted_from_hidden_doc_to_control(
@@ -1388,7 +1388,7 @@ class TestFlattenTextTableCopy:
                  patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
                  patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
                  patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=10) as mock_len, \
-                 patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+                 patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
                  patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
                  patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
                 ok, reason = _copy_formatted_from_hidden_doc_to_control(
@@ -1460,7 +1460,7 @@ class TestFlattenTextTableCopy:
                  patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
                  patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
                  patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0) as mock_len, \
-                 patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+                 patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
                  patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
                  patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
                 ok, reason = _copy_formatted_from_hidden_doc_to_control(
@@ -1518,7 +1518,7 @@ class TestFlattenTextTableCopy:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
             ok, reason = _copy_formatted_from_hidden_doc_to_control(
@@ -1592,7 +1592,7 @@ class TestFlattenTextTableCopy:
                  patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
                  patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
                  patch("plugin.chatbot.rich_text_paste.get_control_text_length", side_effect=_mock_len), \
-                 patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+                 patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
                  patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
                  patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_mock_insert):
                 ok, reason = _copy_formatted_from_hidden_doc_to_control(

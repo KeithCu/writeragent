@@ -38,7 +38,7 @@ class TestRichControlHelpers:
 
         ps = MagicMock()
         ps.getPosSize.return_value = SimpleNamespace(X=10, Y=20, Width=100, Height=200)
-        bx, by, bw, bh = _content_bounds_for_rich_control(None, ps)
+        bx, by, bw, bh = _content_bounds_for_rich_control(ps)
         assert bx == 10 + RICH_CONTROL_EDGE_INSET
         assert by == 20 + RICH_CONTROL_EDGE_INSET
         assert bw == 100 - 2 * RICH_CONTROL_EDGE_INSET
@@ -58,7 +58,7 @@ class TestRichControlHelpers:
         clear.getPosSize.return_value = SimpleNamespace(X=108, Y=186, Width=50, Height=15)
         root.getControl.return_value = clear
         bx, by, bw, bh = _content_bounds_for_rich_control(
-            root, ps, placeholder_rect=(4, 16, 142, 350),
+            ps, placeholder_rect=(4, 16, 142, 350),
         )
         assert bx == 4 + RICH_CONTROL_EDGE_INSET
         assert by == 16 + RICH_CONTROL_EDGE_INSET
@@ -79,7 +79,7 @@ class TestRichControlHelpers:
         root.getControl.return_value = clear
 
         bx, _by, bw, _bh = _content_bounds_for_rich_control(
-            root, ps, placeholder_rect=(4, 16, 400, 500),
+            ps, placeholder_rect=(4, 16, 400, 500),
         )
 
         assert bx == 4 + RICH_CONTROL_EDGE_INSET
@@ -92,8 +92,7 @@ class TestRichControlHelpers:
 
         ps = MagicMock()
         ps.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=400, Height=110)
-        root = MagicMock()
-        bx, _by, bw, _bh = _content_bounds_for_rich_control(root, ps)
+        bx, _by, bw, _bh = _content_bounds_for_rich_control(ps)
 
         assert bx == 4 + RICH_CONTROL_EDGE_INSET
         assert bw == 400 - 2 * RICH_CONTROL_EDGE_INSET
@@ -288,8 +287,8 @@ class TestAppendTextChunk:
         control = MagicMock()
         restore = MagicMock()
         with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno") as mock_uno:
-            _scroll_rich_to_tail(control, ctx=None, restore_focus=restore)
-        mock_uno.assert_called_once_with(control, ".uno:SelectAll", None)
+            _scroll_rich_to_tail(control, restore_focus=restore)
+        mock_uno.assert_called_once_with(control, ".uno:SelectAll")
         assert restore.call_count == 2
         assert restore.call_args_list[0] == restore.call_args_list[1]
         # SelectAll is between the two restores so Hidden mode stays.
@@ -301,12 +300,12 @@ class TestAppendTextChunk:
         control = MagicMock()
         calls = {"n": 0}
 
-        def nested(_control, _command, _ctx):
+        def nested(_control, _command):
             calls["n"] += 1
-            rtc._scroll_rich_to_tail(control, ctx=None)
+            rtc._scroll_rich_to_tail(control)
 
         with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=nested):
-            rtc._scroll_rich_to_tail(control, ctx=None)
+            rtc._scroll_rich_to_tail(control)
 
         assert calls["n"] == 1
         assert id(control) not in rtc._IN_SCROLL_TO_TAIL
@@ -319,13 +318,13 @@ class TestAppendTextChunk:
         ctrl2 = MagicMock()
         calls = []
 
-        def nested(control, _command, _ctx):
+        def nested(control, _command):
             calls.append(control)
             if control is ctrl1:
-                rtc._scroll_rich_to_tail(ctrl2, ctx=None)
+                rtc._scroll_rich_to_tail(ctrl2)
 
         with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=nested):
-            rtc._scroll_rich_to_tail(ctrl1, ctx=None)
+            rtc._scroll_rich_to_tail(ctrl1)
 
         assert calls == [ctrl1, ctrl2]
         assert len(rtc._IN_SCROLL_TO_TAIL) == 0
@@ -514,13 +513,11 @@ class TestRerenderRichControlScroll:
         send.rich_text_widget = widget
         send.session = MagicMock()
         send.session.messages = [{"role": "assistant", "content": "<p>Hi</p>"}]
-        send._assistant_stream_start_len = 100
 
         send.rerender_rich_text_session()
 
         widget.rerender_last_assistant_if_html.assert_called_once_with(
             send.session,
-            100,
         )
 
 
@@ -536,10 +533,6 @@ class TestRichTextChatWidget:
 
         assert widget.model == model
 
-        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=12) as mock_len:
-            assert widget.get_text_length() == 12
-            mock_len.assert_called_once_with(control)
-
         with patch("plugin.chatbot.rich_text_control.clear_control") as mock_clear:
             widget.clear()
             mock_clear.assert_called_once_with(control)
@@ -551,7 +544,7 @@ class TestRichTextChatWidget:
         with patch("plugin.chatbot.rich_text_control.append_text_chunk") as mock_chunk:
             widget.append_chunk("hello", auto_scroll=True)
             mock_chunk.assert_called_once_with(
-                control, "hello", auto_scroll=True, style_window=None, ctx=ctx, query=None, restore_focus=None,
+                control, "hello", auto_scroll=True, style_window=None, ctx=ctx, restore_focus=None,
             )
 
     def test_rerender_paints_the_message_list(self):
@@ -563,7 +556,7 @@ class TestRichTextChatWidget:
         session.messages = [{"role": "assistant", "content": "<p>Hi</p>"}]
 
         with patch.object(widget, "paint_session") as mock_paint:
-            assert widget.rerender_last_assistant_if_html(session, None) is True
+            assert widget.rerender_last_assistant_if_html(session) is True
 
         mock_paint.assert_called_once_with(session)
 
@@ -694,7 +687,7 @@ class TestRichTextChatWidget:
         session.messages = []
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=106), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint:
-            widget.render_session_history(session, "Hi there")
+            widget.paint_session(session, "Hi there")
         assert paint.call_args[0][2] == [("assistant", "Hi there")]
         session.messages = [{"role": "user", "content": "q"}]
         with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
@@ -725,7 +718,7 @@ class TestRichTextChatWidget:
         session.messages = [{"role": "user", "content": "q"}]
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint:
-            widget.render_session_history(session, "Hi there")
+            widget.paint_session(session, "Hi there")
             widget.paint_session(session)
         assert paint.call_args[0][2] == [("assistant", "Hi there"), ("user", "q")]
 
@@ -741,7 +734,7 @@ class TestRichTextChatWidget:
              patch("plugin.chatbot.rich_text_control.force_rich_full_reformat", side_effect=lambda c: calls.append("reformat")), \
              patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail", side_effect=lambda *a, **k: calls.append("scroll")), \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=20):
-            assert widget.rerender_last_assistant_if_html(session, None) is True
+            assert widget.rerender_last_assistant_if_html(session) is True
         assert calls == ["reformat", "scroll"]
 
     def test_rerender_formats_only_this_turns_rows(self):
@@ -756,7 +749,7 @@ class TestRichTextChatWidget:
              patch("plugin.chatbot.rich_text_control.force_rich_full_reformat"), \
              patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=25):
-            assert widget.rerender_last_assistant_if_html(session, None) is True
+            assert widget.rerender_last_assistant_if_html(session) is True
         full.assert_not_called()
         rollback.assert_called_once_with(widget.control, 10)
         assert rich.call_args[0][2] == [("assistant", "<b>Hello</b>")]
@@ -770,7 +763,7 @@ class TestRichTextChatWidget:
         session.messages = [{"role": "user", "content": "hi"}]
 
         with patch.object(widget, "paint_session") as mock_paint:
-            assert widget.rerender_last_assistant_if_html(session, 12) is False
+            assert widget.rerender_last_assistant_if_html(session) is False
 
         mock_paint.assert_not_called()
 
@@ -790,7 +783,7 @@ class TestRichTextChatWidget:
         session = MagicMock()
         with patch("plugin.chatbot.rich_text_paste.session_history_items", return_value=[("user", "hi")]), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as mock_paint:
-            widget.render_session_history(session, greeting="Hello")
+            widget.paint_session(session, greeting="Hello")
         mock_paint.assert_called_once()
         assert mock_paint.call_args.args[2] == [("user", "hi")]
 

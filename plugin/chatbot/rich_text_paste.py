@@ -50,6 +50,7 @@ from plugin.chatbot.rich_text import (
     _role_prefix,
     append_rich_text,
     apply_chat_char_props,
+    apply_rich_control_para_margins,
     contains_html_tag,
     render_calc_cell_refs,
     restore_writer_text,
@@ -58,7 +59,6 @@ from plugin.chatbot.rich_text import (
     writer_suffix,
 )
 from plugin.chatbot.rich_text_control import (
-    _apply_sidebar_para_margins,
     force_rich_full_reformat,
     _insert_string_at_rich_cursor,
     _is_automatic_char_color,
@@ -639,7 +639,7 @@ def paint_message_items(
             with focus_preserved(ctx, restore, restore_focus=restore_focus):
                 _ensure_trailing_line_break(control)
         force_rich_full_reformat(control)
-        _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+        _scroll_rich_to_tail(control, restore_focus=restore_focus)
         return True
     doc = None
     try:
@@ -676,7 +676,7 @@ def paint_message_items(
                     _ensure_trailing_line_break(control)
             # Reformat before the restick so the scroll target is the real end.
             force_rich_full_reformat(control)
-            _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+            _scroll_rich_to_tail(control, restore_focus=restore_focus)
             return True
         log.warning("paint_message_items: formatted copy failed reason=%s; plain paint", copy_reason)
         _replace_control_with_plain(control, rows, ctx, style_window, restore_focus=restore_focus)
@@ -729,7 +729,7 @@ def _copy_formatted_from_hidden_doc_to_control(
 
             dest_cursor = model.createTextCursor()
             dest_cursor.gotoEnd(False)
-            _apply_sidebar_para_margins(dest_cursor)
+            apply_rich_control_para_margins(dest_cursor)
             fill_color = _rich_control_bg_color(model, style_window=style_window)
 
             control_len = get_control_text_length(control)
@@ -749,7 +749,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         if control_len is not None:
                             control_len += _utf16_units("\n")
                         dest_cursor.gotoEnd(False)
-                        _apply_sidebar_para_margins(dest_cursor)
+                        apply_rich_control_para_margins(dest_cursor)
                     first_para = False
 
                     if _is_writer_text_table(para):
@@ -765,7 +765,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                                 if control_len is not None:
                                     control_len += _utf16_units("\n")
                                 dest_cursor.gotoEnd(False)
-                                _apply_sidebar_para_margins(dest_cursor)
+                                apply_rich_control_para_margins(dest_cursor)
                             _apply_table_tab_stops(dest_cursor, tab_stops)
                             last = i == len(cell_rows) - 1
                             _apply_table_row_vpad(
@@ -962,23 +962,23 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
         if sep:
             _insert_string_at_rich_cursor(model, cursor, sep)
             cursor.gotoEnd(False)
-        _apply_sidebar_para_margins(cursor)
+        apply_rich_control_para_margins(cursor)
 
         color = theme.user_color if role == "user" else theme.assistant_color
         prefix = _role_prefix(role)
         _insert_string_at_rich_cursor(model, cursor, prefix, char_color=color, bold=True)
         cursor.gotoEnd(False)
-        _apply_sidebar_para_margins(cursor)
+        apply_rich_control_para_margins(cursor)
 
         _insert_string_at_rich_cursor(model, cursor, plain, char_color=color, bold=False)
         cursor.gotoEnd(False)
-        _apply_sidebar_para_margins(cursor)
+        apply_rich_control_para_margins(cursor)
 
         wrote = True
         last_text = plain
 
     if wrote and auto_scroll:
-        _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+        _scroll_rich_to_tail(control, restore_focus=restore_focus)
         process_events_to_idle(ctx)
     return wrote
 
@@ -1002,7 +1002,7 @@ def append_formatted_rows(
         _plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus)
         if rows[-1][0] == "user":
             _ensure_trailing_line_break(control)
-        _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+        _scroll_rich_to_tail(control, restore_focus=restore_focus)
         return
 
     _ensure_message_separator(control)
@@ -1010,7 +1010,7 @@ def append_formatted_rows(
         if _plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus):
             if rows[-1][0] == "user":
                 _ensure_trailing_line_break(control)
-            _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+            _scroll_rich_to_tail(control, restore_focus=restore_focus)
         return
 
     doc = None
@@ -1024,7 +1024,7 @@ def append_formatted_rows(
             if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
                 if rows[-1][0] == "user":
                     _ensure_trailing_line_break(control)
-                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+                _scroll_rich_to_tail(control, restore_focus=restore_focus)
             return
         configure_hidden_writer_for_chat(doc)
         batch_links = cell_links_for_rows(rows)
@@ -1042,7 +1042,7 @@ def append_formatted_rows(
             if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
                 if rows[-1][0] == "user":
                     _ensure_trailing_line_break(control)
-                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+                _scroll_rich_to_tail(control, restore_focus=restore_focus)
             return
 
         res = _copy_formatted_from_hidden_doc_to_control(
@@ -1060,7 +1060,7 @@ def append_formatted_rows(
             inserted = True
             if rows[-1][0] == "user":
                 _ensure_trailing_line_break(control)
-            _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+            _scroll_rich_to_tail(control, restore_focus=restore_focus)
         else:
             # Tip: history has no second copy, so the rollback must not lose the rows.
             log.warning(
@@ -1072,7 +1072,7 @@ def append_formatted_rows(
             if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
                 if rows[-1][0] == "user":
                     _ensure_trailing_line_break(control)
-                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+                _scroll_rich_to_tail(control, restore_focus=restore_focus)
     except Exception:
         log.exception("append_formatted_rows failed")
         if not inserted:
@@ -1080,7 +1080,7 @@ def append_formatted_rows(
             if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
                 if rows[-1][0] == "user":
                     _ensure_trailing_line_break(control)
-                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+                _scroll_rich_to_tail(control, restore_focus=restore_focus)
     finally:
         _close_hidden_doc(doc, "append_formatted_rows")
 
@@ -1159,7 +1159,7 @@ def append_formatted_row(
             with focus_preserved(ctx, restore, restore_focus=restore_focus):
                 _ensure_trailing_line_break(control)
             if auto_scroll:
-                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+                _scroll_rich_to_tail(control, restore_focus=restore_focus)
             if callable(on_after_insert):
                 try:
                     on_after_insert(get_control_text_length(control))
@@ -1167,7 +1167,7 @@ def append_formatted_row(
                     log.exception("append_formatted_row: on_after_insert failed")
             log_rich_scroll("user_append_done", control=control, role=role)
         elif auto_scroll:
-            _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+            _scroll_rich_to_tail(control, restore_focus=restore_focus)
         return True
 
     # Remember the length before the separator. A failed copy used to leave
@@ -1244,7 +1244,7 @@ def append_formatted_row(
                 # which switches EESelectionMode to Std while SelectAll is still
                 # covering the whole control (user-message flash). Agent stream
                 # never reveal_caret, so it does not flash.
-                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+                _scroll_rich_to_tail(control, restore_focus=restore_focus)
             if callable(on_after_insert):
                 try:
                     on_after_insert(get_control_text_length(control))
@@ -1252,7 +1252,7 @@ def append_formatted_row(
                     log.exception("append_formatted_row: on_after_insert failed")
             log_rich_scroll("user_append_done", control=control, role=role)
         elif inserted and auto_scroll:
-            _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+            _scroll_rich_to_tail(control, restore_focus=restore_focus)
         if inserted:
             return True
     except Exception:

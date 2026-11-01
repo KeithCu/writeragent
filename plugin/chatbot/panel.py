@@ -329,7 +329,6 @@ class SendButtonListener(BaseActionListener):
     _approval_event: Any
     _extracted_peer_query: str
     _extracted_peer_already_appended: bool
-    _record_assistant_start: bool
     slash_popup: Any
     clear_listener: Any
     rich_text_widget: Any
@@ -419,8 +418,6 @@ class SendButtonListener(BaseActionListener):
         self._turn = None
         self._last_mcp_turn = {}
         self._mcp_turn_lock = threading.Lock()
-        self._record_assistant_start = False
-        self._assistant_stream_start_len: int | None = None
         self._approval_event = None
         self._approval_ui_backup: dict[str, Any] | None = None
         self._approval_query_for_engine: str | None = None
@@ -509,10 +506,7 @@ class SendButtonListener(BaseActionListener):
         if widget is None:
             return False
         try:
-            return bool(widget.rerender_last_assistant_if_html(
-                self.session,
-                self._assistant_stream_start_len,
-            ))
+            return bool(widget.rerender_last_assistant_if_html(self.session))
         except Exception:
             log.exception("rerender_rich_text_session (rich control) failed")
             return False
@@ -775,13 +769,6 @@ class SendButtonListener(BaseActionListener):
                         return
                     if not turn.fold_chunk(self, clean_text, role):
                         return
-                    if role != "user" and self._record_assistant_start:
-                        self._record_assistant_start = False
-                        self._assistant_stream_start_len = widget.get_text_length()
-                        log.debug(
-                            "_append_response: rich-control stream start len=%s (final answer)",
-                            self._assistant_stream_start_len,
-                        )
                     # Append, do not repaint. paint_session on every
                     # streamed batch (about 3 a second) builds a hidden Writer
                     # doc, clears the control, and refills the whole transcript.
@@ -790,12 +777,6 @@ class SendButtonListener(BaseActionListener):
                     # stream_session appends only the new text. The full
                     # repaint stays for load/switch, Stop, and Clear.
                     widget.stream_session(turn.session)
-                    if role == "user":
-                        self._assistant_stream_start_len = widget.get_text_length()
-                        log.debug(
-                            "_append_response: rich-control stream start len=%s",
-                            self._assistant_stream_start_len,
-                        )
 
                 self._run_rich_ui(_paint_from_list)
                 return

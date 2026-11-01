@@ -182,7 +182,7 @@ def fake_listener() -> _FakeListener:
 
 
 def test_debug_hooks_available_in_dev_tree() -> None:
-    assert _debug_env_active("WRITERAGENT_TESTING") is True
+    assert _debug_env_active() is True
 
 
 class _Panel:
