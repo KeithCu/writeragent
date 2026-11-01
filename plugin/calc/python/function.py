@@ -22,7 +22,7 @@ from typing import Any, Generator, cast
 
 from plugin.framework.uno_listeners import BaseModifyListener
 
-from plugin.calc.calc_addin_data import calc_addin_args_from_split, check_python_data_size, check_python_multi_data_size, pack_calc_data_for_wire, pack_calc_multi_data_for_wire, split_python_addin_data_args
+from plugin.calc.calc_addin_data import calc_addin_args_from_split, check_python_data_size, pack_calc_data_for_wire, pack_calc_multi_data_for_wire, split_python_addin_data_args
 from plugin.calc.calc_utils import EMPTY
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
@@ -1673,17 +1673,17 @@ def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -
     clear_python_addin_cache()
 
 
-def execute_python_addin(ctx: Any, code: str, data: Any = None, true_strings: set[str] | None = None, false_strings: set[str] | None = None, *, doc: Any | None = None) -> Any:
+def execute_python_addin(ctx: Any, code: str, data: Any = None, *, doc: Any | None = None) -> Any:
     """Run *code* in the user venv and return a Calc-compatible scalar (or error string)."""
     with background_if_dummy_thread("python_addin"):
         with sync_host_dispatch():
             from plugin.calc.python.formula_locator_cache import bind_formula_locate_memo
 
             with bind_formula_locate_memo():
-                return _execute_python_addin_impl(ctx, code, data, true_strings, false_strings, doc=doc)
+                return _execute_python_addin_impl(ctx, code, data, doc=doc)
 
 
-def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strings: set[str] | None = None, false_strings: set[str] | None = None, *, doc: Any | None = None) -> Any:
+def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: Any | None = None) -> Any:
     target_doc: Any = doc
     try:
         args = split_python_addin_data_args(data)
@@ -1703,7 +1703,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
         # UI-thread target_doc is a real workbook_key. Off-main never strips
         # (the doc is only passed through there, so no key is read).
         args = maybe_strip_geometric_eval_args(code, args, doc=target_doc)
-        py_data = calc_addin_args_from_split(args, true_strings, false_strings)
+        py_data = calc_addin_args_from_split(args)
         is_multi = len(args) > 1
         index_arg = None
         if py_data is not None:
@@ -1727,10 +1727,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 index_arg = _unwrap_single_cell(py_data)
         max_cells = configured_python_max_data_cells()
         if py_data is not None:
-            if is_multi:
-                size_err = check_python_multi_data_size(py_data, max_cells=max_cells)
-            else:
-                size_err = check_python_data_size(py_data, max_cells=max_cells)
+            size_err = check_python_data_size(py_data, max_cells=max_cells, multi=is_multi)
             if size_err:
                 ret = f"Error: {size_err}"
                 _record_py_diagnostic(ctx, code, None, status="error", message=ret, doc=target_doc)

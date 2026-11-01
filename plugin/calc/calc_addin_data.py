@@ -29,7 +29,16 @@ from plugin.framework.deal_shim import deal
 from plugin.framework.errors import CalcError, reraise_if_disposed
 
 
-def _unwrap_cell(value: Any, true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> Any:
+# Logical string coercion targets. Static baseline sets are used instead of
+# XFormulaOpCodeMapper discovery: XFormulaOpCodeMapper in LibreOffice does
+# not expose getAvailableSymbolTokens (only getMappings/getAvailableMappings)
+# and FormulaToken lacks a .Token attribute, so dynamic mapping was dead code
+# that always failed at runtime and fell back to these English defaults.
+_TRUE_STRINGS: set[str] = {"=TRUE()", "TRUE", "True"}
+_FALSE_STRINGS: set[str] = {"=FALSE()", "FALSE", "False"}
+
+
+def _unwrap_cell(value: Any) -> Any:
     """Normalize a single cell value from UNO / Calc."""
     if value is None:
         return None
@@ -41,9 +50,9 @@ def _unwrap_cell(value: Any, true_strings: set[str] | None = None, false_strings
         if value == "":
             return None
         val_stripped = value.strip()
-        if true_strings and val_stripped in true_strings:
+        if val_stripped in _TRUE_STRINGS:
             return True
-        if false_strings and val_stripped in false_strings:
+        if val_stripped in _FALSE_STRINGS:
             return False
 
     return value
@@ -100,17 +109,17 @@ def split_python_addin_data_args(raw: Any) -> list[Any]:
     return items
 
 
-def calc_addin_args_from_split(args: list[Any], true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> list[list[Any]] | list[list[list[Any]]] | None:
+def calc_addin_args_from_split(args: list[Any]) -> list[list[Any]] | list[list[list[Any]]] | None:
     """Convert pre-split varargs into sandbox grids: one 2D grid or list of 2D grids."""
     if not args:
         return None
     if len(args) == 1:
-        return calc_addin_data_to_python(args[0], true_strings, false_strings)
-    return [calc_addin_data_to_python(arg, true_strings, false_strings) or [] for arg in args]
+        return calc_addin_data_to_python(args[0])
+    return [calc_addin_data_to_python(arg) or [] for arg in args]
 
 
 @deal.post(lambda result: result is None or isinstance(result, list))
-def calc_addin_data_to_python(value: Any, true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> list[list[Any]] | None:
+def calc_addin_data_to_python(value: Any) -> list[list[Any]] | None:
     """Convert a Calc ``=PYTHON()`` second argument into a rectangular 2D grid.
 
     - Missing / void → ``None`` (no ``data`` injection).
@@ -122,7 +131,7 @@ def calc_addin_data_to_python(value: Any, true_strings: set[str] | None = None, 
     if value is None:
         return None
 
-    value = _unwrap_cell(value, true_strings, false_strings)
+    value = _unwrap_cell(value)
 
     if not _is_row_sequence(value):
         return [[value]]
@@ -133,7 +142,7 @@ def calc_addin_data_to_python(value: Any, true_strings: set[str] | None = None, 
     # A flat sequence is one Calc row. A sequence of sequences is already 2D.
     if not _is_row_sequence(rows[0]):
         rows = [rows]
-    grid = [[_unwrap_cell(c, true_strings, false_strings) for c in row] for row in rows]
+    grid = [[_unwrap_cell(c) for c in row] for row in rows]
     return ensure_rectangular_2d(grid)
 
 
@@ -161,16 +170,13 @@ def pack_calc_data_for_wire(py_data: list[list[Any]] | list[Any] | None, *, forc
     return envelope
 
 
-def check_python_multi_data_size(data: list[Any], *, max_cells: int) -> str | None:
-    """Return an error message if combined multi-range *data* exceeds *max_cells*."""
-    n = sum(wire_cell_count(item) for item in data)
-    if n > max_cells:
-        return f"Data ranges have {n} cells combined; maximum is {max_cells}."
-    return None
-
-
-def check_python_data_size(data: Any, *, max_cells: int) -> str | None:
+def check_python_data_size(data: Any, *, max_cells: int, multi: bool = False) -> str | None:
     """Return an error message if *data* exceeds *max_cells*, else ``None``."""
+    if multi:
+        n = sum(wire_cell_count(item) for item in data)
+        if n > max_cells:
+            return f"Data ranges have {n} cells combined; maximum is {max_cells}."
+        return None
     n = wire_cell_count(data)
     if n > max_cells:
         return f"Data range has {n} cells; maximum is {max_cells}."
@@ -232,12 +238,10 @@ def _resolve_python_data(doc: Any, *, data_range: Any = None, data: Any = None) 
             grids = [one]
     if grids is None:
         return None, None
-    if len(grids) == 1:
-        size_err = check_python_data_size(grids[0], max_cells=max_cells)
-        if size_err:
-            return None, size_err
-        return pack_calc_data_for_wire(grids[0], address=addresses[0] if addresses else None), None
-    size_err = check_python_multi_data_size(grids, max_cells=max_cells)
+    is_multi = len(grids) > 1
+    size_err = check_python_data_size(grids if is_multi else grids[0], max_cells=max_cells, multi=is_multi)
     if size_err:
         return None, size_err
+    if not is_multi:
+        return pack_calc_data_for_wire(grids[0], address=addresses[0] if addresses else None), None
     return pack_calc_multi_data_for_wire(grids, addresses=list(addresses)), None

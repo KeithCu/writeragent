@@ -1410,20 +1410,15 @@ def test_split_grid_pure_numeric_fast_path():
 def test_split_grid_logical_coercion_at_calc_ingress():
     """Verify that logical strings like "TRUE" and "FALSE" are coerced to bools during unwrap."""
     from plugin.calc.calc_addin_data import _unwrap_cell, calc_addin_data_to_python
-    
-    true_strings = {"=TRUE()", "TRUE", "True", "=WAHR()", "WAHR"}
-    false_strings = {"=FALSE()", "FALSE", "False", "=FALSCH()", "FALSCH"}
-    
+
     # 1. Test unwrap cell directly
-    assert _unwrap_cell("TRUE", true_strings, false_strings) is True
-    assert _unwrap_cell("=WAHR()", true_strings, false_strings) is True
-    assert _unwrap_cell("FALSCH", true_strings, false_strings) is False
-    assert _unwrap_cell("banana", true_strings, false_strings) == "banana"
-    
+    assert _unwrap_cell("TRUE") is True
+    assert _unwrap_cell("banana") == "banana"
+
     # 2. Test grid ingestion coercion
     raw_grid = [["TRUE", "FALSCH"], ["banana", 100.0]]
-    coerced = calc_addin_data_to_python(raw_grid, true_strings, false_strings)
-    assert coerced == [[True, False], ["banana", 100.0]]
+    coerced = calc_addin_data_to_python(raw_grid)
+    assert coerced == [[True, "FALSCH"], ["banana", 100.0]]
 
 
 def test_split_grid_single_cell_scalar_coercion():
@@ -1528,30 +1523,25 @@ def test_child_pack_grid_regression() -> None:
 
 
 def test_unwrap_cell_comprehensive():
-    """Verify unwrap_cell correctly normalizes standard types, localized formulas, and mocked UNO Any objects."""
+    """Verify unwrap_cell correctly normalizes standard types, formulas, and mocked UNO Any objects."""
     from plugin.calc.calc_addin_data import _unwrap_cell
-    
-    true_strings = {"=TRUE()", "TRUE", "True", "WAHR"}
-    false_strings = {"=FALSE()", "FALSE", "False", "FALSCH"}
-    
+
     # 1. Fast path exact types
     assert _unwrap_cell(1.0) == 1.0
     assert _unwrap_cell(42) == 42
     assert _unwrap_cell(True) is True
-    
-    # 2. Localized and formula string conversions
-    assert _unwrap_cell("  TRUE  ", true_strings, false_strings) is True
-    assert _unwrap_cell("WAHR", true_strings, false_strings) is True
-    assert _unwrap_cell("FALSCH", true_strings, false_strings) is False
-    
+
+    # 2. Formula string conversions
+    assert _unwrap_cell("  TRUE  ") is True
+
     # 3. UNO Mock Wrap types (e.g. uno.Any type emulation)
     class MockUnoAny:
         def __init__(self, value):
             self.value = value
-    
+
     MockUnoAny.__name__ = "Any"
     assert _unwrap_cell(MockUnoAny(10.5)) == 10.5
-    assert _unwrap_cell(MockUnoAny("TRUE"), true_strings, false_strings) is True
+    assert _unwrap_cell(MockUnoAny("TRUE")) is True
 
 
 def test_child_pack_non_contiguous_slices():

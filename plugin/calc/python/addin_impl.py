@@ -54,14 +54,6 @@ except ImportError:
 class PythonFunction(CalcAddInBase, _XPythonFunctionBase):  # pyright: ignore[reportGeneralTypeIssues, reportUntypedBaseClass]  # pyrefly: ignore[invalid-inheritance]
     """Calc add-in: org.extension.writeragent.PythonFunction (=PY / =PYTHON)."""
 
-    # Logical string coercion targets. Static baseline sets are used instead of
-    # XFormulaOpCodeMapper discovery: XFormulaOpCodeMapper in LibreOffice does
-    # not expose getAvailableSymbolTokens (only getMappings/getAvailableMappings)
-    # and FormulaToken lacks a .Token attribute, so dynamic mapping was dead code
-    # that always failed at runtime and fell back to these English defaults.
-    _true_strings: set[str] = {"=TRUE()", "TRUE", "True"}
-    _false_strings: set[str] = {"=FALSE()", "FALSE", "False"}
-
     def __init__(self, ctx: Any) -> None:
         log.debug("=== PythonFunction.__init__ ===")
         super().__init__(ctx, (_PY_SPEC, _PYTHON_SPEC))
@@ -73,7 +65,7 @@ class PythonFunction(CalcAddInBase, _XPythonFunctionBase):  # pyright: ignore[re
         # Do not call UNO on it here; this can run off the main thread.
         if caller is None:
             return "Error: no calling document"
-        return execute_python_addin(self.ctx, code, data, self._true_strings, self._false_strings, doc=caller)
+        return execute_python_addin(self.ctx, code, data, doc=caller)
 
     def py(self, caller: Any, code: str, data: Any = None) -> Any:
         return self.python(caller, code, data)
