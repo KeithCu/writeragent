@@ -365,8 +365,8 @@ def test_parse_query_rejects_second_near(mock_services):
     with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
         svc = IndexService(mock_services)
         stop_words = _normalized_stop_words("english")
-        parsed = svc._parse_query("a NEAR/2 b NEAR/3 c", mock_stemmer, stop_words)
-        assert parsed["error"] == "Only one NEAR/N is supported per query."
+        with pytest.raises(ToolExecutionError, match="Only one NEAR/N is supported per query."):
+            svc._parse_query("a NEAR/2 b NEAR/3 c", mock_stemmer, stop_words)
 
 
 def test_parse_query_accepts_one_near(mock_services):
@@ -377,8 +377,7 @@ def test_parse_query_accepts_one_near(mock_services):
         svc = IndexService(mock_services)
         stop_words = _normalized_stop_words("english")
         parsed = svc._parse_query("apple NEAR/2 pie", mock_stemmer, stop_words)
-        assert parsed["error"] is None
-        assert len(parsed["near"]) == 1
+        assert parsed["near"] == (["apple"], ["pie"], 2)
 
 
 def test_all_stop_word_query_lists_dropped_words(mock_services):
