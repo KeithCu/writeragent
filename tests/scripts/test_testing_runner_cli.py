@@ -30,8 +30,12 @@ def test_soffice_bootstrap_command_seeds_throwaway(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(tr, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
     soffice = _touch_soffice_next_to_helper(tmp_path)
-    helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
-    cmd, accept = tr._soffice_bootstrap_command(helper)
+    import types
+
+    fake_oh = types.ModuleType("officehelper")
+    fake_oh.__file__ = str(tmp_path / "officehelper.py")
+    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
+    cmd, accept = tr._soffice_bootstrap_command()
     assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert isinstance(cmd, list)
     assert cmd[0] == str(soffice)
@@ -50,12 +54,15 @@ def test_soffice_bootstrap_command_github_actions_requires_user_oxt(
 ) -> None:
     monkeypatch.setattr(tr, "use_user_profile", False)
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    monkeypatch.setattr(tr, "_user_writeragent_uno_packages", lambda: None)
-    monkeypatch.setattr(tr, "_libreoffice_user_profile_dir", lambda: tmp_path)
+    monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / ".lock")
     _touch_soffice_next_to_helper(tmp_path)
-    helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
+    import types
+
+    fake_oh = types.ModuleType("officehelper")
+    fake_oh.__file__ = str(tmp_path / "officehelper.py")
+    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
     try:
-        tr._soffice_bootstrap_command(helper)
+        tr._soffice_bootstrap_command()
     except RuntimeError as exc:
         assert "register-built-oxt" in str(exc)
     else:
@@ -71,8 +78,12 @@ def test_soffice_bootstrap_command_seeds_throwaway_win32_exe(
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
     monkeypatch.setattr(tr.sys, "platform", "win32")
     soffice = _touch_soffice_next_to_helper(tmp_path, name="soffice.exe")
-    helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
-    cmd, accept = tr._soffice_bootstrap_command(helper)
+    import types
+
+    fake_oh = types.ModuleType("officehelper")
+    fake_oh.__file__ = str(tmp_path / "officehelper.py")
+    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
+    cmd, accept = tr._soffice_bootstrap_command()
     assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert cmd[0] == str(soffice)
     assert "soffice.exe" in cmd[0]
@@ -91,9 +102,8 @@ def test_soffice_bootstrap_command_uses_resolve_when_not_beside_helper(
     found.write_text("", encoding="utf-8")
     monkeypatch.setattr(tr, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
-    monkeypatch.setattr(tr, "_resolve_soffice_bin", lambda _helper: found)
-    helper = type("Helper", (), {"__file__": str(tmp_path / "Resources" / "officehelper.py")})()
-    cmd, accept = tr._soffice_bootstrap_command(helper)
+    monkeypatch.setattr(tr, "_resolve_soffice_bin", lambda: found)
+    cmd, accept = tr._soffice_bootstrap_command()
     assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert cmd[0] == str(found)
     assert "--headless" in cmd
@@ -107,8 +117,12 @@ def test_soffice_bootstrap_command_argv0_is_bare_path(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(tr, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", lambda _p: None)
     soffice = _touch_soffice_next_to_helper(tmp_path)
-    helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
-    cmd, accept = tr._soffice_bootstrap_command(helper)
+    import types
+
+    fake_oh = types.ModuleType("officehelper")
+    fake_oh.__file__ = str(tmp_path / "officehelper.py")
+    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
+    cmd, accept = tr._soffice_bootstrap_command()
     assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert cmd[0] == str(soffice)
     assert not any(flag in cmd[0] for flag in ("--headless", "-env:", "--accept"))
@@ -124,7 +138,7 @@ def test_main_returns_1_when_bootstrap_raises(monkeypatch, capsys) -> None:
     fake_oh = types.ModuleType("officehelper")
     monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
 
-    def boom(_module):
+    def boom():
         raise RuntimeError("simulated bootstrap fail")
 
     monkeypatch.setattr(tr, "_bootstrap_office", boom)
@@ -144,14 +158,23 @@ def test_on_github_actions_reads_env(monkeypatch) -> None:
     assert tr.on_github_actions() is False
 
 
-def test_writeragent_oxt_in_uno_packages(tmp_path: Path) -> None:
-    empty = tmp_path / "uno_packages"
-    empty.mkdir()
-    assert tr._writeragent_oxt_in_uno_packages(empty) is False
-    packed = tmp_path / "packed" / "cache" / "uno_packages" / "lu1.tmp_" / "WriterAgent.oxt"
+def test_writeragent_oxt_in_uno_packages(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    empty_profile = tmp_path / "empty_profile"
+    (empty_profile / "user" / "uno_packages").mkdir(parents=True)
+    monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: empty_profile / ".lock")
+    dest_empty = tmp_path / "throwaway_empty"
+    tr._seed_throwaway_profile_with_user_oxt(dest_empty)
+    assert not (dest_empty / "user" / "uno_packages").exists()
+
+    packed_profile = tmp_path / "packed_profile"
+    packed = packed_profile / "user" / "uno_packages" / "cache" / "uno_packages" / "lu1.tmp_" / "WriterAgent.oxt"
     packed.mkdir(parents=True)
     (packed / "plugin").mkdir()
-    assert tr._writeragent_oxt_in_uno_packages(tmp_path / "packed") is True
+    monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: packed_profile / ".lock")
+    dest_packed = tmp_path / "throwaway_packed"
+    tr._seed_throwaway_profile_with_user_oxt(dest_packed)
+    assert (dest_packed / "user" / "uno_packages" / "cache" / "uno_packages" / "lu1.tmp_" / "WriterAgent.oxt").exists()
 
 
 def test_seed_throwaway_copies_user_uno_packages(monkeypatch, tmp_path: Path) -> None:
@@ -159,7 +182,7 @@ def test_seed_throwaway_copies_user_uno_packages(monkeypatch, tmp_path: Path) ->
     oxt = src / "cache" / "uno_packages" / "lu9.tmp_" / "WriterAgent.oxt"
     oxt.mkdir(parents=True)
     (oxt / "addin.py").write_text("ok", encoding="utf-8")
-    monkeypatch.setattr(tr, "_libreoffice_user_profile_dir", lambda: tmp_path / "user-profile")
+    monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / "user-profile" / ".lock")
     dest_root = tmp_path / "throwaway"
     tr._seed_throwaway_profile_with_user_oxt(dest_root)
     copied = dest_root / "user" / "uno_packages" / "cache" / "uno_packages" / "lu9.tmp_" / "WriterAgent.oxt" / "addin.py"
@@ -172,7 +195,7 @@ def test_seed_throwaway_copies_user_uno_packages(monkeypatch, tmp_path: Path) ->
 
 
 def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(tr, "_libreoffice_user_profile_dir", lambda: tmp_path / "missing")
+    monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / "missing" / ".lock")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     try:
         tr._seed_throwaway_profile_with_user_oxt(tmp_path / "throwaway")
@@ -183,7 +206,7 @@ def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_pa
 
 
 def test_seed_throwaway_missing_oxt_is_noop_locally(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(tr, "_libreoffice_user_profile_dir", lambda: tmp_path / "missing")
+    monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / "missing" / ".lock")
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     tr._seed_throwaway_profile_with_user_oxt(tmp_path / "throwaway")
     assert not (tmp_path / "throwaway" / "user" / "uno_packages").exists()
@@ -593,12 +616,12 @@ def test_run_module_suite_arms_timeout_watchdog_for_every_test(monkeypatch) -> N
     """Every native test arms a silent 30s faulthandler abort; disarm on TEST end."""
     events: list[object] = []
     monkeypatch.setattr(
-        tr, "_arm_native_test_watchdog", lambda label: events.append(("arm", label))
+        tr, "_arm_native_test_watchdog", lambda: events.append("arm")
     )
     monkeypatch.setattr(
         tr,
         "_disarm_native_test_watchdog",
-        lambda label: events.append(("disarm", label)),
+        lambda: events.append("disarm"),
     )
 
     def test_insert_cell_html(ctx=None):
@@ -620,12 +643,12 @@ def test_run_module_suite_arms_timeout_watchdog_for_every_test(monkeypatch) -> N
     assert passed == 2
     assert failed == 0
     assert events == [
-        ("arm", "fake.html.test_insert_cell_html"),
+        "arm",
         "body",
-        ("disarm", "fake.html.test_insert_cell_html"),
-        ("arm", "fake.html.test_other"),
+        "disarm",
+        "arm",
         "other",
-        ("disarm", "fake.html.test_other"),
+        "disarm",
     ]
 
 
@@ -640,9 +663,9 @@ def test_native_test_timeout_sec_reads_env(monkeypatch) -> None:
 
 def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
     events: list[str] = []
-    monkeypatch.setattr(tr, "_arm_native_test_watchdog", lambda label: events.append("arm"))
+    monkeypatch.setattr(tr, "_arm_native_test_watchdog", lambda: events.append("arm"))
     monkeypatch.setattr(
-        tr, "_disarm_native_test_watchdog", lambda label: events.append("disarm")
+        tr, "_disarm_native_test_watchdog", lambda: events.append("disarm")
     )
 
     def test_insert_cell_html(ctx=None):
@@ -662,8 +685,8 @@ def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
 
 
 def test_native_test_watchdog_is_silent(capsys) -> None:
-    tr._arm_native_test_watchdog("fake.test")
-    tr._disarm_native_test_watchdog("fake.test")
+    tr._arm_native_test_watchdog()
+    tr._disarm_native_test_watchdog()
     err = capsys.readouterr().err
     assert "hang dump" not in err
     assert "timeout armed" not in err
