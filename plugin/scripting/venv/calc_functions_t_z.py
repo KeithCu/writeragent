@@ -15,7 +15,7 @@ from functools import wraps
 import math
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 
@@ -92,9 +92,7 @@ def _nan_on_error(fn: Any) -> Any:
 
 
 def t(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    return ""
+    return value if isinstance(value, str) else ""
 
 
 @_nan_on_error
@@ -110,8 +108,7 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
     tail_count = int(float(tails))
     if d < 1 or tail_count not in (1, 2) or val < 0:
         return float("nan")
-    st = _scipy_stats()
-    if st is None:
+    if (st := _scipy_stats()) is None:
         return float("nan")
 
     # tdist in Calc/Excel returns 1 - cdf(val) for 1 tail
@@ -170,17 +167,9 @@ def _format_number_pattern(value: float, places: int, grouped: bool, *, scale: i
     with localcontext() as ctx:
         ctx.prec = max(28, abs(dec.adjusted()) + places + 2)
         rounded = dec.quantize(quant, rounding=ROUND_HALF_UP)
-    if places == 0:
-        whole = int(rounded)
-        # int(Decimal("-0")) is 0; Calc shows 0, not "-0".
-        if whole == 0:
-            return "0"
-        return f"{whole:,}" if grouped else str(whole)
+    # Decimal("-0") < 0 is false, so a rounded zero prints "0", not "-0".
     negative = rounded < 0
-    if grouped:
-        body = f"{abs(rounded):,.{places}f}"
-    else:
-        body = f"{abs(rounded):.{places}f}"
+    body = f"{abs(rounded):{',' if grouped else ''}.{places}f}"
     return f"-{body}" if negative else body
 
 
@@ -348,6 +337,11 @@ def _split_text(text: str, delimiter: str, case_insensitive: bool) -> list[str]:
     return text.split(delimiter)
 
 
+def _split_pieces(text: str, delimiter: Any, case_insensitive: bool, skip_empty: bool) -> list[str]:
+    parts = [text] if delimiter is None else _split_text(text, str(delimiter), case_insensitive)
+    return [part for part in parts if part] if skip_empty else parts
+
+
 def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_empty: Any = False, match_mode: Any = 0, pad_with: Any = float("nan")) -> Any:
     # Case-insensitive split still returns the original text. lower() would
     # change the pieces, not just the match.
@@ -366,21 +360,8 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
         if col_delimiter is None and row_delimiter is None:
             return float("nan")
 
-        if row_delimiter is not None:
-            rows = _split_text(s, str(row_delimiter), ci)
-        else:
-            rows = [s]
-        if skip_empty:
-            rows = [r for r in rows if r]
-        res = []
-        for r in rows:
-            if col_delimiter is not None:
-                cols = _split_text(r, str(col_delimiter), ci)
-            else:
-                cols = [r]
-            if skip_empty:
-                cols = [c for c in cols if c]
-            res.append(cols)
+        rows = _split_pieces(s, row_delimiter, ci, skip_empty)
+        res = [_split_pieces(row, col_delimiter, ci, skip_empty) for row in rows]
         # pad with pad_with to make rectangle
         max_cols = max(len(row) for row in res) if res else 0
         for row in res:
@@ -395,6 +376,7 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
         return float("nan")
 
 
+@_nan_on_error
 def time(hour: Any, minute: Any, second: Any) -> float:
     # ScInterpreter::ScGetTime (sc/source/core/tool/interpr2.cxx) does
     # fmod(hour*3600 + minute*60 + second, 86400) / 86400. Truncating each
@@ -402,10 +384,7 @@ def time(hour: Any, minute: Any, second: Any) -> float:
     # negative total stay negative. A negative remainder is Calc Err:502;
     # this helper returns NaN for that, same as its other numeric failures.
     # math.fmod keeps the dividend's sign, matching C fmod.
-    try:
-        total = float(hour) * 3600.0 + float(minute) * 60.0 + float(second)
-    except (TypeError, ValueError, OverflowError):
-        return float("nan")
+    total = float(hour) * 3600.0 + float(minute) * 60.0 + float(second)
     if not math.isfinite(total):
         return float("nan")
     wrapped = math.fmod(total, 86400.0)
@@ -437,8 +416,7 @@ def tinv(prob: Any, df: Any) -> float:
     d = math.floor(float(df))
     if p <= 0 or p > 1 or d < 1:
         return float("nan")
-    st = _scipy_stats()
-    if st is None:
+    if (st := _scipy_stats()) is None:
         return float("nan")
 
     # TINV is the 2-tailed inverse. ppf(1 - p/2) rounds the
@@ -487,10 +465,7 @@ def trend(*args: Any) -> Any:
 
         # bool("FALSE") is True, so a const string kept the intercept.
         # _as_bool_flag maps "FALSE" / "TRUE" / 0.
-        if len(args) > 3:
-            const = _as_bool_flag(args[3])
-        else:
-            const = True
+        const = _as_bool_flag(args[3]) if len(args) > 3 else True
 
         if const:
             data_x = np.c_[data_x, np.ones(data_x.shape[0])]
@@ -543,37 +518,27 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
     if len(d1_clean) < 2 or len(d2_clean) < 2:
         return float("nan")
 
-    st = _scipy_stats()
-    if st is None:
+    if (st := _scipy_stats()) is None:
         return float("nan")
 
-    if type_num == 1:
-        res = st.ttest_rel(d1_clean, d2_clean)
-    elif type_num == 2:
-        res = st.ttest_ind(d1_clean, d2_clean, equal_var=True)
-    else:
-        res = st.ttest_ind(d1_clean, d2_clean, equal_var=False)
-
-    p = float(cast("float", res[1]))
+    res = st.ttest_rel(d1_clean, d2_clean) if type_num == 1 else st.ttest_ind(d1_clean, d2_clean, equal_var=type_num == 2)
+    p = float(res[1])
     if tail_count == 1:
         p /= 2.0
-    return float(p)
+    return p
 
 
 def type(val: Any) -> float:
-    # np.bool_ is logical (4), same as bool. It is a numpy integer subclass,
-    # so the number check has to come after this one.
+    # np.bool_ is logical (4), same as bool (bool subclasses int).
     if _is_calc_error(val):
         return 16.0
     if isinstance(val, (bool, np.bool_)):
         return 4.0
-    if isinstance(val, (int, float, np.integer, np.floating)):
-        return 1.0
     if isinstance(val, str):
         return 2.0
     if isinstance(val, (list, np.ndarray)):
         return 64.0
-    # Blank cell (None) or unknown falls back to 1.0.
+    # Numbers, blank cells (None), and unknown values are 1.0.
     return 1.0
 
 
@@ -689,15 +654,13 @@ _WEEKNUM_WEEK_START: dict[int, int] = {
 }
 
 
+@_nan_on_error
 def weekday(serial: Any, return_type: int | float = 1) -> float:
-    try:
-        # _serial_to_date is the +693594 ordinal. OSError from a wild
-        # ordinal used to be caught here; the helper turns the usual
-        # conversion errors into None.
-        d = _serial_to_date(serial)
-        rt = int(float(return_type))
-    except (TypeError, ValueError, OverflowError, OSError):
-        return float("nan")
+    # _serial_to_date returns None for a bad serial. fromordinal raises
+    # ValueError or OverflowError, not OSError, so the old OSError arm was dead.
+    # A bad return_type still raises into the decorator.
+    d = _serial_to_date(serial)
+    rt = int(float(return_type))
     if d is None:
         return float("nan")
     wd = d.weekday()
@@ -740,15 +703,13 @@ def _system1_week_number(day: dt.date, week_start: int) -> int:
     return week
 
 
+@_nan_on_error
 def weeknum(serial: Any, return_type: int | float = 1) -> float:
     # The body ignored return_type and always returned the ISO week. ISO is
     # only return_type 21 (and 150, the Gnumeric alias). isoweeknum already
     # covers that path; system 1 is a different numbering.
-    try:
-        day = _serial_to_date(serial)
-        rt = int(float(return_type))
-    except (TypeError, ValueError, OverflowError, OSError):
-        return float("nan")
+    day = _serial_to_date(serial)
+    rt = int(float(return_type))
     if day is None:
         return float("nan")
     if rt in (21, 150):
@@ -767,8 +728,7 @@ def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
     b = float(beta)
     if val < 0 or a <= 0 or b <= 0:
         return float("nan")
-    st = _scipy_stats()
-    if st is None:
+    if (st := _scipy_stats()) is None:
         return float("nan")
 
     # In scipy, c=alpha (shape), scale=beta. Note: Calc calls alpha shape and beta scale.
@@ -1086,14 +1046,9 @@ def xor(*args: Any) -> bool | float | str:
                 if math.isnan(number):
                     return float("nan")
                 bit = number != 0.0
-            elif isinstance(val, str):
-                token = val.strip()
-                if token in _LO_ERROR_TOKENS:
-                    return token
-                if in_range:
-                    continue
-                return "#VALUE!"
-            elif val is None:
+            elif isinstance(val, str) and val.strip() in _LO_ERROR_TOKENS:
+                return val.strip()
+            elif val is None or isinstance(val, str):
                 if in_range:
                     continue
                 return "#VALUE!"
@@ -1172,8 +1127,7 @@ def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
         return float("nan")
 
     z = (m - val) / (s / math.sqrt(n))
-    st = _scipy_stats()
-    if st is None:
+    if (st := _scipy_stats()) is None:
         return float("nan")
 
     return float(st.norm.sf(z))
