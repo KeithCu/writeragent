@@ -120,7 +120,7 @@ def test_slash_opens_popup_with_full_list():
     assert "clear" in popup.visible_names
     assert "mock-alpha" in popup.visible_names
     assert popup.selected_name == "help"
-    # Non-toolkit path fills in _refresh_list only. A second addItems doubled rows.
+    # Non-toolkit path fills in _fill_visible_list only. A second addItems doubled rows.
     assert len(box.items) == len(popup.visible_names)
 
 
