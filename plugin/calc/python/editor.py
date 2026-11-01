@@ -57,15 +57,13 @@ def _cell_formula_content(cell: Any) -> bool | None:
     if not hasattr(cell, "getType"):
         return None
     kind = cell.getType()
-    if kind == 3:
-        return True
     from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
 
-    if kind == FORMULA:
+    # Live getType() is a uno.Enum; uno.Enum != int (calc_utils). int 3 is the
+    # stub/fallback FORMULA. Both checks are required.
+    if kind == FORMULA or kind == 3:
         return True
-    if kind in (EMPTY, VALUE, TEXT):
-        return False
-    if isinstance(kind, int):
+    if kind in (EMPTY, VALUE, TEXT) or isinstance(kind, int):
         return False
     return None
 
@@ -117,17 +115,13 @@ def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
         return None
 
 
-def _load_cell_editor_code(cell: Any, formulas: list[str] | None = None) -> tuple[str, PythonFormulaParts | None, str | None]:
+def _load_cell_editor_code(cell: Any, formulas: list[str]) -> tuple[str, PythonFormulaParts | None, str | None]:
     """Return Monaco source: stripped PYTHON code or plain cell text."""
-    f_list = formulas if formulas is not None else _cell_formula_strings(cell)
-    for raw in f_list:
+    for raw in formulas:
         parts = parse_python_formula(raw)
         if parts is not None:
             return parts.code, parts, raw
-    plain = cell.getString()
-    if plain:
-        return str(plain), None, None
-    return "", None, None
+    return str(cell.getString() or ""), None, None
 
 
 def _cell_has_unparsed_python(cell: Any, formulas: list[str] | None = None) -> bool:
@@ -200,15 +194,6 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     return model, cell
 
 
-def _existing_data_args_for_xl_rewrite(data_binding_text: str | None, parsed_parts: PythonFormulaParts | None) -> list[str]:
-    """Resolve current data args from the Monaco Data field or the parsed formula."""
-    if data_binding_text is not None:
-        return parse_data_binding_text(data_binding_text)
-    if parsed_parts is not None:
-        return parse_data_binding_text(format_data_binding_display(parsed_parts.data_suffix))
-    return []
-
-
 def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None, *, parsed_parts: PythonFormulaParts | None = None) -> tuple[str, str | None] | dict[str, Any]:
     """When ``scripting.xl_static_rewrite`` is on, lift ``xl("A1")`` into data args.
 
@@ -217,7 +202,11 @@ def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None,
     enabled = best_effort(lambda: bool(get_config("scripting.xl_static_rewrite")), "xl_static_rewrite config read", False)
     if not enabled:
         return new_code, data_binding_text
-    existing = _existing_data_args_for_xl_rewrite(data_binding_text, parsed_parts)
+    if data_binding_text is not None:
+        existing = parse_data_binding_text(data_binding_text)
+    else:
+        suffix = format_data_binding_display(parsed_parts.data_suffix) if parsed_parts is not None else ""
+        existing = parse_data_binding_text(suffix)
     result = apply_xl_static_rewrite(new_code, existing)
     if result.issues:
         detail = "; ".join(result.issues[:5])
@@ -249,7 +238,8 @@ def _apply_followed_ref_save(formula_cell: Any, *, code_cell: Any, code_ref: str
     code_cell.setString(new_code)
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
-        old_args = _existing_data_args_for_xl_rewrite(None, parsed_parts)
+        suffix = format_data_binding_display(parsed_parts.data_suffix) if parsed_parts is not None else ""
+        old_args = parse_data_binding_text(suffix)
         # Leave the formula cell alone when only the code changed. Native follow
         # save always sends Data: '' — rewriting =PY($A$1) used to emit =PY($A$1))
         # (Err:508) and is unnecessary when the ranges did not change.
@@ -398,19 +388,15 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
         return
 
     exe, monaco_available = monaco_editor_available(ctx)
-    if monaco_available:
-        assert exe is not None
-        log.info("python_editor: using interpreter %s", exe)
-        log.info("python_editor: launching editor subprocess")
-        _launch_editor_with_code(ctx, doc, cell, initial_code=initial_code, parsed_parts=parsed_parts, exe=exe, code_cell=code_cell, code_ref=code_ref)
-        log.info("python_editor: editor session started")
+    if not monaco_available or exe is None:
+        from plugin.calc.python.cell_editor_ui import show_native_python_cell_editor
+
+        log.info("python_editor: editor unavailable; opening native cell editor")
+        opened, detail = show_native_python_cell_editor(ctx, doc=doc, cell=cell, initial_code=initial_code, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
+        if opened:
+            return
+        msg = detail or _("Could not open the built-in Python cell editor.")
+        msgbox(ctx, product_display_name(ctx), msg)
         return
 
-    from plugin.calc.python.cell_editor_ui import show_native_python_cell_editor
-
-    log.info("python_editor: editor unavailable; opening native cell editor")
-    opened, detail = show_native_python_cell_editor(ctx, doc=doc, cell=cell, initial_code=initial_code, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
-    if opened:
-        return
-    msg = detail or _("Could not open the built-in Python cell editor.")
-    msgbox(ctx, product_display_name(ctx), msg)
+    _launch_editor_with_code(ctx, doc, cell, initial_code=initial_code, parsed_parts=parsed_parts, exe=exe, code_cell=code_cell, code_ref=code_ref)

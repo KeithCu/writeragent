@@ -527,6 +527,7 @@ def test_follow_alias_data_change_keeps_prefix():
 def test_text_cell_py_literal_is_not_a_formula():
     from unittest.mock import MagicMock
     from plugin.calc.python.editor import (
+        _cell_formula_strings,
         _cell_has_unparsed_python,
         _load_cell_editor_code,
         editor_load_save_as_plain,
@@ -538,7 +539,7 @@ def test_text_cell_py_literal_is_not_a_formula():
     cell1.getPropertyValue.return_value = "PY(x)"
     cell1.getString.return_value = "PY(x)"
 
-    code1, parts1, _source1 = _load_cell_editor_code(cell1)
+    code1, parts1, _source1 = _load_cell_editor_code(cell1, _cell_formula_strings(cell1))
     assert code1 == "PY(x)"
     assert parts1 is None
     assert _cell_has_unparsed_python(cell1) is False
@@ -550,13 +551,13 @@ def test_text_cell_py_literal_is_not_a_formula():
     cell2.getPropertyValue.return_value = '=PY("x")'
     cell2.getString.return_value = "literal text"
 
-    code2, parts2, _source2 = _load_cell_editor_code(cell2)
+    code2, parts2, _source2 = _load_cell_editor_code(cell2, _cell_formula_strings(cell2))
     assert code2 == "literal text"
     assert parts2 is None
 
     cell_stub = CalcCellStub()
     cell_stub.setFormula('=PY("result = 1")')
-    code_stub, parts_stub, _source_stub = _load_cell_editor_code(cell_stub)
+    code_stub, parts_stub, _source_stub = _load_cell_editor_code(cell_stub, _cell_formula_strings(cell_stub))
     assert code_stub == "result = 1"
     assert parts_stub is not None
 
@@ -564,7 +565,7 @@ def test_text_cell_py_literal_is_not_a_formula():
     mock_cell.getFormula.return_value = "PY(x)"
     mock_cell.getPropertyValue.return_value = None
     mock_cell.getString.return_value = ""
-    code, mock_parts, _s = _load_cell_editor_code(mock_cell)
+    code, mock_parts, _s = _load_cell_editor_code(mock_cell, _cell_formula_strings(mock_cell))
     assert code == ""
     assert mock_parts is None
 
