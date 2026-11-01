@@ -15,6 +15,8 @@ On Draw/Impress, page=N is the vision screenshot (0-based, same as list_pages / 
 from __future__ import annotations
 
 import base64
+import os
+import tempfile
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
@@ -30,13 +32,9 @@ if TYPE_CHECKING:
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
-def _supports_service(doc: Any, service: str) -> bool:
-    return bool(doc.supportsService(service))
-
-
 def _is_draw_family(doc: Any) -> bool:
     """True for Draw or Impress. Check PresentationDocument first: Impress also supports DrawingDocument."""
-    return _supports_service(doc, IMPRESS_DOCUMENT_SERVICE) or _supports_service(doc, DRAW_DOCUMENT_SERVICE)
+    return bool(doc.supportsService(IMPRESS_DOCUMENT_SERVICE)) or bool(doc.supportsService(DRAW_DOCUMENT_SERVICE))
 
 
 def _ok_image(source: str, b64: str) -> dict[str, Any]:
@@ -49,6 +47,23 @@ def _read_png_or_reason(tmp_path: str, page: int) -> tuple[bytes | None, str | N
     if not png or png[:8] != _PNG_MAGIC:
         return None, "could not render page %d: the PNG export produced no valid image." % page
     return png, None
+
+
+def _with_page_png(page: int, export: Any, remove_note: str) -> tuple[bytes | None, str | None]:
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(prefix="wa_page_render_", suffix=".png")
+        os.close(fd)
+        err = export(tmp_path)
+        if err is not None:
+            return err
+        return _read_png_or_reason(tmp_path, page)
+    except Exception as e:
+        reraise_if_disposed(e)
+        return None, "could not render page %d: %s" % (page, e)
+    finally:
+        if tmp_path:
+            best_effort(lambda: os.remove(tmp_path), remove_note)
 
 
 def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | None]:
@@ -65,9 +80,6 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
     2026-07-01). The view cursor is saved and restored best-effort (the jump may briefly scroll the
     window). There is intentionally NO fallback — on any failure this returns a clear reason
     (surfaced by the caller as a tool error), never a silent failure or an empty image."""
-    import os
-    import tempfile
-
     try:
         vc = doc.getCurrentController().getViewCursor()
     except Exception as e:
@@ -79,7 +91,6 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
     # Writer body (PR #796). A failed save only skips the restore below.
     saved = best_effort(lambda: clone_text_range(vc), "save view cursor before page render")
 
-    tmp_path = None
     try:
         # jumpToPage / getPage are 1-based Writer APIs; *page* is 0-based at the tool boundary.
         lo_page = page + 1
@@ -95,19 +106,17 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
         import uno
         from com.sun.star.beans import PropertyValue
 
-        fd, tmp_path = tempfile.mkstemp(prefix="wa_page_render_", suffix=".png")
-        os.close(fd)
-        doc.storeToURL(
-            uno.systemPathToFileUrl(tmp_path),
-            (PropertyValue(Name="FilterName", Value="writer_png_Export"),),
-        )
-        return _read_png_or_reason(tmp_path, page)
+        def export(tmp_path: str) -> None:
+            doc.storeToURL(
+                uno.systemPathToFileUrl(tmp_path),
+                (PropertyValue(Name="FilterName", Value="writer_png_Export"),),
+            )
+
+        return _with_page_png(page, export, "page render: remove temp png failed")
     except Exception as e:
         reraise_if_disposed(e)
         return None, "could not render page %d: %s" % (page, e)
     finally:
-        if tmp_path:
-            best_effort(lambda: os.remove(tmp_path), "page render: remove temp png failed")
         if saved is not None:
             best_effort(lambda: vc.gotoRange(saved, False), "restore view cursor after page render")
 
@@ -124,9 +133,6 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
     produces the same image but mutates the view; FilterData PageNumber on the document model
     does not work (filter returns false). Fail-loud — never a silent empty image.
     """
-    import os
-    import tempfile
-
     try:
         pages = doc.getDrawPages()
         total = int(pages.getCount())
@@ -137,11 +143,7 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
     if page < 0 or page >= total:
         return None, "could not render page %d: page not found (document has %d page(s))." % (page, total)
 
-    tmp_path = None
     try:
-        import uno
-        from com.sun.star.beans import PropertyValue
-
         if ctx is None:
             return None, "could not render page %d: no component context for GraphicExportFilter." % page
         smgr = getattr(ctx, "ServiceManager", None)
@@ -153,21 +155,23 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
         # setSourceDocument accepts XDrawPage here (not only XModel) — that is how a specific
         # slide is targeted without a controller page jump.
         filt.setSourceDocument(pages.getByIndex(page))
-        fd, tmp_path = tempfile.mkstemp(prefix="wa_page_render_", suffix=".png")
-        os.close(fd)
+    except Exception as e:
+        reraise_if_disposed(e)
+        return None, "could not render page %d: %s" % (page, e)
+
+    import uno
+    from com.sun.star.beans import PropertyValue
+
+    def export(tmp_path: str) -> tuple[bytes | None, str | None] | None:
         ok = filt.filter((
             PropertyValue(Name="URL", Value=uno.systemPathToFileUrl(tmp_path)),
             PropertyValue(Name="MediaType", Value="image/png"),
         ))
         if not ok:
             return None, "could not render page %d: GraphicExportFilter returned false." % page
-        return _read_png_or_reason(tmp_path, page)
-    except Exception as e:
-        reraise_if_disposed(e)
-        return None, "could not render page %d: %s" % (page, e)
-    finally:
-        if tmp_path:
-            best_effort(lambda: os.remove(tmp_path), "draw page render: remove temp png failed")
+        return None
+
+    return _with_page_png(page, export, "draw page render: remove temp png failed")
 
 
 def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:
