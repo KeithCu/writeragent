@@ -28,7 +28,7 @@ from plugin.chatbot.panel import (
     notify_stop_mouse_pressed,
     query_enter_triggers_primary_send,
 )
-from plugin.chatbot.record_gesture import HANDS_FREE_STATUS, RecordGesture, hands_free_status_text
+from plugin.chatbot.record_gesture import RecordGesture, hands_free_status_text
 from plugin.chatbot.send_state import ButtonAction, SendButtonState, SendEvent, SendEventKind, SendMode
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.chatbot.sidebar_state import SidebarCompositeState
@@ -1134,7 +1134,7 @@ def _hands_free_listener() -> tuple[SendButtonListener, Any]:
     listener.stop_control.getModel.return_value = MagicMock()
     listener.audio_recorder = MagicMock()
     listener.audio_recorder.state = AudioRecorderState(status="idle")
-    listener._voice._spawn_record_hold_wait = MagicMock()
+    listener._voice._hold_waiter.wait_and_post = MagicMock()
     listener._voice._spawn_sticky_tts_wait = MagicMock()
     return listener, send_model
 
@@ -1163,7 +1163,7 @@ class TestHandsFreeRecord:
     def test_long_press_sets_sticky_and_hands_free_status(self) -> None:
         listener, _send_model = _hands_free_listener()
         notify_record_mouse_pressed(listener)
-        listener._voice._spawn_record_hold_wait.assert_called_once()
+        listener._voice._hold_waiter.wait_and_post.assert_called_once()
         listener._voice._on_record_hold_elapsed(listener._record_hold_gen)
         assert listener._record_gesture.sticky is True
         assert listener.sidebar_state.send.is_recording
@@ -1246,7 +1246,7 @@ class TestHandsFreeRecord:
             listener._voice._poll_sticky_rerecord(gen)
         assert listener.sidebar_state.send.is_recording
         assert listener._record_gesture.sticky is True
-        listener.status_control.setText.assert_any_call(HANDS_FREE_STATUS)
+        listener.status_control.setText.assert_any_call(hands_free_status_text())
 
     def test_stop_during_busy_clears_sticky_so_completion_does_not_restart(self) -> None:
         listener, _send_model = _hands_free_listener()

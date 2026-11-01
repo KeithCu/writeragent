@@ -421,7 +421,7 @@ class SendButtonListener(BaseActionListener):
         self._voice = PanelVoiceController(self)
         if HAS_RECORDING:
             assert _AudioRecorderCls is not None
-            self.audio_recorder = _AudioRecorderCls(ctx)
+            self.audio_recorder = _AudioRecorderCls()
             self.audio_recorder.set_auto_stop_callbacks(
                 on_auto_stop=lambda: self.queue_executor.post(self._voice._on_audio_auto_stop),
                 on_silence_progress=lambda ms: self.queue_executor.post(self._voice._on_audio_silence_progress, ms),
