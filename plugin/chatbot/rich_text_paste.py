@@ -48,7 +48,6 @@ from plugin.chatbot.rich_text import (
     normalize_portion_font,
     _append_rich_text_with_span,
     _role_prefix,
-    append_rich_text,
     apply_chat_char_props,
     apply_rich_control_para_margins,
     contains_html_tag,
@@ -185,11 +184,6 @@ def _text_table_cell_rows(table: Any) -> list[list[str]]:
     return rows
 
 
-def _flatten_text_table_rows(table: Any) -> list[str]:
-    """Cell strings as tab-separated rows. EditEngine cannot host a Writer table."""
-    return ["\t".join(row) for row in _text_table_cell_rows(table)]
-
-
 # RichTextControl is EditEngine: ParaTabStops Position is twips (1/20 pt), not
 # Writer's 1/100 mm (EE_PARA_TABS has no CONVERT_TWIPS). Column width is the
 # longest cell in Liberation Sans ems (ASCII advances from the Regular TTF)
@@ -310,12 +304,12 @@ def _role_from_portion_text(text: str) -> str | None:
     return None
 
 
-def _resolve_portion_char_color(src_portion: Any, txt: str, user_color: int, assistant_color: int, default_role: str = "assistant") -> int:
+def _resolve_portion_char_color(src_portion: Any, txt: str, theme: Any, default_role: str = "assistant") -> int:
     raw = getattr(src_portion, "CharColor", None)
     if isinstance(raw, int) and not _is_automatic_char_color(raw):
         return raw
     role = _role_from_portion_text(txt) or default_role
-    return user_color if role == "user" else assistant_color
+    return ChatTheme.role_color(theme, role)
 
 
 def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str:
@@ -371,14 +365,12 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
     return "%s%d. " % (indent, order_counters[key])
 
 
-def _rich_control_bg_color(model: Any, style_window: Any = None) -> int:
+def _rich_control_bg_color(model: Any, fallback_color: int) -> int:
     """Theme fill color for the control (matches sidebar dialog chrome)."""
     bg = getattr(model, "BackgroundColor", None)
     if isinstance(bg, int):
         return bg
-
-    theme = ChatTheme.resolve(style_window=style_window)
-    return theme.bg_color
+    return fallback_color
 
 
 def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: int, bg_color: int | None = None) -> None:
@@ -417,20 +409,18 @@ def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> b
     messages = getattr(session, "messages", None)
     if not isinstance(messages, list):
         return False
+    if not text or not str(text).strip():
+        return False
     if role == "user":
         # A user row already in session.messages (add_user_message at send
         # time) is still a paint. Returning False makes panel._paint_from_list
         # skip the session, so 'You:' waits for the first stream chunk and a
         # Stop before that token draws '[Stopped by user]' under the greeting.
         # Return True without appending again.
-        if not text or not str(text).strip():
-            return False
         if messages and messages[-1].get("role") == "user":
             return True
         messages.append({"role": "user", "content": text})
         return True
-    if not text or not str(text).strip():
-        return False
     if messages and messages[-1].get(OPEN_TRANSCRIPT):
         messages[-1]["content"] = (messages[-1].get("content") or "") + text
         return True
@@ -558,9 +548,8 @@ def rows_need_hidden_writer(rows: Any) -> bool:
     return any(contains_html_tag(content or "") for _role, content in (rows or []))
 
 
-def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> None:
+def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant") -> None:
     """Write one stripped row. No HTML filter, so a tag cannot land in the doc."""
-    del style_window
     text_obj = doc.getText()
     cursor = text_obj.createTextCursor()
     cursor.gotoEnd(False)
@@ -587,7 +576,7 @@ def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None
         if ok and span_matches_message(added, role, content):
             continue
         text_obj.setString(previous)
-        append_plain_transcript_row(doc, content, role=role, style_window=style_window)
+        append_plain_transcript_row(doc, content, role=role)
         if not span_matches_message(writer_suffix(text_obj, previous), role, content):
             # The plain row is the message text. If it still does not match,
             # drop the span rather than keep text the list does not have.
@@ -708,7 +697,7 @@ def _copy_formatted_from_hidden_doc_to_control(
             dest_cursor = model.createTextCursor()
             dest_cursor.gotoEnd(False)
             apply_rich_control_para_margins(dest_cursor)
-            fill_color = _rich_control_bg_color(model, style_window=style_window)
+            fill_color = _rich_control_bg_color(model, theme.bg_color)
 
             control_len = get_control_text_length(control)
 
@@ -795,7 +784,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                             prefix_inserted = True
                             element_inserted = True
                         portion_color = _resolve_portion_char_color(
-                            portion, txt, theme.user_color, theme.assistant_color, current_role
+                            portion, txt, theme, current_role
                         )
                         normalize_portion_font(portion)
                         _apply_cursor_char_props(dest_cursor, portion, char_color=portion_color, bg_color=fill_color)
@@ -811,6 +800,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         element_inserted = True
                         if maybe_link and before_len is not None:
                             after_len = control_len
+                            assert after_len is not None
                             addr = normalize_cell_address(href) if href else None
                             if is_pending:
                                 # Pop the matched queue head even when href supplied the address.
@@ -821,7 +811,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                                     addr = pending_addr
                             elif not addr and looks_like_cell_link:
                                 addr = normalize_cell_address(txt.strip())
-                            if addr and isinstance(before_len, int) and isinstance(after_len, int):
+                            if addr:
                                 register_cell_link_span(control, before_len, after_len, addr)
                         dest_cursor.gotoEnd(False)
                         inserted = True
@@ -852,7 +842,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         )
                         try:
                             if _is_writer_text_table(para):
-                                fallback_text = "\n".join(_flatten_text_table_rows(para))
+                                fallback_text = "\n".join("\t".join(r) for r in _text_table_cell_rows(para))
                             else:
                                 fallback_text = para.getString()
                             control_len = get_control_text_length(control)
@@ -1118,7 +1108,6 @@ def append_formatted_row(
         return False
     if role == "assistant":
         text = strip_legacy_ai_label(text)
-    text = render_calc_cell_refs(text)
     cell_link_targets = extract_cell_links_from_html(text)
 
     def _finish_append_row() -> None:
@@ -1167,15 +1156,11 @@ def append_formatted_row(
             log.warning("append_formatted_row: hidden Writer unavailable")
             return _rollback_and_plain()
         configure_hidden_writer_for_chat(doc)
-        if append_rich_text(doc, text, role=role, style_window=style_window) is False:
-            # Filter failed. The hidden doc has the role prefix and not the body.
-            # Copying it would show the prefix alone, or the raw tags if they
-            # had been inserted. Roll back and write the stripped message.
+        ok, _previous, added = _append_rich_text_with_span(doc, text, role=role, style_window=style_window)
+        if not ok or not span_matches_message(added, role, text):
+            # Filter failed or imported span does not match message. Roll back
+            # and write the stripped message.
             log.warning("append_formatted_row: HTML import failed role=%s", role)
-            return _rollback_and_plain()
-        span = uno_probe(lambda: doc.getText().getString(), None)
-        if isinstance(span, str) and not span_matches_message(span, role, text):
-            log.warning("append_formatted_row: imported span does not match message role=%s", role)
             return _rollback_and_plain()
         log.debug("append_formatted_row: hidden doc ready len=%d role=%s", len(text), role)
         ok, direct_reason = _copy_formatted_from_hidden_doc_to_control(

@@ -279,7 +279,7 @@ class TestAppendRichText:
         # The body range is created from the prefix anchor, by range.
         doc.getText().createTextCursorByRange = track_body_cursor
 
-        with patch("plugin.chatbot.rich_text._insert_html_at_cursor"):
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
             append_rich_text(doc, '<p><span style="color:#ff0000">red</span></p>', role="assistant")
 
         assert (len(body_cursors)) >= (2)
@@ -310,7 +310,7 @@ class TestAppendRichText:
 
         doc = MockDoc()
         with patch(
-            "plugin.chatbot.rich_text._insert_html_at_cursor",
+            "plugin.writer.html_import.insert_html_fragment_at_cursor",
             side_effect=RuntimeError("filter"),
         ):
             ok = append_rich_text(doc, "<p>Hi</p>", role="assistant")
@@ -330,11 +330,11 @@ class TestAppendRichText:
         doc = MockDoc()
         seen: list[str] = []
 
-        def _capture(_cursor, fragment):
+        def _capture(_cursor, fragment, **kwargs):
             seen.append(fragment)
 
         full = "<html><head><script>alert(1)</script></head><body><p>Hi</p></body></html>"
-        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_capture):
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor", side_effect=_capture):
             ok = append_rich_text(doc, full, role="assistant")
 
         assert ok is True
@@ -347,11 +347,11 @@ class TestAppendRichText:
 
         doc = MockDoc()
 
-        def _writes_tags_then_raises(_cursor, fragment):
+        def _writes_tags_then_raises(_cursor, fragment, **kwargs):
             doc.getText().insertString(None, fragment, False)
             raise RuntimeError("bad element")
 
-        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_writes_tags_then_raises):
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor", side_effect=_writes_tags_then_raises):
             ok = append_rich_text(doc, "<p>Hi</p><script>alert(1)</script>", role="assistant")
 
         assert ok is False
@@ -360,13 +360,13 @@ class TestAppendRichText:
         doc = MockDoc()
         calls = {"n": 0}
 
-        def _later_edit_inserts_foreign_text(_cursor, fragment):
+        def _later_edit_inserts_foreign_text(_cursor, fragment, **kwargs):
             del fragment
             calls["n"] += 1
             doc.getText().insertString(None, "NOT_IN_MESSAGES", False)
             raise RuntimeError("later edit failed")
 
-        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_later_edit_inserts_foreign_text):
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor", side_effect=_later_edit_inserts_foreign_text):
             render_messages_to_hidden_doc(
                 doc,
                 [("user", "keep me"), ("assistant", "<p>second</p>")],
@@ -410,10 +410,10 @@ class TestLeadingListImport:
 
         seen: list[str] = []
 
-        def _capture(_cursor, fragment):
+        def _capture(_cursor, fragment, **kwargs):
             seen.append(fragment)
 
-        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_capture):
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor", side_effect=_capture):
             assert append_rich_text(MockDoc(), html, role="assistant")
         return seen
 
@@ -496,11 +496,11 @@ class TestLeadingListImport:
 
         doc = MockDoc()
 
-        def _partial_import(cursor, fragment):
+        def _partial_import(cursor, fragment, **kwargs):
             del fragment
             doc.getText().insertString(cursor, "hello", False)
 
-        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_partial_import):
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor", side_effect=_partial_import):
             render_messages_to_hidden_doc(doc, [("assistant", "<p>hello world</p>")])
 
         content = doc.getText().getString()
@@ -648,7 +648,7 @@ class TestGenericTokensStayInTheTranscript:
 
         text = "Use List<String>, write <user@example.com>, see <https://example.com/a>."
         doc = MockDoc()
-        with patch("plugin.chatbot.rich_text._insert_html_at_cursor") as mock_insert:
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert:
             ok = append_rich_text(doc, text, role="assistant")
         assert ok is True
         mock_insert.assert_not_called()
@@ -658,7 +658,7 @@ class TestGenericTokensStayInTheTranscript:
         assert "<https://example.com/a>" in content
 
         doc = MockDoc()
-        with patch("plugin.chatbot.rich_text._insert_html_at_cursor") as mock_insert:
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert:
             render_messages_to_hidden_doc(doc, [("assistant", text)])
         mock_insert.assert_not_called()
         rendered = doc.getText().getString()
@@ -667,7 +667,7 @@ class TestGenericTokensStayInTheTranscript:
         assert "<https://example.com/a>" in rendered
 
         doc = MockDoc()
-        with patch("plugin.chatbot.rich_text._insert_html_at_cursor") as mock_insert:
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert:
             append_rich_text(doc, "<b>bold</b> and <i>italic</i> <script>x</script>", role="assistant")
         mock_insert.assert_called_once()
 
@@ -761,15 +761,13 @@ class TestChatThemeAndImporter:
 
     def test_insert_html_at_cursor_forwards_sidebar_css(self):
         from plugin.chatbot import rich_text
+        from plugin.chatbot.rich_text import append_rich_text
 
-        cursor = MockTextCursor()
+        doc = MockDoc()
         with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert:
-            rich_text._insert_html_at_cursor(cursor, "<p>Hi</p>")
-        mock_insert.assert_called_once_with(
-            cursor,
-            "<p>Hi</p>",
-            extra_css=rich_text._SIDEBAR_LIST_CSS,
-        )
+            append_rich_text(doc, "<p>Hi</p>")
+        mock_insert.assert_called_once()
+        assert mock_insert.call_args.kwargs.get("extra_css") == rich_text._SIDEBAR_LIST_CSS
 
 
 def test_render_calc_cell_refs_html():

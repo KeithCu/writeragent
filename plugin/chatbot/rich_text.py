@@ -218,13 +218,6 @@ def _tighten_list_indent(body_range: Any) -> None:
         best_effort(_tighten, f"_tighten_list_indent: failed for level {level}")
 
 
-def _insert_html_at_cursor(cursor: Any, html_fragment: str) -> None:
-    """Import an HTML fragment at *cursor* using Writer's HTML filter."""
-    from plugin.writer.html_import import insert_html_fragment_at_cursor
-
-    insert_html_fragment_at_cursor(cursor, html_fragment, extra_css=_SIDEBAR_LIST_CSS)
-
-
 def contains_html_tag(text: str) -> bool:
     """True when *text* contains a real HTML tag, not a bare ``<`` comparison.
 
@@ -316,9 +309,9 @@ def _append_rich_text_with_span(
 
         theme = ChatTheme.resolve(doc, style_window=style_window)
 
-        if text and text.strip():
-            text = strip_legacy_ai_label(text) if role == "assistant" else text
-            text = render_calc_cell_refs(text)
+        text = strip_legacy_ai_label(text) if role == "assistant" else text
+        text = render_calc_cell_refs(text)
+        has_body = bool(text and text.strip())
 
         # Park anchor before the insert point so added span includes separator and prefix.
         parked_anchor = None
@@ -353,7 +346,7 @@ def _append_rich_text_with_span(
         body_anchor.goLeft(1, False)
 
         looks_html = False
-        if text and text.strip():
+        if has_body:
             looks_html = contains_html_tag(text)
             log.debug("append_rich_text: looks_html=%s len=%d snippet=%r", looks_html, len(text), text[:120])
 
@@ -367,7 +360,9 @@ def _append_rich_text_with_span(
                     leading_list = _body_starts_with_list(body_html)
                     if leading_list:
                         body_html = "<p>%s</p>%s" % (_LIST_SENTINEL, body_html)
-                    _insert_html_at_cursor(cursor, body_html)
+                    from plugin.writer.html_import import insert_html_fragment_at_cursor
+
+                    insert_html_fragment_at_cursor(cursor, body_html, extra_css=_SIDEBAR_LIST_CSS)
                     if leading_list:
                         _drop_list_sentinel(text_obj, body_anchor)
                 except Exception:
@@ -390,7 +385,7 @@ def _append_rich_text_with_span(
         else:
             added = text_obj.getString() or ""
 
-        if text and text.strip():
+        if has_body:
             if contains_html_tag(added):
                 # The filter returned without raising and left the tags as text.
                 log.warning("HTML import left tags in the hidden doc role=%s", role)
