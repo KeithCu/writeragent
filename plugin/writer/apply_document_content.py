@@ -738,6 +738,9 @@ class ApplyDocumentContent(ToolBase):
 
         if batch:
             return run(), None
+        # A single match has to enter the review session here, outline link or not
+        # (all_matches already entered it around the loop), or record mode would
+        # only track replaces that happen to sit in an outline URL.
         if not needs_fix:
             with session:
                 mutate()
