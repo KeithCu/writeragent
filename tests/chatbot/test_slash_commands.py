@@ -173,7 +173,7 @@ def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
     from plugin.chatbot.panel import StopButtonListener
 
     stop_model = SimpleNamespace(Enabled=True)
-    voice_mock = SimpleNamespace(exit_hands_free_record=MagicMock())
+    voice_mock = SimpleNamespace(exit_hands_free_record=MagicMock(), stop_during_take=lambda: False)
     host = SimpleNamespace(
         slash_popup=None,
         query_control=SimpleNamespace(text="/stop"),
@@ -181,6 +181,7 @@ def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
         _approval_event=None,
         _send_busy=False,
         _voice=voice_mock,
+        _stop_button_action=ButtonAction.IGNORE,
         stop_control=SimpleNamespace(getModel=lambda: stop_model),
         hide_popup=MagicMock(),
         stop_in_flight=lambda: StopButtonListener(host).on_action_performed(None),
