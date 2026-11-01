@@ -95,8 +95,8 @@ class DomainWiring:
             return ret
         return None
 
-    def format_ok(self, *, meta: Any, result: dict[str, Any], t0: float, row_count: Any = None, stdout: str | None = None) -> dict[str, Any]:
-        helper = str(getattr(meta, "helper", "") or "") or str(result.get("helper") or self.id)
+    def format_ok(self, *, result: dict[str, Any], t0: float, row_count: Any = None, stdout: str | None = None) -> dict[str, Any]:
+        helper = str(result.get("helper") or self.id)
 
         if self.format_ok_kind == "plot":
             title = str(result.get("title") or helper or "Plot")
@@ -285,9 +285,6 @@ class PickerWiring:
 
     def templates(self) -> dict[str, str]:
         return _resolve_module_attr(self.templates_ref)()
-
-    def title_fn(self) -> str:
-        return _(self.title)
 
 
 PICKER_WIRING: tuple[PickerWiring, ...] = (

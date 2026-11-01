@@ -1431,7 +1431,7 @@ def test_stale_list_selection_ignores_templates_of_the_stale_document():
     domain = MagicMock()
     domain.origin = "viz"
     domain.display_prefix = "[Viz] "
-    domain.title_fn = lambda: "Viz"
+    domain.title = "Viz"
     domain.supports = lambda d: d is not None
     domain.templates = lambda: {"Plot": "result = 1"}
 

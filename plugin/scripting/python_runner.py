@@ -44,7 +44,6 @@ from plugin.scripting.document_scripts import (
     save_selected_script,
 )
 from plugin.scripting.helper_domain import (
-    HelperScriptMeta,
     format_elapsed_time,
     parse_run_import_call_spec,
     plot_insert_ok_outcome,
@@ -474,12 +473,7 @@ def try_rps_post_venv(
         reraise_if_disposed(e)
         return rps_insert_failed_outcome(e, t0=t0)
 
-    # Synthetic meta for format_ok when no header was used.
-    helper = ""
-    if isinstance(result_data, dict):
-        helper = str(result_data.get("helper") or "")
-    meta = HelperScriptMeta(helper=helper, params={})
-    return spec.format_ok(meta=meta, result=result_data, t0=t0, row_count=row_count, stdout=stdout)
+    return spec.format_ok(result=result_data, t0=t0, row_count=row_count, stdout=stdout)
 
 
 def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:

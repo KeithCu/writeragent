@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import get_args
 from unittest.mock import patch
 
@@ -133,7 +132,6 @@ def test_vision_html_block_count_ignores_tag_prefixes():
         "<h2>c</h2><table><tr><td>d</td></tr></table>"
     )
     out = wiring.format_ok(
-        meta=SimpleNamespace(helper="extract_structure"),
         result={"helper": "extract_structure", "html": html, "metrics": {"table_count": 1}},
         t0=0.0,
     )
@@ -151,7 +149,7 @@ def test_picker_domains_unique_origins_and_prefixes():
         assert d.display_prefix
         assert callable(d.supports)
         assert callable(d.templates)
-        assert callable(d.title_fn)
+        assert isinstance(d.title, str) and d.title
 
 
 def test_picker_order_starts_with_vision_math_units_analysis():
@@ -281,7 +279,6 @@ def test_units_format_ok_joins_formatted_list():
 
     wiring = next(w for w in WIRING_TABLE if w.id == "units")
     out = wiring.format_ok(
-        meta=SimpleNamespace(helper="convert_quantity"),
         result={
             "helper": "convert_quantity",
             "formatted": ["36 km/h", "72 km/h"],
