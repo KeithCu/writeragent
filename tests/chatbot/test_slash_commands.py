@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -20,34 +19,24 @@ from plugin.chatbot.slash_commands import (
     KEY_TAB,
     KEY_UP,
     SLASH_LRU_KEY,
-    SlashCommand,
     classify_slash_key,
     filter_slash_commands,
     format_help_text,
     record_slash_lru,
+    registered_slash_commands,
     run_slash_command,
     slash_typed_prefix,
 )
 from plugin.chatbot.send_state import ButtonAction
 
 
-@pytest.fixture
-def mock_commands() -> tuple[SlashCommand, ...]:
-    return (
-        SlashCommand("help", "Print the command list"),
-        SlashCommand("clear", "Start a new chat"),
-        SlashCommand("stop", "Cancel the in-flight send"),
-        SlashCommand("mock-alpha", "Mock command (echo only)"),
-        SlashCommand("mock-bravo", "Mock command (echo only)"),
-        SlashCommand("mock-charlie", "Mock command (echo only)"),
-        SlashCommand("apply", "Apply last draft (mock)"),
-        SlashCommand("web", "Web research (mock)"),
-        SlashCommand("model", "Switch model (mock)"),
-    )
+@pytest.fixture(autouse=True)
+def _enable_mock_commands(monkeypatch):
+    monkeypatch.setattr("plugin.chatbot.slash_commands._mock_commands_enabled", True)
 
 
-def _names(typed: str, lru: list[str] | None = None, commands: Sequence[SlashCommand] | None = None) -> list[str]:
-    return [cmd.name for cmd in filter_slash_commands(typed, lru, commands=commands)]
+def _names(typed: str, lru: list[str] | None = None) -> list[str]:
+    return [cmd.name for cmd in filter_slash_commands(typed, lru)]
 
 
 def test_slash_typed_prefix_full_list_and_narrow():
@@ -58,14 +47,14 @@ def test_slash_typed_prefix_full_list_and_narrow():
     assert slash_typed_prefix("") is None
 
 
-def test_slash_opens_full_registry_order_without_lru(mock_commands):
-    names = _names("/", commands=mock_commands)
+def test_slash_opens_full_registry_order_without_lru():
+    names = _names("/")
     assert names[0] == "help"
     assert "clear" in names
     assert "mock-alpha" in names
     assert "mock-bravo" in names
     assert "mock-charlie" in names
-    assert names == [cmd.name for cmd in mock_commands]
+    assert names == [cmd.name for cmd in registered_slash_commands()]
 
 
 def test_he_prefix_selects_help_as_top_match():
@@ -73,20 +62,20 @@ def test_he_prefix_selects_help_as_top_match():
     assert [cmd.name for cmd in matches] == ["help"]
 
 
-def test_further_typing_narrows_mocks(mock_commands):
-    assert _names("/mock-", commands=mock_commands) == ["mock-alpha", "mock-bravo", "mock-charlie"]
-    assert _names("/mock-a", commands=mock_commands) == ["mock-alpha"]
-    assert _names("/zzz", commands=mock_commands) == []
+def test_further_typing_narrows_mocks():
+    assert _names("/mock-") == ["mock-alpha", "mock-bravo", "mock-charlie"]
+    assert _names("/mock-a") == ["mock-alpha"]
+    assert _names("/zzz") == []
 
 
-def test_lru_floats_to_top_on_empty_filter(mock_commands):
-    names = _names("/", lru=["mock-bravo", "clear"], commands=mock_commands)
+def test_lru_floats_to_top_on_empty_filter():
+    names = _names("/", lru=["mock-bravo", "clear"])
     assert names[:2] == ["mock-bravo", "clear"]
     assert "help" in names
 
 
-def test_lru_is_tie_break_among_prefix_matches(mock_commands):
-    names = _names("/m", lru=["model"], commands=mock_commands)
+def test_lru_is_tie_break_among_prefix_matches():
+    names = _names("/m", lru=["model"])
     assert names[0] == "model"
     assert "mock-alpha" in names
 
@@ -101,8 +90,8 @@ def test_classify_slash_keys():
     assert classify_slash_key(65) is None
 
 
-def test_help_text_lists_wired_and_mocks(mock_commands):
-    text = format_help_text(mock_commands)
+def test_help_text_lists_wired_and_mocks():
+    text = format_help_text()
     assert "/help" in text
     assert "/mock-alpha [mock]" in text
     assert "/clear" in text
@@ -114,14 +103,14 @@ def test_record_slash_lru_uses_existing_config_helper():
         update.assert_called_once_with("help", SLASH_LRU_KEY, "")
 
 
-def test_run_mock_echoes_and_records_lru(mock_commands):
+def test_run_mock_echoes_and_records_lru():
     host = SimpleNamespace(
         hide_popup=MagicMock(),
         clear_ask=MagicMock(),
         append_output=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru") as record:
-        assert run_slash_command("mock-alpha", host, commands=mock_commands) is True
+        assert run_slash_command("mock-alpha", host) is True
     record.assert_called_once_with("mock-alpha")
     host.hide_popup.assert_called_once()
     host.clear_ask.assert_called_once()

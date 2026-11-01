@@ -74,78 +74,6 @@ def _defer_to_next_turn(fn: Any, *args: Any) -> None:
         log.warning("slash popup: could not defer main-thread turn", exc_info=True)
 
 
-def _ovdiag(obj: Any, label: str) -> None:
-    """Peer/window geometry + visibility for headed overlay debugging."""
-    # Probes getPosSize / peers. Skip them unless the verbose flag is on;
-    # _ovlog would drop the line anyway.
-    if not SLASH_OV_VERBOSE_DEBUG:
-        return
-    if obj is None:
-        _ovlog("%s None", label)
-        return
-    bits = [label, "py=%s" % type(obj).__name__]
-    try:
-        bits.append("impl=%s" % obj.getImplementationName())
-        ps = obj.getPosSize()
-        bits.append("pos=%sx%s@%s,%s" % (ps.Width, ps.Height, ps.X, ps.Y))
-        for name in ("isVisible", "isReallyVisible"):
-            fn = getattr(obj, name, None)
-            if callable(fn):
-                bits.append("%s=%s" % (name, fn()))
-        bits.append("toFront=%s" % callable(getattr(obj, "toFront", None)))
-        bits.append("setVisible=%s" % callable(getattr(obj, "setVisible", None)))
-        bits.append("output=%sx%s" % (obj.getOutputWidth(), obj.getOutputHeight()))
-        osz = obj.getOutputSize()
-        bits.append("outputSize=%sx%s" % (osz.Width, osz.Height))
-        peer = obj.getPeer() if callable(getattr(obj, "getPeer", None)) else None
-        if peer is not None and peer is not obj:
-            pps = peer.getPosSize()
-            bits.append("peerPos=%sx%s@%s,%s" % (pps.Width, pps.Height, pps.X, pps.Y))
-            bits.append("peerOutput=%sx%s" % (peer.getOutputWidth(), peer.getOutputHeight()))
-            posz = peer.getOutputSize()
-            bits.append("peerOutputSize=%sx%s" % (posz.Width, posz.Height))
-    except Exception:
-        log.debug("slash overlay geometry probe failed for %s", label, exc_info=True)
-    _ovlog("%s", " ".join(str(b) for b in bits))
-
-
-def _resolve_query_label(send_listener: Any, overlay_parent: Any = None) -> Any:
-    """Ask/instruct label control — may sit in the Ready↔Ask gap on HiDPI."""
-    label = getattr(send_listener, "query_label", None) if send_listener is not None else None
-    if label is not None:
-        return label
-    parent = overlay_parent
-    if parent is None and send_listener is not None:
-        popup = getattr(send_listener, "slash_popup", None)
-        parent = getattr(popup, "_overlay_parent", None) if popup is not None else None
-    if parent is not None and hasattr(parent, "getControl"):
-        return parent.getControl("query_label")
-    return None
-
-
-def _log_slash_clip_neighbors(
-    send_listener: Any,
-    *,
-    popup_bounds: tuple[int, int, int, int] | None = None,
-    overlay_parent: Any = None,
-) -> None:
-    """Log status / query_label / response / rich-text geometry beside popup (Arch clip)."""
-    if popup_bounds is not None:
-        x, y, w, h = popup_bounds
-        _ovlog("popup_bounds_for_clip=%s,%s %sx%s (y..y+h=%s..%s)", x, y, w, h, y, y + h)
-    if send_listener is None:
-        _ovlog("clip_neighbors send_listener None")
-        return
-    status = getattr(send_listener, "status_control", None)
-    response = getattr(send_listener, "response_control", None)
-    query_label = _resolve_query_label(send_listener, overlay_parent)
-    rich_widget = getattr(send_listener, "rich_text_widget", None)
-    rich_ctrl = getattr(rich_widget, "control", None) if rich_widget is not None else None
-    _ovdiag(status, "status")
-    _ovdiag(query_label, "query_label")
-    _ovdiag(response, "response")
-    _ovdiag(rich_ctrl, "rich_text")
-
 # Feature flag: slash-command popup is currently disabled until stable.
 ENABLE_SLASH = False
 
@@ -163,8 +91,7 @@ def _supported_services(ctrl: Any) -> str:
 
 def _is_combo_box(ctrl: Any) -> bool:
     """True for the XDL ``menulist`` placeholder (ComboBox), not a ListBox."""
-    names = _supported_services(ctrl)
-    return "ComboBox" in names or "UnoControlComboBox" in names
+    return "ComboBox" in _supported_services(ctrl)
 
 
 def _overlay_height(rows: int) -> int:
@@ -187,12 +114,6 @@ def _list_height(ctrl: Any, rows: int) -> int:
     return _overlay_height(n)
 
 
-def _popup_bounds(query_width: int, rows: int) -> tuple[int, int, int, int]:
-    """Ask-peer-relative rectangle: tall list just above the field (Y negative)."""
-    height = _overlay_height(rows)
-    return (0, -height - 2, max(20, int(query_width)), height)
-
-
 def _printable_key_char(key_char: Any) -> str | None:
     if key_char is None:
         return None
@@ -204,15 +125,6 @@ def _printable_key_char(key_char: Any) -> str | None:
     if not raw.isprintable() or raw in "\t\n\r":
         return None
     return raw
-
-
-def _overlay_rect(qr: Any, rows: int, *, relative_to_ask: bool) -> tuple[int, int, int, int]:
-    """List rectangle. Ask-relative Y is negative (clips in a 49px peer). Dialog-relative sits above Ask."""
-    width = max(20, int(getattr(qr, "Width", 0) or 0))
-    if relative_to_ask:
-        return _popup_bounds(width, rows)
-    height = _overlay_height(rows)
-    return (int(qr.X), int(qr.Y) - height - 2, width, height)
 
 
 def _status_top(send_listener: Any) -> int | None:
@@ -312,11 +224,6 @@ def _row_index_at_y(y: int, n_rows: int, row_px: int = _POPUP_ROW_PX) -> int | N
     return None
 
 
-def uses_toolkit_overlay(popup: Any) -> bool:
-    """True when the visible menu is a toolkit window, not an in-dialog control."""
-    return getattr(popup, "_popup_window", None) is not None
-
-
 def _query_peer(query_control: Any, label: str = "Ask") -> Any:
     get_peer = getattr(query_control, "getPeer", None)
     if not callable(get_peer):
@@ -326,8 +233,6 @@ def _query_peer(query_control: Any, label: str = "Ask") -> Any:
     if peer is None:
         _ovlog("%s getPeer failed", label, exc_info=True)
         return None
-    _ovdiag(query_control, "%s control" % label)
-    _ovdiag(peer, "%s peer" % label)
     return peer
 
 
@@ -370,7 +275,6 @@ def _create_ask_peer_listbox(
         overlay_peer = _query_peer(parent_control, label="dialog")
         if overlay_peer is not None:
             parent = overlay_peer
-            _ovdiag(overlay_peer, "dialog/overlay parent peer")
     if parent is None:
         return None
     toolkit = _toolkit_for_peer(parent)
@@ -383,14 +287,18 @@ def _create_ask_peer_listbox(
     rectangle_cls, descriptor_cls, top, simple, child_attrs = consts
     qr = query_control.getPosSize()
     _x, _y, w, h = _above_ready_rect(qr, _POPUP_MAX_ROWS, status_top=_status_top(send_listener))
-    host_desc = descriptor_cls()
-    host_desc.Type = top  # floatingwindow ignores the class; parent decides the frame
-    host_desc.WindowServiceName = "floatingwindow"
-    host_desc.Parent = parent
-    host_desc.ParentIndex = -1
-    # (0, 0) so _overlay_offset can read the frame origin off the host.
-    host_desc.Bounds = rectangle_cls(0, 0, w, h)
-    host_desc.WindowAttributes = 0  # any border/move/close bit makes it a system window
+
+    def _make_desc(service: str, win_type: int, p: Any, attrs: int) -> Any:
+        desc = descriptor_cls()
+        desc.Type = win_type
+        desc.WindowServiceName = service
+        desc.Parent = p
+        desc.ParentIndex = -1
+        desc.Bounds = rectangle_cls(0, 0, w, h)
+        desc.WindowAttributes = attrs
+        return desc
+
+    host_desc = _make_desc("floatingwindow", top, parent, 0)
     _ovlog("createWindow floatingwindow %sx%s", w, h)
     try:
         host = toolkit.createWindow(host_desc)
@@ -400,14 +308,7 @@ def _create_ask_peer_listbox(
     if host is None:
         log.warning("slash popup: overlay window could not be created")
         return None
-    _ovdiag(host, "overlay-host")
-    desc = descriptor_cls()
-    desc.Type = simple
-    desc.WindowServiceName = "listbox"
-    desc.Parent = host
-    desc.ParentIndex = -1
-    desc.Bounds = rectangle_cls(0, 0, w, h)
-    desc.WindowAttributes = child_attrs
+    desc = _make_desc("listbox", simple, host, child_attrs)
     try:
         win = toolkit.createWindow(desc)
     except Exception:
@@ -442,7 +343,7 @@ def _make_slash_key_handler(host: Any, label: str) -> Any:
             mods = int(getattr(aEvent, "Modifiers", 0) or 0)
             ch = getattr(aEvent, "KeyChar", None)
             _ovlog("%s keyPressed code=%s mods=%s char=%r", label, code, mods, ch)
-            return host._on_document_key(code, mods, ch)
+            return bool(host.handle_key(code, mods, ch, from_overlay=False))
 
         def keyReleased(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
             return False
@@ -468,7 +369,6 @@ class SlashPopupController:
     _placeholder: Any
     _open: bool
     _selected: int
-    _listeners_attached: bool
 
     def __init__(
         self,
@@ -483,7 +383,6 @@ class SlashPopupController:
         self._placeholder = control
         # Never leave the XDL menulist / closed combo visible in the transcript.
         set_control_visible(control, False)
-        self._popup_window: Any = None
         self._popup_floater: Any = None
         # Dialog-local -> overlay host offset from _overlay_offset.
         self._ask_origin: tuple[int, int] | None = None
@@ -496,7 +395,6 @@ class SlashPopupController:
         self._open = False
         self._matches: list[SlashCommand] = []
         self._selected = 0
-        self._listeners_attached = False
         # Do not createWindow here. Overlay is born on first `/`.
         # Live XDL placeholder is a real ListBox with no Ask-peer test mock —
         # do not attach keys to it or the toolkit window never gets them.
@@ -507,7 +405,6 @@ class SlashPopupController:
             self.hide(restore_send=False)
             self._attach_click()
             self._attach_keys()
-            self._listeners_attached = True
         elif query_has_peer and ENABLE_SLASH:
             # The sidebar FocusManager consumes Esc in panel content (focus
             # moves to the panel title). It is an Application key listener
@@ -521,17 +418,15 @@ class SlashPopupController:
         self._detach_toolkit_keys()
 
     def _bind_overlay(self) -> None:
-        if self._popup_window is not None:
+        if self._popup_floater is not None:
             return
         created = _create_ask_peer_listbox(self.query_control, self._overlay_parent, send_listener=self.send_listener)
         if created is None:
             return
         win, floater, origin = created
-        self._popup_window = win
         self._popup_floater = floater
         self.control = win
         self._ask_origin = origin
-        self._listeners_attached = False
         _ovlog("bound hidden origin=%s; click after fill", origin)
 
     @property
@@ -555,45 +450,40 @@ class SlashPopupController:
         after the toolkit window is disposed. Recreate passes False so a
         slash draft does not run UpdateUI while the next overlay is mapped.
         """
-        _ovlog("hide open_was=%s toolkit=%s", self._open, self._popup_window is not None)
+        _ovlog("hide open_was=%s toolkit=%s", self._open, self._popup_floater is not None)
         self._detach_frame_keys()
         self._open = False
         self._matches = []
         self._selected = 0
         set_control_visible(self._placeholder, False)
-        if self._popup_window is not None:
-            win = self._popup_window
+        if self._popup_floater is not None:
+            ctrl = self.control
             floater = self._popup_floater
-            set_control_visible(win, False)
-            if floater is not None and floater is not win:
-                set_control_visible(floater, False)
-            self._dispose_overlay_windows(win, floater)
+            set_control_visible(ctrl, False)
+            set_control_visible(floater, False)
+            self._dispose_overlay_windows(ctrl, floater)
             self._popup_floater = None
-            self._popup_window = None
             self.control = None
             self._ask_origin = None
-            self._listeners_attached = False
         else:
             set_control_visible(self.control, False)
-            _ovdiag(self.control, "after hide")
         if restore_send:
             self._dispatch_query_has_text()
 
-    def _dispose_overlay_windows(self, win: Any, floater: Any) -> None:
+    def _dispose_overlay_windows(self, ctrl: Any, floater: Any) -> None:
         """Dispose the TOP host after the key/mouse callback has returned.
 
         ``hide()`` itself is deferred from Accept and Esc. Disposing here is
         then a later main-thread turn, not the listener stack.
         """
-        dispose = getattr(win, "dispose", None)
+        dispose = getattr(ctrl, "dispose", None)
         if callable(dispose):
-            best_effort(dispose, "slash popup: hide dispose failed")
+            best_effort(lambda: ctrl.dispose(), "slash popup: hide dispose failed")
             _ovlog("hide disposed toolkit window")
-        if floater is not None and floater is not win:
-            dispose_f = getattr(floater, "dispose", None)
-            if callable(dispose_f):
-                best_effort(dispose_f, "slash popup: hide dispose floater failed")
-                _ovlog("hide disposed floater")
+        dispose_f = getattr(floater, "dispose", None)
+        if callable(dispose_f):
+            best_effort(lambda: floater.dispose(), "slash popup: hide dispose floater failed")
+            _ovlog("hide disposed floater")
 
     def _dispatch_query_has_text(self) -> None:
         """Re-enable Send from the text still in Ask.
@@ -637,7 +527,7 @@ class SlashPopupController:
         # Never createWindow/setVisible inside Ask textChanged — returning from that
         # callback after a mapped TOP overlay deadlocks VCL and eats later keystrokes.
         new_names = [c.name for c in matches]
-        if self._open and new_names == [c.name for c in self._matches]:
+        if self._open and new_names == self.visible_names:
             _ovlog("on_query_text same matches skip recreate")
             return
         _defer_to_next_turn(self._show_matches, matches)
@@ -645,17 +535,17 @@ class SlashPopupController:
 
     def _show_matches(self, matches: list[SlashCommand]) -> None:
         _ovlog(
-            "show_matches bind_win=%s control=%s",
-            self._popup_window is not None,
+            "show_matches bind_floater=%s control=%s",
+            self._popup_floater is not None,
             self.control is not None,
         )
-        if self._popup_window is not None:
+        if self._popup_floater is not None:
             # addItems/setPosSize on a mapped TOP window deadlocks; recreate via fill-before-show.
             # Not a dismiss: do not TEXT_UPDATED while the next overlay is about to map.
             _ovlog("show_matches recreate")
             self.hide(restore_send=False)
         self._bind_overlay()
-        _ovlog("after bind control=%s toolkit=%s", self.control is not None, self._popup_window is not None)
+        _ovlog("after bind control=%s toolkit=%s", self.control is not None, self._popup_floater is not None)
         if self.control is None:
             _ovlog("on_query_text NO overlay list; slash prefix ignored")
             log.warning("slash popup: no overlay list; slash prefix ignored")
@@ -665,63 +555,34 @@ class SlashPopupController:
         self._refresh_list()
         self._open = True
         self.reposition()
-        set_control_visible(self._placeholder, False)
         self._fill_visible_list()
         _ovlog("filled before show")
         host = self._popup_floater
-        if host is not None and host is not self.control:
+        if host is not None:
             set_control_visible(host, True)
         set_control_visible(self.control, True)
         # Do not reposition() after setVisible. reposition getPosSize's Ask, and
         # once this TOP overlay is mapped that deadlocks VCL (panel.py
         # QueryTextListener). The pre-show reposition above is the one that counts.
         self._bring_overlay_front()
-        self._late_attach_overlay_keys()
+        if self._popup_floater is not None:
+            self._attach_click()
+            self._attach_keys()
         self._attach_frame_keys()
         self._attach_toolkit_keys()
         # TOP host steals caret unless we return it — keep typing in Ask.
-        def _focus_ask(label: str) -> None:
+        def _focus_ask(label: str) -> bool:
             sf = getattr(self.query_control, "setFocus", None)
             if callable(sf):
                 with suppress_disposed(f"slash popup {label}", logger=log):
                     sf()
                     _ovlog(f"Ask setFocus {label}")
+                return True
+            return False
 
-        if callable(getattr(self.query_control, "setFocus", None)):
-            _focus_ask("after TOP show")
-            # Idle re-focus: toFront/map can race past the first setFocus.
-            try:
-                from plugin.framework.queue_executor import post_to_main_thread
-
-                post_to_main_thread(lambda: _focus_ask("idle refocus"))
-            except Exception:
-                _ovlog("Ask idle refocus post failed", exc_info=True)
+        if _focus_ask("after TOP show"):
+            _defer_to_next_turn(_focus_ask, "idle refocus")
         _ovlog("show complete TOP-above-Ready floater=%s", host is not None)
-
-    def _late_attach_overlay_keys(self) -> None:
-        """Mouse + overlay keys after SIMPLE show. Ask QueryKeyListener still gets Esc."""
-        if self._listeners_attached or self.control is None:
-            return
-        self._attach_click()
-        self._attach_keys()
-        self._listeners_attached = True
-        _ovlog("late mouse+overlay keys attached")
-
-    def _on_document_key(self, key_code: int, modifiers: int = 0, key_char: Any = None) -> bool:
-        """Frame and toolkit handlers: navigation only.
-
-        The listbox listener is the one that has focus on the menu and
-        must insert. Frame and toolkit handlers see the whole document:
-        ``from_overlay=True`` appends every printable character to Ask and
-        returns true, so document keystrokes never reach the document.
-        ``from_overlay=False`` keeps printable keys for the document (or
-        Ask's own listener) and only consumes Esc/arrows/Enter/Tab.
-        """
-        return bool(self.handle_key(key_code, modifiers, key_char, from_overlay=False))
-
-    def _on_list_key(self, key_code: int, modifiers: int = 0, key_char: Any = None) -> bool:
-        """Listbox listener: the menu has focus, so printable keys feed Ask."""
-        return bool(self.handle_key(key_code, modifiers, key_char, from_overlay=True))
 
     def handle_key(
         self,
@@ -759,10 +620,8 @@ class SlashPopupController:
         if action == "tab":
             self.complete_selected()
             return True
-        if action == "enter":
-            self.accept_selected()
-            return True
-        return False
+        self.accept_selected()
+        return True
 
     def move_selection(self, delta: int) -> None:
         if not self._matches:
@@ -803,7 +662,6 @@ class SlashPopupController:
     def _bring_overlay_front(self) -> None:
         """Raise the toolkit listbox above Ready/transcript siblings (clip probe)."""
         for label, obj in (
-            ("popup_window", self._popup_window),
             ("popup_floater", self._popup_floater),
             ("control", self.control),
         ):
@@ -825,19 +683,16 @@ class SlashPopupController:
         with suppress_disposed("slash popup reposition", logger=log):
             qr = query.getPosSize()
             rows = min(len(self._matches) or 1, _POPUP_MAX_ROWS)
-            relative_to_ask = self._overlay_parent is None
             status_top = _status_top(self.send_listener)
-            if self._popup_window is not None:
+            if self._popup_floater is not None:
                 height = _list_height(ctrl, rows)
                 one = _list_height(ctrl, 1)
                 self._row_px = max(1, (height - one) // (rows - 1)) if rows > 1 else one
                 x, y, w, h = _above_ready_rect(qr, rows, status_top=status_top, height=height)
-            elif relative_to_ask:
-                x, y, w, h = _overlay_rect(qr, rows, relative_to_ask=True)
             else:
                 x, y, w, h = _above_ready_rect(qr, rows, status_top=status_top)
             _ovlog(
-                "reposition Ask=%sx%s@%s,%s popup_bounds=%s,%s %sx%s rows=%s toolkit=%s relative_to_ask=%s origin=%s",
+                "reposition Ask=%sx%s@%s,%s popup_bounds=%s,%s %sx%s rows=%s toolkit=%s origin=%s",
                 qr.Width,
                 qr.Height,
                 qr.X,
@@ -847,31 +702,17 @@ class SlashPopupController:
                 w,
                 h,
                 rows,
-                self._popup_window is not None,
-                relative_to_ask,
+                self._popup_floater is not None,
                 self._ask_origin,
             )
-            _log_slash_clip_neighbors(
-                self.send_listener,
-                popup_bounds=(x, y, w, h),
-                overlay_parent=self._overlay_parent,
-            )
-            if self._popup_window is not None:
+            if self._popup_floater is not None:
                 floater = self._popup_floater
                 ox, oy = self._ask_origin or (0, 0)
-                if floater is not None and floater is not ctrl:
-                    # Dialog-local -> frame overlay coords (host is not in the dialog).
-                    floater.setPosSize(x + ox, y + oy, w, h, _POS_SIZE_FLAGS)
-                    ctrl.setPosSize(0, 0, w, h, _POS_SIZE_FLAGS)
-                else:
-                    # Dialog-local SIMPLE (or single-window floater).
-                    ctrl.setPosSize(x, y, w, h, _POS_SIZE_FLAGS)
+                floater.setPosSize(x + ox, y + oy, w, h, _POS_SIZE_FLAGS)
+                ctrl.setPosSize(0, 0, w, h, _POS_SIZE_FLAGS)
                 return
             # Mock list in unit tests: tall rectangle above Ask, never 14px closed.
-            above_y = int(qr.Y) + y
-            if above_y < 16:
-                above_y = 16
-            ctrl.setPosSize(int(qr.X), above_y, w, h, _POS_SIZE_FLAGS)
+            ctrl.setPosSize(int(qr.X), max(16, int(y)), w, h, _POS_SIZE_FLAGS)
 
     def _fill_visible_list(self) -> None:
         """Fill the toolkit list before show.
@@ -879,7 +720,7 @@ class SlashPopupController:
         Non-toolkit lists are filled in ``_refresh_list``. ``addItems`` here
         too duplicated every row; that path has no VCL ``getItemCount`` deadlock.
         """
-        if self._popup_window is None:
+        if self._popup_floater is None:
             return
         labels = tuple(format_slash_item(cmd) for cmd in self._matches)
         _ovlog("fill_visible n=%s first=%r addItems-only", len(labels), labels[0] if labels else None)
@@ -894,7 +735,7 @@ class SlashPopupController:
     def _refresh_list(self) -> None:
         # Headed: toolkit VCL listbox hung inside getItemCount/addItems so
         # setVisible True never ran. Skip UNO fill; show the empty window.
-        if self._popup_window is not None:
+        if self._popup_floater is not None:
             _ovlog("refresh skip UNO fill on toolkit window")
             return
         ctrl = self.control
@@ -934,6 +775,24 @@ class SlashPopupController:
             with suppress_disposed("slash popup select", logger=log):
                 ctrl.selectItemPos(idx, True)
 
+    def _attach_key_handler(self, target: Any, label: str) -> Any:
+        if target is None:
+            return None
+        add = getattr(target, "addKeyHandler", None)
+        if not callable(add):
+            _ovlog("%s key handler: no addKeyHandler", label)
+            return None
+        handler = _make_slash_key_handler(self, label)
+        if handler is None:
+            return None
+        try:
+            add(handler)
+            _ovlog("%s key handler attached", label)
+            return handler
+        except Exception:
+            log.warning("slash popup: %s key handler attach failed", label, exc_info=True)
+            return None
+
     def _attach_frame_keys(self) -> None:
         """Catch Esc/Enter even when the TOP overlay or document has focus."""
         if self._frame_handler is not None:
@@ -944,22 +803,10 @@ class SlashPopupController:
             _ovlog("frame key handler: no controller")
             return
         controller = uno_probe(get_controller, None)
-        if controller is None:
-            return
-        add = getattr(controller, "addKeyHandler", None)
-        if not callable(add):
-            _ovlog("frame key handler: no addKeyHandler")
-            return
-        handler = _make_slash_key_handler(self, "frame")
-        if handler is None:
-            return
-        try:
-            add(handler)
+        handler = self._attach_key_handler(controller, "frame")
+        if handler is not None:
             self._frame_handler = handler
             self._frame_controller = controller
-            _ovlog("frame key handler attached")
-        except Exception:
-            log.warning("slash popup: frame key handler attach failed", exc_info=True)
 
     def _detach_frame_keys(self) -> None:
         handler = self._frame_handler
@@ -983,20 +830,10 @@ class SlashPopupController:
         if tk is None:
             _ovlog("toolkit key handler: no toolkit")
             return
-        add = getattr(tk, "addKeyHandler", None)
-        _ovlog("toolkit key handler addKeyHandler=%s", callable(add))
-        if not callable(add):
-            return
-        handler = _make_slash_key_handler(self, "toolkit")
-        if handler is None:
-            return
-        try:
-            add(handler)
+        handler = self._attach_key_handler(tk, "toolkit")
+        if handler is not None:
             self._toolkit_handler = handler
             self._toolkit = tk
-            _ovlog("toolkit key handler attached")
-        except Exception:
-            log.warning("slash popup: toolkit key handler attach failed", exc_info=True)
 
     def _detach_toolkit_keys(self) -> None:
         handler = self._toolkit_handler
@@ -1039,10 +876,11 @@ class SlashPopupController:
                     int(getattr(e, "KeyCode", 0) or 0),
                     int(getattr(e, "Modifiers", 0) or 0),
                 )
-                if host._on_list_key(
+                if host.handle_key(
                     int(getattr(e, "KeyCode", 0) or 0),
                     int(getattr(e, "Modifiers", 0) or 0),
                     getattr(e, "KeyChar", None),
+                    from_overlay=True,
                 ):
                     with suppress_disposed("slash list Consume", logger=log):
                         if hasattr(e, "Consume"):

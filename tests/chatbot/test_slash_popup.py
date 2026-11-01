@@ -24,10 +24,8 @@ from plugin.chatbot.slash_popup import (
     _is_combo_box,
     _list_height,
     _overlay_height,
-    _popup_bounds,
     _printable_key_char,
     _row_index_at_y,
-    uses_toolkit_overlay,
 )
 
 
@@ -230,17 +228,6 @@ def test_chat_panel_xdl_uses_menulist_for_slash_popup():
     assert "dlg:menulist" in text
 
 
-def test_popup_bounds_are_tall_overlay_above_ask():
-    """Visible menu is a multi-row overlay above Ask, not a 14px closed combo."""
-    x, y, w, h = _popup_bounds(142, 6)
-    assert x == 0
-    assert y < 0
-    assert w == 142
-    assert h == _overlay_height(6)
-    assert h > _POPUP_ROW_PX
-    assert h >= _POPUP_MAX_ROWS * _POPUP_ROW_PX
-
-
 def test_open_slash_uses_tall_list_not_closed_combo():
     popup, box = _controller()
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
@@ -251,7 +238,7 @@ def test_open_slash_uses_tall_list_not_closed_combo():
     assert box.pos.Height > 20
     # Parked above Ask (Y=152), covering Ready / lower transcript — not the gap.
     assert box.pos.Y < 128
-    assert uses_toolkit_overlay(popup) is False
+    assert popup._popup_floater is None
 
 
 def test_create_ask_peer_listbox_none_without_peer():
@@ -335,9 +322,9 @@ def test_document_key_handler_does_not_steal_printable():
     query.text = "/"
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
         popup.on_query_text("/")
-        assert popup._on_document_key(0, 0, "x") is False
+        assert popup.handle_key(0, 0, "x", from_overlay=False) is False
         assert query.text == "/"
-        assert popup._on_list_key(0, 0, "h") is True
+        assert popup.handle_key(0, 0, "h", from_overlay=True) is True
     assert query.text == "/h"
     assert popup.visible_names == ["help"]
 
@@ -347,18 +334,17 @@ def test_frame_and_toolkit_sources_are_nav_only():
     from plugin.chatbot.slash_popup import _make_slash_key_handler
 
     handler_src = inspect.getsource(_make_slash_key_handler)
+    attach = inspect.getsource(SlashPopupController._attach_key_handler)
     frame = inspect.getsource(SlashPopupController._attach_frame_keys)
     toolkit = inspect.getsource(SlashPopupController._attach_toolkit_keys)
     listed = inspect.getsource(SlashPopupController._attach_keys)
-    assert "_on_document_key(" in handler_src
-    assert "_make_slash_key_handler" in frame
-    assert "_make_slash_key_handler" in toolkit
+    assert "from_overlay=False" in handler_src
+    assert "_make_slash_key_handler" in attach
+    assert "_attach_key_handler" in frame
+    assert "_attach_key_handler" in toolkit
     assert "from_overlay=True" not in handler_src
-    assert "from_overlay=True" not in frame
-    assert "from_overlay=True" not in toolkit
-    assert "_on_list_key(" in listed
-    assert "from_overlay=False" in inspect.getsource(SlashPopupController._on_document_key)
-    assert "from_overlay=True" in inspect.getsource(SlashPopupController._on_list_key)
+    assert "from_overlay=True" not in attach
+    assert "from_overlay=True" in listed
 
 
 def test_show_matches_repositions_only_before_show():
@@ -411,7 +397,7 @@ def test_esc_defers_hide_and_restores_send_for_slash_draft():
     floater = MagicMock()
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
         popup.on_query_text("/he")
-    popup._popup_window = win
+    popup.control = win
     popup._popup_floater = floater
     send.dispatch.reset_mock()
     posted, capture = _capture_posts()
@@ -444,9 +430,8 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
     floater = MagicMock()
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
         popup.on_query_text("/")
-    popup._popup_window = win
-    popup._popup_floater = floater
     popup.control = win
+    popup._popup_floater = floater
     posted, capture = _capture_posts()
     with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=capture):
         assert popup.handle_key(KEY_RETURN, 0) is True
@@ -501,7 +486,7 @@ def test_recreate_hide_does_not_dispatch_has_text():
     send = popup.send_listener
     send.dispatch = MagicMock()
     win = MagicMock()
-    popup._popup_window = win
+    popup.control = win
     popup._popup_floater = MagicMock()
     popup._open = True
     popup.hide(restore_send=False)
@@ -511,7 +496,7 @@ def test_recreate_hide_does_not_dispatch_has_text():
 
 def test_fill_failure_logs_warning(caplog):
     popup, box = _controller()
-    popup._popup_window = object()
+    popup._popup_floater = object()
     from plugin.chatbot.slash_commands import SLASH_COMMANDS
 
     popup._matches = [SLASH_COMMANDS[0]]
@@ -559,16 +544,12 @@ def test_slash_disabled_when_flag_false(monkeypatch, caplog):
 
 
 def test_ovlog_silent_when_verbose_off(caplog, monkeypatch):
-    from plugin.chatbot.slash_popup import _ovdiag, _ovlog
+    from plugin.chatbot.slash_popup import _ovlog
 
     monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
-    probe = MagicMock()
     with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
         _ovlog("query_text entered raw=%r", "/he")
-        _ovdiag(probe, "status")
     assert not any("[SLASH-OV]" in r.message for r in caplog.records)
-    probe.getPosSize.assert_not_called()
-    probe.getImplementationName.assert_not_called()
 
 
 def test_ovlog_emits_debug_when_verbose(caplog, monkeypatch):
@@ -718,7 +699,6 @@ def test_reposition_applies_overlay_offset_and_measured_height():
     host = _Win()
     lst = _Win()
     lst.min_row_px = 18
-    popup._popup_window = lst
     popup.control = lst
     popup._popup_floater = host
     popup._ask_origin = (990, -850)
