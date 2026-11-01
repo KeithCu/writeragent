@@ -9,10 +9,15 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from plugin.calc.spreadsheet_import.ingest import ingest_from_arrays
-from plugin.calc.spreadsheet_import.models import CellRecord, OutputCell, OutputSheetModel, SheetModel
+from plugin.calc.spreadsheet_import.models import (
+    CellRecord,
+    OutputCell,
+    OutputSheetModel,
+    SheetModel,
+    output_cell_from_record,
+)
 from plugin.calc.spreadsheet_import.preserve import (
     apply_output_to_sheet,
-    build_output_model,
     enrich_number_formats,
 )
 
@@ -26,7 +31,11 @@ def test_build_output_preserves_constants():
             "B1": CellRecord("B1", "constant", "hello", None, 456),
         },
     )
-    output = build_output_model(model)
+    output = OutputSheetModel(
+        sheet_name=model.sheet_name,
+        used_range=model.used_range,
+        cells={addr: output_cell_from_record(record) for addr, record in model.cells.items()},
+    )
     assert output.cells["A1"].value == 42.0
     assert output.cells["A1"].formula is None
     assert output.cells["A1"].number_format == 123
@@ -42,7 +51,11 @@ def test_build_output_leaves_calc_formula_unchanged():
         data_array=[[10.0, 20.0]],
         formula_array=[["=SUM(A1)", ""]],
     )
-    output = build_output_model(model)
+    output = OutputSheetModel(
+        sheet_name=model.sheet_name,
+        used_range=model.used_range,
+        cells={addr: output_cell_from_record(record) for addr, record in model.cells.items()},
+    )
     assert output.cells["A1"].formula == "=SUM(A1)"
     assert output.cells["B1"].value == 20.0
 
@@ -55,7 +68,11 @@ def test_build_output_normalizes_py_formula():
         data_array=[[1.0, 2.0]],
         formula_array=[["", '=PYTHON("np.sum(data)",A1)']],
     )
-    output = build_output_model(model)
+    output = OutputSheetModel(
+        sheet_name=model.sheet_name,
+        used_range=model.used_range,
+        cells={addr: output_cell_from_record(record) for addr, record in model.cells.items()},
+    )
     assert output.cells["B1"].formula is not None
     assert output.cells["B1"].formula.startswith("=PY(")
     assert ";" in output.cells["B1"].formula
@@ -70,7 +87,11 @@ def test_build_output_passes_through_prompt_and_array():
             "B1": CellRecord("B1", "array_formula", 6.0, "{=SUM(A1:A2)}", None),
         },
     )
-    output = build_output_model(model)
+    output = OutputSheetModel(
+        sheet_name=model.sheet_name,
+        used_range=model.used_range,
+        cells={addr: output_cell_from_record(record) for addr, record in model.cells.items()},
+    )
     assert output.cells["A1"].formula == '=PROMPT("hi")'
     assert output.cells["B1"].formula == "{=SUM(A1:A2)}"
 
@@ -83,7 +104,11 @@ def test_build_output_empty_cells():
         data_array=[[""]],
         formula_array=[[""]],
     )
-    output = build_output_model(model)
+    output = OutputSheetModel(
+        sheet_name=model.sheet_name,
+        used_range=model.used_range,
+        cells={addr: output_cell_from_record(record) for addr, record in model.cells.items()},
+    )
     assert output.cells["A1"].value is None
     assert output.cells["A1"].formula is None
 
@@ -147,7 +172,11 @@ def test_apply_output_to_sheet():
 
 def test_apply_output_empty_model_does_not_raise():
     model = ingest_from_arrays(sheet_name="S", start_col=0, start_row=0, data_array=[], formula_array=[])
-    output = build_output_model(model)
+    output = OutputSheetModel(
+        sheet_name=model.sheet_name,
+        used_range=model.used_range,
+        cells={addr: output_cell_from_record(record) for addr, record in model.cells.items()},
+    )
     sheet = MagicMock()
     apply_output_to_sheet(sheet, output)
     assert sheet.getCellByPosition.call_count == 0
@@ -161,7 +190,11 @@ def test_apply_output_ragged_model_writes_only_existing_cells():
         data_array=[[1.0, 2.0], [3.0]],
         formula_array=[["", ""], [""]],
     )
-    output = build_output_model(model)
+    output = OutputSheetModel(
+        sheet_name=model.sheet_name,
+        used_range=model.used_range,
+        cells={addr: output_cell_from_record(record) for addr, record in model.cells.items()},
+    )
     sheet = MagicMock()
     apply_output_to_sheet(sheet, output)
     assert sheet.getCellByPosition.call_count == 3

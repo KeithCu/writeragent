@@ -34,7 +34,8 @@ def test_preserve_live_py_formulas_round_trip(ctx, doc):
     from plugin.calc.address_utils import format_address
     from plugin.calc.spreadsheet_import.extract import py_formula_semantics
     from plugin.calc.spreadsheet_import.ingest import ingest_sheet
-    from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, build_output_model, enrich_number_formats
+    from plugin.calc.spreadsheet_import.models import OutputSheetModel, output_cell_from_record
+    from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, enrich_number_formats
 
     sheet = doc.getSheets().getByIndex(0)
     sheet.getCellByPosition(0, 0).setValue(10.0)
@@ -46,7 +47,11 @@ def test_preserve_live_py_formulas_round_trip(ctx, doc):
     assert source_model.cells["B2"].type == "py_formula"
 
     enrich_number_formats(sheet, source_model)
-    output = build_output_model(source_model)
+    output = OutputSheetModel(
+        sheet_name=source_model.sheet_name,
+        used_range=source_model.used_range,
+        cells={addr: output_cell_from_record(record) for addr, record in source_model.cells.items()},
+    )
     sheets = doc.getSheets()
     sheets.insertNewByName("PythonImport", sheets.getCount())
     target = sheets.getByName("PythonImport")
