@@ -295,7 +295,7 @@ def test_setup_sessions_does_not_duplicate_history_on_save_as():
 
     sid1 = str(model1._props.get("WriterAgentSessionID") or "")
     db1 = get_chat_history(sid1)
-    db1.clear()
+    db1.replace_messages([])
     db1.add_message("user", "Hello from original")
 
     # 2. Save As to file 2
