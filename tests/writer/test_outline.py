@@ -53,42 +53,42 @@ class TestGetDocumentTreeMergedStats:
 
 
 def test_collect_document_stats_disposal_is_not_zero_headings():
-    doc = MagicMock()
-    doc.getText.return_value.createTextCursor.return_value.getString.return_value = ""
-    doc_svc = MagicMock()
-    doc_svc.get_paragraph_ranges.return_value = []
-    doc_svc.get_page_count.return_value = 1
-    with patch(
-        "plugin.writer.outline.build_heading_tree",
-        side_effect=DocumentDisposedError("closed", object_type="Document"),
-    ):
-        with pytest.raises(DocumentDisposedError):
-            collect_document_stats(doc, doc_svc)
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.services.writer_tree.get_document_tree.return_value = {
+        "status": "ok",
+        "children": [],
+        "total_paragraphs": 5,
+        "page_count": 2,
+    }
+    ctx.services.writer_tree.build_heading_tree.side_effect = DocumentDisposedError(
+        "closed", object_type="Document"
+    )
+    with pytest.raises(DocumentDisposedError):
+        GetDocumentTree().execute(ctx)
 
 
 def test_collect_document_stats_page_failure_keeps_other_counts():
     doc = MagicMock()
     doc_svc = MagicMock()
-    doc_svc.get_paragraph_ranges.return_value = [object(), object(), object(), object()]
-    doc_svc.get_page_count.side_effect = RuntimeError("layout")
     tree = {
         "children": [
             {"children": []},
             {"children": [{"children": []}]},
         ]
     }
-    with (
-        patch("plugin.writer.outline.get_string_without_tracked_deletions", return_value="hello world"),
-        patch("plugin.writer.outline.build_heading_tree", return_value=tree),
-    ):
-        stats = collect_document_stats(doc, doc_svc)
-    assert stats == {
-        "character_count": 11,
-        "word_count": 2,
-        "paragraph_count": 4,
-        "page_count": 0,
-        "heading_count": 3,
-    }
+    with patch("plugin.writer.outline.get_string_without_tracked_deletions", return_value="hello world"):
+        stats = collect_document_stats(
+            doc,
+            doc_svc,
+            heading_tree=tree,
+            paragraph_count=4,
+            page_count=0,
+        )
+    assert stats["character_count"] == 11
+    assert stats["word_count"] == 2
+    assert stats["paragraph_count"] == 4
+    assert stats["heading_count"] == 3
     doc_svc.get_document_length.assert_not_called()
 
 
@@ -96,17 +96,18 @@ def test_collect_document_stats_text_failure_propagates():
     doc = MagicMock()
     doc_svc = MagicMock()
     doc_svc.get_document_length.return_value = 42
-    doc_svc.get_paragraph_ranges.return_value = [object()]
-    doc_svc.get_page_count.return_value = 4
-    with (
-        patch(
-            "plugin.writer.outline.get_string_without_tracked_deletions",
-            side_effect=RuntimeError("no text"),
-        ),
-        patch("plugin.writer.outline.build_heading_tree", return_value={"children": []}),
+    with patch(
+        "plugin.writer.outline.get_string_without_tracked_deletions",
+        side_effect=RuntimeError("no text"),
     ):
         with pytest.raises(RuntimeError):
-            collect_document_stats(doc, doc_svc)
+            collect_document_stats(
+                doc,
+                doc_svc,
+                heading_tree={"children": []},
+                paragraph_count=1,
+                page_count=4,
+            )
     doc_svc.get_document_length.assert_not_called()
 
 

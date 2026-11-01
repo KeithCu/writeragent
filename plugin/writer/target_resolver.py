@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
 from .format import plain_text_if_markup
 
@@ -16,12 +16,12 @@ def cursor_spanning_range(rng: Any) -> Any:
     return cursor
 
 
-def _optional(fn: Any) -> Any:
+def _span_cursor(rng: Any, fail: str) -> Any:
     try:
-        return fn()
+        return cursor_spanning_range(rng)
     except Exception as e:
         reraise_if_disposed(e)
-        return None
+        raise ValueError(fail % e)
 
 
 def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> Any:
@@ -52,14 +52,14 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
         # of the document (the old `except: gotoEnd` appended edits at the very end and still
         # reported ok). Only when BOTH are unavailable do we raise a clear error, so a headless MCP
         # client that never set a selection is told to use set_selection / target='search'.
-        controller = _optional(doc.getCurrentController)
+        controller = uno_read(doc.getCurrentController, None)
         rng = None
         if controller is not None:
             from plugin.doc.text_helpers import selected_text_range
 
-            rng = _optional(lambda: selected_text_range(controller))
+            rng = uno_read(lambda: selected_text_range(controller), None)
             if rng is None:
-                rng = _optional(controller.getViewCursor)
+                rng = uno_read(controller.getViewCursor, None)
         if rng is None:
             raise ValueError(
                 "Could not resolve the current selection. Select text first, or use "
@@ -68,12 +68,11 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
         # text frame is a different XText, and gotoRange on a body cursor raises a raw UNO
         # RuntimeException that escapes callers expecting ValueError. Same pattern as the search
         # branch below.
-        try:
-            return cursor_spanning_range(rng)
-        except Exception as e:
-            reraise_if_disposed(e)
-            raise ValueError("Could not span the current selection (%s). Use target='search' "
-                             "with old_content, or call set_selection." % e)
+        return _span_cursor(
+            rng,
+            "Could not span the current selection (%s). Use target='search' "
+            "with old_content, or call set_selection.",
+        )
 
     if target != "search":
         raise ValueError(f"Unknown target {target!r}; use end, selection, beginning, full_document or search.")
@@ -96,9 +95,7 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell
     # or text frame is a different XText, and gotoRange across text objects raises (format.py
     # documents this). createTextCursorByRange on found.getText() keeps the cursor in-scope.
-    try:
-        return cursor_spanning_range(found)
-    except Exception as e:
-        reraise_if_disposed(e)
-        raise ValueError(
-            "Could not span the search match (%s). Use a shorter, unique substring." % e)
+    return _span_cursor(
+        found,
+        "Could not span the search match (%s). Use a shorter, unique substring.",
+    )
