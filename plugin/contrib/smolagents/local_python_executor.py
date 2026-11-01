@@ -43,7 +43,10 @@ from dataclasses import dataclass
 from functools import wraps
 from importlib import import_module
 from types import BuiltinFunctionType, FunctionType, ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from plugin.scripting.sandbox import SandboxPolicy
 
 from .utils import BASE_BUILTIN_MODULES, truncate_content
 
@@ -2692,7 +2695,7 @@ class LocalPythonExecutor(PythonExecutor):
         self.additional_functions = additional_functions or {}
         self.static_tools = {**BASE_PYTHON_TOOLS.copy(), **self.additional_functions}
         self.timeout_seconds = timeout_seconds
-        self._sandbox_policy_digest: str = ""
+        self._sandbox_policy: SandboxPolicy | None = None
 
     def __call__(self, code_action: str) -> CodeOutput:
         output, is_final_answer = evaluate_python_code(
