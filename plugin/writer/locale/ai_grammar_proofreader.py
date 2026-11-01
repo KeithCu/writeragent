@@ -428,7 +428,6 @@ def _obs_result_window(
     source: str,
     py_start: int,
     py_behind: int,
-    skip: str = "",
 ) -> None:
     """Emit final ``do_proofreading_result_window`` after cache / Harper / enqueue.
 
@@ -458,8 +457,6 @@ def _obs_result_window(
         "stage": "final",
         **cls,
     }
-    if skip:
-        fields["skip"] = skip
     if combined_errors:
         fields["rule_ids"] = _rule_ids_sample(combined_errors)
     grammar_obs("do_proofreading_result_window", **fields)
@@ -720,9 +717,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     return a_res
 
                 provider = self._active_grammar_provider()
-                pinned_ident = self._checker_identity
-                if pinned_ident:
-                    checker_identity = pinned_ident
+                if self._checker_identity:
+                    checker_identity = self._checker_identity
                 elif provider in ("harper", "languagetool", "vale"):
                     checker_identity = provider
                 else:
@@ -759,7 +755,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         active_span_count=0,
                         uncached_active_count=0,
                         source="no_active_spans",
-                        skip="no_active_spans",
                         py_start=py_start,
                         py_behind=py_suggested_end,
                     )
@@ -865,11 +860,10 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             log.debug("[grammar] resolve_doc_id_for_ignore failed", exc_info=True)
         return None
 
-    def _run_doc_op(self, op: str, cannot: str, action: Any) -> None:
+    def _run_doc_op(self, op: str, action: Any) -> None:
         try:
             doc_id = run_on_main(self._resolve_doc_id_for_ignore)
             if not doc_id:
-                log.warning(f"[grammar] {op}: failed to resolve doc_id; cannot {cannot}")
                 raise RuntimeError(f"{op} failed: no active document found")
             action(doc_id)
         except Exception as e:
@@ -880,7 +874,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         del aLocale
         self._run_doc_op(
             "ignoreRule",
-            "ignore rule",
             lambda doc_id: run_on_main(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier),
         )
 
@@ -889,7 +882,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             run_on_main(_reset_ignore_rules_on_main, self.ctx, doc_id)
             self.broadcast_proofread_again()
 
-        self._run_doc_op("resetIgnoreRules", "reset", _action)
+        self._run_doc_op("resetIgnoreRules", _action)
 
     def addLinguServiceEventListener(self, xLstnr: Any) -> bool:
         if xLstnr is None:
@@ -951,10 +944,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             self._pending_proofread_again = True
             return
         self._pending_proofread_again = False
-        n_event = 8  # com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN
         event = uno_mod.createUnoStruct("com.sun.star.linguistic2.LinguServiceEvent")
         setattr(event, "Source", self)
-        setattr(event, "nEvent", n_event)
+        setattr(event, "nEvent", 8)  # com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN
         for listener in list(self._lingu_listeners):
             try:
                 listener.processLinguServiceEvent(event)
