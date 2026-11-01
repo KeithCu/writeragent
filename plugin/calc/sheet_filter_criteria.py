@@ -81,22 +81,8 @@ def _deal_filter_connection_ok_crosshair(name: object) -> bool:
 _deal_filter_connection_ok = _profile(_deal_filter_connection_ok_crosshair, _deal_filter_connection_ok_pytest)
 
 
-def filter_operator2_code_to_name(code: int) -> str:
-    """Map UNO ``FilterOperator2`` *code* (long) to a stable string label."""
-    # crosshair: off
-    if 0 <= code < len(FILTER_OPERATOR2_LABELS):
-        return FILTER_OPERATOR2_LABELS[code]
-    return str(int(code))
-
-
 def _normalize_operator_name(name: str) -> str:
     return name.strip().upper().replace("-", "_")
-
-
-@deal.pre(lambda name: _deal_filter_op_name_ok(name))
-def filter_operator2_name_to_code(name: str) -> int | None:
-    """Resolve case-insensitive operator name to code, or ``None`` if unknown."""
-    return _NAME_TO_CODE.get(_normalize_operator_name(name))
 
 
 _OPS_NO_VALUE = frozenset(("EMPTY", "NOT_EMPTY"))
@@ -123,14 +109,10 @@ def filter_connection_code(name: str | None) -> int:
 @deal.raises(UnoObjectError)
 def resolve_filter_operator_code(operator: str) -> int:
     """Resolve ``FilterOperator2`` name to numeric code."""
-    code = filter_operator2_name_to_code(operator)
-    if code is not None:
-        return code
-    raise UnoObjectError(f"Unknown filter operator: {operator!r}")
-
-
-def _deal_filter_criterion_ok_pytest(raw: object) -> bool:
-    return True
+    code = _NAME_TO_CODE.get(_normalize_operator_name(operator))
+    if code is None:
+        raise UnoObjectError(f"Unknown filter operator: {operator!r}")
+    return code
 
 
 def _deal_filter_criterion_ok_crosshair(raw: object) -> bool:
@@ -142,7 +124,7 @@ def _deal_filter_criterion_ok_crosshair(raw: object) -> bool:
     )
 
 
-_deal_filter_criterion_ok = _profile(_deal_filter_criterion_ok_crosshair, _deal_filter_criterion_ok_pytest)
+_deal_filter_criterion_ok = _profile(_deal_filter_criterion_ok_crosshair)
 
 
 @deal.pre(lambda raw, is_first: _deal_filter_criterion_ok(raw))

@@ -33,7 +33,6 @@ from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
 from plugin.calc.sheet_filter_criteria import (
     FILTER_OPERATOR2_LABELS,
-    filter_operator2_code_to_name,
     parse_sheet_filter_criterion,
 )
 from plugin.framework.errors import UnoObjectError, uno_read
@@ -76,7 +75,7 @@ def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     out: dict[str, Any] = {"index": idx}
     op = uno_read(lambda: int(ff.Operator), None)
     if op is not None:
-        out["operator"] = filter_operator2_code_to_name(op)
+        out["operator"] = FILTER_OPERATOR2_LABELS[op] if 0 <= op < len(FILTER_OPERATOR2_LABELS) else str(int(op))
         out["operator_code"] = op
 
     field = uno_read(lambda: int(ff.Field), None)
@@ -87,16 +86,11 @@ def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     out["connection"] = _connection_name(cv)
 
     is_num = uno_read(lambda: bool(ff.IsNumeric), None)
-    if is_num is True:
-        out["is_numeric"] = True
-        num_val = uno_read(lambda: ff.NumericValue, None)
-        if num_val is not None:
-            out["value"] = num_val
-    elif is_num is False:
-        out["is_numeric"] = False
-        str_val = uno_read(lambda: ff.StringValue, None)
-        if str_val is not None:
-            out["value"] = str_val
+    if is_num is not None:
+        out["is_numeric"] = is_num
+        raw_val = uno_read(lambda: ff.NumericValue if is_num else ff.StringValue, None)
+        if raw_val is not None:
+            out["value"] = raw_val
     return out
 
 
