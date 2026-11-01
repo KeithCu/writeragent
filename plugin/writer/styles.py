@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections import deque
 import logging
 import os
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 if TYPE_CHECKING:
     import uno
@@ -124,30 +124,24 @@ _KNOWN_PARAGRAPH_PROPERTIES = {
     name: _PARA_PROPERTY_SCHEMA[name] for name in CLEARABLE_PARA_PROPERTIES
 }
 
-# Combine properties for schema use
-_ALL_KNOWN_PROPERTIES = {**_KNOWN_CHARACTER_PROPERTIES, **_KNOWN_PARAGRAPH_PROPERTIES}
-
+_BORDER_PROPERTIES = (
+    "LeftBorder",
+    "RightBorder",
+    "TopBorder",
+    "BottomBorder",
+    "CharLeftBorder",
+    "CharRightBorder",
+    "CharTopBorder",
+    "CharBottomBorder",
+)
 _BORDER_SCHEMA = {"type": "object", "description": "BorderLine2. Color is a hex string or -1. Line widths are 1/100 mm."}
 _STRUCT_SCHEMA = {
     "ParaLineSpacing": {"type": "object", "description": "Mode is prop, minimum, leading, or fix. Height is a percent for prop (150 is 1.5 lines) and 1/100 mm otherwise."},
     "DropCapFormat": {"type": "object", "description": "Fields Lines, Count, Distance."},
-    "LeftBorder": _BORDER_SCHEMA,
-    "RightBorder": _BORDER_SCHEMA,
-    "TopBorder": _BORDER_SCHEMA,
-    "BottomBorder": _BORDER_SCHEMA,
-    "CharLeftBorder": _BORDER_SCHEMA,
-    "CharRightBorder": _BORDER_SCHEMA,
-    "CharTopBorder": _BORDER_SCHEMA,
-    "CharBottomBorder": _BORDER_SCHEMA,
+    **{b: _BORDER_SCHEMA for b in _BORDER_PROPERTIES},
     "ParaTabStops": {"type": "array", "description": "List of tab stops. Position is 1/100 mm. Alignment is LEFT, CENTER, RIGHT, or DECIMAL."},
 }
-_UPDATE_SCHEMA_PROPERTIES = {**_ALL_KNOWN_PROPERTIES, **_STRUCT_SCHEMA}
-
-# Properties to read per style family. Paragraph styles inherit character properties.
-_FAMILY_PROPS = {
-    "ParagraphStyles": ["ParentStyle", "FollowStyle"] + list(_KNOWN_PARAGRAPH_PROPERTIES.keys()) + list(_KNOWN_CHARACTER_PROPERTIES.keys()),
-    "CharacterStyles": ["ParentStyle"] + list(_KNOWN_CHARACTER_PROPERTIES.keys()),
-}
+_UPDATE_SCHEMA_PROPERTIES = {**_KNOWN_CHARACTER_PROPERTIES, **_KNOWN_PARAGRAPH_PROPERTIES, **_STRUCT_SCHEMA}
 
 
 # ParaAdjust 0/1/2/3 is hostile (1 is right, 2 is justify, 3 is center). Schema
@@ -253,17 +247,11 @@ def _style_color_to_uno(val: Any) -> int | None:
 def _font_slant_to_int(raw: Any) -> Any:
     # com.sun.star.awt.FontSlant: NONE=0, OBLIQUE=1, ITALIC=2.
     # Return an integer so style_get_info round-trips cleanly through json.dumps.
-    if isinstance(raw, bool):
-        return raw
     if isinstance(raw, int):
         return raw
-    name = getattr(raw, "value", None)
-    if isinstance(name, str):
-        low = name.strip().lower()
-        if low in FONT_SLANT_TO_INT:
-            return FONT_SLANT_TO_INT[low]
-    if isinstance(raw, str):
-        low = raw.strip().lower()
+    val = getattr(raw, "value", raw)
+    if isinstance(val, str):
+        low = val.strip().lower()
         if low in FONT_SLANT_TO_INT:
             return FONT_SLANT_TO_INT[low]
     return raw
@@ -299,19 +287,27 @@ def _schema_prop_value(prop_name: str, raw: Any) -> Any:
 _STRUCT_PROPERTIES = {
     "ParaLineSpacing": "com.sun.star.style.LineSpacing",
     "DropCapFormat": "com.sun.star.style.DropCapFormat",
-    "LeftBorder": "com.sun.star.table.BorderLine2",
-    "RightBorder": "com.sun.star.table.BorderLine2",
-    "TopBorder": "com.sun.star.table.BorderLine2",
-    "BottomBorder": "com.sun.star.table.BorderLine2",
-    "CharLeftBorder": "com.sun.star.table.BorderLine2",
-    "CharRightBorder": "com.sun.star.table.BorderLine2",
-    "CharTopBorder": "com.sun.star.table.BorderLine2",
-    "CharBottomBorder": "com.sun.star.table.BorderLine2",
+    **{b: "com.sun.star.table.BorderLine2" for b in _BORDER_PROPERTIES},
 }
 
 # Sequence-of-struct properties: the value is a list of dicts.
 _STRUCT_SEQUENCE_PROPERTIES = {
     "ParaTabStops": "com.sun.star.style.TabStop",
+}
+
+# Properties to read per style family. Paragraph styles inherit character properties.
+_FAMILY_PROPS = {
+    "ParagraphStyles": (
+        ["FollowStyle"]
+        + list(_KNOWN_PARAGRAPH_PROPERTIES.keys())
+        + list(_KNOWN_CHARACTER_PROPERTIES.keys())
+        + list(_STRUCT_PROPERTIES.keys())
+        + list(_STRUCT_SEQUENCE_PROPERTIES.keys())
+    ),
+    "CharacterStyles": (
+        list(_KNOWN_CHARACTER_PROPERTIES.keys())
+        + [k for k in _STRUCT_PROPERTIES if k.startswith("Char")]
+    ),
 }
 
 # com.sun.star.style.LineSpacingMode. Models write the word far more often than
@@ -375,16 +371,13 @@ def _coerce_uno_field(struct: Any, field: str, value: Any) -> Any:
     """
     if not isinstance(value, str):
         return value
-    import uno
 
     current: Any = getattr(struct, field, None)
-    enum_cls = getattr(uno, "Enum", None)
-    char_cls = getattr(uno, "Char", None)
     try:
-        if isinstance(enum_cls, type) and isinstance(current, enum_cls):
-            return enum_cls(cast("Any", current).typeName, value.strip().upper())
-        if isinstance(char_cls, type) and isinstance(current, char_cls):
-            return char_cls(value[:1] or " ")
+        if isinstance(current, uno.Enum):
+            return uno.Enum(cast("Any", current).typeName, value.strip().upper())
+        if isinstance(current, uno.Char):
+            return uno.Char(value[:1] or " ")
     except Exception:
         return value
     return value
@@ -416,7 +409,6 @@ def _dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> tuple[A
             "%s takes an object of fields, e.g. {\"Mode\": \"prop\", \"Height\": 150}, got %r"
             % (prop_name, value)
         )
-    import uno
 
     try:
         struct = cast("Any", uno.createUnoStruct(struct_name))
@@ -452,8 +444,6 @@ def _set_style_property(style: Any, prop_name: str, value: Any) -> None:
     """
     struct_name = _STRUCT_SEQUENCE_PROPERTIES.get(prop_name)
     if struct_name and isinstance(value, tuple):
-        import uno
-
         # uno.Any / uno.invoke are runtime PyUNO helpers the type stubs do not declare.
         uno_rt = cast("Any", uno)
         uno_rt.invoke(style, "setPropertyValue", (prop_name, uno_rt.Any("[]" + struct_name, value)))
@@ -553,15 +543,6 @@ _CLONE_TEXT_SERVICES = {
 }
 
 
-def _is_direct_property_state(state: Any) -> bool:
-    """True for PropertyState.DIRECT_VALUE.
-
-    The enum's integer is 0 (first enumerator). Comparing against 1 would copy
-    inherited defaults and skip real overrides.
-    """
-    return getattr(state, "value", None) == "DIRECT_VALUE"
-
-
 def _copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], list[str]]:
     """Copy DIRECT_VALUE properties. Inherited defaults stay inherited.
 
@@ -592,7 +573,9 @@ def _copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], li
             reraise_if_disposed(exc)
             skipped.append(name)
             continue
-        if not _is_direct_property_state(state):
+        # PropertyState.DIRECT_VALUE enum's integer is 0 (first enumerator).
+        # Comparing against 1 would copy inherited defaults and skip real overrides.
+        if getattr(state, "value", None) != "DIRECT_VALUE":
             continue
         try:
             dest.setPropertyValue(name, source.getPropertyValue(name))
@@ -643,8 +626,6 @@ def _clone_text_style(
 
 def _normalize_property_updates(property_updates: Any) -> tuple[dict[str, Any], str | None]:
     """Copy updates and translate ParaAdjust and UNO structs. Returns (dict, error_message)."""
-    if not isinstance(property_updates, dict):
-        return {}, None
     updates = dict(property_updates)
     if "ParaAdjust" in updates:
         uno_adj, err = _para_adjust_to_uno(updates["ParaAdjust"])
@@ -738,6 +719,16 @@ def _font_not_installed_warning(ctx: ToolContext, font_name: Any) -> str | None:
     )
 
 
+def _style_family(tool: Any, doc: Any, family: str) -> Any:
+    return tool.get_item(
+        doc,
+        "getStyleFamilies",
+        family,
+        missing_msg="Document does not support style families.",
+        not_found_msg="Unknown style family: %s" % family,
+    )
+
+
 class StyleList(ToolWriterStyleBase):
     """List available styles in a given family."""
 
@@ -756,7 +747,7 @@ class StyleList(ToolWriterStyleBase):
             return {"status": "ok", "families": available, "count": len(available)}
 
         family = str(family).strip()
-        style_family = self.get_item(doc, "getStyleFamilies", family, missing_msg="Document does not support style families.", not_found_msg="Unknown style family: %s" % family)
+        style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):
             # To match old behavior returning available_families instead of available
             if "available" in style_family:
@@ -773,6 +764,7 @@ class StyleList(ToolWriterStyleBase):
             # Predicates for language-agnostic filtering
             in_use = style.isInUse()
             user_defined = style.isUserDefined()
+            custom = in_use or user_defined
             is_physical = _get_bool_prop(style, "IsPhysical", True)
             is_hidden = _get_bool_prop(style, "Hidden", False)
 
@@ -781,7 +773,7 @@ class StyleList(ToolWriterStyleBase):
                 continue
 
             # Core visibility logic:
-            show = in_use or user_defined or is_physical
+            show = custom or is_physical
 
             # 1. Core structural fallback:
             if not show:
@@ -806,7 +798,7 @@ class StyleList(ToolWriterStyleBase):
                     cat = style.getPropertyValue("Category")
 
                     # BLOCK List, Index, Extra, and HTML categories unless used/custom.
-                    if cat in (2, 3, 4, 5) and not (in_use or user_defined):
+                    if cat in (2, 3, 4, 5) and not custom:
                         show = False
 
                     # BLOCK abstract 'Heading' parent and the 'Standard' base style.
@@ -814,7 +806,7 @@ class StyleList(ToolWriterStyleBase):
                         show = False
 
                     # BLOCK deep headings (> 5) unless used/custom.
-                    elif cat == 1 and not (in_use or user_defined):
+                    elif cat == 1 and not custom:
                         try:
                             level = int(name[len("Heading ") :])
                             if level > 5:
@@ -824,7 +816,7 @@ class StyleList(ToolWriterStyleBase):
 
                     # For Category 0 (TEXT), only show "Core" styles if not used/custom.
                     # This prunes Salutation, Appendix, Marginalia, etc.
-                    elif cat == 0 and not (in_use or user_defined):
+                    elif cat == 0 and not custom:
                         core_text_styles = ("Text body", "Title", "Subtitle")
                         if name not in core_text_styles:
                             show = False
@@ -879,7 +871,7 @@ class StyleGetInfo(ToolWriterStyleBase):
             return token_err
 
         doc = ctx.doc
-        style_family = self.get_item(doc, "getStyleFamilies", family, missing_msg="Document does not support style families.", not_found_msg="Unknown style family: %s" % family)
+        style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):
             return style_family
 
@@ -889,20 +881,11 @@ class StyleGetInfo(ToolWriterStyleBase):
         style = style_family.getByName(style_name)
         info = {"name": style_name, "family": family, "is_user_defined": style.isUserDefined(), "is_in_use": style.isInUse()}
 
-        for prop_name in _FAMILY_PROPS.get(family, []):
-            if prop_name == "ParentStyle":
-                # getParentStyle does not throw on a live style.
-                info["ParentStyle"] = style.getParentStyle()
-            else:
+        if family in _FAMILY_PROPS:
+            # getParentStyle does not throw on a live style.
+            info["ParentStyle"] = style.getParentStyle()
+            for prop_name in _FAMILY_PROPS[family]:
                 info[prop_name] = _schema_prop_value(prop_name, _get_style_prop(style, prop_name))
-
-        extra_structs = []
-        if family == "ParagraphStyles":
-            extra_structs = list(_STRUCT_PROPERTIES.keys()) + list(_STRUCT_SEQUENCE_PROPERTIES.keys())
-        elif family == "CharacterStyles":
-            extra_structs = [k for k in _STRUCT_PROPERTIES if k.startswith("Char")]
-        for prop_name in extra_structs:
-            info[prop_name] = _schema_prop_value(prop_name, _get_style_prop(style, prop_name))
 
         return {"status": "ok", **info}
 
@@ -948,14 +931,10 @@ class ApplyStyle(FrameworkToolBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
-    # Maps family to the UNO property that holds the style name.
-    _PROPERTY_MAP: ClassVar[dict[str, str]] = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
-
     def _apply_one(
         self,
         ctx: ToolContext,
         family: str,
-        uno_prop: str,
         uno_value: str,
         cursor: Any,
         clear_direct: Literal["none", "style_props", "all"] = "style_props",
@@ -963,7 +942,7 @@ class ApplyStyle(FrameworkToolBase):
         """Apply the style to one cursor. Returns the direct-formatting report (or None)."""
         if family == "ParagraphStyles":
             return apply_paragraph_style_preserving_direct_char(ctx.doc, cursor, uno_value, clear_direct)
-        cursor.setPropertyValue(uno_prop, uno_value)
+        cursor.setPropertyValue("CharStyleName", uno_value)
         return None
 
     @staticmethod
@@ -1012,8 +991,6 @@ class ApplyStyle(FrameworkToolBase):
             return self._tool_error("style is required.")
 
         family = kwargs.get("family", "ParagraphStyles")
-        # Schema enum: ParagraphStyles or CharacterStyles.
-        uno_prop = self._PROPERTY_MAP[family]
 
         # UNO quirk: the default character style is applied by setting
         # CharStyleName to an empty string.
@@ -1074,12 +1051,12 @@ class ApplyStyle(FrameworkToolBase):
                 if occ < 0 or occ >= len(ranges):
                     return self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
                 ranges = [ranges[occ]]
-            applied = 0
             reports = []
 
+            mgr = None
+            title = ""
             if len(ranges) > 1:
                 from .edit_review import next_agent_edit_undo_title
-                mgr = None
                 try:
                     candidate = ctx.doc.getUndoManager()
                     # `is True`: MagicMock isLocked() is truthy and must not look locked.
@@ -1094,18 +1071,22 @@ class ApplyStyle(FrameworkToolBase):
 
                 title = next_agent_edit_undo_title()
                 mgr.enterUndoContext(title)
-                error: Exception | None = None
-                exc_to_reraise: Exception | None = None
-                for found in ranges:
-                    try:
-                        c = cursor_spanning_range(found)
-                        reports.append(self._apply_one(ctx, family, uno_prop, uno_value, c, clear_direct))
-                        applied += 1
-                    except Exception as e:
-                        if is_disposed_exception(e):
-                            exc_to_reraise = e
-                        error = e
-                        break
+
+            error: Exception | None = None
+            exc_to_reraise: Exception | None = None
+            for found in ranges:
+                try:
+                    c = cursor_spanning_range(found)
+                    reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
+                except Exception as e:
+                    if mgr is None:
+                        raise
+                    if is_disposed_exception(e):
+                        exc_to_reraise = e
+                    error = e
+                    break
+
+            if mgr is not None:
                 left = False
                 undone = False
                 leave_error: Exception | None = None
@@ -1131,22 +1112,17 @@ class ApplyStyle(FrameworkToolBase):
                         return self._tool_error("Nothing was changed: %s" % (error,))
                     return self._tool_error(
                         "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-                        % (applied, len(ranges), error)
+                        % (len(reports), len(ranges), error)
                     )
                 if leave_error is not None:
                     return self._tool_error(
                         "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
                         "The changes are in the document and the undo context is still open."
-                        % (style_name, applied, leave_error)
+                        % (style_name, len(reports), leave_error)
                     )
-            else:
-                for found in ranges:
-                    c = cursor_spanning_range(found)
-                    reports.append(self._apply_one(ctx, family, uno_prop, uno_value, c, clear_direct))
-                    applied += 1
 
-            result = {"status": "ok", "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied),
-                      "style_name": style_name, "family": family, "target": "search", "applied": True, "matched": True, "applied_count": applied}
+            result = {"status": "ok", "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, len(reports)),
+                      "style_name": style_name, "family": family, "target": "search", "applied": True, "matched": True, "applied_count": len(reports)}
             result.update(self._merge_reports(reports))
             flag_style_unreviewed(ctx.ctx, result)
             return result
@@ -1164,7 +1140,7 @@ class ApplyStyle(FrameworkToolBase):
 
         # execute_safe reports a failed apply. This catch hid a closed document
         # as "Could not apply style".
-        report = self._apply_one(ctx, family, uno_prop, uno_value, cursor, clear_direct)
+        report = self._apply_one(ctx, family, uno_value, cursor, clear_direct)
         result = {"status": "ok", "message": "Applied style '%s' (%s) to %s." % (style_name, family, target),
                   "style_name": style_name, "family": family, "target": target, "applied": True}
         result.update(self._merge_reports([report]))
@@ -1219,7 +1195,7 @@ class StyleUpdate(ToolWriterStyleBase):
             return self._tool_error("Nothing to update. Pass property_updates and/or parent_style.")
 
         doc = ctx.doc
-        style_family = self.get_item(doc, "getStyleFamilies", family, missing_msg="Document does not support style families.", not_found_msg="Unknown style family: %s" % family)
+        style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):
             return style_family
 
@@ -1241,16 +1217,21 @@ class StyleUpdate(ToolWriterStyleBase):
         snapshot_keys = list(updates)
         if parent_style is not None:
             snapshot_keys = ["ParentStyle"] + snapshot_keys
-        before = {}
-        for key in snapshot_keys:
-            if key == "ParentStyle":
-                try:
-                    before[key] = style.getParentStyle()
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    before[key] = None
-            else:
-                before[key] = _schema_prop_value(key, _get_style_prop(style, key))
+
+        def snap(parent_fallback: Any) -> dict[str, Any]:
+            res: dict[str, Any] = {}
+            for key in snapshot_keys:
+                if key == "ParentStyle":
+                    try:
+                        res[key] = style.getParentStyle()
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        res[key] = parent_fallback
+                else:
+                    res[key] = _schema_prop_value(key, _get_style_prop(style, key))
+            return res
+
+        before = snap(None)
 
         if parent_style is not None:
             try:
@@ -1266,16 +1247,7 @@ class StyleUpdate(ToolWriterStyleBase):
         applied.update(applied_props)
         failed.update(failed_props)
 
-        after = {}
-        for key in snapshot_keys:
-            if key == "ParentStyle":
-                try:
-                    after[key] = style.getParentStyle()
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    after[key] = applied.get("ParentStyle")
-            else:
-                after[key] = _schema_prop_value(key, _get_style_prop(style, key))
+        after = snap(applied.get("ParentStyle"))
 
         result = {"status": "ok", "style_name": style_name, "family": family}
         if snapshot_keys:
@@ -1358,22 +1330,15 @@ class StyleCreate(ToolWriterStyleBase):
             if cond_err:
                 return self._tool_error(cond_err)
 
-        # Service choice: ConditionalParagraphStyle vs ParagraphStyle vs CharacterStyle
-        service = "com.sun.star.style.ParagraphStyle"
-        if family == "ParagraphStyles" and conditional_rules:
-            service = "com.sun.star.style.ConditionalParagraphStyle"
-        elif family == "CharacterStyles":
-            service = "com.sun.star.style.CharacterStyle"
+        service = "com.sun.star.style.ConditionalParagraphStyle" if conditional_rules else _CLONE_TEXT_SERVICES[family]
 
         actual_parent = str(parent_style).strip() if parent_style is not None else ""
-        if not actual_parent and service == "com.sun.star.style.ConditionalParagraphStyle":
+        if not actual_parent and conditional_rules:
             actual_parent = "Standard"
         if actual_parent and not style_family.hasByName(actual_parent):
             return _missing_style_error(
                 self, actual_parent, family, style_family, label="parent_style")
 
-        applied: dict[str, Any] = {}
-        failed: dict[str, str] = {}
         new_style = doc.createInstance(service)
         if not new_style:
             return self._tool_error("Failed to create style instance for %s" % service)
@@ -1399,7 +1364,7 @@ class StyleCreate(ToolWriterStyleBase):
         style_family.insertByName(style_name, new_style)
 
         # Apply conditional rules
-        if family == "ParagraphStyles" and conditional_rules:
+        if conditional_rules:
             try:
                 conditions = []
                 for rule in cast("list[dict[str, str]]", conditional_rules):
