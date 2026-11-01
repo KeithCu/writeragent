@@ -82,7 +82,7 @@ def slash_typed_prefix(text: str) -> str | None:
 
     ``/`` → ``""`` (full list). ``/he`` → ``"he"``. ``hello`` → None.
     """
-    stripped = (text or "").lstrip()
+    stripped = text.lstrip()
     if not stripped.startswith("/"):
         return None
     first = stripped.split()[0]
@@ -104,9 +104,9 @@ def filter_slash_commands(
     if prefix is None:
         return []
     matches = [cmd for cmd in registry if cmd.name.startswith(prefix)]
-    lru_names = [str(n) for n in (lru or ()) if str(n).strip()]
-    lru_index = {name: idx for idx, name in enumerate(lru_names)}
-    return sorted(matches, key=lambda cmd: lru_index.get(cmd.name, len(lru_names)))
+    seq = tuple(lru or ())
+    lru_index = {n: i for i, n in enumerate(seq)}
+    return sorted(matches, key=lambda cmd: lru_index.get(cmd.name, len(seq)))
 
 
 def classify_slash_key(key_code: int, modifiers: int = 0) -> str | None:
@@ -167,7 +167,7 @@ def run_slash_command(name: str, host: Any) -> bool:
     inline web approval, hands-free, and ``STOP_CLICKED``), same as the Stop
     button, and leaves the draft.
     """
-    clean = (name or "").lstrip("/").strip().lower()
+    clean = name.lstrip("/").strip().lower()
     cmd = {c.name: c for c in registered_slash_commands()}.get(clean)
     if cmd is None:
         return False
