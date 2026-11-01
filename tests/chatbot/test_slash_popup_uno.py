@@ -16,7 +16,7 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
 
     from plugin.chatbot import slash_popup
     from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, enable_mock_slash_commands
-    from plugin.chatbot.slash_popup import SlashPopupController, uses_toolkit_overlay
+    from plugin.chatbot.slash_popup import SlashPopupController
     from plugin.tests.testing_utils import skip_windows_awt_top_dialog
 
     # GHA 34671277292: after calc UNO, dlg.setVisible(True) hung 30s
@@ -73,10 +73,10 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
         popup = SlashPopupController(None, send, query, overlay_parent=dlg)
         send.slash_popup = popup
         # Overlay is born on first `/`, not in __init__ (createWindow is deferred).
-        assert uses_toolkit_overlay(popup) is False
+        assert popup._popup_floater is None
 
         popup.on_query_text("/")
-        assert uses_toolkit_overlay(popup) is True
+        assert popup._popup_floater is not None
         box = popup.control
         assert box is not None
 
@@ -97,7 +97,7 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
         assert popup.handle_key(KEY_ESCAPE) is True
         assert popup.is_open is False
         # hide() disposes the toolkit window so Esc can recreate a clean overlay.
-        assert uses_toolkit_overlay(popup) is False
+        assert popup._popup_floater is None
 
         popup.on_query_text("/")
         assert popup.is_open is True

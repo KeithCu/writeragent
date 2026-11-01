@@ -61,6 +61,7 @@ MOCK_SLASH_COMMANDS: tuple[SlashCommand, ...] = (
 )
 
 _mock_commands_enabled = False
+_MOCK_SLASH_NAMES = frozenset(c.name for c in MOCK_SLASH_COMMANDS)
 
 
 def enable_mock_slash_commands(enabled: bool = True) -> None:
@@ -91,7 +92,6 @@ def slash_typed_prefix(text: str) -> str | None:
 def filter_slash_commands(
     typed: str,
     lru: Sequence[str] | None = None,
-    commands: Sequence[SlashCommand] | None = None,
 ) -> list[SlashCommand]:
     """Prefix-filter ``commands`` and rank by LRU then registry order.
 
@@ -99,7 +99,7 @@ def filter_slash_commands(
     the top when the filter is empty and as a tie-break among equal
     prefix matches.
     """
-    registry = tuple(commands) if commands is not None else registered_slash_commands()
+    registry = registered_slash_commands()
     prefix = slash_typed_prefix(typed)
     if prefix is None:
         return []
@@ -125,14 +125,13 @@ def classify_slash_key(key_code: int, modifiers: int = 0) -> str | None:
 
 
 def format_slash_item(cmd: SlashCommand) -> str:
-    tag = " [mock]" if cmd.name in {c.name for c in MOCK_SLASH_COMMANDS} else ""
+    tag = " [mock]" if cmd.name in _MOCK_SLASH_NAMES else ""
     return "/%s%s — %s" % (cmd.name, tag, _(cmd.description))
 
 
-def format_help_text(commands: Sequence[SlashCommand] | None = None) -> str:
-    rows = commands if commands is not None else registered_slash_commands()
+def format_help_text() -> str:
     lines = [_("Slash commands:")]
-    for cmd in rows:
+    for cmd in registered_slash_commands():
         lines.append("  " + format_slash_item(cmd))
     return "\n".join(lines)
 
@@ -159,7 +158,7 @@ def record_slash_lru(name: str) -> None:
     )
 
 
-def run_slash_command(name: str, host: Any, commands: Sequence[SlashCommand] | None = None) -> bool:
+def run_slash_command(name: str, host: Any) -> bool:
     """Run a registry command on the live send listener. Not a chat turn.
 
     Mocks echo ``slash: /name`` so the popup can be exercised. ``/help``
@@ -169,8 +168,7 @@ def run_slash_command(name: str, host: Any, commands: Sequence[SlashCommand] | N
     button, and leaves the draft.
     """
     clean = (name or "").lstrip("/").strip().lower()
-    registry = commands if commands is not None else registered_slash_commands()
-    cmd = {c.name: c for c in registry}.get(clean)
+    cmd = {c.name: c for c in registered_slash_commands()}.get(clean)
     if cmd is None:
         return False
     record_slash_lru(cmd.name)
@@ -181,7 +179,7 @@ def run_slash_command(name: str, host: Any, commands: Sequence[SlashCommand] | N
         return True
     host.clear_ask()
     if cmd.name == "help":
-        host.append_output("\n" + format_help_text(commands) + "\n")
+        host.append_output("\n" + format_help_text() + "\n")
         return True
     if cmd.name == "clear":
         host.clear_chat()
