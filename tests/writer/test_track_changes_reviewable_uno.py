@@ -400,7 +400,7 @@ def test_apply_document_content_tool_tracks_when_config_on_uno(ctx, doc):
     prev = get_config(_FLAG)
     set_config(_FLAG, "record")
     try:
-        assert get_agent_edit_review_mode(ctx) == "record", "mode should read record (test-infra sanity)"
+        assert get_agent_edit_review_mode() == "record", "mode should read record (test-infra sanity)"
         res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=["<p>Tool new body.</p>"])
         assert res.get("status") == "ok", res
         rl = _redline_types(doc)
@@ -419,7 +419,7 @@ def test_apply_document_content_tool_untracked_when_config_off_uno(ctx, doc):
     prev = get_config(_FLAG)
     set_config(_FLAG, "off")
     try:
-        assert get_agent_edit_review_mode(ctx) == "off"
+        assert get_agent_edit_review_mode() == "off"
         res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=["<p>Tool new body.</p>"])
         assert res.get("status") == "ok", res
         assert _redline_types(doc) == [], "flag off must not create redlines"

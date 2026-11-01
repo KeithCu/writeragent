@@ -829,7 +829,7 @@ def test_do_extend_selection_clean_range_still_streams(monkeypatch):
     monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
     monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
-    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
     monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
 
     editselection.do_extend_selection(object(), doc, object())
@@ -852,7 +852,7 @@ def test_do_edit_selection_clean_range_still_clears_and_streams(monkeypatch):
     monkeypatch.setattr(editselection, "prompt_for_edit_instructions", lambda *args, **kwargs: ("shorter", ""))
     monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
-    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
     monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
 
     editselection.do_edit_selection(object(), doc, object())
@@ -878,7 +878,7 @@ def test_do_extend_selection_observes_stop_checker(monkeypatch):
     monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
     monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
-    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
 
     class _Ctx:
         def stop_checker(self) -> bool:
@@ -911,7 +911,7 @@ def test_do_edit_selection_observes_stop_checker(monkeypatch):
     monkeypatch.setattr(editselection, "prompt_for_edit_instructions", lambda *args, **kwargs: ("shorter", ""))
     monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
-    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
 
     class _Ctx:
         def stop_checker(self) -> bool:
@@ -968,7 +968,7 @@ def test_do_extend_selection_failure_visible(monkeypatch):
     monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
     monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
-    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
 
     def stream_completion_mock(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error, stop_checker=None):
         on_error(ValueError("simulated stream failure"))

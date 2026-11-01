@@ -272,7 +272,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         try:
             from plugin.writer.edit_review import get_agent_edit_review_mode
 
-            return get_agent_edit_review_mode(uno_ctx)
+            return get_agent_edit_review_mode()
         except Exception:
             log.exception("track_changes_list: could not read agent review mode")
             return None

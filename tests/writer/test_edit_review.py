@@ -13,6 +13,7 @@ from plugin.writer.edit_review import (
     get_agent_edit_review_mode,
     review_recording_enabled,
 )
+from plugin.writer.review_scan import make_agent_token, session_token_prefix
 
 
 @pytest.mark.parametrize(
@@ -29,9 +30,8 @@ from plugin.writer.edit_review import (
     ],
 )
 def test_get_agent_edit_review_mode(raw, expected):
-    ctx = MagicMock()
     with patch("plugin.framework.config.get_config", return_value=raw):
-        assert get_agent_edit_review_mode(ctx) == expected
+        assert get_agent_edit_review_mode() == expected
 
 
 @pytest.mark.parametrize(
@@ -43,9 +43,8 @@ def test_get_agent_edit_review_mode(raw, expected):
     ],
 )
 def test_review_recording_enabled(mode, recording):
-    ctx = MagicMock()
     with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode):
-        assert review_recording_enabled(ctx) is recording
+        assert review_recording_enabled() is recording
 
 
 @pytest.mark.parametrize(
@@ -59,10 +58,9 @@ def test_review_recording_enabled(mode, recording):
     ],
 )
 def test_edit_review_wait_seconds(mode, timeout, expected):
-    ctx = MagicMock()
     with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode), \
          patch("plugin.framework.config.get_config_int_safe", return_value=timeout):
-        assert edit_review_wait_seconds(ctx) == expected
+        assert edit_review_wait_seconds() == expected
 
 
 # --------------------------------- snapshot_redline_ids reliability + record_mutation fail-closed
@@ -402,8 +400,8 @@ def test_pending_tokens_reliable_lists_only_session_tokens():
     from plugin.writer.edit_review import ChangeRecord, EditReviewSession
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    mine = session._session_token_prefix() + "0"
-    orphan = session._session_token_prefix() + "1"
+    mine = session_token_prefix(session.session_id) + "0"
+    orphan = session_token_prefix(session.session_id) + "1"
     session.changes = [ChangeRecord(mine, "bm", "", "", "", "")]
     session.doc = _redlines_doc([_FakeRl("i1", comment=mine),
                                  _FakeRl("i2", comment=orphan),
@@ -469,8 +467,8 @@ def test_wait_for_review_orphan_token_does_not_block_after_registered_change_res
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    registered = session._token(0)
-    orphan = session._token(1)
+    registered = make_agent_token(session.session_id, 0)
+    orphan = make_agent_token(session.session_id, 1)
     session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
     session.doc = _redlines_doc([
         _FakeRl("orphan", comment=orphan),
@@ -487,8 +485,8 @@ def test_wait_for_review_still_waits_on_open_registered_change_beside_orphan():
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    registered = session._token(0)
-    orphan = session._token(1)
+    registered = make_agent_token(session.session_id, 0)
+    orphan = make_agent_token(session.session_id, 1)
     session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
     session.doc = _redlines_doc([
         _FakeRl("open", comment=registered),
@@ -507,8 +505,8 @@ def test_wait_for_review_unreliable_scan_does_not_complete_on_empty_intersection
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    registered = session._token(0)
-    orphan = session._token(1)
+    registered = make_agent_token(session.session_id, 0)
+    orphan = make_agent_token(session.session_id, 1)
     session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
     session.doc = _redlines_doc([_FakeRl("orphan", comment=orphan)], count=3)
     result = session.wait_for_review(timeout=0.0, poll=0.01)
@@ -616,8 +614,8 @@ def test_record_mutation_missing_bookmark_still_untags_and_does_not_register_orp
 
     assert result == "r"
     assert session.changes == []
-    assert calls == [session._token(0), ""]
-    assert rl.comment == session._token(0)
+    assert calls == [make_agent_token(session.session_id, 0), ""]
+    assert rl.comment == make_agent_token(session.session_id, 0)
 
 
 def test_next_registered_change_does_not_reuse_orphan_tag_index():
@@ -641,7 +639,7 @@ def test_next_registered_change_does_not_reuse_orphan_tag_index():
 
     assert result1 == "r1"
     assert session.changes == []
-    assert rl1.comment == session._token(0)
+    assert rl1.comment == make_agent_token(session.session_id, 0)
 
     rl2 = MagicMock()
     start = MagicMock()
@@ -668,15 +666,15 @@ def test_next_registered_change_does_not_reuse_orphan_tag_index():
 
     assert result2 == "r2"
     assert len(session.changes) == 1
-    assert session.changes[0].token == session._token(1)
+    assert session.changes[0].token == make_agent_token(session.session_id, 1)
     assert session.changes[0].bookmark == "wa_review_%s_1" % session.session_id
-    assert rl1.comment == session._token(0)
+    assert rl1.comment == make_agent_token(session.session_id, 0)
 
     session.doc = _redlines_doc([_FakeRl("orphan", comment=rl1.comment)])
     result = session.wait_for_review(timeout=0.2, poll=0.05)
     assert result["complete"] is True
     assert result["timed_out"] is False
-    assert [change["id"] for change in result["changes"]] == [session._token(1)]
+    assert [change["id"] for change in result["changes"]] == [make_agent_token(session.session_id, 1)]
 
 
 def test_missing_bookmark_orphan_index_is_not_reused():
@@ -715,8 +713,8 @@ def test_missing_bookmark_orphan_index_is_not_reused():
 
     assert result1 == "r1"
     assert session.changes == []
-    assert calls == [session._token(0), ""]
-    assert rl1.comment == session._token(0)
+    assert calls == [make_agent_token(session.session_id, 0), ""]
+    assert rl1.comment == make_agent_token(session.session_id, 0)
 
     rl2 = MagicMock()
     start2 = MagicMock()
@@ -743,15 +741,15 @@ def test_missing_bookmark_orphan_index_is_not_reused():
 
     assert result2 == "r2"
     assert len(session.changes) == 1
-    assert session.changes[0].token == session._token(1)
+    assert session.changes[0].token == make_agent_token(session.session_id, 1)
     assert session.changes[0].bookmark == "wa_review_%s_1" % session.session_id
     assert session.changes[0].bookmark.endswith("_1")
 
-    session.doc = _redlines_doc([_FakeRl("orphan", comment=session._token(0))])
+    session.doc = _redlines_doc([_FakeRl("orphan", comment=make_agent_token(session.session_id, 0))])
     result = session.wait_for_review(timeout=0.2, poll=0.05)
     assert result["complete"] is True
     assert result["timed_out"] is False
-    assert [change["id"] for change in result["changes"]] == [session._token(1)]
+    assert [change["id"] for change in result["changes"]] == [make_agent_token(session.session_id, 1)]
 
 
 
